@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
-  CalendarDays, Coffee, List, LogIn, LogOut, Plus, RefreshCw, Search,
-  Users, BedDouble, AlertTriangle, Radio,
+  CalendarDays, Coffee, List, LogIn, LogOut, Plus, Search,
+  Users, AlertTriangle,
 } from 'lucide-react';
 import { ReservationCalendar } from '@/components/reservations/ReservationCalendar';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
@@ -171,10 +171,10 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
 
   return <div className="space-y-3" data-training="reception-workspace">
     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-      <div className="min-w-0"><div className="flex items-center gap-2 flex-wrap">
+      <div className="min-w-0">
         <h1 className="text-xl font-bold">{t('pms.fd.title')}</h1>
-        {snapshotAudit?.latestCapture && <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground"><Radio className="h-3 w-3" />Previo snapshot · {new Date(snapshotAudit.latestCapture).toLocaleString()} · read-only</Badge>}
-      </div><p className="text-xs text-muted-foreground mt-0.5">{hotelId} · {today}</p></div>
+        <p className="text-xs text-muted-foreground mt-0.5">{today}</p>
+      </div>
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative min-w-[210px] flex-1 xl:flex-none"><Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('pms.fd.searchPlaceholder')} className="h-9 pl-8 xl:w-64" />
@@ -184,7 +184,6 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <Button type="button" size="sm" variant={view === 'list' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('list')}><List className="h-4 w-4" /><span className="hidden sm:inline">{t('pms.reservations.title')}</span></Button>
         </div>
         {breakfastUploadPath && <Link to={breakfastUploadPath}><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5"><Coffee className="h-4 w-4" /><span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
-        <Button type="button" size="icon" variant="outline" className="h-9 w-9" onClick={() => void fetchAll()} aria-label={t('pms.fd.refresh')} disabled={loadingData}><RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} /></Button>
         {canSync && hotelId && <PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact />}
         <Button type="button" size="sm" className="h-9 gap-1" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />{t('pms.fd.newReservation')}</Button>
       </div>
@@ -192,16 +191,19 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
 
     {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Reception data could not be verified. Previous property data has been cleared. Retry refresh.</div>}
     {!loadingData && !loadError && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0) &&
-      <div role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
-        <AlertTriangle className="h-4 w-4 shrink-0" /><span>
-          <strong>Reception totals are HotelCare database records, not verified Previo totals.</strong>{' '}
+      <details role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+        <summary className="cursor-pointer select-none flex items-center gap-2 font-medium">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          PMS data needs attention
+          <span className="ml-auto text-[11px] underline underline-offset-2">Details</span>
+        </summary>
+        <div className="mt-2 pl-6 text-muted-foreground">
           {importStale ? `Latest reservation import: ${importHistory?.created_at ? new Date(importHistory.created_at).toLocaleString() : 'not recorded'} (${importHistory?.sync_status ?? 'unknown'}). ` : ''}
-          {snapshotReservations.length > 0 ? `${snapshotReservations.length} unmatched read-only snapshot observations appear on the planner but do not count as bookings. ` : ''}
-          {snapshotAudit?.stale && snapshotAudit.latestCapture ? 'The last snapshot is stale and is not overlaid. ' : ''}
+          {snapshotReservations.length > 0 ? `${snapshotReservations.length} PMS observations could not be matched to HotelCare reservations. ` : ''}
           {(snapshotAudit?.ambiguousRooms ?? 0) > 0 ? `${snapshotAudit?.ambiguousRooms} room labels could not be mapped uniquely. ` : ''}
-          Verify arrivals, availability and reservation IDs in Previo before acting on a mismatch.
-        </span>
-      </div>}
+          Verify the affected reservation in Previo before changing it.
+        </div>
+      </details>}
 
     <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label="HotelCare records only; not validated against Previo">
       {[
@@ -209,7 +211,6 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         { label: t('pms.fd.departuresRemaining'), value: departures.length, icon: LogOut },
         { label: t('pms.fd.inHouseNow'), value: inHouse.length, icon: Users },
         { label: t('pms.planner.unassignedSection'), value: unassigned.length, icon: AlertTriangle },
-        { label: `${t('pms.reservations.title')} (loaded)`, value: reservations.length, icon: BedDouble },
       ].map((stat) => <div key={stat.label} title="HotelCare database only; not independently confirmed by Previo" className="h-8 shrink-0 rounded-md border border-border bg-card px-2.5 flex items-center gap-1.5 text-xs">
         <stat.icon className="h-3.5 w-3.5 text-muted-foreground" /><span className="text-muted-foreground">{stat.label}</span><span className="font-semibold">{loadingData || loadError ? '—' : stat.value}</span>
       </div>)}
