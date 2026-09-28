@@ -95,8 +95,15 @@ export function GozsduLaundrynerTasksV2() {
           .eq('organization_slug', profile.organization_slug).eq('hotel_id', 'gozsdu-court')
           .eq('business_date', workDate).eq('source', 'previo'),
       ]);
-      if (roomResponse.error || progressResponse.error || sectionsResponse.error || registryResponse.error || snapshotResponse.error) {
-        throw roomResponse.error || progressResponse.error || sectionsResponse.error || registryResponse.error || snapshotResponse.error;
+      // Keep the same fault-tolerance as the manager overview: the PMS
+      // snapshot is optional. A missing/denied snapshot must not zero the
+      // Laundryner screen or block linen entry; the verified registry and
+      // current room metadata remain usable while the next snapshot catches up.
+      if (roomResponse.error || progressResponse.error || sectionsResponse.error || registryResponse.error) {
+        throw roomResponse.error || progressResponse.error || sectionsResponse.error || registryResponse.error;
+      }
+      if (snapshotResponse.error) {
+        console.warn('[GozsduLaundryner] PMS snapshot unavailable; using current room metadata fallback', snapshotResponse.error);
       }
       // Match the manager overview exactly: dedupe the two historical hotel
       // aliases first, then reconcile the same registry + selected-day Previo
@@ -111,7 +118,8 @@ export function GozsduLaundrynerTasksV2() {
       const managerRooms = [...deduped.values()];
       const managerIds = new Set(managerRooms.map(room => room.id));
       const registry = (registryResponse.data || []).filter((row: any) => managerIds.has(row.room_id));
-      const roster = reconcileGozsduPmsRoster(managerRooms, registry, (snapshotResponse.data || []) as GozsduPmsRow[], workDate);
+      const roster = reconcileGozsduPmsRoster(managerRooms, registry,
+        snapshotResponse.error ? [] : (snapshotResponse.data || []) as GozsduPmsRow[], workDate);
       const nextManagerBuckets = new Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>();
       for (const [roomId, entry] of roster.byRoom) nextManagerBuckets.set(roomId, entry.bucket);
       const operating = new Set(registry.filter((row: any) => row.service_status === 'operating').map((row: any) => row.room_id));
