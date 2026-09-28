@@ -62,7 +62,7 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
     try {
       const { data, error } = await supabase.functions.invoke('previo-sync-reservations', { body: { hotelId } });
       if (error) {
-        toast.error(`${t('pms.sync.syncFailed')}: ${error.message}`);
+        toast.error(`${t('pms.sync.syncFailed')}. Please retry or open PMS details.`);
         await loadStatus();
         return;
       }
@@ -99,16 +99,16 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
   const attention = health.filter((signal) => signal.state === 'warning' || (signal.category === 'reservations' && signal.state === 'missing')).length;
   const humanTime = (value: string | null | undefined) => value ? new Date(value).toLocaleString() : 'Not recorded';
 
-  return <div className="flex flex-col items-start sm:items-end gap-1 min-w-0" data-training="fd-sync">
+  return <div className="flex items-center gap-2 min-w-0" data-training="fd-sync">
     <Button type="button" size="sm" variant="outline" onClick={() => void runSync()} disabled={busy || connected !== true || checking} className="gap-1.5">
       <RefreshCw className={`h-3.5 w-3.5 ${busy ? 'animate-spin' : ''}`} />
       {busy ? t('pms.sync.syncing') : t('pms.sync.syncNow')}
     </Button>
-    {statusError ? <span role="alert" className="text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1"><AlertTriangle className="h-3 w-3" />Could not verify PMS sync history</span> :
+    {statusError ? <span role="alert" className="text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1"><AlertTriangle className="h-3 w-3" />PMS status unavailable</span> :
       <details className="relative text-[11px] max-w-[320px] w-full sm:w-auto" data-training="pms-sync-health">
         <summary className={`cursor-pointer select-none flex items-center gap-1 ${reservationWarning ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}>
           {reservationWarning ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <CheckCircle2 className="h-3 w-3 shrink-0" />}
-          <span>{checking ? 'Checking PMS activity…' : `Reservation import: ${humanTime(reservations?.lastAttempt?.created_at)}`}</span>
+          <span>{checking ? 'Checking PMS…' : reservationWarning ? 'PMS needs attention' : 'PMS synced'}</span>
           {attention > 0 && <span className="font-semibold">· {attention} alerts</span>}
           <span className="ml-1 underline underline-offset-2">Details</span>
         </summary>
