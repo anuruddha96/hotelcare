@@ -81,6 +81,20 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
   }
   const mappings = mappingResponse.data || [], snapshots = snapshotsResponse.data || [];
   if (!mappings.length || !snapshots.length) throw new Error(`${hotelId}: room mappings or reservations are empty`);
+  const gozsdu = hotelId === "gozsdu-court";
+  // Gozsdu has a physical-room registry larger than the reservation manifest: a
+  // valid same-day arrival can temporarily be absent from daily overview while
+  // the room preflight has already refreshed authoritative Previo metadata.
+  // Load those room rows up front so we can rehydrate only a proven current-day
+  // arrival; genuinely unknown/missing PMS rooms still fail closed.
+  const mappedRoomIds = mappings.map((m: any) => String(m.hotelcare_room_id || "")).filter(Boolean);
+  const gozsduRoomsResponse = gozsdu
+    ? await admin.from("rooms")
+        .select("id,pms_metadata,is_checkout_room,guest_count,guest_nights_stayed")
+        .in("id", mappedRoomIds)
+    : { data: [] as any[], error: null };
+  if (gozsduRoomsResponse.error) throw new Error("gozsdu-court: current PMS room state lookup failed");
+  const gozsduRoomById = new Map((gozsduRoomsResponse.data || []).map((r: any) => [String(r.id), r]));
   // A broken partial PMS response must not reclassify the 21-room property.
   if (ottofiori && snapshots.length < 15) throw new Error("ottofiori: incomplete reservation snapshot; classifications unchanged");
   const byName = new Map<string, any>();
@@ -97,9 +111,10 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       nextArrivals.set(key, row);
     }
   }
-  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null }> = [];
+  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null; rehydratedArrival?: boolean }> = [];
   const usedRoomIds = new Set<string>();
   const usedSnapshots = new Set<string>();
+  const rehydratedGozsduRooms: string[] = [];
   for (const mapping of mappings) {
     const roomId = String(mapping.hotelcare_room_id || "");
     const key = String(mapping.pms_room_name || "").trim().toLowerCase();
@@ -107,7 +122,27 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     if (!roomId || usedRoomIds.has(roomId) || (snapshot && usedSnapshots.has(String(snapshot.id)))) {
       throw new Error(`${hotelId}: incomplete or ambiguous mapping; no checkout/daily classifications changed`);
     }
-    if (!snapshot && !ottofiori) {
+    let rehydratedArrival = false;
+    if (!snapshot && gozsdu) {
+      const current: any = gozsduRoomById.get(roomId);
+      const meta = current?.pms_metadata && typeof current.pms_metadata === "object" ? current.pms_metadata : {};
+      const availability = meta.gozsduAvailability && typeof meta.gozsduAvailability === "object" ? meta.gozsduAvailability : {};
+      const currentDate = String(meta.pmsSyncDate || meta.lastPmsRefreshDate || "").slice(0, 10);
+      const mappedName = String(mapping.pms_room_name || "").trim().toLowerCase();
+      const liveName = String(availability.pmsRoomName || "").trim().toLowerCase();
+      // This fallback is deliberately narrow. It is allowed only after today's
+      // preflight positively identifies the same mapped room as an unarrived
+      // arrival. Stale dirty/approval/assignment state is never enough.
+      rehydratedArrival = currentDate === date
+        && meta.arrivalToday === true
+        && meta.notArrived === true
+        && meta.isCancelled !== true
+        && meta.isNoShow !== true
+        && availability.status === "operating"
+        && !!mappedName && liveName === mappedName;
+      if (rehydratedArrival) rehydratedGozsduRooms.push(String(mapping.pms_room_name || roomId));
+    }
+    if (!snapshot && !ottofiori && !rehydratedArrival) {
       throw new Error(`${hotelId}: incomplete or ambiguous mapping; no checkout/daily classifications changed`);
     }
     if (snapshot && snapshot.status !== "departing" && snapshot.status !== "ongoing") {
@@ -116,7 +151,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     usedRoomIds.add(roomId);
     if (snapshot) usedSnapshots.add(String(snapshot.id));
     // No-show may disappear from today's snapshot while next arrival exists.
-    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null });
+    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival });
   }
   const { data: rooms, error: roomsError } = await admin.from("rooms")
     .select("id,pms_metadata,is_checkout_room,guest_count,guest_nights_stayed")
@@ -140,6 +175,24 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     metadata.lastPmsRefreshDate = date;
     metadata.lastServerMorningSyncAt = syncedAt;
     metadata.lastServerMorningSyncSource = "portfolio_morning_10min";
+
+    if (gozsdu && pair.rehydratedArrival && !s) {
+      // A new arrival may not yet exist in the reservation manifest. Keep the
+      // room in today's complete roster as a non-checkout turnover/arrival
+      // without carrying yesterday's checkout classification forward.
+      metadata.scheduledDepartureToday = false;
+      metadata.checkedOutToday = false;
+      metadata.arrivalToday = true;
+      metadata.notArrived = true;
+      metadata.occupiedToday = false;
+      metadata.stayThroughToday = false;
+      const { error: arrivalError } = await admin.from("rooms").update({
+        is_checkout_room: false, pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (arrivalError) throw new Error(`gozsdu-court: arrival rehydration failed: ${arrivalError.message}`);
+      daily++;
+      continue;
+    }
 
     if (ottofiori && !s) {
       // No present reservation is not proof of checkout. Preserve a confirmed
@@ -220,11 +273,15 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     data: { trigger: "portfolio_morning_10min", business_date: date,
       rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
       manager_overrides_preserved: overridden, unmapped_reservation_rooms: unmatchedSnapshots,
+      expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
+      rehydrated_rooms: rehydratedGozsduRooms, unresolved_rooms: 0,
       ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) },
   });
   if (historyError) throw new Error(`${hotelId}: PMS history write failed: ${historyError.message}`);
   return { rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
-    unmapped_reservation_rooms: unmatchedSnapshots, status,
+    unmapped_reservation_rooms: unmatchedSnapshots,
+    expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
+    rehydrated_rooms: rehydratedGozsduRooms, unresolved_rooms: 0, status,
     ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) };
 }
 
