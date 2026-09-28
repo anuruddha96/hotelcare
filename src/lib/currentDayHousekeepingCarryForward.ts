@@ -15,6 +15,7 @@ import {
 } from '@/lib/roomAssignmentAlgorithm';
 
 const ACTIONABLE_CARRY_FORWARD_STATUSES = new Set(['approved', 'releasing']);
+const ACTIVE_ASSIGNMENT_STATUSES = new Set(['assigned', 'in_progress', 'dnd_pending_retry']);
 
 export type CarryForwardSeedResult = {
   seeded: boolean;
@@ -51,16 +52,23 @@ export function clearCurrentDayCarryForwardDraft(args: {
 }) {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.removeItem(currentDayAutoAssignDraftKey(
+    const draftKey = currentDayAutoAssignDraftKey(
       args.organizationSlug,
       args.assignedHotel,
       args.selectedDate,
-    ));
-    window.localStorage.removeItem(currentDayCarryForwardMarkerKey(
+    );
+    const markerKey = currentDayCarryForwardMarkerKey(
       args.organizationSlug,
       args.assignedHotel,
       args.selectedDate,
-    ));
+    );
+    // The v3 key is also used by ordinary same-day Auto Assign drafts. Never
+    // delete a manager's unrelated local work just because no carry-forward is
+    // needed. Only remove the draft when our own explicit marker owns it.
+    if (window.localStorage.getItem(markerKey)) {
+      window.localStorage.removeItem(draftKey);
+    }
+    window.localStorage.removeItem(markerKey);
   } catch {
     // Browser storage is best-effort only. The live DB rows remain authoritative.
   }
@@ -111,6 +119,11 @@ export function selectCarryForwardPrimaryItems(args: {
  * assignment and never bypasses the morning release worker. The existing live
  * Auto Assign confirmation path remains responsible for DB writes, so managers
  * can review PMS/staff changes before applying anything.
+ *
+ * If morning release/manual work has already created only part of the day's live
+ * rows, those live owners take precedence room-by-room while the still-approved
+ * plan fills the remaining eligible rooms. This prevents a single early manual
+ * assignment from hiding the rest of yesterday's approved plan.
  */
 export async function seedCurrentDayCarryForwardDraft(args: {
   organizationSlug: string;
@@ -197,19 +210,24 @@ export async function seedCurrentDayCarryForwardDraft(args: {
 
   const roomIds = currentRooms.map(room => room.id);
   const completedRoomIds = new Set<string>();
+  const activeOwnerByRoom = new Map<string, string>();
   if (roomIds.length > 0) {
     const { data: assignmentRows, error: assignmentError } = await supabase
       .from('room_assignments')
-      .select('room_id,status')
+      .select('room_id,status,assigned_to')
       .eq('assignment_date', args.selectedDate)
       .in('room_id', roomIds);
     if (assignmentError) throw assignmentError;
     for (const row of assignmentRows || []) {
       if (row.status === 'completed') completedRoomIds.add(row.room_id);
+      else if (row.assigned_to && ACTIVE_ASSIGNMENT_STATUSES.has(row.status)) {
+        activeOwnerByRoom.set(row.room_id, row.assigned_to);
+      }
     }
   }
 
   const eligibleRooms = currentRooms.filter(room => isRoomEligibleForAutoAssign(room, {
+    hasActiveAssignment: activeOwnerByRoom.has(room.id),
     hasCompletedAssignment: completedRoomIds.has(room.id),
   }));
   const eligibleById = new Map(eligibleRooms.map(room => [room.id, room]));
@@ -230,9 +248,13 @@ export async function seedCurrentDayCarryForwardDraft(args: {
     };
   }
 
+  const resolvedOwnerByRoom = new Map(primaryItems.map(item => [
+    item.room_id,
+    activeOwnerByRoom.get(item.room_id) || item.assigned_to,
+  ]));
   const ownerIds = Array.from(new Set([
     ...saved.staffIds,
-    ...primaryItems.map(item => item.assigned_to),
+    ...resolvedOwnerByRoom.values(),
   ].filter(Boolean)));
   const { data: staffRows, error: staffError } = ownerIds.length
     ? await supabase
@@ -250,17 +272,23 @@ export async function seedCurrentDayCarryForwardDraft(args: {
   const grouped = new Map<string, RoomForAssignment[]>();
   for (const item of primaryItems) {
     const room = eligibleById.get(item.room_id);
-    if (!room) continue;
-    if (!grouped.has(item.assigned_to)) grouped.set(item.assigned_to, []);
-    grouped.get(item.assigned_to)!.push(room);
+    const ownerId = resolvedOwnerByRoom.get(item.room_id);
+    if (!room || !ownerId) continue;
+    if (!grouped.has(ownerId)) grouped.set(ownerId, []);
+    grouped.get(ownerId)!.push(room);
   }
 
   const previews = Array.from(grouped.entries()).map(([staffId, rooms]) =>
     buildPreview(staffId, staffNames.get(staffId) || 'Housekeeper', rooms),
   );
-  const managerLockedRooms = primaryItems
+  const managerLockedRooms = new Set(primaryItems
     .filter(item => item.source === 'manager' || item.recommendation_context?.manager_changed === true)
-    .map(item => item.room_id);
+    .map(item => item.room_id));
+  // A live room owner is newer than yesterday's plan. Lock it in the preview so
+  // ordinary regeneration cannot silently move it. Explicitly removing that
+  // cleaner from the staff pool still releases not-started locks via the
+  // existing Auto Assign staff-availability logic.
+  for (const roomId of activeOwnerByRoom.keys()) managerLockedRooms.add(roomId);
 
   const draft = {
     staffIds: ownerIds,
@@ -268,7 +296,7 @@ export async function seedCurrentDayCarryForwardDraft(args: {
     excludedRoomIds: [],
     maintenanceHoldRoomIds: [],
     savedAt: Date.now(),
-    lockedRoomIds: managerLockedRooms,
+    lockedRoomIds: Array.from(managerLockedRooms),
   };
 
   if (typeof window === 'undefined') {
