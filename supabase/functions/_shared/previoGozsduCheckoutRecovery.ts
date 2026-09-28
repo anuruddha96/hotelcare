@@ -27,7 +27,7 @@ function physicalRoom(block: string): { id: number; name: string } | null {
 
 function sameDayCheckout(block: string, date: string): boolean {
   const status = Number(xmlTag(block, 'statusId') || xmlTag(block, 'cosId'));
-  return (status === 6 || status === 9) && xmlTag(block, 'to').slice(0, 10) === date;
+  return status === 9 && xmlTag(block, 'to').slice(0, 10) === date;
 }
 
 function currentInHouse(block: string, date: string): boolean {
