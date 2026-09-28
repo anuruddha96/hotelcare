@@ -1,5 +1,6 @@
 import { getGozsduHousekeepingCycle, GOZSDU_COURT_HOTEL_ID } from './gozsdu-housekeeping';
 import { isGozsduAwaitingArrival, type GozsduRosterEntry } from './gozsduPmsRoster';
+import { readGozsduRoomOverride } from './gozsduRoomBucketOverride';
 
 export type GozsduOperationalBucket = 'checkout' | 'service' | 'arrival' | 'other' | 'noshow';
 
@@ -66,10 +67,10 @@ function fallbackServiceDue(room: GozsduOperationalRoom): boolean {
 
 /**
  * Single bucket authority shared by Manager Overview and Laundryner.
- * Verified PMS roster wins. If the full selected-day roster cannot be verified,
- * both screens use this exact conservative fallback instead of separate service
- * calculations. This deliberately does not consult stale `gozsduHousekeeping`
- * snapshots or assignment notes when deciding Second-day service membership.
+ * Verified PMS roster wins. A date-scoped manager override is next. If the
+ * full selected-day roster cannot be verified, both screens use the same
+ * conservative PMS-night fallback. Stale `gozsduHousekeeping` snapshots and
+ * assignment notes are never accepted as proof of Second-day service.
  */
 export function resolveGozsduOperationalBucket(
   room: GozsduOperationalRoom,
@@ -78,6 +79,10 @@ export function resolveGozsduOperationalBucket(
   verified?: Pick<GozsduRosterEntry, 'bucket'> | null,
 ): GozsduOperationalBucket {
   if (verified?.bucket) return verified.bucket;
+
+  const override = readGozsduRoomOverride(room.pms_metadata, selectedDate);
+  if (override?.bucket === 'service') return 'service';
+  if (override?.bucket === 'other') return 'other';
 
   const hasActiveCheckout = assignment?.assignment_type === 'checkout_cleaning'
     && assignment.status === 'in_progress';
