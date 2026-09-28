@@ -99,9 +99,15 @@ export function GozsduLaundrynerTasksV2() {
       // snapshot is optional. A missing/denied snapshot must not zero the
       // Laundryner screen or block linen entry; the verified registry and
       // current room metadata remain usable while the next snapshot catches up.
-      if (roomResponse.error || progressResponse.error || sectionsResponse.error || registryResponse.error) {
-        throw roomResponse.error || progressResponse.error || sectionsResponse.error || registryResponse.error;
+      if (roomResponse.error || progressResponse.error) {
+        throw roomResponse.error || progressResponse.error;
       }
+      // Building labels and the registry are enrichment sources. They must not
+      // take the whole Laundryner screen offline if an RLS/schema/read issue
+      // affects them. This mirrors the operational fail-safe: rooms remain
+      // visible from the Gozsdu room inventory while enrichment recovers.
+      if (sectionsResponse.error) console.warn('[GozsduLaundryner] section labels unavailable', sectionsResponse.error);
+      if (registryResponse.error) console.warn('[GozsduLaundryner] room registry unavailable; using Gozsdu inventory fallback', registryResponse.error);
       if (snapshotResponse.error) {
         console.warn('[GozsduLaundryner] PMS snapshot unavailable; using current room metadata fallback', snapshotResponse.error);
       }
@@ -117,13 +123,14 @@ export function GozsduLaundrynerTasksV2() {
       }
       const managerRooms = [...deduped.values()];
       const managerIds = new Set(managerRooms.map(room => room.id));
-      const registry = (registryResponse.data || []).filter((row: any) => managerIds.has(row.room_id));
+      const registry = registryResponse.error ? [] : (registryResponse.data || []).filter((row: any) => managerIds.has(row.room_id));
       const roster = reconcileGozsduPmsRoster(managerRooms, registry,
         snapshotResponse.error ? [] : (snapshotResponse.data || []) as GozsduPmsRow[], workDate);
       const nextManagerBuckets = new Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>();
       for (const [roomId, entry] of roster.byRoom) nextManagerBuckets.set(roomId, entry.bucket);
       const operating = new Set(registry.filter((row: any) => row.service_status === 'operating').map((row: any) => row.room_id));
-      const currentRooms = managerRooms.filter(room => operating.has(room.id)
+      const hasRegistry = !registryResponse.error && registry.length > 0;
+      const currentRooms = managerRooms.filter(room => (!hasRegistry || operating.has(room.id))
         && nextManagerBuckets.get(room.id) !== 'noshow' && isEligibleLaundryRoom(room));
       const ids = currentRooms.map(room => room.id);
       let liveAssignments: LaundryAssignment[] = [];
@@ -140,7 +147,7 @@ export function GozsduLaundrynerTasksV2() {
         savedCounts = (countResponse.data || []) as Count[];
       }
       const names: Record<string, string> = {};
-      const sectionIds = (sectionsResponse.data || []).map((section: any) => section.id);
+      const sectionIds = sectionsResponse.error ? [] : (sectionsResponse.data || []).map((section: any) => section.id);
       if (sectionIds.length) {
         const sectionResponse = await (supabase as any).from('hotel_housekeeping_section_rooms')
           .select('room_id,section_id').in('section_id', sectionIds);
