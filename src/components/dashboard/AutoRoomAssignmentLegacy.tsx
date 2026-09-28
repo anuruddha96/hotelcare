@@ -7,6 +7,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { isBudapestNineOrLater, tomorrowBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import {
+  clearCurrentDayCarryForwardDraft,
+  seedCurrentDayCarryForwardDraft,
+} from '@/lib/currentDayHousekeepingCarryForward';
+import {
   clearLiveSectionTaskSnapshot,
   setLiveSectionTaskSnapshot,
 } from '@/lib/housekeepingSectionTasks';
@@ -45,28 +49,6 @@ function isHotelMemoriesKey(value?: string | null) {
   return key === 'hotel memories budapest' || key === 'memories-budapest';
 }
 
-function getAutoAssignDraftKey(hotel: string | null | undefined, date: string) {
-  return hotel ? `auto_assignment_v2_${hotel}_${date}` : null;
-}
-
-function hasSavedDraft(key: string | null) {
-  if (!key || typeof window === 'undefined') return false;
-  try {
-    return window.localStorage.getItem(key) !== null;
-  } catch {
-    return false;
-  }
-}
-
-function removeSavedDraft(key: string | null) {
-  if (!key || typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // Browser storage is best-effort only.
-  }
-}
-
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
@@ -75,7 +57,6 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
   const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
 
-  const draftKey = getAutoAssignDraftKey(profile?.assigned_hotel, props.selectedDate);
   const realityKey = profile?.assigned_hotel
     ? `${profile.assigned_hotel}|${props.selectedDate}`
     : null;
@@ -87,9 +68,11 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     : 'closed';
 
   /**
-   * Auto Assign has two very different live-day modes:
-   *  - before assignment, it is allowed to calculate a new room/public-area plan;
-   *  - after assignment, the persisted database rows are the source of truth.
+   * Auto Assign has three current-day states:
+   *  - no approved plan/live work: calculate a fresh plan;
+   *  - yesterday's approved plan but no live rows yet: preload that manager-approved
+   *    plan into the editable board, reconciled against today's room state;
+   *  - persisted live assignments: the database rows are the source of truth.
    *
    * Tomorrow is deliberately excluded from live-day preparation. It always
    * travels through the protected next-day gate and selected-date PMS snapshot.
@@ -109,7 +92,8 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     const prepareLiveReality = async () => {
       try {
         const assignedHotel = profile?.assigned_hotel;
-        if (!assignedHotel) return;
+        const organizationSlug = profile?.organization_slug;
+        if (!assignedHotel || !organizationSlug) return;
 
         const { data: hotelConfig, error: hotelConfigError } = await supabase
           .from('hotel_configurations')
@@ -125,6 +109,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
           .select('id')
+          .eq('organization_slug', organizationSlug)
           .in('hotel', hotelKeys);
         if (roomsError) throw roomsError;
 
@@ -143,7 +128,13 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
         }
 
         if (hasLiveAssignments) {
-          if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
+          // Once morning release/live work exists it is authoritative. Remove a
+          // temporary carry-forward preview so it can never mask DB changes.
+          clearCurrentDayCarryForwardDraft({
+            organizationSlug,
+            assignedHotel,
+            selectedDate: props.selectedDate,
+          });
 
           const { data: liveAreaRows, error: liveAreaError } = await (supabase as any)
             .from('general_tasks')
@@ -160,10 +151,23 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
           })));
         } else {
           clearLiveSectionTaskSnapshot();
+
+          // If yesterday's manager-approved plan has rolled into today but the
+          // release worker has not produced live assignment rows yet, seed the
+          // normal editable Auto Assign draft from that persisted plan. This is
+          // a preview only: no room assignment is published until the manager
+          // confirms through the existing live save path.
+          await seedCurrentDayCarryForwardDraft({
+            organizationSlug,
+            assignedHotel,
+            selectedDate: props.selectedDate,
+          });
         }
       } catch (error) {
         console.warn('[AutoRoomAssignment] Could not prepare live assignment reality.', error);
-        if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
+        // Do not destroy a manager's existing local preview on a transient read
+        // failure. The Auto Assign engine will still validate current data when
+        // opened/confirmed.
         clearLiveSectionTaskSnapshot();
       } finally {
         if (!cancelled) setPreparedRealityKey(realityKey);
@@ -174,7 +178,14 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     return () => {
       cancelled = true;
     };
-  }, [draftKey, isTomorrowPlanner, profile?.assigned_hotel, props.open, props.selectedDate, realityKey]);
+  }, [
+    isTomorrowPlanner,
+    profile?.assigned_hotel,
+    profile?.organization_slug,
+    props.open,
+    props.selectedDate,
+    realityKey,
+  ]);
 
   useEffect(() => {
     if (!props.open || !isTomorrowPlanner || tomorrowPlanningAvailable) return;
