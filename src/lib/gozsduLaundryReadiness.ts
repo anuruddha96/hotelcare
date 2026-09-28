@@ -100,10 +100,11 @@ export function laundryAccess(room: LaundryRoom, assignments: LaundryAssignment[
 }
 
 /**
- * Service label helper. A date-scoped manager override is respected. Otherwise
- * calculate from the same PMS 3/N, 5/N, 7/N... cycle used by the manager view.
- * Never resurrect a stale `gozsduHousekeeping` snapshot or towel-note as proof
- * that a room belongs in Second-day service.
+ * Label helper only. Queue membership is decided by resolveGozsduOperationalBucket().
+ * If current PMS night counters are valid, they are authoritative because the
+ * persisted housekeeping plan can still contain the retired 2/4/6-night rule.
+ * The legacy plan is retained only as a display fallback when current PMS night
+ * counters are unavailable, so old integrations do not lose their service label.
  */
 function plannedLaundryService(room: LaundryRoom, assignments: LaundryAssignment[], date: string): 'none' | 'towel_change' | 'change_room' {
   const metadata = room.pms_metadata || {};
@@ -114,13 +115,17 @@ function plannedLaundryService(room: LaundryRoom, assignments: LaundryAssignment
   const totalNights = Number(metadata.totalNights);
   if (Number.isInteger(currentNight) && currentNight > 0
     && Number.isInteger(totalNights) && totalNights >= currentNight) {
-    const cycle = getGozsduHousekeepingCycle({ currentNight, totalNights, isCheckout: false });
-    if (cycle.serviceDue) return cycle.service;
+    return getGozsduHousekeepingCycle({ currentNight, totalNights, isCheckout: false }).service;
+  }
+
+  const legacyPlan = metadata.gozsduHousekeeping;
+  if (legacyPlan?.serviceDue !== false && ['towel_change', 'change_room'].includes(legacyPlan?.serviceType)) {
+    return legacyPlan.serviceType;
   }
   return 'none';
 }
 
-/** Show the same actual service type used to place the room in its queue. */
+/** Show the service type without using the label helper to decide queue membership. */
 export function laundryService(room: LaundryRoom, assignments: LaundryAssignment[], date: string): LaundryService {
   if (isCheckout(room)) return 'full';
   const service = plannedLaundryService(room, assignments, date);
@@ -131,9 +136,9 @@ export function laundryService(room: LaundryRoom, assignments: LaundryAssignment
 }
 
 /**
- * Degraded bucket classification is intentionally the exact manager fallback.
- * This prevents Laundryner from producing its own larger Second-day list when
- * the verified PMS roster is temporarily unavailable.
+ * Degraded bucket classification is intentionally the manager-equivalent PMS
+ * fallback. Persisted housekeeping snapshots and towel notes are not accepted
+ * as proof of Second-day membership because they can contain the retired rule.
  */
 export function laundryBucket(room: LaundryRoom, assignments: LaundryAssignment[], date: string): LaundryBucket {
   const assignment = assignments.find(row => row.status !== 'cancelled' && row.assignment_type !== 'maintenance');
@@ -153,8 +158,8 @@ export function groupCurrentLaundryRooms(
   for (const room of rooms) {
     const managerBucket = managerBuckets?.get(room.id);
     if (managerBucket) {
-      // Verified/fallback manager bucket is authoritative. Do not run a second
-      // Laundryner eligibility/service classifier on top of it.
+      // A manager-derived bucket is authoritative. Never run a second service
+      // classifier on top of it: that was the source of the 28-vs-12 drift.
       if (managerBucket === 'noshow') continue;
       const bucket: LaundryBucket = managerBucket === 'service' ? 'second_day'
         : managerBucket === 'arrival' ? 'arrival'
