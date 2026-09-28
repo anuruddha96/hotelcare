@@ -60,6 +60,18 @@ const assignment = (roomId: string, overrides: Partial<LaundryAssignment> = {}):
     expect(groups.other.map(value => value.id)).toEqual(['22']);
   });
 
+  it('uses the manager verified roster as the queue authority and exposes arrivals separately', () => {
+    const rooms = [room('service'), room('other'), room('arrival'), room('noshow')];
+    const managerBuckets = new Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>([
+      ['service', 'service'], ['other', 'other'], ['arrival', 'arrival'], ['noshow', 'noshow'],
+    ]);
+    const grouped = groupCurrentLaundryRooms(rooms, [], date, managerBuckets);
+    expect(grouped.second_day.map(value => value.id)).toEqual(['service']);
+    expect(grouped.other.map(value => value.id)).toEqual(['other']);
+    expect(grouped.arrival.map(value => value.id)).toEqual(['arrival']);
+    expect(Object.values(grouped).flat().map(value => value.id)).not.toContain('noshow');
+  });
+
   it('provides cleaning badges and distinct-list copy across all existing languages', () => {
     for (const lang of ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk', 'ru']) {
       expect(gozsduLaundryActiveCopy(lang).cleaningNow.length).toBeGreaterThan(0);
