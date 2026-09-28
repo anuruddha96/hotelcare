@@ -147,6 +147,7 @@ const getWorkClass = (assignment: AssignmentRow, selectedDate: string): WorkClas
   const checkout = isCheckoutAssignment(assignment, selectedDate);
   const room = assignment.rooms;
   const flags = parseRoomFlags(room?.notes || null);
+  const isMemories = isHotelMemoriesBudapest(room?.hotel);
   const greenBoardRequest = isMemories && hasMemoriesGreenBoardRequest(assignment.notes);
 
   if (checkout && assignment.ready_to_clean) return { bucket: 1, shortLabel: '1 · CHECKOUT', tone: 'orange' };
