@@ -36,6 +36,41 @@ describe('Gozsdu Laundryner collection buckets', () => {
     expect(getLaundryBucket(room)).toBe('checkout');
   });
 
+  it('keeps confirmed same-day departures in the checkout manifest after live availability changes', () => {
+    const checkoutFlag = makeRoom('131', {
+      is_checkout_room: true,
+      pms_metadata: { currentNight: 1, gozsduAvailability: { status: 'unavailable' } },
+    });
+    const scheduledDeparture = makeRoom('132', {
+      pms_metadata: { currentNight: 1, scheduledDepartureToday: true, gozsduAvailability: { status: 'non_guest' } },
+    });
+
+    expect(isEligibleLaundryRoom(checkoutFlag)).toBe(true);
+    expect(isEligibleLaundryRoom(scheduledDeparture)).toBe(true);
+    expect(groupLaundryRooms([checkoutFlag, scheduledDeparture]).checkout.map(r => r.id)).toEqual(['131', '132']);
+  });
+
+  it('does not relax permanent inventory, no-show or cancelled-reservation exclusions for departures', () => {
+    const rooms = [
+      makeRoom('out', {
+        status: 'out_of_order',
+        is_checkout_room: true,
+        pms_metadata: { scheduledDepartureToday: true, gozsduAvailability: { status: 'unavailable' } },
+      }),
+      makeRoom('no-show', {
+        is_checkout_room: true,
+        pms_metadata: { scheduledDepartureToday: true, isNoShow: true, gozsduAvailability: { status: 'unavailable' } },
+      }),
+      makeRoom('cancelled', {
+        is_checkout_room: true,
+        pms_metadata: { scheduledDepartureToday: true, reservationStatusId: 8, gozsduAvailability: { status: 'unavailable' } },
+      }),
+    ];
+
+    expect(rooms.filter(isEligibleLaundryRoom)).toEqual([]);
+    expect(groupLaundryRooms(rooms).checkout).toEqual([]);
+  });
+
   it('does not treat missing, zero, negative, fractional or invalid night values as service due', () => {
     const values = [undefined, 0, -2, 2.5, 'unknown'];
     for (const currentNight of values) {
