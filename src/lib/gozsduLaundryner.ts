@@ -11,12 +11,22 @@ export type LaundryRoom = {
 };
 export type LaundryBucket = 'checkout' | 'second_day' | 'other';
 
-/** Exact property gate and operating-room filter: no cross-property room access. */
+/**
+ * Exact property gate and inventory safety filter: no cross-property room access.
+ *
+ * Stayovers/non-checkouts must still be live operating rooms. A confirmed
+ * same-day checkout is different: after the guest departs, Previo can change
+ * the mutable availability flag away from `operating`. That transition must
+ * not erase the room from today's laundry checkout manifest. Checkout access
+ * is still guarded separately by laundryAccess(), so retaining it here does
+ * not allow linen collection before the guest has actually left / RTC exists.
+ */
 export function isEligibleLaundryRoom(room: LaundryRoom): boolean {
   const metadata = room.pms_metadata || {};
+  const scheduledDepartureToday = room.is_checkout_room === true || metadata.scheduledDepartureToday === true;
   return isGozsduCourtHotel(room.hotel)
     && room.status !== 'out_of_order'
-    && metadata.gozsduAvailability?.status === 'operating'
+    && (scheduledDepartureToday || metadata.gozsduAvailability?.status === 'operating')
     && metadata.isNoShow !== true
     && Number(metadata.reservationStatusId ?? 0) !== 8;
 }
