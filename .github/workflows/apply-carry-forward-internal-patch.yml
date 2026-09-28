@@ -1,0 +1,71 @@
+name: Apply carry-forward compatibility patch
+
+on:
+  push:
+    branches:
+      - fix/housekeeping-plan-carry-forward
+    paths:
+      - .github/workflows/apply-carry-forward-internal-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/housekeeping-plan-carry-forward
+      - name: Allow only tagged Gozsdu carry-forward drafts
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/components/dashboard/AutoRoomAssignmentImpl.tsx')
+          text = path.read_text()
+
+          old = """      // Live Gozsdu PMS changes during the shift: never resurrect an older
+      // local 48-room snapshot when today's authoritative workload is 35.
+      // Keep other hotels' existing draft restoration unchanged.
+      if (isGozsdu) localStorage.removeItem(saveKey);
+      const saved = isGozsdu ? null : localStorage.getItem(saveKey);
+"""
+          new = """      // Live Gozsdu PMS changes during the shift: never resurrect an older
+      // local 48-room snapshot when today's authoritative workload is 35.
+      // A current-day draft explicitly tagged by yesterday's approved plan is
+      // the only exception; it was rebuilt against today's verified PMS data.
+      const carryForwardMarkerKey = `hk_carry_forward_v1_${profile?.organization_slug || 'unknown'}_${profile?.assigned_hotel || 'unknown'}_${selectedDate}`;
+      const hasTaggedCarryForwardDraft = isGozsdu && localStorage.getItem(carryForwardMarkerKey) !== null;
+      if (isGozsdu && !hasTaggedCarryForwardDraft) localStorage.removeItem(saveKey);
+      const saved = isGozsdu && !hasTaggedCarryForwardDraft ? null : localStorage.getItem(saveKey);
+"""
+          if old not in text:
+              raise SystemExit('restore block not found; refusing unsafe patch')
+          text = text.replace(old, new, 1)
+
+          old_save = """  useEffect(() => {
+    if (!open || isGozsdu) return;
+    if (selectedStaffIds.size === 0 && assignmentPreviews.length === 0) return;
+"""
+          new_save = """  useEffect(() => {
+    const carryForwardMarkerKey = `hk_carry_forward_v1_${profile?.organization_slug || 'unknown'}_${profile?.assigned_hotel || 'unknown'}_${selectedDate}`;
+    const hasTaggedCarryForwardDraft = isGozsdu && localStorage.getItem(carryForwardMarkerKey) !== null;
+    if (!open || (isGozsdu && !hasTaggedCarryForwardDraft)) return;
+    if (selectedStaffIds.size === 0 && assignmentPreviews.length === 0) return;
+"""
+          if old_save not in text:
+              raise SystemExit('autosave block not found; refusing unsafe patch')
+          text = text.replace(old_save, new_save, 1)
+
+          path.write_text(text)
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "hotelcare-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/components/dashboard/AutoRoomAssignmentImpl.tsx
+          git commit -m "fix: allow verified Gozsdu plan carry-forward draft"
+          git push origin HEAD:fix/housekeeping-plan-carry-forward
