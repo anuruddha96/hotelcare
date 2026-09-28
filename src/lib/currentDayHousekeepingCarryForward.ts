@@ -16,6 +16,16 @@ import {
 
 const ACTIONABLE_CARRY_FORWARD_STATUSES = new Set(['approved', 'releasing']);
 const ACTIVE_ASSIGNMENT_STATUSES = new Set(['assigned', 'in_progress', 'dnd_pending_retry']);
+const MAX_LOCAL_DRAFT_AGE_MS = 12 * 60 * 60 * 1000;
+
+type CarryForwardSavedState = {
+  staffIds?: string[];
+  previews?: AssignmentPreview[];
+  excludedRoomIds?: string[];
+  maintenanceHoldRoomIds?: string[];
+  savedAt?: number;
+  lockedRoomIds?: string[];
+};
 
 export type CarryForwardSeedResult = {
   seeded: boolean;
@@ -125,6 +135,10 @@ export function selectCarryForwardPrimaryItems(args: {
  * plan fills the remaining eligible rooms. Any current live room outside the
  * original plan is also kept and locked, so carry-forward can never hide or
  * accidentally unassign work that was created after yesterday's approval.
+ *
+ * A manager's carried local edits survive close/reopen, but they are rebuilt on
+ * top of the latest eligible PMS/live room set each time. This preserves manual
+ * ownership, exclusions and locks without briefly resurrecting a stale room.
  */
 export async function seedCurrentDayCarryForwardDraft(args: {
   organizationSlug: string;
@@ -164,25 +178,24 @@ export async function seedCurrentDayCarryForwardDraft(args: {
     args.assignedHotel,
     args.selectedDate,
   );
+  let existingDraft: CarryForwardSavedState | null = null;
 
   if (typeof window !== 'undefined') {
     try {
-      const existingDraft = window.localStorage.getItem(draftKey);
+      const existingRaw = window.localStorage.getItem(draftKey);
       const seededPlanId = window.localStorage.getItem(markerKey);
-      // Once this plan has seeded the editor, preserve the manager's later local
-      // edits across close/reopen instead of overwriting them with yesterday's
-      // original snapshot.
-      if (existingDraft && seededPlanId === saved.plan.id) {
-        return {
-          seeded: false,
-          preservedExistingDraft: true,
-          planId: saved.plan.id,
-          roomCount: 0,
-          reason: 'existing-draft',
-        };
+      if (existingRaw && seededPlanId === saved.plan.id) {
+        const parsed = JSON.parse(existingRaw) as CarryForwardSavedState;
+        const savedAt = Number(parsed.savedAt || 0);
+        if (Array.isArray(parsed.previews)
+          && Number.isFinite(savedAt)
+          && savedAt > 0
+          && Date.now() - savedAt < MAX_LOCAL_DRAFT_AGE_MS) {
+          existingDraft = parsed;
+        }
       }
     } catch {
-      // Continue and rebuild from the persisted approved plan.
+      existingDraft = null;
     }
   }
 
@@ -250,18 +263,40 @@ export async function seedCurrentDayCarryForwardDraft(args: {
   }
 
   const primaryRoomIds = new Set(primaryItems.map(item => item.room_id));
-  const liveExtraRoomIds = Array.from(activeOwnerByRoom.keys()).filter(roomId =>
-    eligibleById.has(roomId) && !primaryRoomIds.has(roomId)
-  );
-  const resolvedOwnerByRoom = new Map(primaryItems.map(item => [
-    item.room_id,
-    activeOwnerByRoom.get(item.room_id) || item.assigned_to,
-  ]));
-  for (const roomId of liveExtraRoomIds) {
-    resolvedOwnerByRoom.set(roomId, activeOwnerByRoom.get(roomId)!);
+  const existingOwnerByRoom = new Map<string, string>();
+  for (const preview of existingDraft?.previews || []) {
+    for (const room of preview.rooms || []) existingOwnerByRoom.set(room.id, preview.staffId);
+  }
+  const existingExcluded = new Set(existingDraft?.excludedRoomIds || []);
+  const existingMaintenance = new Set(existingDraft?.maintenanceHoldRoomIds || []);
+
+  const resolvedOwnerByRoom = new Map<string, string>();
+  for (const item of primaryItems) {
+    const liveOwner = activeOwnerByRoom.get(item.room_id);
+    if (liveOwner) {
+      resolvedOwnerByRoom.set(item.room_id, liveOwner);
+      continue;
+    }
+    // A manager may deliberately remove or stage a carried room after opening
+    // Auto Assign. Preserve that choice on reopen while the plan remains
+    // actionable, unless a newer live assignment now exists for the room.
+    if (existingExcluded.has(item.room_id) || existingMaintenance.has(item.room_id)) continue;
+    resolvedOwnerByRoom.set(
+      item.room_id,
+      existingOwnerByRoom.get(item.room_id) || item.assigned_to,
+    );
+  }
+
+  // Current live assignments outside yesterday's plan must never disappear from
+  // the combined preview; otherwise Confirm could treat them as removals.
+  for (const [roomId, ownerId] of activeOwnerByRoom.entries()) {
+    if (eligibleById.has(roomId) && !primaryRoomIds.has(roomId)) {
+      resolvedOwnerByRoom.set(roomId, ownerId);
+    }
   }
 
   const ownerIds = Array.from(new Set([
+    ...(existingDraft?.staffIds || saved.staffIds),
     ...saved.staffIds,
     ...resolvedOwnerByRoom.values(),
   ].filter(Boolean)));
@@ -289,30 +324,44 @@ export async function seedCurrentDayCarryForwardDraft(args: {
   const previews = Array.from(grouped.entries()).map(([staffId, rooms]) =>
     buildPreview(staffId, staffNames.get(staffId) || 'Housekeeper', rooms),
   );
-  const managerLockedRooms = new Set(primaryItems
+  const lockedRooms = new Set(primaryItems
     .filter(item => item.source === 'manager' || item.recommendation_context?.manager_changed === true)
     .map(item => item.room_id));
+  for (const roomId of existingDraft?.lockedRoomIds || []) {
+    if (resolvedOwnerByRoom.has(roomId)) lockedRooms.add(roomId);
+  }
   // A live room owner is newer than yesterday's plan. Lock it in the preview so
   // ordinary regeneration cannot silently move it. Explicitly removing that
   // cleaner from the staff pool still releases not-started locks via the
   // existing Auto Assign staff-availability logic.
   for (const roomId of activeOwnerByRoom.keys()) {
-    if (eligibleById.has(roomId)) managerLockedRooms.add(roomId);
+    if (resolvedOwnerByRoom.has(roomId)) lockedRooms.add(roomId);
   }
+
+  const keptExcludedRoomIds = Array.from(existingExcluded).filter(roomId =>
+    primaryRoomIds.has(roomId)
+    && eligibleById.has(roomId)
+    && !activeOwnerByRoom.has(roomId)
+  );
+  const keptMaintenanceHoldRoomIds = Array.from(existingMaintenance).filter(roomId =>
+    primaryRoomIds.has(roomId)
+    && eligibleById.has(roomId)
+    && !activeOwnerByRoom.has(roomId)
+  );
 
   const draft = {
     staffIds: ownerIds,
     previews,
-    excludedRoomIds: [],
-    maintenanceHoldRoomIds: [],
+    excludedRoomIds: keptExcludedRoomIds,
+    maintenanceHoldRoomIds: keptMaintenanceHoldRoomIds,
     savedAt: Date.now(),
-    lockedRoomIds: Array.from(managerLockedRooms),
+    lockedRoomIds: Array.from(lockedRooms),
   };
 
   if (typeof window === 'undefined') {
     return {
       seeded: false,
-      preservedExistingDraft: false,
+      preservedExistingDraft: !!existingDraft,
       planId: saved.plan.id,
       roomCount: resolvedOwnerByRoom.size,
       reason: 'no-plan',
@@ -324,7 +373,7 @@ export async function seedCurrentDayCarryForwardDraft(args: {
 
   return {
     seeded: true,
-    preservedExistingDraft: false,
+    preservedExistingDraft: !!existingDraft,
     planId: saved.plan.id,
     roomCount: resolvedOwnerByRoom.size,
     reason: 'seeded',
