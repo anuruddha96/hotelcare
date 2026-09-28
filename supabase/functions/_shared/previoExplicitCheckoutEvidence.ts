@@ -25,7 +25,7 @@ export function verifiedGozsduCheckouts(
   for (const block of xml.match(/<reservation>[\s\S]*?<\/reservation>/gi) ?? []) {
     const tag = (name: string) => block.match(new RegExp(`<${name}>([^<]*)<\\/${name}>`, 'i'))?.[1]?.trim() ?? '';
     const status = Number(tag('statusId') || tag('cosId'));
-    if (status !== 6 && status !== 9) continue;
+    if (status !== 9) continue;
     // Do not require the reservation's scheduled <to> date to equal today.
     // termType=check-out is itself scoped to businessDate and status 6/9 means
     // the guest actually departed. Requiring <to>===today loses legitimate
