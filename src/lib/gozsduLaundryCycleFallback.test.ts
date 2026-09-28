@@ -14,7 +14,7 @@ const cleaning = (number: string): LaundryAssignment => ({
   is_dnd: false, pms_hold: false,
 });
 
- describe('Gozsdu Laundryner second-day cycle fallback', () => {
+describe('Gozsdu Laundryner second-day cycle fallback', () => {
   it('places an in-progress 2B-1/T/2 second-day room with Ruby into Second-day, not Other, when the optional snapshot is absent', () => {
     const due = room('2B-1/T/2', { currentNight: 3, totalNights: 7 });
     const other = room('other-room', { currentNight: 2, totalNights: 7 });
@@ -47,11 +47,13 @@ const cleaning = (number: string): LaundryAssignment => ({
     expect(groupCurrentLaundryRooms([mika], [], date).other).toHaveLength(0);
   });
 
-  it('respects explicit no-service snapshot and manager Other override above computed PMS cycle', () => {
+  it('does not let a stale legacy no-service snapshot override current PMS nights, but manager Other still wins', () => {
     const base = { currentNight: 3, totalNights: 7 };
-    const noService = room('plan', { ...base, gozsduHousekeeping: { serviceDue: false, serviceType: 'none' } });
-    expect(laundryBucket(noService, [cleaning(noService.id)], date)).toBe('other');
-    expect(laundryService(noService, [cleaning(noService.id)], date)).toBe('daily');
+    const stalePlan = room('plan', { ...base, gozsduHousekeeping: { serviceDue: false, serviceType: 'none' } });
+    // Manager overview recalculates from current PMS 3/N rather than trusting
+    // this persisted plan, which may have been generated under the retired rule.
+    expect(laundryBucket(stalePlan, [cleaning(stalePlan.id)], date)).toBe('second_day');
+    expect(laundryService(stalePlan, [cleaning(stalePlan.id)], date)).toBe('towel');
     const moved = room('manual', { ...base,
       hotelcareHousekeepingOverrides: { [date]: { date, bucket: 'other', service: 'none',
         reason: 'manager', changedAt: '2026-09-19T08:00:00Z', changedBy: 'manager' } },
