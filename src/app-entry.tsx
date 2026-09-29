@@ -16,6 +16,7 @@ import { installGlobalErrorReporting } from "@/lib/clientErrorReporter";
 import { installRateCalendarInputPolicy } from "@/lib/rateCalendarInputPolicy";
 import { installRateCalendarMonthNav } from "@/lib/rateCalendarMonthNav";
 import { installRateCalendarMobileEvents } from "@/lib/rateCalendarMobileEvents";
+import { installRateCalendarMarketDemand } from "@/lib/rateCalendarMarketDemand";
 
 // Optional presentation-only bridge. Its frequent full-grid DOM inspection is
 // unnecessary on the unusually large SLNT iOS revenue grid. Do not change the
@@ -55,6 +56,7 @@ installGlobalErrorReporting();
 installRateCalendarInputPolicy();
 installRateCalendarMonthNav();
 installRateCalendarMobileEvents();
+installRateCalendarMarketDemand();
 
 const root = document.getElementById("root");
 
