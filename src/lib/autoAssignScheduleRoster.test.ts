@@ -46,6 +46,16 @@ describe('Auto Assign published staff schedule bridge', () => {
     expect(result.selectedStaffIds.size).toBe(0);
   });
 
+  it('keeps a published roster authoritative even when its working person is outside the eligible hotel staff pool', () => {
+    const result = resolveAutoAssignStaffDefaults([
+      row({ user_id: 'other-hotel-user' }),
+    ], ['a'], eligible);
+
+    expect(result.source).toBe('published_schedule');
+    expect(result.hasPublishedRoster).toBe(true);
+    expect(result.selectedStaffIds.size).toBe(0);
+  });
+
   it('falls back to checked-in attendance only when no published roster exists', () => {
     const result = resolveAutoAssignStaffDefaults([
       row({ user_id: 'a', status: 'draft' }),
