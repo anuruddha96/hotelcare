@@ -33,9 +33,10 @@ export interface HousekeepingPlanningEligibility {
  * Safety gate for later automatic housekeeping planning.
  *
  * Master Staff Schedule remains the source of truth for who is working. Only
- * published housekeeping schedules may feed automatic planning. Existing room
- * work always wins: manual edits and started/completed assignments must never
- * be overwritten by schedule-driven automation.
+ * published housekeeping schedules with an explicit working state may feed
+ * automatic planning. Existing room work always wins: manual edits and
+ * started/completed assignments must never be overwritten by schedule-driven
+ * automation.
  */
 export function getHousekeepingPlanningEligibility(
   candidate: HousekeepingScheduleCandidate,
@@ -49,9 +50,10 @@ export function getHousekeepingPlanningEligibility(
     return { eligible: false, reason: "not_housekeeping" };
   }
 
-  // Published leave/off/sick/training records remain valid HR schedule states,
-  // but only an explicit working shift may feed room-assignment automation.
-  if ((candidate.workStatus ?? "working").trim().toLowerCase() !== "working") {
+  // Fail closed. Legacy/malformed records without work_status must not silently
+  // become eligible for future automatic room assignment. The schedule writer
+  // should explicitly persist "working" before automation can consume it.
+  if ((candidate.workStatus ?? "").trim().toLowerCase() !== "working") {
     return { eligible: false, reason: "not_working" };
   }
 
