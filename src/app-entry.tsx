@@ -8,6 +8,7 @@ import "./styles/revenue-grid-performance.css";
 import "./styles/revenue-grid-row-separation.css";
 import "./styles/rate-calendar-input.css";
 import "./styles/rate-calendar-month-layout.css";
+import "./styles/rate-calendar-mobile-events-polish.css";
 import "./styles/training-mobile-safe.css";
 import "./styles/housekeeping-dnd-mobile.css";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
