@@ -42,13 +42,17 @@ describe('Gozsdu checkout poll recovery', () => {
     expect(result.xml).not.toContain('<name>4005</name>');
   });
 
-  it('retains explicit checkout when an overlap query is empty, but refuses a future departure or a checked-in guest', () => {
+  it('retains explicit completed checkout when overlap is empty, including early departure, but refuses a checked-in guest', () => {
     const aliases = buildGozsduRoomAliases(roster);
     const valid = mergeGozsduCheckoutEvidence(document(), document(reservation(2245399, '1B-4005', 9)), aliases, date);
     expect(valid.added).toBe(1);
     expect(valid.xml).toContain('<name>4005</name>');
-    const future = mergeGozsduCheckoutEvidence(document(), document(reservation(2245399, '1B-4005', 6, date, '2026-09-20')), aliases, date);
-    expect(future).toEqual({ xml: document(), added: 0 });
+    // The explicit termType=check-out feed is already scoped to the business
+    // date. Previo may preserve the original planned <to> date after an early
+    // physical departure, so completed status 6/9 must still be recovered.
+    const early = mergeGozsduCheckoutEvidence(document(), document(reservation(2245399, '1B-4005', 6, date, '2026-09-20')), aliases, date);
+    expect(early.added).toBe(1);
+    expect(early.xml).toContain('<name>4005</name>');
     const occupied = mergeGozsduCheckoutEvidence(document(), document(reservation(2245399, '1B-4005', 5)), aliases, date);
     expect(occupied).toEqual({ xml: document(), added: 0 });
   });
