@@ -3249,7 +3249,7 @@ export default function RateStrategyGrid({
                           title={left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : left === 0
-                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — last sold at ${eur(closedAt)} for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`
+                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`
                               : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
                           className={`flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W, fontSize: fz(10) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
