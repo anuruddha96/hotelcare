@@ -127,11 +127,10 @@ const calendarCss = String.raw`
     line-height: 1 !important;
   }
 
-  /* Events can have many simultaneous chips. Keep one compact lane in the
-     always-sticky block so an event-heavy period can never push dates/prices
-     off screen. Demand details are still available by opening the date. */
+  /* Events are ranked per stay date and may show four compact chips. Keep
+     enough room for those signals while still bounding the sticky header. */
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) {
-    max-height: 30px !important;
+    max-height: 72px !important;
   }
 
   @media (min-width: 768px) {

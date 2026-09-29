@@ -1976,32 +1976,38 @@ export default function RateStrategyGrid({
   visibleDatesRef.current = dates;
 
   /**
-   * Events drawn as bars that span their whole run, so a three-day festival
-   * reads as one labelled band instead of three anonymous stars. Overlapping
-   * events are stacked into lanes (max 3) so the row stays compact.
+   * Rank events independently for every stay date. A long festival no longer
+   * reserves a horizontal lane and hides a higher-impact one that starts
+   * later. The calendar shows the four strongest signals for each night;
+   * the detail dialog still contains the complete event list.
    */
-  const eventBands = useMemo(() => {
-    if (!eventsByDate || eventsByDate.size === 0) return { lanes: 0, bars: [] as Array<{ key: string; title: string; impact: string; from: number; to: number; lane: number; date: string }> };
-    const index = new Map(dates.map((d, i) => [d, i]));
-    const seen = new Map<string, { title: string; impact: string; from: number; to: number; date: string }>();
+  const rankedEventsByDate = useMemo(() => {
+    const out = new Map<string, DemandEventDetail[]>();
+    const impactWeight: Record<string, number> = { high: 300, medium: 200, low: 100 };
+    const categoryWeight: Record<string, number> = {
+      conference: 35, sport: 32, concert: 30, festival: 28, holiday: 24, other: 10,
+    };
+    const score = (event: DemandEventDetail) => {
+      const impact = impactWeight[String(event.impact || "").toLowerCase()] ?? 0;
+      const category = categoryWeight[String(event.category || "other").toLowerCase()] ?? 10;
+      // Prefer events with a venue/source context when the declared impact is
+      // tied. This is deterministic and avoids arbitrary database ordering.
+      const evidence = (event.venue ? 4 : 0) + (event.url ? 3 : 0) + (event.notes ? 1 : 0);
+      return impact + category + evidence;
+    };
     for (const d of dates) {
-      for (const e of eventsByDate.get(d) ?? []) {
-        const key = `${e.title}|${e.start ?? d}`;
-        const at = index.get(d);
-        if (at === undefined) continue;
-        const found = seen.get(key);
-        if (found) { found.from = Math.min(found.from, at); found.to = Math.max(found.to, at); }
-        else seen.set(key, { title: e.title, impact: e.impact, from: at, to: at, date: d });
+      const unique = new Map<string, DemandEventDetail>();
+      for (const event of eventsByDate?.get(d) ?? []) {
+        const key = `${event.title.trim().toLowerCase()}|${event.start ?? d}`;
+        const current = unique.get(key);
+        if (!current || score(event) > score(current)) unique.set(key, event);
       }
+      out.set(d, [...unique.values()].sort((a, b) =>
+        score(b) - score(a)
+        || a.title.localeCompare(b.title)
+      ));
     }
-    const sorted = [...seen.entries()].sort((a, b) => a[1].from - b[1].from || b[1].to - a[1].to);
-    const laneEnds: number[] = [];
-    const bars = sorted.map(([key, b]) => {
-      let lane = laneEnds.findIndex((end) => end < b.from);
-      if (lane === -1) { lane = laneEnds.length; laneEnds.push(b.to); } else laneEnds[lane] = b.to;
-      return { key, ...b, lane };
-    }).filter((b) => b.lane < 3);
-    return { lanes: Math.min(3, laneEnds.length), bars };
+    return out;
   }, [eventsByDate, dates]);
 
   const rows = reviewOnly && flagged.rowKeys.size
@@ -3050,7 +3056,7 @@ export default function RateStrategyGrid({
                   </div>
                   {dates.map((d, i) => {
                     const dem = demandByDate?.get(d);
-                    const evs = eventsByDate?.get(d) ?? [];
+                    const evs = rankedEventsByDate.get(d) ?? [];
                     const demandLine = dem
                       ? `${d} · demand ${BAND_LABEL[dem.band]} (${dem.score}/100)\n${dem.drivers.slice(0, 4).join("\n")}`
                       : `${d} · demand not available yet`;
@@ -3079,58 +3085,69 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
-                {/* Events band — one labelled bar per event, spanning its dates */}
-                {eventBands.bars.length > 0 && (
+                {/* Events — top four demand drivers per date, ranked by impact. */}
+                {dates.some((d) => (rankedEventsByDate.get(d)?.length ?? 0) > 0) && (
                   <div
                     className="flex border-b-2 border-b-foreground/20 bg-card"
-                    style={{ height: showEventBand ? Math.max(ROW_H, eventBands.lanes * 16 + 6) : ROW_H }}
+                    style={{ height: showEventBand ? Math.max(ROW_H, Math.round(62 * zoom)) : ROW_H }}
                   >
                     <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                       <button
                         type="button"
                         onClick={() => setShowEventBand((v) => !v)}
                         className="truncate text-left hover:text-primary"
-                        title={showEventBand ? "Hide the event names" : "Show the event names"}
+                        title={showEventBand ? "Hide event names" : "Show event names"}
                       >
                         {railed ? "Ev" : "Events"}
                       </button>
                       {!railed && (
-                        <span className="text-[10px] text-muted-foreground">{showEventBand ? "on" : "off"}</span>
+                        <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 4" : "off"}</span>
                       )}
                     </div>
-                    <div className="relative shrink-0" style={{ width: dates.length * CELL_W, height: "100%" }}>
-                      {dates.map((d, i) => (
-                        <div
+                    {dates.map((d, i) => {
+                      const all = rankedEventsByDate.get(d) ?? [];
+                      const visible = all.slice(0, 4);
+                      if (!showEventBand) {
+                        return <div key={d} className={`shrink-0 ${dayBg(d, i)} ${dayEdge(d)}`} style={{ width: CELL_W }} />;
+                      }
+                      return (
+                        <button
                           key={d}
-                          className={`absolute top-0 h-full ${dayBg(d, i)} ${dayEdge(d)}`}
-                          style={{ left: i * CELL_W, width: CELL_W }}
-                        />
-                      ))}
-                      {showEventBand && eventBands.bars.map((b) => {
-                        const high = b.impact === "high";
-                        return (
-                          <button
-                            key={b.key}
-                            type="button"
-                            onClick={() => setDemandDay(dates[b.from])}
-                            title={`${b.title} — ${b.impact} impact (${dates[b.from]}${b.to > b.from ? ` → ${dates[b.to]}` : ""})`}
-                            className={`absolute flex items-center overflow-hidden rounded-[3px] border px-1 text-[9px] font-medium leading-none hover:ring-1 hover:ring-primary ${
-                              high
+                          type="button"
+                          onClick={() => setDemandDay(d)}
+                          className={`shrink-0 overflow-hidden px-0.5 py-0.5 text-left hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dayBg(d, i)} ${dayEdge(d)}`}
+                          style={{ width: CELL_W }}
+                          title={all.length
+                            ? `${d}\n${all.map((e, n) => `${n + 1}. ${e.title} — ${e.impact} impact`).join("\n")}`
+                            : `${d} · no recorded events`}
+                        >
+                          <div className="flex h-full flex-col gap-px overflow-hidden">
+                            {visible.map((e, n) => {
+                              const impact = String(e.impact || "").toLowerCase();
+                              const tone = impact === "high"
                                 ? "border-red-400/60 bg-red-500/15 text-red-700 dark:text-red-300"
-                                : "border-amber-400/60 bg-amber-400/15 text-amber-800 dark:text-amber-300"
-                            }`}
-                            style={{
-                              left: b.from * CELL_W + 1,
-                              width: (b.to - b.from + 1) * CELL_W - 2,
-                              top: 3 + b.lane * 16,
-                              height: 13,
-                            }}
-                          >
-                            <span className="truncate">{b.title}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                                : impact === "medium"
+                                  ? "border-amber-400/60 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                                  : "border-border bg-muted/60 text-muted-foreground";
+                              return (
+                                <span
+                                  key={`${e.title}|${e.start ?? d}|${n}`}
+                                  className={`block truncate rounded-[2px] border px-0.5 font-medium leading-[12px] ${tone}`}
+                                  style={{ fontSize: fz(8) }}
+                                >
+                                  {impact === "high" ? "H" : impact === "medium" ? "M" : "L"} · {e.title}
+                                </span>
+                              );
+                            })}
+                            {all.length > 4 && (
+                              <span className="block truncate text-center text-[8px] font-semibold text-muted-foreground">
+                                +{all.length - 4} more
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -4254,7 +4271,7 @@ export default function RateStrategyGrid({
           {(() => {
             if (!demandDay) return null;
             const dem = demandByDate?.get(demandDay);
-            const evs = eventsByDate?.get(demandDay) ?? [];
+            const evs = rankedEventsByDate.get(demandDay) ?? [];
             return (
               <div className="max-h-[70vh] space-y-4 overflow-y-auto">
                 <div className="rounded-lg border p-3">
