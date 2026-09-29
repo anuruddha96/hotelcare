@@ -25,6 +25,7 @@ import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { canAccessLegacyModules } from '@/lib/roleAccess';
 
 import { AdminTabs } from '@/components/admin/AdminTabs';
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
@@ -68,6 +69,7 @@ interface Ticket {
 
 export function Dashboard() {
   const { profile } = useAuth();
+  const canUseLegacyModules = canAccessLegacyModules(profile?.nickname);
   const noMinibar = isGozsduCourtHotel(profile?.assigned_hotel);
   const { t, language } = useTranslation();
   const { organization, hotels } = useTenant();
@@ -382,14 +384,12 @@ export function Dashboard() {
                 <TabsList className="inline-flex w-auto h-10 sm:h-12 gap-1" data-training="main-tabs">
                   <TabsTrigger value="tickets" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="tickets-tab"><Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Maintenance issues</span></TabsTrigger>
                   <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/reception`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors" data-training="rooms-tab"><Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Reception</span></button>
-                  <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/parking-tickets`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"><CarFront className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Parking Tickets</span></button>
+                  {canUseLegacyModules && <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/parking-tickets`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"><CarFront className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Parking Tickets</span></button>}
                   <TabsTrigger value="housekeeping" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="housekeeping-tab"><Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Housekeeping</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="attendance-tab"><Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>HR</span></TabsTrigger>
-                  {['admin','top_management','top_management_manager'].includes(profile?.role || '') && <>
-                    <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/revenue`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"><TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Revenue Management</span></button>
-                    <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/purchase-invoices`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"><Receipt className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Invoices</span></button>
-                  </>}
-                  {profile?.role === 'admin' && <TabsTrigger value="admin" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="admin-tab"><Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Admin</span></TabsTrigger>}
+                  {['admin','top_management','top_management_manager'].includes(profile?.role || '') && <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/revenue`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"><TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Revenue Management</span></button>}
+                  {canUseLegacyModules && <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/purchase-invoices`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"><Receipt className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Invoices</span></button>}
+                  {profile?.role === 'admin' && <TabsTrigger value="admin" className="shrink-0 whitespace-nowrap flex items-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="admin-tab"><Settings className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Admin</span></TabsTrigger>}
                 </TabsList>
               ) : profile?.role === 'reception' ? (
                 <TabsList className="flex w-full min-w-[320px] max-w-lg h-10 sm:h-12">
