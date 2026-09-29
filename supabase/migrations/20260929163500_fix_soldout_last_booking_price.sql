@@ -1,6 +1,7 @@
 -- A sold-out room type/date has one closing sale, not one closing price per
 -- possible guest count. Freeze the reservation that consumed the final unit so
 -- Revenue shows the real last sold amount and the guest count that bought it.
+-- This invariant is shared by SLNT and RD Hotels rather than being tenant-specific.
 
 -- Archive the old occupancy-ladder snapshots. They were generated once per
 -- guest level and therefore cannot identify which occupancy actually sold last.
