@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useVenues } from '@/hooks/useVenues';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -88,6 +89,13 @@ import {
   hasAutoAssignStaffPoolChanged,
   selectedOwnerOverrides,
 } from '@/lib/autoAssignStaffAvailability';
+import {
+  getAutoAssignWorkStatus,
+  resolveAutoAssignStaffDefaults,
+  scheduleDurationMinutes,
+  type AutoAssignScheduleRow,
+  type AutoAssignStaffDefaultSource,
+} from '@/lib/autoAssignScheduleRoster';
 import {
   buildTomorrowAutoAssignRooms,
   loadExistingNextDayPlan,
@@ -201,6 +209,7 @@ export function AutoRoomAssignment({
   laundryDutyCommitRevision = 0,
 }: AutoRoomAssignmentProps) {
   const { user, profile } = useAuth();
+  const { venueName } = useVenues();
   const { t, language } = useTranslation();
   const nt = (key: Parameters<typeof nextDayAutoAssignUiText>[0]) => nextDayAutoAssignUiText(key, language);
   const isMobile = useIsMobile();
@@ -247,7 +256,8 @@ export function AutoRoomAssignment({
   const [autoRelease, setAutoRelease] = useState(true);
   const [sharedByRoom, setSharedByRoom] = useState<Map<string, string>>(new Map());
   const [suggestedByRoom, setSuggestedByRoom] = useState<Map<string, string>>(new Map());
-  const [tomorrowSchedules, setTomorrowSchedules] = useState<any[]>([]);
+  const [staffDefaultSource, setStaffDefaultSource] = useState<AutoAssignStaffDefaultSource>('attendance_fallback');
+  const [publishedRosterRows, setPublishedRosterRows] = useState<AutoAssignScheduleRow[]>([]);
   const [planningGoal, setPlanningGoal] = useState<HousekeepingPlanningGoal>('rebalance');
   const [planningExplanation, setPlanningExplanation] = useState('');
   const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(new Set());
@@ -268,6 +278,11 @@ export function AutoRoomAssignment({
   const cleaningStaffIds = useMemo(
     () => new Set([...selectedStaffIds].filter(id => !isGozsdu || !isActiveGozsduLaundryner(id))),
     [selectedStaffIds, isGozsdu, laundryDutyIds],
+  );
+
+  const publishedScheduleByStaff = useMemo(
+    () => new Map<string, AutoAssignScheduleRow>(publishedRosterRows.map(row => [row.user_id, row])),
+    [publishedRosterRows],
   );
 
   const effectiveRooms = useMemo(
@@ -508,32 +523,49 @@ export function AutoRoomAssignment({
       setAllStaff(staffList);
 
       const hotelStaffIds = new Set(staffList.map(staff => staff.id));
-      let checked = new Set<string>();
-      if (isNextDayPlanning) {
-        const { data: scheduleData, error: scheduleError } = await (supabase as any)
+
+      let scheduleResult = await (supabase as any)
+        .from('staff_schedules')
+        .select('id,user_id,work_date,shift_start,shift_end,status,work_status,notes,published_at,staff_schedule_venues(venue_id)')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('hotel_id', profile.assigned_hotel)
+        .eq('work_date', selectedDate);
+
+      // Keep Auto Assign usable while the Phase 1 work_status migration is
+      // still rolling through an environment. The legacy resolver below maps
+      // old status values into the same operational model.
+      if (scheduleResult.error && String(scheduleResult.error.message ?? '').toLowerCase().includes('work_status')) {
+        scheduleResult = await (supabase as any)
           .from('staff_schedules')
-          .select('id,user_id,work_date,shift_start,shift_end,status,notes')
+          .select('id,user_id,work_date,shift_start,shift_end,status,notes,published_at,staff_schedule_venues(venue_id)')
           .eq('organization_slug', profile.organization_slug)
           .eq('hotel_id', profile.assigned_hotel)
           .eq('work_date', selectedDate);
-        if (scheduleError) throw scheduleError;
-        const schedules = scheduleData || [];
-        setTomorrowSchedules(schedules);
-        checked = new Set(
-          schedules
-            .filter((row: any) => row.status !== 'off' && hotelStaffIds.has(row.user_id))
-            .map((row: any) => row.user_id),
-        );
-      } else {
-        const { data: attendanceData } = await supabase
+      }
+      if (scheduleResult.error) throw scheduleResult.error;
+
+      const scheduleRows = (scheduleResult.data || []) as AutoAssignScheduleRow[];
+      let attendanceStaffIds: string[] = [];
+      let staffDefaults = resolveAutoAssignStaffDefaults(scheduleRows, attendanceStaffIds, hotelStaffIds);
+
+      // Attendance is a fallback only when there is no published roster at all.
+      // A published roster containing only Off/Leave/Sick/Training is an
+      // intentional zero-cleaner decision and must not be overwritten here.
+      if (!staffDefaults.hasPublishedRoster) {
+        const { data: attendanceData, error: attendanceError } = await supabase
           .from('staff_attendance')
           .select('user_id')
           .eq('work_date', selectedDate)
           .in('status', ['checked_in', 'on_break']);
-        checked = new Set((attendanceData || []).map(row => row.user_id).filter(id => hotelStaffIds.has(id)));
-        setTomorrowSchedules([]);
+        if (attendanceError) throw attendanceError;
+        attendanceStaffIds = (attendanceData || []).map(row => row.user_id);
+        staffDefaults = resolveAutoAssignStaffDefaults(scheduleRows, attendanceStaffIds, hotelStaffIds);
       }
+
+      const checked = new Set(staffDefaults.selectedStaffIds);
       setCheckedInStaff(checked);
+      setStaffDefaultSource(staffDefaults.source);
+      setPublishedRosterRows(staffDefaults.publishedRows);
 
       const { data: roomRows, error: roomsErr } = await supabase
         .from('rooms')
@@ -1031,27 +1063,13 @@ export function AutoRoomAssignment({
       // Per-hotel tuning is optional.
     }
 
-    const scheduleRows = isNextDayPlanning ? tomorrowSchedules : [];
-    const scheduleByStaff = new Map(scheduleRows.map((row: any) => [row.user_id, row]));
-    if (isNextDayPlanning && scheduleRows.length && selectedStaff.some(staff => {
-      const row = scheduleByStaff.get(staff.id) as any;
-      return !row || ['off', 'leave', 'sick', 'absent', 'cancelled'].includes(row.status);
-    })) {
-      toast.error('Some selected employees have no active shift on this date. Update their schedule or remove them before regenerating.');
-      return;
-    }
-    const toMinutes = (value: unknown): number | null => {
-      if (typeof value !== 'string' || !/^\d{2}:\d{2}/.test(value)) return null;
-      const [hours, minutes] = value.split(':').map(Number);
-      return hours * 60 + minutes;
-    };
+    // Published roster rows contribute real shift capacity. Manually added
+    // cleaners remain allowed even without a published row; they use the
+    // algorithm's standard shift capacity rather than being blocked.
     const shiftMinutes = new Map<string, number>();
-    if (isNextDayPlanning) for (const staff of selectedStaff) {
-      const schedule = scheduleByStaff.get(staff.id) as any;
-      if (!schedule) continue;
-      const start = toMinutes(schedule.shift_start);
-      const end = toMinutes(schedule.shift_end);
-      if (start !== null && end !== null) shiftMinutes.set(staff.id, (end - start + 1440) % 1440 || 1440);
+    for (const staff of selectedStaff) {
+      const minutes = scheduleDurationMinutes(publishedScheduleByStaff.get(staff.id));
+      if (minutes !== null) shiftMinutes.set(staff.id, minutes);
     }
     // Movable area overrides owned by a cleaner the manager just excluded are
     // released back to the planner. Already-started area work remains fixed.
@@ -1895,23 +1913,62 @@ export function AutoRoomAssignment({
                     <div className="space-y-1">
                       <h3 className="flex items-center gap-2 font-medium"><Users className="h-4 w-4" />{t('autoAssign.selectHousekeepers')} ({cleaningStaffIds.size} {t('autoAssign.selected')})</h3>
                       <p className="text-xs text-muted-foreground">
-                        {isNextDayPlanning
-                          ? nt('scheduledCleanersHint')
-                          : 'Checked-in cleaners are preselected for convenience, not required. Untick anyone doing another duty; Auto Assign will redistribute all not-started rooms across the cleaners you keep selected.'}
+                        {staffDefaultSource === 'published_schedule'
+                          ? 'Published roster for ' + selectedDate + ' is the default. Staff marked Working are preselected; managers can still add or remove cleaners before generating.'
+                          : 'No published roster exists for ' + selectedDate + '. Checked-in staff are used only as a fallback; managers can still add or remove cleaners.'}
                       </p>
                     </div>
                     <div className="grid max-h-[38vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
                       {allStaff.map(staff => {
                         const laundryner = isLaundryner(staff.id);
                         const selected = !laundryner && cleaningStaffIds.has(staff.id);
+                        const scheduleRow = publishedScheduleByStaff.get(staff.id);
+                        const scheduleStatus = scheduleRow ? getAutoAssignWorkStatus(scheduleRow) : null;
+                        const defaultSelected = checkedInStaff.has(staff.id);
+                        const manualSelected = selected && !defaultSelected;
+                        const scheduledHours = scheduleRow?.shift_start && scheduleRow?.shift_end
+                          ? scheduleRow.shift_start.slice(0, 5) + '–' + scheduleRow.shift_end.slice(0, 5)
+                          : null;
+                        const scheduledVenues = (scheduleRow?.staff_schedule_venues || [])
+                          .map(item => venueName(item.venue_id) || item.venue_id);
+                        const scheduleStatusLabel = scheduleStatus
+                          ? scheduleStatus.charAt(0).toUpperCase() + scheduleStatus.slice(1)
+                          : null;
+                        const staffButtonClass = [
+                          'flex items-center gap-3 rounded-lg border p-3 text-left',
+                          laundryner
+                            ? 'cursor-not-allowed border-emerald-300 bg-emerald-50/60 opacity-80 dark:bg-emerald-950/20'
+                            : selected ? 'border-primary bg-primary/5' : 'hover:bg-muted',
+                        ].join(' ');
                         return (
-                          <button key={staff.id} type="button" disabled={laundryner} onClick={() => toggleStaffSelection(staff.id)} className={`flex items-center gap-3 rounded-lg border p-3 text-left ${laundryner ? 'cursor-not-allowed border-emerald-300 bg-emerald-50/60 opacity-80 dark:bg-emerald-950/20' : selected ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}>
+                          <button key={staff.id} type="button" disabled={laundryner} onClick={() => toggleStaffSelection(staff.id)} className={staffButtonClass}>
                             {laundryner
                               ? <span aria-label="Selected as Laundryner duty, not for cleaning" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-emerald-600 bg-emerald-600 text-white"><Check className="h-3 w-3" /></span>
                               : <Checkbox checked={selected} />}
-                            <span className="min-w-0 flex-1"><span className="block truncate font-medium">{staff.full_name}</span>{staff.nickname && <span className="block truncate text-xs text-muted-foreground">{staff.nickname}</span>}</span>
-                            {laundryner && <Badge variant="secondary" className="shrink-0 border border-emerald-400 text-[10px]">✓ 🧺 Laundryner</Badge>}
-                            {checkedInStaff.has(staff.id) && <Badge variant="outline" className="border-green-500 text-green-600"><Check className="mr-1 h-3 w-3" />{isNextDayPlanning ? nt('scheduled') : t('autoAssign.checkedIn')}</Badge>}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{staff.full_name}</span>
+                              {staff.nickname && <span className="block truncate text-xs text-muted-foreground">{staff.nickname}</span>}
+                              {scheduledVenues.length > 0 && (
+                                <span className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+                                  <MapPin className="h-3 w-3 shrink-0" />{scheduledVenues.join(', ')}
+                                </span>
+                              )}
+                            </span>
+                            <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                              {laundryner && <Badge variant="secondary" className="border border-emerald-400 text-[10px]">✓ 🧺 Laundryner</Badge>}
+                              {defaultSelected && (
+                                <Badge variant="outline" className="border-green-500 text-green-600">
+                                  <Check className="mr-1 h-3 w-3" />
+                                  {staffDefaultSource === 'published_schedule'
+                                    ? <>Scheduled{scheduledHours ? ' · ' + scheduledHours : ''}</>
+                                    : t('autoAssign.checkedIn')}
+                                </Badge>
+                              )}
+                              {staffDefaultSource === 'published_schedule' && scheduleRow && !defaultSelected && scheduleStatusLabel && (
+                                <Badge variant="outline" className="text-[10px]">{scheduleStatusLabel}{scheduledHours && scheduleStatus === 'training' ? ' · ' + scheduledHours : ''}</Badge>
+                              )}
+                              {manualSelected && <Badge variant="secondary" className="text-[10px]">Manual</Badge>}
+                            </span>
                           </button>
                         );
                       })}
