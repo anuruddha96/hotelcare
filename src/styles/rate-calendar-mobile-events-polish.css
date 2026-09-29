@@ -5,10 +5,12 @@
   }
 
   [data-training="revenue-grid"] [data-mobile-event-summary="true"]::before {
-    font-size: 7px !important;
-    line-height: 8px !important;
-    font-weight: 600 !important;
-    letter-spacing: -0.02em !important;
+    content: attr(data-event-count-label) "\A" attr(data-event-impact-label) !important;
+    white-space: pre !important;
+    font-size: 8px !important;
+    line-height: 10px !important;
+    font-weight: 650 !important;
+    letter-spacing: -0.015em !important;
     max-width: 100% !important;
     overflow: hidden !important;
   }
