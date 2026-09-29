@@ -1,0 +1,34 @@
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] [data-mobile-event-summary="true"] {
+    padding: 1px 12px 1px 1px !important;
+    cursor: pointer !important;
+  }
+
+  [data-training="revenue-grid"] [data-mobile-event-summary="true"]::before {
+    font-size: 7px !important;
+    line-height: 8px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.02em !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+
+  [data-training="revenue-grid"] [data-mobile-event-summary="true"][data-event-has-eye="true"]::after {
+    content: "" !important;
+    right: 2px !important;
+    width: 10px !important;
+    height: 7px !important;
+    border: 1px solid currentColor !important;
+    border-radius: 50% / 60% !important;
+    background: radial-gradient(circle at center, currentColor 0 1.2px, transparent 1.5px) !important;
+    box-shadow: none !important;
+    font-size: 0 !important;
+    opacity: 0.68 !important;
+    pointer-events: none !important;
+  }
+
+  [data-training="revenue-grid"] [data-rate-calendar-mobile-events="true"] > .sticky.left-0 > button {
+    font-size: 9px !important;
+    letter-spacing: -0.02em !important;
+  }
+}
