@@ -65,42 +65,40 @@ const PHASE_STEP: Record<TomorrowPmsProgressPhase, number> = {
   'validating-snapshot': 2,
 };
 
-function progressCopy(event: TomorrowPmsProgressEvent, selectedDate: string): {
+function progressCopy(event: TomorrowPmsProgressEvent, selectedDate: string, language?: string | null): {
   title: string;
   detail: string;
 } {
   switch (event.phase) {
     case 'checking-cache':
       return {
-        title: 'Checking the latest verified PMS snapshot',
-        detail: `Looking for a recent exact-date snapshot for ${selectedDate} before contacting Previo.`,
+        title: nextDayAutoAssignUiText('checkingSnapshot', language),
+        detail: nextDayAutoAssignUiText('checkingSnapshotDetail', language),
       };
     case 'refreshing-session':
       return {
-        title: 'Preparing a secure PMS connection',
-        detail: 'HotelCare is refreshing the signed-in session before the live PMS request.',
+        title: nextDayAutoAssignUiText('connecting', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
       };
     case 'refreshing-live-room-state':
       return {
-        title: 'Refreshing live room status',
-        detail: 'Current PMS room state is being checked without changing any housekeeping assignment.',
+        title: nextDayAutoAssignUiText('refreshingRooms', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
       };
     case 'contacting-previo':
       return {
-        title: event.attempt > 1
-          ? `Downloading tomorrow’s reservations · attempt ${event.attempt}/${event.maxAttempts}`
-          : 'Downloading tomorrow’s reservations from Previo',
-        detail: `Only the ${selectedDate} dataset will be used for tomorrow’s plan.`,
+        title: `${nextDayAutoAssignUiText('downloading', language)}${event.attempt > 1 ? ` · ${event.attempt}/${event.maxAttempts}` : ''}`,
+        detail: `${selectedDate} · Previo`,
       };
     case 'retrying':
       return {
-        title: `Connection was slow · retrying automatically ${event.attempt}/${event.maxAttempts}`,
-        detail: 'No action is needed. HotelCare is retrying the PMS request safely.',
+        title: `${nextDayAutoAssignUiText('slowSync', language)} ${event.attempt}/${event.maxAttempts}`,
+        detail: nextDayAutoAssignUiText('safetyLock', language),
       };
     case 'validating-snapshot':
       return {
-        title: 'Validating tomorrow’s room data',
-        detail: 'Checking the date, room coverage and PMS freshness before the assignment screen opens.',
+        title: nextDayAutoAssignUiText('validating', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
       };
   }
 }
@@ -360,7 +358,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
     );
   }
 
-  const copy = progressCopy(pmsProgress, props.selectedDate);
+  const copy = progressCopy(pmsProgress, props.selectedDate, language);
   const currentStep = PHASE_STEP[pmsProgress.phase];
   const progressValue = Math.min(
     94,
@@ -377,7 +375,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
           <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
             <CalendarClock className="h-5 w-5 text-primary" />
             {nt('preparing')}
-            <Badge variant="outline">Tomorrow · {props.selectedDate}</Badge>
+            <Badge variant="outline">{nt('tomorrowRelease')} · {props.selectedDate}</Badge>
           </DialogTitle>
         </DialogHeader>
 
@@ -437,7 +435,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
                   <div className="min-w-0">
                     <p className="text-lg font-semibold">{nt('preparing')}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {hotelLabel} · live Previo data for {props.selectedDate}
+                      {hotelLabel} · Previo · {props.selectedDate}
                     </p>
                   </div>
                 </div>
@@ -446,7 +444,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
                     <Clock3 className="mr-1 h-3.5 w-3.5" />
                     {elapsedSeconds}s {nt('elapsed')}
                   </Badge>
-                  <Badge variant="secondary">Target &lt; {EXPECTED_SYNC_SECONDS}s</Badge>
+                  <Badge variant="secondary">&lt; {EXPECTED_SYNC_SECONDS}s</Badge>
                 </div>
               </div>
 
