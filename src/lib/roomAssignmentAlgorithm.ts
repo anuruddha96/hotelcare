@@ -1,6 +1,7 @@
 // All hotels use the shared fairness/locality algorithm and bounded candidate
 // diversification. Gozsdu additionally keeps its strict mapped-building rules.
-// Only an explicit manager drag/tap can override those rules, never Auto Assign.
+// Hotel Memories can use manager-configured physical adjacency across sections.
+// Only an explicit manager drag/tap can override Gozsdu rules, never Auto Assign.
 export * from './roomAssignmentAlgorithmGozsduLegacy';
 
 import * as original from './roomAssignmentAlgorithmGozsduLegacy';
@@ -12,6 +13,7 @@ import {
 } from './gozsduBuildingAssignment';
 import { rebalanceGozsduAssignments } from './gozsduAssignmentBalance';
 import { diversifyHousekeepingCandidate } from './housekeepingCandidateDiversification';
+import { autoAssignMemoriesSpatially } from './memoriesSpatialAssignment';
 
 export const autoAssignRooms: typeof original.autoAssignRooms = (
   rooms, staff, wingProximityMap, affinityMap, hotelConfig,
@@ -25,16 +27,31 @@ export const autoAssignRooms: typeof original.autoAssignRooms = (
   if (!onlyGozsdu && new Set(rooms.map(room => room.hotel)).size > 1) {
     return original.autoAssignRooms(rooms, staff, wingProximityMap, affinityMap, hotelConfig);
   }
+
+  const hotelName = hotelConfig?.hotelName || rooms[0]?.hotel;
+  const isMemories = original.isHotelMemoriesBudapest(hotelName);
   const preliminary = onlyGozsdu
     ? planGozsduBuildingAssignments(
       rooms, staff.filter(person => !isActiveGozsduLaundryner(person.id)), hotelConfig,
     )
-    : original.autoAssignRooms(rooms, staff, wingProximityMap, affinityMap, hotelConfig);
+    : isMemories
+      ? autoAssignMemoriesSpatially(
+        original.autoAssignRooms,
+        rooms,
+        staff,
+        wingProximityMap,
+        affinityMap,
+        hotelConfig,
+      )
+      : original.autoAssignRooms(rooms, staff, wingProximityMap, affinityMap, hotelConfig);
   if (!preliminary.length) return preliminary;
+
+  // Memories has already applied manager-configured together/near/far rules.
+  // A generic diversification pass could undo those decisions, so preserve the
+  // spatial plan exactly and let the review screen remain the human override.
+  if (isMemories && !onlyGozsdu) return preliminary;
+
   const balanced = onlyGozsdu ? rebalanceGozsduAssignments(preliminary) : preliminary;
-  // The existing UI generates ten seeded options and chooses the fairest.
-  // Instead of rotating identical whole room bundles, offer it valid real-room
-  // exchanges. The pass preserves coverage, shift safety and Gozsdu routes.
   return diversifyHousekeepingCandidate(balanced, {
     randomSeed: hotelConfig?.randomSeed,
     affinityMap,
