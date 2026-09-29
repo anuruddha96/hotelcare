@@ -1,0 +1,38 @@
+name: One-off sold-out occupancy tooltip guard
+
+on:
+  push:
+    branches:
+      - fix/soldout-last-booking-price-occupancy-20260929
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Guard missing sold occupancy in tooltip
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/components/revenue/RateStrategyGrid.tsx')
+          text = path.read_text()
+          old = ' — last sold at ${eur(closedAt)} for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}'
+          new = ' — last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}'
+          if old not in text:
+              raise SystemExit('Expected sold-out tooltip fragment not found')
+          path.write_text(text.replace(old, new, 1))
+          Path('.github/workflows/oneoff-soldout-tooltip-guard.yml').unlink()
+          PY
+      - name: Commit guard and remove one-off workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/revenue/RateStrategyGrid.tsx .github/workflows/oneoff-soldout-tooltip-guard.yml
+          git commit -m "fix: guard missing sold-out occupancy label"
+          git push
