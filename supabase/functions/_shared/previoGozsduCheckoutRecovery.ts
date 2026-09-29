@@ -25,9 +25,13 @@ function physicalRoom(block: string): { id: number; name: string } | null {
   return { id: Number(match[1]), name: match[2].trim() };
 }
 
-function sameDayCheckout(block: string, date: string): boolean {
+function completedCheckout(block: string): boolean {
   const status = Number(xmlTag(block, 'statusId') || xmlTag(block, 'cosId'));
-  return (status === 6 || status === 9) && xmlTag(block, 'to').slice(0, 10) === date;
+  return status === 6 || status === 9;
+}
+
+function sameDayCheckout(block: string, date: string): boolean {
+  return completedCheckout(block) && xmlTag(block, 'to').slice(0, 10) === date;
 }
 
 function currentInHouse(block: string, date: string): boolean {
@@ -66,8 +70,17 @@ export function buildGozsduRoomAliases(roster: PrevioRosterRoom[]): Map<number, 
   return new Map([...candidates].filter(([, alias]) => counts.get(alias.localNumber) === 1));
 }
 
-function canonicalizeCheckout(block: string, aliases: Map<number, PhysicalRoomAlias>, date: string): string {
-  if (!sameDayCheckout(block, date)) return block;
+function canonicalizeCheckout(
+  block: string,
+  aliases: Map<number, PhysicalRoomAlias>,
+  date: string,
+  explicitCheckoutFeed = false,
+): string {
+  // The explicit termType=check-out response is already scoped to the business
+  // date. A completed status (6/9) therefore proves physical departure even
+  // when an early checkout leaves the reservation's original <to> date later.
+  // Overlap data is not trusted this way and must still match <to>===date.
+  if (explicitCheckoutFeed ? !completedCheckout(block) : !sameDayCheckout(block, date)) return block;
   const physical = physicalRoom(block);
   if (!physical) return block;
   const alias = aliases.get(physical.id);
@@ -100,7 +113,9 @@ export function mergeGozsduCheckoutEvidence(
   const seen = new Set(original.map(reservationKey));
   const added: string[] = [];
   for (const block of reservationBlocks(explicitCheckoutXml)) {
-    if (!sameDayCheckout(block, date)) continue;
+    // termType=check-out is business-date scoped; do not discard a genuine
+    // early departure just because Previo kept the original planned <to> date.
+    if (!completedCheckout(block)) continue;
     const physical = physicalRoom(block);
     // Defense in depth: even if a regression in the upstream shared state
     // guard lets an old checkout through, a currently in-house reservation for
@@ -109,7 +124,7 @@ export function mergeGozsduCheckoutEvidence(
     const key = reservationKey(block);
     if (seen.has(key)) continue;
     seen.add(key);
-    added.push(canonicalizeCheckout(block, aliases, date));
+    added.push(canonicalizeCheckout(block, aliases, date, true));
   }
   if (added.length === 0) return { xml: rewritten, added: 0 };
   if (original.length === 0) {
@@ -117,7 +132,7 @@ export function mergeGozsduCheckoutEvidence(
     // endpoint instead of guessing where an empty <reservations/> node ends.
     return {
       xml: explicitCheckoutXml.replace(/<reservation>[\s\S]*?<\/reservation>/gi,
-        block => canonicalizeCheckout(block, aliases, date)),
+        block => canonicalizeCheckout(block, aliases, date, true)),
       added: added.length,
     };
   }
