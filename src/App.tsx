@@ -14,6 +14,7 @@ import { PointerEventsGuard } from "@/components/system/PointerEventsGuard";
 import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
 import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
+import { canAccessLegacyModules } from "@/lib/roleAccess";
 
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
@@ -33,6 +34,7 @@ const Reputation = lazy(() => import("./pages/Reputation"));
 const Breakfast = lazy(() => import("./pages/Breakfast"));
 const BreakfastAuth = lazy(() => import("./pages/BreakfastAuth"));
 const PurchaseInvoices = lazy(() => import("./pages/PurchaseInvoices"));
+const ParkingTickets = lazy(() => import("./pages/ParkingTickets"));
 const TrainingCenterPage = lazy(() => import("./pages/TrainingCenter"));
 const ReceptionHome = lazy(() => import("./pages/ReceptionHome"));
 const ReceptionBreakfastUpload = lazy(() => import("./pages/ReceptionBreakfastUpload"));
@@ -134,6 +136,9 @@ const TenantRouter = () => {
     return <Navigate to={`/${profile.organization_slug}`} replace />;
   }
 
+  const canUseLegacyModules = canAccessLegacyModules(profile?.nickname);
+  const legacyFallback = `/${organizationSlug}`;
+
   return (
     <TenantProvider organizationSlug={organizationSlug}>
       <Suspense fallback={<PageLoader />}>
@@ -151,7 +156,7 @@ const TenantRouter = () => {
           <Route path="/reputation" element={<Reputation />} />
           <Route path="/bb" element={<Breakfast />} />
           <Route path="/bb/:hotelCode" element={<Breakfast />} />
-          <Route path="/purchase-invoices" element={<PurchaseInvoices />} />
+          <Route path="/purchase-invoices" element={canUseLegacyModules ? <PurchaseInvoices /> : <Navigate to={legacyFallback} replace />} />
           <Route path="/training" element={<TrainingCenterPage />} />
           <Route path="/reception" element={<ReceptionHome />} />
           <Route path="/reception/breakfast-upload" element={<ReceptionBreakfastUpload />} />
@@ -159,7 +164,7 @@ const TenantRouter = () => {
           <Route path="/assistant/:threadId" element={<AssistantPage />} />
           <Route path="/assistant-insights" element={<AssistantInsights />} />
           <Route path="/billing" element={<Billing />} />
-          <Route path="/parking-tickets" element={<Navigate to="../reception" replace />} />
+          <Route path="/parking-tickets" element={canUseLegacyModules ? <ParkingTickets /> : <Navigate to={legacyFallback} replace />} />
         </Routes>
         <AssistantLauncher />
       </Suspense>

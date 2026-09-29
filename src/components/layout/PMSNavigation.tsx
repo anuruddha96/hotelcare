@@ -1,6 +1,7 @@
 import { useLocation, useParams, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { canAccessLegacyModules } from '@/lib/roleAccess';
 import {
   Wrench,
   DoorOpen,
@@ -77,7 +78,7 @@ const PMS_NAV_ITEMS: NavigationItem[] = [
     icon: Receipt,
     label: 'Invoices',
     href: (basePath) => `${basePath}/purchase-invoices`,
-    roles: ['admin', 'top_management', 'control_finance', 'control_manager', 'back_office_manager'],
+    roles: [],
   },
 ];
 
@@ -88,9 +89,11 @@ export function PMSNavigation() {
   const { t } = useTranslation();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
-  const visibleItems = PMS_NAV_ITEMS.filter(
-    (item) => profile && item.roles.includes(profile.role),
-  );
+  const visibleItems = PMS_NAV_ITEMS.filter((item) => {
+    if (!profile) return false;
+    if (item.key === 'purchase-invoices') return canAccessLegacyModules(profile.nickname);
+    return item.roles.includes(profile.role);
+  });
 
   if (!profile || visibleItems.length === 0) return null;
 
