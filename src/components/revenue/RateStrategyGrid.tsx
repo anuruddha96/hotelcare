@@ -24,7 +24,7 @@ import {
   localizedRoomTypeName, occupancyTone2, pickupTone, rateTone,
   DEFAULT_THRESHOLDS, type RevenueThresholds,
 } from "@/lib/revenueThresholds";
-import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenueCurrency";
+import { convert, getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenueCurrency";
 import type { RevenueRoomType, SoldOutPrice } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
@@ -193,8 +193,12 @@ function dayBg(d: string, i: number): string {
 
 /** Compact money for a 60px column; the exact figure lives in the tooltip. */
 function priceLabel(v: number): string {
-  if (Math.abs(v) >= 10000) {
-    const k = v / 1000;
+  // The compact threshold must be evaluated in the currency the user
+  // is actually viewing. SLNT stores HUF, so checking the raw value
+  // first made 38,900 HUF stay as "38,9k" even after switching to EUR.
+  const displayed = convert(v);
+  if (displayed !== null && Math.abs(displayed) >= 10000) {
+    const k = displayed / 1000;
     return `${(Math.abs(k) >= 100 ? Math.round(k) : Math.round(k * 10) / 10).toString().replace(".", ",")}k`;
   }
   return eur(v);
