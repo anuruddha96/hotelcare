@@ -14,6 +14,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { installGlobalErrorReporting } from "@/lib/clientErrorReporter";
 import { installRateCalendarInputPolicy } from "@/lib/rateCalendarInputPolicy";
 import { installRateCalendarMonthNav } from "@/lib/rateCalendarMonthNav";
+import { installRateCalendarMobileEvents } from "@/lib/rateCalendarMobileEvents";
 
 // Optional presentation-only bridge. Its frequent full-grid DOM inspection is
 // unnecessary on the unusually large SLNT iOS revenue grid. Do not change the
@@ -49,9 +50,10 @@ function OptionalCompetitorBridge() {
 
 installGlobalErrorReporting();
 // Install before the grid mounts, so a hover cannot start its legacy edge
-// animation. Both enhancers are restricted to the Rate & Pickup card.
+// animation. These enhancers are restricted to the Rate & Pickup card.
 installRateCalendarInputPolicy();
 installRateCalendarMonthNav();
+installRateCalendarMobileEvents();
 
 const root = document.getElementById("root");
 
