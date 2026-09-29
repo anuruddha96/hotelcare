@@ -32,8 +32,8 @@ describe("staff schedule planning safety", () => {
     ).toEqual({ eligible: false, reason: "schedule_not_published" });
   });
 
-  it("requires an explicit working state before automatic planning", () => {\n    for (const workStatus of [undefined, null, "", "off", "leave", "sick", "training"]) {\n      expect(\n        getHousekeepingPlanningEligibility({\n          ...publishedHousekeeping,\n          workStatus,\n        }),\n      ).toEqual({ eligible: false, reason: "not_working" });\n    }\n  });\n\n  it("does not let published non-working HR states drive room assignment", () => {
-    for (const workStatus of ["off", "leave", "sick", "training"]) {
+  it("requires an explicit working state before automatic planning", () => {
+    for (const workStatus of [undefined, null, "", "off", "leave", "sick", "training"]) {
       expect(
         getHousekeepingPlanningEligibility({
           ...publishedHousekeeping,
@@ -50,6 +50,19 @@ describe("staff schedule planning safety", () => {
         department: "Reception",
       }),
     ).toEqual({ eligible: false, reason: "not_housekeeping" });
+  });
+
+  it("requires complete schedule identity", () => {
+    for (const candidate of [
+      { ...publishedHousekeeping, userId: "" },
+      { ...publishedHousekeeping, hotelId: "" },
+      { ...publishedHousekeeping, scheduleDate: "" },
+    ]) {
+      expect(getHousekeepingPlanningEligibility(candidate)).toEqual({
+        eligible: false,
+        reason: "missing_identity",
+      });
+    }
   });
 
   it("preserves manually changed room assignments", () => {
@@ -83,5 +96,14 @@ describe("staff schedule planning safety", () => {
       "hotel-b",
       "hotel-c",
     ]);
+  });
+
+  it("drops empty venue identifiers from planning scope", () => {
+    expect(
+      getPlanningVenueIds({
+        ...publishedHousekeeping,
+        workingVenueIds: ["", "hotel-b", "hotel-b"],
+      }),
+    ).toEqual(["hotel-a", "hotel-b"]);
   });
 });
