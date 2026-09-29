@@ -5,6 +5,7 @@ import { budapestToday } from "@/lib/revenueAnalytics";
 const GRID_CARD = '[data-training="revenue-grid"]';
 const STYLE_ID = "rate-calendar-market-demand-style";
 const HORIZON_DAYS = 210;
+const RETRY_MS = 30_000;
 
 const LABEL: Record<MarketDemandDay["band"], string> = {
   very_strong: "V.High",
@@ -36,14 +37,19 @@ function ensureStyle() {
 }
 
 function findDemandRow(card: HTMLElement): HTMLElement | null {
-  const sticky = Array.from(card.querySelectorAll<HTMLElement>(".sticky.top-0")).find((node) =>
-    Array.from(node.children).some((child) => child instanceof HTMLElement && /^dem(?:and)?$/i.test((child.textContent ?? "").trim())),
-  );
+  const pane = card.querySelector<HTMLElement>('[data-rate-grid-scroll="true"]')
+    ?? card.querySelector<HTMLElement>(".relative.overflow-auto.overscroll-x-contain");
+  const grid = pane?.firstElementChild as HTMLElement | null;
+  const sticky = grid
+    ? Array.from(grid.children).find((child) => child instanceof HTMLElement && child.classList.contains("sticky") && child.classList.contains("top-0")) as HTMLElement | undefined
+    : undefined;
   if (!sticky) return null;
+
   return Array.from(sticky.children).find((child) => {
     if (!(child instanceof HTMLElement)) return false;
-    const left = child.firstElementChild;
-    return !!left && /^dem(?:and)?$/i.test((left.textContent ?? "").replace(/\s+/g, "").trim());
+    const left = child.firstElementChild as HTMLElement | null;
+    const label = (left?.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    return label === "dem" || label.startsWith("demand");
   }) as HTMLElement | null;
 }
 
@@ -66,20 +72,26 @@ function applyMarketDemand(board: Map<string, MarketDemandDay>) {
     if (!row) return;
     const dates = dateOrder(card);
     const cells = Array.from(row.children).slice(1).filter((child): child is HTMLElement => child instanceof HTMLElement);
+
     cells.forEach((cell, index) => {
       const date = dates[index];
       const day = date ? board.get(date) : undefined;
       if (!day) return;
-      cell.dataset.marketDemandBand = day.band;
-      cell.dataset.marketDemandScore = String(day.score);
-      cell.textContent = LABEL[day.band];
+      const label = LABEL[day.band];
       const title = [
-        `${date} · Budapest market demand ${LABEL[day.band]} (${day.score}/100)`,
+        `${date} · Budapest market demand ${label} (${day.score}/100)`,
         ...day.drivers,
         "Shared signal across participating Budapest properties; raw hotel data is not exposed.",
       ].join("\n");
-      cell.setAttribute("title", title);
-      cell.setAttribute("aria-label", title.replace(/\n/g, ". "));
+
+      // Avoid a MutationObserver/render loop: only touch the DOM when a value
+      // actually changed underneath us during a React calendar refresh.
+      if (cell.dataset.marketDemandBand !== day.band) cell.dataset.marketDemandBand = day.band;
+      if (cell.dataset.marketDemandScore !== String(day.score)) cell.dataset.marketDemandScore = String(day.score);
+      if ((cell.textContent ?? "").trim() !== label) cell.textContent = label;
+      if (cell.getAttribute("title") !== title) cell.setAttribute("title", title);
+      const aria = title.replace(/\n/g, ". ");
+      if (cell.getAttribute("aria-label") !== aria) cell.setAttribute("aria-label", aria);
     });
   });
 }
@@ -100,9 +112,9 @@ type RpcPayload = {
 };
 
 /**
- * Installs the shared market signal as a presentation layer over the existing
- * demand row. The server returns aggregate market inputs only; if the aggregate
- * is unavailable the existing hotel-local demand row is left untouched.
+ * Applies the privacy-safe shared market signal over the existing Demand row.
+ * If the market aggregate is unavailable, the React-owned local signal is left
+ * untouched so missing data can never manufacture a false city-level grade.
  */
 export function installRateCalendarMarketDemand() {
   ensureStyle();
@@ -111,6 +123,7 @@ export function installRateCalendarMarketDemand() {
   let board = new Map<string, MarketDemandDay>();
   let available = false;
   let loadingFor: string | null = null;
+  let lastAttemptAt = 0;
   let frame: number | null = null;
 
   const render = () => {
@@ -131,12 +144,23 @@ export function installRateCalendarMarketDemand() {
       clearMarketDemand();
       return;
     }
-    if (hotelId === currentHotel && (available || loadingFor === hotelId)) {
+
+    if (hotelId === currentHotel && available) {
       scheduleRender();
       return;
     }
+    if (loadingFor === hotelId) return;
+    if (hotelId === currentHotel && Date.now() - lastAttemptAt < RETRY_MS) return;
+
+    if (hotelId !== currentHotel) {
+      clearMarketDemand();
+      board = new Map();
+      available = false;
+    }
     currentHotel = hotelId;
     loadingFor = hotelId;
+    lastAttemptAt = Date.now();
+
     try {
       const { data, error } = await (supabase as any).rpc("get_market_demand_index", {
         _hotel_id: hotelId,
@@ -144,6 +168,7 @@ export function installRateCalendarMarketDemand() {
       });
       if (error) throw error;
       if (disposed || routeHotelId() !== hotelId) return;
+
       const payload = (data ?? {}) as RpcPayload;
       available = payload.available === true && (payload.propertiesReporting ?? 0) >= 3;
       board = available
@@ -152,8 +177,6 @@ export function installRateCalendarMarketDemand() {
       if (!available) clearMarketDemand();
       scheduleRender();
     } catch (error) {
-      // Safe fallback: a market aggregation problem must never blank or falsify
-      // the existing hotel-local demand signal.
       console.warn("[market-demand] using local demand fallback", error);
       available = false;
       board = new Map();
