@@ -15,9 +15,20 @@ export default defineConfig(({ mode }) => ({
     componentTagger(),
   ].filter(Boolean),
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      // Keep the mature housekeeping components unchanged and layer the new
+      // physical-map controls/preload around them. Relative imports inside the
+      // wrappers intentionally bypass these exact aliases.
+      {
+        find: /^@\/components\/dashboard\/HotelFloorMap$/,
+        replacement: path.resolve(__dirname, "./src/overrides/HotelFloorMapSpatialOverride.tsx"),
+      },
+      {
+        find: /^@\/components\/dashboard\/MemoriesZoneAutoAssignment$/,
+        replacement: path.resolve(__dirname, "./src/overrides/MemoriesZoneAutoAssignmentSpatialOverride.tsx"),
+      },
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+    ],
     dedupe: ["react", "react-dom"],
   },
   optimizeDeps: {
