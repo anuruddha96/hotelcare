@@ -45,10 +45,13 @@ export const autoAssignRooms: typeof original.autoAssignRooms = (
       )
       : original.autoAssignRooms(rooms, staff, wingProximityMap, affinityMap, hotelConfig);
   if (!preliminary.length) return preliminary;
+
+  // Memories has already applied manager-configured together/near/far rules.
+  // A generic diversification pass could undo those decisions, so preserve the
+  // spatial plan exactly and let the review screen remain the human override.
+  if (isMemories && !onlyGozsdu) return preliminary;
+
   const balanced = onlyGozsdu ? rebalanceGozsduAssignments(preliminary) : preliminary;
-  // The existing UI generates ten seeded options and chooses the fairest.
-  // Instead of rotating identical whole room bundles, offer it valid real-room
-  // exchanges. The pass preserves coverage, shift safety and Gozsdu routes.
   return diversifyHousekeepingCandidate(balanced, {
     randomSeed: hotelConfig?.randomSeed,
     affinityMap,
