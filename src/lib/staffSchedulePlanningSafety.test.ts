@@ -32,7 +32,7 @@ describe("staff schedule planning safety", () => {
     ).toEqual({ eligible: false, reason: "schedule_not_published" });
   });
 
-  it("does not let published non-working HR states drive room assignment", () => {
+  it("requires an explicit working state before automatic planning", () => {\n    for (const workStatus of [undefined, null, "", "off", "leave", "sick", "training"]) {\n      expect(\n        getHousekeepingPlanningEligibility({\n          ...publishedHousekeeping,\n          workStatus,\n        }),\n      ).toEqual({ eligible: false, reason: "not_working" });\n    }\n  });\n\n  it("does not let published non-working HR states drive room assignment", () => {
     for (const workStatus of ["off", "leave", "sick", "training"]) {
       expect(
         getHousekeepingPlanningEligibility({
