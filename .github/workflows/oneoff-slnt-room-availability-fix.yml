@@ -1,0 +1,87 @@
+name: One-off SLNT room availability fix
+
+on:
+  push:
+    branches:
+      - fix/slnt-room-type-availability-20260929
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch per-room-type availability
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/pages/RevenueHotelDetail.tsx')
+          text = path.read_text()
+
+          old = '''  // Rooms still sellable per room type and date.
+  const leftByTypeDate = useMemo(() => {
+    const soldBy = new Map<string, number>();
+    for (const n of live.nights) {
+      if (!n.room_type_name) continue;
+      const k = `${n.room_type_name}|${n.stay_date}`;
+      soldBy.set(k, (soldBy.get(k) ?? 0) + 1);
+    }
+    const out = new Map<string, number>();
+    for (const rt of live.roomTypes) {
+      if (rt.is_sellable === false) continue;
+      for (const m of live.metrics) {
+        const k = `${rt.name}|${m.stay_date}`;
+        out.set(k, Math.max(0, (rt.num_rooms || 0) - (soldBy.get(k) ?? 0)));
+      }
+    }
+    return out;
+  }, [live.nights, live.roomTypes, live.metrics]);'''
+
+          new = '''  // Rooms still sellable per room type and date.
+  const leftByTypeDate = useMemo(() => {
+    const soldBy = new Map<string, number>();
+    for (const n of live.nights) {
+      if (!n.room_type_name) continue;
+      const k = `${n.room_type_name}|${n.stay_date}`;
+      soldBy.set(k, (soldBy.get(k) ?? 0) + 1);
+    }
+
+    // Availability shown on a rate-plan row is independent from whether that
+    // room type counts toward the consolidated house occupancy denominator.
+    // SLNT has valid priced apartment products that are intentionally excluded
+    // from house-level inventory, but they still need their own 0/1 availability.
+    const stayDates = new Set<string>();
+    for (const m of live.metrics) stayDates.add(m.stay_date);
+    for (const r of live.rates) stayDates.add(r.stay_date);
+
+    const out = new Map<string, number>();
+    for (const rt of live.roomTypes) {
+      const units = Math.max(0, Number(rt.num_rooms) || 0);
+      if (!rt.pms_room_id || units <= 0) continue;
+      for (const stayDate of stayDates) {
+        const k = `${rt.name}|${stayDate}`;
+        out.set(k, Math.max(0, units - (soldBy.get(k) ?? 0)));
+      }
+    }
+    return out;
+  }, [live.nights, live.roomTypes, live.metrics, live.rates]);'''
+
+          if old not in text:
+              raise SystemExit('Expected leftByTypeDate block was not found')
+          path.write_text(text.replace(old, new, 1))
+
+          workflow = Path('.github/workflows/oneoff-slnt-room-availability-fix.yml')
+          workflow.unlink()
+      - name: Commit patch and remove one-off workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/pages/RevenueHotelDetail.tsx .github/workflows/oneoff-slnt-room-availability-fix.yml
+          git commit -m "fix: show SLNT room-type availability in rate calendar"
+          git push
