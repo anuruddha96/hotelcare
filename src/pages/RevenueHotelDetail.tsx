@@ -255,7 +255,7 @@ export default function RevenueHotelDetail() {
     }
     const out = new Map<string, number>();
     for (const rt of live.roomTypes) {
-      if (rt.is_sellable === false) continue;
+      if (!rt.pms_room_id || (rt.num_rooms || 0) <= 0) continue;
       for (const m of live.metrics) {
         const k = `${rt.name}|${m.stay_date}`;
         out.set(k, Math.max(0, (rt.num_rooms || 0) - (soldBy.get(k) ?? 0)));
