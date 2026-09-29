@@ -282,7 +282,7 @@ export default function RateStrategyGrid({
 
   /**
    * The price a room type closed at, frozen when it first sold out. Keyed by
-   * `${roomTypeName}|${date}` and holding the highest guest count on record,
+   * `${roomTypeName}|${date}` and holding the actual guest count from the reservation that sold the final unit,
    * so later bulk / manual / automation changes never rewrite history.
    */
   const soldOutByTypeDate = useMemo(() => {
@@ -291,7 +291,7 @@ export default function RateStrategyGrid({
       if (!Number.isFinite(row.price)) continue;
       const key = `${row.room_type_name}|${row.stay_date}`;
       const cur = out.get(key);
-      if (!cur || row.occupancy > cur.occupancy) {
+      if (!cur || row.captured_at > cur.capturedAt) {
         out.set(key, { price: Number(row.price), occupancy: row.occupancy, capturedAt: row.captured_at });
       }
     }
@@ -3235,7 +3235,7 @@ export default function RateStrategyGrid({
                       // never rewrite what the date actually sold for.
                       const frozen = left === 0 ? soldOutByTypeDate.get(`${row.rawName}|${d}`) : undefined;
                       const closedAt = frozen?.price ?? null;
-                      const topOcc = frozen?.occupancy ?? null;
+                      const soldOcc = frozen?.occupancy ?? null;
                       const byOccType = row.obkOfType ? priceMap.get(row.obkOfType) : undefined;
                       const liveTopOcc = byOccType ? Math.max(...Array.from(byOccType.keys())) : null;
                       const liveNow = left === 0 && byOccType && liveTopOcc != null
@@ -3249,7 +3249,7 @@ export default function RateStrategyGrid({
                           title={left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : left === 0
-                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — closed at ${eur(closedAt)} for ${topOcc} ${topOcc === 1 ? "guest" : "guests"}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`
+                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — last sold at ${eur(closedAt)} for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`
                               : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
                           className={`flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W, fontSize: fz(10) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
@@ -3258,7 +3258,7 @@ export default function RateStrategyGrid({
                             <>
                               <span>Sold out</span>
                               {closedAt != null && (
-                                <span className="font-semibold opacity-80" style={{ fontSize: fz(9) }}>{priceLabel(closedAt)}</span>
+                                <span className="font-semibold opacity-80" style={{ fontSize: fz(9) }}>{priceLabel(closedAt)}{soldOcc != null ? ` · ${soldOcc}g` : ""}</span>
                               )}
                             </>
                           ) : `${left} left`}
