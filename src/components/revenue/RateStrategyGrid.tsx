@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UsersRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -3258,7 +3258,16 @@ export default function RateStrategyGrid({
                             <>
                               <span>Sold out</span>
                               {closedAt != null && (
-                                <span className="font-semibold opacity-80" style={{ fontSize: fz(9) }}>{priceLabel(closedAt)}{soldOcc != null ? ` · ${soldOcc}g` : ""}</span>
+                                <span className="font-semibold opacity-80 inline-flex items-center gap-0.5" style={{ fontSize: fz(9) }}>
+                        {priceLabel(closedAt)}
+                        {soldOcc != null && (
+                          <>
+                            <span className="opacity-60">·</span>
+                            <UsersRound className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+                            <span>{soldOcc}</span>
+                          </>
+                        )}
+                      </span>
                               )}
                             </>
                           ) : `${left} left`}
