@@ -8,6 +8,7 @@ import {
 const publishedHousekeeping: HousekeepingScheduleCandidate = {
   scheduleStatus: "published",
   department: "Housekeeping",
+  workStatus: "working",
   scheduleDate: "2026-09-30",
   userId: "staff-1",
   hotelId: "hotel-a",
@@ -29,6 +30,17 @@ describe("staff schedule planning safety", () => {
         scheduleStatus: "draft",
       }),
     ).toEqual({ eligible: false, reason: "schedule_not_published" });
+  });
+
+  it("does not let published non-working HR states drive room assignment", () => {
+    for (const workStatus of ["off", "leave", "sick", "training"]) {
+      expect(
+        getHousekeepingPlanningEligibility({
+          ...publishedHousekeeping,
+          workStatus,
+        }),
+      ).toEqual({ eligible: false, reason: "not_working" });
+    }
   });
 
   it("does not let non-housekeeping schedules drive housekeeping planning", () => {
