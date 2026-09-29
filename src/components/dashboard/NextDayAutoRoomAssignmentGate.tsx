@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
+import { nextDayAutoAssignUiText } from '@/lib/nextDayAutoAssignUiTranslations';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -63,42 +65,40 @@ const PHASE_STEP: Record<TomorrowPmsProgressPhase, number> = {
   'validating-snapshot': 2,
 };
 
-function progressCopy(event: TomorrowPmsProgressEvent, selectedDate: string): {
+function progressCopy(event: TomorrowPmsProgressEvent, selectedDate: string, language?: string | null): {
   title: string;
   detail: string;
 } {
   switch (event.phase) {
     case 'checking-cache':
       return {
-        title: 'Checking the latest verified PMS snapshot',
-        detail: `Looking for a recent exact-date snapshot for ${selectedDate} before contacting Previo.`,
+        title: nextDayAutoAssignUiText('checkingSnapshot', language),
+        detail: nextDayAutoAssignUiText('checkingSnapshotDetail', language),
       };
     case 'refreshing-session':
       return {
-        title: 'Preparing a secure PMS connection',
-        detail: 'HotelCare is refreshing the signed-in session before the live PMS request.',
+        title: nextDayAutoAssignUiText('connecting', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
       };
     case 'refreshing-live-room-state':
       return {
-        title: 'Refreshing live room status',
-        detail: 'Current PMS room state is being checked without changing any housekeeping assignment.',
+        title: nextDayAutoAssignUiText('refreshingRooms', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
       };
     case 'contacting-previo':
       return {
-        title: event.attempt > 1
-          ? `Downloading tomorrow’s reservations · attempt ${event.attempt}/${event.maxAttempts}`
-          : 'Downloading tomorrow’s reservations from Previo',
-        detail: `Only the ${selectedDate} dataset will be used for tomorrow’s plan.`,
+        title: `${nextDayAutoAssignUiText('downloading', language)}${event.attempt > 1 ? ` · ${event.attempt}/${event.maxAttempts}` : ''}`,
+        detail: `${selectedDate} · Previo`,
       };
     case 'retrying':
       return {
-        title: `Connection was slow · retrying automatically ${event.attempt}/${event.maxAttempts}`,
-        detail: 'No action is needed. HotelCare is retrying the PMS request safely.',
+        title: `${nextDayAutoAssignUiText('slowSync', language)} ${event.attempt}/${event.maxAttempts}`,
+        detail: nextDayAutoAssignUiText('safetyLock', language),
       };
     case 'validating-snapshot':
       return {
-        title: 'Validating tomorrow’s room data',
-        detail: 'Checking the date, room coverage and PMS freshness before the assignment screen opens.',
+        title: nextDayAutoAssignUiText('validating', language),
+        detail: nextDayAutoAssignUiText('safetyLock', language),
       };
   }
 }
@@ -196,6 +196,8 @@ async function loadExactPmsDaySummary(args: {
 
 export function NextDayAutoRoomAssignmentGate(props: Props) {
   const { profile } = useAuth();
+  const { language } = useTranslation();
+  const nt = (key: Parameters<typeof nextDayAutoAssignUiText>[0]) => nextDayAutoAssignUiText(key, language);
   const [stage, setStage] = useState<Stage>('checking');
   const [snapshot, setSnapshot] = useState<TomorrowSnapshotState | null>(null);
   const [summary, setSummary] = useState<PmsDaySummary | null>(null);
@@ -356,7 +358,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
     );
   }
 
-  const copy = progressCopy(pmsProgress, props.selectedDate);
+  const copy = progressCopy(pmsProgress, props.selectedDate, language);
   const currentStep = PHASE_STEP[pmsProgress.phase];
   const progressValue = Math.min(
     94,
@@ -372,8 +374,8 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         <DialogHeader>
           <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
             <CalendarClock className="h-5 w-5 text-primary" />
-            Auto Room Assignment
-            <Badge variant="outline">Tomorrow · {props.selectedDate}</Badge>
+            {nt('preparing')}
+            <Badge variant="outline">{nt('tomorrowRelease')} · {props.selectedDate}</Badge>
           </DialogTitle>
         </DialogHeader>
 
@@ -392,7 +394,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
 
               <div className="mt-5 grid grid-cols-2 gap-3 rounded-2xl border bg-background/80 p-4 text-sm">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Elapsed</p>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{nt('elapsed')}</p>
                   <p className="mt-1 font-semibold">{elapsedSeconds}s</p>
                 </div>
                 <div>
@@ -403,21 +405,21 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
 
               <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-left text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>Safety lock stayed active: HotelCare did not reuse today’s room classification and did not save a tomorrow plan.</span>
+                <span>{nt('safetyLock')}</span>
               </div>
 
               {errorPresentation.technical ? (
                 <details className="mt-4 rounded-xl border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
-                  <summary className="cursor-pointer font-medium text-foreground">Technical detail</summary>
+                  <summary className="cursor-pointer font-medium text-foreground">{nt('technicalDetail')}</summary>
                   <p className="mt-2 break-words">{errorPresentation.technical}</p>
                 </details>
               ) : null}
 
               <div className="mt-6 flex flex-wrap justify-center gap-2">
-                <Button variant="outline" onClick={() => props.onOpenChange(false)}>Close</Button>
+                <Button variant="outline" onClick={() => props.onOpenChange(false)}>{nt('close')}</Button>
                 <Button onClick={() => void prepare(true)}>
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Retry fresh sync
+                  {nt('retry')}
                 </Button>
               </div>
             </div>
@@ -431,18 +433,18 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
                       : <Loader2 className="h-6 w-6 animate-spin text-primary" />}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-lg font-semibold">Preparing tomorrow’s housekeeping</p>
+                    <p className="text-lg font-semibold">{nt('preparing')}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {hotelLabel} · live Previo data for {props.selectedDate}
+                      {hotelLabel} · Previo · {props.selectedDate}
                     </p>
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
                   <Badge variant="outline" className={isSlow ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200' : ''}>
                     <Clock3 className="mr-1 h-3.5 w-3.5" />
-                    {elapsedSeconds}s elapsed
+                    {elapsedSeconds}s {nt('elapsed')}
                   </Badge>
-                  <Badge variant="secondary">Target &lt; {EXPECTED_SYNC_SECONDS}s</Badge>
+                  <Badge variant="secondary">&lt; {EXPECTED_SYNC_SECONDS}s</Badge>
                 </div>
               </div>
 
@@ -457,9 +459,9 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
 
               <div className="grid gap-2 sm:grid-cols-3">
                 {[
-                  { label: 'Secure connection', Icon: ShieldCheck },
-                  { label: 'Read Previo data', Icon: Wifi },
-                  { label: 'Verify tomorrow', Icon: CheckCircle2 },
+                  { label: nt('secureConnection'), Icon: ShieldCheck },
+                  { label: nt('readPms'), Icon: Wifi },
+                  { label: nt('verifyTomorrow'), Icon: CheckCircle2 },
                 ].map(({ label, Icon }, index) => {
                   const complete = index < currentStep;
                   const active = index === currentStep;
@@ -485,13 +487,13 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
                 <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
                   <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
-                    This is taking longer than the {EXPECTED_SYNC_SECONDS}-second target. HotelCare is still working and will retry temporary connection failures automatically. Nothing is being assigned while verification is running.
+                    {nt('slowSync')}
                   </span>
                 </div>
               ) : (
                 <div className="flex items-start gap-2 rounded-xl border bg-background/70 p-3 text-xs text-muted-foreground">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <span>Today’s checkout/daily classification is never reused for tomorrow. The assignment screen opens only after the exact tomorrow snapshot passes verification.</span>
+                  <span>{nt('safetyLock')}</span>
                 </div>
               )}
             </div>
