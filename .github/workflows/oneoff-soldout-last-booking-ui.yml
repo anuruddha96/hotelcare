@@ -20,65 +20,19 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path('src/components/revenue/RateStrategyGrid.tsx')
           text = path.read_text()
-
-          old = '''  /**
-   * The price a room type closed at, frozen when it first sold out. Keyed by
-   * `${roomTypeName}|${date}` and holding the highest guest count on record,
-   * so later bulk / manual / automation changes never rewrite history.
-   */
-  const soldOutByTypeDate = useMemo(() => {
-    const out = new Map<string, { price: number; occupancy: number; capturedAt: string }>();
-    for (const row of soldOutPrices) {
-      if (!Number.isFinite(row.price)) continue;
-      const key = `${row.room_type_name}|${row.stay_date}`;
-      const cur = out.get(key);
-      if (!cur || row.occupancy > cur.occupancy) {
-        out.set(key, { price: Number(row.price), occupancy: row.occupancy, capturedAt: row.captured_at });
-      }
-    }
-    return out;
-  }, [soldOutPrices]);'''
-          new = '''  /**
-   * The actual closing sale for a room type/date: the nightly amount and guest
-   * count from the reservation that consumed the final available unit. The
-   * database now guarantees one active record per room type/date. If a stale
-   * cached payload briefly contains older duplicates, prefer the newest capture
-   * instead of ever assuming that the highest guest-count rate sold last.
-   */
-  const soldOutByTypeDate = useMemo(() => {
-    const out = new Map<string, { price: number; occupancy: number; capturedAt: string }>();
-    for (const row of soldOutPrices) {
-      if (!Number.isFinite(row.price)) continue;
-      const key = `${row.room_type_name}|${row.stay_date}`;
-      const cur = out.get(key);
-      const rowAt = Date.parse(row.captured_at);
-      const curAt = cur ? Date.parse(cur.capturedAt) : Number.NEGATIVE_INFINITY;
-      if (!cur || (Number.isFinite(rowAt) && (!Number.isFinite(curAt) || rowAt > curAt))) {
-        out.set(key, { price: Number(row.price), occupancy: row.occupancy, capturedAt: row.captured_at });
-      }
-    }
-    return out;
-  }, [soldOutPrices]);'''
-          if old not in text:
-              raise SystemExit('soldOutByTypeDate block not found')
-          text = text.replace(old, new, 1)
-
-          text = text.replace('const topOcc = frozen?.occupancy ?? null;', 'const soldOcc = frozen?.occupancy ?? null;', 1)
-          old_title = '`${row.typeName} · sold out on ${d}${closedAt != null ? ` — closed at ${eur(closedAt)} for ${topOcc} ${topOcc === 1 ? "guest" : "guests"}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`'
-          new_title = '`${row.typeName} · sold out on ${d}${closedAt != null ? ` — last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`'
-          if old_title not in text:
-              raise SystemExit('sold-out title not found')
-          text = text.replace(old_title, new_title, 1)
-
-          old_price = '<span className="font-semibold opacity-80" style={{ fontSize: fz(9) }}>{priceLabel(closedAt)}</span>'
-          new_price = '<span className="font-semibold opacity-80" style={{ fontSize: fz(9) }}>{priceLabel(closedAt)}{soldOcc != null ? ` · ${soldOcc}g` : ""}</span>'
-          if old_price not in text:
-              raise SystemExit('sold-out visible price not found')
-          text = text.replace(old_price, new_price, 1)
-
+          pairs = [
+              ('and holding the highest guest count on record,', 'and holding the actual guest count from the reservation that sold the final unit,'),
+              ('if (!cur || row.occupancy > cur.occupancy) {', 'if (!cur || row.captured_at > cur.capturedAt) {'),
+              ('const topOcc = frozen?.occupancy ?? null;', 'const soldOcc = frozen?.occupancy ?? null;'),
+              (' — closed at ${eur(closedAt)} for ${topOcc} ${topOcc === 1 ? "guest" : "guests"}', ' — last sold at ${eur(closedAt)} for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}'),
+              ('>{priceLabel(closedAt)}</span>', '>{priceLabel(closedAt)}{soldOcc != null ? ` · ${soldOcc}g` : ""}</span>'),
+          ]
+          for old, new in pairs:
+              if old not in text:
+                  raise SystemExit(f'Expected UI fragment not found: {old}')
+              text = text.replace(old, new, 1)
           path.write_text(text)
           Path('.github/workflows/oneoff-soldout-last-booking-ui.yml').unlink()
           PY
