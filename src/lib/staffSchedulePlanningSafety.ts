@@ -3,6 +3,7 @@ export type StaffScheduleLifecycleStatus = "draft" | "published";
 export interface HousekeepingScheduleCandidate {
   scheduleStatus: StaffScheduleLifecycleStatus | string | null | undefined;
   department: string | null | undefined;
+  workStatus?: string | null;
   scheduleDate: string;
   userId: string;
   hotelId: string;
@@ -21,6 +22,7 @@ export interface HousekeepingPlanningEligibility {
     | "eligible"
     | "schedule_not_published"
     | "not_housekeeping"
+    | "not_working"
     | "missing_identity"
     | "manual_assignment_preserved"
     | "started_assignment_preserved"
@@ -45,6 +47,12 @@ export function getHousekeepingPlanningEligibility(
 
   if ((candidate.department ?? "").trim().toLowerCase() !== "housekeeping") {
     return { eligible: false, reason: "not_housekeeping" };
+  }
+
+  // Published leave/off/sick/training records remain valid HR schedule states,
+  // but only an explicit working shift may feed room-assignment automation.
+  if ((candidate.workStatus ?? "working").trim().toLowerCase() !== "working") {
+    return { eligible: false, reason: "not_working" };
   }
 
   if (!candidate.userId || !candidate.hotelId || !candidate.scheduleDate) {
