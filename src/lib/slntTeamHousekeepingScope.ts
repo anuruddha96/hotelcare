@@ -21,11 +21,16 @@ export type TeamWorkloadSummary = {
   totalCount: number;
 };
 
-export async function loadActiveSlntTeamRoomIds(
+export type ActiveSlntTeamScope = {
+  teamId: string;
+  roomIds: string[];
+};
+
+export async function loadActiveSlntTeamScope(
   organizationSlug: string,
   hotelId: string,
   teamCode = SLNT_TEAM_B_CODE,
-): Promise<string[]> {
+): Promise<ActiveSlntTeamScope> {
   const { data: team, error: teamError } = await (supabase as any)
     .from('housekeeping_teams')
     .select('id,assignment_mode,is_active')
@@ -48,7 +53,15 @@ export async function loadActiveSlntTeamRoomIds(
     (mappings || []).map((row: any) => String(row.room_id || '')).filter(Boolean),
   ));
   if (roomIds.length === 0) throw new Error(`SLNT housekeeping team ${teamCode} has no active room mapping.`);
-  return roomIds;
+  return { teamId: String(team.id), roomIds };
+}
+
+export async function loadActiveSlntTeamRoomIds(
+  organizationSlug: string,
+  hotelId: string,
+  teamCode = SLNT_TEAM_B_CODE,
+): Promise<string[]> {
+  return (await loadActiveSlntTeamScope(organizationSlug, hotelId, teamCode)).roomIds;
 }
 
 /**
