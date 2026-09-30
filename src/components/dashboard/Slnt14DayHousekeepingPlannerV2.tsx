@@ -17,7 +17,8 @@ import {
 } from '@/lib/nextDayHousekeepingSnapshot';
 import {
   filterRoomsToMappedTeam,
-  loadActiveSlntTeamRoomIds,
+  filterSnapshotRowsToMappedRooms,
+  loadActiveSlntTeamScope,
   summarizeTeamWorkload,
 } from '@/lib/slntTeamHousekeepingScope';
 import { Badge } from '@/components/ui/badge';
@@ -26,7 +27,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SlntSelectedDateAssignmentPlanner } from './SlntSelectedDateAssignmentPlanner';
 
-type PlanStatus = 'draft' | 'approved' | 'releasing' | 'released' | 'cancelled' | 'failed';
 type SyncMode = 'range' | 'daily-fallback' | null;
 
 type DaySummary = {
@@ -37,7 +37,7 @@ type DaySummary = {
   towelCount: number;
   linenCount: number;
   pmsCapturedAt: string | null;
-  planStatus: PlanStatus | null;
+  queuedTasks: number;
   publishedStaff: number;
   draftStaff: number;
   offStaff: number;
@@ -51,14 +51,10 @@ function formatDay(date: string) {
   };
 }
 
-function planBadge(status: PlanStatus | null) {
-  if (status === 'released') return <Badge className="bg-emerald-600">Released</Badge>;
-  if (status === 'approved') return <Badge className="bg-emerald-600">Approved</Badge>;
-  if (status === 'releasing') return <Badge>Releasing</Badge>;
-  if (status === 'draft') return <Badge variant="outline">Draft</Badge>;
-  if (status === 'failed') return <Badge variant="destructive">Needs review</Badge>;
-  if (status === 'cancelled') return <Badge variant="secondary">Cancelled</Badge>;
-  return <Badge variant="secondary">Not prepared</Badge>;
+function queueBadge(count: number) {
+  return count > 0
+    ? <Badge className="bg-emerald-600">Team queued · {count}</Badge>
+    : <Badge variant="secondary">Not prepared</Badge>;
 }
 
 async function invokeSlntOverview(args: { hotelId: string; fromDate: string; toDate: string; days: number }) {
@@ -88,42 +84,46 @@ export function Slnt14DayHousekeepingPlannerV2() {
 
   const loadStoredRange = useCallback(async (hotelId: string, hotelKeys: string[]) => {
     if (!organizationSlug) return;
-    const teamRoomIds = await loadActiveSlntTeamRoomIds(organizationSlug, hotelId);
+    const teamScope = await loadActiveSlntTeamScope(organizationSlug, hotelId);
 
-    const [roomResult, snapshotResult, planResult, scheduleResult] = await Promise.all([
-      supabase
-        .from('rooms')
+    const [roomResult, snapshotResult, scheduleResult, taskResult] = await Promise.all([
+      supabase.from('rooms')
         .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
         .in('hotel', hotelKeys),
       (supabase as any).from('daily_overview_snapshots')
         .select('business_date,room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
         .eq('organization_slug', organizationSlug).eq('hotel_id', hotelId).eq('source', 'previo')
         .gte('business_date', planningWindow.fromDate).lt('business_date', planningWindow.toDateExclusive),
-      (supabase as any).from('next_day_housekeeping_plans')
-        .select('plan_date,status').eq('organization_slug', organizationSlug).eq('hotel_id', hotelId)
-        .gte('plan_date', planningWindow.fromDate).lt('plan_date', planningWindow.toDateExclusive),
       (supabase as any).from('staff_schedules')
         .select('work_date,status').eq('organization_slug', organizationSlug).eq('hotel_id', hotelId)
         .gte('work_date', planningWindow.fromDate).lt('work_date', planningWindow.toDateExclusive),
+      (supabase as any).from('housekeeping_team_tasks')
+        .select('service_date,status').eq('team_id', teamScope.teamId)
+        .gte('service_date', planningWindow.fromDate).lt('service_date', planningWindow.toDateExclusive)
+        .neq('status', 'cancelled'),
     ]);
     if (roomResult.error) throw roomResult.error;
     if (snapshotResult.error) throw snapshotResult.error;
-    if (planResult.error) throw planResult.error;
     if (scheduleResult.error) throw scheduleResult.error;
+    if (taskResult.error) throw taskResult.error;
 
-    const rooms = filterRoomsToMappedTeam(roomResult.data || [], teamRoomIds);
-    if (rooms.length !== teamRoomIds.length) {
-      throw new Error(`Team B room registry is incomplete: ${rooms.length}/${teamRoomIds.length} mapped rooms are available.`);
+    const rooms = filterRoomsToMappedTeam(roomResult.data || [], teamScope.roomIds);
+    if (rooms.length !== teamScope.roomIds.length) {
+      throw new Error(`Team B room registry is incomplete: ${rooms.length}/${teamScope.roomIds.length} mapped rooms are available.`);
     }
-    const snapshotRows = (snapshotResult.data || []) as Array<DailyOverviewWorkRow & { business_date: string }>;
-    if (snapshotRows.length === 0) {
+
+    const portfolioSnapshotRows = (snapshotResult.data || []) as Array<DailyOverviewWorkRow & { business_date: string }>;
+    if (portfolioSnapshotRows.length === 0) {
       throw new Error('Previo returned no future reservation snapshot. The planner will not guess Team B workload.');
     }
-
-    const snapshotsByDate = groupRowsByBusinessDate(snapshotRows, planningWindow.dates);
-    const planByDate = new Map<string, PlanStatus>((planResult.data || []).map((plan: any) => [plan.plan_date, plan.status as PlanStatus]));
+    const scopedSnapshotRows = filterSnapshotRowsToMappedRooms(portfolioSnapshotRows, rooms);
+    const snapshotsByDate = groupRowsByBusinessDate(scopedSnapshotRows, planningWindow.dates);
     const schedulesByDate = groupRowsByBusinessDate(
       ((scheduleResult.data || []) as Array<{ work_date: string; status: string }>).map(row => ({ ...row, business_date: row.work_date })),
+      planningWindow.dates,
+    );
+    const tasksByDate = groupRowsByBusinessDate(
+      ((taskResult.data || []) as Array<{ service_date: string; status: string }>).map(row => ({ ...row, business_date: row.service_date })),
       planningWindow.dates,
     );
 
@@ -139,7 +139,7 @@ export function Slnt14DayHousekeepingPlannerV2() {
         towelCount: workload.rooms.filter(room => room.towel_change_required === true).length,
         linenCount: workload.rooms.filter(room => room.linen_change_required === true).length,
         pmsCapturedAt: workload.capturedAt,
-        planStatus: planByDate.get(date) || null,
+        queuedTasks: (tasksByDate.get(date) || []).length,
         publishedStaff: schedules.filter(row => row.status === 'published').length,
         draftStaff: schedules.filter(row => row.status === 'draft').length,
         offStaff: schedules.filter(row => row.status === 'off').length,
@@ -230,9 +230,10 @@ export function Slnt14DayHousekeepingPlannerV2() {
           {loading && summaries.length === 0 ? <div className="flex min-h-32 items-start justify-center pt-6 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading Team B reservations…</div> :
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {summaries.map(day => {
-                const label = formatDay(day.date); const selected = selectedDate === day.date;
+                const label = formatDay(day.date);
+                const selected = selectedDate === day.date;
                 return <button key={day.date} type="button" onClick={() => setSelectedDate(day.date)} className={`rounded-xl border p-3 text-left transition hover:border-primary hover:bg-primary/[0.03] ${selected ? 'border-primary ring-1 ring-primary' : 'bg-background'}`}>
-                  <div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{label.weekday} · {label.shortDate}</div><div className="mt-1 text-xs text-muted-foreground">{day.date}</div></div>{planBadge(day.planStatus)}</div>
+                  <div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{label.weekday} · {label.shortDate}</div><div className="mt-1 text-xs text-muted-foreground">{day.date}</div></div>{queueBadge(day.queuedTasks)}</div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
                     <div className="rounded-md bg-muted/60 px-2 py-1.5"><strong className="block text-sm text-foreground">{day.checkoutCount}</strong>Checkout</div>
                     <div className="rounded-md bg-muted/60 px-2 py-1.5"><strong className="block text-sm text-foreground">{day.dailyCount}</strong>Daily</div>
@@ -250,7 +251,7 @@ export function Slnt14DayHousekeepingPlannerV2() {
             </div>}
           {selectedSummary && <div className="sticky bottom-0 mt-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div><div className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4 text-primary" />{selectedSummary.date}</div><p className="mt-1 text-xs text-muted-foreground">{selectedSummary.checkoutCount} confirmed checkouts · {selectedSummary.dailyCount} daily · {selectedSummary.unsoldCount} unbooked · {selectedSummary.publishedStaff} published staff</p></div>
+              <div><div className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4 text-primary" />{selectedSummary.date}</div><p className="mt-1 text-xs text-muted-foreground">{selectedSummary.checkoutCount} confirmed checkouts · {selectedSummary.dailyCount} daily · {selectedSummary.unsoldCount} unbooked · {selectedSummary.queuedTasks} team tasks · {selectedSummary.publishedStaff} published staff</p></div>
               <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => openStaffSchedule(selectedSummary.date)}><Users className="mr-2 h-4 w-4" />Staff schedule</Button><Button size="sm" onClick={() => openDayPlanner(selectedSummary.date)}><Wand2 className="mr-2 h-4 w-4" />Prepare / review date</Button></div>
             </div>
           </div>}
