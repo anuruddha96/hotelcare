@@ -1,0 +1,165 @@
+name: One-off merged revenue event duration bands
+
+on:
+  push:
+    branches:
+      - fix/revenue-event-duration-bands-20260930
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/revenue-event-duration-bands-20260930
+          fetch-depth: 0
+
+      - name: Build merged five-lane event band
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/components/revenue/RateStrategyGrid.tsx')
+          s = p.read_text()
+
+          import_anchor = 'import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";\n'
+          event_import = 'import { buildRevenueEventBands } from "@/lib/revenueEventBands";\n'
+          assert import_anchor in s, 'calendar import anchor missing'
+          if event_import not in s:
+              s = s.replace(import_anchor, import_anchor + event_import, 1)
+
+          dates_anchor = '''  const dates = useMemo(() => allDates.filter((d) => {
+    if (monthFilter && !d.startsWith(monthFilter)) return false;
+    if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
+    if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
+    return true;
+  }), [allDates, monthFilter, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
+'''
+          assert dates_anchor in s, 'visible dates anchor missing'
+          event_layout = dates_anchor + '''
+
+  /**
+   * One continuous visual bar per real event. The source repeats multi-day
+   * events in every stay-date bucket; this layout deduplicates them, preserves
+   * their full duration and keeps the five strongest overlapping events.
+   */
+  const eventBands = useMemo(
+    () => buildRevenueEventBands(dates, eventsByDate, 5),
+    [dates, eventsByDate],
+  );
+  // Reserve five readable lanes whenever Events is open. Capping the lane
+  // height prevents a highly zoomed calendar from pushing the rate rows too
+  // far down while still giving phone users materially more vertical space.
+  const EVENT_LANE_H = Math.max(17, Math.min(24, Math.round(20 * zoom)));
+  const EVENT_ROW_H = showEventBand ? Math.max(ROW_H, EVENT_LANE_H * 5 + 6) : ROW_H;
+'''
+          if 'const eventBands = useMemo(' not in s:
+              s = s.replace(dates_anchor, event_layout, 1)
+
+          start_marker = '                {/* Events — top five demand drivers per date, ranked by impact. */}'
+          end_marker = '\n              </div>\n\n\n              {/* ---- Room-type / metric rows ---- */}'
+          start = s.find(start_marker)
+          assert start >= 0, 'events row start marker missing'
+          end = s.find(end_marker, start)
+          assert end >= 0, 'events row end marker missing'
+
+          new_block = r'''                {/* Events — five continuous duration bands, strongest demand drivers first. */}
+                {eventBands.length > 0 && (
+                  <div
+                    className="flex border-b-2 border-b-foreground/20 bg-card"
+                    style={{ height: EVENT_ROW_H }}
+                  >
+                    <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowEventBand((v) => !v)}
+                        className="truncate text-left hover:text-primary"
+                        title={showEventBand ? "Hide event names" : "Show event names"}
+                      >
+                        {railed ? "Ev" : "Events"}
+                      </button>
+                      {!railed && (
+                        <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 5" : "off"}</span>
+                      )}
+                    </div>
+
+                    <div
+                      className="relative shrink-0 overflow-hidden bg-card"
+                      style={{ width: dates.length * CELL_W, height: "100%" }}
+                    >
+                      {/* Date-column background stays visible underneath the merged bars. */}
+                      <div className="absolute inset-0 flex">
+                        {dates.map((d, i) => (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => setDemandDay(d)}
+                            aria-label={`Open events for ${d}`}
+                            className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dayEdge(d)}`}
+                            style={{ width: CELL_W }}
+                          />
+                        ))}
+                      </div>
+
+                      {showEventBand && eventBands.map((band) => {
+                        const impact = String(band.event.impact || "").toLowerCase();
+                        const tone = impact === "high"
+                          ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                          : impact === "medium"
+                            ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                            : "border-border bg-muted/80 text-muted-foreground";
+                        const spanDays = band.endIndex - band.startIndex + 1;
+                        const range = compactEventRange(band.event, band.startDate);
+                        return (
+                          <button
+                            key={band.key}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const offset = Math.max(0, Math.min(rect.width - 1, e.clientX - rect.left));
+                              const withinSpan = Math.min(spanDays - 1, Math.floor(offset / CELL_W));
+                              setDemandDay(dates[band.startIndex + withinSpan] ?? band.startDate);
+                            }}
+                            title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact`}
+                            aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact. Tap for details.`}
+                            className={`absolute z-10 flex min-w-0 items-center gap-1 overflow-hidden rounded-[4px] border px-1 font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
+                            style={{
+                              left: band.startIndex * CELL_W + 1,
+                              width: Math.max(CELL_W - 2, spanDays * CELL_W - 2),
+                              top: 3 + band.lane * EVENT_LANE_H,
+                              height: EVENT_LANE_H - 2,
+                              fontSize: fz(9),
+                            }}
+                          >
+                            <span className="min-w-0 flex-1 truncate">{band.event.title}</span>
+                            {spanDays > 1 && (
+                              <span className="shrink-0 tabular-nums opacity-75">{range}</span>
+                            )}
+                            <Eye className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}'''
+
+          s = s[:start] + new_block + s[end:]
+          p.write_text(s)
+          PY
+
+          git diff --check
+
+      - name: Commit merged duration bands and remove one-off workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/oneoff-event-duration-bands.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/revenue/RateStrategyGrid.tsx .github/workflows/oneoff-event-duration-bands.yml
+          git commit -m "ui: merge multi-day revenue events across date columns"
+          git push origin HEAD:fix/revenue-event-duration-bands-20260930
