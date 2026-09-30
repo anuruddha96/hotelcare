@@ -3,6 +3,7 @@ import {
   autoAssignScheduleAppliesToHotel,
   filterAutoAssignScheduleRowsForHotel,
   getAutoAssignWorkStatus,
+  resolveAutoAssignHotelRosterScope,
   resolveAutoAssignStaffDefaults,
   scheduleDurationMinutes,
   type AutoAssignScheduleRow,
@@ -135,5 +136,46 @@ describe('Auto Assign published staff schedule bridge', () => {
     );
 
     expect(result.map(item => item.id)).toEqual(['local', 'borrowed']);
+  });
+
+  it('keeps the home roster authoritative while excluding a published transfer and admitting the destination worker', () => {
+    const rows = [
+      row({ id: 'moved-away', hotel_id: 'hotel-a', user_id: 'a', staff_schedule_venues: [{ venue_id: 'venue-b' }] }),
+      row({ id: 'incoming', hotel_id: 'hotel-c', user_id: 'borrowed', staff_schedule_venues: [{ venue_id: 'venue-a' }] }),
+    ];
+    const venues = new Map([
+      ['venue-a', 'hotel-a'],
+      ['venue-b', 'hotel-b'],
+    ]);
+
+    const home = resolveAutoAssignHotelRosterScope(rows, new Set(['hotel-a']), venues, new Set(['a']));
+    expect([...home.excludedLocalStaffIds]).toEqual(['a']);
+    expect([...home.incomingStaffIds]).toEqual(['borrowed']);
+    expect(home.scheduleRows.map(item => item.id)).toEqual(['moved-away', 'incoming']);
+
+    const defaults = resolveAutoAssignStaffDefaults(home.scheduleRows, ['a'], new Set(['borrowed']));
+    expect(defaults.hasPublishedRoster).toBe(true);
+    expect([...defaults.selectedStaffIds]).toEqual(['borrowed']);
+  });
+
+  it('does not let a draft cross-property assignment change the active staff pool', () => {
+    const draftTransfer = row({
+      id: 'draft-transfer',
+      hotel_id: 'hotel-a',
+      user_id: 'a',
+      status: 'draft',
+      published_at: null,
+      staff_schedule_venues: [{ venue_id: 'venue-b' }],
+    });
+    const scope = resolveAutoAssignHotelRosterScope(
+      [draftTransfer],
+      new Set(['hotel-a']),
+      new Map([['venue-b', 'hotel-b']]),
+      new Set(['a']),
+    );
+
+    expect(scope.excludedLocalStaffIds.size).toBe(0);
+    expect(scope.incomingStaffIds.size).toBe(0);
+    expect(scope.scheduleRows).toEqual([]);
   });
 });
