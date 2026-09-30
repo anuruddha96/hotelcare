@@ -4,6 +4,8 @@ export interface HousekeepingScheduleCandidate {
   scheduleStatus: StaffScheduleLifecycleStatus | string | null | undefined;
   department: string | null | undefined;
   workStatus?: string | null;
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
   scheduleDate: string;
   userId: string;
   hotelId: string;
@@ -24,6 +26,7 @@ export interface HousekeepingPlanningEligibility {
     | "not_housekeeping"
     | "not_working"
     | "missing_identity"
+    | "invalid_shift_window"
     | "manual_assignment_preserved"
     | "started_assignment_preserved"
     | "completed_assignment_preserved";
@@ -33,12 +36,21 @@ export interface HousekeepingPlanningEligibility {
  * Safety gate for later automatic housekeeping planning.
  *
  * Master Staff Schedule remains the source of truth for who is working. Only
- * published housekeeping schedules with an explicit working state may feed
- * automatic planning. Existing room work always wins: manual edits and
- * started/completed assignments must never be overwritten by schedule-driven
- * automation.
+ * published housekeeping schedules with an explicit working state and usable
+ * shift window may feed automatic planning. Existing room work always wins:
+ * manual edits and started/completed assignments must never be overwritten by
+ * schedule-driven automation.
  */
-const isValidShiftTime = (value: string | null | undefined): boolean => {\n  if (!value) return false;\n  const match = value.trim().match(/^(\\d{2}):(\\d{2})(?::\\d{2})?$/);\n  if (!match) return false;\n  const hours = Number(match[1]);\n  const minutes = Number(match[2]);\n  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;\n};\n\nexport function getHousekeepingPlanningEligibility(
+const isValidShiftTime = (value: string | null | undefined): boolean => {
+  if (!value) return false;
+  const match = value.trim().match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return false;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+};
+
+export function getHousekeepingPlanningEligibility(
   candidate: HousekeepingScheduleCandidate,
   existingAssignment?: ExistingRoomAssignmentState | null,
 ): HousekeepingPlanningEligibility {
@@ -51,14 +63,22 @@ const isValidShiftTime = (value: string | null | undefined): boolean => {\n  if 
   }
 
   // Fail closed. Legacy/malformed records without work_status must not silently
-  // become eligible for future automatic room assignment. The schedule writer
-  // should explicitly persist "working" before automation can consume it.
+  // become eligible for future automatic room assignment.
   if ((candidate.workStatus ?? "").trim().toLowerCase() !== "working") {
     return { eligible: false, reason: "not_working" };
   }
 
   if (!candidate.userId || !candidate.hotelId || !candidate.scheduleDate) {
     return { eligible: false, reason: "missing_identity" };
+  }
+
+  // Equal start/end is rejected, while overnight shifts remain valid.
+  if (
+    !isValidShiftTime(candidate.shiftStart) ||
+    !isValidShiftTime(candidate.shiftEnd) ||
+    candidate.shiftStart?.slice(0, 5) === candidate.shiftEnd?.slice(0, 5)
+  ) {
+    return { eligible: false, reason: "invalid_shift_window" };
   }
 
   if (existingAssignment?.completed) {
