@@ -1,0 +1,71 @@
+name: One-off revenue event row height
+
+on:
+  push:
+    branches:
+      - fix/revenue-event-row-height-left-align-20260930
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/revenue-event-row-height-left-align-20260930
+          fetch-depth: 0
+
+      - name: Make event band taller and left aligned
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/components/revenue/RateStrategyGrid.tsx')
+          s = p.read_text()
+
+          old_geometry = '''  const EVENT_LANE_H = Math.max(17, Math.min(24, Math.round(20 * zoom)));
+  const EVENT_ROW_H = showEventBand ? Math.max(ROW_H, EVENT_LANE_H * 5 + 6) : ROW_H;'''
+          new_geometry = '''  // Give the Events band enough vertical room to scan five demand drivers on
+  // a phone. `minHeight` on the rendered row below also prevents the scroll
+  // viewport from flex-shrinking these five lanes back into a single strip.
+  const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
+  const EVENT_ROW_H = showEventBand ? Math.max(ROW_H * 3, EVENT_LANE_H * 5 + 12) : ROW_H;'''
+          assert old_geometry in s, 'event geometry anchor missing'
+          s = s.replace(old_geometry, new_geometry, 1)
+
+          marker = '                {/* Events — five continuous duration bands, strongest demand drivers first. */}'
+          start = s.index(marker)
+          head, tail = s[:start], s[start:]
+
+          old_row = 'className="flex border-b-2 border-b-foreground/20 bg-card"\n                    style={{ height: EVENT_ROW_H }}'
+          new_row = 'className="flex shrink-0 border-b-2 border-b-foreground/20 bg-card"\n                    style={{ height: EVENT_ROW_H, minHeight: EVENT_ROW_H }}'
+          assert old_row in tail, 'event row height anchor missing'
+          tail = tail.replace(old_row, new_row, 1)
+
+          old_button = 'className={`absolute z-10 flex min-w-0 items-center gap-1 overflow-hidden rounded-[4px] border px-1 font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}'
+          new_button = 'className={`absolute z-10 flex min-w-0 items-center justify-start gap-1 overflow-hidden rounded-[4px] border px-1 text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}'
+          assert old_button in tail, 'event band button anchor missing'
+          tail = tail.replace(old_button, new_button, 1)
+
+          old_title = '<span className="min-w-0 flex-1 truncate">{band.event.title}</span>'
+          new_title = '<span className="min-w-0 flex-1 truncate text-left">{band.event.title}</span>'
+          assert old_title in tail, 'event title anchor missing'
+          tail = tail.replace(old_title, new_title, 1)
+
+          p.write_text(head + tail)
+          PY
+
+          git diff --check
+
+      - name: Commit UI change and remove one-off workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/oneoff-event-row-height.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/revenue/RateStrategyGrid.tsx .github/workflows/oneoff-event-row-height.yml
+          git commit -m "ui: enlarge revenue event lanes and left-align spans"
+          git push origin HEAD:fix/revenue-event-row-height-left-align-20260930
