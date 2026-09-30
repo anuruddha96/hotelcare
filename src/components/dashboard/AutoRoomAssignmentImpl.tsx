@@ -91,6 +91,7 @@ import {
 } from '@/lib/autoAssignStaffAvailability';
 import {
   getAutoAssignWorkStatus,
+  resolveAutoAssignHotelRosterScope,
   resolveAutoAssignStaffDefaults,
   scheduleDurationMinutes,
   type AutoAssignScheduleRow,
@@ -230,7 +231,6 @@ export function AutoRoomAssignment({
   const [assignmentPreviews, setAssignmentPreviews] = useState<AssignmentPreview[]>([]);
   const [previewHistory, setPreviewHistory] = useState<AssignmentPreview[][]>([]);
   const [selectedRoomForMove, setSelectedRoomForMove] = useState<{ roomId: string; fromStaffId: string } | null>(null);
-  // Independently controlled: drag/tap-to-move remains available while rooms are checked for a bulk transfer.
   const [bulkSelectedRoomIds, setBulkSelectedRoomIds] = useState<Set<string>>(new Set());
   const [bulkDestinationStaffId, setBulkDestinationStaffId] = useState<string>('');
   const [dragOverStaffId, setDragOverStaffId] = useState<string | null>(null);
@@ -246,9 +246,7 @@ export function AutoRoomAssignment({
   const [overAllocatedStaff, setOverAllocatedStaff] = useState<AssignmentPreview[]>([]);
   const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map());
   const [sectionTaskTemplates, setSectionTaskTemplates] = useState<HousekeepingSectionTaskTemplate[]>([]);
-  // Manager overrides of the automatic public-area owner, keyed by section task id.
   const [sectionTaskOwners, setSectionTaskOwners] = useState<Map<string, string>>(new Map());
-  // Public-area work already started/finished today: owner is fixed, no reassignment.
   const [lockedSectionTasks, setLockedSectionTasks] = useState<Map<string, { status: string; assignedTo: string | null }>>(new Map());
   const [draggingAreaTaskId, setDraggingAreaTaskId] = useState<string | null>(null);
   const [nextDayPlan, setNextDayPlan] = useState<NextDayPlan | null>(null);
@@ -273,8 +271,6 @@ export function AutoRoomAssignment({
   const roomSectionsRef = useRef<Map<string, { id: string; name: string }>>(new Map());
 
   const saveKey = getSaveKey(profile?.organization_slug, profile?.assigned_hotel, selectedDate);
-  // The shared duty bridge is populated before Gozsdu's board mounts. Count
-  // only CLEANING staff; selected laundry collectors never enter the preview.
   const cleaningStaffIds = useMemo(
     () => new Set([...selectedStaffIds].filter(id => !isGozsdu || !isActiveGozsduLaundryner(id))),
     [selectedStaffIds, isGozsdu, laundryDutyIds],
@@ -303,8 +299,6 @@ export function AutoRoomAssignment({
       .map(room => ({ room, fromStaffId: person.staffId })),
   ), [assignmentPreviews, bulkSelectedRoomIds]);
 
-  // Live PMS refresh and regeneration can remove rooms from the preview. Never
-  // keep a hidden selection that might later move a different room by mistake.
   useEffect(() => {
     const available = new Set(assignmentPreviews.flatMap(person => person.rooms.map(room => room.id)));
     setBulkSelectedRoomIds(previous => {
@@ -318,11 +312,6 @@ export function AutoRoomAssignment({
     [assignmentPreviews, sectionTaskTemplates],
   );
 
-  /**
-   * The public-area work as the manager currently sees it: automatic owner,
-   * overridden by a drag/shuffle, and finally pinned to the real owner when
-   * the task is already in progress or done for the day.
-   */
   const sectionTasks = useMemo(() => automaticSectionTasks.map(task => {
     const locked = lockedSectionTasks.get(task.id);
     const lockedOwnerId = locked && locked.status !== 'assigned' ? locked.assignedTo : null;
@@ -407,7 +396,6 @@ export function AutoRoomAssignment({
       try {
         currentRooms = await fetchVerifiedGozsduAutoAssignRooms(currentRooms, profile.organization_slug, selectedDate);
       } catch (error) {
-        // Keep the last verified preview; never replace it with misleading imported flags.
         console.warn('[Gozsdu Auto Assign] date-matched PMS refresh not verified', error);
         return;
       }
@@ -511,7 +499,7 @@ export function AutoRoomAssignment({
       const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
       hotelKeysRef.current = hotelKeys;
 
-      const { data: staffData, error: staffErr } = await supabase
+      const { data: localStaffData, error: staffErr } = await supabase
         .from('profiles')
         .select('id, full_name, nickname')
         .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
@@ -519,38 +507,69 @@ export function AutoRoomAssignment({
         .eq('organization_slug', profile.organization_slug)
         .order('full_name');
       if (staffErr) throw staffErr;
-      const staffList = (staffData || []) as StaffForAssignment[];
-      setAllStaff(staffList);
-
-      const hotelStaffIds = new Set(staffList.map(staff => staff.id));
+      const rawLocalStaff = (localStaffData || []) as StaffForAssignment[];
+      const rawLocalStaffIds = new Set(rawLocalStaff.map(staff => staff.id));
 
       let scheduleResult = await (supabase as any)
         .from('staff_schedules')
-        .select('id,user_id,work_date,shift_start,shift_end,status,work_status,notes,published_at,staff_schedule_venues(venue_id)')
+        .select('id,hotel_id,user_id,work_date,shift_start,shift_end,status,work_status,notes,published_at,staff_schedule_venues(venue_id)')
         .eq('organization_slug', profile.organization_slug)
-        .eq('hotel_id', profile.assigned_hotel)
         .eq('work_date', selectedDate);
 
-      // Keep Auto Assign usable while the Phase 1 work_status migration is
-      // still rolling through an environment. The legacy resolver below maps
-      // old status values into the same operational model.
       if (scheduleResult.error && String(scheduleResult.error.message ?? '').toLowerCase().includes('work_status')) {
         scheduleResult = await (supabase as any)
           .from('staff_schedules')
-          .select('id,user_id,work_date,shift_start,shift_end,status,notes,published_at,staff_schedule_venues(venue_id)')
+          .select('id,hotel_id,user_id,work_date,shift_start,shift_end,status,notes,published_at,staff_schedule_venues(venue_id)')
           .eq('organization_slug', profile.organization_slug)
-          .eq('hotel_id', profile.assigned_hotel)
           .eq('work_date', selectedDate);
       }
       if (scheduleResult.error) throw scheduleResult.error;
 
-      const scheduleRows = (scheduleResult.data || []) as AutoAssignScheduleRow[];
+      const { data: venueRows, error: venueError } = await supabase
+        .from('venues')
+        .select('id, hotel_id')
+        .eq('organization_slug', profile.organization_slug);
+      if (venueError) throw venueError;
+
+      const currentHotelIds = new Set<string>([
+        ...(hotelKeys || []),
+        ...(profile.assigned_hotel ? [profile.assigned_hotel] : []),
+      ]);
+      const venueHotelById = new Map<string, string>(
+        (venueRows || []).map((venue: any) => [venue.id, venue.hotel_id]),
+      );
+      const allScheduleRows = (scheduleResult.data || []) as AutoAssignScheduleRow[];
+      const rosterScope = resolveAutoAssignHotelRosterScope(
+        allScheduleRows,
+        currentHotelIds,
+        venueHotelById,
+        rawLocalStaffIds,
+      );
+
+      const localStaff = rawLocalStaff.filter(staff => !rosterScope.excludedLocalStaffIds.has(staff.id));
+      let incomingStaff: StaffForAssignment[] = [];
+      if (rosterScope.incomingStaffIds.size > 0) {
+        const { data: borrowedData, error: borrowedError } = await supabase
+          .from('profiles')
+          .select('id, full_name, nickname')
+          .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
+          .in('id', Array.from(rosterScope.incomingStaffIds))
+          .eq('organization_slug', profile.organization_slug)
+          .order('full_name');
+        if (borrowedError) throw borrowedError;
+        incomingStaff = (borrowedData || []) as StaffForAssignment[];
+      }
+
+      const staffById = new Map<string, StaffForAssignment>();
+      for (const staff of [...localStaff, ...incomingStaff]) staffById.set(staff.id, staff);
+      const staffList = Array.from(staffById.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
+      setAllStaff(staffList);
+      const hotelStaffIds = new Set(staffList.map(staff => staff.id));
+      const scheduleRows = rosterScope.scheduleRows;
+
       let attendanceStaffIds: string[] = [];
       let staffDefaults = resolveAutoAssignStaffDefaults(scheduleRows, attendanceStaffIds, hotelStaffIds);
 
-      // Attendance is a fallback only when there is no published roster at all.
-      // A published roster containing only Off/Leave/Sick/Training is an
-      // intentional zero-cleaner decision and must not be overwritten here.
       if (!staffDefaults.hasPublishedRoster) {
         const { data: attendanceData, error: attendanceError } = await supabase
           .from('staff_attendance')
@@ -609,8 +628,6 @@ export function AutoRoomAssignment({
         sectionTaskRows = sectionTasksResult.data || [];
       }
 
-      // Public-area rows already created for this hotel/date: anything past
-      // 'assigned' is being worked on and must keep its current owner.
       const sectionTaskIds = sectionTaskRows.map((task: any) => task.id);
       if (!isNextDayPlanning && sectionTaskIds.length > 0) {
         const { data: liveTaskRows } = await (supabase as any)
@@ -748,7 +765,6 @@ export function AutoRoomAssignment({
         selectedFromDb = new Set<string>([...Array.from(checked), ...Array.from(ownerIds)]);
       }
 
-      // Existing live work must NEVER be hidden if database duty state conflicts.
       if (isGozsdu && existingRows.some(row => isActiveGozsduLaundryner(row.assigned_to))) {
         throw new Error('A Laundryner still owns cleaning work. Resolve this conflict before Auto Assign.');
       }
@@ -824,7 +840,6 @@ export function AutoRoomAssignment({
         .eq('organization_slug', profile.organization_slug)
         .order('last_seen_at', { ascending: false })
         .limit(250);
-      // Keep tenant-specific historical signals bounded, recent and interpretable.
       const recentPatterns = (patternData || []).flatMap(pattern => {
         const age = pattern.last_seen_at ? (Date.now() - Date.parse(pattern.last_seen_at)) / 86400000 : 999;
         if (!Number.isFinite(age) || age < 0 || age > 180 || pattern.pair_count < 2) return [];
@@ -867,10 +882,6 @@ export function AutoRoomAssignment({
 
     let restored = false;
     try {
-      // Live Gozsdu PMS changes during the shift: never resurrect an older
-      // local 48-room snapshot when today's authoritative workload is 35.
-      // A current-day draft explicitly tagged by yesterday's approved plan is
-      // the only exception; it was rebuilt against today's verified PMS data.
       const carryForwardMarkerKey = `hk_carry_forward_v1_${profile?.organization_slug || 'unknown'}_${profile?.assigned_hotel || 'unknown'}_${selectedDate}`;
       const hasTaggedCarryForwardDraft = isGozsdu && localStorage.getItem(carryForwardMarkerKey) !== null;
       if (isGozsdu && !hasTaggedCarryForwardDraft) localStorage.removeItem(saveKey);
@@ -904,8 +915,6 @@ export function AutoRoomAssignment({
     void fetchData(restored);
   }, [open, selectedDate]);
 
-  // Done in the Laundryner picker invalidates only this board's unconfirmed
-  // suggestion. Do not change its React key, unmount the modal or refetch PMS.
   useEffect(() => {
     if (!open || !isGozsdu || laundryCommitRef.current === laundryDutyCommitRevision) return;
     laundryCommitRef.current = laundryDutyCommitRevision;
@@ -940,7 +949,6 @@ export function AutoRoomAssignment({
     try {
       localStorage.setItem(saveKey, JSON.stringify(data));
     } catch {
-      // Browser storage is best-effort only.
     }
   }, [open, saveKey, isGozsdu, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds, lockedRoomIds]);
 
@@ -1015,10 +1023,6 @@ export function AutoRoomAssignment({
   const handleGeneratePreview = async () => {
     const selectedStaff = allStaff.filter(staff => cleaningStaffIds.has(staff.id));
     const roomsToAssign = effectiveRooms;
-    // Attendance/schedule decides the default selection only. A manager can
-    // deliberately remove a checked-in cleaner (for training, another duty,
-    // sickness, etc.) and the remaining workload must be replanned around the
-    // cleaners that are still selected.
     const staffPoolChanged = hasAutoAssignStaffPoolChanged(assignmentPreviews, cleaningStaffIds);
     if (selectedStaff.length === 0 || roomsToAssign.length === 0) {
       if (isGozsdu) toast.warning(selectedStaff.length === 0
@@ -1038,10 +1042,8 @@ export function AutoRoomAssignment({
         .maybeSingle();
       const settings = (configData?.settings as any) || {};
       if (settings.wing_zone_mapping) hotelConfig.wingZoneMapping = settings.wing_zone_mapping;
-
       hotelConfig.staffPreferences = historicalPreferences;
     } catch {
-      // Smart settings are optional; assignment still works with algorithm defaults.
     }
 
     try {
@@ -1060,27 +1062,18 @@ export function AutoRoomAssignment({
         hotelConfig.checkoutFirstGrouping = !!profileRow.checkout_first;
       }
     } catch {
-      // Per-hotel tuning is optional.
     }
 
-    // Published roster rows contribute real shift capacity. Manually added
-    // cleaners remain allowed even without a published row; they use the
-    // algorithm's standard shift capacity rather than being blocked.
     const shiftMinutes = new Map<string, number>();
     for (const staff of selectedStaff) {
       const minutes = scheduleDurationMinutes(publishedScheduleByStaff.get(staff.id));
       if (minutes !== null) shiftMinutes.set(staff.id, minutes);
     }
-    // Movable area overrides owned by a cleaner the manager just excluded are
-    // released back to the planner. Already-started area work remains fixed.
     const nextSectionTaskOwners = selectedOwnerOverrides(sectionTaskOwners, cleaningStaffIds);
     const fixedAreaOwners = new Map(nextSectionTaskOwners);
     lockedSectionTasks.forEach((value, taskId) => {
       if (value.status !== 'assigned' && value.assignedTo) fixedAreaOwners.set(taskId, value.assignedTo);
     });
-    // A room can enter progress after the board opened. Always reload its
-    // live ownership before suggesting any rearrangement; manager availability
-    // changes may redistribute assigned rooms, but never work already started.
     let currentWorkRows: Array<{ room_id: string; assigned_to: string; status: string }> = [];
     if (!isNextDayPlanning && roomsToAssign.length) {
       const { data: currentWork, error: currentWorkError } = await supabase
@@ -1118,9 +1111,6 @@ export function AutoRoomAssignment({
       }
     }
 
-    // Preserve manual room locks only while their owner is still selected.
-    // Deselecting a cleaner is an explicit instruction to release that
-    // cleaner's not-started rooms back into the automatic distribution.
     const previousOwners = new Map(assignmentPreviews.flatMap(person =>
       person.rooms.map(room => [room.id, person.staffId] as const)));
     const fixedRoomOwners = new Map<string, string>();
@@ -1171,9 +1161,6 @@ export function AutoRoomAssignment({
     pushHistory(assignmentPreviews);
     setAssignmentPreviews(previews);
     if (staffPoolChanged) {
-      // The new staff pool is authoritative for all not-started cleaning work.
-      // Keep only locks that still belong to selected cleaners and release any
-      // movable area/manual-extra assignments owned by excluded cleaners.
       setLockedRoomIds(new Set(enforcedLocks));
       setSectionTaskOwners(nextSectionTaskOwners);
       setPublicAreaAssignments(previous => new Map(
@@ -1202,8 +1189,6 @@ export function AutoRoomAssignment({
 
   const applyRoomMove = (roomId: string, fromStaffId: string, toStaffId: string) => {
     if (!roomId || !fromStaffId || !toStaffId || fromStaffId === toStaffId) return;
-    // Building restrictions apply to automatic proposals. A deliberate manual
-    // move may override the route only for a verified manager role.
     const managerOverride = isGozsdu && hasManagerPowers(profile?.role);
     const next = moveRoom(assignmentPreviews, roomId, fromStaffId, toStaffId, managerOverride);
     if (isGozsdu && next === assignmentPreviews) {
@@ -1262,7 +1247,7 @@ export function AutoRoomAssignment({
     if (managerOverride && !gozsduAllocationRespectsBuildings(result.previews)) {
       toast.info('Manager override: the selected rooms cross mapped buildings. Automatic allocation rules remain unchanged.');
     }
-    pushHistory(assignmentPreviews); // one Undo restores the whole bulk action
+    pushHistory(assignmentPreviews);
     setLockedRoomIds(previous => new Set([...previous, ...result.movedRoomIds]));
     setAssignmentPreviews(result.previews);
     setFairnessMetrics(computeFairnessMetrics(result.previews));
@@ -1326,7 +1311,6 @@ export function AutoRoomAssignment({
     return null;
   };
 
-  /** Move one public-area task to another housekeeper (blocked once started). */
   const movePublicAreaTask = (taskId: string, toStaffId: string) => {
     const task = sectionTasks.find(item => item.id === taskId);
     if (!task) return;
@@ -1346,7 +1330,6 @@ export function AutoRoomAssignment({
     toast.success(`${task.task_name} → ${toName}`);
   };
 
-  /** Redistribute only the movable public-area tasks across the busiest-last staff. */
   const shufflePublicAreas = () => {
     const eligible = assignmentPreviews.filter(preview => cleaningStaffIds.has(preview.staffId));
     if (eligible.length === 0) return;
@@ -1356,7 +1339,6 @@ export function AutoRoomAssignment({
       return;
     }
 
-    // Start from the room workload plus the minutes already pinned by locked tasks.
     const load = new Map(eligible.map(preview => [preview.staffId, preview.totalWithBreak]));
     for (const task of sectionTasks) {
       if (!task.lockedStatus) continue;
@@ -1485,8 +1467,6 @@ export function AutoRoomAssignment({
       }
       const currentByRoom = new Map(currentRows.map(row => [row.room_id, row]));
 
-      // Stage-specific maintenance hold: only the selected room is changed.
-      // Reservation/PMS data and all other room statuses remain untouched.
       for (const roomId of maintenanceHoldRoomIds) {
         const room = dirtyRooms.find(candidate => candidate.id === roomId);
         if (!room) continue;
@@ -1511,9 +1491,6 @@ export function AutoRoomAssignment({
         if (error) throw error;
       }
 
-      // Delta-only save. Unchanged assignments are not written. A moved room
-      // updates only assigned_to/assigned_by via the shared safe helper, which
-      // preserves ready_to_clean, PMS hold, notes, progress and timestamps.
       for (const { room, staffId } of finalEntries) {
         const current = currentByRoom.get(room.id);
         if (current?.assigned_to === staffId) continue;
@@ -1530,15 +1507,11 @@ export function AutoRoomAssignment({
         });
       }
 
-      // Only rooms that were part of the manager's original editable board can
-      // be removed. This prevents a save from deleting unrelated assignments.
       for (const roomId of initialIds) {
         if (!finalIds.has(roomId) && currentByRoom.has(roomId)) {
           await unassignRoom(roomId, selectedDate);
         }
       }
-      // A maintenance hold on a newly-current assignment must also release the
-      // cleaner, but again only for that explicit room.
       for (const roomId of maintenanceHoldRoomIds) {
         if (!initialIds.has(roomId) && currentByRoom.has(roomId)) {
           await unassignRoom(roomId, selectedDate);
@@ -1851,7 +1824,6 @@ export function AutoRoomAssignment({
     </motion.div>
   );
 
-  // Read from the verified, date-scoped Gozsdu duty session, never a draft.
   const laundrynerStaff = isGozsdu ? allStaff.filter(staff => isLaundryner(staff.id)) : [];
 
   return (

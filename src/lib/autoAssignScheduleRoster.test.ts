@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  autoAssignScheduleAppliesToHotel,
+  filterAutoAssignScheduleRowsForHotel,
   getAutoAssignWorkStatus,
+  resolveAutoAssignHotelRosterScope,
   resolveAutoAssignStaffDefaults,
   scheduleDurationMinutes,
   type AutoAssignScheduleRow,
@@ -11,6 +14,7 @@ const eligible = new Set(['a', 'b', 'c', 'd', 'e']);
 function row(overrides: Partial<AutoAssignScheduleRow> = {}): AutoAssignScheduleRow {
   return {
     id: 'schedule-1',
+    hotel_id: 'hotel-a',
     user_id: 'a',
     work_date: '2026-09-30',
     shift_start: '09:00',
@@ -81,5 +85,97 @@ describe('Auto Assign published staff schedule bridge', () => {
     expect(scheduleDurationMinutes(row({ shift_start: '22:00', shift_end: '06:00' }))).toBe(480);
     expect(scheduleDurationMinutes(row({ status: 'draft' }))).toBeNull();
     expect(scheduleDurationMinutes(row({ work_status: 'training' }))).toBeNull();
+  });
+
+  it('matches a local base-hotel schedule to that hotel when no working venue is specified', () => {
+    expect(autoAssignScheduleAppliesToHotel(
+      row({ hotel_id: 'hotel-a', staff_schedule_venues: [] }),
+      new Set(['hotel-a']),
+      new Map(),
+    )).toBe(true);
+  });
+
+  it('matches a borrowed employee when HR schedules them at a venue belonging to the current hotel', () => {
+    expect(autoAssignScheduleAppliesToHotel(
+      row({ hotel_id: 'hotel-a', user_id: 'borrowed', staff_schedule_venues: [{ venue_id: 'venue-b' }] }),
+      new Set(['hotel-b']),
+      new Map([['venue-b', 'hotel-b']]),
+    )).toBe(true);
+  });
+
+  it('does not also expose a borrowed employee at the base hotel when an explicit working venue exists', () => {
+    expect(autoAssignScheduleAppliesToHotel(
+      row({ hotel_id: 'hotel-a', user_id: 'borrowed', staff_schedule_venues: [{ venue_id: 'venue-b' }] }),
+      new Set(['hotel-a']),
+      new Map([['venue-b', 'hotel-b']]),
+    )).toBe(false);
+  });
+
+  it('does not leak a schedule into an unrelated property', () => {
+    expect(autoAssignScheduleAppliesToHotel(
+      row({ hotel_id: 'hotel-a', staff_schedule_venues: [{ venue_id: 'venue-b' }] }),
+      new Set(['hotel-c']),
+      new Map([['venue-b', 'hotel-b']]),
+    )).toBe(false);
+  });
+
+  it('filters a mixed organization roster to local and explicitly borrowed staff only', () => {
+    const rows = [
+      row({ id: 'local', hotel_id: 'hotel-b', user_id: 'local' }),
+      row({ id: 'borrowed', hotel_id: 'hotel-a', user_id: 'borrowed', staff_schedule_venues: [{ venue_id: 'venue-b' }] }),
+      row({ id: 'other', hotel_id: 'hotel-a', user_id: 'other', staff_schedule_venues: [{ venue_id: 'venue-c' }] }),
+    ];
+
+    const result = filterAutoAssignScheduleRowsForHotel(
+      rows,
+      new Set(['hotel-b']),
+      new Map([
+        ['venue-b', 'hotel-b'],
+        ['venue-c', 'hotel-c'],
+      ]),
+    );
+
+    expect(result.map(item => item.id)).toEqual(['local', 'borrowed']);
+  });
+
+  it('keeps the home roster authoritative while excluding a published transfer and admitting the destination worker', () => {
+    const rows = [
+      row({ id: 'moved-away', hotel_id: 'hotel-a', user_id: 'a', staff_schedule_venues: [{ venue_id: 'venue-b' }] }),
+      row({ id: 'incoming', hotel_id: 'hotel-c', user_id: 'borrowed', staff_schedule_venues: [{ venue_id: 'venue-a' }] }),
+    ];
+    const venues = new Map([
+      ['venue-a', 'hotel-a'],
+      ['venue-b', 'hotel-b'],
+    ]);
+
+    const home = resolveAutoAssignHotelRosterScope(rows, new Set(['hotel-a']), venues, new Set(['a']));
+    expect([...home.excludedLocalStaffIds]).toEqual(['a']);
+    expect([...home.incomingStaffIds]).toEqual(['borrowed']);
+    expect(home.scheduleRows.map(item => item.id)).toEqual(['moved-away', 'incoming']);
+
+    const defaults = resolveAutoAssignStaffDefaults(home.scheduleRows, ['a'], new Set(['borrowed']));
+    expect(defaults.hasPublishedRoster).toBe(true);
+    expect([...defaults.selectedStaffIds]).toEqual(['borrowed']);
+  });
+
+  it('does not let a draft cross-property assignment change the active staff pool', () => {
+    const draftTransfer = row({
+      id: 'draft-transfer',
+      hotel_id: 'hotel-a',
+      user_id: 'a',
+      status: 'draft',
+      published_at: null,
+      staff_schedule_venues: [{ venue_id: 'venue-b' }],
+    });
+    const scope = resolveAutoAssignHotelRosterScope(
+      [draftTransfer],
+      new Set(['hotel-a']),
+      new Map([['venue-b', 'hotel-b']]),
+      new Set(['a']),
+    );
+
+    expect(scope.excludedLocalStaffIds.size).toBe(0);
+    expect(scope.incomingStaffIds.size).toBe(0);
+    expect(scope.scheduleRows).toEqual([]);
   });
 });
