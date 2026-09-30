@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Dashboard } from '@/components/dashboard/Dashboard';
+import { MasterStaffSchedulePlanner } from '@/components/dashboard/MasterStaffSchedulePlanner';
 import { MaintenanceIssueDeepLink } from '@/components/dashboard/MaintenanceIssueDeepLink';
 import { StayExtensionReviewQueue } from '@/components/dashboard/StayExtensionReviewQueue';
 import { StayServicePolicySettings } from '@/components/dashboard/StayServicePolicySettings';
@@ -10,6 +11,7 @@ import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScree
 import { isReceptionRole } from '@/lib/roleAccess';
 
 const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'];
+const MASTER_SCHEDULE_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
 
 // Local (not UTC) date key so the "once per day" gate follows the manager's
 // wall clock and doesn't re-trigger when UTC rolls over hours before local
@@ -35,11 +37,15 @@ const readHotelSelectedForToday = (userId?: string) => {
 const Index = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
-  const [searchParams] = useSearchParams();
-  // Dashboard strips ?tab= once it applies it, so latch the intent on mount —
-  // executives can still explicitly open operational tabs.
-  const hasExplicitTab = useRef(!!new URLSearchParams(window.location.search).get('tab'));
-  if (searchParams.get('tab')) hasExplicitTab.current = true;
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Dashboard strips ?tab= once it applies it, so latch explicit navigation
+  // intent on mount. The master schedule uses ?view=staff-schedule and must also
+  // bypass the revenue-first executive redirect.
+  const hasExplicitTab = useRef(
+    !!new URLSearchParams(window.location.search).get('tab') ||
+    !!new URLSearchParams(window.location.search).get('view'),
+  );
+  if (searchParams.get('tab') || searchParams.get('view')) hasExplicitTab.current = true;
   const [hotelSelected, setHotelSelected] = useState(() => readHotelSelectedForToday());
 
   // Re-check with the real user id once auth resolves, and silently carry a
@@ -120,23 +126,52 @@ const Index = () => {
     return <HotelSelectionScreen onHotelSelected={() => setHotelSelected(true)} />;
   }
 
+  const canOpenMasterSchedule = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(profile?.role || '');
+  const showingMasterSchedule = canOpenMasterSchedule && searchParams.get('view') === 'staff-schedule';
+  const toggleMasterSchedule = () => {
+    const next = new URLSearchParams(searchParams);
+    if (showingMasterSchedule) next.delete('view');
+    else next.set('view', 'staff-schedule');
+    setSearchParams(next);
+  };
+
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
       <Header />
-      {profile && MANAGER_ROLES.includes(profile.role) && (
+      {canOpenMasterSchedule && (
+        <div className="container mx-auto flex justify-end px-4 pt-3">
+          <button
+            type="button"
+            onClick={toggleMasterSchedule}
+            className="inline-flex items-center rounded-md border bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
+          >
+            {showingMasterSchedule ? 'Back to dashboard' : 'Master staff schedule'}
+          </button>
+        </div>
+      )}
+
+      {showingMasterSchedule ? (
+        <main className="container mx-auto px-4 py-6">
+          <MasterStaffSchedulePlanner />
+        </main>
+      ) : (
         <>
-          <StayExtensionReviewQueue
-            hotel={profile.assigned_hotel}
-            organizationSlug={profile.organization_slug || organizationSlug}
-          />
-          <StayServicePolicySettings
-            hotel={profile.assigned_hotel}
-            organizationSlug={profile.organization_slug || organizationSlug}
-          />
+          {profile && MANAGER_ROLES.includes(profile.role) && (
+            <>
+              <StayExtensionReviewQueue
+                hotel={profile.assigned_hotel}
+                organizationSlug={profile.organization_slug || organizationSlug}
+              />
+              <StayServicePolicySettings
+                hotel={profile.assigned_hotel}
+                organizationSlug={profile.organization_slug || organizationSlug}
+              />
+            </>
+          )}
+          <Dashboard />
+          <MaintenanceIssueDeepLink />
         </>
       )}
-      <Dashboard />
-      <MaintenanceIssueDeepLink />
     </div>
   );
 };
