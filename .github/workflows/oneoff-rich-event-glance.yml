@@ -1,0 +1,161 @@
+name: One-off rich revenue event glance
+
+on:
+  push:
+    branches:
+      - fix/revenue-rich-event-glance-20260930
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/revenue-rich-event-glance-20260930
+          fetch-depth: 0
+      - name: Restore rich event cards on mobile
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('src/app-entry.tsx')
+          text = app.read_text()
+          text = text.replace('import "./styles/rate-calendar-mobile-events-polish.css";\n', '')
+          text = text.replace('import { installRateCalendarMobileEvents } from "@/lib/rateCalendarMobileEvents";\n', '')
+          text = text.replace('installRateCalendarMobileEvents();\n', '')
+          app.write_text(text)
+
+          p = Path('src/components/revenue/RateStrategyGrid.tsx')
+          text = p.read_text()
+
+          old_import = 'import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound } from "lucide-react";'
+          new_import = 'import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound, Eye } from "lucide-react";'
+          assert old_import in text, 'lucide import shape changed'
+          text = text.replace(old_import, new_import, 1)
+
+          rail = '''function railLabel(label: string): string {
+            const words = label.trim().split(/\\s+/).filter(Boolean);
+            if (words.length === 0) return "—";
+            if (words.length === 1) return words[0].slice(0, 3);
+            return words.slice(0, 3).map((w) => w[0]).join("").toUpperCase();
+          }
+          '''
+          assert rail in text, 'railLabel anchor changed'
+          helper = rail + '''
+          /** Compact visible event range for the narrow calendar columns. The
+           * month is already shown in the calendar header, so same-month events
+           * can spend the pixels on the event name instead of repeating it. */
+          function compactEventRange(event: DemandEventDetail, fallbackDate: string): string {
+            const parse = (value?: string | null) => {
+              const match = /^(\\d{4})-(\\d{2})-(\\d{2})/.exec(value ?? "");
+              if (!match) return null;
+              return { iso: `${match[1]}-${match[2]}-${match[3]}`, month: Number(match[2]), day: Number(match[3]) };
+            };
+            const start = parse(event.start) ?? parse(fallbackDate);
+            const end = parse(event.end) ?? start;
+            if (!start || !end) return "";
+            if (start.iso === end.iso) return String(start.day);
+            if (start.month === end.month) return `${start.day}–${end.day}`;
+            const initials = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+            return `${start.day}${initials[start.month - 1] ?? ""}–${end.day}${initials[end.month - 1] ?? ""}`;
+          }
+          '''
+          text = text.replace(rail, helper, 1)
+
+          text = text.replace('The calendar shows the four strongest signals for each night;', 'The calendar shows the five strongest signals for each night;', 1)
+          text = text.replace('Math.round(74 * zoom)', 'Math.round(84 * zoom)', 1)
+
+          old_button = 'className={`shrink-0 overflow-hidden px-0.5 py-0.5 text-left hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dayBg(d, i)} ${dayEdge(d)}`}'
+          new_button = 'className={`relative shrink-0 overflow-hidden px-0.5 py-0.5 text-left hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dayBg(d, i)} ${dayEdge(d)}`}'
+          assert old_button in text, 'event button class changed'
+          text = text.replace(old_button, new_button, 1)
+
+          old_title = '''title={all.length
+                            ? `${d}\\n${all.map((e, n) => `${n + 1}. ${e.title} — ${e.impact} impact`).join("\\n")}`
+                            : `${d} · no recorded events`}'''
+          new_title = '''title={all.length
+                            ? `${d}\\n${all.map((e, n) => `${n + 1}. ${e.start ?? d}${(e.end ?? e.start ?? d) !== (e.start ?? d) ? ` → ${e.end ?? d}` : ""} · ${e.title} — ${e.impact} impact`).join("\\n")}`
+                            : `${d} · no recorded events`}
+                          aria-label={all.length
+                            ? `${d}: showing the ${Math.min(all.length, 5)} highest-impact events. Tap to view full event details.`
+                            : `${d}: no recorded events.`}'''
+          assert old_title in text, 'event title block changed'
+          text = text.replace(old_title, new_title, 1)
+
+          old_stack = '''<div className="flex h-full flex-col gap-px overflow-hidden">
+                            {visible.map((e, n) => {
+                              const impact = String(e.impact || "").toLowerCase();
+                              const tone = impact === "high"
+                                ? "border-red-400/60 bg-red-500/15 text-red-700 dark:text-red-300"
+                                : impact === "medium"
+                                  ? "border-amber-400/60 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                                  : "border-border bg-muted/60 text-muted-foreground";
+                              return (
+                                <span
+                                  key={`${e.title}|${e.start ?? d}|${n}`}
+                                  className={`block truncate rounded-[2px] border px-0.5 font-medium leading-[11px] ${tone}`}
+                                  style={{ fontSize: fz(8) }}
+                                >
+                                  {impact === "high" ? "H" : impact === "medium" ? "M" : "L"} · {e.title}
+                                </span>
+                              );
+                            })}
+                            {all.length > 5 && (
+                              <span className="block truncate text-center text-[8px] font-semibold text-muted-foreground">
+                                +{all.length - 5} more
+                              </span>
+                            )}
+                          </div>'''
+
+          new_stack = '''<div className="relative flex h-full flex-col gap-px overflow-hidden">
+                            {visible.length > 0 && (
+                              <Eye
+                                className="pointer-events-none absolute right-0.5 top-0.5 z-10 h-2.5 w-2.5 rounded-sm bg-card/85 p-[1px] text-foreground/70 shadow-sm"
+                                aria-hidden="true"
+                              />
+                            )}
+                            {visible.map((e, n) => {
+                              const impact = String(e.impact || "").toLowerCase();
+                              const tone = impact === "high"
+                                ? "border-red-400/60 bg-red-500/15 text-red-700 dark:text-red-300"
+                                : impact === "medium"
+                                  ? "border-amber-400/60 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                                  : "border-border bg-muted/60 text-muted-foreground";
+                              const range = compactEventRange(e, d);
+                              return (
+                                <span
+                                  key={`${e.title}|${e.start ?? d}|${n}`}
+                                  className={`flex min-w-0 items-center gap-0.5 rounded-[2px] border px-0.5 font-medium leading-[12px] ${n === 0 ? "pr-2.5" : ""} ${tone}`}
+                                  style={{ fontSize: fz(8) }}
+                                >
+                                  <span className="shrink-0 font-semibold tracking-[-0.03em]">{range}</span>
+                                  <span className="min-w-0 flex-1 truncate">{e.title}</span>
+                                </span>
+                              );
+                            })}
+                            {all.length > 5 && (
+                              <span className="block truncate text-center text-[8px] font-semibold leading-[9px] text-muted-foreground">
+                                +{all.length - 5} more
+                              </span>
+                            )}
+                          </div>'''
+          assert old_stack in text, 'event stack block changed'
+          text = text.replace(old_stack, new_stack, 1)
+
+          p.write_text(text)
+          PY
+
+          git diff --check
+      - name: Commit rich event glance and remove one-off workflow
+        shell: bash
+        run: |
+          rm .github/workflows/oneoff-rich-event-glance.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app-entry.tsx src/components/revenue/RateStrategyGrid.tsx .github/workflows/oneoff-rich-event-glance.yml
+          git commit -m "ui: restore rich top-five event glance cards"
+          git push origin HEAD:fix/revenue-rich-event-glance-20260930
