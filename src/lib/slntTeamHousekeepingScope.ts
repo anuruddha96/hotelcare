@@ -1,10 +1,15 @@
 import { supabase } from '@/integrations/supabase/client';
-import { isUnsoldPlanningRoom } from '@/lib/nextDayHousekeepingSnapshot';
+import {
+  isUnsoldPlanningRoom,
+  nextDayRoomMatchTokens,
+  type DailyOverviewWorkRow,
+} from '@/lib/nextDayHousekeepingSnapshot';
 
 export const SLNT_TEAM_B_CODE = 'team-b';
 
 export type TeamWorkloadRoom = {
   id: string;
+  room_number?: string | null;
   is_checkout_room?: boolean | null;
   pms_metadata?: Record<string, unknown> | null;
 };
@@ -58,6 +63,27 @@ export function filterRoomsToMappedTeam<T extends { id: string }>(
   const allowed = new Set(mappedRoomIds);
   if (allowed.size === 0) return [];
   return rooms.filter(room => allowed.has(room.id));
+}
+
+/**
+ * The SLNT Previo snapshots are portfolio-wide and include Team A apartments.
+ * Keep only rows that can resolve to one of the explicitly mapped Team B room
+ * labels before asking the generic workload builder to classify them.
+ */
+export function filterSnapshotRowsToMappedRooms<T extends DailyOverviewWorkRow>(
+  rows: T[],
+  rooms: Array<Pick<TeamWorkloadRoom, 'room_number'>>,
+): T[] {
+  const allowedTokens = new Set(
+    rooms.flatMap(room => nextDayRoomMatchTokens(room.room_number)),
+  );
+  if (allowedTokens.size === 0) return [];
+
+  return rows.filter(row => {
+    const tokens = [row.room_number, row.room_label]
+      .flatMap(value => nextDayRoomMatchTokens(value));
+    return tokens.some(token => allowedTokens.has(token));
+  });
 }
 
 /**
