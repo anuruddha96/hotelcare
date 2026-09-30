@@ -63,8 +63,8 @@ function planBadge(status: PlanStatus | null) {
  * It intentionally reuses the same Previo daily-overview feed and selected-date
  * workload builder as tomorrow planning. The preferred path is one range sync
  * covering D+1..D+14. If that range call cannot complete, the exact same edge
- * function is retried once per business date. Group A/B assignment is a later
- * configuration layer and is deliberately not hardcoded here.
+ * function is retried once per business date. Team B is released through the
+ * validated shared-claim queue; Team A and RD assignment behavior stay unchanged.
  */
 export function Slnt14DayHousekeepingPlanner() {
   const { profile } = useAuth();
@@ -295,8 +295,8 @@ export function Slnt14DayHousekeepingPlanner() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto py-4">
-            <div className="mb-4 rounded-lg border border-amber-300/60 bg-amber-50/60 p-3 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
-              <strong>Group mapping pending Excel.</strong> The 14-day PMS, workload, plan lifecycle and Staff Schedule foundations are active now. Group A/B room ownership will be connected as a separate assignment strategy when the mapping sheet is imported.
+            <div className="mb-4 rounded-lg border border-sky-300/60 bg-sky-50/60 p-3 text-sm text-sky-950 dark:bg-sky-950/20 dark:text-sky-100">
+              <strong>Team B shared queue active.</strong> The validated workbook maps 46 SLNT units to Team B. Released Team B rooms stay shared until a scheduled Team B cleaner claims them; Team A remains unchanged.
             </div>
 
             {error && (
