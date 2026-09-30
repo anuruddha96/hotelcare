@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -210,6 +210,23 @@ function railLabel(label: string): string {
   if (words.length === 0) return "—";
   if (words.length === 1) return words[0].slice(0, 3);
   return words.slice(0, 3).map((w) => w[0]).join("").toUpperCase();
+}
+
+
+/** Compact visible start/end range for an event in a narrow date column. */
+function compactEventRange(event: DemandEventDetail, fallbackDate: string): string {
+  const parse = (value?: string | null) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
+    if (!match) return null;
+    return { iso: `${match[1]}-${match[2]}-${match[3]}`, month: Number(match[2]), day: Number(match[3]) };
+  };
+  const start = parse(event.start) ?? parse(fallbackDate);
+  const end = parse(event.end) ?? start;
+  if (!start || !end) return "";
+  if (start.iso === end.iso) return String(start.day);
+  if (start.month === end.month) return `${start.day}–${end.day}`;
+  const initials = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+  return `${start.day}${initials[start.month - 1] ?? ""}–${end.day}${initials[end.month - 1] ?? ""}`;
 }
 
 
@@ -1982,7 +1999,7 @@ export default function RateStrategyGrid({
   /**
    * Rank events independently for every stay date. A long festival no longer
    * reserves a horizontal lane and hides a higher-impact one that starts
-   * later. The calendar shows the four strongest signals for each night;
+   * later. The calendar shows the five strongest signals for each night;
    * the detail dialog still contains the complete event list.
    */
   const rankedEventsByDate = useMemo(() => {
@@ -3093,7 +3110,7 @@ export default function RateStrategyGrid({
                 {dates.some((d) => (rankedEventsByDate.get(d)?.length ?? 0) > 0) && (
                   <div
                     className="flex border-b-2 border-b-foreground/20 bg-card"
-                    style={{ height: (railed || showEventBand) ? Math.max(ROW_H, Math.round(74 * zoom)) : ROW_H }}
+                    style={{ height: (railed || showEventBand) ? Math.max(ROW_H, Math.round(86 * zoom)) : ROW_H }}
                   >
                     <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                       <button
@@ -3119,13 +3136,19 @@ export default function RateStrategyGrid({
                           key={d}
                           type="button"
                           onClick={() => setDemandDay(d)}
-                          className={`shrink-0 overflow-hidden px-0.5 py-0.5 text-left hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dayBg(d, i)} ${dayEdge(d)}`}
+                          className={`relative shrink-0 overflow-hidden px-0.5 py-0.5 text-left hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dayBg(d, i)} ${dayEdge(d)}`}
                           style={{ width: CELL_W }}
                           title={all.length
-                            ? `${d}\n${all.map((e, n) => `${n + 1}. ${e.title} — ${e.impact} impact`).join("\n")}`
+                            ? `${d}\n${all.map((e, n) => `${n + 1}. ${e.start ?? d}${e.end && e.end !== e.start ? ` → ${e.end}` : ""} · ${e.title} — ${e.impact} impact`).join("\n")}`
                             : `${d} · no recorded events`}
                         >
-                          <div className="flex h-full flex-col gap-px overflow-hidden">
+                          <div className="relative flex h-full flex-col gap-px overflow-hidden">
+                            {visible.length > 0 && (
+                              <Eye
+                                className="pointer-events-none absolute right-0.5 top-0.5 z-10 h-2.5 w-2.5 rounded-sm bg-card/85 p-[1px] text-foreground/70 shadow-sm"
+                                aria-hidden="true"
+                              />
+                            )}
                             {visible.map((e, n) => {
                               const impact = String(e.impact || "").toLowerCase();
                               const tone = impact === "high"
@@ -3133,18 +3156,20 @@ export default function RateStrategyGrid({
                                 : impact === "medium"
                                   ? "border-amber-400/60 bg-amber-400/15 text-amber-800 dark:text-amber-300"
                                   : "border-border bg-muted/60 text-muted-foreground";
+                              const range = compactEventRange(e, d);
                               return (
                                 <span
                                   key={`${e.title}|${e.start ?? d}|${n}`}
-                                  className={`block truncate rounded-[2px] border px-0.5 font-medium leading-[11px] ${tone}`}
+                                  className={`flex min-w-0 items-center gap-0.5 rounded-[2px] border px-0.5 font-medium leading-[12px] ${n === 0 ? "pr-2.5" : ""} ${tone}`}
                                   style={{ fontSize: fz(8) }}
                                 >
-                                  {impact === "high" ? "H" : impact === "medium" ? "M" : "L"} · {e.title}
+                                  <span className="shrink-0 font-semibold tracking-[-0.03em]">{range}</span>
+                                  <span className="min-w-0 flex-1 truncate">{e.title}</span>
                                 </span>
                               );
                             })}
                             {all.length > 5 && (
-                              <span className="block truncate text-center text-[8px] font-semibold text-muted-foreground">
+                              <span className="block truncate text-center text-[8px] font-semibold leading-[9px] text-muted-foreground">
                                 +{all.length - 5} more
                               </span>
                             )}
