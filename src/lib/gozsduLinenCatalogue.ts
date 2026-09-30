@@ -21,16 +21,24 @@ export const GOZSDU_LINEN_ENGLISH = [
   'Dekor pillow cover', 'Dekor pillow fill', 'Dark curtain',
 ] as const;
 
-const SLNT_STANDARD_LINEN = [
-  { name: 'sheets', display_name: 'Bedsheet' },
-  { name: 'duvet_covers', display_name: 'Duvet cover' },
-  { name: 'pillowcases', display_name: 'Pillowcase' },
-  { name: 'small_towels', display_name: 'Small towel' },
-  { name: 'big_towels', display_name: 'Large towel' },
-  { name: 'bathmats', display_name: 'Bathmat' },
+export const SLNT_LINEN_NAMES = [
+  'slnt_bedsheet',
+  'slnt_duvet_cover',
+  'slnt_pillowcase',
+  'slnt_small_towel',
+  'slnt_large_towel',
+  'slnt_bathmat',
+  'slnt_dish_towel',
 ] as const;
 
-function isSlntLinenHotel(hotel: string): boolean {
+const SLNT_STANDARD_NAMES = SLNT_LINEN_NAMES.slice(0, 6);
+const SLNT_LABELS = {
+  en: ['Bedsheet', 'Duvet cover', 'Pillowcase', 'Small towel', 'Large towel', 'Bathmat', 'Dish towel'],
+  hu: ['Lepedő', 'Paplanhuzat', 'Párnahuzat', 'Kis törölköző', 'Nagy törölköző', 'Fürdőszobai kilépő', 'Konyharuha'],
+} as const;
+
+export function isSlntLinenHotel(hotel: string | null | undefined): boolean {
+  if (!hotel) return false;
   return hotel.trim().toLowerCase().replace(/[_\s]+/g, '-').includes('slnt');
 }
 
@@ -54,23 +62,29 @@ export function gozsduLinenLabel(item: Pick<LinenCatalogueItem, 'name' | 'displa
   return LOCALIZED[selected][index] || GOZSDU_LINEN_ENGLISH[index];
 }
 
+export function slntLinenLabel(item: Pick<LinenCatalogueItem, 'name' | 'display_name'>, language: string): string {
+  const index = SLNT_LINEN_NAMES.indexOf(item.name as typeof SLNT_LINEN_NAMES[number]);
+  if (index === -1) return item.display_name || item.name.replace(/_/g, ' ');
+  const selected = language.toLowerCase().startsWith('hu') ? 'hu' : 'en';
+  return SLNT_LABELS[selected][index];
+}
+
 async function loadSlntLinenCatalogue(roomId?: string): Promise<LinenCatalogueItem[]> {
-  const standardNames = SLNT_STANDARD_LINEN.map(item => item.name);
-  const { data: standardRows, error: standardError } = await (supabase as any)
+  const { data: scopedRows, error: scopedError } = await (supabase as any)
     .from('dirty_linen_items')
     .select('id,name,display_name,sort_order')
     .eq('is_active', true)
-    .is('hotel_scope', null)
-    .in('name', standardNames);
-  if (standardError) throw standardError;
+    .eq('hotel_scope', 'slnt')
+    .in('name', [...SLNT_LINEN_NAMES]);
+  if (scopedError) throw scopedError;
 
   const byName = new Map<string, LinenCatalogueItem>(
-    ((standardRows || []) as LinenCatalogueItem[]).map(item => [item.name, item]),
+    ((scopedRows || []) as LinenCatalogueItem[]).map(item => [item.name, item]),
   );
-  const standard = SLNT_STANDARD_LINEN.map((definition, index) => {
-    const item = byName.get(definition.name);
-    if (!item) throw new Error(`SLNT linen catalogue is missing ${definition.name}.`);
-    return { ...item, display_name: definition.display_name, sort_order: index + 1 };
+  const standard = SLNT_STANDARD_NAMES.map((name, index) => {
+    const item = byName.get(name);
+    if (!item) throw new Error(`SLNT linen catalogue is missing ${name}.`);
+    return { ...item, sort_order: index + 1 };
   });
 
   if (!roomId) return standard;
@@ -84,16 +98,9 @@ async function loadSlntLinenCatalogue(roomId?: string): Promise<LinenCatalogueIt
     && room?.pms_metadata?.slntLinen?.requiresDishTowel === true;
   if (!requiresDishTowel) return standard;
 
-  const { data: dishTowel, error: dishError } = await (supabase as any)
-    .from('dirty_linen_items')
-    .select('id,name,display_name,sort_order')
-    .eq('is_active', true)
-    .eq('hotel_scope', 'slnt')
-    .eq('name', 'slnt_dish_towel')
-    .maybeSingle();
-  if (dishError) throw dishError;
+  const dishTowel = byName.get('slnt_dish_towel');
   if (!dishTowel) throw new Error('SLNT dish towel item is not configured.');
-  return [...standard, { ...(dishTowel as LinenCatalogueItem), sort_order: 7 }];
+  return [...standard, { ...dishTowel, sort_order: 7 }];
 }
 
 /** User-facing linen inputs: separate Gozsdu, Memories, SLNT, and shared hotel catalogues. */
