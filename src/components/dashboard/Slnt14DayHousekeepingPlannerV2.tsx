@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { NextDayAssignmentPlanner } from './NextDayAssignmentPlanner';
+import { SlntSelectedDateAssignmentPlanner } from './SlntSelectedDateAssignmentPlanner';
 
 type PlanStatus = 'draft' | 'approved' | 'releasing' | 'released' | 'cancelled' | 'failed';
 type SyncMode = 'range' | 'daily-fallback' | null;
@@ -392,7 +392,7 @@ export function Slnt14DayHousekeepingPlannerV2() {
       </Dialog>
 
       {selectedDate && dayPlannerOpen && (
-        <NextDayAssignmentPlanner
+        <SlntSelectedDateAssignmentPlanner
           open={dayPlannerOpen}
           selectedDate={selectedDate}
           onOpenChange={(nextOpen) => {
