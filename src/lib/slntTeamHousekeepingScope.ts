@@ -1,3 +1,4 @@
+import { supabase } from '@/integrations/supabase/client';
 import { isUnsoldPlanningRoom } from '@/lib/nextDayHousekeepingSnapshot';
 
 export const SLNT_TEAM_B_CODE = 'team-b';
@@ -14,6 +15,36 @@ export type TeamWorkloadSummary = {
   unsoldCount: number;
   totalCount: number;
 };
+
+export async function loadActiveSlntTeamRoomIds(
+  organizationSlug: string,
+  hotelId: string,
+  teamCode = SLNT_TEAM_B_CODE,
+): Promise<string[]> {
+  const { data: team, error: teamError } = await (supabase as any)
+    .from('housekeeping_teams')
+    .select('id,assignment_mode,is_active')
+    .eq('organization_slug', organizationSlug)
+    .eq('hotel_id', hotelId)
+    .eq('code', teamCode)
+    .eq('is_active', true)
+    .maybeSingle();
+  if (teamError) throw teamError;
+  if (!team?.id) throw new Error(`SLNT housekeeping team ${teamCode} is not configured.`);
+
+  const { data: mappings, error: mappingError } = await (supabase as any)
+    .from('housekeeping_team_rooms')
+    .select('room_id')
+    .eq('team_id', team.id)
+    .eq('is_active', true);
+  if (mappingError) throw mappingError;
+
+  const roomIds = Array.from(new Set(
+    (mappings || []).map((row: any) => String(row.room_id || '')).filter(Boolean),
+  ));
+  if (roomIds.length === 0) throw new Error(`SLNT housekeeping team ${teamCode} has no active room mapping.`);
+  return roomIds;
+}
 
 /**
  * Fail closed: when no explicit room mapping is supplied, no rooms are returned.
