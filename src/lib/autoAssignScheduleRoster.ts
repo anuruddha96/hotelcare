@@ -22,6 +22,12 @@ export interface AutoAssignStaffDefaults {
   publishedRows: AutoAssignScheduleRow[];
 }
 
+export interface AutoAssignHotelRosterScope {
+  scheduleRows: AutoAssignScheduleRow[];
+  incomingStaffIds: Set<string>;
+  excludedLocalStaffIds: Set<string>;
+}
+
 export type AutoAssignVenueHotelLookup = ReadonlyMap<string, string> | Readonly<Record<string, string>>;
 
 const VALID_WORK_STATUSES = new Set<AutoAssignWorkStatus>([
@@ -96,6 +102,49 @@ export function filterAutoAssignScheduleRowsForHotel(
   venueHotelById: AutoAssignVenueHotelLookup,
 ): AutoAssignScheduleRow[] {
   return scheduleRows.filter(row => autoAssignScheduleAppliesToHotel(row, hotelIds, venueHotelById));
+}
+
+/**
+ * Resolve the rows and staff identities that a hotel's Auto Assign board may
+ * consume. Published base-hotel rows remain part of the roster lifecycle even
+ * when HR has moved that employee to another venue, preventing attendance from
+ * silently pulling transferred staff back into the home hotel. Only published
+ * incoming venue assignments may expand the local staff pool.
+ */
+export function resolveAutoAssignHotelRosterScope(
+  scheduleRows: readonly AutoAssignScheduleRow[],
+  hotelIds: ReadonlySet<string>,
+  venueHotelById: AutoAssignVenueHotelLookup,
+  localStaffIds: ReadonlySet<string>,
+): AutoAssignHotelRosterScope {
+  const applicableRows = filterAutoAssignScheduleRowsForHotel(scheduleRows, hotelIds, venueHotelById);
+  const applicableSet = new Set(applicableRows);
+  const publishedBaseRows = scheduleRows.filter(row =>
+    isPublishedAutoAssignScheduleRow(row)
+    && Boolean(row.hotel_id && hotelIds.has(row.hotel_id)),
+  );
+
+  const rosterRows = scheduleRows.filter(row =>
+    applicableSet.has(row) || publishedBaseRows.includes(row),
+  );
+
+  const excludedLocalStaffIds = new Set(
+    publishedBaseRows
+      .filter(row => localStaffIds.has(row.user_id) && !applicableSet.has(row))
+      .map(row => row.user_id),
+  );
+
+  const incomingStaffIds = new Set(
+    applicableRows
+      .filter(row => isPublishedAutoAssignScheduleRow(row) && !localStaffIds.has(row.user_id))
+      .map(row => row.user_id),
+  );
+
+  return {
+    scheduleRows: rosterRows,
+    incomingStaffIds,
+    excludedLocalStaffIds,
+  };
 }
 
 /**
