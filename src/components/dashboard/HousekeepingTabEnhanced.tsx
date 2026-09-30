@@ -2,7 +2,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { HousekeepingTab as ExistingHousekeepingTab } from './HousekeepingTabLegacy';
 import { HousekeepingRoomSettings } from './HousekeepingRoomSettings';
 import { HousekeepingMobilePolish } from './HousekeepingMobilePolish';
-import { Slnt14DayHousekeepingPlanner } from './Slnt14DayHousekeepingPlanner';
+import { Slnt14DayHousekeepingPlannerV2 } from './Slnt14DayHousekeepingPlannerV2';
 import { SlntTeamBSharedQueue } from './SlntTeamBSharedQueue';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { isSlntOrganization } from '@/lib/slnt14DayHousekeeping';
@@ -45,7 +45,7 @@ export function HousekeepingTabEnhanced(props: Props = {}) {
     <div key={`${profile.organization_slug}:${activeHotel}`} className="space-y-3 hk-mobile-workspace">
       <HousekeepingMobilePolish />
       {isSlnt && <SlntTeamBSharedQueue />}
-      {showSlntFuturePlanner && <Slnt14DayHousekeepingPlanner />}
+      {showSlntFuturePlanner && <Slnt14DayHousekeepingPlannerV2 />}
       <HousekeepingRoomSettings />
       <ExistingHousekeepingTab {...props} />
     </div>
