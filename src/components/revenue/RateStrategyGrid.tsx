@@ -35,6 +35,7 @@ import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/ra
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
+import { buildRevenueEventBands } from "@/lib/revenueEventBands";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import DayChangesSheet from "@/components/revenue/DayChangesSheet";
@@ -1977,6 +1978,22 @@ export default function RateStrategyGrid({
     return true;
   }), [allDates, monthFilter, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
 
+
+  /**
+   * One continuous visual bar per real event. The source repeats multi-day
+   * events in every stay-date bucket; this layout deduplicates them, preserves
+   * their full duration and keeps the five strongest overlapping events.
+   */
+  const eventBands = useMemo(
+    () => buildRevenueEventBands(dates, eventsByDate, 5),
+    [dates, eventsByDate],
+  );
+  // Reserve five readable lanes whenever Events is open. Capping the lane
+  // height prevents a highly zoomed calendar from pushing the rate rows too
+  // far down while still giving phone users materially more vertical space.
+  const EVENT_LANE_H = Math.max(17, Math.min(24, Math.round(20 * zoom)));
+  const EVENT_ROW_H = showEventBand ? Math.max(ROW_H, EVENT_LANE_H * 5 + 6) : ROW_H;
+
   // Navigation is independent of fetched dates: display twelve future month
   // choices without eagerly loading their rate data.
   const monthChips = useMemo(() => nextCalendarMonths(today), [today]);
@@ -3106,11 +3123,11 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
-                {/* Events — top five demand drivers per date, ranked by impact. */}
-                {dates.some((d) => (rankedEventsByDate.get(d)?.length ?? 0) > 0) && (
+                {/* Events — five continuous duration bands, strongest demand drivers first. */}
+                {eventBands.length > 0 && (
                   <div
                     className="flex border-b-2 border-b-foreground/20 bg-card"
-                    style={{ height: (railed || showEventBand) ? Math.max(ROW_H, Math.round(86 * zoom)) : ROW_H }}
+                    style={{ height: EVENT_ROW_H }}
                   >
                     <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                       <button
@@ -3125,58 +3142,65 @@ export default function RateStrategyGrid({
                         <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 5" : "off"}</span>
                       )}
                     </div>
-                    {dates.map((d, i) => {
-                      const all = rankedEventsByDate.get(d) ?? [];
-                      const visible = all.slice(0, 5);
-                      if (!showEventBand && !railed) {
-                        return <div key={d} className={`shrink-0 ${dayBg(d, i)} ${dayEdge(d)}`} style={{ width: CELL_W }} />;
-                      }
-                      return (
-                        <button
-                          key={d}
-                          type="button"
-                          onClick={() => setDemandDay(d)}
-                          className={`relative shrink-0 overflow-hidden px-0.5 py-0.5 text-left hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dayBg(d, i)} ${dayEdge(d)}`}
-                          style={{ width: CELL_W }}
-                          title={all.length
-                            ? `${d}\n${all.map((e, n) => `${n + 1}. ${e.start ?? d}${e.end && e.end !== e.start ? ` → ${e.end}` : ""} · ${e.title} — ${e.impact} impact`).join("\n")}`
-                            : `${d} · no recorded events`}
-                        >
-                          <div className="relative flex h-full flex-col gap-px overflow-hidden">
-                            {visible.length > 0 && (
-                              <Eye
-                                className="pointer-events-none absolute right-0.5 top-0.5 z-10 h-2.5 w-2.5 rounded-sm bg-card/85 p-[1px] text-foreground/70 shadow-sm"
-                                aria-hidden="true"
-                              />
+
+                    <div
+                      className="relative shrink-0 overflow-hidden bg-card"
+                      style={{ width: dates.length * CELL_W, height: "100%" }}
+                    >
+                      {/* Date-column background stays visible underneath the merged bars. */}
+                      <div className="absolute inset-0 flex">
+                        {dates.map((d, i) => (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => setDemandDay(d)}
+                            aria-label={`Open events for ${d}`}
+                            className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dayEdge(d)}`}
+                            style={{ width: CELL_W }}
+                          />
+                        ))}
+                      </div>
+
+                      {showEventBand && eventBands.map((band) => {
+                        const impact = String(band.event.impact || "").toLowerCase();
+                        const tone = impact === "high"
+                          ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                          : impact === "medium"
+                            ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                            : "border-border bg-muted/80 text-muted-foreground";
+                        const spanDays = band.endIndex - band.startIndex + 1;
+                        const range = compactEventRange(band.event, band.startDate);
+                        return (
+                          <button
+                            key={band.key}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const offset = Math.max(0, Math.min(rect.width - 1, e.clientX - rect.left));
+                              const withinSpan = Math.min(spanDays - 1, Math.floor(offset / CELL_W));
+                              setDemandDay(dates[band.startIndex + withinSpan] ?? band.startDate);
+                            }}
+                            title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact`}
+                            aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact. Tap for details.`}
+                            className={`absolute z-10 flex min-w-0 items-center gap-1 overflow-hidden rounded-[4px] border px-1 font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
+                            style={{
+                              left: band.startIndex * CELL_W + 1,
+                              width: Math.max(CELL_W - 2, spanDays * CELL_W - 2),
+                              top: 3 + band.lane * EVENT_LANE_H,
+                              height: EVENT_LANE_H - 2,
+                              fontSize: fz(9),
+                            }}
+                          >
+                            <span className="min-w-0 flex-1 truncate">{band.event.title}</span>
+                            {spanDays > 1 && (
+                              <span className="shrink-0 tabular-nums opacity-75">{range}</span>
                             )}
-                            {visible.map((e, n) => {
-                              const impact = String(e.impact || "").toLowerCase();
-                              const tone = impact === "high"
-                                ? "border-red-400/60 bg-red-500/15 text-red-700 dark:text-red-300"
-                                : impact === "medium"
-                                  ? "border-amber-400/60 bg-amber-400/15 text-amber-800 dark:text-amber-300"
-                                  : "border-border bg-muted/60 text-muted-foreground";
-                              const range = compactEventRange(e, d);
-                              return (
-                                <span
-                                  key={`${e.title}|${e.start ?? d}|${n}`}
-                                  className={`flex min-w-0 items-center gap-0.5 rounded-[2px] border px-0.5 font-medium leading-[12px] ${n === 0 ? "pr-2.5" : ""} ${tone}`}
-                                  style={{ fontSize: fz(8) }}
-                                >
-                                  <span className="shrink-0 font-semibold tracking-[-0.03em]">{range}</span>
-                                  <span className="min-w-0 flex-1 truncate">{e.title}</span>
-                                </span>
-                              );
-                            })}
-                            {all.length > 5 && (
-                              <span className="block truncate text-center text-[8px] font-semibold leading-[9px] text-muted-foreground">
-                                +{all.length - 5} more
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
+                            <Eye className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
