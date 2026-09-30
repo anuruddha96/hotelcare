@@ -1991,8 +1991,10 @@ export default function RateStrategyGrid({
   // Reserve five readable lanes whenever Events is open. Capping the lane
   // height prevents a highly zoomed calendar from pushing the rate rows too
   // far down while still giving phone users materially more vertical space.
-  const EVENT_LANE_H = Math.max(17, Math.min(24, Math.round(20 * zoom)));
-  const EVENT_ROW_H = showEventBand ? Math.max(ROW_H, EVENT_LANE_H * 5 + 6) : ROW_H;
+  // Give the Events band enough vertical room to scan five demand drivers on
+  // a phone. minHeight on the rendered row prevents flex shrinking.
+  const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
+  const EVENT_ROW_H = showEventBand ? Math.max(ROW_H * 3, EVENT_LANE_H * 5 + 12) : ROW_H;
 
   // Navigation is independent of fetched dates: display twelve future month
   // choices without eagerly loading their rate data.
@@ -3126,8 +3128,8 @@ export default function RateStrategyGrid({
                 {/* Events — five continuous duration bands, strongest demand drivers first. */}
                 {eventBands.length > 0 && (
                   <div
-                    className="flex border-b-2 border-b-foreground/20 bg-card"
-                    style={{ height: EVENT_ROW_H }}
+                    className="flex shrink-0 border-b-2 border-b-foreground/20 bg-card"
+                    style={{ height: EVENT_ROW_H, minHeight: EVENT_ROW_H }}
                   >
                     <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                       <button
@@ -3183,7 +3185,7 @@ export default function RateStrategyGrid({
                             }}
                             title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact`}
                             aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact. Tap for details.`}
-                            className={`absolute z-10 flex min-w-0 items-center gap-1 overflow-hidden rounded-[4px] border px-1 font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
+                            className={`absolute z-10 flex min-w-0 items-center justify-start gap-1 overflow-hidden rounded-[4px] border px-1 text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
                             style={{
                               left: band.startIndex * CELL_W + 1,
                               width: Math.max(CELL_W - 2, spanDays * CELL_W - 2),
@@ -3192,7 +3194,7 @@ export default function RateStrategyGrid({
                               fontSize: fz(9),
                             }}
                           >
-                            <span className="min-w-0 flex-1 truncate">{band.event.title}</span>
+                            <span className="min-w-0 flex-1 truncate text-left">{band.event.title}</span>
                             {spanDays > 1 && (
                               <span className="shrink-0 tabular-nums opacity-75">{range}</span>
                             )}
