@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UsersRound } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -3089,11 +3089,11 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
-                {/* Events — top four demand drivers per date, ranked by impact. */}
+                {/* Events — top five demand drivers per date, ranked by impact. */}
                 {dates.some((d) => (rankedEventsByDate.get(d)?.length ?? 0) > 0) && (
                   <div
                     className="flex border-b-2 border-b-foreground/20 bg-card"
-                    style={{ height: showEventBand ? Math.max(ROW_H, Math.round(62 * zoom)) : ROW_H }}
+                    style={{ height: (railed || showEventBand) ? Math.max(ROW_H, Math.round(74 * zoom)) : ROW_H }}
                   >
                     <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                       <button
@@ -3105,13 +3105,13 @@ export default function RateStrategyGrid({
                         {railed ? "Ev" : "Events"}
                       </button>
                       {!railed && (
-                        <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 4" : "off"}</span>
+                        <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 5" : "off"}</span>
                       )}
                     </div>
                     {dates.map((d, i) => {
                       const all = rankedEventsByDate.get(d) ?? [];
-                      const visible = all.slice(0, 4);
-                      if (!showEventBand) {
+                      const visible = all.slice(0, 5);
+                      if (!showEventBand && !railed) {
                         return <div key={d} className={`shrink-0 ${dayBg(d, i)} ${dayEdge(d)}`} style={{ width: CELL_W }} />;
                       }
                       return (
@@ -3136,16 +3136,16 @@ export default function RateStrategyGrid({
                               return (
                                 <span
                                   key={`${e.title}|${e.start ?? d}|${n}`}
-                                  className={`block truncate rounded-[2px] border px-0.5 font-medium leading-[12px] ${tone}`}
+                                  className={`block truncate rounded-[2px] border px-0.5 font-medium leading-[11px] ${tone}`}
                                   style={{ fontSize: fz(8) }}
                                 >
                                   {impact === "high" ? "H" : impact === "medium" ? "M" : "L"} · {e.title}
                                 </span>
                               );
                             })}
-                            {all.length > 4 && (
+                            {all.length > 5 && (
                               <span className="block truncate text-center text-[8px] font-semibold text-muted-foreground">
-                                +{all.length - 4} more
+                                +{all.length - 5} more
                               </span>
                             )}
                           </div>
@@ -3172,9 +3172,21 @@ export default function RateStrategyGrid({
 
                   >
                     {railed ? (
-                      <span className="w-full truncate text-center" style={{ fontSize: fz(10) }} title={row.label}>
-                        {row.kind === "rate" ? `${row.occ}g` : railLabel(row.label)}
-                      </span>
+                      row.kind === "rate" ? (
+                        <span
+                          className="inline-flex w-full items-center justify-center gap-0.5 tabular-nums text-foreground"
+                          style={{ fontSize: fz(10) }}
+                          title={`${row.occ} ${row.occ === 1 ? "guest" : "guests"}`}
+                          aria-label={`${row.occ} ${row.occ === 1 ? "guest" : "guests"}`}
+                        >
+                          <UserRound className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
+                          <span>{row.occ}</span>
+                        </span>
+                      ) : (
+                        <span className="w-full truncate text-center" style={{ fontSize: fz(10) }} title={row.label}>
+                          {railLabel(row.label)}
+                        </span>
+                      )
                     ) : row.kind === "group" ? (
                       <span className="leading-tight line-clamp-2 break-words" title={row.label}>
                         {row.label}
