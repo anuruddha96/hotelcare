@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest } from '@/lib/budapestTime';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { maintenanceStaffLanguageOverrides } from '@/lib/maintenanceStaffLanguageOverrides';
 import { MaintenanceTicketLanguagePanel } from './MaintenanceTicketLanguagePanel';
@@ -60,7 +61,7 @@ const HOLD_REASONS = [
 ] as const;
 
 export function MaintenanceStaffView() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { language } = useTranslation();
   const c: Copy = { ...(translations[language] || EN), ...(maintenanceStaffLanguageOverrides[language] || {}) };
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -71,6 +72,7 @@ export function MaintenanceStaffView() {
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string[]>>({});
   const [historyRevision, setHistoryRevision] = useState<Record<string, number>>({});
   const previouslyAwaiting = useRef<Set<string>>(new Set());
+  const hotelScopeRef = useRef<Set<string>>(new Set());
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [dialog, setDialog] = useState<'note' | 'hold' | 'complete' | null>(null);
   const [note, setNote] = useState('');
@@ -82,8 +84,7 @@ export function MaintenanceStaffView() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadAttachmentUrls = useCallback(async (rows: Ticket[]) => {
-    const map: Record<string, string[]> = {};
-    for (const ticket of rows) {
+    const entries = await Promise.all(rows.map(async ticket => {
       const direct: string[] = [];
       const privatePaths: string[] = [];
       for (const value of ticket.attachment_urls || []) {
@@ -91,28 +92,50 @@ export function MaintenanceStaffView() {
         else privatePaths.push(value);
       }
       const signed = privatePaths.length ? await getSignedPhotoUrls(privatePaths, 'ticket-attachments') : [];
-      map[ticket.id] = [...direct, ...signed];
-    }
-    setAttachmentUrls(map);
+      return [ticket.id, [...direct, ...signed]] as const;
+    }));
+    setAttachmentUrls(Object.fromEntries(entries));
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || !profile?.assigned_hotel || !profile.organization_slug) {
+      setTickets([]);
+      setCompleted([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
+      const hotelKeys = Array.from(new Set([
+        profile.assigned_hotel,
+        ...(await resolveHotelKeys(profile.assigned_hotel)),
+      ].filter(Boolean)));
+      hotelScopeRef.current = new Set(hotelKeys);
       const today = todayBudapest();
+      const ticketSelect = `
+        id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
+        attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
+        created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
+      `;
       const [{ data: attendance }, { data: activeData, error: activeError }, { data: completedData, error: completedError }] = await Promise.all([
         supabase.from('staff_attendance').select('id').eq('user_id', user.id).eq('work_date', today).eq('status', 'checked_in').limit(1),
-        (supabase as any).from('tickets').select(`
-          id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
-          attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `).eq('assigned_to', user.id).eq('department', 'maintenance').or('status.neq.completed,pending_supervisor_approval.eq.true').order('priority', { ascending: false }).order('created_at', { ascending: false }),
-        (supabase as any).from('tickets').select(`
-          id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
-          attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `).eq('assigned_to', user.id).eq('department', 'maintenance').eq('status', 'completed').or('pending_supervisor_approval.is.null,pending_supervisor_approval.eq.false').order('closed_at', { ascending: false }).limit(30),
+        (supabase as any).from('tickets').select(ticketSelect)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('assigned_to', user.id)
+          .eq('department', 'maintenance')
+          .in('hotel', hotelKeys)
+          .or('status.neq.completed,pending_supervisor_approval.eq.true')
+          .order('priority', { ascending: false })
+          .order('created_at', { ascending: false }),
+        (supabase as any).from('tickets').select(ticketSelect)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('assigned_to', user.id)
+          .eq('department', 'maintenance')
+          .in('hotel', hotelKeys)
+          .eq('status', 'completed')
+          .or('pending_supervisor_approval.is.null,pending_supervisor_approval.eq.false')
+          .order('closed_at', { ascending: false })
+          .limit(30),
       ]);
       if (activeError || completedError) throw activeError || completedError;
       setSignedIn(!!attendance?.length);
@@ -132,13 +155,16 @@ export function MaintenanceStaffView() {
       console.error('Maintenance task load failed:', error);
       toast.error(c.failed);
     } finally { setLoading(false); }
-  }, [user?.id, loadAttachmentUrls, c.failed, language]);
+  }, [user?.id, profile?.assigned_hotel, profile?.organization_slug, loadAttachmentUrls, c.failed, language]);
 
   useEffect(() => {
     void refresh();
     if (!user?.id) return;
     const channel = supabase.channel(`maintenance-staff-${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `assigned_to=eq.${user.id}` }, () => void refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `assigned_to=eq.${user.id}` }, (event: any) => {
+        const record = event.new || event.old;
+        if (!record?.hotel || hotelScopeRef.current.has(record.hotel)) void refresh();
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_attendance', filter: `user_id=eq.${user.id}` }, () => void refresh())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
