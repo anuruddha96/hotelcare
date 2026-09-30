@@ -69,21 +69,25 @@ function venueHotelId(lookup: AutoAssignVenueHotelLookup, venueId: string): stri
 }
 
 /**
- * A schedule belongs to a hotel's Auto Assign roster when the employee's base
- * schedule is for that hotel OR HR explicitly scheduled the employee at one of
- * that hotel's working venues. This preserves one schedule source of truth and
- * avoids duplicating borrowed staff into another hotel's staff_schedules rows.
+ * Explicit working venues are authoritative. When HR selects one or more
+ * venues, the employee belongs only to the hotel(s) owning those venues for
+ * this schedule row. The base hotel is the fallback only when no working venue
+ * was selected. This preserves one schedule source of truth without making a
+ * borrowed employee appear at both the home and destination property.
  */
 export function autoAssignScheduleAppliesToHotel(
   row: AutoAssignScheduleRow,
   hotelIds: ReadonlySet<string>,
   venueHotelById: AutoAssignVenueHotelLookup,
 ): boolean {
-  if (row.hotel_id && hotelIds.has(row.hotel_id)) return true;
-  return (row.staff_schedule_venues ?? []).some(({ venue_id }) => {
-    const hotelId = venueHotelId(venueHotelById, venue_id);
-    return Boolean(hotelId && hotelIds.has(hotelId));
-  });
+  const workingVenues = row.staff_schedule_venues ?? [];
+  if (workingVenues.length > 0) {
+    return workingVenues.some(({ venue_id }) => {
+      const hotelId = venueHotelId(venueHotelById, venue_id);
+      return Boolean(hotelId && hotelIds.has(hotelId));
+    });
+  }
+  return Boolean(row.hotel_id && hotelIds.has(row.hotel_id));
 }
 
 export function filterAutoAssignScheduleRowsForHotel(
