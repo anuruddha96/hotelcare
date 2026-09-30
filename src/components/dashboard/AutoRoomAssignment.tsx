@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { todayBudapest } from '@/lib/budapestTime';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { isSlntOrganization } from '@/lib/slnt14DayHousekeeping';
 import {
   clearGozsduLaundryDutySession,
   setGozsduLaundryDutySession,
@@ -14,15 +17,28 @@ type Props = ComponentProps<typeof OriginalAutoRoomAssignment>;
 
 /** Gozsdu alone has a date-specific Laundryner duty. All other hotels use
  * exactly the existing allocation board. The DB must verify exclusion before
- * a new Gozsdu preview can be generated. */
+ * a new Gozsdu preview can be generated.
+ *
+ * SLNT future work is intentionally routed to its isolated 14-day planner.
+ * The current Auto Assign engine remains a current-business-day action there,
+ * so selecting a future date can never accidentally run current-day logic.
+ */
 export function AutoRoomAssignment(props: Props) {
   const { profile } = useAuth();
   const gozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
+  const isSlnt = isSlntOrganization(profile?.organization_slug);
   const [verified, setVerified] = useState(false);
   const [schemaUnavailable, setSchemaUnavailable] = useState(false);
   const [dutyIds, setDutyIds] = useState<string[]>([]);
   const [commitRevision, setCommitRevision] = useState(0);
   const date = props.selectedDate;
+  const slntFutureDate = isSlnt && date !== todayBudapest();
+
+  useEffect(() => {
+    if (!slntFutureDate || !props.open) return;
+    toast.info('Use “Next 14 days assignments” to prepare future SLNT housekeeping work. Auto Assign remains for today.');
+    props.onOpenChange(false);
+  }, [props.onOpenChange, props.open, slntFutureDate]);
 
   useEffect(() => {
     if (gozsdu && props.open) {
@@ -51,6 +67,7 @@ export function AutoRoomAssignment(props: Props) {
     setSchemaUnavailable(true);
   }, [date]);
 
+  if (slntFutureDate) return null;
   if (!gozsdu) return <OriginalAutoRoomAssignment {...props} />;
 
   if (schemaUnavailable) return <>
