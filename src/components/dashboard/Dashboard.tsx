@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -33,7 +33,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Users, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, TrendingUp, Receipt, CarFront } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -58,13 +57,9 @@ interface Ticket {
   pending_supervisor_approval: boolean | null;
   resolution_text: string | null;
   closed_at?: string | null;
-  created_by?: {
-    full_name: string;
-    role: string;
-  };
-  assigned_to?: {
-    full_name: string;
-  };
+  created_by?: { full_name: string; role: string };
+  assigned_to?: { id?: string; full_name: string };
+  closed_by?: { full_name: string };
 }
 
 export function Dashboard() {
@@ -76,7 +71,7 @@ export function Dashboard() {
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [ticketLoadError, setTicketLoadError] = useState<string | null>(null);
@@ -92,6 +87,7 @@ export function Dashboard() {
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
   const [hotelDisplayName, setHotelDisplayName] = useState<string | null>(null);
   const [receptionStaffMap, setReceptionStaffMap] = useState<Record<string, string>>({});
+  const maintenanceHotelScopeRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchStaffForReception = async () => {
@@ -144,28 +140,36 @@ export function Dashboard() {
     try {
       const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
       if (!hotelKeys.length) throw new Error('The selected hotel could not be resolved.');
+      maintenanceHotelScopeRef.current = new Set(hotelKeys);
       const selectColumns = `
-        *,
+        id, ticket_number, title, description, room_number, priority, status, on_hold, hold_reason,
+        sla_due_date, created_at, updated_at, department, hotel, attachment_urls, completion_photos,
+        pending_supervisor_approval, resolution_text, closed_at,
         created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
-        assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role),
+        assigned_to_profile:profiles!tickets_assigned_to_fkey(id, full_name, role),
         closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)
       `;
-      const pageSize = 1000;
-      const all: any[] = [];
-      for (let offset = 0; ; offset += pageSize) {
-        if (offset >= 50000) throw new Error('Too many maintenance issues to load. Narrow the reporting period.');
-        const { data, error } = await (supabase as any).from('tickets')
-          .select(selectColumns)
-          .eq('organization_slug', profile.organization_slug)
-          .eq('department', 'maintenance')
-          .in('hotel', hotelKeys)
-          .order('created_at', { ascending: false })
-          .range(offset, offset + pageSize - 1);
-        if (error) throw error;
-        all.push(...(data || []));
-        if ((data || []).length < pageSize) break;
+      let activeQuery = (supabase as any).from('tickets').select(selectColumns)
+        .eq('organization_slug', profile.organization_slug)
+        .eq('department', 'maintenance')
+        .in('hotel', hotelKeys)
+        .neq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(1000);
+      let completedQuery = (supabase as any).from('tickets').select(selectColumns)
+        .eq('organization_slug', profile.organization_slug)
+        .eq('department', 'maintenance')
+        .in('hotel', hotelKeys)
+        .eq('status', 'completed')
+        .order('closed_at', { ascending: false })
+        .limit(200);
+      if (profile.role === 'maintenance') {
+        activeQuery = activeQuery.eq('assigned_to', profile.id);
+        completedQuery = completedQuery.eq('assigned_to', profile.id);
       }
-      const parsed: Ticket[] = all.map((d: any) => ({
+      const [{ data: activeData, error: activeError }, { data: completedData, error: completedError }] = await Promise.all([activeQuery, completedQuery]);
+      if (activeError || completedError) throw activeError || completedError;
+      const parsed: Ticket[] = [...(activeData || []), ...(completedData || [])].map((d: any) => ({
         id: d.id, ticket_number: d.ticket_number, title: d.title,
         description: d.description, room_number: d.room_number,
         priority: d.priority, status: d.status, on_hold: d.on_hold, hold_reason: d.hold_reason,
@@ -175,7 +179,8 @@ export function Dashboard() {
         resolution_text: d.resolution_text, closed_at: d.closed_at,
         pending_supervisor_approval: d.pending_supervisor_approval,
         created_by: d.created_by_profile ? { full_name: d.created_by_profile.full_name, role: d.created_by_profile.role } : undefined,
-        assigned_to: d.assigned_to_profile ? { full_name: d.assigned_to_profile.full_name } : undefined,
+        assigned_to: d.assigned_to_profile ? { id: d.assigned_to_profile.id, full_name: d.assigned_to_profile.full_name } : undefined,
+        closed_by: d.closed_by_profile ? { full_name: d.closed_by_profile.full_name } : undefined,
       }));
       setTickets(sortMaintenanceTickets(parsed));
     } catch (error: any) {
@@ -190,7 +195,7 @@ export function Dashboard() {
   const openCreatedMaintenanceIssue = async (ticketId: string) => {
     if (!profile?.organization_slug) return;
     const { data, error } = await (supabase as any).from('tickets')
-      .select(`*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role), closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)`)
+      .select(`*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(id, full_name, role), closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)`)
       .eq('id', ticketId).eq('organization_slug', profile.organization_slug)
       .eq('department', 'maintenance').maybeSingle();
     if (error || !data) {
@@ -208,7 +213,8 @@ export function Dashboard() {
       completion_photos: data.completion_photos, resolution_text: data.resolution_text,
       closed_at: data.closed_at, pending_supervisor_approval: data.pending_supervisor_approval,
       created_by: data.created_by_profile ? { full_name: data.created_by_profile.full_name, role: data.created_by_profile.role } : undefined,
-      assigned_to: data.assigned_to_profile ? { full_name: data.assigned_to_profile.full_name } : undefined,
+      assigned_to: data.assigned_to_profile ? { id: data.assigned_to_profile.id, full_name: data.assigned_to_profile.full_name } : undefined,
+      closed_by: data.closed_by_profile ? { full_name: data.closed_by_profile.full_name } : undefined,
     });
   };
 
@@ -229,14 +235,17 @@ export function Dashboard() {
         filter: `organization_slug=eq.${profile.organization_slug}`,
       }, (event: any) => {
         const record = event.new || event.old;
-        if (!record?.department || record.department === 'maintenance') refresh();
+        if (record?.department && record.department !== 'maintenance') return;
+        if (record?.hotel && !maintenanceHotelScopeRef.current.has(record.hotel)) return;
+        if (profile.role === 'maintenance' && record?.assigned_to && record.assigned_to !== profile.id) return;
+        refresh();
       }).subscribe();
     window.addEventListener('maintenance-ticket-created', refresh);
     return () => {
       supabase.removeChannel(channel);
       window.removeEventListener('maintenance-ticket-created', refresh);
     };
-  }, [profile?.id, profile?.assigned_hotel, profile?.organization_slug]);
+  }, [profile?.id, profile?.role, profile?.assigned_hotel, profile?.organization_slug]);
 
   const filteredTickets = tickets.filter(ticket => {
     const query = searchQuery.toLowerCase();

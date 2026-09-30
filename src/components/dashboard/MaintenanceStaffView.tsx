@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { sortMaintenanceTickets } from '@/lib/maintenanceQueue';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { maintenanceStaffLanguageOverrides } from '@/lib/maintenanceStaffLanguageOverrides';
 import { MaintenanceTicketLanguagePanel } from './MaintenanceTicketLanguagePanel';
@@ -19,30 +20,32 @@ import { toast } from 'sonner';
 type Ticket = {
   id: string; ticket_number: string; title: string; description: string; room_number: string; hotel: string | null;
   priority: 'low' | 'medium' | 'high' | 'urgent'; status: 'open' | 'in_progress' | 'completed';
-  created_at: string; updated_at: string; attachment_urls: string[] | null; completion_photos: string[] | null;
+  created_at: string; updated_at: string; sla_due_date: string | null; attachment_urls: string[] | null; completion_photos: string[] | null;
   pending_supervisor_approval: boolean | null; on_hold: boolean | null; hold_reason: string | null; resolution_text: string | null;
   created_by_profile?: { full_name: string; role?: string } | null;
 };
 type Copy = Record<string, string>;
 const EN: Copy = {
-  title: 'My Maintenance Tasks', subtitle: 'Work only on tickets assigned to you for this hotel.', signedIn: 'Signed in', notSignedIn: 'Sign in before starting work',
-  active: 'Active', approval: 'Awaiting approval', done: 'Done', noTasks: 'No maintenance tasks assigned to you.', room: 'Room', hotel: 'Hotel',
-  attachments: 'Attachments', start: 'Start work', note: 'Add note', hold: 'Pending / hold', resume: 'Resume work', complete: 'Complete work',
+  title: 'My Maintenance Tasks', subtitle: 'Work only on tickets assigned to you for this hotel.', signedIn: 'Attendance checked in', notSignedIn: 'Check in under Work Status before starting maintenance work',
+  active: 'Active', approval: 'Awaiting approval', done: 'Done', noTasks: 'No maintenance tasks in this section.', room: 'Room', hotel: 'Hotel',
+  attachments: 'Issue photos', completionPhotos: 'Completion photos', start: 'Start work', note: 'Add note', hold: 'Pending / hold', resume: 'Resume work', complete: 'Complete work',
   statusOpen: 'Open', statusProgress: 'In progress', statusHold: 'Pending', statusApproval: 'Awaiting approval', statusDone: 'Done',
   holdReason: 'Why is this pending?', parts: 'Waiting for parts', purchase: 'Purchase in progress', access: 'Waiting for room access', approvalReason: 'Waiting for approval', contractor: 'External contractor needed', other: 'Other',
   pendingDetails: 'Add details so the supervisor knows what is blocking the repair.', saveHold: 'Save pending reason', cancel: 'Cancel', saveNote: 'Save note', notePlaceholder: 'Write an update for the supervisor…',
   resolutionPlaceholder: 'Describe the repair and what was done…', photoRequired: 'Add one completion photo before submitting.', submitApproval: 'Submit for supervisor approval',
-  workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', refresh: 'Refresh',
+  approvalHint: 'Submitted. No further action is needed unless a supervisor returns the repair for correction.',
+  workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', refresh: 'Refresh', retry: 'Retry', loadFailed: 'Maintenance tasks could not be loaded. Your last visible list has been kept.',
 };
 const HU: Copy = {
-  ...EN, title: 'Karbantartási feladataim', subtitle: 'Csak az Önhöz rendelt, ehhez a hotelhez tartozó jegyeken dolgozzon.', signedIn: 'Bejelentkezve', notSignedIn: 'A munka megkezdése előtt jelentkezzen be',
-  active: 'Aktív', approval: 'Jóváhagyásra vár', done: 'Kész', noTasks: 'Nincs Önhöz rendelt karbantartási feladat.', room: 'Szoba',
-  attachments: 'Mellékletek', start: 'Munka indítása', note: 'Jegyzet', hold: 'Függőben', resume: 'Munka folytatása', complete: 'Munka befejezése',
+  ...EN, title: 'Karbantartási feladataim', subtitle: 'Csak az Önhöz rendelt, ehhez a hotelhez tartozó jegyeken dolgozzon.', signedIn: 'Munkaidő: bejelentkezve', notSignedIn: 'Karbantartási munka indítása előtt jelentkezzen be a Munkaidő menüben',
+  active: 'Aktív', approval: 'Jóváhagyásra vár', done: 'Kész', noTasks: 'Ebben a részben nincs karbantartási feladat.', room: 'Szoba',
+  attachments: 'Hibafotók', completionPhotos: 'Befejezési fotók', start: 'Munka indítása', note: 'Jegyzet', hold: 'Függőben', resume: 'Munka folytatása', complete: 'Munka befejezése',
   statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusHold: 'Függőben', statusApproval: 'Jóváhagyásra vár', statusDone: 'Kész',
   holdReason: 'Miért van függőben?', parts: 'Alkatrészre vár', purchase: 'Beszerzés folyamatban', access: 'Szobahozzáférésre vár', approvalReason: 'Jóváhagyásra vár', contractor: 'Külső szakember szükséges', other: 'Egyéb',
   pendingDetails: 'Írjon részleteket, hogy a felügyelő lássa, mi akadályozza a javítást.', saveHold: 'Függő ok mentése', cancel: 'Mégse', saveNote: 'Jegyzet mentése', notePlaceholder: 'Írjon frissítést a felügyelőnek…',
   resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoRequired: 'A beküldés előtt adjon hozzá egy befejezési fotót.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
-  workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', refresh: 'Frissítés',
+  approvalHint: 'Beküldve. Nincs további teendő, kivéve ha a felügyelő javításra visszaküldi.',
+  workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', refresh: 'Frissítés', retry: 'Újra', loadFailed: 'A karbantartási feladatok betöltése sikertelen. Az előző lista megmaradt.',
 };
 const translations: Record<string, Copy> = {
   en: EN, hu: HU,
@@ -68,11 +71,16 @@ export function MaintenanceStaffView() {
   const [completed, setCompleted] = useState<Ticket[]>([]);
   const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [activeTab, setActiveTab] = useState<'active' | 'approval' | 'done'>('active');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string[]>>({});
+  const [completionPhotoUrls, setCompletionPhotoUrls] = useState<Record<string, string[]>>({});
   const [historyRevision, setHistoryRevision] = useState<Record<string, number>>({});
+  const [busyTicketId, setBusyTicketId] = useState<string | null>(null);
   const previouslyAwaiting = useRef<Set<string>>(new Set());
   const hotelScopeRef = useRef<Set<string>>(new Set());
+  const hasLoadedRef = useRef(false);
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [dialog, setDialog] = useState<'note' | 'hold' | 'complete' | null>(null);
   const [note, setNote] = useState('');
@@ -83,28 +91,40 @@ export function MaintenanceStaffView() {
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const loadAttachmentUrls = useCallback(async (rows: Ticket[]) => {
-    const entries = await Promise.all(rows.map(async ticket => {
-      const direct: string[] = [];
-      const privatePaths: string[] = [];
-      for (const value of ticket.attachment_urls || []) {
-        if (value.startsWith('http://') || value.startsWith('https://')) direct.push(value);
-        else privatePaths.push(value);
-      }
-      const signed = privatePaths.length ? await getSignedPhotoUrls(privatePaths, 'ticket-attachments') : [];
-      return [ticket.id, [...direct, ...signed]] as const;
-    }));
-    setAttachmentUrls(Object.fromEntries(entries));
+  const signValues = useCallback(async (values: string[] | null) => {
+    const direct: string[] = [];
+    const privatePaths: string[] = [];
+    for (const value of values || []) {
+      if (value.startsWith('http://') || value.startsWith('https://')) direct.push(value);
+      else privatePaths.push(value);
+    }
+    const signed = privatePaths.length ? await getSignedPhotoUrls(privatePaths, 'ticket-attachments') : [];
+    return [...direct, ...signed];
   }, []);
+
+  const loadVisiblePhotoUrls = useCallback(async (rows: Ticket[]) => {
+    if (!rows.length) return;
+    const entries = await Promise.all(rows.map(async ticket => {
+      const [attachments, completionPhotos] = await Promise.all([
+        signValues(ticket.attachment_urls),
+        signValues(ticket.completion_photos),
+      ]);
+      return { id: ticket.id, attachments, completionPhotos };
+    }));
+    setAttachmentUrls(prev => ({ ...prev, ...Object.fromEntries(entries.map(entry => [entry.id, entry.attachments])) }));
+    setCompletionPhotoUrls(prev => ({ ...prev, ...Object.fromEntries(entries.map(entry => [entry.id, entry.completionPhotos])) }));
+  }, [signValues]);
 
   const refresh = useCallback(async () => {
     if (!user?.id || !profile?.assigned_hotel || !profile.organization_slug) {
       setTickets([]);
       setCompleted([]);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
-    setLoading(true);
+    if (hasLoadedRef.current) setRefreshing(true); else setLoading(true);
+    setLoadError(false);
     try {
       const hotelKeys = Array.from(new Set([
         profile.assigned_hotel,
@@ -113,7 +133,7 @@ export function MaintenanceStaffView() {
       hotelScopeRef.current = new Set(hotelKeys);
       const today = todayBudapest();
       const ticketSelect = `
-        id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
+        id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at, sla_due_date,
         attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
         created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
       `;
@@ -124,9 +144,9 @@ export function MaintenanceStaffView() {
           .eq('assigned_to', user.id)
           .eq('department', 'maintenance')
           .in('hotel', hotelKeys)
-          .or('status.neq.completed,pending_supervisor_approval.eq.true')
-          .order('priority', { ascending: false })
-          .order('created_at', { ascending: false }),
+          .neq('status', 'completed')
+          .order('created_at', { ascending: false })
+          .limit(250),
         (supabase as any).from('tickets').select(ticketSelect)
           .eq('organization_slug', profile.organization_slug)
           .eq('assigned_to', user.id)
@@ -139,7 +159,7 @@ export function MaintenanceStaffView() {
       ]);
       if (activeError || completedError) throw activeError || completedError;
       setSignedIn(!!attendance?.length);
-      const activeRows = (activeData || []) as Ticket[];
+      const activeRows = sortMaintenanceTickets((activeData || []) as Ticket[]);
       const completedRows = (completedData || []) as Ticket[];
       for (const ticket of activeRows) {
         if (previouslyAwaiting.current.has(ticket.id) && !ticket.pending_supervisor_approval && ticket.status === 'in_progress') {
@@ -150,12 +170,16 @@ export function MaintenanceStaffView() {
       previouslyAwaiting.current = new Set(activeRows.filter(ticket => ticket.pending_supervisor_approval).map(ticket => ticket.id));
       setTickets(activeRows);
       setCompleted(completedRows);
-      void loadAttachmentUrls([...activeRows, ...completedRows]);
+      hasLoadedRef.current = true;
     } catch (error) {
       console.error('Maintenance task load failed:', error);
+      setLoadError(true);
       toast.error(c.failed);
-    } finally { setLoading(false); }
-  }, [user?.id, profile?.assigned_hotel, profile?.organization_slug, loadAttachmentUrls, c.failed, language]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id, profile?.assigned_hotel, profile?.organization_slug, c.failed, language]);
 
   useEffect(() => {
     void refresh();
@@ -170,6 +194,14 @@ export function MaintenanceStaffView() {
     return () => { supabase.removeChannel(channel); };
   }, [refresh, user?.id]);
 
+  const filtered = useMemo(() => {
+    if (activeTab === 'approval') return sortMaintenanceTickets(tickets.filter(ticket => ticket.pending_supervisor_approval));
+    if (activeTab === 'done') return completed;
+    return sortMaintenanceTickets(tickets.filter(ticket => !ticket.pending_supervisor_approval));
+  }, [activeTab, tickets, completed]);
+
+  useEffect(() => { void loadVisiblePhotoUrls(filtered); }, [filtered, loadVisiblePhotoUrls]);
+
   const addComment = async (ticketId: string, content: string) => {
     if (!user?.id || !content.trim()) return;
     const { error } = await supabase.from('comments').insert({ ticket_id: ticketId, user_id: user.id, content: content.trim() });
@@ -179,37 +211,85 @@ export function MaintenanceStaffView() {
 
   const startWork = async (ticket: Ticket) => {
     if (!signedIn) { toast.error(c.notSignedIn); return; }
-    const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: false, hold_reason: null, updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
-    if (error) { toast.error(c.failed); return; }
-    await addComment(ticket.id, `▶ ${c.workStarted}`).catch(console.error);
-    toast.success(c.workStarted); void refresh();
+    if (busyTicketId) return;
+    setBusyTicketId(ticket.id);
+    try {
+      const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: false, hold_reason: null, updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
+      if (error) throw error;
+      await addComment(ticket.id, `▶ ${c.workStarted}`).catch(console.error);
+      toast.success(c.workStarted); void refresh();
+    } catch { toast.error(c.failed); }
+    finally { setBusyTicketId(null); }
+  };
+
+  const openDialog = (ticket: Ticket, next: 'note' | 'hold' | 'complete') => {
+    setSelected(ticket);
+    if (next === 'note') setNote('');
+    if (next === 'hold') { setHoldReason(''); setHoldDetails(''); }
+    if (next === 'complete') {
+      setResolution(ticket.resolution_text || '');
+      setCompletionFile(null);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+    setDialog(next);
+  };
+
+  const closeDialog = () => {
+    if (isSubmittingCompletion || busyTicketId) return;
+    setDialog(null);
+    setSelected(null);
+    setNote('');
+    setHoldReason('');
+    setHoldDetails('');
+    setResolution('');
+    setCompletionFile(null);
+    if (fileRef.current) fileRef.current.value = '';
   };
 
   const saveNote = async () => {
-    if (!selected || !note.trim()) return;
-    try { await addComment(selected.id, note); toast.success(c.noteSaved); setNote(''); setDialog(null); } catch { toast.error(c.failed); }
+    if (!selected || !note.trim() || busyTicketId) return;
+    setBusyTicketId(selected.id);
+    try {
+      await addComment(selected.id, note);
+      toast.success(c.noteSaved);
+      setNote('');
+      setDialog(null);
+      setSelected(null);
+    } catch { toast.error(c.failed); }
+    finally { setBusyTicketId(null); }
   };
 
   const saveHold = async () => {
-    if (!selected || !holdReason) return;
+    if (!selected || !holdReason || busyTicketId) return;
+    if (!signedIn) { toast.error(c.notSignedIn); return; }
+    setBusyTicketId(selected.id);
     try {
       const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: true, hold_reason: holdReason, updated_at: new Date().toISOString() }).eq('id', selected.id).eq('assigned_to', user?.id);
       if (error) throw error;
       const label = c[HOLD_REASONS.find(([value]) => value === holdReason)?.[1] || 'other'];
       await addComment(selected.id, `⏸ ${label}${holdDetails.trim() ? ` — ${holdDetails.trim()}` : ''}`);
-      toast.success(c.holdSaved); setHoldReason(''); setHoldDetails(''); setDialog(null); void refresh();
+      toast.success(c.holdSaved);
+      setHoldReason(''); setHoldDetails(''); setDialog(null); setSelected(null); void refresh();
     } catch { toast.error(c.failed); }
+    finally { setBusyTicketId(null); }
   };
 
   const resumeWork = async (ticket: Ticket) => {
     if (!signedIn) { toast.error(c.notSignedIn); return; }
-    const { error } = await supabase.from('tickets').update({ on_hold: false, hold_reason: null, status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
-    if (error) { toast.error(c.failed); return; }
-    await addComment(ticket.id, `▶ ${c.resumed}`).catch(console.error); toast.success(c.resumed); void refresh();
+    if (busyTicketId) return;
+    setBusyTicketId(ticket.id);
+    try {
+      const { error } = await supabase.from('tickets').update({ on_hold: false, hold_reason: null, status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
+      if (error) throw error;
+      await addComment(ticket.id, `▶ ${c.resumed}`).catch(console.error);
+      toast.success(c.resumed); void refresh();
+    } catch { toast.error(c.failed); }
+    finally { setBusyTicketId(null); }
   };
 
   const submitCompletion = async () => {
     if (isSubmittingCompletion) return;
+    if (!signedIn) { toast.error(c.notSignedIn); return; }
     if (!selected || !resolution.trim() || !completionFile || !user?.id) { toast.error(c.photoRequired); return; }
     if (!completionFile.type.startsWith('image/')) { toast.error(c.photoRequired); return; }
     setIsSubmittingCompletion(true);
@@ -224,73 +304,97 @@ export function MaintenanceStaffView() {
       }).eq('id', selected.id).eq('assigned_to', user.id);
       if (error) throw error;
       await addComment(selected.id, `✅ ${c.submitted}: ${resolution.trim()}`);
-      toast.success(c.submitted); setResolution(''); setCompletionFile(null); setDialog(null); void refresh();
+      toast.success(c.submitted);
+      setResolution(''); setCompletionFile(null); setDialog(null); setSelected(null); void refresh();
     } catch (error) { console.error(error); toast.error(c.failed); }
     finally { setIsSubmittingCompletion(false); }
   };
 
-  const filtered = activeTab === 'approval' ? tickets.filter(t => t.pending_supervisor_approval) : activeTab === 'done' ? completed : tickets.filter(t => !t.pending_supervisor_approval);
-  const counts = { active: tickets.filter(t => !t.pending_supervisor_approval).length, approval: tickets.filter(t => t.pending_supervisor_approval).length, done: completed.length };
+  const counts = {
+    active: tickets.filter(ticket => !ticket.pending_supervisor_approval).length,
+    approval: tickets.filter(ticket => ticket.pending_supervisor_approval).length,
+    done: completed.length,
+  };
   const status = (ticket: Ticket) => ticket.pending_supervisor_approval ? c.statusApproval : ticket.on_hold ? c.statusHold : ticket.status === 'in_progress' ? c.statusProgress : ticket.status === 'completed' ? c.statusDone : c.statusOpen;
   const statusClass = (ticket: Ticket) => ticket.pending_supervisor_approval ? 'bg-blue-100 text-blue-800 border-blue-200' : ticket.on_hold ? 'bg-amber-100 text-amber-800 border-amber-200' : ticket.status === 'in_progress' ? 'bg-violet-100 text-violet-800 border-violet-200' : ticket.status === 'completed' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-slate-100 text-slate-800 border-slate-200';
-  const priorityClass = (p: string) => p === 'urgent' ? 'bg-red-100 text-red-800' : p === 'high' ? 'bg-orange-100 text-orange-800' : p === 'low' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
+  const priorityClass = (priority: string) => priority === 'urgent' ? 'bg-red-100 text-red-800' : priority === 'high' ? 'bg-orange-100 text-orange-800' : priority === 'low' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
 
   return (
-    <div className="space-y-4 px-2 sm:px-0 max-w-4xl mx-auto">
+    <div className="mx-auto max-w-4xl space-y-4 px-2 sm:px-0">
       <div className="flex items-start justify-between gap-3">
-        <div><h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2"><Wrench className="h-5 w-5" />{c.title}</h2><p className="text-sm text-muted-foreground">{c.subtitle}</p></div>
-        <Button size="sm" variant="outline" onClick={() => {
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-xl font-bold sm:text-2xl"><Wrench className="h-5 w-5 shrink-0" />{c.title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{c.subtitle}</p>
+        </div>
+        <Button size="sm" variant="outline" disabled={refreshing} aria-label={c.refresh} onClick={() => {
           setHistoryRevision(prev => {
             const next = { ...prev };
             for (const ticket of [...tickets, ...completed]) next[ticket.id] = (next[ticket.id] || 0) + 1;
             return next;
           });
           void refresh();
-        }}><RefreshCw className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">{c.refresh}</span></Button>
+        }}><RefreshCw className={`h-4 w-4 sm:mr-1 ${refreshing ? 'animate-spin' : ''}`} /><span className="hidden sm:inline">{c.refresh}</span></Button>
       </div>
-      <div className={`rounded-lg border p-3 flex items-center gap-2 text-sm ${signedIn ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
-        {signedIn ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}<strong>{signedIn ? c.signedIn : c.notSignedIn}</strong>
+
+      <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${signedIn ? 'border-green-200 bg-green-50 text-green-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`} role="status">
+        {signedIn ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}<strong>{signedIn ? c.signedIn : c.notSignedIn}</strong>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        <button onClick={() => setActiveTab('active')} className={`rounded-xl border p-3 text-left ${activeTab === 'active' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.active}</div><div className="text-xl font-bold">{counts.active}</div></button>
-        <button onClick={() => setActiveTab('approval')} className={`rounded-xl border p-3 text-left ${activeTab === 'approval' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.approval}</div><div className="text-xl font-bold">{counts.approval}</div></button>
-        <button onClick={() => setActiveTab('done')} className={`rounded-xl border p-3 text-left ${activeTab === 'done' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.done}</div><div className="text-xl font-bold">{counts.done}</div></button>
+
+      {loadError && <div role="alert" className="flex flex-col gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between">
+        <span>{c.loadFailed}</span><Button type="button" size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh()}>{c.retry}</Button>
+      </div>}
+
+      <div className="grid grid-cols-3 gap-2" role="tablist" aria-label={c.title}>
+        {(['active', 'approval', 'done'] as const).map(tab => <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => setActiveTab(tab)}
+          className={`min-w-0 rounded-xl border p-2.5 text-left transition sm:p-3 ${activeTab === tab ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'hover:bg-muted/40'}`}>
+          <div className="truncate text-[11px] text-muted-foreground sm:text-xs">{c[tab]}</div><div className="text-lg font-bold sm:text-xl">{counts[tab]}</div>
+        </button>)}
       </div>
-      {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div> : filtered.length === 0 ? (
-        <Card><CardContent className="py-12 text-center"><CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-muted-foreground" /><p className="text-muted-foreground">{c.noTasks}</p></CardContent></Card>
-      ) : <div className="space-y-3">{filtered.map(ticket => (
-        <Card key={ticket.id} className={`overflow-hidden border-l-4 ${ticket.priority === 'urgent' ? 'border-l-red-500' : ticket.priority === 'high' ? 'border-l-orange-500' : 'border-l-primary/60'}`}>
+
+      {activeTab === 'approval' && counts.approval > 0 && <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">{c.approvalHint}</div>}
+
+      {loading ? <div className="flex justify-center py-12" aria-busy="true"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div> : filtered.length === 0 ? (
+        <Card><CardContent className="py-12 text-center"><CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-muted-foreground" /><p className="text-muted-foreground">{c.noTasks}</p></CardContent></Card>
+      ) : <div className="space-y-3">{filtered.map(ticket => {
+        const busy = busyTicketId === ticket.id || isSubmittingCompletion && selected?.id === ticket.id;
+        return <Card key={ticket.id} className={`overflow-hidden border-l-4 ${ticket.priority === 'urgent' ? 'border-l-red-500' : ticket.priority === 'high' ? 'border-l-orange-500' : 'border-l-primary/60'}`}>
           <CardHeader className="p-3 pb-2">
-            <div className="flex items-start justify-between gap-2"><div className="min-w-0"><CardTitle className="text-lg flex items-center gap-2 flex-wrap"><span>{c.room} {ticket.room_number}</span><Badge className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge><Badge variant="outline" className={statusClass(ticket)}>{status(ticket)}</Badge></CardTitle><div className="text-xs text-muted-foreground mt-1">{ticket.ticket_number}</div></div></div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0"><CardTitle className="flex flex-wrap items-center gap-2 text-base sm:text-lg"><span>{c.room} {ticket.room_number}</span><Badge className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge><Badge variant="outline" className={statusClass(ticket)}>{status(ticket)}</Badge></CardTitle><div className="mt-1 text-xs text-muted-foreground">{ticket.ticket_number}</div></div>
+            </div>
           </CardHeader>
-          <CardContent className="p-3 pt-0 space-y-3">
-            <div className="rounded-lg bg-muted/50 p-2 text-xs"><div className="text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" />{c.hotel}</div><div className="font-semibold break-words">{ticket.hotel || '—'}</div></div>
+          <CardContent className="space-y-3 p-3 pt-0">
+            <div className="rounded-lg bg-muted/50 p-2 text-xs"><div className="flex items-center gap-1 text-muted-foreground"><Building2 className="h-3 w-3" />{c.hotel}</div><div className="break-words font-semibold">{ticket.hotel || '—'}</div></div>
             <MaintenanceTicketLanguagePanel ticket={ticket} language={language} reporterFallback={ticket.created_by_profile?.full_name} revision={historyRevision[ticket.id] || 0} />
-            {ticket.on_hold && ticket.hold_reason && <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-2.5 text-xs flex gap-2"><PauseCircle className="h-4 w-4 shrink-0" />{c[HOLD_REASONS.find(([v]) => v === ticket.hold_reason)?.[1] || 'other']}</div>}
-            {!!attachmentUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({attachmentUrls[ticket.id].length})</div><div className="flex gap-2 flex-wrap">{attachmentUrls[ticket.id].map((url, idx) => <Dialog key={idx}><DialogTrigger asChild><Button size="sm" variant="outline"><Eye className="h-3.5 w-3.5 mr-1" />{idx + 1}</Button></DialogTrigger><DialogContent className="max-w-4xl"><img src={url} alt={`Attachment ${idx + 1}`} className="max-h-[80vh] w-auto mx-auto" /></DialogContent></Dialog>)}</div></div>}
-            {activeTab !== 'done' && <div className="grid grid-cols-2 sm:flex gap-2">
-              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button onClick={() => void startWork(ticket)} disabled={!signedIn} className="h-10"><Play className="h-4 w-4 mr-1" />{c.start}</Button>}
-              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('hold'); }}><PauseCircle className="h-4 w-4 mr-1" />{c.hold}</Button>}
-              {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn}><Play className="h-4 w-4 mr-1" />{c.resume}</Button>}
-              {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('note'); }}><MessageSquare className="h-4 w-4 mr-1" />{c.note}</Button>}
-              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => { setSelected(ticket); setResolution(ticket.resolution_text || ''); setCompletionFile(null); if (fileRef.current) fileRef.current.value = ''; setDialog('complete'); }} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.complete}</Button>}
+            {ticket.on_hold && ticket.hold_reason && <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800"><PauseCircle className="h-4 w-4 shrink-0" />{c[HOLD_REASONS.find(([value]) => value === ticket.hold_reason)?.[1] || 'other']}</div>}
+
+            {!!attachmentUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({attachmentUrls[ticket.id].length})</div><div className="flex flex-wrap gap-2">{attachmentUrls[ticket.id].map((url, idx) => <Dialog key={`${ticket.id}-issue-${idx}`}><DialogTrigger asChild><Button type="button" size="sm" variant="outline" aria-label={`${c.attachments} ${idx + 1}`}><Eye className="mr-1 h-3.5 w-3.5" />{idx + 1}</Button></DialogTrigger><DialogContent className="w-[calc(100vw-1rem)] max-w-4xl"><img src={url} alt={`${c.attachments} ${idx + 1}`} loading="lazy" className="mx-auto max-h-[80dvh] w-auto rounded" /></DialogContent></Dialog>)}</div></div>}
+            {!!completionPhotoUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.completionPhotos} ({completionPhotoUrls[ticket.id].length})</div><div className="flex flex-wrap gap-2">{completionPhotoUrls[ticket.id].map((url, idx) => <Dialog key={`${ticket.id}-completion-${idx}`}><DialogTrigger asChild><Button type="button" size="sm" variant="outline" aria-label={`${c.completionPhotos} ${idx + 1}`}><Camera className="mr-1 h-3.5 w-3.5" />{idx + 1}</Button></DialogTrigger><DialogContent className="w-[calc(100vw-1rem)] max-w-4xl"><img src={url} alt={`${c.completionPhotos} ${idx + 1}`} loading="lazy" className="mx-auto max-h-[80dvh] w-auto rounded" /></DialogContent></Dialog>)}</div></div>}
+
+            {activeTab !== 'done' && <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button onClick={() => void startWork(ticket)} disabled={!signedIn || busy} className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.start}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => openDialog(ticket, 'hold')} disabled={!signedIn || busy} className="min-h-11"><PauseCircle className="mr-1 h-4 w-4" />{c.hold}</Button>}
+              {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn || busy} className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.resume}</Button>}
+              {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => openDialog(ticket, 'note')} disabled={busy} className="min-h-11"><MessageSquare className="mr-1 h-4 w-4" />{c.note}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => openDialog(ticket, 'complete')} disabled={!signedIn || busy} className="min-h-11 bg-green-600 hover:bg-green-700"><CheckCircle2 className="mr-1 h-4 w-4" />{c.complete}</Button>}
             </div>}
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1"><Clock3 className="h-3 w-3" />{new Date(ticket.updated_at || ticket.created_at).toLocaleString()}</div>
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground"><Clock3 className="h-3 w-3" />{new Date(ticket.updated_at || ticket.created_at).toLocaleString()}</div>
           </CardContent>
-        </Card>
-      ))}</div>}
-      <Dialog open={dialog === 'note'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.note}</DialogTitle></DialogHeader><Textarea value={note} onChange={e => setNote(e.target.value)} placeholder={c.notePlaceholder} rows={4} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void saveNote()} disabled={!note.trim()}>{c.saveNote}</Button></div></DialogContent></Dialog>
-      <Dialog open={dialog === 'hold'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.holdReason}</DialogTitle></DialogHeader><Select value={holdReason} onValueChange={setHoldReason}><SelectTrigger><SelectValue placeholder={c.holdReason} /></SelectTrigger><SelectContent>{HOLD_REASONS.map(([value, key]) => <SelectItem key={value} value={value}>{c[key]}</SelectItem>)}</SelectContent></Select><Textarea value={holdDetails} onChange={e => setHoldDetails(e.target.value)} placeholder={c.pendingDetails} rows={3} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void saveHold()} disabled={!holdReason}>{c.saveHold}</Button></div></DialogContent></Dialog>
-      <Dialog open={dialog === 'complete'} onOpenChange={(next) => { if (!next && !isSubmittingCompletion) setDialog(null); }}>
-        <DialogContent className="w-[calc(100vw-1rem)] max-w-lg max-h-[90dvh] overflow-y-auto p-4 sm:p-6">
+        </Card>;
+      })}</div>}
+
+      <Dialog open={dialog === 'note'} onOpenChange={open => !open && closeDialog()}><DialogContent className="w-[calc(100vw-1rem)] max-w-lg"><DialogHeader><DialogTitle>{c.note}</DialogTitle></DialogHeader><Textarea value={note} onChange={event => setNote(event.target.value)} placeholder={c.notePlaceholder} rows={4} disabled={!!busyTicketId} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={closeDialog} disabled={!!busyTicketId}>{c.cancel}</Button><Button onClick={() => void saveNote()} disabled={!note.trim() || !!busyTicketId}>{c.saveNote}</Button></div></DialogContent></Dialog>
+      <Dialog open={dialog === 'hold'} onOpenChange={open => !open && closeDialog()}><DialogContent className="w-[calc(100vw-1rem)] max-w-lg"><DialogHeader><DialogTitle>{c.holdReason}</DialogTitle></DialogHeader><Select value={holdReason} onValueChange={setHoldReason} disabled={!!busyTicketId}><SelectTrigger><SelectValue placeholder={c.holdReason} /></SelectTrigger><SelectContent>{HOLD_REASONS.map(([value, key]) => <SelectItem key={value} value={value}>{c[key]}</SelectItem>)}</SelectContent></Select><Textarea value={holdDetails} onChange={event => setHoldDetails(event.target.value)} placeholder={c.pendingDetails} rows={3} disabled={!!busyTicketId} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={closeDialog} disabled={!!busyTicketId}>{c.cancel}</Button><Button onClick={() => void saveHold()} disabled={!holdReason || !!busyTicketId}>{c.saveHold}</Button></div></DialogContent></Dialog>
+      <Dialog open={dialog === 'complete'} onOpenChange={next => { if (!next) closeDialog(); }}>
+        <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] max-w-lg overflow-y-auto p-4 sm:p-6">
           <DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader>
-          <Textarea value={resolution} onChange={e => setResolution(e.target.value)} placeholder={c.resolutionPlaceholder} rows={4} disabled={isSubmittingCompletion} />
+          <Textarea value={resolution} onChange={event => setResolution(event.target.value)} placeholder={c.resolutionPlaceholder} rows={4} disabled={isSubmittingCompletion} />
           <p className="text-xs text-muted-foreground">{language === 'hu'
             ? 'A hibabejelentés mellékletei nem helyettesítik a javítás utáni fotót. Készítsen képet, vagy válassza ki a galériából.'
             : 'Issue attachments show the original problem. Add a separate after-repair photo using the camera or gallery.'}</p>
-          <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label={c.photoRequired} onChange={e => {
-            const file = e.currentTarget.files?.[0] || null;
-            if (file && !file.type.startsWith('image/')) { toast.error(c.photoRequired); e.currentTarget.value = ''; setCompletionFile(null); return; }
+          <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label={c.photoRequired} onChange={event => {
+            const file = event.currentTarget.files?.[0] || null;
+            if (file && !file.type.startsWith('image/')) { toast.error(c.photoRequired); event.currentTarget.value = ''; setCompletionFile(null); return; }
             setCompletionFile(file);
           }} />
           <Button type="button" variant="outline" disabled={isSubmittingCompletion} className="h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-all py-2 text-left" onClick={() => fileRef.current?.click()}>
@@ -300,9 +404,9 @@ export function MaintenanceStaffView() {
           </Button>
           {!completionFile && <p className="text-xs text-amber-700" role="status">{c.photoRequired}</p>}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal py-2" variant="outline" disabled={isSubmittingCompletion} onClick={() => setDialog(null)}>{c.cancel}</Button>
+            <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal py-2" variant="outline" disabled={isSubmittingCompletion} onClick={closeDialog}>{c.cancel}</Button>
             <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal break-words bg-green-600 py-2 text-center leading-snug hover:bg-green-700"
-              onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !resolution.trim() || !completionFile}>
+              onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !signedIn || !resolution.trim() || !completionFile}>
               <CheckCircle2 className="mr-1 h-4 w-4 shrink-0" />{isSubmittingCompletion ? (language === 'hu' ? 'Beküldés…' : 'Submitting…') : c.submitApproval}
             </Button>
           </div>
