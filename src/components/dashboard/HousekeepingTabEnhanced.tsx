@@ -2,6 +2,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { HousekeepingTab as ExistingHousekeepingTab } from './HousekeepingTabLegacy';
 import { HousekeepingRoomSettings } from './HousekeepingRoomSettings';
 import { HousekeepingMobilePolish } from './HousekeepingMobilePolish';
+import { Slnt14DayHousekeepingPlanner } from './Slnt14DayHousekeepingPlanner';
+import { SlntTeamBSharedQueue } from './SlntTeamBSharedQueue';
+import { hasManagerPowers } from '@/lib/roleAccess';
+import { isSlntOrganization } from '@/lib/slnt14DayHousekeeping';
 import '@/styles/housekeeping-mobile.css';
 
 interface Props {
@@ -32,9 +36,16 @@ export function HousekeepingTabEnhanced(props: Props = {}) {
     );
   }
 
+  const isSlnt = isSlntOrganization(profile.organization_slug);
+  const showSlntFuturePlanner = isSlnt
+    && !!profile.role
+    && hasManagerPowers(profile.role);
+
   return (
     <div key={`${profile.organization_slug}:${activeHotel}`} className="space-y-3 hk-mobile-workspace">
       <HousekeepingMobilePolish />
+      {isSlnt && <SlntTeamBSharedQueue />}
+      {showSlntFuturePlanner && <Slnt14DayHousekeepingPlanner />}
       <HousekeepingRoomSettings />
       <ExistingHousekeepingTab {...props} />
     </div>
