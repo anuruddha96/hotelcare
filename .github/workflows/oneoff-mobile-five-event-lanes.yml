@@ -1,0 +1,95 @@
+name: One-off mobile revenue event lanes
+
+on:
+  push:
+    branches:
+      - fix/mobile-revenue-five-event-lanes-20260930
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mobile-revenue-five-event-lanes-20260930
+          fetch-depth: 0
+
+      - name: Patch Revenue event lanes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/revenue/RateStrategyGrid.tsx')
+          s = path.read_text()
+
+          old_geometry = '''  // Reserve five readable lanes whenever Events is open. Capping the lane
+          // height prevents a highly zoomed calendar from pushing the rate rows too
+          // far down while still giving phone users materially more vertical space.
+          // Give the Events band enough vertical room to scan five demand drivers on
+          // a phone. minHeight on the rendered row prevents flex shrinking.
+          const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
+          const EVENT_ROW_H = showEventBand ? Math.max(ROW_H * 3, EVENT_LANE_H * 5 + 12) : ROW_H;'''
+          new_geometry = '''  // Five compact event lanes. The rendered lane spacers below own the real
+          // DOM height; this is intentional because iOS/WebKit could collapse the
+          // previous single flex row even when an inline minHeight was supplied.
+          const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
+          const EVENT_ROW_H = showEventBand ? EVENT_LANE_H * 5 : ROW_H;'''
+          assert old_geometry in s, 'event geometry anchor not found'
+          s = s.replace(old_geometry, new_geometry, 1)
+
+          old_outer = '''                  <div
+                    className="flex shrink-0 border-b-2 border-b-foreground/20 bg-card"
+                    style={{ height: EVENT_ROW_H, minHeight: EVENT_ROW_H }}
+                  >'''
+          new_outer = '''                  <div
+                    className="flex shrink-0 border-b-2 border-b-foreground/20 bg-card"
+                    style={{ minHeight: EVENT_ROW_H }}
+                  >'''
+          assert old_outer in s, 'event outer row anchor not found'
+          s = s.replace(old_outer, new_outer, 1)
+
+          old_canvas = '''                    <div
+                      className="relative shrink-0 overflow-hidden bg-card"
+                      style={{ width: dates.length * CELL_W, height: "100%" }}
+                    >
+                      {/* Date-column background stays visible underneath the merged bars. */}'''
+          new_canvas = '''                    <div
+                      className="relative shrink-0 overflow-hidden bg-card"
+                      style={{ width: dates.length * CELL_W }}
+                    >
+                      {/*
+                        Real in-flow lane spacers make the event section physically five
+                        rows tall on mobile. The event bars remain absolutely positioned
+                        over these lanes so multi-day spans stay continuous.
+                      */}
+                      <div className="pointer-events-none flex flex-col" aria-hidden="true">
+                        {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
+                          <div
+                            key={`event-lane-spacer-${lane}`}
+                            className="shrink-0"
+                            style={{ height: showEventBand ? EVENT_LANE_H : ROW_H }}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Date-column background stays visible underneath the merged bars. */}'''
+          assert old_canvas in s, 'event canvas anchor not found'
+          s = s.replace(old_canvas, new_canvas, 1)
+
+          path.write_text(s)
+          PY
+          git diff --check
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          rm -f .github/workflows/oneoff-mobile-five-event-lanes.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/revenue/RateStrategyGrid.tsx .github/workflows/oneoff-mobile-five-event-lanes.yml
+          git commit -m "fix: render five real mobile revenue event lanes"
+          git push origin HEAD:fix/mobile-revenue-five-event-lanes-20260930
