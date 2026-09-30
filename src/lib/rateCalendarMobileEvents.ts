@@ -182,21 +182,21 @@ function enhanceCard(card: HTMLElement, mobile: boolean) {
   const row = findEventRow(card);
   if (!row) return;
 
-  if (!mobile) {
-    delete row.dataset.rateCalendarMobileEvents;
+  // Use the same compact event summary on desktop and mobile. Narrow date
+  // columns cannot display four event titles legibly; the full ranked list is
+  // already available from the existing clickable detail dialog / tooltip.
+  // This keeps the lane useful at every zoom level without duplicating the
+  // date that is already visible directly above it.
+  row.dataset.rateCalendarMobileEvents = 'true';
+  if (mobile) {
+    // The legacy landscape helper hides the Events lane. An inline !important
+    // keeps this compact summary visible without touching other rows.
+    row.style.setProperty('display', 'flex', 'important');
+    row.style.setProperty('max-height', '50px', 'important');
+  } else {
     row.style.removeProperty('display');
     row.style.removeProperty('max-height');
-    Array.from(row.children).slice(1).forEach((cell) => {
-      if (cell instanceof HTMLElement) clearMobileSummary(cell);
-    });
-    return;
   }
-
-  row.dataset.rateCalendarMobileEvents = 'true';
-  // The legacy landscape helper hides the Events lane. An inline !important
-  // keeps this compact mobile summary visible without touching other rows.
-  row.style.setProperty('display', 'flex', 'important');
-  row.style.setProperty('max-height', '50px', 'important');
 
   Array.from(row.children).slice(1).forEach((cell) => {
     if (!(cell instanceof HTMLButtonElement)) return;
@@ -231,7 +231,7 @@ function ensureStyle() {
 }
 
 /**
- * Mobile-only presentation enhancer for the Rate & Pickup calendar Events row.
+ * Compact presentation enhancer for the Rate & Pickup calendar Events row.
  * It never changes rates, demand scoring, event ranking, or any other calendar
  * row. Existing event buttons remain the click targets, so tapping the summary
  * or eye opens the same ranked event detail dialog owned by RateStrategyGrid.
