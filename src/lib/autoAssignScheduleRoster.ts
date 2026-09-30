@@ -3,6 +3,7 @@ export type AutoAssignStaffDefaultSource = 'published_schedule' | 'attendance_fa
 
 export interface AutoAssignScheduleRow {
   id?: string;
+  hotel_id?: string | null;
   user_id: string;
   work_date?: string;
   shift_start?: string | null;
@@ -20,6 +21,8 @@ export interface AutoAssignStaffDefaults {
   selectedStaffIds: Set<string>;
   publishedRows: AutoAssignScheduleRow[];
 }
+
+export type AutoAssignVenueHotelLookup = ReadonlyMap<string, string> | Readonly<Record<string, string>>;
 
 const VALID_WORK_STATUSES = new Set<AutoAssignWorkStatus>([
   'working',
@@ -59,6 +62,36 @@ export function isPublishedAutoAssignScheduleRow(row: AutoAssignScheduleRow): bo
     || lifecycle === 'sick'
     || lifecycle === 'training'
     || Boolean(row.published_at);
+}
+
+function venueHotelId(lookup: AutoAssignVenueHotelLookup, venueId: string): string | undefined {
+  return lookup instanceof Map ? lookup.get(venueId) : lookup[venueId];
+}
+
+/**
+ * A schedule belongs to a hotel's Auto Assign roster when the employee's base
+ * schedule is for that hotel OR HR explicitly scheduled the employee at one of
+ * that hotel's working venues. This preserves one schedule source of truth and
+ * avoids duplicating borrowed staff into another hotel's staff_schedules rows.
+ */
+export function autoAssignScheduleAppliesToHotel(
+  row: AutoAssignScheduleRow,
+  hotelIds: ReadonlySet<string>,
+  venueHotelById: AutoAssignVenueHotelLookup,
+): boolean {
+  if (row.hotel_id && hotelIds.has(row.hotel_id)) return true;
+  return (row.staff_schedule_venues ?? []).some(({ venue_id }) => {
+    const hotelId = venueHotelId(venueHotelById, venue_id);
+    return Boolean(hotelId && hotelIds.has(hotelId));
+  });
+}
+
+export function filterAutoAssignScheduleRowsForHotel(
+  scheduleRows: readonly AutoAssignScheduleRow[],
+  hotelIds: ReadonlySet<string>,
+  venueHotelById: AutoAssignVenueHotelLookup,
+): AutoAssignScheduleRow[] {
+  return scheduleRows.filter(row => autoAssignScheduleAppliesToHotel(row, hotelIds, venueHotelById));
 }
 
 /**
