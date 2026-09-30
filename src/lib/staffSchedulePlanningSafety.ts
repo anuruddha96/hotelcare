@@ -3,6 +3,8 @@ export type StaffScheduleLifecycleStatus = "draft" | "published";
 export interface HousekeepingScheduleCandidate {
   scheduleStatus: StaffScheduleLifecycleStatus | string | null | undefined;
   department: string | null | undefined;
+  /** Explicit secondary housekeeping capability from profiles.acts_as_housekeeper. */
+  actsAsHousekeeper?: boolean | null;
   workStatus?: string | null;
   shiftStart?: string | null;
   shiftEnd?: string | null;
@@ -36,10 +38,11 @@ export interface HousekeepingPlanningEligibility {
  * Safety gate for later automatic housekeeping planning.
  *
  * Master Staff Schedule remains the source of truth for who is working. Only
- * published housekeeping schedules with an explicit working state and usable
- * shift window may feed automatic planning. Existing room work always wins:
- * manual edits and started/completed assignments must never be overwritten by
- * schedule-driven automation.
+ * published schedules for housekeeping staff (or staff explicitly mapped with
+ * acts_as_housekeeper), with an explicit working state and usable shift window,
+ * may feed automatic planning. Existing room work always wins: manual edits and
+ * started/completed assignments must never be overwritten by schedule-driven
+ * automation.
  */
 const isValidShiftTime = (value: string | null | undefined): boolean => {
   if (!value) return false;
@@ -58,7 +61,9 @@ export function getHousekeepingPlanningEligibility(
     return { eligible: false, reason: "schedule_not_published" };
   }
 
-  if ((candidate.department ?? "").trim().toLowerCase() !== "housekeeping") {
+  const isHousekeepingDepartment =
+    (candidate.department ?? "").trim().toLowerCase() === "housekeeping";
+  if (!isHousekeepingDepartment && candidate.actsAsHousekeeper !== true) {
     return { eligible: false, reason: "not_housekeeping" };
   }
 
