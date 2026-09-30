@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { filterRoomsToMappedTeam, summarizeTeamWorkload } from './slntTeamHousekeepingScope';
+import {
+  filterRoomsToMappedTeam,
+  filterSnapshotRowsToMappedRooms,
+  summarizeTeamWorkload,
+} from './slntTeamHousekeepingScope';
 
 describe('SLNT Team B housekeeping scope', () => {
   it('returns only explicitly mapped Team B rooms', () => {
@@ -18,6 +22,19 @@ describe('SLNT Team B housekeeping scope', () => {
     expect(filterRoomsToMappedTeam([{ id: 'room-1' }], [])).toEqual([]);
   });
 
+  it('drops Team A rows from a portfolio-wide Previo snapshot', () => {
+    const base = {
+      arrival_date: '2026-09-29', departure_date: '2026-10-01', status: 'departing',
+      housekeeping_dep: 'DEP', housekeeping_stay: null, captured_at: '2026-09-30T18:00:00Z',
+    };
+    const rows = [
+      { ...base, room_number: 'K4 – Room 1', room_label: 'K4 – Room 1' },
+      { ...base, room_number: 'Castle Garden Residence', room_label: 'Castle Garden Residence' },
+    ];
+
+    expect(filterSnapshotRowsToMappedRooms(rows, [{ room_number: 'K4 – Room 1' }])).toEqual([rows[0]]);
+  });
+
   it('separates confirmed checkout, daily and unbooked rooms', () => {
     const summary = summarizeTeamWorkload([
       { id: 'checkout', is_checkout_room: true, pms_metadata: { potentialCheckout: false } },
@@ -25,12 +42,7 @@ describe('SLNT Team B housekeeping scope', () => {
       { id: 'unsold', is_checkout_room: true, pms_metadata: { planningStatus: 'unsold_now', unsoldAtPlanning: true } },
     ]);
 
-    expect(summary).toEqual({
-      confirmedCheckoutCount: 1,
-      dailyCount: 1,
-      unsoldCount: 1,
-      totalCount: 3,
-    });
+    expect(summary).toEqual({ confirmedCheckoutCount: 1, dailyCount: 1, unsoldCount: 1, totalCount: 3 });
   });
 
   it('keeps a 46-room Team B workload exhaustive without inflating checkout', () => {
