@@ -9,6 +9,8 @@ const publishedHousekeeping: HousekeepingScheduleCandidate = {
   scheduleStatus: "published",
   department: "Housekeeping",
   workStatus: "working",
+  shiftStart: "09:00",
+  shiftEnd: "17:00",
   scheduleDate: "2026-09-30",
   userId: "staff-1",
   hotelId: "hotel-a",
