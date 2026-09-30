@@ -93,7 +93,7 @@ describe("rateCalendarMobileEvents", () => {
     expect(summary.impactLabel).toBe("Very High");
   });
 
-  it("turns mobile event cells into date/count/impact summaries with an eye only when events exist", async () => {
+  it("turns event cells into count/impact summaries with an eye only when events exist", async () => {
     const { eventsRow, buttons } = buildCalendar([
       [
         "2026-10-01",
@@ -121,7 +121,7 @@ describe("rateCalendarMobileEvents", () => {
     cleanup();
   });
 
-  it("leaves desktop event cells unchanged", async () => {
+  it("uses the compact event summary on desktop while preserving the existing button content and click target", async () => {
     vi.mocked(window.matchMedia).mockImplementation(() => mediaResult(false));
     Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
     Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
@@ -133,10 +133,17 @@ describe("rateCalendarMobileEvents", () => {
     const cleanup = installRateCalendarMobileEvents();
     await nextFrame();
 
-    expect(eventsRow.dataset.rateCalendarMobileEvents).toBeUndefined();
-    expect(buttons[0].dataset.mobileEventSummary).toBeUndefined();
+    expect(eventsRow.dataset.rateCalendarMobileEvents).toBe("true");
+    expect(buttons[0].dataset.mobileEventSummary).toBe("true");
+    expect(buttons[0].dataset.eventCountLabel).toBe("1 event");
+    expect(buttons[0].dataset.eventImpactLabel).toBe("High");
+    expect(buttons[0].dataset.eventHasEye).toBe("true");
     expect(buttons[0].textContent).toBe("desktop chips");
+    expect(buttons[0].getAttribute("aria-label")).toContain("Tap to view ranked event details");
 
     cleanup();
+
+    expect(eventsRow.dataset.rateCalendarMobileEvents).toBeUndefined();
+    expect(buttons[0].dataset.mobileEventSummary).toBeUndefined();
   });
 });
