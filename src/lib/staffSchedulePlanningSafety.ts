@@ -38,7 +38,7 @@ export interface HousekeepingPlanningEligibility {
  * started/completed assignments must never be overwritten by schedule-driven
  * automation.
  */
-export function getHousekeepingPlanningEligibility(
+const isValidShiftTime = (value: string | null | undefined): boolean => {\n  if (!value) return false;\n  const match = value.trim().match(/^(\\d{2}):(\\d{2})(?::\\d{2})?$/);\n  if (!match) return false;\n  const hours = Number(match[1]);\n  const minutes = Number(match[2]);\n  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;\n};\n\nexport function getHousekeepingPlanningEligibility(
   candidate: HousekeepingScheduleCandidate,
   existingAssignment?: ExistingRoomAssignmentState | null,
 ): HousekeepingPlanningEligibility {
