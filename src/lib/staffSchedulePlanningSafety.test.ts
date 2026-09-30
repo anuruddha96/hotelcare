@@ -54,6 +54,26 @@ describe("staff schedule planning safety", () => {
     ).toEqual({ eligible: false, reason: "not_housekeeping" });
   });
 
+  it("allows staff explicitly mapped to act as a housekeeper without changing their primary department", () => {
+    expect(
+      getHousekeepingPlanningEligibility({
+        ...publishedHousekeeping,
+        department: "Management",
+        actsAsHousekeeper: true,
+      }),
+    ).toEqual({ eligible: true, reason: "eligible" });
+  });
+
+  it("does not treat an explicitly false mapping as housekeeping capability", () => {
+    expect(
+      getHousekeepingPlanningEligibility({
+        ...publishedHousekeeping,
+        department: "Management",
+        actsAsHousekeeper: false,
+      }),
+    ).toEqual({ eligible: false, reason: "not_housekeeping" });
+  });
+
   it("requires complete schedule identity", () => {
     for (const candidate of [
       { ...publishedHousekeeping, userId: "" },
