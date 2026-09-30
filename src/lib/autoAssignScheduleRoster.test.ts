@@ -86,7 +86,7 @@ describe('Auto Assign published staff schedule bridge', () => {
     expect(scheduleDurationMinutes(row({ work_status: 'training' }))).toBeNull();
   });
 
-  it('matches a local base-hotel schedule to that hotel', () => {
+  it('matches a local base-hotel schedule to that hotel when no working venue is specified', () => {
     expect(autoAssignScheduleAppliesToHotel(
       row({ hotel_id: 'hotel-a', staff_schedule_venues: [] }),
       new Set(['hotel-a']),
@@ -100,6 +100,14 @@ describe('Auto Assign published staff schedule bridge', () => {
       new Set(['hotel-b']),
       new Map([['venue-b', 'hotel-b']]),
     )).toBe(true);
+  });
+
+  it('does not also expose a borrowed employee at the base hotel when an explicit working venue exists', () => {
+    expect(autoAssignScheduleAppliesToHotel(
+      row({ hotel_id: 'hotel-a', user_id: 'borrowed', staff_schedule_venues: [{ venue_id: 'venue-b' }] }),
+      new Set(['hotel-a']),
+      new Map([['venue-b', 'hotel-b']]),
+    )).toBe(false);
   });
 
   it('does not leak a schedule into an unrelated property', () => {
