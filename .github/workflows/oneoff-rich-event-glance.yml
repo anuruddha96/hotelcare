@@ -43,24 +43,23 @@ jobs:
           if 'function compactEventRange(' not in s:
               anchor = '\n\n/** Small info bubble that works on hover and on touch. */'
               assert anchor in s
-              helper = r'''
-
-/** Compact visible start/end range for an event in a narrow date column. */
-function compactEventRange(event: DemandEventDetail, fallbackDate: string): string {
-  const parse = (value?: string | null) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
-    if (!match) return null;
-    return { iso: `${match[1]}-${match[2]}-${match[3]}`, month: Number(match[2]), day: Number(match[3]) };
-  };
-  const start = parse(event.start) ?? parse(fallbackDate);
-  const end = parse(event.end) ?? start;
-  if (!start || !end) return "";
-  if (start.iso === end.iso) return String(start.day);
-  if (start.month === end.month) return `${start.day}–${end.day}`;
-  const initials = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
-  return `${start.day}${initials[start.month - 1] ?? ""}–${end.day}${initials[end.month - 1] ?? ""}`;
-}
-'''
+              helper = (
+                  '\n\n/** Compact visible start/end range for an event in a narrow date column. */\n'
+                  'function compactEventRange(event: DemandEventDetail, fallbackDate: string): string {\n'
+                  '  const parse = (value?: string | null) => {\n'
+                  '    const match = /^(\\d{4})-(\\d{2})-(\\d{2})/.exec(value ?? "");\n'
+                  '    if (!match) return null;\n'
+                  '    return { iso: `${match[1]}-${match[2]}-${match[3]}`, month: Number(match[2]), day: Number(match[3]) };\n'
+                  '  };\n'
+                  '  const start = parse(event.start) ?? parse(fallbackDate);\n'
+                  '  const end = parse(event.end) ?? start;\n'
+                  '  if (!start || !end) return "";\n'
+                  '  if (start.iso === end.iso) return String(start.day);\n'
+                  '  if (start.month === end.month) return `${start.day}–${end.day}`;\n'
+                  '  const initials = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];\n'
+                  '  return `${start.day}${initials[start.month - 1] ?? ""}–${end.day}${initials[end.month - 1] ?? ""}`;\n'
+                  '}\n'
+              )
               s = s.replace(anchor, helper + anchor, 1)
 
           s = s.replace('The calendar shows the four strongest signals for each night;', 'The calendar shows the five strongest signals for each night;', 1)
@@ -79,14 +78,16 @@ function compactEventRange(event: DemandEventDetail, fallbackDate: string): stri
               s = s.replace(old, new, 1)
 
           old = '<div className="flex h-full flex-col gap-px overflow-hidden">\n                            {visible.map((e, n) => {'
-          new = '''<div className="relative flex h-full flex-col gap-px overflow-hidden">
-                            {visible.length > 0 && (
-                              <Eye
-                                className="pointer-events-none absolute right-0.5 top-0.5 z-10 h-2.5 w-2.5 rounded-sm bg-card/85 p-[1px] text-foreground/70 shadow-sm"
-                                aria-hidden="true"
-                              />
-                            )}
-                            {visible.map((e, n) => {'''
+          new = (
+              '<div className="relative flex h-full flex-col gap-px overflow-hidden">\n'
+              '                            {visible.length > 0 && (\n'
+              '                              <Eye\n'
+              '                                className="pointer-events-none absolute right-0.5 top-0.5 z-10 h-2.5 w-2.5 rounded-sm bg-card/85 p-[1px] text-foreground/70 shadow-sm"\n'
+              '                                aria-hidden="true"\n'
+              '                              />\n'
+              '                            )}\n'
+              '                            {visible.map((e, n) => {'
+          )
           assert old in s, 'event stack opener changed'
           s = s.replace(old, new, 1)
 
@@ -101,8 +102,7 @@ function compactEventRange(event: DemandEventDetail, fallbackDate: string): stri
           s = s.replace(old, new, 1)
 
           old = '{impact === "high" ? "H" : impact === "medium" ? "M" : "L"} · {e.title}'
-          new = '''<span className="shrink-0 font-semibold tracking-[-0.03em]">{range}</span>
-                                  <span className="min-w-0 flex-1 truncate">{e.title}</span>'''
+          new = '<span className="shrink-0 font-semibold tracking-[-0.03em]">{range}</span>\n                                  <span className="min-w-0 flex-1 truncate">{e.title}</span>'
           assert old in s, 'event chip content changed'
           s = s.replace(old, new, 1)
 
