@@ -8,14 +8,12 @@ import "./styles/revenue-grid-performance.css";
 import "./styles/revenue-grid-row-separation.css";
 import "./styles/rate-calendar-input.css";
 import "./styles/rate-calendar-month-layout.css";
-import "./styles/rate-calendar-mobile-events-polish.css";
 import "./styles/training-mobile-safe.css";
 import "./styles/housekeeping-dnd-mobile.css";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { installGlobalErrorReporting } from "@/lib/clientErrorReporter";
 import { installRateCalendarInputPolicy } from "@/lib/rateCalendarInputPolicy";
 import { installRateCalendarMonthNav } from "@/lib/rateCalendarMonthNav";
-import { installRateCalendarMobileEvents } from "@/lib/rateCalendarMobileEvents";
 import { installRateCalendarMarketDemand } from "@/lib/rateCalendarMarketDemand";
 
 // Optional presentation-only bridge. Its frequent full-grid DOM inspection is
@@ -55,7 +53,6 @@ installGlobalErrorReporting();
 // animation. These enhancers are restricted to the Rate & Pickup card.
 installRateCalendarInputPolicy();
 installRateCalendarMonthNav();
-installRateCalendarMobileEvents();
 installRateCalendarMarketDemand();
 
 const root = document.getElementById("root");
