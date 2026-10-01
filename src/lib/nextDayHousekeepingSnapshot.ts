@@ -87,6 +87,11 @@ function buildRoomIndex(roomRows: any[]) {
   const index = new Map<string, any[]>();
   for (const room of roomRows) {
     const names = [room.room_number];
+    // Previo snapshots may carry the PMS source label in room_label while
+    // room_number contains HotelCare's shorter canonical name. Index both
+    // identities so portfolio properties such as SLNT can disambiguate rooms
+    // without falling back to a fuzzy/shared canonical label.
+    if (room.pms_metadata?.source_name) names.push(room.pms_metadata.source_name);
     // Gozsdu's PMS labels contain building prefixes, but local room numbers
     // can be short. The canonical registry alias disambiguates all 82 units.
     if (isGozsduCourtHotel(room.hotel) && room.pms_metadata?.gozsduAvailability?.pmsRoomName) {
