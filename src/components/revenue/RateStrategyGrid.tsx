@@ -440,11 +440,11 @@ export default function RateStrategyGrid({
     if (monthFilter) {
       const [y, m] = monthFilter.split("-").map(Number);
       const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-      return Math.max(MIN_MONTH_CELL_W, Math.min(ZOOM_CELL_W, Math.floor(avail / daysInMonth)));
+      return Math.max(MIN_MONTH_CELL_W, Math.floor(avail / daysInMonth));
     }
-    // The 30-day board should use the available desktop width instead of
-    // ending early and leaving a large blank panel on wide monitors. Keep the
-    // user's zoom as the minimum reading size; only stretch when there is room.
+    // Fill the actual calendar viewport on wide screens. Do not cap at the
+    // zoom width: that cap was the reason half of an ultrawide card stayed blank.
+    // On phones/tablets the normal zoom width still wins and horizontal scroll remains.
     const visibleCount = 30;
     return Math.max(ZOOM_CELL_W, Math.floor(avail / visibleCount));
   }, [monthFilter, viewportW, LEFT_W, ZOOM_CELL_W]);
@@ -3242,18 +3242,13 @@ export default function RateStrategyGrid({
 
 
               {/* ---- Room-type / metric rows ---- */}
-              {/* Keep a real spacer below the sticky header. Without this, the
-                  first room-type group can start underneath the sticky header
-                  and look missing until the user scrolls. */}
-              <div aria-hidden="true" style={{ height: GROUP_H, minHeight: GROUP_H }} />
               {rows.map((row, rowIdx) => (
                 <div
                   key={row.key}
-                  className={`flex ${row.kind === "group" ? "sticky z-20 border-b border-b-foreground/25 bg-muted/95 backdrop-blur-sm" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
+                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/95" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
                   style={{
                     height: rowH(row.kind),
                     minHeight: rowH(row.kind),
-                    ...(row.kind === "group" ? { top: stickyHeaderH, marginTop: rowIdx === 0 ? -GROUP_H : undefined } : {}),
                   }}
                 >
                   {/* Frozen label cell — must stay fully opaque, otherwise the
