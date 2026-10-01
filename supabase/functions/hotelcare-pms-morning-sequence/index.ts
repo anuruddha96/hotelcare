@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 
 const RD_ORDER = ["memories-budapest", "mika-downtown", "ottofiori", "gozsdu-court"];
+const ADMIN_ALERT_EMAIL = "anuruddha.dharmasena@gmail.com";
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status, headers: { "Content-Type": "application/json" },
 });
@@ -33,6 +34,46 @@ function orderedHotels(configs: Array<{ hotel_id: string }>) {
     if (bi >= 0) return 1;
     return a.hotel_id.localeCompare(b.hotel_id);
   });
+}
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] || ch));
+}
+async function sendPmsFailureAlert(target: string, businessDate: string, failure: string) {
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (!apiKey) {
+    console.error(`[PMS alert] RESEND_API_KEY missing; could not alert ${ADMIN_ALERT_EMAIL}`);
+    return;
+  }
+  let from = "HotelCare PMS Monitor <onboarding@resend.dev>";
+  try {
+    const domainsResponse = await fetch("https://api.resend.com/domains", {
+      headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(10000),
+    });
+    if (domainsResponse.ok) {
+      const parsed = await domainsResponse.json().catch(() => ({}));
+      const verified = Array.isArray(parsed?.data)
+        ? parsed.data.find((domain: any) => String(domain?.status || "").toLowerCase() === "verified" && domain?.name)
+        : null;
+      if (verified?.name) from = `HotelCare PMS Monitor <noreply@${verified.name}>`;
+    }
+  } catch (error) {
+    console.error("[PMS alert] verified-domain lookup failed", error);
+  }
+  const subject = `[HotelCare] PMS sync failed: ${target}`;
+  const safeTarget = escapeHtml(target);
+  const safeFailure = escapeHtml(failure);
+  const html = `<h2>HotelCare PMS synchronization failed</h2><p><strong>Target:</strong> ${safeTarget}</p><p><strong>Business date:</strong> ${businessDate}</p><p><strong>Error:</strong></p><pre>${safeFailure}</pre><p>Please check HotelCare PMS Sync Status and Previo connectivity.</p>`;
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ from, to: [ADMIN_ALERT_EMAIL], subject, html }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) console.error(`[PMS alert] Resend ${response.status}: ${await response.text()}`);
+  } catch (error) {
+    console.error("[PMS alert] send failed", error);
+  }
 }
 async function callEdge(url: string, serviceKey: string, name: string, payload: Record<string, unknown>, secret?: string) {
   const response = await fetch(`${url}/functions/v1/${name}`, {
@@ -82,11 +123,9 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
   const mappings = mappingResponse.data || [], snapshots = snapshotsResponse.data || [];
   if (!mappings.length || !snapshots.length) throw new Error(`${hotelId}: room mappings or reservations are empty`);
   const gozsdu = hotelId === "gozsdu-court";
-  // Gozsdu has a physical-room registry larger than the reservation manifest: a
-  // valid same-day arrival can temporarily be absent from daily overview while
-  // the room preflight has already refreshed authoritative Previo metadata.
-  // Load those room rows up front so we can rehydrate only a proven current-day
-  // arrival; genuinely unknown/missing PMS rooms still fail closed.
+  // Gozsdu can legitimately have a same-day arrival or a confirmed no-show
+  // absent from the occupied-night manifest. Only fresh room metadata from the
+  // Previo preflight is allowed to bridge that gap; unknown rooms still fail closed.
   const mappedRoomIds = mappings.map((m: any) => String(m.hotelcare_room_id || "")).filter(Boolean);
   const gozsduRoomsResponse = gozsdu
     ? await admin.from("rooms")
@@ -95,7 +134,6 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     : { data: [] as any[], error: null };
   if (gozsduRoomsResponse.error) throw new Error("gozsdu-court: current PMS room state lookup failed");
   const gozsduRoomById = new Map((gozsduRoomsResponse.data || []).map((r: any) => [String(r.id), r]));
-  // A broken partial PMS response must not reclassify the 21-room property.
   if (ottofiori && snapshots.length < 15) throw new Error("ottofiori: incomplete reservation snapshot; classifications unchanged");
   const byName = new Map<string, any>();
   for (const row of snapshots) {
@@ -111,10 +149,11 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       nextArrivals.set(key, row);
     }
   }
-  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null; rehydratedArrival?: boolean }> = [];
+  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null; rehydratedArrival?: boolean; rehydratedNoShow?: boolean }> = [];
   const usedRoomIds = new Set<string>();
   const usedSnapshots = new Set<string>();
   const rehydratedGozsduRooms: string[] = [];
+  const rehydratedNoShowRooms: string[] = [];
   for (const mapping of mappings) {
     const roomId = String(mapping.hotelcare_room_id || "");
     const key = String(mapping.pms_room_name || "").trim().toLowerCase();
@@ -123,6 +162,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       throw new Error(`${hotelId}: incomplete or ambiguous mapping; no checkout/daily classifications changed`);
     }
     let rehydratedArrival = false;
+    let rehydratedNoShow = false;
     if (!snapshot && gozsdu) {
       const current: any = gozsduRoomById.get(roomId);
       const meta = current?.pms_metadata && typeof current.pms_metadata === "object" ? current.pms_metadata : {};
@@ -130,19 +170,28 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       const currentDate = String(meta.pmsSyncDate || meta.lastPmsRefreshDate || "").slice(0, 10);
       const mappedName = String(mapping.pms_room_name || "").trim().toLowerCase();
       const liveName = String(availability.pmsRoomName || "").trim().toLowerCase();
-      // This fallback is deliberately narrow. It is allowed only after today's
-      // preflight positively identifies the same mapped room as an unarrived
-      // arrival. Stale dirty/approval/assignment state is never enough.
-      rehydratedArrival = currentDate === date
-        && meta.arrivalToday === true
-        && meta.notArrived === true
-        && meta.isCancelled !== true
-        && meta.isNoShow !== true
+      const statusId = Number(meta.reservationStatusId);
+      const sameMappedOperatingRoom = currentDate === date
         && availability.status === "operating"
         && !!mappedName && liveName === mappedName;
+      rehydratedNoShow = sameMappedOperatingRoom
+        && (meta.isNoShow === true || statusId === 8)
+        && meta.isCancelled !== true
+        && meta.occupiedToday !== true
+        && meta.checkedOutToday !== true;
+      rehydratedArrival = !rehydratedNoShow
+        && sameMappedOperatingRoom
+        && meta.arrivalToday === true
+        && Number.isFinite(statusId)
+        && ![7, 8, 9].includes(statusId)
+        && meta.isCancelled !== true
+        && meta.isNoShow !== true
+        && meta.checkedOutToday !== true
+        && meta.scheduledDepartureToday !== true;
       if (rehydratedArrival) rehydratedGozsduRooms.push(String(mapping.pms_room_name || roomId));
+      if (rehydratedNoShow) rehydratedNoShowRooms.push(String(mapping.pms_room_name || roomId));
     }
-    if (!snapshot && !ottofiori && !rehydratedArrival) {
+    if (!snapshot && !ottofiori && !rehydratedArrival && !rehydratedNoShow) {
       throw new Error(`${hotelId}: incomplete or ambiguous mapping; no checkout/daily classifications changed`);
     }
     if (snapshot && snapshot.status !== "departing" && snapshot.status !== "ongoing") {
@@ -150,8 +199,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     }
     usedRoomIds.add(roomId);
     if (snapshot) usedSnapshots.add(String(snapshot.id));
-    // No-show may disappear from today's snapshot while next arrival exists.
-    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival });
+    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival, rehydratedNoShow });
   }
   const { data: rooms, error: roomsError } = await admin.from("rooms")
     .select("id,pms_metadata,is_checkout_room,guest_count,guest_nights_stayed")
@@ -159,7 +207,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
   if (roomsError || rooms?.length !== pairs.length) throw new Error(`${hotelId}: mapped HotelCare inventory does not match Previo`);
   const roomById = new Map(rooms.map((r: any) => [String(r.id), r]));
   const syncedAt = new Date().toISOString();
-  let checkout = 0, daily = 0, overridden = 0, reconciledArrivals = 0, skippedUnknown = 0;
+  let checkout = 0, daily = 0, overridden = 0, reconciledArrivals = 0, skippedUnknown = 0, noShows = 0;
   for (const pair of pairs) {
     const room: any = roomById.get(pair.id);
     const s = pair.snapshot;
@@ -176,16 +224,31 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     metadata.lastServerMorningSyncAt = syncedAt;
     metadata.lastServerMorningSyncSource = "portfolio_morning_10min";
 
-    if (gozsdu && pair.rehydratedArrival && !s) {
-      // A new arrival may not yet exist in the reservation manifest. Keep the
-      // room in today's complete roster as a non-checkout turnover/arrival
-      // without carrying yesterday's checkout classification forward.
+    if (gozsdu && pair.rehydratedNoShow && !s) {
       metadata.scheduledDepartureToday = false;
       metadata.checkedOutToday = false;
-      metadata.arrivalToday = true;
+      metadata.isNoShow = true;
       metadata.notArrived = true;
       metadata.occupiedToday = false;
       metadata.stayThroughToday = false;
+      const { error: noShowError } = await admin.from("rooms").update({
+        is_checkout_room: false, pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (noShowError) throw new Error(`gozsdu-court: no-show rehydration failed: ${noShowError.message}`);
+      noShows++;
+      continue;
+    }
+
+    if (gozsdu && pair.rehydratedArrival && !s) {
+      // A new arrival may not yet exist in the occupied-night manifest. Preserve
+      // whether it is still waiting or has already checked in; either way it is
+      // an arrival, never yesterday's checkout/daily cleaning task.
+      metadata.scheduledDepartureToday = false;
+      metadata.checkedOutToday = false;
+      metadata.arrivalToday = true;
+      metadata.notArrived = old.notArrived === true;
+      metadata.occupiedToday = old.occupiedToday === true;
+      metadata.stayThroughToday = old.occupiedToday === true;
       const { error: arrivalError } = await admin.from("rooms").update({
         is_checkout_room: false, pms_metadata: metadata, updated_at: syncedAt,
       }).eq("id", pair.id);
@@ -195,8 +258,6 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     }
 
     if (ottofiori && !s) {
-      // No present reservation is not proof of checkout. Preserve a confirmed
-      // checkout's full cleaning, or a manager's explicit same-day override.
       const confirmedCheckout = previousDate === date && old.checkedOutToday === true;
       if ((manual && old.manual_checkout === true) || confirmedCheckout) {
         checkout++; if (manual) overridden++; skippedUnknown++; continue;
@@ -249,7 +310,6 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     metadata.scheduledDepartureTomorrow = s.departure_date > date && s.departure_date <= nextDate;
     metadata.arrivalDate = s.arrival_date;
     metadata.departureDate = s.departure_date;
-    // A reservation on the manifest alone is not evidence of check-in.
     metadata.occupiedToday = ottofiori ? old.occupiedToday === true : true;
     metadata.stayThroughToday = ottofiori ? !effectiveCheckout : !departing;
     if (ottofiori && s.arrival_date !== old.arrivalDate && old.manual_no_show !== true) {
@@ -274,14 +334,16 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
       manager_overrides_preserved: overridden, unmapped_reservation_rooms: unmatchedSnapshots,
       expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
-      rehydrated_rooms: rehydratedGozsduRooms, unresolved_rooms: 0,
+      rehydrated_rooms: rehydratedGozsduRooms, rehydrated_no_show_rooms: rehydratedNoShowRooms,
+      no_show_rooms: noShows, unresolved_rooms: 0,
       ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) },
   });
   if (historyError) throw new Error(`${hotelId}: PMS history write failed: ${historyError.message}`);
   return { rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
     unmapped_reservation_rooms: unmatchedSnapshots,
     expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
-    rehydrated_rooms: rehydratedGozsduRooms, unresolved_rooms: 0, status,
+    rehydrated_rooms: rehydratedGozsduRooms, rehydrated_no_show_rooms: rehydratedNoShowRooms,
+    no_show_rooms: noShows, unresolved_rooms: 0, status,
     ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) };
 }
 
@@ -305,7 +367,11 @@ Deno.serve(async req => {
       .eq("organization_slug", "slnt").eq("pms_type", "previo")
       .eq("is_active", true).eq("sync_paused", false).order("label", { ascending: true }),
   ]);
-  if (configsRes.error || accountsRes.error) return json({ ok: false, error: "Unable to load PMS synchronization schedule" }, 500);
+  if (configsRes.error || accountsRes.error) {
+    const failure = `Unable to load PMS synchronization schedule: ${configsRes.error?.message || accountsRes.error?.message || "unknown database error"}`;
+    await sendPmsFailureAlert("PMS schedule", clock.date, failure);
+    return json({ ok: false, error: failure }, 500);
+  }
   const accounts = accountsRes.data || [];
   const accountHotels = new Set(accounts.map((a: any) => a.hotel_id));
   const hotels = orderedHotels((configsRes.data || []).filter((c: any) => !accountHotels.has(c.hotel_id)));
@@ -321,7 +387,11 @@ Deno.serve(async req => {
     business_date: clock.date, target_key: target.key, slot, status: "running", started_at: startedAt,
   });
   if (claimed.error?.code === "23505") return json({ ok: true, skipped: true, reason: "already_attempted_today", target: target.label });
-  if (claimed.error) return json({ ok: false, error: `PMS run claim failed: ${claimed.error.message}` }, 500);
+  if (claimed.error) {
+    const failure = `PMS run claim failed: ${claimed.error.message}`;
+    await sendPmsFailureAlert(target.label, clock.date, failure);
+    return json({ ok: false, error: failure }, 500);
+  }
   try {
     const result = target.type === "hotel"
       ? await syncStandardHotel(admin, url, service, String(expected.data), target.hotel_id, clock.date)
@@ -344,6 +414,7 @@ Deno.serve(async req => {
       data: { trigger: "portfolio_morning_10min", business_date: clock.date,
         account_id: target.account_id, scheduled_slot: slot },
     });
+    await sendPmsFailureAlert(target.label, clock.date, failure);
     return json({ ok: false, target: target.label, error: failure }, 500);
   }
 });
