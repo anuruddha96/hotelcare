@@ -563,18 +563,23 @@ export function HousekeepingStaffManagement() {
     if (!editData.id) return;
     setLoading(true);
     try {
-      const payload: any = {
-        full_name: editData.full_name,
-        phone_number: editData.phone_number || null,
-        email: editData.email || '',
-        assigned_hotel: editData.assigned_hotel || null,
-        nickname: editData.nickname || null,
-      };
-      const { error } = await supabase
-        .from('profiles')
-        .update(payload)
-        .eq('id', editData.id);
-      if (error) throw error;
+      const { data, error } = await supabase.functions.invoke('admin-update-user', {
+        body: {
+          target_user_id: editData.id,
+          full_name: editData.full_name,
+          nickname: editData.nickname || null,
+          new_email: editData.email || null,
+          phone_number: editData.phone_number || null,
+          assigned_hotel: editData.assigned_hotel || null,
+        },
+      });
+      if (error) {
+        const serverMsg = (data as any)?.error || (data as any)?.message;
+        throw new Error(serverMsg || error.message || 'Failed to update staff member');
+      }
+      if ((data as any)?.success === false) {
+        throw new Error((data as any)?.error || 'Failed to update staff member');
+      }
       toast({ title: 'Updated', description: 'Staff member updated successfully' });
       setEditOpen(false);
       fetchHousekeepingStaff();
