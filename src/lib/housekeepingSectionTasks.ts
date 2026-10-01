@@ -28,9 +28,14 @@ export interface LiveSectionTaskSnapshotRow {
 
 /**
  * Null means Auto Assign is creating a new plan and should use the configured
- * recurring-area rules. A Map (including an empty Map) means the selected date
- * already has real room assignments, so the persisted public-area snapshot is
- * the source of truth for which tasks exist and who owns them.
+ * recurring-area rules. A Map means some public-area work already has persisted
+ * ownership for the selected date. Persisted owners must be preserved, but the
+ * snapshot must never suppress other active mapped recurring work.
+ *
+ * Room assignments and public-area assignments are released independently. A
+ * hotel can therefore have live room owners while zero (or only some) public
+ * areas have been persisted. Treating an empty/partial snapshot as the complete
+ * task catalogue made mapped public areas disappear from Auto Assign.
  *
  * This is deliberately module-local and short-lived. AutoRoomAssignment.tsx
  * primes it before mounting the assignment board and clears it when the modal
@@ -55,37 +60,17 @@ export function clearLiveSectionTaskSnapshot(): void {
  * section's room workload. If a section has no dirty room that day, the least
  * loaded selected cleaner receives it so shared areas are never forgotten.
  *
- * When an existing-date snapshot is present, do not recalculate public areas.
- * Replay the exact persisted task set and owners instead. Managers may still
- * drag an assigned task afterwards; AutoRoomAssignmentImpl layers that manual
- * move on top of this baseline and persists it only when they confirm changes.
+ * When an existing-date snapshot is present, preserve the owner of every task
+ * that is already persisted, then intelligently assign every other active,
+ * auto-assigned mapped task using the same section/locality rules as a new plan.
+ * Managers may still drag a task afterwards; AutoRoomAssignmentImpl layers that
+ * manual move on top of this baseline and persists it only on confirmation.
  */
 export function assignSectionTasksToStaff(
   previews: AssignmentPreview[],
   templates: HousekeepingSectionTaskTemplate[],
 ): AutoAssignedSectionTask[] {
   if (previews.length === 0) return [];
-
-  if (liveSectionTaskSnapshot !== null) {
-    return templates
-      .filter(template => liveSectionTaskSnapshot!.has(template.id))
-      .sort((a, b) =>
-        a.floor_number - b.floor_number
-        || a.section_name.localeCompare(b.section_name)
-        || a.sort_order - b.sort_order
-        || a.task_name.localeCompare(b.task_name)
-      )
-      .flatMap(template => {
-        const ownerId = liveSectionTaskSnapshot!.get(template.id);
-        if (!ownerId) return [];
-        const owner = previews.find(preview => preview.staffId === ownerId);
-        return [{
-          ...template,
-          staff_id: ownerId,
-          staff_name: owner?.staffName || `Staff ${ownerId.slice(0, 6)}`,
-        }];
-      });
-  }
 
   const extraMinutes = new Map(previews.map(preview => [preview.staffId, 0]));
   const activeTemplates = templates
@@ -105,8 +90,31 @@ export function assignSectionTasksToStaff(
   }
 
   const assignments: AutoAssignedSectionTask[] = [];
+  // Existing public-area ownership is authoritative for that task only. Keep it
+  // fixed while filling any mapped recurring work that has not yet been released.
+  const persistedTaskIds = new Set<string>();
+  if (liveSectionTaskSnapshot !== null) {
+    for (const template of activeTemplates) {
+      const ownerId = liveSectionTaskSnapshot.get(template.id);
+      if (!ownerId) continue;
+      const owner = previews.find(preview => preview.staffId === ownerId);
+      assignments.push({
+        ...template,
+        staff_id: ownerId,
+        staff_name: owner?.staffName || `Staff ${ownerId.slice(0, 6)}`,
+      });
+      persistedTaskIds.add(template.id);
+      extraMinutes.set(
+        ownerId,
+        (extraMinutes.get(ownerId) || 0) + Number(template.estimated_duration || 0),
+      );
+    }
+  }
+
   for (const [sectionId, sectionTasks] of tasksBySection) {
-    const representative = sectionTasks[0];
+    const unassignedSectionTasks = sectionTasks.filter(task => !persistedTaskIds.has(task.id));
+    if (unassignedSectionTasks.length === 0) continue;
+    const representative = unassignedSectionTasks[0];
 
     const localCandidates = previews
       .map(preview => {
@@ -134,7 +142,7 @@ export function assignSectionTasksToStaff(
         || a.staffName.localeCompare(b.staffName)
       )[0];
 
-    const sectionMinutes = sectionTasks.reduce(
+    const sectionMinutes = unassignedSectionTasks.reduce(
       (sum, template) => sum + template.estimated_duration,
       0,
     );
@@ -143,7 +151,7 @@ export function assignSectionTasksToStaff(
       (extraMinutes.get(owner.staffId) || 0) + sectionMinutes,
     );
 
-    assignments.push(...sectionTasks.map(template => ({
+    assignments.push(...unassignedSectionTasks.map(template => ({
       ...template,
       section_name: representative.section_name,
       staff_id: owner.staffId,
