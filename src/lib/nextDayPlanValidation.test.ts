@@ -33,6 +33,27 @@ describe('Next-day plan approval rejects invalid or cross-tenant data before wri
   it('rejects cross-organization workers', () => {
     expect(valid({ workers: [{ id: 'cleaner', assigned_hotel: 'mika-downtown', organization_slug: 'slnt' }] }).valid).toBe(false);
   });
+  it('accepts a same-organization cross-property cleaner only when the selected-date roster explicitly authorizes them here', () => {
+    const borrowedWorker = [{ id: 'cleaner', assigned_hotel: 'memories-budapest', organization_slug: 'rdhotels' }];
+    expect(valid({
+      workers: borrowedWorker,
+      schedules: schedule('08:00', '16:00'),
+      authorizedStaffIds: ['cleaner'],
+    }).valid).toBe(true);
+    expect(valid({
+      workers: borrowedWorker,
+      schedules: schedule('08:00', '16:00'),
+      authorizedStaffIds: [],
+    }).valid).toBe(false);
+  });
+  it('rejects a published lifecycle row whose operational work status is off duty', () => {
+    expect(valid({
+      schedules: [{
+        user_id: 'cleaner', status: 'published', work_status: 'off', work_date: '2026-09-23',
+        shift_start: '08:00', shift_end: '16:00',
+      }],
+    }).valid).toBe(false);
+  });
   it('rejects a foreign property room', () => {
     expect(valid({ expectedRooms: [first, { ...second, hotel: 'slnt-group' }] }).valid).toBe(false);
   });
