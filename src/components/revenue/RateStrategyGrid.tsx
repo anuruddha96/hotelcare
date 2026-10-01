@@ -1988,13 +1988,10 @@ export default function RateStrategyGrid({
     () => buildRevenueEventBands(dates, eventsByDate, 5),
     [dates, eventsByDate],
   );
-  // Reserve five readable lanes whenever Events is open. Capping the lane
-  // height prevents a highly zoomed calendar from pushing the rate rows too
-  // far down while still giving phone users materially more vertical space.
-  // Give the Events band enough vertical room to scan five demand drivers on
-  // a phone. minHeight on the rendered row prevents flex shrinking.
+  // Five compact event lanes. Real in-flow lane spacers below own the DOM
+  // height so iOS/WebKit cannot collapse the Events section back to one line.
   const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
-  const EVENT_ROW_H = showEventBand ? Math.max(ROW_H * 3, EVENT_LANE_H * 5 + 12) : ROW_H;
+  const EVENT_ROW_H = showEventBand ? EVENT_LANE_H * 5 : ROW_H;
 
   // Navigation is independent of fetched dates: display twelve future month
   // choices without eagerly loading their rate data.
@@ -3129,7 +3126,7 @@ export default function RateStrategyGrid({
                 {eventBands.length > 0 && (
                   <div
                     className="flex shrink-0 border-b-2 border-b-foreground/20 bg-card"
-                    style={{ height: EVENT_ROW_H, minHeight: EVENT_ROW_H }}
+                    style={{ minHeight: EVENT_ROW_H }}
                   >
                     <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                       <button
@@ -3147,9 +3144,20 @@ export default function RateStrategyGrid({
 
                     <div
                       className="relative shrink-0 overflow-hidden bg-card"
-                      style={{ width: dates.length * CELL_W, height: "100%" }}
+                      style={{ width: dates.length * CELL_W }}
                     >
-                      {/* Date-column background stays visible underneath the merged bars. */}
+                      {/* Five real in-flow rows prevent mobile WebKit from collapsing the event band. */}
+            <div className="pointer-events-none flex flex-col" aria-hidden="true">
+              {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
+                <div
+                  key={`event-lane-spacer-${lane}`}
+                  className="shrink-0"
+                  style={{ height: showEventBand ? EVENT_LANE_H : ROW_H }}
+                />
+              ))}
+            </div>
+
+            {/* Date-column background stays visible underneath the merged bars. */}
                       <div className="absolute inset-0 flex">
                         {dates.map((d, i) => (
                           <button
