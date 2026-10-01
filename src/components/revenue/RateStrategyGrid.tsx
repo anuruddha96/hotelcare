@@ -435,12 +435,18 @@ export default function RateStrategyGrid({
    */
   const MIN_MONTH_CELL_W = 34;
   const CELL_W = useMemo(() => {
-    if (!monthFilter || !viewportW) return ZOOM_CELL_W;
-    const [y, m] = monthFilter.split("-").map(Number);
-    const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
     const avail = viewportW - LEFT_W - 2;
     if (avail <= 0) return ZOOM_CELL_W;
-    return Math.max(MIN_MONTH_CELL_W, Math.min(ZOOM_CELL_W, Math.floor(avail / daysInMonth)));
+    if (monthFilter) {
+      const [y, m] = monthFilter.split("-").map(Number);
+      const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      return Math.max(MIN_MONTH_CELL_W, Math.min(ZOOM_CELL_W, Math.floor(avail / daysInMonth)));
+    }
+    // The 30-day board should use the available desktop width instead of
+    // ending early and leaving a large blank panel on wide monitors. Keep the
+    // user's zoom as the minimum reading size; only stretch when there is room.
+    const visibleCount = 30;
+    return Math.max(ZOOM_CELL_W, Math.floor(avail / visibleCount));
   }, [monthFilter, viewportW, LEFT_W, ZOOM_CELL_W]);
 
   /**
@@ -3236,6 +3242,10 @@ export default function RateStrategyGrid({
 
 
               {/* ---- Room-type / metric rows ---- */}
+              {/* Keep a real spacer below the sticky header. Without this, the
+                  first room-type group can start underneath the sticky header
+                  and look missing until the user scrolls. */}
+              <div aria-hidden="true" style={{ height: GROUP_H, minHeight: GROUP_H }} />
               {rows.map((row, rowIdx) => (
                 <div
                   key={row.key}
@@ -3243,7 +3253,7 @@ export default function RateStrategyGrid({
                   style={{
                     height: rowH(row.kind),
                     minHeight: rowH(row.kind),
-                    ...(row.kind === "group" ? { top: stickyHeaderH } : {}),
+                    ...(row.kind === "group" ? { top: stickyHeaderH, marginTop: rowIdx === 0 ? -GROUP_H : undefined } : {}),
                   }}
                 >
                   {/* Frozen label cell — must stay fully opaque, otherwise the
