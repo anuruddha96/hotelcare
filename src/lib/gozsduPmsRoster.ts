@@ -24,15 +24,32 @@ const key = (name: string | null | undefined) => String(name ?? '').normalize('N
 const day = (date: string | null | undefined) => date && /^\d{4}-\d{2}-\d{2}$/.test(date)
   ? Date.parse(`${date}T00:00:00Z`) / 86400000 : NaN;
 
-/** Only explicit, date-matched Previo arrival fields qualify; not-arrived alone is never a no-show. */
+/**
+ * A room that starts a new stay today belongs to the arrivals bucket even when
+ * the guest has already checked in. Previo can legitimately expose those
+ * arrivals with status 1 or 3; requiring status 2/notArrived caused valid
+ * same-day arrivals to make the whole Gozsdu roster fail closed.
+ */
 export function isGozsduAwaitingArrival(room: LocalRoom, selectedDate: string): boolean {
   const pms = room.pms_metadata;
-  return !!pms && pms.pmsSyncDate === selectedDate
-    && pms.arrivalToday === true && pms.notArrived === true
-    && Number(pms.reservationStatusId) === 2
-    && pms.isNoShow === false && pms.isCancelled === false
-    && pms.occupiedToday === false && pms.checkedOutToday === false
-    && pms.scheduledDepartureToday === false;
+  if (!pms || pms.pmsSyncDate !== selectedDate || pms.arrivalToday !== true) return false;
+  const statusId = Number(pms.reservationStatusId);
+  return Number.isFinite(statusId)
+    && ![7, 8, 9].includes(statusId)
+    && pms.isNoShow !== true
+    && pms.isCancelled !== true
+    && pms.checkedOutToday !== true
+    && pms.scheduledDepartureToday !== true;
+}
+
+/** Only an explicit, date-matched PMS no-show is allowed into the no-show bucket. */
+export function isGozsduNoShow(room: LocalRoom, selectedDate: string): boolean {
+  const pms = room.pms_metadata;
+  if (!pms || pms.pmsSyncDate !== selectedDate) return false;
+  return (pms.isNoShow === true || Number(pms.reservationStatusId) === 8)
+    && pms.isCancelled !== true
+    && pms.occupiedToday !== true
+    && pms.checkedOutToday !== true;
 }
 
 /** Identify a sparse selected-day feed without equating a missing row to a vacant or unavailable room. */
@@ -42,8 +59,8 @@ export function missingGozsduPmsRooms(registry: RegistryEntry[], snapshots: Gozs
     .map(entry => entry.pms_room_name);
 }
 
-/** Read-only reconciliation. Same-day arrivals are absent from an overnight snapshot until tomorrow.
- * Rehydrate ONLY missing arrivals with explicit date-matched Previo reservation flags.
+/** Read-only reconciliation. Same-day arrivals/no-shows may be absent from the occupied-night snapshot.
+ * Rehydrate ONLY rooms with explicit date-matched Previo flags.
  * Unknown gaps, duplicates and stale batches still fail closed. */
 export function reconcileGozsduPmsRoster(
   rooms: LocalRoom[], registry: RegistryEntry[], snapshots: GozsduPmsRow[],
@@ -78,34 +95,37 @@ export function reconcileGozsduPmsRoster(
     }
     const isCheckout = row.departure_date === selectedDate || row.status === 'departing'
       || String(row.housekeeping_dep || '').toUpperCase() === 'DEP';
-    const awaitingArrival = !isCheckout && isGozsduAwaitingArrival(room, selectedDate);
+    const noShow = !isCheckout && isGozsduNoShow(room, selectedDate);
+    const awaitingArrival = !isCheckout && !noShow && isGozsduAwaitingArrival(room, selectedDate);
     const night = selected - arrival + 1;
     const totalNights = departure - arrival;
     const registryEntry = registry.find(entry => entry.room_id === roomId)!;
-    const noShow = !isCheckout && !awaitingArrival && room.pms_metadata?.isNoShow === true && row.status !== 'ongoing';
     const computedService = isCheckout || noShow || awaitingArrival || registryEntry.service_status !== 'operating'
       ? 'none' : getGozsduHousekeepingCycle({ currentNight: night, totalNights, isCheckout }).service;
     // Manual cleaning plans are date-scoped and do not modify PMS stay facts.
-    // Never turn a no-show, unarrived guest or unavailable room into an operational task.
+    // Never turn a no-show, same-day arrival or unavailable room into an operational task.
     const override = !noShow && !awaitingArrival && registryEntry.service_status === 'operating'
       ? readGozsduRoomOverride(room.pms_metadata, selectedDate) : null;
     const service = override?.service ?? computedService;
     byRoom.set(roomId, {
-      bucket: awaitingArrival ? 'arrival' : override?.bucket ?? (isCheckout ? 'checkout' : noShow ? 'noshow' : service !== 'none' ? 'service' : 'other'),
+      bucket: noShow ? 'noshow' : awaitingArrival ? 'arrival' : override?.bucket ?? (isCheckout ? 'checkout' : service !== 'none' ? 'service' : 'other'),
       service, night, totalNights, leavesTomorrow: row.departure_date === new Date((selected + 1) * 86400000).toISOString().slice(0, 10),
     });
   }
-  // The occupied-night feed intentionally omits rooms whose reservations start
-  // today. Never infer vacancy, no-show or an operational checkout from a gap.
+  // The occupied-night feed intentionally omits some reservations whose stay
+  // starts today and can also omit an explicit no-show. Never infer either state
+  // from absence alone: only fresh Previo room metadata may rehydrate the room.
   for (const entry of registry) {
     if (byRoom.has(entry.room_id)) continue;
     const room = roomsById.get(entry.room_id)!;
-    if (!isGozsduAwaitingArrival(room, selectedDate)) {
+    const noShow = isGozsduNoShow(room, selectedDate);
+    const arrival = !noShow && isGozsduAwaitingArrival(room, selectedDate);
+    if (!noShow && !arrival) {
       const missing = missingGozsduPmsRooms(registry, snapshots);
       throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local). Missing from selected-day PMS: ${missing.join(', ')}. Their operating status is unchanged; booking and occupancy are UNKNOWN until verified in Previo.`);
     }
     byRoom.set(entry.room_id, {
-      bucket: 'arrival', service: 'none', night: 1,
+      bucket: noShow ? 'noshow' : 'arrival', service: 'none', night: 1,
       totalNights: Math.max(1, Number(room.pms_metadata.totalNights) || 1),
       leavesTomorrow: Number(room.pms_metadata.totalNights) === 1,
     });
