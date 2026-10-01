@@ -64,8 +64,6 @@ type TaskRow = {
 type ScheduleRow = {
   user_id: string;
   status: 'draft' | 'published' | 'off';
-  shift_start: string;
-  shift_end: string;
 };
 
 type Copy = {
@@ -84,9 +82,9 @@ type Copy = {
   save: string;
   cancel: string;
   noMembers: string;
-  scheduleRequired: string;
+  notWorking: string;
   working: string;
-  notPublished: string;
+  notSelected: string;
   checkout: string;
   daily: string;
 };
@@ -94,7 +92,7 @@ type Copy = {
 const COPY: Record<'en' | 'hu', Copy> = {
   en: {
     title: 'Team B shared rooms',
-    subtitle: 'All Team B cleaners see the same released room queue. A room becomes an individual assignment only after one cleaner claims it.',
+    subtitle: 'All Team B cleaners selected as working today see the same released room queue. A room becomes individual only after one cleaner claims it.',
     configure: 'Configure Team B logins',
     refresh: 'Refresh',
     noTasks: 'No Team B shared rooms have been released for today.',
@@ -104,19 +102,19 @@ const COPY: Record<'en' | 'hu', Copy> = {
     claiming: 'Claiming…',
     claimedByYou: 'Claimed by you · continue in My Rooms below',
     configureTitle: 'Configure Team B logins',
-    configureHelp: 'Select the HotelCare housekeeping logins that belong to Team B. This maps logins only; the 46 Team B rooms remain fixed from the validated workbook.',
+    configureHelp: 'Select the HotelCare housekeeping logins that belong to Team B. Daily working staff are chosen separately inside the Team B 14-day planner.',
     save: 'Save Team B',
     cancel: 'Cancel',
     noMembers: 'Team B room mapping is ready, but no HotelCare logins are mapped to Team B yet.',
-    scheduleRequired: 'You must have a published Staff Schedule for today before claiming a Team B room.',
+    notWorking: 'You are not selected as working for Team B today.',
     working: 'Working',
-    notPublished: 'Not published today',
+    notSelected: 'Not selected today',
     checkout: 'Checkout',
     daily: 'Daily',
   },
   hu: {
     title: 'B csapat közös szobái',
-    subtitle: 'A B csapat minden takarítója ugyanazt a kiadott szobalistát látja. A szoba csak akkor lesz egyéni feladat, amikor egy takarító lefoglalja.',
+    subtitle: 'A ma dolgozónak kijelölt B csapattagok ugyanazt a kiadott szobalistát látják. A szoba csak felvétel után lesz egyéni feladat.',
     configure: 'B csapat belépések beállítása',
     refresh: 'Frissítés',
     noTasks: 'Mára még nincs kiadott közös B csapat feladat.',
@@ -126,13 +124,13 @@ const COPY: Record<'en' | 'hu', Copy> = {
     claiming: 'Felvétel…',
     claimedByYou: 'Ön vette fel · folytassa lent a Saját szobák résznél',
     configureTitle: 'B csapat belépések beállítása',
-    configureHelp: 'Válassza ki, mely HotelCare takarítói belépések tartoznak a B csapathoz. Ez csak a felhasználókat térképezi; a 46 B csapat szoba a jóváhagyott táblázat alapján rögzített.',
+    configureHelp: 'Válassza ki, mely HotelCare takarítói belépések tartoznak a B csapathoz. A napi dolgozókat külön, a B csapat 14 napos tervezőjében lehet kiválasztani.',
     save: 'B csapat mentése',
     cancel: 'Mégse',
     noMembers: 'A B csapat 46 szobás térképe kész, de még nincs HotelCare belépés hozzárendelve.',
-    scheduleRequired: 'B csapat szoba felvételéhez mára közzétett Staff Schedule szükséges.',
+    notWorking: 'Ön nincs mára dolgozó B csapattagként kijelölve.',
     working: 'Dolgozik',
-    notPublished: 'Ma nincs közzétéve',
+    notSelected: 'Ma nincs kijelölve',
     checkout: 'Kijelentkezés',
     daily: 'Napi',
   },
@@ -156,7 +154,9 @@ export function SlntTeamBSharedQueue() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [roomNames, setRoomNames] = useState<Map<string, string>>(new Map());
   const [profileNames, setProfileNames] = useState<Map<string, string>>(new Map());
-  const [scheduleByUser, setScheduleByUser] = useState<Map<string, ScheduleRow>>(new Map());
+  const [dayStaffIds, setDayStaffIds] = useState<Set<string>>(new Set());
+  const [hasDayStaffPlan, setHasDayStaffPlan] = useState(false);
+  const [legacyPublishedIds, setLegacyPublishedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
@@ -182,7 +182,7 @@ export function SlntTeamBSharedQueue() {
       const activeTeam = teamData as TeamRow;
       setTeam(activeTeam);
 
-      const [memberResult, taskResult, profileResult] = await Promise.all([
+      const [memberResult, taskResult, profileResult, dayStaffResult] = await Promise.all([
         (supabase as any)
           .from('housekeeping_team_members')
           .select('user_id,is_active')
@@ -203,13 +203,20 @@ export function SlntTeamBSharedQueue() {
               .eq('organization_slug', 'slnt')
               .is('deleted_at', null)
           : Promise.resolve({ data: [], error: null }),
+        (supabase as any)
+          .from('housekeeping_team_day_staff')
+          .select('user_id')
+          .eq('team_id', activeTeam.id)
+          .eq('service_date', today),
       ]);
       if (memberResult.error) throw memberResult.error;
       if (taskResult.error) throw taskResult.error;
       if (profileResult.error) throw profileResult.error;
+      if (dayStaffResult.error) throw dayStaffResult.error;
 
       const nextMembers = (memberResult.data || []) as MemberRow[];
       const nextTasks = (taskResult.data || []) as TaskRow[];
+      const nextDayStaffIds = new Set((dayStaffResult.data || []).map((row: any) => row.user_id));
       const eligibleProfiles = ((profileResult.data || []) as ProfileRow[])
         .filter(candidate => candidate.role === 'housekeeping' || candidate.acts_as_housekeeper === true)
         .sort((a, b) => a.full_name.localeCompare(b.full_name));
@@ -217,6 +224,8 @@ export function SlntTeamBSharedQueue() {
       setTasks(nextTasks);
       setProfiles(eligibleProfiles);
       setSelectedMembers(new Set(nextMembers.map(member => member.user_id)));
+      setDayStaffIds(nextDayStaffIds);
+      setHasDayStaffPlan(nextDayStaffIds.size > 0);
 
       const roomIds = Array.from(new Set(nextTasks.map(task => task.room_id)));
       const personIds = Array.from(new Set([
@@ -234,7 +243,7 @@ export function SlntTeamBSharedQueue() {
         nextMembers.length
           ? (supabase as any)
               .from('staff_schedules')
-              .select('user_id,status,shift_start,shift_end')
+              .select('user_id,status')
               .eq('organization_slug', 'slnt')
               .eq('work_date', today)
               .in('user_id', nextMembers.map(member => member.user_id))
@@ -244,13 +253,12 @@ export function SlntTeamBSharedQueue() {
       if (namesResult.error) throw namesResult.error;
       if (scheduleResult.error) throw scheduleResult.error;
 
+      const schedules = (scheduleResult.data || []) as ScheduleRow[];
+      setLegacyPublishedIds(new Set(schedules.filter(row => row.status === 'published').map(row => row.user_id)));
       setRoomNames(new Map((roomsResult.data || []).map((room: any) => [room.id, room.room_number])));
       setProfileNames(new Map((namesResult.data || []).map((person: any) => [person.id, person.full_name])));
-      setScheduleByUser(new Map(((scheduleResult.data || []) as ScheduleRow[]).map(row => [row.user_id, row])));
     } catch (error) {
       console.error('[SlntTeamBSharedQueue] load failed:', error);
-      // During a migration rollout the table may not exist for a few seconds;
-      // avoid breaking the whole housekeeping workspace.
       if (canManage) toast.error(error instanceof Error ? error.message : 'Could not load Team B.');
     } finally {
       setLoading(false);
@@ -264,12 +272,13 @@ export function SlntTeamBSharedQueue() {
   const memberIds = useMemo(() => new Set(members.map(member => member.user_id)), [members]);
   const isMember = !!user && memberIds.has(user.id);
   const summary = useMemo(() => summarizeSlntTeamTasks(tasks), [tasks]);
-  const currentSchedule = user ? scheduleByUser.get(user.id) : undefined;
-  const canClaimToday = isMember && currentSchedule?.status === 'published';
+  const canClaimToday = !!user && isMember && (
+    hasDayStaffPlan ? dayStaffIds.has(user.id) : legacyPublishedIds.has(user.id)
+  );
 
   const claim = async (taskId: string) => {
     if (!canClaimToday) {
-      toast.warning(text.scheduleRequired);
+      toast.warning(text.notWorking);
       return;
     }
     setClaimingId(taskId);
@@ -355,19 +364,21 @@ export function SlntTeamBSharedQueue() {
             </div>
           )}
 
-          {isMember && !canClaimToday && (
+          {isMember && !canClaimToday && tasks.length > 0 && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
-              {text.scheduleRequired}
+              {text.notWorking}
             </div>
           )}
 
           {canManage && members.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {members.map(member => {
-                const schedule = scheduleByUser.get(member.user_id);
+                const working = hasDayStaffPlan
+                  ? dayStaffIds.has(member.user_id)
+                  : legacyPublishedIds.has(member.user_id);
                 return (
-                  <Badge key={member.user_id} variant={schedule?.status === 'published' ? 'default' : 'outline'}>
-                    {profileNames.get(member.user_id) || member.user_id.slice(0, 8)} · {schedule?.status === 'published' ? text.working : text.notPublished}
+                  <Badge key={member.user_id} variant={working ? 'default' : 'outline'}>
+                    {profileNames.get(member.user_id) || member.user_id.slice(0, 8)} · {working ? text.working : text.notSelected}
                   </Badge>
                 );
               })}
@@ -392,9 +403,7 @@ export function SlntTeamBSharedQueue() {
                           {task.assignment_type === 'checkout_cleaning' ? text.checkout : text.daily}
                         </div>
                       </div>
-                      <Badge variant={isQueued ? 'outline' : 'secondary'}>
-                        {isQueued ? text.queue : text.claimed}
-                      </Badge>
+                      <Badge variant={isQueued ? 'outline' : 'secondary'}>{isQueued ? text.queue : text.claimed}</Badge>
                     </div>
 
                     {task.status === 'claimed' ? (
@@ -428,9 +437,7 @@ export function SlntTeamBSharedQueue() {
       {canManage && (
         <Dialog open={configOpen} onOpenChange={setConfigOpen}>
           <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{text.configureTitle}</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>{text.configureTitle}</DialogTitle></DialogHeader>
             <p className="text-sm text-muted-foreground">{text.configureHelp}</p>
             <div className="max-h-[55vh] space-y-2 overflow-y-auto py-2">
               {profiles.map(candidate => (
