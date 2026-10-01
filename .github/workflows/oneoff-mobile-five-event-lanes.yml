@@ -41,16 +41,13 @@ jobs:
           assert old_outer in s, 'event outer row anchor not found'
           s = s.replace(old_outer, 'style={{ minHeight: EVENT_ROW_H }}', 1)
 
-          canvas_anchor = '''                    <div
-                      className="relative shrink-0 overflow-hidden bg-card"
-                      style={{ width: dates.length * CELL_W, height: "100%" }}
-                    >
-                      {/* Date-column background stays visible underneath the merged bars. */}'''
-          canvas_replacement = '''                    <div
-                      className="relative shrink-0 overflow-hidden bg-card"
-                      style={{ width: dates.length * CELL_W }}
-                    >
-                      {/* Five real in-flow rows prevent mobile WebKit from collapsing the event band. */}
+          old_canvas_style = 'style={{ width: dates.length * CELL_W, height: "100%" }}'
+          assert old_canvas_style in s, 'event canvas style anchor not found'
+          s = s.replace(old_canvas_style, 'style={{ width: dates.length * CELL_W }}', 1)
+
+          old_comment = '{/* Date-column background stays visible underneath the merged bars. */}'
+          assert old_comment in s, 'event canvas comment anchor not found'
+          spacer = '''{/* Five real in-flow rows prevent mobile WebKit from collapsing the event band. */}
                       <div className="pointer-events-none flex flex-col" aria-hidden="true">
                         {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
                           <div
@@ -62,8 +59,7 @@ jobs:
                       </div>
 
                       {/* Date-column background stays visible underneath the merged bars. */}'''
-          assert canvas_anchor in s, 'event canvas anchor not found'
-          s = s.replace(canvas_anchor, canvas_replacement, 1)
+          s = s.replace(old_comment, spacer, 1)
 
           path.write_text(s)
           PY
