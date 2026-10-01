@@ -35,6 +35,31 @@ describe('SLNT Team B housekeeping scope', () => {
     expect(filterSnapshotRowsToMappedRooms(rows, [{ room_number: 'K4 – Room 1' }])).toEqual([rows[0]]);
   });
 
+  it('does not admit a Team A apartment because its address number matches a Team B property name', () => {
+    const base = {
+      arrival_date: '2026-10-01', departure_date: '2026-10-04', status: 'ongoing',
+      housekeeping_dep: null, housekeeping_stay: null, captured_at: '2026-10-01T08:54:15Z',
+    };
+    const teamBRow = {
+      ...base,
+      room_number: 'St King 11 – Room 1',
+      room_label: 'St King 11 Room 1',
+    };
+    const duplexTeamARow = {
+      ...base,
+      room_number: 'Duplex Penthouse Terrace',
+      room_label: 'Duplex Penthouse Terrace Budapest Klauzál utca 11',
+    };
+
+    expect(filterSnapshotRowsToMappedRooms(
+      [teamBRow, duplexTeamARow],
+      [{
+        room_number: 'St King 11 – Room 1',
+        pms_metadata: { source_name: 'St King 11 Room 1' },
+      }],
+    )).toEqual([teamBRow]);
+  });
+
   it('separates confirmed checkout, daily and unbooked rooms', () => {
     const summary = summarizeTeamWorkload([
       { id: 'checkout', is_checkout_room: true, pms_metadata: { potentialCheckout: false } },
