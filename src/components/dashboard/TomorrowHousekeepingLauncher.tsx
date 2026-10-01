@@ -24,6 +24,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { isBudapestNineOrLater, todayBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { hasManagerPowers } from '@/lib/roleAccess';
+import { isSlntOrganization } from '@/lib/slnt14DayHousekeeping';
 import {
   housekeepingAutomationText,
   type HousekeepingAutomationLanguage,
@@ -302,6 +303,7 @@ export function TomorrowHousekeepingLauncher() {
   };
 
   const canManage = hasManagerPowers(profile?.role);
+  const isSlnt = isSlntOrganization(profile?.organization_slug || '');
 
   const loadStatus = useCallback(async (showLoading = false) => {
     if (!canManage || !profile?.assigned_hotel || !profile.organization_slug) {
@@ -437,6 +439,10 @@ export function TomorrowHousekeepingLauncher() {
   const tomorrowPreparedByName = tomorrowPlan ? planPreparedByNames[tomorrowPlan.id] : null;
   const tomorrowActionLabel = tomorrowHousekeepingStatusText(tomorrowPresentation.actionKey, language);
   const dismissLabel = housekeepingAutomationText('dismissCard', language);
+
+  // SLNT Team B uses its dedicated 14-day planner. Do not show the generic
+  // next-day launcher beside it, which creates two competing planning flows.
+  if (isSlnt) return null;
 
   return (
     <>
