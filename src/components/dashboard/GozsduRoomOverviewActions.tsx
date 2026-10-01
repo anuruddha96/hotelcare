@@ -346,7 +346,7 @@ export function GozsduRoomOverviewActions(props: Props) {
                 </section>
                 <GozsduRoomEssentials key={`${room.id}:${props.selectedDate}`} roomId={room.id}
                   roomLabel={label} selectedDate={props.selectedDate} serviceLabel={serviceLabel}
-                  staffMap={props.staffMap} onChanged={() => { /* The companion dispatches the room-board refresh. */ }} />
+                  staffMap={props.staffMap} onChanged={() => { if (room?.id) void openRoom(room.id); }} />
                 <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setDetailsOpen(true); }}>Open full room details</Button>
               </>
             ) : <p className="text-sm text-muted-foreground">Room information is unavailable. Refresh the overview.</p>}
