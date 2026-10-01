@@ -2707,7 +2707,7 @@ export default function RateStrategyGrid({
 
             <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
               {/* ---- Sticky header: month, dates and the day metrics ---- */}
-              <div ref={stickyHeaderRef} className="sticky top-0 z-30">
+              <div ref={stickyHeaderRef} className="relative z-30">
                 {/* Month band + the corner control for the frozen column */}
                 <div className="flex bg-muted/70 backdrop-blur" style={{ height: MONTH_H }}>
                   <div
