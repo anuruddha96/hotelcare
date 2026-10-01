@@ -3122,97 +3122,97 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
-                {/* Events — five continuous duration bands, strongest demand drivers first. */}
-                {eventBands.length > 0 && (
-                  <div
-                    className="flex shrink-0 border-b-2 border-b-foreground/20 bg-card"
-                    style={{ minHeight: EVENT_ROW_H }}
-                  >
-                    <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
-                      <button
-                        type="button"
-                        onClick={() => setShowEventBand((v) => !v)}
-                        className="truncate text-left hover:text-primary"
-                        title={showEventBand ? "Hide event names" : "Show event names"}
-                      >
-                        {railed ? "Ev" : "Events"}
-                      </button>
-                      {!railed && (
-                        <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 5" : "off"}</span>
-                      )}
-                    </div>
-
-                    <div
-                      className="relative shrink-0 overflow-hidden bg-card"
-                      style={{ width: dates.length * CELL_W }}
+                {/* Events — five physical rows so mobile always shows all top-five lanes. */}
+      {eventBands.length > 0 && (
+        <div className="shrink-0 border-b-2 border-b-foreground/20 bg-card">
+          {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
+            <div
+              key={`event-physical-lane-${lane}`}
+              className="flex shrink-0 border-b border-border/40 bg-card last:border-b-0"
+              style={{ height: showEventBand ? EVENT_LANE_H : ROW_H, minHeight: showEventBand ? EVENT_LANE_H : ROW_H }}
+            >
+              <div
+                className="sticky left-0 z-40 flex shrink-0 items-center gap-1 border-r bg-card px-2 font-medium"
+                style={{ width: LEFT_W }}
+              >
+                {lane === 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowEventBand((v) => !v)}
+                      className="truncate text-left hover:text-primary"
+                      title={showEventBand ? "Hide event names" : "Show event names"}
                     >
-                      {/* Five real in-flow rows prevent mobile WebKit from collapsing the event band. */}
-            <div className="pointer-events-none flex flex-col" aria-hidden="true">
-              {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
-                <div
-                  key={`event-lane-spacer-${lane}`}
-                  className="shrink-0"
-                  style={{ height: showEventBand ? EVENT_LANE_H : ROW_H }}
-                />
-              ))}
-            </div>
-
-            {/* Date-column background stays visible underneath the merged bars. */}
-                      <div className="absolute inset-0 flex">
-                        {dates.map((d, i) => (
-                          <button
-                            key={d}
-                            type="button"
-                            onClick={() => setDemandDay(d)}
-                            aria-label={`Open events for ${d}`}
-                            className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dayEdge(d)}`}
-                            style={{ width: CELL_W }}
-                          />
-                        ))}
-                      </div>
-
-                      {showEventBand && eventBands.map((band) => {
-                        const impact = String(band.event.impact || "").toLowerCase();
-                        const tone = impact === "high"
-                          ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
-                          : impact === "medium"
-                            ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
-                            : "border-border bg-muted/80 text-muted-foreground";
-                        const spanDays = band.endIndex - band.startIndex + 1;
-                        const range = compactEventRange(band.event, band.startDate);
-                        return (
-                          <button
-                            key={band.key}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              const offset = Math.max(0, Math.min(rect.width - 1, e.clientX - rect.left));
-                              const withinSpan = Math.min(spanDays - 1, Math.floor(offset / CELL_W));
-                              setDemandDay(dates[band.startIndex + withinSpan] ?? band.startDate);
-                            }}
-                            title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact`}
-                            aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact. Tap for details.`}
-                            className={`absolute z-10 flex min-w-0 items-center justify-start gap-1 overflow-hidden rounded-[4px] border px-1 text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
-                            style={{
-                              left: band.startIndex * CELL_W + 1,
-                              width: Math.max(CELL_W - 2, spanDays * CELL_W - 2),
-                              top: 3 + band.lane * EVENT_LANE_H,
-                              height: EVENT_LANE_H - 2,
-                              fontSize: fz(9),
-                            }}
-                          >
-                            <span className="min-w-0 flex-1 truncate text-left">{band.event.title}</span>
-                            {spanDays > 1 && (
-                              <span className="shrink-0 tabular-nums opacity-75">{range}</span>
-                            )}
-                            <Eye className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                      {railed ? "Ev" : "Events"}
+                    </button>
+                    {!railed && (
+                      <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 5" : "off"}</span>
+                    )}
+                  </>
                 )}
+              </div>
+
+              <div
+                className="relative shrink-0 overflow-hidden bg-card"
+                style={{ width: dates.length * CELL_W, height: showEventBand ? EVENT_LANE_H : ROW_H }}
+              >
+                <div className="absolute inset-0 flex">
+                  {dates.map((d, i) => (
+                    <button
+                      key={`${lane}-${d}`}
+                      type="button"
+                      onClick={() => setDemandDay(d)}
+                      aria-label={`Open events for ${d}`}
+                      className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dayEdge(d)}`}
+                      style={{ width: CELL_W }}
+                    />
+                  ))}
+                </div>
+
+                {showEventBand && eventBands.filter((band) => band.lane === lane).map((band) => {
+                  const impact = String(band.event.impact || "").toLowerCase();
+                  const tone = impact === "high"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    : impact === "medium"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      : "border-border bg-muted/80 text-muted-foreground";
+                  const spanDays = band.endIndex - band.startIndex + 1;
+                  const range = compactEventRange(band.event, band.startDate);
+                  return (
+                    <button
+                      key={band.key}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const offset = Math.max(0, Math.min(rect.width - 1, e.clientX - rect.left));
+                        const withinSpan = Math.min(spanDays - 1, Math.floor(offset / CELL_W));
+                        setDemandDay(dates[band.startIndex + withinSpan] ?? band.startDate);
+                      }}
+                      title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact`}
+                      aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact. Tap for details.`}
+                      className={`absolute z-10 flex min-w-0 items-center justify-start gap-1 overflow-hidden rounded-[4px] border px-1 text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
+                      style={{
+                        left: band.startIndex * CELL_W + 1,
+                        width: Math.max(CELL_W - 2, spanDays * CELL_W - 2),
+                        top: 1,
+                        height: (showEventBand ? EVENT_LANE_H : ROW_H) - 2,
+                        fontSize: fz(9),
+                      }}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-left">{band.event.title}</span>
+                      {spanDays > 1 && (
+                        <span className="shrink-0 tabular-nums opacity-75">{range}</span>
+                      )}
+                      <Eye className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
               </div>
 
 
