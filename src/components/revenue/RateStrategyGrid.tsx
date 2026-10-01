@@ -394,6 +394,16 @@ export default function RateStrategyGrid({
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
   const [stickyHeaderH, setStickyHeaderH] = useState(0);
 
+  // The browser can preserve/adjust this nested scroller when hotel/event data
+  // changes. Because Events grows above the room rows after data arrives, scroll
+  // anchoring was silently moving the viewport down by one room-group row and
+  // making only the FIRST room type name look missing in every venue.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+  }, [hotelId]);
+
   // Measure the complete sticky calendar header (month/date/metrics/events).
   // Room-type group labels use this exact live height as their sticky offset,
   // so the current room type can never disappear underneath a taller Events band.
@@ -2708,7 +2718,7 @@ export default function RateStrategyGrid({
             ref={scrollRef}
             onScroll={onScroll}
             className={`relative overflow-auto overscroll-x-contain ${dragging || cellDragging ? "select-none" : ""}`}
-            style={{ fontSize: fz(11), height: availGridH != null ? availGridH : expanded ? "calc(100dvh - 190px)" : isMobile ? "68dvh" : "72dvh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
+            style={{ fontSize: fz(11), height: availGridH != null ? availGridH : expanded ? "calc(100dvh - 190px)" : isMobile ? "68dvh" : "72dvh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined, overflowAnchor: "none" } as React.CSSProperties}
 
           >
 
