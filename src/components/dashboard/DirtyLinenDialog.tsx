@@ -162,7 +162,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     let active = true;
     const fetchItems = async () => {
       try {
-        const data = await loadHotelLinenCatalogue(profile?.assigned_hotel);
+        const data = await loadHotelLinenCatalogue(profile?.assigned_hotel, roomId);
         if (active) { setLinenItems(data); setCatalogueError(null); }
       } catch (error: any) {
         console.error('[DirtyLinen] catalogue load failed', error);
@@ -172,7 +172,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
     void fetchItems();
     void fetchMyRecords();
     return () => { active = false; };
-  }, [open, profile?.assigned_hotel, fetchMyRecords]);
+  }, [open, profile?.assigned_hotel, roomId, fetchMyRecords]);
 
   useEffect(() => {
     if (!open || !queue || !userId) return;
