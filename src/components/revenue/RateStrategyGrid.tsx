@@ -391,6 +391,25 @@ export default function RateStrategyGrid({
   const [railed, setRailed] = useState(false);
   const [dragging, setDragging] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
+  const stickyHeaderRef = useRef<HTMLDivElement>(null);
+  const [stickyHeaderH, setStickyHeaderH] = useState(0);
+
+  // Measure the complete sticky calendar header (month/date/metrics/events).
+  // Room-type group labels use this exact live height as their sticky offset,
+  // so the current room type can never disappear underneath a taller Events band.
+  useLayoutEffect(() => {
+    const el = stickyHeaderRef.current;
+    if (!el) return;
+    const measure = () => {
+      const next = Math.ceil(el.getBoundingClientRect().height);
+      setStickyHeaderH((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showEventBand, zoom, monthFilter]);
 
   // Remember the reader's preferred left width per hotel.
   useEffect(() => {
@@ -2689,7 +2708,7 @@ export default function RateStrategyGrid({
 
             <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
               {/* ---- Sticky header: month, dates and the day metrics ---- */}
-              <div className="sticky top-0 z-30">
+              <div ref={stickyHeaderRef} className="sticky top-0 z-30">
                 {/* Month band + the corner control for the frozen column */}
                 <div className="flex bg-muted/70 backdrop-blur" style={{ height: MONTH_H }}>
                   <div
@@ -3220,8 +3239,12 @@ export default function RateStrategyGrid({
               {rows.map((row, rowIdx) => (
                 <div
                   key={row.key}
-                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/50" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
-                  style={{ height: rowH(row.kind) }}
+                  className={`flex ${row.kind === "group" ? "sticky z-20 border-b border-b-foreground/25 bg-muted/95 backdrop-blur-sm" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
+                  style={{
+                    height: rowH(row.kind),
+                    minHeight: rowH(row.kind),
+                    ...(row.kind === "group" ? { top: stickyHeaderH } : {}),
+                  }}
                 >
                   {/* Frozen label cell — must stay fully opaque, otherwise the
                       scrolling date cells read through it. */}
