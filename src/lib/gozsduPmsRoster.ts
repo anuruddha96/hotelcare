@@ -42,7 +42,7 @@ export function isGozsduAwaitingArrival(room: LocalRoom, selectedDate: string): 
     && pms.scheduledDepartureToday !== true;
 }
 
-/** Only an explicit, date-matched PMS no-show is allowed into the no-show bucket. */
+/** Only explicit, date-matched room metadata qualifies as a metadata no-show. */
 export function isGozsduNoShow(room: LocalRoom, selectedDate: string): boolean {
   const pms = room.pms_metadata;
   if (!pms || pms.pmsSyncDate !== selectedDate) return false;
@@ -93,9 +93,11 @@ export function reconcileGozsduPmsRoster(
     if (![arrival, departure, selected].every(Number.isFinite) || departure < selected || arrival > selected || arrival >= departure) {
       throw new Error(`Gozsdu PMS stay dates are inconsistent for ${row.room_label}.`);
     }
-    const isCheckout = row.departure_date === selectedDate || row.status === 'departing'
-      || String(row.housekeeping_dep || '').toUpperCase() === 'DEP';
-    const noShow = !isCheckout && isGozsduNoShow(room, selectedDate);
+    // A selected-day snapshot that explicitly says no-show is authoritative.
+    // Date-matched room metadata is the fallback when Previo omits that row.
+    const noShow = String(row.status || '').toLowerCase() === 'no_show' || isGozsduNoShow(room, selectedDate);
+    const isCheckout = !noShow && (row.departure_date === selectedDate || row.status === 'departing'
+      || String(row.housekeeping_dep || '').toUpperCase() === 'DEP');
     const awaitingArrival = !isCheckout && !noShow && isGozsduAwaitingArrival(room, selectedDate);
     const night = selected - arrival + 1;
     const totalNights = departure - arrival;
