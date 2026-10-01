@@ -1552,7 +1552,7 @@ export function AutoRoomAssignment({
       }
       setSubmitting(true);
       try {
-        const scheduleByUser = new Map(tomorrowSchedules.map((row: any) => [row.user_id, row]));
+        const scheduleByUser = publishedScheduleByStaff;
         const manualAreaTasks = Array.from(publicAreaAssignments.entries()).flatMap(([areaKey, staffId]) => {
           const area = PUBLIC_AREAS.find(candidate => candidate.key === areaKey);
           return area ? [{ key: area.key, name: area.name, assignedTo: staffId }] : [];
