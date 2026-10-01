@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, Clock3, Loader2, RefreshCw, Users, Wand2 } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Clock3, Loader2, RefreshCw, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -38,9 +38,7 @@ type DaySummary = {
   linenCount: number;
   pmsCapturedAt: string | null;
   queuedTasks: number;
-  publishedStaff: number;
-  draftStaff: number;
-  offStaff: number;
+  plannedStaff: number;
 };
 
 function formatDay(date: string) {
@@ -53,8 +51,8 @@ function formatDay(date: string) {
 
 function queueBadge(count: number) {
   return count > 0
-    ? <Badge className="bg-emerald-600">Team queued · {count}</Badge>
-    : <Badge variant="secondary">Not prepared</Badge>;
+    ? <Badge className="bg-emerald-600">Saved · {count} rooms</Badge>
+    : <Badge variant="secondary">Not planned</Badge>;
 }
 
 async function invokeSlntOverview(args: { hotelId: string; fromDate: string; toDate: string; days: number }) {
@@ -79,6 +77,7 @@ export function Slnt14DayHousekeepingPlannerV2() {
   const [dayPlannerOpen, setDayPlannerOpen] = useState(false);
   const [syncMode, setSyncMode] = useState<SyncMode>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [defaultStaffCount, setDefaultStaffCount] = useState(0);
 
   const planningWindow = useMemo(() => buildSlnt14DayPlanningWindow(todayBudapest()), [open]);
 
@@ -86,7 +85,7 @@ export function Slnt14DayHousekeepingPlannerV2() {
     if (!organizationSlug) return;
     const teamScope = await loadActiveSlntTeamScope(organizationSlug, hotelId);
 
-    const [roomResult, snapshotResult, scheduleResult, taskResult] = await Promise.all([
+    const [roomResult, snapshotResult, taskResult, dayStaffResult, memberResult] = await Promise.all([
       supabase.from('rooms')
         .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
         .in('hotel', hotelKeys),
@@ -94,18 +93,21 @@ export function Slnt14DayHousekeepingPlannerV2() {
         .select('business_date,room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
         .eq('organization_slug', organizationSlug).eq('hotel_id', hotelId).eq('source', 'previo')
         .gte('business_date', planningWindow.fromDate).lt('business_date', planningWindow.toDateExclusive),
-      (supabase as any).from('staff_schedules')
-        .select('work_date,status').eq('organization_slug', organizationSlug).eq('hotel_id', hotelId)
-        .gte('work_date', planningWindow.fromDate).lt('work_date', planningWindow.toDateExclusive),
       (supabase as any).from('housekeeping_team_tasks')
         .select('service_date,status').eq('team_id', teamScope.teamId)
         .gte('service_date', planningWindow.fromDate).lt('service_date', planningWindow.toDateExclusive)
         .neq('status', 'cancelled'),
+      (supabase as any).from('housekeeping_team_day_staff')
+        .select('service_date,user_id').eq('team_id', teamScope.teamId)
+        .gte('service_date', planningWindow.fromDate).lt('service_date', planningWindow.toDateExclusive),
+      (supabase as any).from('housekeeping_team_members')
+        .select('user_id,is_default').eq('team_id', teamScope.teamId).eq('is_active', true),
     ]);
     if (roomResult.error) throw roomResult.error;
     if (snapshotResult.error) throw snapshotResult.error;
-    if (scheduleResult.error) throw scheduleResult.error;
     if (taskResult.error) throw taskResult.error;
+    if (dayStaffResult.error) throw dayStaffResult.error;
+    if (memberResult.error) throw memberResult.error;
 
     const rooms = filterRoomsToMappedTeam(roomResult.data || [], teamScope.roomIds);
     if (rooms.length !== teamScope.roomIds.length) {
@@ -116,21 +118,24 @@ export function Slnt14DayHousekeepingPlannerV2() {
     if (portfolioSnapshotRows.length === 0) {
       throw new Error('Previo returned no future reservation snapshot. The planner will not guess Team B workload.');
     }
+
     const scopedSnapshotRows = filterSnapshotRowsToMappedRooms(portfolioSnapshotRows, rooms);
     const snapshotsByDate = groupRowsByBusinessDate(scopedSnapshotRows, planningWindow.dates);
-    const schedulesByDate = groupRowsByBusinessDate(
-      ((scheduleResult.data || []) as Array<{ work_date: string; status: string }>).map(row => ({ ...row, business_date: row.work_date })),
-      planningWindow.dates,
-    );
     const tasksByDate = groupRowsByBusinessDate(
       ((taskResult.data || []) as Array<{ service_date: string; status: string }>).map(row => ({ ...row, business_date: row.service_date })),
       planningWindow.dates,
     );
+    const staffByDate = groupRowsByBusinessDate(
+      ((dayStaffResult.data || []) as Array<{ service_date: string; user_id: string }>).map(row => ({ ...row, business_date: row.service_date })),
+      planningWindow.dates,
+    );
+
+    const defaults = ((memberResult.data || []) as Array<{ user_id: string; is_default: boolean }>).filter(row => row.is_default).length;
+    setDefaultStaffCount(defaults);
 
     const next = planningWindow.dates.map(date => {
       const workload = buildSelectedDateHousekeepingWorkload(rooms, snapshotsByDate.get(date) || [], date);
       const counts = summarizeTeamWorkload(workload.rooms);
-      const schedules = schedulesByDate.get(date) || [];
       return {
         date,
         checkoutCount: counts.confirmedCheckoutCount,
@@ -140,9 +145,7 @@ export function Slnt14DayHousekeepingPlannerV2() {
         linenCount: workload.rooms.filter(room => room.linen_change_required === true).length,
         pmsCapturedAt: workload.capturedAt,
         queuedTasks: (tasksByDate.get(date) || []).length,
-        publishedStaff: schedules.filter(row => row.status === 'published').length,
-        draftStaff: schedules.filter(row => row.status === 'draft').length,
-        offStaff: schedules.filter(row => row.status === 'off').length,
+        plannedStaff: (staffByDate.get(date) || []).length,
       } satisfies DaySummary;
     });
 
@@ -190,92 +193,161 @@ export function Slnt14DayHousekeepingPlannerV2() {
     }
   }, [isSlnt, loadStoredRange, organizationSlug, planningWindow.fromDate, planningWindow.toDateExclusive, profile?.assigned_hotel, syncDailyFallback]);
 
-  useEffect(() => { if (open && isSlnt && canManage) void refreshRange(); }, [open, isSlnt, canManage, refreshRange]);
+  useEffect(() => {
+    if (open && isSlnt && canManage) void refreshRange();
+  }, [open, isSlnt, canManage, refreshRange]);
 
-  const openStaffSchedule = (date: string) => {
-    if (!profile?.assigned_hotel) return;
+  const openDayPlanner = (date: string) => {
+    setSelectedDate(date);
     setOpen(false);
-    window.dispatchEvent(new CustomEvent('hotelcare:open-slnt-staff-schedule', { detail: { hotel: profile.assigned_hotel, date } }));
+    setDayPlannerOpen(true);
   };
-  const openDayPlanner = (date: string) => { setSelectedDate(date); setOpen(false); setDayPlannerOpen(true); };
 
   if (!isSlnt || !canManage || !profile?.assigned_hotel) return null;
   const selectedSummary = summaries.find(day => day.date === selectedDate) || null;
 
-  return <>
-    <Card className="border-primary/20 bg-primary/[0.03]">
-      <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2 font-semibold"><CalendarDays className="h-4 w-4 text-primary" />Team B · next 14 days</div>
-          <p className="mt-1 text-sm text-muted-foreground">Only the 46 rooms mapped to Team B are included. Today&apos;s shared queue remains separate.</p>
-        </div>
-        <Button onClick={() => setOpen(true)} className="shrink-0"><CalendarDays className="mr-2 h-4 w-4" />Plan next 14 days</Button>
-      </CardContent>
-    </Card>
-
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="flex h-[94vh] max-h-[94vh] w-[98vw] max-w-[1500px] flex-col overflow-hidden p-4 sm:p-6">
-        <DialogHeader><DialogTitle className="flex flex-wrap items-center gap-2"><CalendarDays className="h-5 w-5 text-primary" />Team B · next 14 days<Badge variant="outline">{planningWindow.fromDate} → {planningWindow.dates.at(-1)}</Badge></DialogTitle></DialogHeader>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-          <div className="text-xs text-muted-foreground">
-            {syncMode === 'range' && 'Previo: both SLNT accounts synced in one planning window'}
-            {syncMode === 'daily-fallback' && 'Previo: exact-date fallback used'}
-            {!syncMode && 'Preparing live Team B planning data'}
-            {lastSyncedAt ? ` · Updated ${new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
-          </div>
-          <Button variant="outline" size="sm" disabled={loading} onClick={() => void refreshRange()}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}Refresh 14 days</Button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto py-3">
-          {error && <div role="alert" className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}
-          {loading && summaries.length === 0 ? <div className="flex min-h-32 items-start justify-center pt-6 text-sm text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading Team B reservations…</div> :
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              {summaries.map(day => {
-                const label = formatDay(day.date);
-                const selected = selectedDate === day.date;
-                return <button key={day.date} type="button" onClick={() => setSelectedDate(day.date)} className={`rounded-xl border p-3 text-left transition hover:border-primary hover:bg-primary/[0.03] ${selected ? 'border-primary ring-1 ring-primary' : 'bg-background'}`}>
-                  <div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{label.weekday} · {label.shortDate}</div><div className="mt-1 text-xs text-muted-foreground">{day.date}</div></div>{queueBadge(day.queuedTasks)}</div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="rounded-md bg-muted/60 px-2 py-1.5"><strong className="block text-sm text-foreground">{day.checkoutCount}</strong>Checkout</div>
-                    <div className="rounded-md bg-muted/60 px-2 py-1.5"><strong className="block text-sm text-foreground">{day.dailyCount}</strong>Daily</div>
-                    <div className="rounded-md bg-muted/60 px-2 py-1.5"><strong className="block text-sm text-foreground">{day.unsoldCount}</strong>Unbooked</div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
-                    {day.towelCount > 0 && <span className="rounded-full border px-2 py-0.5">Towel {day.towelCount}</span>}
-                    {day.linenCount > 0 && <span className="rounded-full border px-2 py-0.5">Linen {day.linenCount}</span>}
-                    <span className="rounded-full border px-2 py-0.5">Published staff {day.publishedStaff}</span>
-                    {day.draftStaff > 0 && <span className="rounded-full border px-2 py-0.5">Draft {day.draftStaff}</span>}
-                    {day.offStaff > 0 && <span className="rounded-full border px-2 py-0.5">Off {day.offStaff}</span>}
-                  </div>
-                </button>;
-              })}
-            </div>}
-          {selectedSummary && <div className="sticky bottom-0 mt-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div><div className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4 text-primary" />{selectedSummary.date}</div><p className="mt-1 text-xs text-muted-foreground">{selectedSummary.checkoutCount} confirmed checkouts · {selectedSummary.dailyCount} daily · {selectedSummary.unsoldCount} unbooked · {selectedSummary.queuedTasks} team tasks · {selectedSummary.publishedStaff} published staff</p></div>
-              <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => openStaffSchedule(selectedSummary.date)}><Users className="mr-2 h-4 w-4" />Staff schedule</Button><Button size="sm" onClick={() => openDayPlanner(selectedSummary.date)}><Wand2 className="mr-2 h-4 w-4" />Prepare / review date</Button></div>
+  return (
+    <>
+      <Card className="border-primary/20 bg-primary/[0.03]">
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 font-semibold">
+              <CalendarDays className="h-4 w-4 text-primary" />
+              Team B schedule · next 14 days
             </div>
-          </div>}
-        </div>
-        <div className="flex flex-shrink-0 items-center gap-2 border-t pt-3 text-xs text-muted-foreground"><Clock3 className="h-3.5 w-3.5" />Unbooked rooms stay visible as provisional worst-case workload; they are not counted as confirmed checkouts.</div>
-      </DialogContent>
-    </Dialog>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Pick a date, choose who is working, then HotelCare balances the 46 Team B rooms automatically.
+            </p>
+          </div>
+          <Button onClick={() => setOpen(true)} className="shrink-0">
+            <CalendarDays className="mr-2 h-4 w-4" />Plan Team B schedule
+          </Button>
+        </CardContent>
+      </Card>
 
-    {selectedDate && dayPlannerOpen && <SlntSelectedDateAssignmentPlanner
-      open={dayPlannerOpen}
-      selectedDate={selectedDate}
-      onOpenChange={(nextOpen) => {
-        setDayPlannerOpen(nextOpen);
-        if (!nextOpen) {
-          setOpen(true);
-          void (async () => {
-            try {
-              const [hotelId, hotelKeys] = await Promise.all([resolveCanonicalHotelId(profile.assigned_hotel), resolveHotelKeys(profile.assigned_hotel)]);
-              if (hotelId && hotelKeys.length > 0) await loadStoredRange(hotelId, hotelKeys);
-            } catch (cause) { console.warn('[Slnt14DayHousekeepingPlanner] post-plan refresh failed:', cause); }
-          })();
-        }
-      }}
-      onAssignmentCreated={() => undefined}
-    />}
-  </>;
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="flex h-[94vh] max-h-[94vh] w-[98vw] max-w-[1500px] flex-col overflow-hidden p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="flex flex-wrap items-center gap-2">
+              <CalendarDays className="h-5 w-5 text-primary" />
+              Team B schedule · next 14 days
+              <Badge variant="outline">{planningWindow.fromDate} → {planningWindow.dates.at(-1)}</Badge>
+              {defaultStaffCount > 0 && <Badge variant="secondary">{defaultStaffCount} default staff</Badge>}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+            <div className="text-xs text-muted-foreground">
+              {syncMode === 'range' && 'Previo: both SLNT accounts synced'}
+              {syncMode === 'daily-fallback' && 'Previo: exact-date fallback used'}
+              {!syncMode && 'Preparing live Team B planning data'}
+              {lastSyncedAt ? ` · Updated ${new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+            </div>
+            <Button variant="outline" size="sm" disabled={loading} onClick={() => void refreshRange()}>
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Refresh 14 days
+            </Button>
+          </div>
+
+          <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2 text-sm text-sky-950 dark:bg-sky-950/20 dark:text-sky-100">
+            Simple flow: <strong>choose a date → select working staff → review auto-balanced rooms → save.</strong> The Master Staff Schedule is separate and is not required here.
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto py-3">
+            {error && <div role="alert" className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}
+            {loading && summaries.length === 0 ? (
+              <div className="flex min-h-32 items-start justify-center pt-6 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading Team B reservations…
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {summaries.map(day => {
+                  const label = formatDay(day.date);
+                  const selected = selectedDate === day.date;
+                  const staffLabel = day.plannedStaff > 0
+                    ? `${day.plannedStaff} staff selected`
+                    : defaultStaffCount > 0
+                      ? `${defaultStaffCount} defaults ready`
+                      : 'Choose staff';
+                  return (
+                    <button
+                      key={day.date}
+                      type="button"
+                      onClick={() => setSelectedDate(day.date)}
+                      className={`rounded-xl border p-3 text-left transition hover:border-primary hover:bg-primary/[0.03] ${selected ? 'border-primary ring-1 ring-primary' : 'bg-background'}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-semibold">{label.weekday} · {label.shortDate}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{day.date}</div>
+                        </div>
+                        {queueBadge(day.queuedTasks)}
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="rounded-md bg-muted/60 px-2 py-1.5"><strong className="block text-sm text-foreground">{day.checkoutCount}</strong>Checkout</div>
+                        <div className="rounded-md bg-muted/60 px-2 py-1.5"><strong className="block text-sm text-foreground">{day.dailyCount}</strong>Daily</div>
+                        <div className="rounded-md bg-muted/60 px-2 py-1.5"><strong className="block text-sm text-foreground">{day.unsoldCount}</strong>Unbooked</div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                        <span className={`rounded-full border px-2 py-0.5 ${day.plannedStaff > 0 ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : ''}`}>{staffLabel}</span>
+                        {day.towelCount > 0 && <span className="rounded-full border px-2 py-0.5">Towel {day.towelCount}</span>}
+                        {day.linenCount > 0 && <span className="rounded-full border px-2 py-0.5">Linen {day.linenCount}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {selectedSummary && (
+              <div className="sticky bottom-0 mt-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4 text-primary" />{selectedSummary.date}</div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {selectedSummary.checkoutCount} checkout · {selectedSummary.dailyCount} daily · {selectedSummary.unsoldCount} unbooked · {selectedSummary.plannedStaff > 0 ? `${selectedSummary.plannedStaff} staff selected` : 'staff not selected yet'}
+                    </p>
+                  </div>
+                  <Button size="sm" onClick={() => openDayPlanner(selectedSummary.date)}>
+                    <Wand2 className="mr-2 h-4 w-4" />
+                    {selectedSummary.queuedTasks > 0 ? 'Review staff & rooms' : 'Choose staff & assign rooms'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-shrink-0 items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
+            <Clock3 className="h-3.5 w-3.5" />
+            Unbooked rooms stay visible as provisional worst-case workload; they are not counted as confirmed checkouts.
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {selectedDate && dayPlannerOpen && (
+        <SlntSelectedDateAssignmentPlanner
+          open={dayPlannerOpen}
+          selectedDate={selectedDate}
+          onOpenChange={(nextOpen) => {
+            setDayPlannerOpen(nextOpen);
+            if (!nextOpen) {
+              setOpen(true);
+              void (async () => {
+                try {
+                  const [hotelId, hotelKeys] = await Promise.all([
+                    resolveCanonicalHotelId(profile.assigned_hotel),
+                    resolveHotelKeys(profile.assigned_hotel),
+                  ]);
+                  if (hotelId && hotelKeys.length > 0) await loadStoredRange(hotelId, hotelKeys);
+                } catch (cause) {
+                  console.warn('[Slnt14DayHousekeepingPlanner] post-plan refresh failed:', cause);
+                }
+              })();
+            }
+          }}
+          onAssignmentCreated={() => undefined}
+        />
+      )}
+    </>
+  );
 }
