@@ -79,22 +79,36 @@ export function filterRoomsToMappedTeam<T extends { id: string }>(
 }
 
 /**
+ * Team B filtering must use strong room identities only. Numeric aliases are
+ * useful inside the generic room resolver, but they are unsafe for SLNT's
+ * portfolio-wide feed because property/address numbers can collide with room
+ * names (for example "Klauzal utca 11" and "St King 11 – Room 1").
+ */
+function strongRoomMatchTokens(value: unknown): string[] {
+  return nextDayRoomMatchTokens(value)
+    .filter(token => token.startsWith('full:') || token.startsWith('unit:'));
+}
+
+/**
  * The SLNT Previo snapshots are portfolio-wide and include Team A apartments.
  * Keep only rows that can resolve to one of the explicitly mapped Team B room
- * labels before asking the generic workload builder to classify them.
+ * identities before asking the generic workload builder to classify them.
  */
 export function filterSnapshotRowsToMappedRooms<T extends DailyOverviewWorkRow>(
   rows: T[],
-  rooms: Array<Pick<TeamWorkloadRoom, 'room_number'>>,
+  rooms: Array<Pick<TeamWorkloadRoom, 'room_number' | 'pms_metadata'>>,
 ): T[] {
   const allowedTokens = new Set(
-    rooms.flatMap(room => nextDayRoomMatchTokens(room.room_number)),
+    rooms.flatMap(room => [
+      room.room_number,
+      room.pms_metadata?.source_name,
+    ].flatMap(value => strongRoomMatchTokens(value))),
   );
   if (allowedTokens.size === 0) return [];
 
   return rows.filter(row => {
     const tokens = [row.room_number, row.room_label]
-      .flatMap(value => nextDayRoomMatchTokens(value));
+      .flatMap(value => strongRoomMatchTokens(value));
     return tokens.some(token => allowedTokens.has(token));
   });
 }
