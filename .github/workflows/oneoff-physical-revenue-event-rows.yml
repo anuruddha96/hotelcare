@@ -1,0 +1,158 @@
+name: One-off physical Revenue event rows
+
+on:
+  push:
+    branches:
+      - fix/revenue-events-five-physical-rows-mobile-20261001
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/revenue-events-five-physical-rows-mobile-20261001
+          fetch-depth: 0
+
+      - name: Replace collapsible event canvas with five physical rows
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/revenue/RateStrategyGrid.tsx')
+          s = path.read_text()
+
+          old_geometry = '''  // Five compact event lanes. Real in-flow lane spacers below own the DOM
+          // height so iOS/WebKit cannot collapse the Events section back to one line.
+          const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
+          const EVENT_ROW_H = showEventBand ? EVENT_LANE_H * 5 : ROW_H;'''
+          new_geometry = '''  // Each visible event lane is rendered as its own normal-flow row. This is
+          // deliberately stronger than a tall wrapper/min-height: mobile Safari was
+          // still collapsing the old absolute-positioned event canvas to one row.
+          const EVENT_LANE_H = Math.max(20, Math.min(26, Math.round(22 * zoom)));'''
+          assert old_geometry in s, 'event geometry anchor not found'
+          s = s.replace(old_geometry, new_geometry, 1)
+
+          start_marker = '                {/* Events — five continuous duration bands, strongest demand drivers first. */}'
+          end_marker = '\n              </div>\n\n\n              {/* ---- Room-type / metric rows ---- */}'
+          start = s.index(start_marker)
+          end = s.index(end_marker, start)
+
+          replacement = r'''                {/* Events — five physical rows so mobile always shows all top-five lanes. */}
+                {eventBands.length > 0 && (
+                  <div className="shrink-0 border-b-2 border-b-foreground/20 bg-card">
+                    {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
+                      <div
+                        key={`event-physical-lane-${lane}`}
+                        className="flex shrink-0 border-b border-border/40 bg-card last:border-b-0"
+                        style={{ height: showEventBand ? EVENT_LANE_H : ROW_H }}
+                      >
+                        <div
+                          className="sticky left-0 z-40 flex shrink-0 items-center gap-1 border-r bg-card px-2 font-medium"
+                          style={{ width: LEFT_W }}
+                        >
+                          {lane === 0 && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setShowEventBand((v) => !v)}
+                                className="truncate text-left hover:text-primary"
+                                title={showEventBand ? "Hide event names" : "Show event names"}
+                              >
+                                {railed ? "Ev" : "Events"}
+                              </button>
+                              {!railed && (
+                                <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 5" : "off"}</span>
+                              )}
+                            </>
+                          )}
+                        </div>
+
+                        <div
+                          className="relative shrink-0 overflow-hidden bg-card"
+                          style={{ width: dates.length * CELL_W, height: showEventBand ? EVENT_LANE_H : ROW_H }}
+                        >
+                          {/* Keep the date columns clickable on every physical event lane. */}
+                          <div className="absolute inset-0 flex">
+                            {dates.map((d, i) => (
+                              <button
+                                key={`${lane}-${d}`}
+                                type="button"
+                                onClick={() => setDemandDay(d)}
+                                aria-label={`Open events for ${d}`}
+                                className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dayEdge(d)}`}
+                                style={{ width: CELL_W }}
+                              />
+                            ))}
+                          </div>
+
+                          {showEventBand && eventBands.filter((band) => band.lane === lane).map((band) => {
+                            const impact = String(band.event.impact || "").toLowerCase();
+                            const tone = impact === "high"
+                              ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                              : impact === "medium"
+                                ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                                : "border-border bg-muted/80 text-muted-foreground";
+                            const spanDays = band.endIndex - band.startIndex + 1;
+                            const range = compactEventRange(band.event, band.startDate);
+                            return (
+                              <button
+                                key={band.key}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const offset = Math.max(0, Math.min(rect.width - 1, e.clientX - rect.left));
+                                  const withinSpan = Math.min(spanDays - 1, Math.floor(offset / CELL_W));
+                                  setDemandDay(dates[band.startIndex + withinSpan] ?? band.startDate);
+                                }}
+                                title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact`}
+                                aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact. Tap for details.`}
+                                className={`absolute z-10 flex min-w-0 items-center justify-start gap-1 overflow-hidden rounded-[4px] border px-1 text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
+                                style={{
+                                  left: band.startIndex * CELL_W + 1,
+                                  width: Math.max(CELL_W - 2, spanDays * CELL_W - 2),
+                                  top: 1,
+                                  height: (showEventBand ? EVENT_LANE_H : ROW_H) - 2,
+                                  fontSize: fz(9),
+                                }}
+                              >
+                                <span className="min-w-0 flex-1 truncate text-left">{band.event.title}</span>
+                                {spanDays > 1 && (
+                                  <span className="shrink-0 tabular-nums opacity-75">{range}</span>
+                                )}
+                                <Eye className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}'''
+
+          s = s[:start] + replacement + s[end:]
+          path.write_text(s)
+          PY
+          git diff --check
+
+      - name: Verify Revenue event layout
+        shell: bash
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npx vitest run src/lib/revenueEventBands.test.ts
+          npm run build
+
+      - name: Commit tested fix
+        shell: bash
+        run: |
+          rm -f .github/workflows/oneoff-physical-revenue-event-rows.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/revenue/RateStrategyGrid.tsx .github/workflows/oneoff-physical-revenue-event-rows.yml
+          git commit -m "fix: render Revenue events as five physical mobile rows"
+          git push origin HEAD:fix/revenue-events-five-physical-rows-mobile-20261001
