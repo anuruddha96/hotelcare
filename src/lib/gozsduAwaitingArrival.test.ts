@@ -25,7 +25,7 @@ const snapshots = [
 ];
 
 describe('Gozsdu awaiting-arrival classification', () => {
-  it('recognises all four confirmed same-day pending arrivals including the mapped B16 alias', () => {
+  it('recognises all four confirmed same-day arrivals including the mapped B16 alias', () => {
     for (const room of arrivalRooms) expect(isGozsduAwaitingArrival(room, date)).toBe(true);
     const result = reconcileGozsduPmsRoster(rooms, registry, snapshots, date, now);
     expect(result.byRoom.size).toBe(6);
@@ -38,23 +38,30 @@ describe('Gozsdu awaiting-arrival classification', () => {
     }
   });
 
-  it('does not assume a pending arrival is a no-show or checked-out room', () => {
+  it('accepts both waiting and already checked-in same-day arrivals but rejects terminal states', () => {
     const room = arrivalRooms[0];
     for (const patch of [
       { isNoShow: true }, { reservationStatusId: 8 }, { isCancelled: true },
-      { occupiedToday: true }, { checkedOutToday: true }, { scheduledDepartureToday: true },
-      { notArrived: false }, { arrivalToday: false }, { pmsSyncDate: '2026-09-21' },
-      { reservationStatusId: 3 },
+      { checkedOutToday: true }, { scheduledDepartureToday: true },
+      { arrivalToday: false }, { pmsSyncDate: '2026-09-21' }, { reservationStatusId: 9 },
     ]) {
       expect(isGozsduAwaitingArrival({ ...room, pms_metadata: { ...room.pms_metadata, ...patch } }, date)).toBe(false);
     }
+    expect(isGozsduAwaitingArrival({
+      ...room,
+      pms_metadata: { ...room.pms_metadata, reservationStatusId: 1, notArrived: true, occupiedToday: false },
+    }, date)).toBe(true);
+    expect(isGozsduAwaitingArrival({
+      ...room,
+      pms_metadata: { ...room.pms_metadata, reservationStatusId: 3, notArrived: false, occupiedToday: true },
+    }, date)).toBe(true);
     expect(isGozsduAwaitingArrival(room, '2026-09-21')).toBe(false);
     expect(isGozsduAwaitingArrival({ id: 'empty', room_number: 'empty' }, date)).toBe(false);
   });
 
-  it('preserves incomplete-coverage protection for missing rooms without an explicit pending arrival', () => {
+  it('preserves incomplete-coverage protection for missing rooms without explicit same-day arrival evidence', () => {
     const unknown = rooms.map(room => room.id === 'arrival-0'
-      ? { ...room, pms_metadata: { ...room.pms_metadata, notArrived: false } } : room);
+      ? { ...room, pms_metadata: { ...room.pms_metadata, arrivalToday: false } } : room);
     expect(() => reconcileGozsduPmsRoster(unknown, registry, snapshots, date, now)).toThrow(/incomplete/);
   });
 
