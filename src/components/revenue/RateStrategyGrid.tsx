@@ -409,7 +409,7 @@ export default function RateStrategyGrid({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [showEventBand, zoom, monthFilter, eventBands.length]);
+  }, [showEventBand, zoom, monthFilter]);
 
   // Remember the reader's preferred left width per hotel.
   useEffect(() => {
