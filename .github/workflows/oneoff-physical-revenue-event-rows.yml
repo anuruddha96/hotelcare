@@ -26,17 +26,6 @@ jobs:
           path = Path('src/components/revenue/RateStrategyGrid.tsx')
           s = path.read_text()
 
-          old_geometry = '''  // Five compact event lanes. Real in-flow lane spacers below own the DOM
-          // height so iOS/WebKit cannot collapse the Events section back to one line.
-          const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
-          const EVENT_ROW_H = showEventBand ? EVENT_LANE_H * 5 : ROW_H;'''
-          new_geometry = '''  // Each visible event lane is rendered as its own normal-flow row. This is
-          // deliberately stronger than a tall wrapper/min-height: mobile Safari was
-          // still collapsing the old absolute-positioned event canvas to one row.
-          const EVENT_LANE_H = Math.max(20, Math.min(26, Math.round(22 * zoom)));'''
-          assert old_geometry in s, 'event geometry anchor not found'
-          s = s.replace(old_geometry, new_geometry, 1)
-
           start_marker = '                {/* Events — five continuous duration bands, strongest demand drivers first. */}'
           end_marker = '\n              </div>\n\n\n              {/* ---- Room-type / metric rows ---- */}'
           start = s.index(start_marker)
@@ -49,7 +38,7 @@ jobs:
                       <div
                         key={`event-physical-lane-${lane}`}
                         className="flex shrink-0 border-b border-border/40 bg-card last:border-b-0"
-                        style={{ height: showEventBand ? EVENT_LANE_H : ROW_H }}
+                        style={{ height: showEventBand ? EVENT_LANE_H : ROW_H, minHeight: showEventBand ? EVENT_LANE_H : ROW_H }}
                       >
                         <div
                           className="sticky left-0 z-40 flex shrink-0 items-center gap-1 border-r bg-card px-2 font-medium"
@@ -76,7 +65,6 @@ jobs:
                           className="relative shrink-0 overflow-hidden bg-card"
                           style={{ width: dates.length * CELL_W, height: showEventBand ? EVENT_LANE_H : ROW_H }}
                         >
-                          {/* Keep the date columns clickable on every physical event lane. */}
                           <div className="absolute inset-0 flex">
                             {dates.map((d, i) => (
                               <button
