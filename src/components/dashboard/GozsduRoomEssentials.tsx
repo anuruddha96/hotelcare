@@ -112,9 +112,9 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
     void load();
   }, [load]);
 
-  const refreshBoard = () => {
+  const refreshBoard = (reloadCleaningPlan = false) => {
     window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
-    onChanged();
+    if (reloadCleaningPlan) onChanged();
   };
 
   const guardCurrentRoom = async () => {
@@ -293,17 +293,76 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
 
   const markDirty = async () => {
     if (!canManage || !today || busy) return;
+    if (!window.confirm(
+      `Mark room ${roomLabel} dirty and send Dirty to Previo? If today's cleaning was already completed, HotelCare will reopen it so the room can be assigned again.`,
+    )) return;
+
     setBusy('dirty');
     try {
       const latest = await guardCurrentRoom();
-      const { data, error } = await supabase.from('rooms').update({ status: 'dirty' } as any)
+      const { data: currentAssignments, error: assignmentError } = await supabase.from('room_assignments')
+        .select('id,status,notes,service_result,supervisor_approved')
+        .eq('room_id', roomId).eq('assignment_date', selectedDate)
+        .order('created_at', { ascending: false }).limit(10);
+      if (assignmentError) throw assignmentError;
+
+      const active = (currentAssignments || []).find(a => a.status !== 'completed') || currentAssignments?.[0] || null;
+      if (active?.status === 'in_progress') {
+        throw new Error('Cleaning is currently in progress. Finish or retrieve the active work before using the manager dirty correction.');
+      }
+
+      // This is an explicit manager correction, so push once to Previo first.
+      // There is deliberately no persistent HotelCare override: after this PUT,
+      // normal Previo -> HotelCare refreshes remain authoritative.
+      const { data: response, error: pmsError } = await supabase.functions.invoke('previo-update-room-status', {
+        body: { roomId, status: 'dirty', assignmentId: active?.id || undefined },
+      });
+      if (pmsError || response?.success === false) {
+        throw pmsError || new Error(response?.error || 'Previo rejected the dirty status');
+      }
+      if (response?.skipped) {
+        throw new Error(`Previo did not accept the dirty correction: ${response?.message || 'status push is not configured'}`);
+      }
+
+      const { data: roomRows, error: roomError } = await supabase.from('rooms').update({ status: 'dirty' } as any)
         .eq('id', latest.id).in('hotel', HOTEL_KEYS).select('id');
-      if (error || data?.length !== 1) throw error || new Error('Could not mark this room dirty.');
-      toast.success(`Room ${roomLabel} marked dirty`);
+      if (roomError || roomRows?.length !== 1) {
+        throw roomError || new Error('Previo is dirty, but HotelCare could not update the local room status. Refresh and retry.');
+      }
+
+      let reopened = false;
+      if (active?.status === 'completed') {
+        const { data: assignmentRows, error: reopenError } = await supabase.from('room_assignments').update({
+          status: 'assigned',
+          completed_at: null,
+          supervisor_approved: false,
+          supervisor_approved_by: null,
+          supervisor_approved_at: null,
+          service_result: null,
+          is_dnd: false,
+          dnd_marked_at: null,
+          dnd_marked_by: null,
+        } as any)
+          .eq('id', active.id)
+          .eq('room_id', roomId)
+          .eq('assignment_date', selectedDate)
+          .eq('status', 'completed')
+          .select('id');
+        if (reopenError || assignmentRows?.length !== 1) {
+          throw reopenError || new Error('Room is dirty in Previo and HotelCare, but the completed cleaning could not be reopened. Refresh and retry.');
+        }
+        reopened = true;
+      }
+
+      toast.success(reopened
+        ? `Room ${roomLabel} dirty in HotelCare and Previo · cleaning reopened for reassignment`
+        : `Room ${roomLabel} dirty in HotelCare and Previo`);
       await load(false);
-      refreshBoard();
+      refreshBoard(true);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not mark this room dirty.');
+      console.error('[Gozsdu] manager dirty override failed', error);
+      toast.error(error instanceof Error ? error.message : 'Could not mark this room dirty and sync Previo.');
+      await load(false);
     } finally {
       setBusy(null);
     }
@@ -314,10 +373,12 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
 
   const flags = parseRoomFlags(room.notes);
   const assignedTo = assignment?.assigned_to ? staffMap[assignment.assigned_to] || 'Assigned housekeeper' : 'Unassigned';
-  const status = assignment?.status === 'in_progress' ? 'Housekeeper is cleaning'
-    : assignment?.status === 'completed' && !assignment.supervisor_approved ? 'Pending approval'
-      : assignment?.status === 'completed' && assignment.supervisor_approved ? 'Clean / approved'
-        : room.status || 'Unknown';
+  const status = room.status === 'dirty' ? 'Dirty'
+    : room.status === 'out_of_order' ? 'Out of order'
+      : assignment?.status === 'in_progress' ? 'Housekeeper is cleaning'
+        : assignment?.status === 'completed' && !assignment.supervisor_approved ? 'Pending approval'
+          : assignment?.status === 'completed' && assignment.supervisor_approved ? 'Clean / approved'
+            : room.status || 'Unknown';
   const disabled = !canManage || !today || !!busy;
   const priority = Number(assignment?.priority || 1) >= 3 ? 3 : Number(assignment?.priority || 1) === 2 ? 2 : 1;
   const priorityMeta = priority === 3
@@ -486,9 +547,12 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
             <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Floor</p><p className="font-semibold">{room.floor_number ?? '—'}</p></div>
             <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Last cleaned</p><p className="font-semibold">{formatDateTime(room.last_cleaned_at)}</p></div>
           </div>
-          {canManage && <Button variant="outline" className="w-full border-amber-300 text-amber-800" disabled={!today || !!busy || room.status === 'out_of_order'} onClick={() => void markDirty()}>
-            {busy === 'dirty' ? 'Saving…' : 'Mark Dirty'}
-          </Button>}
+          {canManage && <div className="space-y-1.5">
+            <Button variant="outline" className="w-full border-amber-300 text-amber-800" disabled={!today || !!busy || room.status === 'out_of_order'} onClick={() => void markDirty()}>
+              {busy === 'dirty' ? 'Syncing Dirty to Previo…' : 'Mark Dirty & Sync PMS'}
+            </Button>
+            <p className="text-[10px] leading-snug text-muted-foreground">Manager correction: writes Dirty to Previo once and, when today’s cleaning was already completed, reopens the assignment for reassignment. Future room status continues to come from Previo.</p>
+          </div>}
         </div>}
       </section>
     </>}
