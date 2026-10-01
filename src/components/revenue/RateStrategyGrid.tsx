@@ -3259,6 +3259,16 @@ export default function RateStrategyGrid({
                   style={{
                     height: rowH(row.kind),
                     minHeight: rowH(row.kind),
+                    // Keep the active room-type heading directly below the full
+                    // calendar header. This is especially important for the
+                    // first room type: the sticky month/metrics/events block can
+                    // otherwise paint over its group row while its guest rows
+                    // remain visible, making the room name appear to be missing.
+                    ...(row.kind === "group" ? {
+                      position: "sticky" as const,
+                      top: stickyHeaderH,
+                      zIndex: 25,
+                    } : {}),
                   }}
                 >
                   {/* Frozen label cell — must stay fully opaque, otherwise the
