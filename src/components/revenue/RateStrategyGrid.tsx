@@ -445,9 +445,9 @@ export default function RateStrategyGrid({
     // The 30-day board should use the available desktop width instead of
     // ending early and leaving a large blank panel on wide monitors. Keep the
     // user's zoom as the minimum reading size; only stretch when there is room.
-    const visibleCount = Math.max(1, allDates.length);
+    const visibleCount = 30;
     return Math.max(ZOOM_CELL_W, Math.floor(avail / visibleCount));
-  }, [monthFilter, viewportW, LEFT_W, ZOOM_CELL_W, allDates.length]);
+  }, [monthFilter, viewportW, LEFT_W, ZOOM_CELL_W]);
 
   /**
    * Font scale follows the actual column width (zoom and month-fit both
