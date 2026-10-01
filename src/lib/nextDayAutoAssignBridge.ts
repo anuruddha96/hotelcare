@@ -11,6 +11,11 @@ import { verifyGozsduTomorrowSnapshot, type GozsduTomorrowSnapshotRow } from './
 import { checkGozsduTomorrowPlanDrift } from './gozsduTomorrowPlanDrift';
 import type { RoomForAssignment } from './roomAssignmentAlgorithm';
 import { validateNextDayPlan } from './nextDayPlanValidation';
+import {
+  filterAutoAssignScheduleRowsForHotel,
+  isPublishedAutoAssignScheduleRow,
+  type AutoAssignScheduleRow,
+} from './autoAssignScheduleRoster';
 
 type TomorrowArgs = Parameters<typeof core.buildTomorrowAutoAssignRooms>[0];
 type SnapshotArgs = Parameters<typeof core.ensureTomorrowPmsSnapshot>[0];
@@ -136,33 +141,80 @@ export async function buildTomorrowAutoAssignRooms(args: TomorrowArgs):
   return { ...workload, rooms: operatingRooms };
 }
 
-/** Preflight is deliberately performed BEFORE any upsert, delete, assignment,
- * or approval. Auth/RLS is not replaced by client-side property filters. */
-async function verifyPlanAccessAndRoster(args: SaveArgs, hotelKeys: string[]) {
+/**
+ * Preflight is deliberately performed BEFORE any upsert, delete, assignment,
+ * or approval. Auth/RLS is not replaced by client-side property filters.
+ *
+ * The staff picker already understands cross-property working venues. Approval
+ * must use the same roster scope, otherwise a cleaner legitimately published
+ * to Gozsdu (or another property) from a different home hotel can be shown in
+ * Auto Assign and then rejected only at Save.
+ */
+async function verifyPlanAccessAndRoster(
+  args: SaveArgs,
+  hotelKeys: string[],
+  accessHotelId: string = args.hotelId,
+) {
   const { data: allowed, error: accessError } = await supabase.rpc(
     'can_manage_next_day_housekeeping_plan',
-    { p_organization_slug: args.organizationSlug, p_hotel_id: args.hotelId },
+    { p_organization_slug: args.organizationSlug, p_hotel_id: accessHotelId },
   );
   if (accessError || allowed !== true) throw new Error('You do not have permission to approve this property’s housekeeping plan.');
-  const [workersResult, schedulesResult] = await Promise.all([
+
+  const [workersResult, venuesResult] = await Promise.all([
     supabase.from('profiles')
       .select('id,organization_slug,assigned_hotel,hotel_id,deleted_at,role,acts_as_housekeeper')
       .eq('organization_slug', args.organizationSlug)
       .in('id', args.selectedStaffIds),
-    (supabase as any).from('staff_schedules')
-      .select('user_id,status,work_date,shift_start,shift_end')
-      .eq('organization_slug', args.organizationSlug)
-      .eq('hotel_id', args.hotelId)
-      .eq('work_date', args.selectedDate),
+    supabase.from('venues')
+      .select('id,hotel_id')
+      .eq('organization_slug', args.organizationSlug),
   ]);
-  if (workersResult.error || schedulesResult.error)
+
+  let schedulesResult = await (supabase as any).from('staff_schedules')
+    .select('id,hotel_id,user_id,status,work_status,work_date,shift_start,shift_end,published_at,staff_schedule_venues(venue_id)')
+    .eq('organization_slug', args.organizationSlug)
+    .eq('work_date', args.selectedDate);
+  if (schedulesResult.error && String(schedulesResult.error.message ?? '').toLowerCase().includes('work_status')) {
+    schedulesResult = await (supabase as any).from('staff_schedules')
+      .select('id,hotel_id,user_id,status,work_date,shift_start,shift_end,published_at,staff_schedule_venues(venue_id)')
+      .eq('organization_slug', args.organizationSlug)
+      .eq('work_date', args.selectedDate);
+  }
+
+  if (workersResult.error || venuesResult.error || schedulesResult.error)
     throw new Error('Cannot verify eligible staff or the selected-date work schedule. Nothing was saved.');
+
   const workers = workersResult.data || [];
   if (workers.some(worker => worker.role !== 'housekeeping' && !worker.acts_as_housekeeper))
     throw new Error('Only eligible housekeeping employees can receive automatic room assignments.');
   if (args.selectedStaffIds.some(id => !workers.some(worker => worker.id === id)))
     throw new Error('A selected employee is missing from the authorized organization. Nothing was saved.');
-  return { workers, schedules: schedulesResult.data || [], hotelKeys };
+
+  const hotelIds = new Set<string>([...hotelKeys, accessHotelId].filter(Boolean));
+  const venueHotelById = new Map<string, string>(
+    (venuesResult.data || []).flatMap((venue: any) =>
+      venue?.id && venue?.hotel_id ? [[venue.id, venue.hotel_id] as [string, string]] : []),
+  );
+  const allScheduleRows = (schedulesResult.data || []) as AutoAssignScheduleRow[];
+  const applicablePublishedRows = filterAutoAssignScheduleRowsForHotel(
+    allScheduleRows,
+    hotelIds,
+    venueHotelById,
+  ).filter(isPublishedAutoAssignScheduleRow);
+
+  const authorizedStaffIds = [...new Set(applicablePublishedRows.map(row => row.user_id))];
+  const schedules = applicablePublishedRows.map(row => ({
+    user_id: row.user_id,
+    status: row.status || (row.published_at ? 'published' : ''),
+    work_status: row.work_status ?? null,
+    published_at: row.published_at ?? null,
+    work_date: row.work_date || args.selectedDate,
+    shift_start: row.shift_start ?? null,
+    shift_end: row.shift_end ?? null,
+  }));
+
+  return { workers, schedules, authorizedStaffIds, hotelKeys };
 }
 
 /** Snapshot authority checks cover EVERY Previo row. The workload builder's
@@ -181,11 +233,12 @@ export function compatibleHousekeepingSnapshotTime(authoritative: string, worklo
 async function saveVerifiedPortfolioPlan(args: SaveArgs):
   ReturnType<typeof core.saveApprovedNextDayAutoAssignPlan> {
   const resolved = await resolveHotelKeys(args.hotelId);
+  const canonicalHotelId = resolved[0] || args.hotelId;
   const hotelKeys = [...new Set([args.hotelId, args.hotelName, ...resolved].filter(Boolean))];
-  const roster = await verifyPlanAccessAndRoster(args, hotelKeys);
+  const roster = await verifyPlanAccessAndRoster(args, hotelKeys, canonicalHotelId);
   const source = await ensureTomorrowPmsSnapshot({
     organizationSlug: args.organizationSlug,
-    hotelId: args.hotelId,
+    hotelId: canonicalHotelId,
     selectedDate: args.selectedDate,
     forceFresh: true,
   });
@@ -197,7 +250,7 @@ async function saveVerifiedPortfolioPlan(args: SaveArgs):
   if (roomError || !roomRows) throw new Error('Could not validate this organization’s room inventory. Nothing was saved.');
   const workload = await buildTomorrowAutoAssignRooms({
     organizationSlug: args.organizationSlug,
-    hotelId: args.hotelId,
+    hotelId: canonicalHotelId,
     selectedDate: args.selectedDate,
     roomRows,
     pmsSyncedAt: source.capturedAt,
@@ -211,6 +264,7 @@ async function saveVerifiedPortfolioPlan(args: SaveArgs):
     selectedStaffIds: args.selectedStaffIds,
     workers: roster.workers,
     schedules: roster.schedules,
+    authorizedStaffIds: roster.authorizedStaffIds,
     organizationSlug: args.organizationSlug,
     hotelKeys,
     selectedDate: args.selectedDate,
@@ -218,7 +272,11 @@ async function saveVerifiedPortfolioPlan(args: SaveArgs):
     maintenanceHoldRoomIds: args.maintenanceHoldRoomIds,
   });
   if (!result.valid) throw new Error(result.reason + ' Nothing was saved.');
-  return core.saveApprovedNextDayAutoAssignPlan({ ...args, pmsSyncedAt: source.capturedAt });
+  return core.saveApprovedNextDayAutoAssignPlan({
+    ...args,
+    hotelId: canonicalHotelId,
+    pmsSyncedAt: source.capturedAt,
+  });
 }
 
 /** Gozsdu adds exact-date PMS occupancy and stay-cycle drift checks on top of
@@ -229,7 +287,7 @@ export async function saveApprovedNextDayAutoAssignPlan(args: SaveArgs):
 
   const resolvedKeys = await resolveHotelKeys(GOZSDU_COURT_HOTEL_ID);
   const hotelKeys = [...new Set([...resolvedKeys, GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME])];
-  const roster = await verifyPlanAccessAndRoster(args, hotelKeys);
+  const roster = await verifyPlanAccessAndRoster(args, hotelKeys, GOZSDU_COURT_HOTEL_ID);
   const source = await ensureTomorrowPmsSnapshot({
     organizationSlug: args.organizationSlug,
     hotelId: GOZSDU_COURT_HOTEL_ID,
@@ -274,6 +332,7 @@ export async function saveApprovedNextDayAutoAssignPlan(args: SaveArgs):
     selectedStaffIds: args.selectedStaffIds,
     workers: roster.workers,
     schedules: roster.schedules,
+    authorizedStaffIds: roster.authorizedStaffIds,
     organizationSlug: args.organizationSlug,
     hotelKeys,
     selectedDate: args.selectedDate,
