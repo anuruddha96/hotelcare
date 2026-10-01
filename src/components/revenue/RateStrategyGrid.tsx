@@ -392,7 +392,6 @@ export default function RateStrategyGrid({
   const [dragging, setDragging] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
-  const [stickyHeaderH, setStickyHeaderH] = useState(0);
 
   // The browser can preserve/adjust this nested scroller when hotel/event data
   // changes. Because Events grows above the room rows after data arrives, scroll
@@ -404,22 +403,6 @@ export default function RateStrategyGrid({
     el.scrollTop = 0;
   }, [hotelId]);
 
-  // Measure the complete sticky calendar header (month/date/metrics/events).
-  // Room-type group labels use this exact live height as their sticky offset,
-  // so the current room type can never disappear underneath a taller Events band.
-  useLayoutEffect(() => {
-    const el = stickyHeaderRef.current;
-    if (!el) return;
-    const measure = () => {
-      const next = Math.ceil(el.getBoundingClientRect().height);
-      setStickyHeaderH((prev) => (prev === next ? prev : next));
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [showEventBand, zoom, monthFilter]);
 
   // Remember the reader's preferred left width per hotel.
   useEffect(() => {
@@ -3252,6 +3235,10 @@ export default function RateStrategyGrid({
 
 
               {/* ---- Room-type / metric rows ---- */}
+              {/* The first room header must be an ordinary in-flow row. Keeping
+                  group rows sticky caused the very first group to be painted
+                  underneath the sticky metrics/events block, while its guest
+                  rows remained visible. */}
               {rows.map((row, rowIdx) => (
                 <div
                   key={row.key}
@@ -3259,16 +3246,6 @@ export default function RateStrategyGrid({
                   style={{
                     height: rowH(row.kind),
                     minHeight: rowH(row.kind),
-                    // Keep the active room-type heading directly below the full
-                    // calendar header. This is especially important for the
-                    // first room type: the sticky month/metrics/events block can
-                    // otherwise paint over its group row while its guest rows
-                    // remain visible, making the room name appear to be missing.
-                    ...(row.kind === "group" ? {
-                      position: "sticky" as const,
-                      top: stickyHeaderH,
-                      zIndex: 25,
-                    } : {}),
                   }}
                 >
                   {/* Frozen label cell — must stay fully opaque, otherwise the
