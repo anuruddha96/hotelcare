@@ -3,7 +3,15 @@ import { BREAK_TIME_MINUTES } from './roomAssignmentAlgorithmCore';
 import { isPotentialCheckoutRoom } from './nextDayHousekeepingSnapshot';
 
 export type ScheduledWorker = { id: string; organization_slug: string; assigned_hotel: string | null; hotel_id?: string | null; deleted_at?: string | null };
-export type WorkSchedule = { user_id: string; status: string; work_date: string; shift_start?: string | null; shift_end?: string | null };
+export type WorkSchedule = {
+  user_id: string;
+  status: string;
+  work_date: string;
+  shift_start?: string | null;
+  shift_end?: string | null;
+  work_status?: string | null;
+  published_at?: string | null;
+};
 export type PlanValidation = { valid: boolean; reason: string };
 const checkout = (room: RoomForAssignment) => room.is_checkout_room === true
   || room.pms_metadata?.scheduledDepartureToday === true;
@@ -12,6 +20,13 @@ const checkout = (room: RoomForAssignment) => room.is_checkout_room === true
 function shiftClockMinutes(value: string | null | undefined): number | null {
   const match = value?.match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
   return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function isUnavailableSchedule(row: WorkSchedule): boolean {
+  const lifecycle = String(row.status || '').toLowerCase();
+  const workStatus = String(row.work_status || '').toLowerCase();
+  return ['draft', 'unpublished', 'cancelled', 'canceled'].includes(lifecycle)
+    || ['off', 'absent', 'leave', 'sick', 'training', 'cancelled', 'canceled'].includes(workStatus || lifecycle);
 }
 
 /** Read-only validation before any destructive upsert/delete/approval. */
@@ -24,11 +39,16 @@ export function validateNextDayPlan(args: {
   organizationSlug: string;
   hotelKeys: string[];
   selectedDate: string;
+  /** Staff whose published selected-date schedule explicitly places them at
+   * this property through a working venue. This is the only supported way a
+   * cross-property employee can pass property authorization. */
+  authorizedStaffIds?: string[];
   excludedRoomIds?: string[];
   maintenanceHoldRoomIds?: string[];
 }): PlanValidation {
   const reject = (reason: string): PlanValidation => ({ valid: false, reason });
   const selected = new Set(args.selectedStaffIds);
+  const scheduleAuthorized = new Set(args.authorizedStaffIds || []);
   if (!args.organizationSlug || !args.selectedDate || !args.hotelKeys.length) return reject('Missing authorized organization, hotel, or work date.');
   if (selected.size !== args.selectedStaffIds.length || !selected.size) return reject('Choose distinct eligible cleaners before approving.');
   if (new Set(args.previews.map(preview => preview.staffId)).size !== args.previews.length)
@@ -36,15 +56,16 @@ export function validateNextDayPlan(args: {
   const workerMap = new Map(args.workers.map(worker => [worker.id, worker]));
   for (const id of selected) {
     const worker = workerMap.get(id);
+    const belongsToProperty = !!worker
+      && (args.hotelKeys.includes(worker.assigned_hotel || '') || args.hotelKeys.includes(worker.hotel_id || ''));
     if (!worker || worker.organization_slug !== args.organizationSlug || worker.deleted_at
-      || !args.hotelKeys.includes(worker.assigned_hotel || '') && !args.hotelKeys.includes(worker.hotel_id || ''))
+      || (!belongsToProperty && !scheduleAuthorized.has(id)))
       return reject('Selected cleaner does not belong to the authorized property and organization.');
   }
   const schedules = new Map(args.schedules.map(row => [row.user_id, row]));
   if (args.schedules.length) for (const id of selected) {
     const row = schedules.get(id);
-    if (!row || row.work_date !== args.selectedDate
-      || ['off', 'absent', 'leave', 'sick', 'cancelled', 'canceled', 'draft', 'unpublished'].includes(row.status.toLowerCase()))
+    if (!row || row.work_date !== args.selectedDate || isUnavailableSchedule(row))
       return reject('An employee is absent, off duty, or not scheduled for this date.');
     if (shiftClockMinutes(row.shift_start) === null || shiftClockMinutes(row.shift_end) === null)
       return reject('A selected employee has an incomplete shift. Correct the schedule before approval.');
@@ -73,7 +94,7 @@ export function validateNextDayPlan(args: {
   // Existing hotels without a published schedule retain their manual planning flow.
   if (args.schedules.length) for (const preview of args.previews) {
     const row = schedules.get(preview.staffId);
-    if (!row) return reject('An assigned housekeeper is no longer scheduled.');
+    if (!row || isUnavailableSchedule(row)) return reject('An assigned housekeeper is no longer scheduled.');
     const start = shiftClockMinutes(row.shift_start);
     const end = shiftClockMinutes(row.shift_end);
     if (start === null || end === null) return reject('A selected employee has an incomplete shift.');
