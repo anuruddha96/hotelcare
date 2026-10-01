@@ -69,7 +69,7 @@ const COPY = {
     loading: 'Loading Team B reservations and staff…',
     refresh: 'Refresh Previo',
     noRooms: 'No Team B housekeeping workload was found for this date.',
-    checkout: 'Checkout', daily: 'Daily', unbooked: 'Unbooked',
+    checkout: 'Checkout', daily: 'Stayover', unbooked: 'Unbooked', towel: 'Towel change', fullClean: 'Full clean', onRequest: 'On request', legend: 'Legend',
     save: 'Save Team B plan', saving: 'Saving Team B plan…', saved: 'Team B plan saved.', close: 'Close',
     alreadyPrepared: 'Saved plan',
     changed: 'The room workload changed since this date was last saved. Review the updated rooms before saving again.',
@@ -91,7 +91,7 @@ const COPY = {
     loading: 'B csapat foglalások és személyzet betöltése…',
     refresh: 'Previo frissítése',
     noRooms: 'Erre a napra nem található B csapat takarítási feladat.',
-    checkout: 'Kijelentkezés', daily: 'Napi', unbooked: 'Eladatlan',
+    checkout: 'Kijelentkezés', daily: 'Maradó vendég', unbooked: 'Eladatlan', towel: 'Törölközőcsere', fullClean: 'Teljes takarítás', onRequest: 'Kérésre', legend: 'Jelmagyarázat',
     save: 'B csapat terv mentése', saving: 'B csapat terv mentése…', saved: 'A B csapat terve elmentve.', close: 'Bezárás',
     alreadyPrepared: 'Mentett terv',
     changed: 'A szobafeladatok megváltoztak az utolsó mentés óta. Mentés előtt ellenőrizze a frissített szobákat.',
@@ -170,7 +170,11 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
     return entries.map(entry => ({
       ...entry,
       rooms: rooms.filter(room => (owners.get(room.id) || UNASSIGNED) === entry.id)
-        .sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true })),
+        .sort((a, b) => {
+          const rank = (room: RoomForAssignment) => room.is_checkout_room ? 0 : room.linen_change_required ? 1 : room.towel_change_required ? 2 : isUnsoldPlanningRoom(room) ? 4 : 3;
+          const priority = rank(a) - rank(b);
+          return priority || a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
+        }),
     })).filter(entry => entry.id !== UNASSIGNED || entry.rooms.length > 0);
   }, [owners, rooms, t.unassigned, workingStaff]);
 
@@ -403,7 +407,15 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
         ) : (
           <div className="min-h-0 flex-1 overflow-hidden py-3">
             {existingChanged && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{t.changed}</div>}
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="text-muted-foreground">{t.selectHint}</span>{capturedAt && <span className="text-xs text-muted-foreground">PMS: {new Date(capturedAt).toLocaleString()}</span>}</div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="text-muted-foreground">{t.selectHint}</span>{capturedAt && <span className="text-xs text-muted-foreground">PMS: {new Date(capturedAt).toLocaleString()}</span>}</div>
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+              <span className="font-semibold text-foreground">{t.legend}</span>
+              <span className="text-amber-700">■ {t.checkout}</span>
+              <span className="text-orange-700">T · {t.towel}</span>
+              <span className="text-rose-700">C · {t.fullClean}</span>
+              <span className="text-blue-700">■ {t.onRequest}</span>
+              <span className="text-violet-700">■ {t.unbooked}</span>
+            </div>
             {rooms.length === 0 ? <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">{t.noRooms}</div> : (
               <div className="flex h-[calc(100%-3rem)] min-h-0 gap-3 overflow-x-auto pb-2">
                 {columns.map(column => (
@@ -412,7 +424,10 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
                     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
                       {column.rooms.map(room => {
                         const unsold = isUnsoldPlanningRoom(room); const selected = selectedRoomId === room.id;
-                        return <button key={room.id} type="button" draggable onDragStart={event => event.dataTransfer.setData('text/plain', room.id)} onClick={() => setSelectedRoomId(selected ? null : room.id)} className={`flex w-full items-center gap-2 rounded-lg border p-2 text-left text-sm transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`}><GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span><span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${unsold ? 'bg-violet-100 text-violet-800' : room.is_checkout_room ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>{unsold ? t.unbooked : room.is_checkout_room ? t.checkout : t.daily}</span></button>;
+                        const serviceLabel = room.is_checkout_room ? t.checkout : room.linen_change_required ? t.fullClean : room.towel_change_required ? t.towel : unsold ? t.unbooked : t.onRequest;
+                        const serviceCode = room.is_checkout_room ? null : room.linen_change_required ? 'C' : room.towel_change_required ? 'T' : null;
+                        const serviceClass = room.is_checkout_room ? 'bg-amber-100 text-amber-800' : room.linen_change_required ? 'bg-rose-100 text-rose-800' : room.towel_change_required ? 'bg-orange-100 text-orange-800' : unsold ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800';
+                        return <button key={room.id} type="button" draggable onDragStart={event => event.dataTransfer.setData('text/plain', room.id)} onClick={() => setSelectedRoomId(selected ? null : room.id)} className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`} title={serviceLabel}><GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>{serviceCode && <span className={`rounded px-1 py-0.5 text-[10px] font-bold ${serviceClass}`}>{serviceCode}</span>}<span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${serviceClass}`}>{serviceLabel}</span></button>;
                       })}
                     </div>
                   </section>
