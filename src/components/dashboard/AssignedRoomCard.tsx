@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { BedDouble, Clock3, ImagePlus } from 'lucide-react';
+import { BedDouble, CalendarDays, Clock3, ImagePlus } from 'lucide-react';
 import { AssignedRoomCard as ExistingAssignedRoomCard } from './AssignedRoomCardLegacy';
 import { ExtraRoomPhotos } from './ExtraRoomPhotos';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
@@ -16,6 +16,41 @@ import { readGozsduRoomOverride } from '@/lib/gozsduRoomBucketOverride';
 import { gozsduWorkPresentation } from '@/lib/gozsduWorkPresentation';
 import { supabase } from '@/integrations/supabase/client';
 import './housekeeper-card-visibility.css';
+
+type HousekeeperPlannedNote = {
+  id: string;
+  content: string;
+  instruction_type: string;
+  start_date: string;
+  end_date: string;
+  selected_dates: string[] | null;
+};
+
+const plannedTypeLabel: Record<string, string> = {
+  general: 'General',
+  baby_bed: 'Baby bed',
+  extra_bed: 'Extra bed',
+  towels: 'Towels',
+  linen: 'Linen',
+  vip: 'VIP',
+  maintenance: 'Maintenance',
+  cleaning: 'Cleaning',
+  guest_request: 'Guest request',
+  other: 'Other',
+};
+
+async function loadHousekeeperPlannedRoomNotes(roomId: string, date: string): Promise<HousekeeperPlannedNote[]> {
+  const { data, error } = await (supabase as any)
+    .from('room_planned_notes')
+    .select('id,content,instruction_type,start_date,end_date,selected_dates')
+    .eq('room_id', roomId)
+    .eq('status', 'active')
+    .lte('start_date', date)
+    .gte('end_date', date)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return ((data || []) as HousekeeperPlannedNote[]).filter((note) => !note.selected_dates?.length || note.selected_dates.includes(date));
+}
 
 /** Resolve the manager's building mapping once for all Gozsdu housekeeper cards.
  * Never infer a building from a PMS prefix or room number, and never write a
@@ -61,6 +96,14 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
     queryFn: loadGozsduHousekeeperBuildings,
     enabled: !!user?.id && isGozsduRoom,
     staleTime: 60_000,
+    retry: 1,
+  });
+  const { data: plannedRoomNotes = [] } = useQuery({
+    queryKey: ['housekeeper-planned-room-notes', props.assignment.room_id, date],
+    queryFn: () => loadHousekeeperPlannedRoomNotes(props.assignment.room_id, date),
+    enabled: !!user?.id && !!props.assignment.room_id,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
     retry: 1,
   });
   const mappedBuilding = isGozsduRoom ? buildingByRoom?.get(props.assignment.room_id) : undefined;
@@ -126,6 +169,18 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
   return <div className={`space-y-2${isGozsduRoom ? ' gozsdu-housekeeper-card' : ''}${isCheckoutClean ? ' checkout-housekeeper-card' : ''}`}>
     {gozsduOverride && gozsduOverride.bucket !== 'other' && <div role="status" className="rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs font-semibold">
       Manager cleaning plan: {gozsduOverride.bucket === 'checkout' ? 'Checkout cleaning' : gozsduOverride.service === 'change_room' ? 'Full cleaning / complete textile change' : 'Towel change'}
+    </div>}
+    {plannedRoomNotes.length > 0 && <div role="status" className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100">
+      <div className="flex items-start gap-2">
+        <CalendarDays className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold uppercase tracking-wide">{language === 'hu' ? 'Mai tervezett szobautasítás' : 'Planned room instruction for today'}</p>
+          <div className="mt-1 space-y-1">
+            {plannedRoomNotes.map((note) => <p key={note.id} className="text-sm font-semibold"><span className="font-normal opacity-75">{plannedTypeLabel[note.instruction_type] || 'General'}:</span> {note.content}</p>)}
+          </div>
+          <p className="mt-1 text-[10px] opacity-70">{language === 'hu' ? 'A recepció/vezető által előre ütemezve a HotelCare-ben.' : 'Scheduled in advance by reception/management in HotelCare.'}</p>
+        </div>
+      </div>
     </div>}
     <ExistingAssignedRoomCard {...props} assignment={{ ...displayAssignment, rooms: roomForDisplay }} />
     {room && canEditBedSetup && props.assignment.status !== 'completed' && <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-2 dark:border-blue-900 dark:bg-blue-950/20">

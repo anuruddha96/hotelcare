@@ -32,6 +32,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
 import { RoomMinibarOperations } from './RoomMinibarOperations';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
+import { RoomPlannedNotesCalendar } from './RoomPlannedNotesCalendar';
 import { toast } from 'sonner';
 
 type StaffMap = Record<string, string>;
@@ -158,6 +159,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const notesSavedDraftRef = useRef('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [plannedTodayNotes, setPlannedTodayNotes] = useState<string[]>([]);
 
   const role = String(profile?.role || '').toLowerCase();
   const canManage = hasManagerPowers(profile?.role) || role === 'supervisor';
@@ -203,6 +205,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     });
     notesSavedDraftRef.current = '';
     setNotesDraft('');
+    setPlannedTodayNotes([]);
     setNoteSaveState('idle');
 
     try {
@@ -936,6 +939,15 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <div className="flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-indigo-700" /><p className="text-sm font-bold text-indigo-950">Housekeeper / manager note</p></div>
           <Badge variant="outline" className="border-indigo-300 bg-white/70 text-indigo-700">Shared</Badge>
         </div>
+        {plannedTodayNotes.length > 0 && (
+          <div className="mb-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">Planned instructions active today</p>
+            {plannedTodayNotes.map((note, index) => (
+              <p key={`${note}-${index}`} className="mt-1 text-xs font-semibold text-emerald-950">• {note}</p>
+            ))}
+            <p className="mt-1 text-[9px] text-emerald-800/70">HotelCare calendar instruction · protected from PMS sync.</p>
+          </div>
+        )}
         <Textarea
           value={notesDraft}
           onChange={(event) => setNotesDraft(event.target.value)}
@@ -962,6 +974,16 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           )}
         </div>
       </section>
+
+      {selection.roomId && (
+        <RoomPlannedNotesCalendar
+          roomId={selection.roomId}
+          roomNumber={selection.roomNumber}
+          hotelName={hotelName}
+          canEdit={canWriteNotes}
+          onTodayNotesChange={(rows) => setPlannedTodayNotes(rows.map((row) => row.content))}
+        />
+      )}
 
       {selection.roomId && canWriteNotes && (
         <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
