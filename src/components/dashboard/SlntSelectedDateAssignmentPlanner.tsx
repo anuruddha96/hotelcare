@@ -21,6 +21,7 @@ import {
   type DailyOverviewWorkRow,
 } from '@/lib/nextDayHousekeepingSnapshot';
 import { calculateRoomTime, type RoomForAssignment } from '@/lib/roomAssignmentAlgorithm';
+import { applyVenuePreferences, slntVenueKey } from '@/lib/slntTeamBVenueAffinity';
 import {
   filterRoomsToMappedTeam,
   filterSnapshotRowsToMappedRooms,
@@ -84,6 +85,7 @@ const COPY = {
     selectHint: 'Rooms were balanced automatically. Drag a room to another cleaner, or tap a room and then “Move selected here”.',
     rooms: 'rooms', noMembers: 'No Team B staff are configured. Add staff from Team B · today first.',
     compatibility: 'Operational day staffing storage is not available. Published Staff Schedule staff can still be planned safely; staff overrides require the Team B database update.',
+    venuePreferences: 'Preferred cleaner by venue', venueHelp: 'Keep each property together. Changing a venue preference moves all of its rooms to that cleaner and remembers it for future plans.', noPreference: 'Auto balance',
   },
   hu: {
     title: 'B csapat tervezése',
@@ -106,21 +108,22 @@ const COPY = {
     selectHint: 'A szobákat automatikusan kiegyensúlyoztuk. Húzza a szobát másik takarítóhoz, vagy koppintson rá, majd válassza az „Áthelyezés ide” lehetőséget.',
     rooms: 'szoba', noMembers: 'Nincs B csapat személyzet beállítva. Először adjon hozzá dolgozókat a B csapat · ma résznél.',
     compatibility: 'Az operatív napi személyzeti tároló még nem érhető el. A közzétett munkabeosztás biztonságosan használható; egyedi személyzeti felülíráshoz adatbázis-frissítés szükséges.',
+    venuePreferences: 'Preferált takarító helyszínenként', venueHelp: 'Tartsa egyben az egy helyszínhez tartozó szobákat. A módosítás az összes szobát áthelyezi és a jövőre is megjegyzi.', noPreference: 'Automatikus elosztás',
   },
 };
 
 function rebalanceOwners(
-  rooms: RoomForAssignment[], staff: PlannerStaff[], selectedStaffIds: Set<string>, previousOwners: Map<string, string>,
+  rooms: RoomForAssignment[], staff: PlannerStaff[], selectedStaffIds: Set<string>, previousOwners: Map<string, string>, preferences: Map<string, string> = new Map(),
 ) {
   const selectedStaff = staff.filter(person => selectedStaffIds.has(person.id));
   if (selectedStaff.length === 0) return new Map<string, string>();
   const selectedIds = new Set(selectedStaff.map(person => person.id));
   const roomIds = new Set(rooms.map(room => room.id));
-  const result = new Map<string, string>();
+  const result = applyVenuePreferences(rooms, selectedStaffIds, preferences);
   const loads = new Map(selectedStaff.map(person => [person.id, 0]));
 
   for (const [roomId, ownerId] of previousOwners) {
-    if (!roomIds.has(roomId) || !selectedIds.has(ownerId)) continue;
+    if (result.has(roomId) || !roomIds.has(roomId) || !selectedIds.has(ownerId)) continue;
     const room = rooms.find(candidate => candidate.id === roomId);
     if (!room) continue;
     result.set(roomId, ownerId);
@@ -154,9 +157,12 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [existingTasks, setExistingTasks] = useState<ExistingTask[]>([]);
   const [capturedAt, setCapturedAt] = useState<string | null>(null);
+  const [venuePreferences, setVenuePreferences] = useState<Map<string, string>>(new Map());
+  const [supportsVenuePreferences, setSupportsVenuePreferences] = useState(true);
 
   const summary = useMemo(() => summarizeTeamWorkload(rooms), [rooms]);
   const workingStaff = useMemo(() => allStaff.filter(person => selectedStaffIds.has(person.id)), [allStaff, selectedStaffIds]);
+  const venueKeys = useMemo(() => Array.from(new Set(rooms.map(slntVenueKey))).sort((a, b) => a.localeCompare(b)), [rooms]);
   const activeExisting = useMemo(() => existingTasks.filter(task => task.status !== 'cancelled'), [existingTasks]);
   const existingChanged = useMemo(() => {
     if (activeExisting.length === 0) return false;
@@ -245,6 +251,19 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
       }
       setSupportsDayStaffing(dayStaffSupported);
 
+      let preferences = new Map<string, string>();
+      const preferenceResult = await (supabase as any).from('housekeeping_team_venue_preferences')
+        .select('venue_key,preferred_user_id').eq('team_id', teamScope.teamId);
+      if (!preferenceResult.error) {
+        preferences = new Map<string, string>((preferenceResult.data || []).map((row: any) => [String(row.venue_key), String(row.preferred_user_id)]));
+        setSupportsVenuePreferences(true);
+      } else if (isMissingTeamBOptionalSchemaError(preferenceResult.error)) {
+        setSupportsVenuePreferences(false);
+      } else {
+        console.warn('[SlntSelectedDateAssignmentPlanner] venue preferences unavailable:', preferenceResult.error);
+      }
+      setVenuePreferences(preferences);
+
       const tasks = (taskResult.data || []) as ExistingTask[];
       const taskOwners = new Set<string>(tasks.filter(task => task.status !== 'cancelled' && !!task.planned_candidate_user_id).map(task => task.planned_candidate_user_id as string));
       const explicitIds = dayIds.size > 0 ? dayIds : taskOwners;
@@ -274,7 +293,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
           ? [[task.room_id, task.planned_candidate_user_id] as [string, string]] : []));
 
       setRooms(workload.rooms); setAllStaff(staffRows); setSelectedStaffIds(selected); setDefaultStaffIds(defaults);
-      setOwners(rebalanceOwners(workload.rooms, staffRows, selected, savedOwners));
+      setOwners(rebalanceOwners(workload.rooms, staffRows, selected, savedOwners, preferences));
       setExistingTasks(tasks); setCapturedAt(syncData?.capturedAt || workload.capturedAt || null);
       setSelectedRoomId(null); setStep('staff');
     } catch (cause) {
@@ -295,10 +314,30 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
   };
   const continueToRooms = () => {
     if (selectedStaffIds.size === 0) { toast.warning(t.noStaff); return; }
-    setOwners(previous => rebalanceOwners(rooms, allStaff, selectedStaffIds, previous)); setSelectedRoomId(null); setStep('rooms');
+    setOwners(previous => rebalanceOwners(rooms, allStaff, selectedStaffIds, previous, venuePreferences)); setSelectedRoomId(null); setStep('rooms');
+  };
+  const setVenuePreference = (venueKey: string, staffId: string) => {
+    setVenuePreferences(previous => {
+      const next = new Map(previous);
+      if (!staffId || staffId === UNASSIGNED) next.delete(venueKey); else next.set(venueKey, staffId);
+      return next;
+    });
+    setOwners(previous => {
+      const next = new Map(previous);
+      for (const room of rooms.filter(candidate => slntVenueKey(candidate) === venueKey)) {
+        if (!staffId || staffId === UNASSIGNED) next.delete(room.id); else next.set(room.id, staffId);
+      }
+      return next;
+    });
+    setSelectedRoomId(null);
   };
   const moveRoom = (roomId: string, staffId: string) => {
-    setOwners(previous => { const next = new Map(previous); if (staffId === UNASSIGNED) next.delete(roomId); else next.set(roomId, staffId); return next; }); setSelectedRoomId(null);
+    const room = rooms.find(candidate => candidate.id === roomId);
+    if (room && staffId !== UNASSIGNED) {
+      setVenuePreference(slntVenueKey(room), staffId);
+      return;
+    }
+    setOwners(previous => { const next = new Map(previous); next.delete(roomId); return next; }); setSelectedRoomId(null);
   };
 
   const savePlan = async () => {
@@ -340,6 +379,12 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
         });
         if (legacyError) throw legacyError;
         toast.success(t.saved);
+      }
+      if (supportsVenuePreferences && venuePreferences.size > 0) {
+        const { error: preferenceError } = await (supabase as any).rpc('set_slnt_team_b_venue_preferences', {
+          p_preferences: Array.from(venuePreferences.entries()).map(([venue_key, preferred_user_id]) => ({ venue_key, preferred_user_id })),
+        });
+        if (preferenceError && !isMissingTeamBOptionalSchemaError(preferenceError)) throw preferenceError;
       }
       onAssignmentCreated(rooms.length, selectedStaffIds.size); onOpenChange(false);
     } catch (cause) {
@@ -408,6 +453,20 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
           <div className="min-h-0 flex-1 py-2">
             {existingChanged && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{t.changed}</div>}
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="text-muted-foreground">{t.selectHint}</span>{capturedAt && <span className="text-xs text-muted-foreground">PMS: {new Date(capturedAt).toLocaleString()}</span>}</div>
+            <div className="mb-2 rounded-lg border bg-card px-3 py-2">
+              <div className="flex flex-wrap items-baseline gap-x-2"><span className="text-xs font-semibold">{t.venuePreferences}</span><span className="text-[10px] text-muted-foreground">{t.venueHelp}</span></div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {venueKeys.map(venueKey => (
+                  <label key={venueKey} className="flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-[10px]">
+                    <span className="max-w-[130px] truncate font-medium" title={venueKey}>{venueKey}</span>
+                    <select className="max-w-[120px] bg-transparent font-medium outline-none" value={venuePreferences.get(venueKey) || ''} onChange={event => setVenuePreference(venueKey, event.target.value)} disabled={!supportsVenuePreferences}>
+                      <option value="">{t.noPreference}</option>
+                      {workingStaff.map(person => <option key={person.id} value={person.id}>{person.full_name}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </div>
             <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
               <span className="font-semibold text-foreground">{t.legend}</span>
               <span className="text-amber-700">■ {t.checkout}</span>
