@@ -2,8 +2,9 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 
-const { portfolio, refetch } = vi.hoisted(() => ({ portfolio: vi.fn(), refetch: vi.fn() }));
+const { portfolio, refetch, benchmark } = vi.hoisted(() => ({ portfolio: vi.fn(), refetch: vi.fn(), benchmark: vi.fn() }));
 vi.mock("@/hooks/usePortfolioSnapshots", () => ({ usePortfolioSnapshots: portfolio }));
+vi.mock("@/hooks/usePortfolioRateBenchmark", () => ({ usePortfolioRateBenchmark: benchmark }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("recharts", async (original) => ({ ...await original<object>(), ResponsiveContainer: () => null }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: () => ({ select: () => ({ in: async () => ({ data: [], error: null }) }) }) } }));
@@ -26,7 +27,7 @@ async function openComparison() {
   return screen.getByRole("region", { name: "Hotel comparison" });
 }
 
-beforeEach(() => { portfolio.mockReset().mockReturnValue(ready()); refetch.mockReset(); });
+beforeEach(() => { portfolio.mockReset().mockReturnValue(ready()); refetch.mockReset(); benchmark.mockReset().mockReturnValue({ data: { available: false, days: [] }, isFetching: false }); });
 
 describe("hotel comparison cards", () => {
   it("renders occupancy, ADR and RevPAR for every hotel", async () => {
@@ -60,5 +61,15 @@ describe("hotel comparison cards", () => {
     const comparison = await openComparison();
     expect(within(comparison).getByRole("alert")).toHaveTextContent("Showing the last loaded figures");
     expect(within(comparison).getByText("€120")).toBeInTheDocument();
+  });
+});
+
+
+describe("rate benchmark fallback", () => {
+  it("keeps the rate-position benchmark available when external competitors are missing", async () => {
+    benchmark.mockReturnValue({ data: { available: true, marketCity: "Budapest", propertiesReporting: 7, days: [{ date: "2026-09-04", propertiesReporting: 7, medianRate: 132, trimmedAverageRate: 136 }] }, isFetching: false });
+    await act(async () => { render(<MarketIntelligenceChart hotels={hotels} hotelId="ottofiori" selectedMonth="2026-09" metrics={metrics} ourRateByDate={new Map([["2026-09-04", 150]])} />); });
+    expect(screen.getByText(/HotelCare Budapest portfolio benchmark · 7 anonymized properties · based on booked ADR/)).toBeInTheDocument();
+    expect(screen.getByText("Market benchmark")).toBeInTheDocument();
   });
 });
