@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { isTransientBackendError } from "@/lib/transientRetry";
 
+const db = supabase as unknown as { rpc: (fn: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> };
+
 export interface PortfolioRateBenchmarkDay {
   date: string;
   propertiesReporting: number;
@@ -31,9 +33,9 @@ export function usePortfolioRateBenchmark(hotelId: string | null, horizonDays = 
     queryKey: ["portfolio-rate-benchmark", hotelId, horizonDays],
     enabled: !!hotelId,
     queryFn: async (): Promise<PortfolioRateBenchmark> => {
-      const { data, error } = await supabase.rpc("get_portfolio_rate_benchmark", {
+      const { data, error } = await db.rpc("get_portfolio_rate_benchmark", {
         _hotel_id: hotelId!, _horizon_days: horizonDays,
-      } as never);
+      });
       if (error) throw error;
       const raw = (data ?? EMPTY) as unknown as PortfolioRateBenchmark;
       return {
