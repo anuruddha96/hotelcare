@@ -60,16 +60,18 @@ begin
       and d.adr_eur is not null and d.adr_eur > 0
       and d.captured_at >= now() - interval '72 hours'
     order by d.hotel_id, d.stay_date, d.captured_at desc
-  ), daily as (
+  ), bounds as (
     select stay_date,
       count(*)::integer as properties_reporting,
+      percentile_cont(0.1) within group (order by adr_eur)::numeric as p10,
       percentile_cont(0.5) within group (order by adr_eur)::numeric as median_rate,
-      avg(adr_eur) filter (
-        where adr_eur between
-          percentile_cont(0.1) within group (order by adr_eur)
-          and percentile_cont(0.9) within group (order by adr_eur)
-      ) as trimmed_avg_rate
+      percentile_cont(0.9) within group (order by adr_eur)::numeric as p90
     from latest group by stay_date
+  ), daily as (
+    select b.stay_date, b.properties_reporting, b.median_rate,
+      avg(l.adr_eur) filter (where l.adr_eur between b.p10 and b.p90) as trimmed_avg_rate
+    from bounds b join latest l on l.stay_date = b.stay_date
+    group by b.stay_date, b.properties_reporting, b.median_rate
   ), shaped as (
     select jsonb_build_object(
       'date', stay_date::text,
