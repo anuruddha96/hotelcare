@@ -49,7 +49,7 @@ with check (
   and exists (
     select 1 from public.profiles p
     where p.id = auth.uid()
-      and lower(coalesce(p.role,'')) in ('admin','top_management','top_management_manager','manager','housekeeping_manager','supervisor','reception','front_office','reception_manager')
+      and lower(coalesce(p.role::text,'')) in ('admin','top_management','top_management_manager','manager','housekeeping_manager','supervisor','reception','front_office','reception_manager')
   )
 );
 
@@ -60,7 +60,7 @@ using (
   and exists (
     select 1 from public.profiles p
     where p.id = auth.uid()
-      and lower(coalesce(p.role,'')) in ('admin','top_management','top_management_manager','manager','housekeeping_manager','supervisor','reception','front_office','reception_manager')
+      and lower(coalesce(p.role::text,'')) in ('admin','top_management','top_management_manager','manager','housekeeping_manager','supervisor','reception','front_office','reception_manager')
   )
 )
 with check (
