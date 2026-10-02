@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, CheckCircle2, Clock3, Loader2, Plus, Sparkles, Trash2, UserRound } from 'lucide-react';
+import { Building2, CalendarDays, CheckCircle2, Clock3, Loader2, Plus, Sparkles, Trash2, UserRound } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +49,10 @@ function prettyDate(date: string) {
   return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function shortDate(date: string) {
+  return new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 interface Props {
   roomId: string;
   roomNumber: string;
@@ -70,7 +74,27 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState<Record<string, 'saving' | 'saved' | 'error'>>({});
+  const [propertyOpen, setPropertyOpen] = useState(false);
+  const [propertyLoading, setPropertyLoading] = useState(false);
+  const [propertyNotes, setPropertyNotes] = useState<PlannedNote[]>([]);
+  const [propertyRoomNumbers, setPropertyRoomNumbers] = useState<Record<string, string>>({});
+  const [propertyDate, setPropertyDate] = useState(localDate());
   const timers = useRef<Record<string, number>>({});
+  const onTodayNotesChangeRef = useRef(onTodayNotesChange);
+
+  useEffect(() => { onTodayNotesChangeRef.current = onTodayNotesChange; }, [onTodayNotesChange]);
+
+  const loadNames = useCallback(async (rows: PlannedNote[]) => {
+    const ids = Array.from(new Set(rows.flatMap((n) => [n.created_by, n.updated_by]).filter(Boolean)));
+    if (!ids.length) return;
+    const { data: people } = await supabase.from('profiles').select('id, full_name, nickname').in('id', ids);
+    if (people?.length) {
+      setNames((current) => ({
+        ...current,
+        ...Object.fromEntries(people.map((p: any) => [p.id, p.full_name || p.nickname || 'HotelCare user'])),
+      }));
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,27 +110,75 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
       if (error) throw error;
       const rows = (data || []) as PlannedNote[];
       setNotes(rows);
-      const ids = Array.from(new Set(rows.flatMap((n) => [n.created_by, n.updated_by]).filter(Boolean)));
-      if (ids.length) {
-        const { data: people } = await supabase.from('profiles').select('id, full_name, nickname').in('id', ids);
-        setNames(Object.fromEntries((people || []).map((p: any) => [p.id, p.full_name || p.nickname || 'HotelCare user'])));
-      }
+      await loadNames(rows);
     } catch (error: any) {
       console.error('Could not load planned room notes', error);
       toast.error(error?.message || 'Could not load planned room notes');
     } finally {
       setLoading(false);
     }
-  }, [roomId]);
+  }, [loadNames, roomId]);
+
+  const loadPropertyCalendar = useCallback(async () => {
+    setPropertyLoading(true);
+    try {
+      const { data: currentRoom, error: roomError } = await (supabase as any)
+        .from('rooms')
+        .select('hotel')
+        .eq('id', roomId)
+        .maybeSingle();
+      if (roomError) throw roomError;
+      const propertyHotel = currentRoom?.hotel || hotelName;
+      const { data, error } = await (supabase as any)
+        .from('room_planned_notes')
+        .select('*')
+        .eq('hotel', propertyHotel)
+        .eq('status', 'active')
+        .gte('end_date', localDate())
+        .order('start_date', { ascending: true })
+        .order('created_at', { ascending: true })
+        .limit(250);
+      if (error) throw error;
+      const rows = (data || []) as PlannedNote[];
+      setPropertyNotes(rows);
+      await loadNames(rows);
+
+      const roomIds = Array.from(new Set(rows.map((row) => row.room_id).filter(Boolean)));
+      if (!roomIds.length) {
+        setPropertyRoomNumbers({});
+        return;
+      }
+      const { data: rooms, error: roomsError } = await (supabase as any)
+        .from('rooms')
+        .select('id, room_number')
+        .in('id', roomIds);
+      if (roomsError) throw roomsError;
+      setPropertyRoomNumbers(Object.fromEntries((rooms || []).map((room: any) => [room.id, room.room_number])));
+    } catch (error: any) {
+      console.error('Could not load property room-note calendar', error);
+      toast.error(error?.message || 'Could not load the property calendar');
+    } finally {
+      setPropertyLoading(false);
+    }
+  }, [hotelName, loadNames, roomId]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    onTodayNotesChange?.(notes.filter((n) => appliesOn(n, localDate())));
-  }, [notes, onTodayNotesChange]);
+    onTodayNotesChangeRef.current?.(notes.filter((n) => appliesOn(n, localDate())));
+  }, [notes]);
   useEffect(() => () => Object.values(timers.current).forEach((id) => window.clearTimeout(id)), []);
+  useEffect(() => {
+    if (propertyOpen) void loadPropertyCalendar();
+  }, [propertyOpen, loadPropertyCalendar]);
 
-  const upcoming = useMemo(() => notes.filter((n) => n.status === 'active' && n.end_date >= localDate()).slice(0, 12), [notes]);
+  const upcoming = useMemo(() => notes.filter((n) => n.status === 'active' && n.end_date >= localDate()).slice(0, 20), [notes]);
   const todayNotes = useMemo(() => notes.filter((n) => appliesOn(n, localDate())), [notes]);
+  const propertyDayNotes = useMemo(
+    () => propertyNotes
+      .filter((note) => appliesOn(note, propertyDate))
+      .sort((a, b) => String(propertyRoomNumbers[a.room_id] || '').localeCompare(String(propertyRoomNumbers[b.room_id] || ''), undefined, { numeric: true })),
+    [propertyDate, propertyNotes, propertyRoomNumbers],
+  );
 
   const toggleQuickDate = (date: string) => {
     setSelectedDates((current) => current.includes(date) ? current.filter((d) => d !== date) : [...current, date].sort());
@@ -139,6 +211,7 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
       setComposerOpen(false);
       toast.success(`Room ${roomNumber}: planned instruction saved`);
       await load();
+      if (propertyOpen) await loadPropertyCalendar();
     } catch (error: any) {
       toast.error(error?.message || 'Could not save planned instruction');
     } finally {
@@ -148,6 +221,7 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
 
   const autosave = (id: string, nextContent: string) => {
     setNotes((current) => current.map((n) => n.id === id ? { ...n, content: nextContent } : n));
+    setPropertyNotes((current) => current.map((n) => n.id === id ? { ...n, content: nextContent } : n));
     if (timers.current[id]) window.clearTimeout(timers.current[id]);
     setSaveState((s) => ({ ...s, [id]: 'saving' }));
     timers.current[id] = window.setTimeout(async () => {
@@ -157,8 +231,11 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
           updated_by: profile?.id,
         }).eq('id', id);
         if (error) throw error;
+        const savedAt = new Date().toISOString();
         setSaveState((s) => ({ ...s, [id]: 'saved' }));
-        setNotes((current) => current.map((n) => n.id === id ? { ...n, updated_at: new Date().toISOString(), updated_by: profile?.id || n.updated_by } : n));
+        const applySavedMeta = (current: PlannedNote[]) => current.map((n) => n.id === id ? { ...n, updated_at: savedAt, updated_by: profile?.id || n.updated_by } : n);
+        setNotes(applySavedMeta);
+        setPropertyNotes(applySavedMeta);
       } catch (error) {
         console.error('Planned note autosave failed', error);
         setSaveState((s) => ({ ...s, [id]: 'error' }));
@@ -171,12 +248,13 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
     const { error } = await (supabase as any).from('room_planned_notes').update({ status: 'cancelled', updated_by: profile?.id }).eq('id', id);
     if (error) return toast.error('Could not remove planned instruction');
     setNotes((current) => current.filter((n) => n.id !== id));
+    setPropertyNotes((current) => current.filter((n) => n.id !== id));
     toast.success('Planned instruction removed');
   };
 
   return (
     <section className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50/80 to-white p-3 sm:p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <CalendarDays className="h-4 w-4 text-sky-700" />
@@ -185,13 +263,60 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
           </div>
           <p className="mt-1 text-[11px] text-sky-900/70">Room {roomNumber} · {hotelName}. Future instructions stay separate from PMS sync.</p>
         </div>
-        {canEdit && <Button size="sm" variant="outline" className="border-sky-300" onClick={() => setComposerOpen((v) => !v)}><Plus className="mr-1 h-3.5 w-3.5" />Plan note</Button>}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="border-sky-300" onClick={() => setPropertyOpen((value) => !value)}>
+            <Building2 className="mr-1 h-3.5 w-3.5" />{propertyOpen ? 'Hide property calendar' : 'Property calendar'}
+          </Button>
+          {canEdit && <Button size="sm" variant="outline" className="border-sky-300" onClick={() => setComposerOpen((v) => !v)}><Plus className="mr-1 h-3.5 w-3.5" />Plan note</Button>}
+        </div>
       </div>
 
       {todayNotes.length > 0 && (
         <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5">
           <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">Active today</p>
           {todayNotes.map((n) => <p key={n.id} className="mt-1 text-xs font-semibold text-emerald-950">• {n.content}</p>)}
+        </div>
+      )}
+
+      {propertyOpen && (
+        <div className="mt-3 rounded-xl border border-sky-200 bg-white p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-bold text-slate-900">{hotelName} · property room-note calendar</p>
+              <p className="text-[10px] text-muted-foreground">Only rooms visible inside this property are returned by HotelCare permissions.</p>
+            </div>
+            <Input type="date" min={localDate()} value={propertyDate} onChange={(event) => setPropertyDate(event.target.value)} className="h-8 w-[155px] text-xs" />
+          </div>
+          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+            {Array.from({ length: 14 }, (_, index) => localDate(index)).map((date) => (
+              <button
+                key={date}
+                type="button"
+                onClick={() => setPropertyDate(date)}
+                className={`min-w-[66px] rounded-lg border px-2 py-1.5 text-center text-[10px] font-semibold ${propertyDate === date ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-sky-50'}`}
+              >
+                <span className="block">{new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short' })}</span>
+                <span className="block">{shortDate(date)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 space-y-2">
+            {propertyLoading ? (
+              <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading property calendar…</div>
+            ) : propertyDayNotes.length === 0 ? (
+              <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">No planned room instructions for {prettyDate(propertyDate)}.</p>
+            ) : propertyDayNotes.map((note) => (
+              <div key={`property-${note.id}`} className={`rounded-lg border p-2.5 ${note.room_id === roomId ? 'border-sky-300 bg-sky-50/60' : 'bg-slate-50/70'}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="bg-white text-[9px]">Room {propertyRoomNumbers[note.room_id] || '—'}</Badge>
+                  <Badge variant="outline" className="bg-white text-[9px]">{TYPES.find(([value]) => value === note.instruction_type)?.[1] || 'General'}</Badge>
+                  {note.room_id === roomId && <span className="text-[9px] font-semibold text-sky-700">Current room</span>}
+                </div>
+                <p className="mt-1.5 text-xs font-medium text-slate-900">{note.content}</p>
+                <p className="mt-1 text-[9px] text-muted-foreground">Last saved by {names[note.updated_by] || names[note.created_by] || 'HotelCare user'} · {new Date(note.updated_at).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -204,37 +329,41 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
           </div>
           <div>
             <p className="mb-1.5 text-[10px] font-semibold text-muted-foreground">Or select individual days</p>
-            <div className="flex flex-wrap gap-1.5">{Array.from({length:14},(_,i)=>localDate(i+1)).map((d)=><button type="button" key={d} onClick={()=>toggleQuickDate(d)} className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${selectedDates.includes(d)?'border-sky-600 bg-sky-600 text-white':'border-slate-200 bg-white hover:bg-sky-50'}`}>{new Date(d+'T12:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})}</button>)}</div>
+            <div className="flex flex-wrap gap-1.5">{Array.from({length:14},(_,i)=>localDate(i+1)).map((d)=><button type="button" key={d} onClick={()=>toggleQuickDate(d)} className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${selectedDates.includes(d)?'border-sky-600 bg-sky-600 text-white':'border-slate-200 bg-white hover:bg-sky-50'}`}>{shortDate(d)}</button>)}</div>
           </div>
           <Textarea value={content} onChange={(e)=>setContent(e.target.value)} placeholder="Example: Take baby bed out; prepare extra towels; VIP setup…" className="min-h-[72px]" />
-          <div className="flex items-center justify-between"><p className="text-[10px] text-muted-foreground">Creator, edits and timestamps are retained in HotelCare history.</p><Button size="sm" disabled={saving || !content.trim()} onClick={()=>void createNote()}>{saving?<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/>:<CheckCircle2 className="mr-1 h-3.5 w-3.5"/>}Save plan</Button></div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] text-muted-foreground">Creator, edits and timestamps are retained in HotelCare history.</p><Button size="sm" disabled={saving || !content.trim()} onClick={()=>void createNote()}>{saving?<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/>:<CheckCircle2 className="mr-1 h-3.5 w-3.5"/>}Save plan</Button></div>
         </div>
       )}
 
       <div className="mt-3 space-y-2">
         {loading ? <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/>Loading room calendar…</div>
         : upcoming.length === 0 ? <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">No upcoming room instructions.</p>
-        : upcoming.map((note) => (
-          <div key={note.id} className="rounded-xl border bg-white p-2.5">
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <Badge variant="outline" className="text-[9px]">{TYPES.find(([v])=>v===note.instruction_type)?.[1] || 'General'}</Badge>
-                  <span className="font-semibold text-slate-700">{note.selected_dates?.length ? note.selected_dates.map(prettyDate).join(', ') : note.start_date === note.end_date ? prettyDate(note.start_date) : `${prettyDate(note.start_date)} – ${prettyDate(note.end_date)}`}</span>
+        : upcoming.map((note) => {
+          const createdName = names[note.created_by] || (note.created_by === profile?.id ? 'You' : 'HotelCare user');
+          const updatedName = names[note.updated_by] || (note.updated_by === profile?.id ? 'You' : createdName);
+          return (
+            <div key={note.id} className="rounded-xl border bg-white p-2.5">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                    <Badge variant="outline" className="text-[9px]">{TYPES.find(([v])=>v===note.instruction_type)?.[1] || 'General'}</Badge>
+                    <span className="font-semibold text-slate-700">{note.selected_dates?.length ? note.selected_dates.map(prettyDate).join(', ') : note.start_date === note.end_date ? prettyDate(note.start_date) : `${prettyDate(note.start_date)} – ${prettyDate(note.end_date)}`}</span>
+                  </div>
+                  {canEdit ? <Textarea value={note.content} onChange={(e)=>autosave(note.id,e.target.value)} className="mt-2 min-h-[56px] resize-y text-xs" /> : <p className="mt-2 text-xs font-medium">{note.content}</p>}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-muted-foreground">
+                    <span className="flex items-center gap-1"><UserRound className="h-3 w-3"/>Created by {createdName} · {new Date(note.created_at).toLocaleString()}</span>
+                    <span className="flex items-center gap-1"><Clock3 className="h-3 w-3"/>Last saved by {updatedName} · {new Date(note.updated_at).toLocaleString()}</span>
+                    {saveState[note.id] === 'saving' && <span>Saving…</span>}
+                    {saveState[note.id] === 'saved' && <span className="text-emerald-700">✓ Saved automatically</span>}
+                    {saveState[note.id] === 'error' && <span className="text-rose-700">Autosave failed — keep this window open and retry</span>}
+                  </div>
                 </div>
-                {canEdit ? <Textarea value={note.content} onChange={(e)=>autosave(note.id,e.target.value)} className="mt-2 min-h-[56px] resize-y text-xs" /> : <p className="mt-2 text-xs font-medium">{note.content}</p>}
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-muted-foreground">
-                  <span className="flex items-center gap-1"><UserRound className="h-3 w-3"/>{names[note.updated_by] || names[note.created_by] || (note.created_by === profile?.id ? 'You' : 'HotelCare user')}</span>
-                  <span className="flex items-center gap-1"><Clock3 className="h-3 w-3"/>{new Date(note.updated_at).toLocaleString()}</span>
-                  {saveState[note.id] === 'saving' && <span>Saving…</span>}
-                  {saveState[note.id] === 'saved' && <span className="text-emerald-700">✓ Saved automatically</span>}
-                  {saveState[note.id] === 'error' && <span className="text-rose-700">Autosave failed</span>}
-                </div>
+                {canEdit && <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 text-rose-600" onClick={()=>void cancelNote(note.id)} aria-label="Remove planned instruction"><Trash2 className="h-3.5 w-3.5"/></Button>}
               </div>
-              {canEdit && <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 text-rose-600" onClick={()=>void cancelNote(note.id)} aria-label="Remove planned instruction"><Trash2 className="h-3.5 w-3.5"/></Button>}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
