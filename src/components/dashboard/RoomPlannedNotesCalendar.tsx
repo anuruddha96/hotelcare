@@ -67,8 +67,8 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
   const [names, setNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [startDate, setStartDate] = useState(localDate(1));
-  const [endDate, setEndDate] = useState(localDate(1));
+  const [startDate, setStartDate] = useState(localDate());
+  const [endDate, setEndDate] = useState(localDate());
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [type, setType] = useState('general');
   const [content, setContent] = useState('');
@@ -206,8 +206,8 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
       if (error) throw error;
       setContent('');
       setSelectedDates([]);
-      setStartDate(localDate(1));
-      setEndDate(localDate(1));
+      setStartDate(localDate());
+      setEndDate(localDate());
       setComposerOpen(false);
       toast.success(`Room ${roomNumber}: planned instruction saved`);
       await load();
@@ -329,7 +329,7 @@ export function RoomPlannedNotesCalendar({ roomId, roomNumber, hotelName, canEdi
           </div>
           <div>
             <p className="mb-1.5 text-[10px] font-semibold text-muted-foreground">Or select individual days</p>
-            <div className="flex flex-wrap gap-1.5">{Array.from({length:14},(_,i)=>localDate(i+1)).map((d)=><button type="button" key={d} onClick={()=>toggleQuickDate(d)} className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${selectedDates.includes(d)?'border-sky-600 bg-sky-600 text-white':'border-slate-200 bg-white hover:bg-sky-50'}`}>{shortDate(d)}</button>)}</div>
+            <div className="flex flex-wrap gap-1.5">{Array.from({length:14},(_,i)=>localDate(i)).map((d)=><button type="button" key={d} onClick={()=>toggleQuickDate(d)} className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${selectedDates.includes(d)?'border-sky-600 bg-sky-600 text-white':'border-slate-200 bg-white hover:bg-sky-50'}`}>{shortDate(d)}</button>)}</div>
           </div>
           <Textarea value={content} onChange={(e)=>setContent(e.target.value)} placeholder="Example: Take baby bed out; prepare extra towels; VIP setup…" className="min-h-[72px]" />
           <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] text-muted-foreground">Creator, edits and timestamps are retained in HotelCare history.</p><Button size="sm" disabled={saving || !content.trim()} onClick={()=>void createNote()}>{saving?<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin"/>:<CheckCircle2 className="mr-1 h-3.5 w-3.5"/>}Save plan</Button></div>
