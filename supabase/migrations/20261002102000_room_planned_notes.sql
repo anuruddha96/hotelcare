@@ -49,7 +49,7 @@ with check (
   and exists (
     select 1 from public.profiles p
     where p.id = auth.uid()
-      and lower(coalesce(p.role,'')) in ('admin','top_management','top_management_manager','manager','housekeeping_manager','supervisor','reception','front_office')
+      and lower(coalesce(p.role,'')) in ('admin','top_management','top_management_manager','manager','housekeeping_manager','supervisor','reception','front_office','reception_manager')
   )
 );
 
@@ -60,7 +60,7 @@ using (
   and exists (
     select 1 from public.profiles p
     where p.id = auth.uid()
-      and lower(coalesce(p.role,'')) in ('admin','top_management','top_management_manager','manager','housekeeping_manager','supervisor','reception','front_office')
+      and lower(coalesce(p.role,'')) in ('admin','top_management','top_management_manager','manager','housekeeping_manager','supervisor','reception','front_office','reception_manager')
   )
 )
 with check (
@@ -87,20 +87,38 @@ begin
   select * into r from public.rooms where id = new.room_id;
   if r.id is null then raise exception 'Room not found'; end if;
   new.hotel := r.hotel;
-  -- Prefer the room's tenant marker where present; fall back to the actor.
-  begin
-    new.organization_slug := coalesce(
-      to_jsonb(r)->>'organization_slug',
-      (select p.organization_slug from public.profiles p where p.id = auth.uid())
-    );
-  exception when others then
-    new.organization_slug := (select p.organization_slug from public.profiles p where p.id = auth.uid());
-  end;
+  -- Prefer a tenant marker on the physical room. Profile fallback is read via
+  -- JSON so this migration remains compatible with deployments where profiles
+  -- does not expose organization_slug as a typed column.
+  new.organization_slug := coalesce(
+    to_jsonb(r)->>'organization_slug',
+    (select to_jsonb(p)->>'organization_slug' from public.profiles p where p.id = auth.uid())
+  );
   new.updated_by := auth.uid();
   new.updated_at := now();
   if tg_op = 'INSERT' then new.created_by := auth.uid(); end if;
   return new;
 end $$;
+
+-- A planned instruction belongs to one physical room for its entire life.
+-- This prevents an update from being used to move data across properties.
+create or replace function public.guard_room_planned_note_room()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.room_id is distinct from old.room_id then
+    raise exception 'Planned room instructions cannot be moved between rooms';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists trg_guard_room_planned_note_room on public.room_planned_notes;
+create trigger trg_guard_room_planned_note_room
+before update on public.room_planned_notes
+for each row execute function public.guard_room_planned_note_room();
 
 drop trigger if exists trg_prepare_room_planned_note on public.room_planned_notes;
 create trigger trg_prepare_room_planned_note
