@@ -4,6 +4,7 @@ import type { DayMetrics } from "@/lib/revenueAnalytics";
 
 const { portfolio, refetch } = vi.hoisted(() => ({ portfolio: vi.fn(), refetch: vi.fn() }));
 vi.mock("@/hooks/usePortfolioSnapshots", () => ({ usePortfolioSnapshots: portfolio }));
+vi.mock("@/hooks/usePortfolioRateBenchmark", () => ({ usePortfolioRateBenchmark: () => ({ data: { available: false, days: [] }, isFetching: false }) }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("recharts", async (original) => ({ ...await original<object>(), ResponsiveContainer: () => null }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: () => ({ select: () => ({ in: async () => ({ data: [], error: null }) }) }) } }));
