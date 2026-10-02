@@ -350,7 +350,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[94vh] max-h-[94vh] w-[98vw] max-w-[1500px] flex-col overflow-hidden p-4 sm:p-5">
+      <DialogContent className="flex h-[96dvh] max-h-[96dvh] w-[99vw] max-w-none flex-col overflow-y-auto overflow-x-hidden p-3 sm:p-4">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex flex-wrap items-center gap-2 text-lg sm:text-xl">
             <CalendarClock className="h-5 w-5 text-primary" />{t.title}<Badge variant="outline">{selectedDate}</Badge>
@@ -405,7 +405,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
             </div>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-hidden py-3">
+          <div className="min-h-0 flex-1 py-2">
             {existingChanged && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{t.changed}</div>}
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="text-muted-foreground">{t.selectHint}</span>{capturedAt && <span className="text-xs text-muted-foreground">PMS: {new Date(capturedAt).toLocaleString()}</span>}</div>
             <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
@@ -417,17 +417,17 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
               <span className="text-violet-700">■ {t.unbooked}</span>
             </div>
             {rooms.length === 0 ? <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">{t.noRooms}</div> : (
-              <div className="flex h-[calc(100%-3rem)] min-h-0 gap-3 overflow-x-auto pb-2">
+              <div className="grid min-h-0 w-full gap-2 pb-2" style={{ gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(0, 1fr))` }}>
                 {columns.map(column => (
-                  <section key={column.id} className="flex w-[280px] min-w-[280px] flex-col rounded-xl border bg-card" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const roomId = event.dataTransfer.getData('text/plain'); if (roomId) moveRoom(roomId, column.id); }}>
-                    <div className="border-b p-3"><div className="flex items-center justify-between gap-2"><div className="font-semibold">{column.name}</div><Badge variant="secondary">{column.rooms.length}</Badge></div><div className="mt-1 text-xs text-muted-foreground">≈ {Math.round(column.rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0) / 60 * 10) / 10}h</div>{selectedRoomId && <Button className="mt-2 w-full" size="sm" variant="outline" onClick={() => moveRoom(selectedRoomId, column.id)}>{t.moveHere}</Button>}</div>
-                    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+                  <section key={column.id} className="flex min-w-0 flex-col rounded-lg border bg-card" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const roomId = event.dataTransfer.getData('text/plain'); if (roomId) moveRoom(roomId, column.id); }}>
+                    <div className="border-b px-2 py-1.5"><div className="flex items-center justify-between gap-1"><div className="min-w-0 truncate text-sm font-semibold">{column.name}</div><Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{column.rooms.length}</Badge></div><div className="text-[10px] text-muted-foreground">≈ {Math.round(column.rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0) / 60 * 10) / 10}h</div>{selectedRoomId && <Button className="mt-1 h-6 w-full px-1 text-[10px]" size="sm" variant="outline" onClick={() => moveRoom(selectedRoomId, column.id)}>{t.moveHere}</Button>}</div>
+                    <div className="min-h-0 flex-1 space-y-1 p-1.5">
                       {column.rooms.map(room => {
                         const unsold = isUnsoldPlanningRoom(room); const selected = selectedRoomId === room.id;
                         const serviceLabel = room.is_checkout_room ? t.checkout : room.linen_change_required ? t.fullClean : room.towel_change_required ? t.towel : unsold ? t.unbooked : t.onRequest;
                         const serviceCode = room.is_checkout_room ? null : room.linen_change_required ? 'C' : room.towel_change_required ? 'T' : null;
                         const serviceClass = room.is_checkout_room ? 'bg-amber-100 text-amber-800' : room.linen_change_required ? 'bg-rose-100 text-rose-800' : room.towel_change_required ? 'bg-orange-100 text-orange-800' : unsold ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800';
-                        return <button key={room.id} type="button" draggable onDragStart={event => event.dataTransfer.setData('text/plain', room.id)} onClick={() => setSelectedRoomId(selected ? null : room.id)} className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`} title={serviceLabel}><GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>{serviceCode && <span className={`rounded px-1 py-0.5 text-[10px] font-bold ${serviceClass}`}>{serviceCode}</span>}<span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${serviceClass}`}>{serviceLabel}</span></button>;
+                        return <button key={room.id} type="button" draggable onDragStart={event => event.dataTransfer.setData('text/plain', room.id)} onClick={() => setSelectedRoomId(selected ? null : room.id)} className={`flex w-full items-center gap-1 rounded border px-1.5 py-1 text-left text-[11px] leading-tight transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`} title={serviceLabel}><GripVertical className="h-3 w-3 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>{serviceCode && <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${serviceClass}`}>{serviceCode}</span>}<span className={`max-w-[76px] truncate rounded px-1 py-0.5 text-[9px] font-medium ${serviceClass}`}>{serviceLabel}</span></button>;
                       })}
                     </div>
                   </section>
