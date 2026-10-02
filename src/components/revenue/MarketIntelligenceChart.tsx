@@ -28,6 +28,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
 import { useMarketRates } from "@/hooks/useMarketRates";
 import { usePortfolioSnapshots, type PortfolioSnapshot } from "@/hooks/usePortfolioSnapshots";
+import { usePortfolioRateBenchmark } from "@/hooks/usePortfolioRateBenchmark";
 
 const PICKUP_COLOR = "hsl(28 96% 60%)";
 const CANCEL_COLOR = "hsl(199 89% 60%)";
@@ -175,6 +176,7 @@ interface ChartPoint {
   marketMin: number | null;
   marketMax: number | null;
   marketSample: number;
+  marketSource: "external" | "portfolio" | null;
   eventTitles: string[];
   [key: string]: unknown;
 }
@@ -259,7 +261,7 @@ function RateTooltip({ active, payload }: any) {
       <p className="font-semibold">{p.label}</p>
       <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 tabular-nums">
         <span className="text-muted-foreground">Our rate</span><strong>{p.ourRate == null ? "—" : money(p.ourRate)}</strong>
-        <span className="text-muted-foreground">Market average</span><strong>{p.marketAvg == null ? "—" : money(p.marketAvg)}</strong>
+        <span className="text-muted-foreground">{p.marketSource === "portfolio" ? "HotelCare benchmark" : "Market benchmark"}</span><strong>{p.marketAvg == null ? "—" : money(p.marketAvg)}</strong>
         {premium != null && <><span className="text-muted-foreground">Position</span><strong>{premium === 0 ? "At market" : `${Math.abs(premium)}% ${premium > 0 ? "above" : "below"}`}</strong></>}
         {p.marketMin != null && p.marketMax != null && <><span className="text-muted-foreground">Market range</span><strong>{money(p.marketMin)}–{money(p.marketMax)}</strong></>}
         <span className="text-muted-foreground">Occupancy</span><strong>{p.occ}%</strong>
@@ -302,6 +304,8 @@ export default function MarketIntelligenceChart({
   }, [hotelId, prefs]);
 
   const marketData = useMarketRates(hotelId ?? null);
+  const portfolioBenchmark = usePortfolioRateBenchmark(hotelId ?? null, 210);
+  const portfolioBenchmarkByDate = useMemo(() => new Map((portfolioBenchmark.data?.days ?? []).map((d) => [d.date, d])), [portfolioBenchmark.data?.days]);
   const hotelIds = useMemo(() => hotels.map((h) => h.hotel_id), [hotels]);
   const idsKey = hotelIds.join(",");
   const horizonEnd = metrics.length ? metrics[Math.min(metrics.length, 190) - 1].stay_date : null;
@@ -388,6 +392,10 @@ export default function MarketIntelligenceChart({
     const dow = new Date(`${m.stay_date}T00:00:00Z`).getUTCDay();
     const forecast = demandByDate.dowAvg.get(dow) ?? null;
     const market = marketData.marketByDate.get(m.stay_date);
+    const portfolioMarket = portfolioBenchmarkByDate.get(m.stay_date);
+    const externalUsable = market?.trimmed_avg_rate != null && (market.sample_size ?? 0) >= 3;
+    const benchmarkRate = externalUsable ? Number(market!.trimmed_avg_rate) : portfolioMarket?.trimmedAverageRate ?? null;
+    const benchmarkMedian = externalUsable ? Number(market!.median_rate) : portfolioMarket?.medianRate ?? null;
     const eventTitles = (eventsByDate?.get(m.stay_date) ?? []).map((e) => e.title);
     const point: ChartPoint = {
       date: m.stay_date,
@@ -401,18 +409,19 @@ export default function MarketIntelligenceChart({
       demandForecast: actualDemand == null ? forecast : null,
       roomsLeft: m.roomsLeft,
       ourRate: prefs.ourRate ? baselineRate(m.stay_date) : null,
-      marketAvg: prefs.marketAvg && market?.trimmed_avg_rate != null ? Math.round(Number(market.trimmed_avg_rate)) : null,
-      marketMedian: prefs.marketMedian && market?.median_rate != null ? Math.round(Number(market.median_rate)) : null,
+      marketAvg: prefs.marketAvg && benchmarkRate != null ? Math.round(benchmarkRate) : null,
+      marketMedian: prefs.marketMedian && benchmarkMedian != null ? Math.round(benchmarkMedian) : null,
       bandLow: prefs.band && market?.min_rate != null ? Math.round(Number(market.min_rate)) : null,
       bandSpan: prefs.band && market?.min_rate != null && market?.max_rate != null ? Math.max(0, Math.round(Number(market.max_rate) - Number(market.min_rate))) : null,
       marketMin: market?.min_rate == null ? null : Math.round(Number(market.min_rate)),
       marketMax: market?.max_rate == null ? null : Math.round(Number(market.max_rate)),
-      marketSample: market?.sample_size ?? 0,
+      marketSample: externalUsable ? (market?.sample_size ?? 0) : (portfolioMarket?.propertiesReporting ?? 0),
+      marketSource: externalUsable ? "external" : portfolioMarket ? "portfolio" : null,
       eventTitles,
     };
     for (const c of visibleCompetitors) point[`c_${c.id}`] = marketData.ratesByCompetitor.get(c.id)?.get(m.stay_date) ?? null;
     return point;
-  }), [metrics, days, demandByDate, marketData.marketByDate, marketData.ratesByCompetitor, visibleCompetitors, eventsByDate, prefs, baselineRate]);
+  }), [metrics, days, demandByDate, marketData.marketByDate, marketData.ratesByCompetitor, portfolioBenchmarkByDate, visibleCompetitors, eventsByDate, prefs, baselineRate]);
 
   const activeWindow = pickupWindowDays ?? PICKUP_WINDOW_48H;
   const period = periodForWindow(activeWindow, customDays);
@@ -427,13 +436,16 @@ export default function MarketIntelligenceChart({
     let ours = 0, market = 0, nights = 0;
     for (const d of data) {
       const our = baselineRate(d.date);
-      const avg = marketData.marketByDate.get(d.date)?.trimmed_avg_rate;
+      const external = marketData.marketByDate.get(d.date);
+      const portfolioDay = portfolioBenchmarkByDate.get(d.date);
+      const avg = external?.trimmed_avg_rate != null && (external.sample_size ?? 0) >= 3
+        ? Number(external.trimmed_avg_rate) : portfolioDay?.trimmedAverageRate;
       if (our == null || avg == null) continue;
       ours += our; market += Number(avg); nights += 1;
     }
     if (!nights || !market) return null;
     return { pct: Math.round(((ours - market) / market) * 100), nights };
-  }, [data, baselineRate, marketData.marketByDate]);
+  }, [data, baselineRate, marketData.marketByDate, portfolioBenchmarkByDate]);
 
   const comparison = useMemo(() => {
     if (!compare) return [];
@@ -502,7 +514,7 @@ export default function MarketIntelligenceChart({
   const demandMetricLabel = primaryMetric === "occ" ? "Occupancy" : primaryMetric === "adr" ? "ADR" : "City demand";
   const activeRateLegend = [
     prefs.ourRate ? { label: `${baselineLabel} rate`, color: OUR_RATE_COLOR, dashed: false } : null,
-    prefs.marketAvg ? { label: "Market average", color: MARKET_COLOR, dashed: true } : null,
+    prefs.marketAvg ? { label: "Market benchmark", color: MARKET_COLOR, dashed: true } : null,
     prefs.marketMedian ? { label: "Market median", color: MARKET_MEDIAN_COLOR, dashed: true } : null,
     ...visibleCompetitors.map((c, i) => ({ label: c.name, color: competitorColor(i), dashed: false })),
   ].filter(Boolean) as Array<{ label: string; color: string; dashed: boolean }>;
@@ -613,8 +625,8 @@ export default function MarketIntelligenceChart({
 
         <section className="rounded-xl border bg-card p-2 sm:p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-sm font-semibold">Rate position</p><p className="text-[10px] text-muted-foreground">Your selling rate against the market. No occupancy scale is mixed into this chart.</p></div><div className="flex flex-wrap items-center gap-2">{activeRateLegend.map((item) => <LegendChip key={item.label} color={item.color} label={item.label} dashed={item.dashed} />)}</div></div>
-          <div className={isMobile ? "h-[16rem]" : "h-[17rem]"}><ResponsiveContainer width="100%" height="100%"><ComposedChart data={data} syncId="market-intelligence-v2" margin={{ top: 10, right: 4, left: 0, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" /><XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(data.length / (isMobile ? 5 : 9)))} /><YAxis yAxisId="rate" orientation="right" width={52} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`} domain={rateDomain ?? ["auto", "auto"]} />{showEvents && <EventLines data={data} yAxisId="rate" />}<RTooltip content={<RateTooltip />} cursor={{ stroke: "hsl(var(--foreground) / 0.22)", strokeWidth: 1 }} />{prefs.band && <><Area yAxisId="rate" dataKey="bandLow" stackId="market-band" stroke="none" fill="transparent" isAnimationActive={false} /><Area yAxisId="rate" dataKey="bandSpan" stackId="market-band" stroke="none" fill="hsl(var(--foreground) / 0.08)" isAnimationActive={false} /></>}{prefs.marketAvg && <Line yAxisId="rate" type="monotone" dataKey="marketAvg" name="Market average" stroke={MARKET_COLOR} strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false} isAnimationActive={false} />}{prefs.marketMedian && <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_MEDIAN_COLOR} strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls={false} isAnimationActive={false} />}{prefs.ourRate && <Line yAxisId="rate" type="monotone" dataKey="ourRate" name={`${baselineLabel} rate`} stroke={OUR_RATE_COLOR} strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />}{visibleCompetitors.map((c, i) => <Line key={c.id} yAxisId="rate" type="monotone" dataKey={`c_${c.id}`} name={c.name} stroke={competitorColor(i)} strokeWidth={1.75} dot={false} connectNulls={false} opacity={0.9} isAnimationActive={false} />)}</ComposedChart></ResponsiveContainer></div>
-          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] text-muted-foreground"><span>{marketData.loading ? "Refreshing competitive rates…" : marketData.coverageEnd ? `${marketData.ratesByCompetitor.size} of ${marketData.competitors.length} watched hotels reported · prices reach ${shortDate(marketData.coverageEnd)}` : "No market rates available in this horizon."}</span>{isMobile && shownCompetitors.length > 2 && <span>Only 2 competitors are shown at once on mobile.</span>}</div>
+          <div className={isMobile ? "h-[16rem]" : "h-[17rem]"}><ResponsiveContainer width="100%" height="100%"><ComposedChart data={data} syncId="market-intelligence-v2" margin={{ top: 10, right: 4, left: 0, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" /><XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(data.length / (isMobile ? 5 : 9)))} /><YAxis yAxisId="rate" orientation="right" width={52} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`} domain={rateDomain ?? ["auto", "auto"]} />{showEvents && <EventLines data={data} yAxisId="rate" />}<RTooltip content={<RateTooltip />} cursor={{ stroke: "hsl(var(--foreground) / 0.22)", strokeWidth: 1 }} />{prefs.band && <><Area yAxisId="rate" dataKey="bandLow" stackId="market-band" stroke="none" fill="transparent" isAnimationActive={false} /><Area yAxisId="rate" dataKey="bandSpan" stackId="market-band" stroke="none" fill="hsl(var(--foreground) / 0.08)" isAnimationActive={false} /></>}{prefs.marketAvg && <Line yAxisId="rate" type="monotone" dataKey="marketAvg" name="Market benchmark" stroke={MARKET_COLOR} strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false} isAnimationActive={false} />}{prefs.marketMedian && <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_MEDIAN_COLOR} strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls={false} isAnimationActive={false} />}{prefs.ourRate && <Line yAxisId="rate" type="monotone" dataKey="ourRate" name={`${baselineLabel} rate`} stroke={OUR_RATE_COLOR} strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />}{visibleCompetitors.map((c, i) => <Line key={c.id} yAxisId="rate" type="monotone" dataKey={`c_${c.id}`} name={c.name} stroke={competitorColor(i)} strokeWidth={1.75} dot={false} connectNulls={false} opacity={0.9} isAnimationActive={false} />)}</ComposedChart></ResponsiveContainer></div>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] text-muted-foreground"><span>{marketData.loading || portfolioBenchmark.isFetching ? "Refreshing market benchmark…" : marketData.coverageEnd ? `${marketData.ratesByCompetitor.size} of ${marketData.competitors.length} watched hotels reported · external prices reach ${shortDate(marketData.coverageEnd)} · HotelCare portfolio fills low-coverage dates` : portfolioBenchmark.data?.available ? `HotelCare ${portfolioBenchmark.data.marketCity} portfolio benchmark · ${portfolioBenchmark.data.propertiesReporting} anonymized properties · based on booked ADR` : "No market benchmark available in this horizon."}</span>{isMobile && shownCompetitors.length > 2 && <span>Only 2 competitors are shown at once on mobile.</span>}</div>
         </section>
       </CardContent>
     </Card>
