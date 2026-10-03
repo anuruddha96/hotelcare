@@ -12,6 +12,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 const ORG = "slnt";
 const HOTEL = "slnt-group";
+const EXPECTED_PREVIO_HOTEL_IDS = new Set(["782407", "783103"]);
+const WORKBOOK_INACTIVE_ROOM_NAMES = new Set(["sobi apartment budapest"]);
 
 function safeEqual(a: string, b: string) {
   if (!a || !b || a.length !== b.length) return false;
@@ -39,6 +41,10 @@ function diffDays(from: string, to: string) {
 }
 function normalize(v: unknown) {
   return String(v ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+function isWorkbookActiveRoom(room:any) {
+  return String(room?.status || "").toLowerCase() !== "out_of_order"
+    && !WORKBOOK_INACTIVE_ROOM_NAMES.has(normalize(room?.room_number));
 }
 function coreKey(v: unknown) {
   const raw = String(v ?? "").trim();
@@ -194,6 +200,15 @@ async function syncAccount(admin:any, account:any, source="manual") {
 
   for (const m of mappings) {
     const room:any = roomById.get(String(m.room_id)); if (!room) continue;
+    // Workbook is the operational inventory authority. Keep stale/OOS units
+    // out even when either Previo account still returns a reservation/status.
+    if (!isWorkbookActiveRoom(room)) {
+      if (room.status !== "out_of_order" || room.is_checkout_room === true) {
+        const inactivePatch:any = { status:"out_of_order", is_checkout_room:false, checkout_time:null, guest_count:0, guest_nights_stayed:0, updated_at:new Date().toISOString(), pms_metadata:{...(room.pms_metadata||{}), workbookActive:false, excludedFromHousekeeping:true, excludedReason:"not_in_active_slnt_workbook"} };
+        await saveSyncedRoom(room,inactivePatch); updated++;
+      }
+      continue;
+    }
     const ext = String(m.external_room_id || room.pms_metadata?.roomId || "");
     const res = reservationMap.get(`id:${ext}`) || reservationMap.get(`name:${normalize(m.source_name)}`) || reservationMap.get(`name:${normalize(m.canonical_room_name)}`) || reservationMap.get(`core:${coreKey(m.source_name)}`) || reservationMap.get(`core:${coreKey(m.canonical_room_name)}`) || null;
     const restRoom = ext ? rosterById.get(ext) : null;
@@ -312,6 +327,11 @@ Deno.serve(async req => {
   try {
     const accountsRes=await admin.from("pms_accounts").select("id,label,pms_hotel_id,credentials_secret_name,is_active,pms_type,sync_paused").eq("organization_slug",ORG).eq("hotel_id",HOTEL).eq("pms_type","previo").eq("is_active",true).eq("sync_paused",false).order("label",{ascending:true});
     if (accountsRes.error) throw new Error(accountsRes.error.message); const accounts=accountsRes.data||[];
+    // SLNT operational truth is the merged feed. Never report a successful
+    // portfolio sync when one of the two configured Previo hotel accounts is absent.
+    const configuredHotelIds = new Set(accounts.map((a:any)=>String(a.pms_hotel_id)));
+    const missingHotelIds = Array.from(EXPECTED_PREVIO_HOTEL_IDS).filter(id=>!configuredHotelIds.has(id));
+    if (missingHotelIds.length) return json({ok:false,error:`SLNT merged PMS sync incomplete. Missing active Previo account(s): ${missingHotelIds.join(", ")}`},409);
     if (mode==="sync_account") {
       const id=String(body.account_id||""); const account=accounts.find((a:any)=>a.id===id); if(!account) return json({error:"Active SLNT PMS account not found"},404);
       try { return json(await syncAccount(admin,account,"manual_server_test")); } catch(e) { const msg=errText(e); await admin.from("pms_accounts").update({last_sync_at:new Date().toISOString(),last_sync_status:"failed",last_sync_error:msg,consecutive_failures:1}).eq("id",id); return json({ok:false,error:msg},500); }
