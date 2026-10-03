@@ -368,7 +368,6 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
       }
 
       if (!saved) {
-        const everySelectedPublished = Array.from(selectedStaffIds).every(id => publishedStaffIds.has(id));
         // Compatibility mode can still save room ownership safely through the legacy
         // task RPC. It cannot persist a custom day-staff override until the new
         // migration is applied, but it must not block an otherwise valid plan.
