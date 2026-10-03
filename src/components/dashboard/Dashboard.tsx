@@ -25,6 +25,7 @@ import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { isNoMinibarOrganization } from '@/lib/gozsduNoMinibar';
 import { canAccessLegacyModules } from '@/lib/roleAccess';
 
 import { AdminTabs } from '@/components/admin/AdminTabs';
@@ -65,7 +66,7 @@ interface Ticket {
 export function Dashboard() {
   const { profile } = useAuth();
   const canUseLegacyModules = canAccessLegacyModules(profile?.nickname);
-  const noMinibar = isGozsduCourtHotel(profile?.assigned_hotel);
+  const noMinibar = isNoMinibarOrganization(profile?.organization_slug) || isGozsduCourtHotel(profile?.assigned_hotel);
   const { t, language } = useTranslation();
   const { organization, hotels } = useTenant();
   const navigate = useNavigate();

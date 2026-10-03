@@ -28,7 +28,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { DNDPhotosViewer } from './DNDPhotosViewer';
-import { isGozsduNoMinibarRoom } from '@/lib/gozsduNoMinibar';
+import { isNoMinibarRoom } from '@/lib/gozsduNoMinibar';
 
 interface Room {
   id: string;
@@ -102,7 +102,7 @@ interface RoomDetailDialogProps {
 export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
-  const noMinibar = isGozsduNoMinibarRoom(profile?.assigned_hotel, room?.hotel);
+  const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, room?.hotel);
   const [loading, setLoading] = useState(false);
   const [notesSaveState, setNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [noteHistory, setNoteHistory] = useState<RoomNoteHistoryEntry[]>([]);
@@ -155,7 +155,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       setRoomSize(room.room_size_sqm?.toString() || '');
       setRoomCapacity(room.room_capacity?.toString() || '');
       fetchRoomNoteHistory(room.id);
-      if (!isGozsduNoMinibarRoom(profile?.assigned_hotel, room.hotel)) {
+      if (!isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, room.hotel)) {
         fetchMinibarItems();
         fetchMinibarUsage();
         fetchGuestReportedItems();

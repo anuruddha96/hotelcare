@@ -42,7 +42,9 @@ describe('SLNT authoritative two-PMS inventory', () => {
   it('excludes the stale workbook-missing Sobi unit from operations', () => {
     expect(isSlntWorkbookActiveUnit('Sobi Apartment Budapest', 'clean')).toBe(false);
     expect(isSlntWorkbookActiveUnit('Silver Rooms 3', 'dirty')).toBe(true);
-    expect(isSlntWorkbookActiveUnit('WR Pension 102', 'clean')).toBe(true);
+    expect(isSlntWorkbookActiveUnit('WR Pension 102', 'clean')).toBe(false);
+    expect(isSlntWorkbookActiveUnit('Downtown Terrace Passion', 'clean')).toBe(false);
+    expect(isSlntWorkbookActiveUnit('Technikai 1', 'clean')).toBe(false);
     expect(isSlntWorkbookActiveUnit('K4 – Room 7', 'clean')).toBe(true);
   });
 

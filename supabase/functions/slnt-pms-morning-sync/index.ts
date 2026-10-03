@@ -13,7 +13,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const ORG = "slnt";
 const HOTEL = "slnt-group";
 const EXPECTED_PREVIO_HOTEL_IDS = new Set(["782407", "783103"]);
-const WORKBOOK_INACTIVE_ROOM_NAMES = new Set(["sobi apartment budapest"]);
+const WORKBOOK_INACTIVE_ROOM_NAMES = new Set(["sobi apartment budapest", "downtown terrace passion"]);
 
 function safeEqual(a: string, b: string) {
   if (!a || !b || a.length !== b.length) return false;
@@ -44,7 +44,11 @@ function normalize(v: unknown) {
 }
 function isWorkbookActiveRoom(room:any) {
   return String(room?.status || "").toLowerCase() !== "out_of_order"
-    && !WORKBOOK_INACTIVE_ROOM_NAMES.has(normalize(room?.room_number));
+    && !WORKBOOK_INACTIVE_ROOM_NAMES.has(normalize(room?.room_number))
+    && !normalize(room?.room_number).startsWith("wr pension ")
+    && normalize(room?.room_number) !== "wr pension"
+    && !normalize(room?.room_number).startsWith("technikai ")
+    && normalize(room?.room_number) !== "technikai";
 }
 function coreKey(v: unknown) {
   const raw = String(v ?? "").trim();

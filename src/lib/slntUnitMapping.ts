@@ -200,11 +200,24 @@ export const STATUS_LABELS: Record<MappingStatus, string> = {
 /** Workbook-authoritative SLNT operating inventory guard. The supplied workbook
  * contains 60 active units across both Previo accounts; Sobi is the single
  * mapped/live PMS row intentionally excluded from operations. */
-export const SLNT_WORKBOOK_INACTIVE_UNITS = ['Sobi Apartment Budapest'] as const;
+export const SLNT_WORKBOOK_INACTIVE_UNITS = [
+  'Sobi Apartment Budapest',
+  'Downtown Terrace Passion',
+] as const;
+
+export function isSlntInactiveOperationalUnit(roomNumber: string): boolean {
+  const normalized = normalizeUnitName(roomNumber);
+  if (SLNT_WORKBOOK_INACTIVE_UNITS.some(name => normalizeUnitName(name) === normalized)) return true;
+  // User-confirmed inactive inventory: every WR Pension room and every
+  // Technikai/technical room. Keep the records mapped for audit/PMS identity,
+  // but never expose them as operational housekeeping inventory.
+  return normalized.startsWith('wr pension ') || normalized === 'wr pension'
+    || normalized.startsWith('technikai ') || normalized === 'technikai';
+}
 
 export function isSlntWorkbookActiveUnit(roomNumber: string, status?: string | null): boolean {
   const normalized = normalizeUnitName(roomNumber);
-  if (SLNT_WORKBOOK_INACTIVE_UNITS.some(name => normalizeUnitName(name) === normalized)) return false;
+  if (isSlntInactiveOperationalUnit(roomNumber)) return false;
   return String(status || '').toLowerCase() !== 'out_of_order';
 }
 
