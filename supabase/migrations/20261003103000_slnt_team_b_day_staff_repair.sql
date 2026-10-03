@@ -5,6 +5,10 @@
 
 begin;
 
+-- Repair migration: the original guided-day-staff migration exists in source,
+-- but production reported the optional table/RPC as missing. Keep this file
+-- idempotent so deployment can safely surface the required schema again.
+
 alter table public.housekeeping_team_members
   add column if not exists is_default boolean not null default false;
 
