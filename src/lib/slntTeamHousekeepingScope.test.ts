@@ -107,3 +107,13 @@ describe('SLNT Team B physical property grouping', () => {
     expect(slntTeamBPropertyKey('Dorothilux Apartment')).toBe('Dorothilux Apartment');
   });
 });
+
+
+describe('SLNT Team B learned property preference contract', () => {
+  it('uses one stable property key for all rooms at a multi-room location', () => {
+    const silver = ['Silver Rooms 3', 'Silver Rooms 8', 'Silver Rooms 21'].map(slntTeamBPropertyKey);
+    expect(new Set(silver)).toEqual(new Set(['Silver Rooms']));
+    const king = ['St King 11 – Room 1', 'St King 11 – Room 9'].map(slntTeamBPropertyKey);
+    expect(new Set(king)).toEqual(new Set(['St King 11']));
+  });
+});
