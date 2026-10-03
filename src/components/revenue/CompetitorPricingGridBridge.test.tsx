@@ -51,7 +51,7 @@ describe("competitor calendar market signal", () => {
     expect(signal.confidencePct).toBeGreaterThanOrEqual(75);
   });
 
-  it("does not overstate thin competitor evidence", () => {
+  it("does not publish a market price from a single validated offer", () => {
     const signal = marketSignalFor(row({
       active_competitor_count: 12,
       observed_competitor_count: 2,
@@ -64,10 +64,31 @@ describe("competitor calendar market signal", () => {
       competitors: [{ name: "Only usable comp", rate_eur: 132, confidence: 0.9 }],
     }), NOW);
 
-    expect(signal.referenceRate).toBe(132);
+    expect(signal.referenceRate).toBeNull();
     expect(signal.coverageLabel).toBe("1/12");
-    expect(signal.quality).toBe("low");
-    expect(signal.qualityLabel).toBe("Low confidence");
+    expect(signal.quality).toBe("none");
+    expect(signal.qualityLabel).toBe("Insufficient market sample");
+  });
+
+  it("explains why a one-offer market price is hidden", () => {
+    const tooltip = tooltipFor(
+      "2026-10-05",
+      row({
+        active_competitor_count: 12,
+        observed_competitor_count: 1,
+        validated_competitor_count: 1,
+        median_rate_eur: 710,
+        average_rate_eur: 710,
+        min_rate_eur: 710,
+        max_rate_eur: 710,
+        competitors: [{ name: "Only offer", rate_eur: 710, confidence: 0.9 }],
+      }),
+      "2026-10-05 · demand Med",
+      NOW,
+    );
+
+    expect(tooltip).not.toContain("Market reference €710");
+    expect(tooltip).toContain("one validated offer is not enough");
   });
 
   it("explains the evidence rules and keeps market price pressure separate from demand", () => {
