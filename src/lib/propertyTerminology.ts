@@ -33,12 +33,12 @@ const HOTEL_EXTRAS: Record<LangCode, ExtraTerms> = {
 // define its frequency. SLNT label changes must NOT alter the canonical
 // checkout/daily classification, assignment type or service-cycle scheduler.
 const PROPERTY_EXTRAS: Record<LangCode, ExtraTerms> = {
-  en: { unit: 'Unit', unitPlural: 'Units', venue: 'Venue', venuePlural: 'Venues', checkoutSection: 'Checkout Units', dailySection: 'Daily Cleaning', noShowSection: 'No Show Units' },
-  hu: { unit: 'Egység', unitPlural: 'Egységek', venue: 'Helyszín', venuePlural: 'Helyszínek', checkoutSection: 'Kijelentkező egységek', dailySection: 'Napi takarítás', noShowSection: 'Meg nem jelent egységek' },
-  es: { unit: 'Unidad', unitPlural: 'Unidades', venue: 'Ubicación', venuePlural: 'Ubicaciones', checkoutSection: 'Unidades de salida', dailySection: 'Limpieza diaria', noShowSection: 'Unidades no-show' },
-  vi: { unit: 'Căn hộ', unitPlural: 'Căn hộ', venue: 'Địa điểm', venuePlural: 'Địa điểm', checkoutSection: 'Căn hộ trả', dailySection: 'Dọn phòng hàng ngày', noShowSection: 'Căn hộ khách không đến' },
-  mn: { unit: 'Байр', unitPlural: 'Байрууд', venue: 'Байршил', venuePlural: 'Байршлууд', checkoutSection: 'Гарах байр', dailySection: 'Өдөр тутмын цэвэрлэгээ', noShowSection: 'Ирээгүй байр' },
-  uk: { unit: 'Помешкання', unitPlural: 'Помешкання', venue: 'Локація', venuePlural: 'Локації', checkoutSection: 'Помешкання на виїзд', dailySection: 'Щоденне прибирання', noShowSection: 'Помешкання без заїзду' },
+  en: { unit: 'Unit', unitPlural: 'Units', venue: 'Venue', venuePlural: 'Venues', checkoutSection: 'Checkout Units', dailySection: 'Stayover / Service Reminders', noShowSection: 'No Show Units' },
+  hu: { unit: 'Egység', unitPlural: 'Egységek', venue: 'Helyszín', venuePlural: 'Helyszínek', checkoutSection: 'Kijelentkező egységek', dailySection: 'Bennmaradó / szolgáltatási emlékeztetők', noShowSection: 'Meg nem jelent egységek' },
+  es: { unit: 'Unidad', unitPlural: 'Unidades', venue: 'Ubicación', venuePlural: 'Ubicaciones', checkoutSection: 'Unidades de salida', dailySection: 'Estancia / recordatorios de servicio', noShowSection: 'Unidades no-show' },
+  vi: { unit: 'Căn hộ', unitPlural: 'Căn hộ', venue: 'Địa điểm', venuePlural: 'Địa điểm', checkoutSection: 'Căn hộ trả', dailySection: 'Lưu trú / nhắc dịch vụ', noShowSection: 'Căn hộ khách không đến' },
+  mn: { unit: 'Байр', unitPlural: 'Байрууд', venue: 'Байршил', venuePlural: 'Байршлууд', checkoutSection: 'Гарах байр', dailySection: 'Байрлаж буй / үйлчилгээний сануулга', noShowSection: 'Ирээгүй байр' },
+  uk: { unit: 'Помешкання', unitPlural: 'Помешкання', venue: 'Локація', venuePlural: 'Локації', checkoutSection: 'Помешкання на виїзд', dailySection: 'Проживання / нагадування про сервіс', noShowSection: 'Помешкання без заїзду' },
 };
 
 const HOTEL_TERMS: Record<LangCode, PropertyTerms> = {
