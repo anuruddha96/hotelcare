@@ -254,14 +254,14 @@ export function competitorGridStyleText(): string {
       flex-direction: column !important;
       align-items: center !important;
       justify-content: center !important;
-      gap: 1px !important;
+      gap: 2px !important;
       font-size: 0 !important;
     }
     [${ROW_ATTR}="1"] > button::before {
       content: attr(data-hc-demand-label);
       color: inherit;
       font-size: 9.5px;
-      line-height: 10px;
+      line-height: 11px;
       font-weight: 700;
       white-space: nowrap;
     }
@@ -269,7 +269,7 @@ export function competitorGridStyleText(): string {
       content: attr(data-hc-market-summary);
       color: inherit;
       font-size: 8px;
-      line-height: 9px;
+      line-height: 10px;
       font-weight: 600;
       opacity: .82;
       white-space: nowrap;
@@ -368,9 +368,9 @@ export default function CompetitorPricingGridBridge() {
       const label = row.firstElementChild as HTMLElement | null;
       if (!label) return;
       const railed = label.getBoundingClientRect().width < 70;
-      label.dataset.hcMarketLabel = railed ? "D/M" : "Demand + market";
+      label.dataset.hcMarketLabel = railed ? "Rate" : "Rate Scanner";
       label.title = "Demand is Hotel Care's property-level demand grade from your own booking pace, pickup and inventory pressure. Market is a robust median of fresh validated competitor prices. The two are shown together because competitor price is useful context, but it is not the same thing as market occupancy or demand.";
-      label.setAttribute("aria-label", "Demand plus market. Property demand grade with a robust competitor median and data confidence.");
+      label.setAttribute("aria-label", "Rate Scanner Budapest. Shared Budapest demand grade with validated market-rate evidence and confidence.");
 
       const grid = row.parentElement;
       if (!grid) return;
