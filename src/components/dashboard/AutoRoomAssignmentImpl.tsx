@@ -91,6 +91,7 @@ import {
 } from '@/lib/autoAssignStaffAvailability';
 import {
   getAutoAssignWorkStatus,
+  isPublishedAutoAssignScheduleRow,
   resolveAutoAssignHotelRosterScope,
   resolveAutoAssignStaffDefaults,
   scheduleDurationMinutes,
@@ -562,10 +563,30 @@ export function AutoRoomAssignment({
 
       const staffById = new Map<string, StaffForAssignment>();
       for (const staff of [...localStaff, ...incomingStaff]) staffById.set(staff.id, staff);
+      const scheduleRows = rosterScope.scheduleRows;
+
+      // Tomorrow planning must remain usable before HR publishes the roster.
+      // In that state the manager may manually choose another active RD Hotels
+      // housekeeper; publication still controls the automatic defaults and a
+      // published transfer remains authoritative. This matches the UI promise
+      // that managers can add/remove cleaners when no published roster exists.
+      const hasPublishedHotelRoster = scheduleRows.some(isPublishedAutoAssignScheduleRow);
+      if (isNextDayPlanning && !hasPublishedHotelRoster) {
+        const { data: orgHousekeepers, error: orgHousekeepersError } = await supabase
+          .from('profiles')
+          .select('id, full_name, nickname')
+          .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
+          .eq('organization_slug', profile.organization_slug)
+          .order('full_name');
+        if (orgHousekeepersError) throw orgHousekeepersError;
+        for (const staff of (orgHousekeepers || []) as StaffForAssignment[]) {
+          staffById.set(staff.id, staff);
+        }
+      }
+
       const staffList = Array.from(staffById.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
       setAllStaff(staffList);
       const hotelStaffIds = new Set(staffList.map(staff => staff.id));
-      const scheduleRows = rosterScope.scheduleRows;
 
       let attendanceStaffIds: string[] = [];
       let staffDefaults = resolveAutoAssignStaffDefaults(scheduleRows, attendanceStaffIds, hotelStaffIds);

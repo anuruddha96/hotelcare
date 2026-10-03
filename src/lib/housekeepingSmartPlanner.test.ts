@@ -71,17 +71,21 @@ describe('Smart housekeeping regeneration', () => {
     expect(result.plan![0].rooms.some(item => item.id === fixedRoom)).toBe(true);
   });
 
-  it('rejects infeasible short shifts, including public-area workload', () => {
+  it('keeps workload capacity advisory so managers can preview an over-allocated plan', () => {
     const tiny = [room('201')];
-    expect(generateSmartHousekeepingPlan(basic({ rooms: tiny, staff: staff.slice(0, 1),
-      shiftMinutes: new Map([['a', 30]]) })).changed).toBe(false);
+    const shortShift = generateSmartHousekeepingPlan(basic({ rooms: tiny, staff: staff.slice(0, 1),
+      shiftMinutes: new Map([['a', 30]]) }));
+    expect(shortShift.changed).toBe(true);
+    expect(shortShift.plan?.flatMap(person => person.rooms.map(item => item.id))).toEqual(['201']);
+
     const templates = [{ id: 'lobby', section_id: 'floor-1', section_name: 'Floor 1',
       floor_number: 1, task_name: 'Lobby', icon: 'broom', estimated_duration: 65,
       auto_assign: true, is_active: true, sort_order: 1 }];
-    const result = generateSmartHousekeepingPlan(basic({ rooms: tiny, staff: staff.slice(0, 1),
+    const withPublicArea = generateSmartHousekeepingPlan(basic({ rooms: tiny, staff: staff.slice(0, 1),
       shiftMinutes: new Map([['a', 90]]), publicAreaTemplates: templates }));
-    expect(result.changed).toBe(false);
-    expect(result.reason).toMatch(/No feasible assignment/i);
+    expect(withPublicArea.changed).toBe(true);
+    expect(withPublicArea.plan).not.toBeNull();
+    expect(withPublicArea.publicAreaMinutes.get('a')).toBe(65);
   });
 
   it('fails closed for mixed-property inventory rather than creating cross-property allocations', () => {
