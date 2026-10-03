@@ -173,7 +173,6 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
   const [allStaff, setAllStaff] = useState<PlannerStaff[]>([]);
   const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(new Set());
   const [defaultStaffIds, setDefaultStaffIds] = useState<Set<string>>(new Set());
-  const [publishedStaffIds, setPublishedStaffIds] = useState<Set<string>>(new Set());
   const [staffingSource, setStaffingSource] = useState<StaffingSource>('none');
   const [supportsDayStaffing, setSupportsDayStaffing] = useState(true);
   const [owners, setOwners] = useState<Map<string, string>>(new Map());
@@ -247,7 +246,6 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
       const nameMap = new Map((profileResult.data || []).map((person: any) => [person.id, person.full_name]));
       const publishedIds = new Set<string>((scheduleResult.error ? [] : (scheduleResult.data || []))
         .filter((row: any) => row.status === 'published').map((row: any) => row.user_id));
-      setPublishedStaffIds(publishedIds);
 
       let defaults = new Set<string>();
       const defaultsResult = await (supabase as any).from('housekeeping_team_members')
@@ -379,7 +377,9 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
 
       if (!saved) {
         const everySelectedPublished = Array.from(selectedStaffIds).every(id => publishedStaffIds.has(id));
-        if (!everySelectedPublished) throw new Error(t.compatibility);
+        // Compatibility mode can still save room ownership safely through the legacy
+        // task RPC. It cannot persist a custom day-staff override until the new
+        // migration is applied, but it must not block an otherwise valid plan.
         const { error: legacyError } = await (supabase as any).rpc('prepare_slnt_team_b_tasks', {
           p_service_date: selectedDate,
           p_tasks: tasks,
