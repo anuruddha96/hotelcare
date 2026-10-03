@@ -11,9 +11,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const HOTEL_ID = "ottofiori";
 const DEFAULT_DAYS = 60;
 const MAX_DAYS = 60;
-const CHUNK_DAYS = 20;
+const CHUNK_DAYS = 7;
+const RETRY_CHUNK_DAYS = 4;
 const MODEL = "gpt-4o";
-const SEARCH_CONTEXT = "medium" as const;
+const SEARCH_CONTEXT = "high" as const;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -217,9 +218,22 @@ Deno.serve(async (req) => {
               answer = { rates: [], currency: "EUR", inputTokens: 0, outputTokens: 0 };
             }
 
-            if (!answer.rates.some((r: Rate) => r?.price != null && String(r.currency ?? answer.currency ?? "").toUpperCase() === "EUR")) {
+            // A partially successful 20-day response used to leave many dates blank.
+            // Retry only the missing dates in small windows so every competitor/date
+            // gets another independent chance to return an exact 2-adult, 1-night
+            // EUR quote without replacing already verified observations.
+            const validDates = new Set(
+              answer.rates
+                .filter((r: Rate) => r?.price != null && String(r.currency ?? answer.currency ?? "").toUpperCase() === "EUR")
+                .map((r: Rate) => r.date),
+            );
+            const missingDates = window.filter((date) => !validDates.has(date));
+            const retryRates: Rate[] = [];
+            for (let retryOffset = 0; retryOffset < missingDates.length; retryOffset += RETRY_CHUNK_DAYS) {
+              const retryWindow = missingDates.slice(retryOffset, retryOffset + RETRY_CHUNK_DAYS);
+              if (!retryWindow.length) continue;
               try {
-                const retry = await askRates(apiKey, c, window, true);
+                const retry = await askRates(apiKey, c, retryWindow, true);
                 await admin.from("ai_usage_log").insert({
                   organization_slug: c.organization_slug,
                   hotel_id: HOTEL_ID,
@@ -231,10 +245,18 @@ Deno.serve(async (req) => {
                   estimated_cost_usd: estimateCost(retry.inputTokens, retry.outputTokens),
                   ok: true,
                 });
-                answer = retry;
+                retryRates.push(...retry.rates);
               } catch (e) {
                 error = e instanceof Error ? e.message : String(e);
               }
+            }
+            if (retryRates.length) {
+              const byDate = new Map<string, Rate>();
+              for (const rate of answer.rates) byDate.set(rate.date, rate);
+              for (const rate of retryRates) {
+                if (!byDate.has(rate.date) || byDate.get(rate.date)?.price == null) byDate.set(rate.date, rate);
+              }
+              answer = { ...answer, rates: Array.from(byDate.values()) };
             }
 
             const rows = answer.rates
