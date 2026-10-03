@@ -5,6 +5,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { isNoMinibarOrganization } from '@/lib/gozsduNoMinibar';
 import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
 import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
@@ -176,7 +177,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   }, [hasManagerAccess, profile?.organization_slug, profile?.assigned_hotel, onActiveSubTabChange]);
 
   const isAdmin = userRole === 'admin';
-  const noMinibar = isGozsduCourtHotel(profile?.assigned_hotel || assignedHotel);
+  const noMinibar = isNoMinibarOrganization(profile?.organization_slug) || isGozsduCourtHotel(profile?.assigned_hotel || assignedHotel);
   // Top Management now has the exact same Housekeeping powers as a manager
   // (assignments, dirty linen, minibar, approvals). No executive read-only mode.
   const isExecutiveReadOnly = false;
