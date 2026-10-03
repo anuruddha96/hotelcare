@@ -157,7 +157,15 @@ serve(async (req) => {
     const rawMappings = (mappingRows || []) as UnitMap[];
     // Sobi is intentionally absent from the authoritative 60-unit workbook.
     // Exclude it from daily overview even if a stale mapping still exists.
-    const mappings = rawMappings.filter(mapping => normalizeName(mapping.canonical_room_name) !== "sobi apartment budapest");
+    const mappings = rawMappings.filter(mapping => {
+      const name = normalizeName(mapping.canonical_room_name);
+      return name !== "sobi apartment budapest"
+        && name !== "downtown terrace passion"
+        && name !== "wr pension"
+        && !name.startsWith("wr pension ")
+        && name !== "technikai"
+        && !name.startsWith("technikai ");
+    });
     const byExternal = new Map<string, UnitMap>();
     const byName = new Map<string, UnitMap>();
     for (const mapping of mappings) {
