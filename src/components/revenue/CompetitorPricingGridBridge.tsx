@@ -119,9 +119,15 @@ export function marketSignalFor(row: MarketRow | undefined, nowMs = Date.now()):
   const excluded = Math.max(0, Math.round(
     numberOf(row.excluded_outlier_count) ?? Math.max(0, observed - validated),
   ));
-  const referenceRate = numberOf(row.median_rate_eur) ?? numberOf(row.average_rate_eur);
+  const candidateReferenceRate = numberOf(row.median_rate_eur) ?? numberOf(row.average_rate_eur);
+  // A single quote is not a market. Do not surface thin evidence as a Budapest
+  // market reference: this is what allowed values such as €710 · 1/12 to look
+  // authoritative in the calendar. Require at least two independently validated
+  // offers before displaying a price; otherwise keep the demand grade and show
+  // that reliable market-rate evidence is unavailable.
+  const referenceRate = validated >= 2 ? candidateReferenceRate : null;
 
-  if (validated === 0 || referenceRate == null) {
+  if (validated < 2 || referenceRate == null) {
     return {
       referenceRate: null,
       active,
@@ -130,8 +136,8 @@ export function marketSignalFor(row: MarketRow | undefined, nowMs = Date.now()):
       excluded,
       confidencePct: 0,
       quality: "none",
-      qualityLabel: "No validated market data",
-      coverageLabel: active > 0 ? `0/${active}` : "no data",
+      qualityLabel: validated === 1 ? "Insufficient market sample" : "No validated market data",
+      coverageLabel: active > 0 ? `${validated}/${active}` : (validated > 0 ? `${validated} comp` : "no data"),
     };
   }
 
@@ -158,7 +164,7 @@ export function marketSignalFor(row: MarketRow | undefined, nowMs = Date.now()):
 
   let quality: MarketSignalQuality;
   let qualityLabel: string;
-  if (validated < 2 || confidencePct < 45) {
+  if (confidencePct < 45) {
     quality = "low";
     qualityLabel = "Low confidence";
   } else if (confidencePct < 75) {
@@ -196,7 +202,7 @@ export function tooltipFor(
 
   lines.push("");
   if (!row || signal.referenceRate == null) {
-    lines.push("Market reference: no fresh validated competitor rate yet.");
+    lines.push(signal.validated === 1 ? "Market reference: hidden — one validated offer is not enough to represent the Budapest market." : "Market reference: no fresh validated competitor rate yet.");
   } else {
     lines.push(`Market reference ${euro(signal.referenceRate)} · ${signal.qualityLabel} (${signal.confidencePct}%)`);
     lines.push(`${signal.validated}/${signal.active || signal.validated} active competitors validated${signal.excluded > 0 ? ` · ${signal.excluded} statistical outlier${signal.excluded === 1 ? "" : "s"} excluded` : ""}`);
@@ -403,7 +409,7 @@ export default function CompetitorPricingGridBridge() {
         cell.dataset.hcMarketCell = "1";
         cell.dataset.hcMarketQuality = signal.quality;
         cell.dataset.hcMarketSummary = signal.referenceRate == null
-          ? "Mkt —"
+          ? (signal.validated === 1 ? "Mkt — · 1 offer" : "Mkt —")
           : `${euro(signal.referenceRate)} · ${signal.coverageLabel}`;
         cell.dataset.hcMarketConfidence = signal.qualityLabel;
         cell.title = tooltipFor(date, market, cell.dataset.hcDemandTitle);
