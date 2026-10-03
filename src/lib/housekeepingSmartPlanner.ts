@@ -4,7 +4,6 @@ import {
   type AssignmentPreview, type HotelAssignmentConfig, type RoomAffinityMap,
   type RoomForAssignment, type StaffForAssignment, type WingProximityMap,
 } from './roomAssignmentAlgorithm';
-import { AVAILABLE_WORK_MINUTES, BREAK_TIME_MINUTES } from './roomAssignmentAlgorithmCore';
 import { gozsduAllocationRespectsBuildings } from './gozsduBuildingAssignment';
 import { sameHousekeepingRoomGroups } from './housekeepingCandidateDiversification';
 import { assignSectionTasksToStaff, sectionTaskMinutesForStaff,
@@ -60,15 +59,16 @@ function areaMinutesFor(plan: AssignmentPreview[], options: SmartPlanningOptions
 function withinLimits(plan: AssignmentPreview[], options: SmartPlanningOptions): boolean {
   const previousOwners = ownerOf(options.previous || []);
   const lockedOwners = options.fixedRoomOwners || previousOwners;
-  const area = areaMinutesFor(plan, options);
-  return plan.every(person => {
-    const shift = options.shiftMinutes?.get(person.staffId);
-    // Shift minutes include a break, so subtract the same break used by room estimates.
-    const roomAllowance = shift === undefined ? AVAILABLE_WORK_MINUTES : Math.max(0, shift - BREAK_TIME_MINUTES);
-    return person.estimatedMinutes + (area.get(person.staffId) || 0) <= roomAllowance
-      && person.rooms.every(room => !options.lockedRoomIds?.has(room.id)
-        || lockedOwners.get(room.id) === person.staffId);
-  });
+  // Workload capacity is intentionally advisory here. The preview is the
+  // manager's planning surface and already reports/flags over-allocation before
+  // confirmation. Treating shift length or public-area minutes as a hard solver
+  // constraint made valid room distributions disappear entirely (especially
+  // before tomorrow's roster is published). Safety constraints remain hard:
+  // locked/in-progress ownership and, separately in valid(), Gozsdu routes.
+  return plan.every(person =>
+    person.rooms.every(room => !options.lockedRoomIds?.has(room.id)
+      || lockedOwners.get(room.id) === person.staffId)
+  );
 }
 function score(plan: AssignmentPreview[], options: SmartPlanningOptions): number {
   const metric = computeFairnessMetrics(plan);
