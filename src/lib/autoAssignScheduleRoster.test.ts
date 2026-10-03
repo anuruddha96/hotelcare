@@ -4,6 +4,7 @@ import {
   filterAutoAssignScheduleRowsForHotel,
   getAutoAssignWorkStatus,
   resolveAutoAssignHotelRosterScope,
+  resolveAutoAssignCandidateStaffIds,
   resolveAutoAssignStaffDefaults,
   scheduleDurationMinutes,
   type AutoAssignScheduleRow,
@@ -24,6 +25,19 @@ function row(overrides: Partial<AutoAssignScheduleRow> = {}): AutoAssignSchedule
     ...overrides,
   };
 }
+
+describe('Auto Assign property staff boundary', () => {
+  it('shows only local staff plus explicit incoming transfers, never unrelated RD Hotels cleaners', () => {
+    const candidates = resolveAutoAssignCandidateStaffIds(
+      new Set(['otto-local-a', 'otto-local-b']),
+      new Set(['published-transfer']),
+    );
+    expect([...candidates]).toEqual(['otto-local-a', 'otto-local-b', 'published-transfer']);
+    expect(candidates.has('memories-cleaner')).toBe(false);
+    expect(candidates.has('mika-cleaner')).toBe(false);
+    expect(candidates.has('gozsdu-cleaner')).toBe(false);
+  });
+});
 
 describe('Auto Assign published staff schedule bridge', () => {
   it('uses published working staff before checked-in attendance', () => {
