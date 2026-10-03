@@ -4,13 +4,13 @@ import { propertyTermsFor } from './propertyTerminology';
 describe('SLNT-only cleaning section terminology', () => {
   it.each(['slnt', 'slnt-group'])('labels the daily section as requested only for %s', slug => {
     const terms = propertyTermsFor(slug, 'en');
-    expect(terms.dailySection).toBe('Daily Cleaning');
+    expect(terms.dailySection).toBe('Stayover / Service Reminders');
     expect(terms.checkoutSection).toBe('Checkout Units');
     expect(terms.isProperty).toBe(true);
   });
 
   it('retains the Hungarian SLNT daily label and checkout section', () => {
-    expect(propertyTermsFor('slnt', 'hu').dailySection).toBe('Napi takarítás');
+    expect(propertyTermsFor('slnt', 'hu').dailySection).toBe('Bennmaradó / szolgáltatási emlékeztetők');
     expect(propertyTermsFor('slnt', 'hu').checkoutSection).toBe('Kijelentkező egységek');
   });
 
