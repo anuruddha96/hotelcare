@@ -112,7 +112,7 @@ const COPY = {
 };
 
 function rebalanceOwners(
-  rooms: RoomForAssignment[], staff: PlannerStaff[], selectedStaffIds: Set<string>, previousOwners: Map<string, string>,
+  rooms: RoomForAssignment[], staff: PlannerStaff[], selectedStaffIds: Set<string>, previousOwners: Map<string, string>, preferredOwners: Map<string, string> = new Map(),
 ) {
   const selectedStaff = staff.filter(person => selectedStaffIds.has(person.id));
   if (selectedStaff.length === 0) return new Map<string, string>();
@@ -128,6 +128,22 @@ function rebalanceOwners(
     if (!room) continue;
     result.set(roomId, ownerId);
     loads.set(ownerId, (loads.get(ownerId) || 0) + calculateRoomTime(room));
+  }
+
+  // Reuse learned property preferences only for still-unassigned properties.
+  // A saved day-plan/manual room move above always wins.
+  const propertyRooms = new Map<string, RoomForAssignment[]>();
+  for (const room of rooms.filter(candidate => !result.has(candidate.id))) {
+    const key = slntTeamBPropertyKey(room.room_number);
+    const group = propertyRooms.get(key) || [];
+    group.push(room);
+    propertyRooms.set(key, group);
+  }
+  for (const [property, group] of propertyRooms) {
+    const preferredOwner = preferredOwners.get(property);
+    if (!preferredOwner || !selectedIds.has(preferredOwner)) continue;
+    for (const room of group) result.set(room.id, preferredOwner);
+    loads.set(preferredOwner, (loads.get(preferredOwner) || 0) + group.reduce((sum, room) => sum + calculateRoomTime(room), 0));
   }
 
   // SLNT is an apartment portfolio, not one building. Assign each physical
@@ -171,6 +187,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
   const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set());
   const [existingTasks, setExistingTasks] = useState<ExistingTask[]>([]);
   const [capturedAt, setCapturedAt] = useState<string | null>(null);
+  const [preferredOwners, setPreferredOwners] = useState<Map<string, string>>(new Map());
 
   const summary = useMemo(() => summarizeTeamWorkload(rooms), [rooms]);
   const workingStaff = useMemo(() => allStaff.filter(person => selectedStaffIds.has(person.id)), [allStaff, selectedStaffIds]);
@@ -231,13 +248,21 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
       const memberIds = (memberResult.data || []).map((row: any) => row.user_id as string);
       if (memberIds.length === 0) throw new Error(t.noMembers);
 
-      const [profileResult, scheduleResult] = await Promise.all([
+      const [profileResult, scheduleResult, preferenceResult] = await Promise.all([
         (supabase as any).from('profiles').select('id,full_name').in('id', memberIds).is('deleted_at', null),
         (supabase as any).from('staff_schedules').select('user_id,status').eq('organization_slug', 'slnt').eq('work_date', selectedDate).in('user_id', memberIds),
+        (supabase as any).from('housekeeping_team_property_preferences').select('property_key,user_id').eq('team_id', teamScope.teamId),
       ]);
       const nameMap = new Map((profileResult.data || []).map((person: any) => [person.id, person.full_name]));
       const publishedIds = new Set<string>((scheduleResult.error ? [] : (scheduleResult.data || []))
         .filter((row: any) => row.status === 'published').map((row: any) => row.user_id));
+      const preferences = new Map<string, string>();
+      if (!preferenceResult.error) {
+        for (const row of preferenceResult.data || []) preferences.set(String(row.property_key), String(row.user_id));
+      } else if (!isMissingTeamBOptionalSchemaError(preferenceResult.error)) {
+        console.warn('[SlntSelectedDateAssignmentPlanner] property preferences unavailable:', preferenceResult.error);
+      }
+      setPreferredOwners(preferences);
 
       let defaults = new Set<string>();
       const defaultsResult = await (supabase as any).from('housekeeping_team_members')
@@ -290,7 +315,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
           ? [[task.room_id, task.planned_candidate_user_id] as [string, string]] : []));
 
       setRooms(workload.rooms); setAllStaff(staffRows); setSelectedStaffIds(selected); setDefaultStaffIds(defaults);
-      setOwners(rebalanceOwners(workload.rooms, staffRows, selected, savedOwners));
+      setOwners(rebalanceOwners(workload.rooms, staffRows, selected, savedOwners, preferences));
       setExistingTasks(tasks); setCapturedAt(syncData?.capturedAt || workload.capturedAt || null);
       setSelectedRoomIds(new Set()); setStep('staff');
     } catch (cause) {
@@ -311,7 +336,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
   };
   const continueToRooms = () => {
     if (selectedStaffIds.size === 0) { toast.warning(t.noStaff); return; }
-    setOwners(previous => rebalanceOwners(rooms, allStaff, selectedStaffIds, previous)); setSelectedRoomIds(new Set()); setStep('rooms');
+    setOwners(previous => rebalanceOwners(rooms, allStaff, selectedStaffIds, previous, preferredOwners)); setSelectedRoomIds(new Set()); setStep('rooms');
   };
   const moveRooms = (roomIds: Iterable<string>, staffId: string) => {
     const ids = Array.from(roomIds);
@@ -378,6 +403,27 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
         if (legacyError) throw legacyError;
         toast.success(t.saved);
       }
+      // Learn the manager's final physical-property choices for future Auto Assign.
+      // Only learn an unambiguous property: every room at that property must end
+      // with the same selected cleaner. This avoids learning accidental splits.
+      const roomsByProperty = new Map<string, RoomForAssignment[]>();
+      for (const room of rooms) {
+        const key = slntTeamBPropertyKey(room.room_number);
+        const group = roomsByProperty.get(key) || [];
+        group.push(room); roomsByProperty.set(key, group);
+      }
+      const preferences = Array.from(roomsByProperty.entries()).flatMap(([property_key, propertyRooms]) => {
+        const staffIds = new Set(propertyRooms.map(room => owners.get(room.id)).filter(Boolean) as string[]);
+        return staffIds.size === 1 ? [{ property_key, user_id: Array.from(staffIds)[0] }] : [];
+      });
+      if (preferences.length > 0) {
+        const { error: preferenceError } = await (supabase as any).rpc('save_slnt_team_b_property_preferences', {
+          p_preferences: preferences,
+        });
+        if (preferenceError && !isMissingTeamBOptionalSchemaError(preferenceError)) {
+          console.warn('[SlntSelectedDateAssignmentPlanner] could not learn property preferences:', preferenceError);
+        }
+      }
       onAssignmentCreated(rooms.length, selectedStaffIds.size); onOpenChange(false);
     } catch (cause) {
       console.error('[SlntSelectedDateAssignmentPlanner] save failed:', cause);
@@ -387,7 +433,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[96dvh] max-h-[96dvh] w-[99vw] max-w-none flex-col overflow-y-auto overflow-x-hidden p-3 sm:p-4">
+      <DialogContent className="flex h-[96dvh] max-h-[96dvh] w-[99vw] max-w-none flex-col overflow-hidden p-0">\n        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex flex-wrap items-center gap-2 text-lg sm:text-xl">
             <CalendarClock className="h-5 w-5 text-primary" />{t.title}<Badge variant="outline">{selectedDate}</Badge>
@@ -480,7 +526,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
           </div>
         )}
 
-        <DialogFooter className="flex-shrink-0 gap-2 border-t pt-3 sm:justify-between">
+        </div>\n        <DialogFooter className="absolute inset-x-0 bottom-0 z-20 flex-shrink-0 gap-2 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_20px_rgba(0,0,0,0.06)] backdrop-blur sm:justify-between">
           <div>{step === 'rooms' && <Button variant="outline" onClick={() => setStep('staff')}><ArrowLeft className="mr-2 h-4 w-4" />{t.back}</Button>}</div>
           <div className="flex gap-2"><Button variant="ghost" onClick={() => onOpenChange(false)}>{t.close}</Button>{step === 'staff' ? <Button disabled={selectedStaffIds.size === 0 || rooms.length === 0} onClick={continueToRooms}><Wand2 className="mr-2 h-4 w-4" />{t.continue}</Button> : <Button disabled={saving || !!error || rooms.length === 0} onClick={() => void savePlan()}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}{saving ? t.saving : t.save}</Button>}</div>
         </DialogFooter>
