@@ -3,6 +3,7 @@ import {
   filterRoomsToMappedTeam,
   filterSnapshotRowsToMappedRooms,
   summarizeTeamWorkload,
+  slntTeamBPropertyKey,
 } from './slntTeamHousekeepingScope';
 
 describe('SLNT Team B housekeeping scope', () => {
@@ -91,16 +92,18 @@ describe('SLNT Team B housekeeping scope', () => {
 });
 
 
-describe('SLNT Team B physical property grouping contract', () => {
-  it('documents that the mapped portfolio contains distinct multi-room properties', () => {
-    const properties = [
-      ['Silver Rooms 4', 'Silver Rooms 9', 'Silver Rooms 21'],
-      ['WR Pension 101', 'WR Pension 106'],
-      ['St King 11 – Room 1', 'St King 11 – Room 9'],
-      ['K4 – Room 1', 'K4 – Room 7'],
-      ['Giselle Apartment'],
-    ];
-    expect(properties.flat()).toHaveLength(10);
-    expect(properties.every(group => group.length >= 1)).toBe(true);
+describe('SLNT Team B physical property grouping', () => {
+  it('keeps rooms at the same physical property together', () => {
+    expect(slntTeamBPropertyKey('Silver Rooms 4')).toBe('Silver Rooms');
+    expect(slntTeamBPropertyKey('Silver Rooms 21')).toBe('Silver Rooms');
+    expect(slntTeamBPropertyKey('WR Pension 101')).toBe('WR Pension');
+    expect(slntTeamBPropertyKey('St King 11 – Room 9')).toBe('St King 11');
+    expect(slntTeamBPropertyKey('St King 11 - Room 2')).toBe('St King 11');
+    expect(slntTeamBPropertyKey('K4 – Room 7')).toBe('K4');
+  });
+
+  it('keeps standalone apartments as separate properties', () => {
+    expect(slntTeamBPropertyKey('Giselle Apartment')).toBe('Giselle Apartment');
+    expect(slntTeamBPropertyKey('Dorothilux Apartment')).toBe('Dorothilux Apartment');
   });
 });
