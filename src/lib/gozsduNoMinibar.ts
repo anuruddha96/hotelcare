@@ -1,5 +1,10 @@
 import { isGozsduCourtHotel } from './gozsdu-housekeeping';
 
+export function isNoMinibarOrganization(orgSlug: string | null | undefined): boolean {
+  const slug = String(orgSlug || '').toLowerCase();
+  return slug === 'slnt' || slug === 'slnt-group';
+}
+
 /** Both the selected property AND the actual room must be Gozsdu.
  * Never suppress another hotel's controls based only on a stale room card. */
 export function isGozsduNoMinibarRoom(
@@ -18,4 +23,15 @@ export function requiredDailyPhotoCategories(
   return isGozsduNoMinibarRoom(selectedHotel, roomHotel)
     ? STANDARD_DAILY_PHOTOS.filter(category => category !== 'minibar')
     : STANDARD_DAILY_PHOTOS;
+}
+
+
+/** Organization-aware capability guard. SLNT has no minibar at any venue. */
+export function isNoMinibarRoom(
+  organizationSlug: string | null | undefined,
+  selectedHotel: string | null | undefined,
+  roomHotel: string | null | undefined,
+): boolean {
+  return isNoMinibarOrganization(organizationSlug)
+    || isGozsduNoMinibarRoom(selectedHotel, roomHotel);
 }
