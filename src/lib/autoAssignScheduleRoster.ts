@@ -201,3 +201,15 @@ export function scheduleDurationMinutes(row: AutoAssignScheduleRow | null | unde
   if (start === null || end === null) return null;
   return (end - start + 1440) % 1440 || 1440;
 }
+
+
+/**
+ * Candidate IDs shown by Auto Assign are strictly the selected property's
+ * locally assigned cleaners plus published incoming transfers.
+ */
+export function resolveAutoAssignCandidateStaffIds(
+  localStaffIds: ReadonlySet<string>,
+  incomingStaffIds: ReadonlySet<string>,
+): Set<string> {
+  return new Set([...localStaffIds, ...incomingStaffIds]);
+}
