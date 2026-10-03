@@ -33,6 +33,8 @@ function grab(block: string, tag: string): string {
   return match ? match[1].trim() : "";
 }
 
+const EXPECTED_PREVIO_HOTEL_IDS = new Set(["782407", "783103"]);
+
 type AccountRow = {
   id: string;
   label: string | null;
@@ -128,6 +130,14 @@ serve(async (req) => {
     if (accountError) throw accountError;
 
     const accounts = (accountRows || []) as AccountRow[];
+    const configuredHotelIds = new Set(accounts.map(account => String(account.pms_hotel_id)));
+    const missingHotelIds = Array.from(EXPECTED_PREVIO_HOTEL_IDS).filter(id => !configuredHotelIds.has(id));
+    if (missingHotelIds.length > 0) {
+      return new Response(JSON.stringify({ ok:false, supported:true, portfolio:true, error:`SLNT merged PMS overview is incomplete. Missing active Previo account(s): ${missingHotelIds.join(", ")}` }), {
+        status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (accounts.length === 0) {
       return new Response(JSON.stringify({ ok: false, supported: false, error: "No active SLNT Previo accounts are configured." }), {
         status: 200,
@@ -137,14 +147,17 @@ serve(async (req) => {
 
     const { data: mappingRows, error: mappingError } = await service
       .from("pms_unit_mappings")
-      .select("pms_account_id,external_room_id,source_name,normalized_name,canonical_room_name,room_id")
+.select("pms_account_id,external_room_id,source_name,normalized_name,canonical_room_name,room_id")
       .eq("organization_slug", "slnt")
       .eq("hotel_id", hotelId)
       .eq("status", "applied")
       .not("room_id", "is", null);
     if (mappingError) throw mappingError;
 
-    const mappings = (mappingRows || []) as UnitMap[];
+    const rawMappings = (mappingRows || []) as UnitMap[];
+    // Sobi is intentionally absent from the authoritative 60-unit workbook.
+    // Exclude it from daily overview even if a stale mapping still exists.
+    const mappings = rawMappings.filter(mapping => normalizeName(mapping.canonical_room_name) !== "sobi apartment budapest");
     const byExternal = new Map<string, UnitMap>();
     const byName = new Map<string, UnitMap>();
     for (const mapping of mappings) {
