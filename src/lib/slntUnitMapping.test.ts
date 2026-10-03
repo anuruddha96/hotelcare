@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveSuggestion, extractRoomNames, isTechnicalRow, normalizeUnitName } from './slntUnitMapping';
+import { deriveSuggestion, extractRoomNames, isTechnicalRow, normalizeUnitName, isSlntWorkbookActiveUnit, slntPmsIdentityKey } from './slntUnitMapping';
 
 describe('slnt unit mapping', () => {
   it('normalizes accents and punctuation', () => {
@@ -34,5 +34,20 @@ describe('slnt unit mapping', () => {
       { Room: 'Silver Rooms 3' },
     ]);
     expect(names).toEqual(['K4 Room 1', 'Silver Rooms 3']);
+  });
+});
+
+
+describe('SLNT authoritative two-PMS inventory', () => {
+  it('excludes the stale workbook-missing Sobi unit from operations', () => {
+    expect(isSlntWorkbookActiveUnit('Sobi Apartment Budapest', 'clean')).toBe(false);
+    expect(isSlntWorkbookActiveUnit('Silver Rooms 3', 'dirty')).toBe(true);
+    expect(isSlntWorkbookActiveUnit('WR Pension 102', 'clean')).toBe(true);
+    expect(isSlntWorkbookActiveUnit('K4 – Room 7', 'clean')).toBe(true);
+  });
+
+  it('keeps identical external room ids isolated by Previo account', () => {
+    expect(slntPmsIdentityKey('782407-account', '102')).not.toBe(slntPmsIdentityKey('783103-account', '102'));
+    expect(slntPmsIdentityKey('782407-account', '102')).toBe('782407-account:102');
   });
 });
