@@ -27,6 +27,7 @@ import {
   filterSnapshotRowsToMappedRooms,
   loadActiveSlntTeamScope,
   summarizeTeamWorkload,
+  slntTeamBPropertyKey,
 } from '@/lib/slntTeamHousekeepingScope';
 import {
   isMissingTeamBOptionalSchemaError,
@@ -110,15 +111,6 @@ const COPY = {
   },
 };
 
-function slntPropertyKey(room: RoomForAssignment): string {
-  const label = room.room_number.trim();
-  if (/^Silver Rooms\s+/i.test(label)) return 'Silver Rooms';
-  if (/^WR Pension\s+/i.test(label)) return 'WR Pension';
-  if (/^St King 11\s*[–-]\s*Room\s+/i.test(label)) return 'St King 11';
-  if (/^K4\s*[–-]\s*Room\s+/i.test(label)) return 'K4';
-  return label || room.id;
-}
-
 function rebalanceOwners(
   rooms: RoomForAssignment[], staff: PlannerStaff[], selectedStaffIds: Set<string>, previousOwners: Map<string, string>,
 ) {
@@ -143,7 +135,7 @@ function rebalanceOwners(
   // several cleaners to the same remote address just to equalize room counts.
   const propertyGroups = new Map<string, RoomForAssignment[]>();
   for (const room of rooms.filter(candidate => !result.has(candidate.id))) {
-    const key = slntPropertyKey(room);
+    const key = slntTeamBPropertyKey(room.room_number);
     const group = propertyGroups.get(key) || [];
     group.push(room);
     propertyGroups.set(key, group);
@@ -469,7 +461,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
                   <section key={column.id} className="flex min-w-0 flex-col rounded-lg border bg-card" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const roomId = event.dataTransfer.getData('text/plain'); if (roomId) moveRoom(roomId, column.id); }}>
                     <div className="border-b px-2 py-1.5"><div className="flex items-center justify-between gap-1"><div className="min-w-0 truncate text-sm font-semibold">{column.name}</div><Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{column.rooms.length}</Badge></div><div className="text-[10px] text-muted-foreground">≈ {Math.round(column.rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0) / 60 * 10) / 10}h</div>{selectedRoomIds.size > 0 && <Button className="mt-1 h-6 w-full px-1 text-[10px]" size="sm" variant="outline" onClick={() => moveRooms(selectedRoomIds, column.id)}>{selectedRoomIds.size > 1 ? `${t.moveSelectedHere} (${selectedRoomIds.size})` : t.moveHere}</Button>}</div>
                     <div className="min-h-0 flex-1 space-y-1 p-1.5">
-                      {Array.from(new Map(column.rooms.map(room => [slntPropertyKey(room), column.rooms.filter(candidate => slntPropertyKey(candidate) === slntPropertyKey(room))])).entries()).flatMap(([property, propertyRooms]) => [
+                      {Array.from(new Map(column.rooms.map(room => [slntTeamBPropertyKey(room.room_number), column.rooms.filter(candidate => slntTeamBPropertyKey(candidate.room_number) === slntTeamBPropertyKey(room.room_number))])).entries()).flatMap(([property, propertyRooms]) => [
                         <button key={`property-${column.id}-${property}`} type="button" className="mt-1 flex w-full items-center justify-between rounded bg-muted/60 px-2 py-1 text-[10px] font-semibold hover:bg-muted" onClick={() => togglePropertySelection(propertyRooms)}>
                           <span className="truncate">{property}</span><span>{t.selectProperty} · {propertyRooms.length}</span>
                         </button>,
