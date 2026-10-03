@@ -40,6 +40,8 @@ describe("competitor calendar market signal", () => {
     expect(css).toContain("position: sticky !important");
     expect(css).toContain("left: 0 !important");
     expect(css).toContain("z-index: 40 !important");
+    expect(css).toContain("height: 100% !important");
+    expect(css).toContain("align-self: stretch !important");
   });
 
   it("uses the validated median as the visible reference instead of a pulled arithmetic average", () => {
