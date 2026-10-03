@@ -195,3 +195,20 @@ export const STATUS_LABELS: Record<MappingStatus, string> = {
   ignored: 'Ignored',
   applied: 'Applied',
 };
+
+
+/** Workbook-authoritative SLNT operating inventory guard. The supplied workbook
+ * contains 60 active units across both Previo accounts; Sobi is the single
+ * mapped/live PMS row intentionally excluded from operations. */
+export const SLNT_WORKBOOK_INACTIVE_UNITS = ['Sobi Apartment Budapest'] as const;
+
+export function isSlntWorkbookActiveUnit(roomNumber: string, status?: string | null): boolean {
+  const normalized = normalizeUnitName(roomNumber);
+  if (SLNT_WORKBOOK_INACTIVE_UNITS.some(name => normalizeUnitName(name) === normalized)) return false;
+  return String(status || '').toLowerCase() !== 'out_of_order';
+}
+
+/** A PMS identity is only safe inside its owning Previo account. */
+export function slntPmsIdentityKey(accountId: string, externalRoomId: string): string {
+  return `${String(accountId).trim()}:${String(externalRoomId).trim()}`;
+}
