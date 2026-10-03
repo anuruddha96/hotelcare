@@ -16,6 +16,8 @@ const LABEL: Record<MarketDemandDay["band"], string> = {
 };
 
 const marketDemandCss = `
+  [data-hc-competitor-pricing-row="1"] { min-height: 30px !important; align-items: stretch !important; }
+  [data-hc-competitor-pricing-row="1"] > * { min-height: 30px !important; height: auto !important; align-self: stretch !important; }
   [data-market-demand-band="very_strong"] { background: rgb(239 68 68) !important; color: white !important; }
   [data-market-demand-band="strong"] { background: rgb(253 186 116) !important; color: rgb(67 20 7) !important; }
   [data-market-demand-band="normal"] { background: rgb(254 243 199) !important; color: rgb(69 26 3) !important; }
@@ -79,9 +81,9 @@ function applyMarketDemand(board: Map<string, MarketDemandDay>) {
       if (!day) return;
       const label = LABEL[day.band];
       const title = [
-        `${date} · Budapest market demand ${label} (${day.score}/100)`,
+        `${date} · Rate Scanner · Budapest ${label} (${day.score}/100)`,
         ...day.drivers,
-        "Shared signal across participating Budapest properties; raw hotel data is not exposed.",
+        "Shared Budapest demand signal across participating RD Hotels and SLNT venues; raw hotel data is not exposed.",
       ].join("\n");
 
       // Avoid a MutationObserver/render loop: only touch the DOM when a value
