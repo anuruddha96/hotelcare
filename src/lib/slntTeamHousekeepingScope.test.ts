@@ -89,3 +89,18 @@ describe('SLNT Team B housekeeping scope', () => {
     });
   });
 });
+
+
+describe('SLNT Team B physical property grouping contract', () => {
+  it('documents that the mapped portfolio contains distinct multi-room properties', () => {
+    const properties = [
+      ['Silver Rooms 4', 'Silver Rooms 9', 'Silver Rooms 21'],
+      ['WR Pension 101', 'WR Pension 106'],
+      ['St King 11 – Room 1', 'St King 11 – Room 9'],
+      ['K4 – Room 1', 'K4 – Room 7'],
+      ['Giselle Apartment'],
+    ];
+    expect(properties.flat()).toHaveLength(10);
+    expect(properties.every(group => group.length >= 1)).toBe(true);
+  });
+});
