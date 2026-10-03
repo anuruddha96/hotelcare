@@ -3,6 +3,7 @@ import {
   filterRoomsToMappedTeam,
   filterSnapshotRowsToMappedRooms,
   summarizeTeamWorkload,
+  slntTeamBPropertyKey,
 } from './slntTeamHousekeepingScope';
 
 describe('SLNT Team B housekeeping scope', () => {
@@ -87,5 +88,22 @@ describe('SLNT Team B housekeeping scope', () => {
       unsoldCount: 11,
       totalCount: 46,
     });
+  });
+});
+
+
+describe('SLNT Team B physical property grouping', () => {
+  it('keeps rooms at the same physical property together', () => {
+    expect(slntTeamBPropertyKey('Silver Rooms 4')).toBe('Silver Rooms');
+    expect(slntTeamBPropertyKey('Silver Rooms 21')).toBe('Silver Rooms');
+    expect(slntTeamBPropertyKey('WR Pension 101')).toBe('WR Pension');
+    expect(slntTeamBPropertyKey('St King 11 – Room 9')).toBe('St King 11');
+    expect(slntTeamBPropertyKey('St King 11 - Room 2')).toBe('St King 11');
+    expect(slntTeamBPropertyKey('K4 – Room 7')).toBe('K4');
+  });
+
+  it('keeps standalone apartments as separate properties', () => {
+    expect(slntTeamBPropertyKey('Giselle Apartment')).toBe('Giselle Apartment');
+    expect(slntTeamBPropertyKey('Dorothilux Apartment')).toBe('Dorothilux Apartment');
   });
 });

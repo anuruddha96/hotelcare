@@ -10,6 +10,7 @@ import {
   Star,
   Users,
   Wand2,
+  Layers3,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -26,6 +27,7 @@ import {
   filterSnapshotRowsToMappedRooms,
   loadActiveSlntTeamScope,
   summarizeTeamWorkload,
+  slntTeamBPropertyKey,
 } from '@/lib/slntTeamHousekeepingScope';
 import {
   isMissingTeamBOptionalSchemaError,
@@ -80,8 +82,8 @@ const COPY = {
     continue: 'Continue to room assignments', back: 'Back to staff', noStaff: 'Select at least one cleaner to continue.',
     firstTime: 'No saved day plan, published schedule or defaults exist yet, so all Team B staff are selected for this first plan.',
     defaultsOnly: 'Use defaults', selectAll: 'Select all', clear: 'Clear', working: 'working',
-    unassigned: 'Unassigned', moveHere: 'Move selected here',
-    selectHint: 'Rooms were balanced automatically. Drag a room to another cleaner, or tap a room and then “Move selected here”.',
+    unassigned: 'Unassigned', moveHere: 'Move selected here', moveSelectedHere: 'Move selected rooms here', clearSelection: 'Clear selection', selectedRooms: 'rooms selected', selectProperty: 'Select property',
+    selectHint: 'Rooms are grouped by property first so a cleaner is not sent back and forth between distant locations. Select one or multiple rooms, then move them together to a cleaner. Dragging a single room still works.',
     rooms: 'rooms', noMembers: 'No Team B staff are configured. Add staff from Team B · today first.',
     compatibility: 'Operational day staffing storage is not available. Published Staff Schedule staff can still be planned safely; staff overrides require the Team B database update.',
   },
@@ -102,8 +104,8 @@ const COPY = {
     continue: 'Tovább a szobabeosztáshoz', back: 'Vissza a személyzethez', noStaff: 'A folytatáshoz válasszon legalább egy takarítót.',
     firstTime: 'Még nincs mentett napi terv, közzétett beosztás vagy alapértelmezett személyzet, ezért az első tervhez minden B csapattag ki van jelölve.',
     defaultsOnly: 'Alapértelmezettek', selectAll: 'Összes kijelölése', clear: 'Törlés', working: 'dolgozik',
-    unassigned: 'Kiosztatlan', moveHere: 'Kijelölt áthelyezése ide',
-    selectHint: 'A szobákat automatikusan kiegyensúlyoztuk. Húzza a szobát másik takarítóhoz, vagy koppintson rá, majd válassza az „Áthelyezés ide” lehetőséget.',
+    unassigned: 'Kiosztatlan', moveHere: 'Kijelölt áthelyezése ide', moveSelectedHere: 'Kijelölt szobák áthelyezése ide', clearSelection: 'Kijelölés törlése', selectedRooms: 'szoba kijelölve', selectProperty: 'Ingatlan kijelölése',
+    selectHint: 'A szobákat először ingatlan szerint csoportosítjuk, hogy a takarítónak ne kelljen távoli helyszínek között ingáznia. Jelöljön ki egy vagy több szobát, majd helyezze át őket együtt egy takarítóhoz. Egy szoba továbbra is húzható.',
     rooms: 'szoba', noMembers: 'Nincs B csapat személyzet beállítva. Először adjon hozzá dolgozókat a B csapat · ma résznél.',
     compatibility: 'Az operatív napi személyzeti tároló még nem érhető el. A közzétett munkabeosztás biztonságosan használható; egyedi személyzeti felülíráshoz adatbázis-frissítés szükséges.',
   },
@@ -119,6 +121,7 @@ function rebalanceOwners(
   const result = new Map<string, string>();
   const loads = new Map(selectedStaff.map(person => [person.id, 0]));
 
+  // Preserve explicit/saved manager choices first.
   for (const [roomId, ownerId] of previousOwners) {
     if (!roomIds.has(roomId) || !selectedIds.has(ownerId)) continue;
     const room = rooms.find(candidate => candidate.id === roomId);
@@ -126,11 +129,26 @@ function rebalanceOwners(
     result.set(roomId, ownerId);
     loads.set(ownerId, (loads.get(ownerId) || 0) + calculateRoomTime(room));
   }
-  for (const room of rooms.filter(room => !result.has(room.id)).sort((a, b) => calculateRoomTime(b) - calculateRoomTime(a))) {
+
+  // SLNT is an apartment portfolio, not one building. Assign each physical
+  // property as a batch before balancing the next property. This avoids sending
+  // several cleaners to the same remote address just to equalize room counts.
+  const propertyGroups = new Map<string, RoomForAssignment[]>();
+  for (const room of rooms.filter(candidate => !result.has(candidate.id))) {
+    const key = slntTeamBPropertyKey(room.room_number);
+    const group = propertyGroups.get(key) || [];
+    group.push(room);
+    propertyGroups.set(key, group);
+  }
+  const groups = Array.from(propertyGroups.values()).sort((a, b) =>
+    b.reduce((sum, room) => sum + calculateRoomTime(room), 0)
+      - a.reduce((sum, room) => sum + calculateRoomTime(room), 0));
+
+  for (const group of groups) {
     const owner = selectedStaff.reduce((best, candidate) =>
       (loads.get(candidate.id) || 0) < (loads.get(best.id) || 0) ? candidate : best, selectedStaff[0]);
-    result.set(room.id, owner.id);
-    loads.set(owner.id, (loads.get(owner.id) || 0) + calculateRoomTime(room));
+    for (const room of group) result.set(room.id, owner.id);
+    loads.set(owner.id, (loads.get(owner.id) || 0) + group.reduce((sum, room) => sum + calculateRoomTime(room), 0));
   }
   return result;
 }
@@ -147,11 +165,10 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
   const [allStaff, setAllStaff] = useState<PlannerStaff[]>([]);
   const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(new Set());
   const [defaultStaffIds, setDefaultStaffIds] = useState<Set<string>>(new Set());
-  const [publishedStaffIds, setPublishedStaffIds] = useState<Set<string>>(new Set());
   const [staffingSource, setStaffingSource] = useState<StaffingSource>('none');
   const [supportsDayStaffing, setSupportsDayStaffing] = useState(true);
   const [owners, setOwners] = useState<Map<string, string>>(new Map());
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set());
   const [existingTasks, setExistingTasks] = useState<ExistingTask[]>([]);
   const [capturedAt, setCapturedAt] = useState<string | null>(null);
 
@@ -221,7 +238,6 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
       const nameMap = new Map((profileResult.data || []).map((person: any) => [person.id, person.full_name]));
       const publishedIds = new Set<string>((scheduleResult.error ? [] : (scheduleResult.data || []))
         .filter((row: any) => row.status === 'published').map((row: any) => row.user_id));
-      setPublishedStaffIds(publishedIds);
 
       let defaults = new Set<string>();
       const defaultsResult = await (supabase as any).from('housekeeping_team_members')
@@ -276,7 +292,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
       setRooms(workload.rooms); setAllStaff(staffRows); setSelectedStaffIds(selected); setDefaultStaffIds(defaults);
       setOwners(rebalanceOwners(workload.rooms, staffRows, selected, savedOwners));
       setExistingTasks(tasks); setCapturedAt(syncData?.capturedAt || workload.capturedAt || null);
-      setSelectedRoomId(null); setStep('staff');
+      setSelectedRoomIds(new Set()); setStep('staff');
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'Could not prepare Team B for this date.';
       console.error('[SlntSelectedDateAssignmentPlanner] load failed:', cause);
@@ -295,11 +311,31 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
   };
   const continueToRooms = () => {
     if (selectedStaffIds.size === 0) { toast.warning(t.noStaff); return; }
-    setOwners(previous => rebalanceOwners(rooms, allStaff, selectedStaffIds, previous)); setSelectedRoomId(null); setStep('rooms');
+    setOwners(previous => rebalanceOwners(rooms, allStaff, selectedStaffIds, previous)); setSelectedRoomIds(new Set()); setStep('rooms');
   };
-  const moveRoom = (roomId: string, staffId: string) => {
-    setOwners(previous => { const next = new Map(previous); if (staffId === UNASSIGNED) next.delete(roomId); else next.set(roomId, staffId); return next; }); setSelectedRoomId(null);
+  const moveRooms = (roomIds: Iterable<string>, staffId: string) => {
+    const ids = Array.from(roomIds);
+    setOwners(previous => {
+      const next = new Map(previous);
+      for (const roomId of ids) {
+        if (staffId === UNASSIGNED) next.delete(roomId); else next.set(roomId, staffId);
+      }
+      return next;
+    });
+    setSelectedRoomIds(new Set());
   };
+  const moveRoom = (roomId: string, staffId: string) => moveRooms([roomId], staffId);
+  const toggleRoomSelection = (roomId: string) => setSelectedRoomIds(previous => {
+    const next = new Set(previous);
+    if (next.has(roomId)) next.delete(roomId); else next.add(roomId);
+    return next;
+  });
+  const togglePropertySelection = (propertyRooms: RoomForAssignment[]) => setSelectedRoomIds(previous => {
+    const next = new Set(previous);
+    const allSelected = propertyRooms.every(room => next.has(room.id));
+    for (const room of propertyRooms) allSelected ? next.delete(room.id) : next.add(room.id);
+    return next;
+  });
 
   const savePlan = async () => {
     if (selectedStaffIds.size === 0) { toast.warning(t.noStaff); setStep('staff'); return; }
@@ -332,8 +368,9 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
       }
 
       if (!saved) {
-        const everySelectedPublished = Array.from(selectedStaffIds).every(id => publishedStaffIds.has(id));
-        if (!everySelectedPublished) throw new Error(t.compatibility);
+        // Compatibility mode can still save room ownership safely through the legacy
+        // task RPC. It cannot persist a custom day-staff override until the new
+        // migration is applied, but it must not block an otherwise valid plan.
         const { error: legacyError } = await (supabase as any).rpc('prepare_slnt_team_b_tasks', {
           p_service_date: selectedDate,
           p_tasks: tasks,
@@ -408,6 +445,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
           <div className="min-h-0 flex-1 py-2">
             {existingChanged && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{t.changed}</div>}
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="text-muted-foreground">{t.selectHint}</span>{capturedAt && <span className="text-xs text-muted-foreground">PMS: {new Date(capturedAt).toLocaleString()}</span>}</div>
+            {selectedRoomIds.size > 0 && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/[0.04] px-3 py-2 text-xs"><Layers3 className="h-4 w-4 text-primary" /><strong>{selectedRoomIds.size} {t.selectedRooms}</strong><Button size="sm" variant="ghost" className="h-7" onClick={() => setSelectedRoomIds(new Set())}>{t.clearSelection}</Button></div>}
             <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
               <span className="font-semibold text-foreground">{t.legend}</span>
               <span className="text-amber-700">■ {t.checkout}</span>
@@ -420,15 +458,20 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
               <div className="grid min-h-0 w-full gap-2 pb-2" style={{ gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(0, 1fr))` }}>
                 {columns.map(column => (
                   <section key={column.id} className="flex min-w-0 flex-col rounded-lg border bg-card" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const roomId = event.dataTransfer.getData('text/plain'); if (roomId) moveRoom(roomId, column.id); }}>
-                    <div className="border-b px-2 py-1.5"><div className="flex items-center justify-between gap-1"><div className="min-w-0 truncate text-sm font-semibold">{column.name}</div><Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{column.rooms.length}</Badge></div><div className="text-[10px] text-muted-foreground">≈ {Math.round(column.rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0) / 60 * 10) / 10}h</div>{selectedRoomId && <Button className="mt-1 h-6 w-full px-1 text-[10px]" size="sm" variant="outline" onClick={() => moveRoom(selectedRoomId, column.id)}>{t.moveHere}</Button>}</div>
+                    <div className="border-b px-2 py-1.5"><div className="flex items-center justify-between gap-1"><div className="min-w-0 truncate text-sm font-semibold">{column.name}</div><Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{column.rooms.length}</Badge></div><div className="text-[10px] text-muted-foreground">≈ {Math.round(column.rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0) / 60 * 10) / 10}h</div>{selectedRoomIds.size > 0 && <Button className="mt-1 h-6 w-full px-1 text-[10px]" size="sm" variant="outline" onClick={() => moveRooms(selectedRoomIds, column.id)}>{selectedRoomIds.size > 1 ? `${t.moveSelectedHere} (${selectedRoomIds.size})` : t.moveHere}</Button>}</div>
                     <div className="min-h-0 flex-1 space-y-1 p-1.5">
-                      {column.rooms.map(room => {
-                        const unsold = isUnsoldPlanningRoom(room); const selected = selectedRoomId === room.id;
+                      {Array.from(new Map(column.rooms.map(room => [slntTeamBPropertyKey(room.room_number), column.rooms.filter(candidate => slntTeamBPropertyKey(candidate.room_number) === slntTeamBPropertyKey(room.room_number))])).entries()).flatMap(([property, propertyRooms]) => [
+                        <button key={`property-${column.id}-${property}`} type="button" className="mt-1 flex w-full items-center justify-between rounded bg-muted/60 px-2 py-1 text-[10px] font-semibold hover:bg-muted" onClick={() => togglePropertySelection(propertyRooms)}>
+                          <span className="truncate">{property}</span><span>{t.selectProperty} · {propertyRooms.length}</span>
+                        </button>,
+                        ...propertyRooms.map(room => {
+                        const unsold = isUnsoldPlanningRoom(room); const selected = selectedRoomIds.has(room.id);
                         const serviceLabel = room.is_checkout_room ? t.checkout : room.linen_change_required ? t.fullClean : room.towel_change_required ? t.towel : unsold ? t.unbooked : t.onRequest;
                         const serviceCode = room.is_checkout_room ? null : room.linen_change_required ? 'C' : room.towel_change_required ? 'T' : null;
                         const serviceClass = room.is_checkout_room ? 'bg-amber-100 text-amber-800' : room.linen_change_required ? 'bg-rose-100 text-rose-800' : room.towel_change_required ? 'bg-orange-100 text-orange-800' : unsold ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800';
-                        return <button key={room.id} type="button" draggable onDragStart={event => event.dataTransfer.setData('text/plain', room.id)} onClick={() => setSelectedRoomId(selected ? null : room.id)} className={`flex w-full items-center gap-1 rounded border px-1.5 py-1 text-left text-[11px] leading-tight transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`} title={serviceLabel}><GripVertical className="h-3 w-3 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>{serviceCode && <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${serviceClass}`}>{serviceCode}</span>}<span className={`max-w-[76px] truncate rounded px-1 py-0.5 text-[9px] font-medium ${serviceClass}`}>{serviceLabel}</span></button>;
-                      })}
+                        return <button key={room.id} type="button" draggable onDragStart={event => event.dataTransfer.setData('text/plain', room.id)} onClick={() => toggleRoomSelection(room.id)} className={`flex w-full items-center gap-1 rounded border px-1.5 py-1 text-left text-[11px] leading-tight transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`} title={serviceLabel}><GripVertical className="h-3 w-3 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>{serviceCode && <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${serviceClass}`}>{serviceCode}</span>}<span className={`max-w-[76px] truncate rounded px-1 py-0.5 text-[9px] font-medium ${serviceClass}`}>{serviceLabel}</span></button>;
+                        }),
+                      ])}
                     </div>
                   </section>
                 ))}

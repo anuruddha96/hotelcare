@@ -113,6 +113,15 @@ export function filterSnapshotRowsToMappedRooms<T extends DailyOverviewWorkRow>(
   });
 }
 
+export function slntTeamBPropertyKey(roomNumber: string): string {
+  const label = roomNumber.trim();
+  if (/^Silver Rooms\s+/i.test(label)) return 'Silver Rooms';
+  if (/^WR Pension\s+/i.test(label)) return 'WR Pension';
+  if (/^St King 11\s*[–-]\s*Room\s+/i.test(label)) return 'St King 11';
+  if (/^K4\s*[–-]\s*Room\s+/i.test(label)) return 'K4';
+  return label;
+}
+
 /**
  * Keep provisional/unbooked rooms available for worst-case planning without
  * reporting them as confirmed checkouts.
