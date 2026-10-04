@@ -1137,6 +1137,34 @@ export default function RateStrategyGrid({
     return m;
   }, [metrics]);
 
+  // House-level "Left to sell" must reconcile with the room-type rows. When
+  // Previo's native availability is mirrored, leftByTypeDate carries those
+  // exact values; when it is absent the parent has already filled the same map
+  // from reservations as a fallback. Only inventory-counting room types are
+  // summed so duplicate/non-room PMS products cannot inflate the house total.
+  const houseLeftByDate = useMemo(() => {
+    const inventoryTypes = roomTypes.filter(
+      (room) => room.pms_room_id
+        && (room.num_rooms || 0) > 0
+        && room.is_sellable !== false
+        && room.counts_toward_inventory !== false,
+    );
+    if (!leftByTypeDate || inventoryTypes.length === 0) return new Map<string, number>();
+
+    const out = new Map<string, number>();
+    for (const metric of metrics) {
+      let known = true;
+      let total = 0;
+      for (const room of inventoryTypes) {
+        const value = leftByTypeDate.get(`${room.name}|${metric.stay_date}`);
+        if (value === undefined) { known = false; break; }
+        total += Math.max(0, value);
+      }
+      if (known) out.set(metric.stay_date, total);
+    }
+    return out;
+  }, [roomTypes, leftByTypeDate, metrics]);
+
   // ---- Minimum stay + rooms to sell -----------------------------------
   // Both are restrictions rather than prices, so they travel to Previo on
   // their own channel and are saved here first so the calendar never lies.
@@ -2992,7 +3020,7 @@ export default function RateStrategyGrid({
                         Left to sell
                         <MetricInfo
                           title="Rooms left to sell"
-                          body="Sellable rooms minus rooms sold for that night, for the whole house. The room-type rows show the same figure per room type."
+                          body="Previo rooms for sale for that night, summed across real sellable room types. If Previo availability is temporarily unavailable, Hotel Care falls back to physical rooms minus reservations."
                         />
                       </>
                     )}
@@ -3000,7 +3028,7 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     const m = metricByDate.get(d);
                     const units = m?.roomsAvailable ?? 0;
-                    const left = m?.roomsLeft ?? 0;
+                    const left = houseLeftByDate.get(d) ?? m?.roomsLeft ?? 0;
                     return (
                       <div
                         key={d}
