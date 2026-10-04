@@ -245,7 +245,10 @@ export default function RevenueHotelDetail() {
   }, [live.rates]);
 
 
-  // Rooms still sellable per room type and date.
+  // Previo's calendar availability is authoritative for "rooms left".
+  // The sync stores the PMS value per room type/date. Reservation-derived
+  // inventory is only a fallback when the Previo availability privilege is
+  // unavailable or a particular date has not been mirrored yet.
   const leftByTypeDate = useMemo(() => {
     const soldBy = new Map<string, number>();
     for (const n of live.nights) {
@@ -253,16 +256,27 @@ export default function RevenueHotelDetail() {
       const k = `${n.room_type_name}|${n.stay_date}`;
       soldBy.set(k, (soldBy.get(k) ?? 0) + 1);
     }
+
+    const authoritative = new Map<string, number>();
+    for (const row of live.availability) {
+      authoritative.set(`${row.obk_id}|${row.stay_date}`, Math.max(0, Number(row.availability) || 0));
+    }
+
     const out = new Map<string, number>();
     for (const rt of live.roomTypes) {
       if (!rt.pms_room_id || (rt.num_rooms || 0) <= 0) continue;
       for (const m of live.metrics) {
-        const k = `${rt.name}|${m.stay_date}`;
-        out.set(k, Math.max(0, (rt.num_rooms || 0) - (soldBy.get(k) ?? 0)));
+        const displayKey = `${rt.name}|${m.stay_date}`;
+        const pmsKey = `${rt.pms_room_id}|${m.stay_date}`;
+        out.set(
+          displayKey,
+          authoritative.get(pmsKey)
+            ?? Math.max(0, (rt.num_rooms || 0) - (soldBy.get(displayKey) ?? 0)),
+        );
       }
     }
     return out;
-  }, [live.nights, live.roomTypes, live.metrics]);
+  }, [live.nights, live.roomTypes, live.metrics, live.availability]);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
