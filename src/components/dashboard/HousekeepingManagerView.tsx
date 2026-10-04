@@ -914,7 +914,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           </div>
         </div>
       )}
-      {isSlntTenant && slntRosterNotice?.kind !== 'missing' && !slntRosterNotice && !slntRosterReady && (
+      {isSlntTenant && !slntRosterNotice && !slntRosterReady && (
         <div role="status" className="rounded-md border p-3 text-sm text-muted-foreground">
           Checking the published SLNT roster for {selectedDate}…
         </div>
