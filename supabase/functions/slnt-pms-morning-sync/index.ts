@@ -298,17 +298,46 @@ async function syncAccount(admin:any, account:any, source="manual") {
     await saveSyncedRoom(room,patch);
     updated++; if (effectiveCheckout) checkout++; else if (occupied) daily++; if(no_show) noShow++; if(notArrived) arrivals++;
 
-    // Align untouched assignments with the freshly synced PMS bucket, but never rewrite in-progress work.
+    // Incrementally reconcile only this room with the freshly synced PMS bucket.
+    // Never rebuild the day or change the assigned cleaner: manager-approved
+    // ownership remains authoritative. In-progress/completed work is immutable.
     if (!inProgress.has(String(room.id))) {
       const desiredType = effectiveCheckout ? "checkout_cleaning" : occupied ? "daily_cleaning" : null;
-      if (desiredType) {
-        const { data: asgs } = await admin.from("room_assignments").select("id,assignment_type,ready_to_clean,status").eq("room_id",room.id).eq("assignment_date",today).in("status",["assigned","dnd_pending_retry"]);
-        for (const a of asgs||[]) {
+      const { data: asgs, error: asgReadError } = await admin.from("room_assignments")
+        .select("id,assignment_type,ready_to_clean,status,assigned_to")
+        .eq("room_id",room.id).eq("assignment_date",today)
+        .in("status",["assigned","dnd_pending_retry"]);
+      if (asgReadError) throw new Error(`${room.room_number}: assignment lookup failed: ${asgReadError.message}`);
+
+      for (const a of asgs||[]) {
+        if (desiredType) {
           const rtc = desiredType==="checkout_cleaning" ? checkedOut : true;
           if (a.assignment_type!==desiredType || a.ready_to_clean!==rtc) {
-            const u=await admin.from("room_assignments").update({assignment_type:desiredType,ready_to_clean:rtc,updated_at:new Date().toISOString()}).eq("id",a.id);
-            if (u.error) throw new Error(`Assignment ${a.id}: ${u.error.message}`); assignmentCorrections++;
+            const u=await admin.from("room_assignments").update({
+              assignment_type:desiredType,
+              ready_to_clean:rtc,
+              updated_at:new Date().toISOString(),
+            }).eq("id",a.id).eq("assigned_to",a.assigned_to);
+            if (u.error) throw new Error(`Assignment ${a.id}: ${u.error.message}`);
+            assignmentCorrections++;
           }
+        } else {
+          // Reservation disappeared / became no-show before work started.
+          // Cancel only this untouched operational assignment; do not move or
+          // regenerate any other cleaner's workload.
+          const u=await admin.from("room_assignments").update({
+            status:"cancelled",
+            updated_at:new Date().toISOString(),
+          }).eq("id",a.id).eq("assigned_to",a.assigned_to);
+          if (u.error) throw new Error(`Assignment ${a.id}: ${u.error.message}`);
+          assignmentCorrections++;
+
+          // Keep the Team B exception queue in sync with the cancellation.
+          const taskUpdate=await admin.from("housekeeping_team_tasks").update({
+            status:"cancelled",
+            updated_at:new Date().toISOString(),
+          }).eq("room_assignment_id",a.id).eq("service_date",today).eq("organization_slug",ORG);
+          if(taskUpdate.error) throw new Error(`Team task for assignment ${a.id}: ${taskUpdate.error.message}`);
         }
       }
     }
