@@ -53,6 +53,13 @@ export interface SoldOutPrice {
   captured_at: string;
 }
 
+export interface RoomTypeAvailability {
+  stay_date: string;
+  obk_id: string;
+  availability: number;
+  captured_at: string;
+}
+
 interface PublishedRevenuePayload {
   roomTypes: RevenueRoomType[];
   nights: BookingNight[];
@@ -155,6 +162,8 @@ export interface RevenueHotelData {
   cancellations: CancelledNight[];
   /** Frozen closing prices for room type / date combinations that sold out. */
   soldOutPrices: SoldOutPrice[];
+  /** Previo's native rooms-for-sale value per room type/date. */
+  availability: RoomTypeAvailability[];
   metrics: DayMetrics[];
   lastSyncAt: string | null;
   /** Who triggered the last revenue sync (null = automatic / unknown). */
@@ -187,6 +196,7 @@ export function useRevenueHotelData(
   );
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
+  const [availability, setAvailability] = useState<RoomTypeAvailability[]>([]);
 
   const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const requestVersionRef = useRef(0);
@@ -196,6 +206,41 @@ export function useRevenueHotelData(
   const effectiveHorizonDays = Math.max(1, Math.min(365, horizonDays));
   const today = budapestToday();
   const horizonEnd = addDays(today, effectiveHorizonDays - 1);
+
+  const loadAvailability = useCallback(async (next: PublishedRevenuePayload) => {
+    if (!hotelId) { setAvailability([]); return; }
+    const rateObks = new Set((next.rates ?? []).map((r) => String(r.obk_id ?? "")).filter(Boolean));
+    const obkIds = Array.from(new Set(
+      (next.roomTypes ?? [])
+        .map((room) => String(room.pms_room_id ?? ""))
+        .filter((id) => id && rateObks.has(id)),
+    ));
+    if (obkIds.length === 0) { setAvailability([]); return; }
+
+    const rows: RoomTypeAvailability[] = [];
+    const pageSize = 1000;
+    for (let fromRow = 0; ; fromRow += pageSize) {
+      const { data, error } = await (supabase as any)
+        .from("revenue_room_type_availability")
+        .select("stay_date,obk_id,availability,captured_at")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", today)
+        .lte("stay_date", horizonEnd)
+        .in("obk_id", obkIds)
+        .order("stay_date", { ascending: true })
+        .range(fromRow, fromRow + pageSize - 1);
+      if (error) {
+        // Availability is an enhancement over the reservation-derived fallback;
+        // never blank the revenue screen because this mirror is temporarily unavailable.
+        setAvailability([]);
+        return;
+      }
+      const page = (data ?? []) as RoomTypeAvailability[];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+    setAvailability(rows);
+  }, [hotelId, today, horizonEnd]);
 
   const runLoad = useCallback(async () => {
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
@@ -217,7 +262,7 @@ export function useRevenueHotelData(
       return row;
     };
 
-    const apply = (row: any, cacheFirstWindow: boolean) => {
+    const apply = (row: any, cacheFirstWindow: boolean): PublishedRevenuePayload => {
       const next = row.payload as PublishedRevenuePayload;
       const normalisedRoomTypes = roomTypesWithGuestLevels(next.roomTypes ?? [], next.rates ?? []);
       const completedPayload: PublishedRevenuePayload = {
@@ -264,6 +309,7 @@ export function useRevenueHotelData(
           lastSyncBy: nextSyncBy,
         });
       }
+      return completedPayload;
     };
 
     const request = (async () => {
@@ -276,7 +322,8 @@ export function useRevenueHotelData(
         if (wantsWindow) {
           const first = await fetchStage(FIRST_WINDOW_DAYS);
           if (requestVersion !== requestVersionRef.current) return;
-          apply(first, true);
+          const firstPayload = apply(first, true);
+          await loadAvailability(firstPayload);
           setLoading(false);
           setExtending(true);
         }
@@ -289,7 +336,8 @@ export function useRevenueHotelData(
           }
           const requested = await fetchStage(effectiveHorizonDays);
           if (requestVersion !== requestVersionRef.current) return;
-          apply(requested, !wantsWindow);
+          const requestedPayload = apply(requested, !wantsWindow);
+          await loadAvailability(requestedPayload);
         }
       } catch (e) {
         if (requestVersion !== requestVersionRef.current) return;
@@ -306,7 +354,7 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current?.promise === request) inFlightRef.current = null;
     }
-  }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, today]);
+  }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, today, loadAvailability]);
 
   /** A sync or successful price push requires a fresh read, even during a prior load. */
   const reload = useCallback(async () => {
@@ -325,6 +373,7 @@ export function useRevenueHotelData(
     setRoomMetadata(cached?.payload.roomTypes?.length ? cached.payload.roomTypes : cachedMeta);
     setLastSyncAt(cached?.lastSyncAt ?? null);
     setLastSyncBy(cached?.lastSyncBy ?? null);
+    setAvailability([]);
     setLoading(!cached?.payload);
     setError(null);
   }, [cacheKey]);
@@ -390,7 +439,7 @@ export function useRevenueHotelData(
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, cancellations, soldOutPrices, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
+    nights, snapshots, rates, cancellations, soldOutPrices, availability, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
     extending,
   };
 }
