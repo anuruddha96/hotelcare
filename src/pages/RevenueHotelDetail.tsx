@@ -246,29 +246,9 @@ export default function RevenueHotelDetail() {
 
 
   // Previo's calendar availability is authoritative for "rooms left".
-  // Reservation-derived inventory remains a safe fallback when the endpoint is
-  // temporarily unavailable, but it must never override an explicit PMS zero.
-  const [previoAvailability, setPrevioAvailability] = useState<Map<string, number>>(new Map());
-  useEffect(() => {
-    if (!hotelId || !live.today || !live.horizonEnd) return;
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase.functions.invoke("previo-room-availability", {
-        body: { hotelId, from: live.today, to: live.horizonEnd },
-      });
-      if (cancelled || error || !Array.isArray(data?.rows)) return;
-      const next = new Map<string, number>();
-      for (const row of data.rows) {
-        const obk = String(row.room_kind_id ?? "");
-        const date = String(row.stay_date ?? "").slice(0, 10);
-        const value = Number(row.availability);
-        if (obk && date && Number.isFinite(value)) next.set(`${obk}|${date}`, Math.max(0, Math.trunc(value)));
-      }
-      setPrevioAvailability(next);
-    })();
-    return () => { cancelled = true; };
-  }, [hotelId, live.today, live.horizonEnd, live.lastSyncAt]);
-
+  // The sync stores the PMS value per room type/date. Reservation-derived
+  // inventory is only a fallback when the Previo availability privilege is
+  // unavailable or a particular date has not been mirrored yet.
   const leftByTypeDate = useMemo(() => {
     const soldBy = new Map<string, number>();
     for (const n of live.nights) {
@@ -276,21 +256,27 @@ export default function RevenueHotelDetail() {
       const k = `${n.room_type_name}|${n.stay_date}`;
       soldBy.set(k, (soldBy.get(k) ?? 0) + 1);
     }
+
+    const authoritative = new Map<string, number>();
+    for (const row of live.availability) {
+      authoritative.set(`${row.obk_id}|${row.stay_date}`, Math.max(0, Number(row.availability) || 0));
+    }
+
     const out = new Map<string, number>();
     for (const rt of live.roomTypes) {
       if (!rt.pms_room_id || (rt.num_rooms || 0) <= 0) continue;
       for (const m of live.metrics) {
         const displayKey = `${rt.name}|${m.stay_date}`;
         const pmsKey = `${rt.pms_room_id}|${m.stay_date}`;
-        const authoritative = previoAvailability.get(pmsKey);
         out.set(
           displayKey,
-          authoritative ?? Math.max(0, (rt.num_rooms || 0) - (soldBy.get(displayKey) ?? 0)),
+          authoritative.get(pmsKey)
+            ?? Math.max(0, (rt.num_rooms || 0) - (soldBy.get(displayKey) ?? 0)),
         );
       }
     }
     return out;
-  }, [live.nights, live.roomTypes, live.metrics, previoAvailability]);
+  }, [live.nights, live.roomTypes, live.metrics, live.availability]);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
