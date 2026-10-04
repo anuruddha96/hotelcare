@@ -9,7 +9,7 @@ import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
 import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "@/lib/previoHousekeepingNote";
-import { normalizeUnitName, isTechnicalRow, buildUnitResolver } from "@/lib/slntUnitMapping";
+import { normalizeUnitName, isTechnicalRow, buildUnitResolver, isSlntInactiveOperationalUnit, isSlntWorkbookActiveUnit } from "@/lib/slntUnitMapping";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
 const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Syst[ée]m\s*-/i;
@@ -81,6 +81,10 @@ export interface PmsSyncResult {
   reservationIssue?: Record<string, any> | null;
   proposedChanges?: ProposedRoomChange[];
   unmapped?: Array<{ pms_room_id: string; pms_room_name: string; room_kind_name: string; extracted_number: string }>;
+  syncedRooms?: string[];
+  missingRooms?: string[];
+  unmatchedRooms?: string[];
+  excludedRooms?: string[];
   accounts?: Array<{ id: string; label: string; status: "success" | "error"; rows: number; error?: string }>;
 }
 
@@ -292,6 +296,8 @@ export async function runPmsRefresh(
   // tenants (SLNT) this — not the number of Previo listing rows — is the
   // denominator of the "x/y rooms" counter.
   let appUnitCount = 0;
+  const activeRosterRoomIds = new Set<string>();
+  const activeRosterLabelById = new Map<string, string>();
   try {
     const { data: unitMaps } = await supabase
       .from("pms_unit_mappings")
@@ -322,12 +328,17 @@ export async function runPmsRefresh(
       // after the mapping was made) still resolve by their canonical name.
       const { data: rosterRooms } = await supabase
         .from("rooms")
-        .select("id, room_number")
+        .select("id, room_number, status")
         .in("hotel", hotelKeys);
       for (const r of (rosterRooms ?? []) as any[]) {
         resolverEntries.push({ roomId: r.id as string, names: [r.room_number] });
+        const active = !isSlntRoom || isSlntWorkbookActiveUnit(String(r.room_number || ""), r.status);
+        if (active) {
+          activeRosterRoomIds.add(String(r.id));
+          activeRosterLabelById.set(String(r.id), String(r.room_number || r.id));
+        }
       }
-      appUnitCount = (rosterRooms ?? []).length;
+      appUnitCount = activeRosterRoomIds.size || (rosterRooms ?? []).length;
     }
   } catch (e) {
     console.warn("[pmsRefresh] unit alias map unavailable:", e);
@@ -352,6 +363,8 @@ export async function runPmsRefresh(
   const checkoutRoomNumbers: string[] = [];
   const dailyRoomNumbers: string[] = [];
   const unmatchedRoomNumbers: string[] = [];
+  const excludedRoomNumbers: string[] = [];
+  const syncedRoomNumbers = new Set<string>();
   const errors: string[] = [];
   const proposedChanges: ProposedRoomChange[] = [];
   const today = todayBudapest();
@@ -499,10 +512,13 @@ export async function runPmsRefresh(
     try {
       const rawRoomName = String(row.Room ?? "").trim();
       if (!rawRoomName) continue;
-      // Previo exports contain "Technikai" separator rows for portfolio
-      // accounts — they are not units and must not count as unmatched.
-      if (aliasToRoomId.size > 0 && isTechnicalRow(rawRoomName)) continue;
-      consideredRows++;
+      // Confirmed inactive SLNT inventory is retained for PMS identity/audit,
+      // but it is intentionally outside operational housekeeping coverage.
+      // Never count these rows as missing/unmapped warnings.
+      if (isSlntRoom && (isTechnicalRow(rawRoomName) || isSlntInactiveOperationalUnit(rawRoomName))) {
+        if (!excludedRoomNumbers.includes(rawRoomName)) excludedRoomNumbers.push(rawRoomName);
+        continue;
+      }
       const roomNumber = extractRoomNumber(rawRoomName);
 
       const previoRoomId = row.RoomId != null ? String(row.RoomId) : "";
@@ -551,6 +567,7 @@ export async function runPmsRefresh(
 
 
       if (!roomsFound || roomsFound.length === 0) {
+        consideredRows++;
         notFound++;
         if (unmatchedRoomNumbers.length < 200) unmatchedRoomNumbers.push(String(rawRoomName));
         if (dryRun) {
@@ -571,7 +588,15 @@ export async function runPmsRefresh(
           (candidate.is_checkout_room ? 5 : 0);
         return score(b) - score(a);
       })[0];
+      if (isSlntRoom && !isSlntWorkbookActiveUnit(String(room.room_number || rawRoomName), room.status)) {
+        if (!excludedRoomNumbers.includes(String(room.room_number || rawRoomName))) {
+          excludedRoomNumbers.push(String(room.room_number || rawRoomName));
+        }
+        continue;
+      }
+      consideredRows++;
       matchedRoomIds.add(room.id);
+      syncedRoomNumbers.add(String(room.room_number || rawRoomName));
       const verifiedSlntNoteTarget = !isSlntRoom || (!!previoRoomId && !!row.PmsAccountId
         && slntAccountRoomIds.get(`${row.PmsAccountId}:${previoRoomId}`) === room.id);
       if (portfolioMode && previoRoomId && !externalIdToRoomId.has(previoRoomId)) {
@@ -1096,7 +1121,24 @@ export async function runPmsRefresh(
     }
   }
 
-  const status: PmsSyncStatus = errors.length ? "partial" : "success";
+  const sortLabels = (values: Iterable<string>) =>
+    Array.from(new Set(Array.from(values).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+    );
+  const missingActiveRooms = isSlntRoom && activeRosterRoomIds.size > 0
+    ? sortLabels(Array.from(activeRosterRoomIds)
+        .filter(roomId => !matchedRoomIds.has(roomId))
+        .map(roomId => activeRosterLabelById.get(roomId) || roomId))
+    : [];
+  const syncedOperationalRooms = isSlntRoom && activeRosterRoomIds.size > 0
+    ? sortLabels(Array.from(matchedRoomIds)
+        .filter(roomId => activeRosterRoomIds.has(roomId))
+        .map(roomId => activeRosterLabelById.get(roomId) || roomId))
+    : sortLabels(syncedRoomNumbers);
+  const operationalUnmatchedRooms = sortLabels(unmatchedRoomNumbers);
+  const excludedRooms = sortLabels(excludedRoomNumbers);
+  const coverageIncomplete = missingActiveRooms.length > 0 || operationalUnmatchedRooms.length > 0;
+  const status: PmsSyncStatus = errors.length || coverageIncomplete ? "partial" : "success";
 
   // Self-healing: remember the Previo room id for every unit we matched by
   // name, so subsequent syncs match by id even if Previo renames the listing.
@@ -1160,7 +1202,11 @@ export async function runPmsRefresh(
           notFound,
           total: portfolioMode ? (appUnitCount || consideredRows) : rows.length,
           previoRows: portfolioMode ? consideredRows : rows.length,
-          unmappedListings: portfolioMode ? unmatchedRoomNumbers.length : undefined,
+          unmappedListings: portfolioMode ? operationalUnmatchedRooms.length : undefined,
+          syncedRooms: syncedOperationalRooms,
+          missingRooms: missingActiveRooms,
+          unmatchedRooms: operationalUnmatchedRooms,
+          excludedRooms,
 
           checkouts,
           dailyCount: dailyRoomNumbers.length,
@@ -1181,7 +1227,16 @@ export async function runPmsRefresh(
   }
 
   return {
-    status, updated, total: portfolioMode ? (appUnitCount || consideredRows) : rows.length, notFound, checkouts, errors,
+    status,
+    updated: portfolioMode && isSlntRoom ? syncedOperationalRooms.length : updated,
+    total: portfolioMode ? (appUnitCount || consideredRows) : rows.length,
+    notFound: operationalUnmatchedRooms.length,
+    checkouts,
+    errors,
+    syncedRooms: syncedOperationalRooms,
+    missingRooms: missingActiveRooms,
+    unmatchedRooms: operationalUnmatchedRooms,
+    excludedRooms,
     managerMessage: reservationManagerMessage,
     reservationDataAuthoritative,
     reservationIssue,
