@@ -901,7 +901,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       <TabsContent value="team" className="space-y-6" data-training="team-view">
-      {isSlntTenant && slntRosterNotice && (
+      {isSlntTenant && slntRosterNotice?.kind === 'error' && (
         <div role="alert" className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${slntRosterNotice.kind === 'missing' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-destructive/60 bg-destructive/5 text-destructive'}`}>
           <p className="flex-1 min-w-52">{slntRosterNotice.message}</p>
           <div className="flex flex-wrap gap-2">
@@ -914,7 +914,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           </div>
         </div>
       )}
-      {isSlntTenant && !slntRosterNotice && !slntRosterReady && (
+      {isSlntTenant && slntRosterNotice?.kind !== 'missing' && !slntRosterNotice && !slntRosterReady && (
         <div role="status" className="rounded-md border p-3 text-sm text-muted-foreground">
           Checking the published SLNT roster for {selectedDate}…
         </div>
@@ -922,7 +922,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold">{t('team.management')}</h2>
+          <h2 className="text-xl font-semibold">{isSlntTenant ? 'Today’s work' : t('team.management')}</h2>
           {venuesEnabled && <div className="inline-flex rounded-md border p-1 gap-1">
             <Button size="sm" variant={selectedDate === todayBudapest() ? 'default' : 'ghost'} onClick={() => setSelectedDate(todayBudapest())}>Today</Button>
             <Button size="sm" variant={selectedDate === format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd') ? 'default' : 'ghost'} onClick={() => setSelectedDate(format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd'))}>Tomorrow</Button>
@@ -973,7 +973,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Wand2 className="h-4 w-4" />
-                <span className="truncate">{t('manager.autoAssign')}</span>
+                <span className="truncate">{isSlntTenant ? 'Rebalance' : t('manager.autoAssign')}</span>
                </Button>
 
                <Button
@@ -984,9 +984,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                >
                  <MapPin className="h-4 w-4" />
                  <span className="truncate">{t('manager.publicAreas')}</span>
-               </Button>
+               </Button>}
                
-               <Button 
+               {!isSlntTenant && <Button 
                  variant="outline"
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                  onClick={() => setAssignmentDialogOpen(true)}
@@ -994,7 +994,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                >
                  <Plus className="h-4 w-4" />
                  {t('team.assignRoom')}
-               </Button>
+               </Button>}
              </>
            )}
          </div>
@@ -1037,7 +1037,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       {/* Hotel Room Overview */}
-      {managerHotelName && (
+      {managerHotelName && !isSlntTenant && (
         <HotelRoomOverview
           selectedDate={selectedDate}
           hotelName={managerHotelName}
