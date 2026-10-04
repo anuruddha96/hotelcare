@@ -74,18 +74,18 @@ type Copy = {
   notSelected: string;
   checkout: string;
   daily: string;
-  setupWarning: string;
+  exceptionHelp: string;
 };
 
 const COPY: Record<'en' | 'hu', Copy> = {
   en: {
     title: 'Team B · today',
-    subtitle: 'Today’s working Team B staff share the released room queue. A room becomes individual only after a cleaner claims it.',
+    subtitle: 'Today’s planned work is assigned automatically. Only exceptions that still need a cleaner are shown here.',
     manageStaff: 'Team B staff',
     refresh: 'Refresh',
-    noTasks: 'No Team B shared rooms have been released for today.',
-    queue: 'Available',
-    claimed: 'Claimed',
+    noTasks: 'All Team B work is assigned. No manager action is needed.',
+    queue: 'Unassigned',
+    claimed: 'Assigned',
     claim: 'Claim room',
     claiming: 'Claiming…',
     claimedByYou: 'Claimed by you · continue in My Rooms below',
@@ -99,17 +99,17 @@ const COPY: Record<'en' | 'hu', Copy> = {
     working: 'Working',
     notSelected: 'Not working today',
     checkout: 'Checkout',
-    daily: 'Daily',
-    setupWarning: 'Team B day staffing storage is not available yet. HotelCare is safely using the published Staff Schedule for today.',
+    daily: 'Service reminder',
+    exceptionHelp: 'Only rooms that still need a cleaner are shown below.',
   },
   hu: {
     title: 'B csapat · ma',
-    subtitle: 'A ma dolgozó B csapattagok ugyanazt a kiadott szobalistát látják. A szoba csak felvétel után lesz egyéni feladat.',
+    subtitle: 'A mai tervezett munkát a HotelCare automatikusan kiosztja. Itt csak a még kiosztatlan kivételek jelennek meg.',
     manageStaff: 'B csapat személyzet',
     refresh: 'Frissítés',
-    noTasks: 'Mára még nincs kiadott közös B csapat feladat.',
-    queue: 'Elérhető',
-    claimed: 'Lefoglalva',
+    noTasks: 'Minden B csapat feladat ki van osztva. Nincs szükség vezetői beavatkozásra.',
+    queue: 'Kiosztatlan',
+    claimed: 'Kiosztva',
     claim: 'Szoba felvétele',
     claiming: 'Felvétel…',
     claimedByYou: 'Ön vette fel · folytassa lent a Saját szobák résznél',
@@ -123,8 +123,8 @@ const COPY: Record<'en' | 'hu', Copy> = {
     working: 'Dolgozik',
     notSelected: 'Ma nem dolgozik',
     checkout: 'Kijelentkezés',
-    daily: 'Napi',
-    setupWarning: 'A B csapat napi személyzeti tárolója még nem érhető el. A HotelCare biztonságosan a közzétett munkabeosztást használja mára.',
+    daily: 'Szervizemlékeztető',
+    exceptionHelp: 'Lent csak azok a szobák láthatók, amelyekhez még takarító szükséges.',
   },
 };
 
@@ -360,9 +360,7 @@ export function SlntTeamBSharedQueue() {
             </div>
           )}
 
-          {optionalSchemaFallback && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">{text.setupWarning}</div>
-          )}
+          {/* Schema fallback is a deployment diagnostic, not an operational warning. */}
 
           {canManage && members.length === 0 && !loadError && (
             <div className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between dark:bg-amber-950/20 dark:text-amber-100">
@@ -384,11 +382,11 @@ export function SlntTeamBSharedQueue() {
             </div>
           )}
 
-          {tasks.length === 0 ? (
+          {summary.queued === 0 ? (
             <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : text.noTasks}</div>
           ) : (
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {tasks.map(task => {
+              {tasks.filter(task => task.status === 'queued').map(task => {
                 const claimedByMe = task.claimed_by === user.id;
                 const isQueued = task.status === 'queued';
                 return (
