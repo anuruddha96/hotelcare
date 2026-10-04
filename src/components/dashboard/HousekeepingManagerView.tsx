@@ -976,7 +976,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 <span className="truncate">{isSlntTenant ? 'Rebalance' : t('manager.autoAssign')}</span>
                </Button>
 
-               <Button
+               {!isSlntTenant && <Button
                  variant="outline"
                  onClick={() => setPublicAreaDialogOpen(true)}
                  disabled={!slntRosterReady}
