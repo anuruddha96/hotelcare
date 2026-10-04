@@ -351,6 +351,95 @@ async function chunkedCall(
 }
 
 
+interface PrevioAvailabilityRow {
+  stay_date: string;
+  room_kind_id: string;
+  availability: number;
+}
+
+function previoRestApiKey(creds: any): string | null {
+  if (!creds) return null;
+  if (creds.protocol === "xml") return String(creds.apiKey || "").trim() || null;
+  return String(creds.apiKey || creds.password || "").trim() || null;
+}
+
+/**
+ * Previo REST calendar/availability is the authoritative "rooms for sale"
+ * source. roomKindId is the REST name for XML obkId. The API permits at most a
+ * 365-day request, so longer Hotel Care horizons are split without changing the
+ * semantics.
+ */
+async function pullPrevioAvailability(
+  creds: unknown,
+  hotId: string,
+  from: string,
+  to: string,
+): Promise<{ rows: PrevioAvailabilityRow[]; error: string | null }> {
+  const apiKey = previoRestApiKey(creds as any);
+  if (!apiKey) return { rows: [], error: "REST API key unavailable" };
+
+  const byKey = new Map<string, PrevioAvailabilityRow>();
+  let cursor = from;
+  while (cursor <= to) {
+    const maxEnd = addDays(cursor, 364);
+    const end = maxEnd > to ? to : maxEnd;
+    const params = new URLSearchParams({
+      filterFrom: cursor,
+      filterTo: end,
+      includeOfflineRooms: "true",
+    });
+    let response: Response;
+    try {
+      response = await fetch(`https://api.previo.app/rest/calendar/availability?${params.toString()}`, {
+        method: "GET",
+        headers: {
+          Authorization: `ApiKey ${apiKey}`,
+          "X-Previo-Hotel-Id": hotId,
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      return { rows: [], error: `network error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+
+    const text = await response.text();
+    if (!response.ok) {
+      return { rows: [], error: `[${response.status}] ${text.replace(/\s+/g, " ").slice(0, 240)}` };
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { rows: [], error: "Previo availability returned malformed JSON" };
+    }
+
+    const ratePlans = Array.isArray(parsed) ? parsed : [parsed];
+    for (const plan of ratePlans) {
+      for (const day of (Array.isArray(plan?.availability) ? plan.availability : [])) {
+        const stayDate = String(day?.date ?? "").slice(0, 10);
+        if (!stayDate) continue;
+        for (const room of (Array.isArray(day?.roomKinds) ? day.roomKinds : [])) {
+          const id = room?.id ?? room?.roomKindId;
+          const available = Number(room?.availability);
+          if (id == null || !Number.isFinite(available)) continue;
+          const row: PrevioAvailabilityRow = {
+            stay_date: stayDate,
+            room_kind_id: String(id),
+            availability: Math.max(0, Math.trunc(available)),
+          };
+          byKey.set(`${row.room_kind_id}|${row.stay_date}`, row);
+        }
+      }
+    }
+    cursor = addDays(end, 1);
+  }
+
+  return { rows: Array.from(byKey.values()), error: null };
+}
+
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -596,6 +685,63 @@ serve(async (req) => {
           max_price_eur: 500,
           sort_order: rt.order,
         });
+      }
+    }
+  }
+
+
+  // ---------- 1b. native rooms-for-sale availability ----------
+  // The reservation book tells us occupancy, but it cannot tell us that a
+  // manager manually closed an otherwise-empty room type in Previo. Mirror
+  // Previo's own calendar availability so the grid shows the same sellable
+  // inventory as the PMS. If this optional REST privilege is unavailable we
+  // deliberately clear the stale mirror and let the UI fall back to bookings.
+  let availabilityRowsStored = 0;
+  if (!probeOnly) {
+    for (const acc of liveAccounts) {
+      const clear = await service
+        .from("revenue_room_type_availability")
+        .delete()
+        .eq("hotel_id", hotelId)
+        .eq("pms_hotel_id", acc.hotId)
+        .gte("stay_date", from)
+        .lte("stay_date", to);
+      if (clear.error) {
+        errors.push(`${acc.label} availability clear: ${clear.error.message}`);
+        continue;
+      }
+
+      const availabilityPull = await pullPrevioAvailability(acc.creds, acc.hotId, from, to);
+      if (availabilityPull.error) {
+        softNotes.push(
+          `${acc.label}: Previo native availability unavailable (${availabilityPull.error}); Hotel Care will use reservation-derived rooms left.`,
+        );
+        continue;
+      }
+
+      const capturedAt = new Date().toISOString();
+      const rows = availabilityPull.rows.map((row) => ({
+        hotel_id: hotelId,
+        organization_slug: orgSlug,
+        pms_hotel_id: acc.hotId,
+        stay_date: row.stay_date,
+        obk_id: scopeObk(acc, row.room_kind_id),
+        availability: row.availability,
+        source: "previo_calendar_availability",
+        captured_at: capturedAt,
+      }));
+
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await service
+          .from("revenue_room_type_availability")
+          .upsert(rows.slice(i, i + 500), {
+            onConflict: "hotel_id,pms_hotel_id,stay_date,obk_id",
+          });
+        if (error) {
+          errors.push(`${acc.label} availability upsert: ${error.message}`);
+          break;
+        }
+        availabilityRowsStored += Math.min(500, rows.length - i);
       }
     }
   }
@@ -1765,6 +1911,7 @@ serve(async (req) => {
     requeuedCells,
     divergentDrafts,
     bookingNights: nights.length,
+    availabilityRows: availabilityRowsStored,
     // Loss instrumentation: how many room-nights Previo reported as cancelled
     // and how many simply vanished between two syncs. Without these counters a
     // property that never shows negative pickup is impossible to diagnose.
