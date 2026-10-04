@@ -1127,10 +1127,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     )}
                     {venuesEnabled && (() => {
                       const shift = staffSchedules[staff.id];
-                      if (!shift) return <Badge variant="outline" className="mt-2 text-[10px]">{isSlntTenant && !slntRosterReady && slntRosterNotice?.kind !== 'missing' ? "Roster unavailable" : "Not scheduled"}</Badge>;
-                      if (shift.status === 'off') return <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
+                      if (!shift) return isSlntTenant ? null : <Badge variant="outline" className="mt-2 text-[10px]">Not scheduled</Badge>;
+                      if (shift.status === 'off') return isSlntTenant ? null : <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
                       const names = shift.staff_schedule_venues?.map((row) => venueName(row.venue_id)).filter(Boolean).join(', ');
-                      return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{names ? ` · ${names}` : ''}</div>;
+                      return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{!isSlntTenant && names ? ` · ${names}` : ''}</div>;
                     })()}
                   </div>
                   <Badge variant={assignment?.total_assigned ? "default" : "secondary"}>
@@ -1204,7 +1204,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     </div>
 
                     {/* Status Breakdown */}
-                        <div className="grid grid-cols-4 gap-2 text-center">
+                        <div className={`grid grid-cols-4 gap-2 text-center ${isSlntTenant ? "border-t pt-2" : ""}`}>
                       <div 
                         className="cursor-pointer hover:bg-green-50 rounded p-1 transition-colors"
                         onClick={() => {
