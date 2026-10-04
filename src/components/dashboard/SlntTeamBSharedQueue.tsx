@@ -155,6 +155,7 @@ export function SlntTeamBSharedQueue() {
   const [staffOpen, setStaffOpen] = useState(false);
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
   const [savingMembers, setSavingMembers] = useState(false);
+  const [materializedForDate, setMaterializedForDate] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!isSlnt || !user) return;
@@ -190,7 +191,30 @@ export function SlntTeamBSharedQueue() {
       if (taskResult.error) throw taskResult.error;
 
       const nextMembers = (memberResult.data || []) as MemberRow[];
-      const nextTasks = (taskResult.data || []) as TaskRow[];
+      let nextTasks = (taskResult.data || []) as TaskRow[];
+
+      // Managers opening Today reconcile saved Team B planned candidates into
+      // normal room assignments once per business date. The RPC is idempotent:
+      // existing live assignments are preserved and only valid day-plan staff
+      // can be materialized. Cleaners never need this permission or side effect.
+      if (canManage && materializedForDate !== today && nextTasks.some(task => task.status === 'queued')) {
+        const materializeResult = await (supabase as any).rpc('materialize_slnt_team_b_planned_assignments', {
+          p_service_date: today,
+        });
+        if (materializeResult.error) {
+          if (!isMissingTeamBOptionalSchemaError(materializeResult.error)) {
+            console.warn('[SlntTeamBSharedQueue] planned assignment reconciliation failed:', materializeResult.error);
+          }
+        } else {
+          setMaterializedForDate(today);
+          const refreshedTasks = await (supabase as any).from('housekeeping_team_tasks')
+            .select('id,room_id,service_date,assignment_type,priority,status,claimed_by,claimed_at,room_assignment_id')
+            .eq('team_id', activeTeam.id).eq('service_date', today).neq('status', 'cancelled')
+            .order('priority', { ascending: true }).order('created_at', { ascending: true });
+          if (!refreshedTasks.error) nextTasks = (refreshedTasks.data || []) as TaskRow[];
+          window.dispatchEvent(new CustomEvent('hk-assignment-updated', { detail: { source: 'slnt-team-b-auto-materialize' } }));
+        }
+      }
       const memberIds = nextMembers.map(member => member.user_id);
       setMembers(nextMembers);
       setTasks(nextTasks);
@@ -257,7 +281,7 @@ export function SlntTeamBSharedQueue() {
     } finally {
       setLoading(false);
     }
-  }, [canManage, isSlnt, language, today, user]);
+  }, [canManage, isSlnt, language, materializedForDate, today, user]);
 
   useEffect(() => { void load(); }, [load]);
 
