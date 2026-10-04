@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeft,
@@ -82,7 +82,7 @@ const COPY = {
     continue: 'Continue to room assignments', back: 'Back to staff', noStaff: 'Select at least one cleaner to continue.',
     firstTime: 'No saved day plan, published schedule or defaults exist yet, so all Team B staff are selected for this first plan.',
     defaultsOnly: 'Use defaults', selectAll: 'Select all', clear: 'Clear', working: 'working',
-    unassigned: 'Unassigned', moveHere: 'Move selected here', moveSelectedHere: 'Move selected rooms here', clearSelection: 'Clear selection', selectedRooms: 'rooms selected', selectProperty: 'Select property',
+    unassigned: 'Unassigned', moveHere: 'Move selected here', moveSelectedHere: 'Move selected rooms here', clearSelection: 'Clear selection', selectedRooms: 'rooms selected', selectProperty: 'Select property', dropHere: 'Drop here', dragRoom: 'Drag room',
     selectHint: 'Rooms are grouped by property first so a cleaner is not sent back and forth between distant locations. Select one or multiple rooms, then move them together to a cleaner. Dragging a single room still works.',
     rooms: 'rooms', noMembers: 'No Team B staff are configured. Add staff from Team B · today first.',
     compatibility: 'Operational day staffing storage is not available. Published Staff Schedule staff can still be planned safely; staff overrides require the Team B database update.',
@@ -104,7 +104,7 @@ const COPY = {
     continue: 'Tovább a szobabeosztáshoz', back: 'Vissza a személyzethez', noStaff: 'A folytatáshoz válasszon legalább egy takarítót.',
     firstTime: 'Még nincs mentett napi terv, közzétett beosztás vagy alapértelmezett személyzet, ezért az első tervhez minden B csapattag ki van jelölve.',
     defaultsOnly: 'Alapértelmezettek', selectAll: 'Összes kijelölése', clear: 'Törlés', working: 'dolgozik',
-    unassigned: 'Kiosztatlan', moveHere: 'Kijelölt áthelyezése ide', moveSelectedHere: 'Kijelölt szobák áthelyezése ide', clearSelection: 'Kijelölés törlése', selectedRooms: 'szoba kijelölve', selectProperty: 'Ingatlan kijelölése',
+    unassigned: 'Kiosztatlan', moveHere: 'Kijelölt áthelyezése ide', moveSelectedHere: 'Kijelölt szobák áthelyezése ide', clearSelection: 'Kijelölés törlése', selectedRooms: 'szoba kijelölve', selectProperty: 'Ingatlan kijelölése', dropHere: 'Húzza ide', dragRoom: 'Szoba húzása',
     selectHint: 'A szobákat először ingatlan szerint csoportosítjuk, hogy a takarítónak ne kelljen távoli helyszínek között ingáznia. Jelöljön ki egy vagy több szobát, majd helyezze át őket együtt egy takarítóhoz. Egy szoba továbbra is húzható.',
     rooms: 'szoba', noMembers: 'Nincs B csapat személyzet beállítva. Először adjon hozzá dolgozókat a B csapat · ma résznél.',
     compatibility: 'Az operatív napi személyzeti tároló még nem érhető el. A közzétett munkabeosztás biztonságosan használható; egyedi személyzeti felülíráshoz adatbázis-frissítés szükséges.',
@@ -188,6 +188,10 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
   const [existingTasks, setExistingTasks] = useState<ExistingTask[]>([]);
   const [capturedAt, setCapturedAt] = useState<string | null>(null);
   const [preferredOwners, setPreferredOwners] = useState<Map<string, string>>(new Map());
+  const plannerScrollerRef = useRef<HTMLDivElement | null>(null);
+  const touchDragStartRef = useRef<{ roomId: string; roomNumber: string; startX: number; startY: number; pointerId: number } | null>(null);
+  const [touchDrag, setTouchDrag] = useState<{ roomId: string; roomNumber: string; x: number; y: number; active: boolean } | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   const summary = useMemo(() => summarizeTeamWorkload(rooms), [rooms]);
   const workingStaff = useMemo(() => allStaff.filter(person => selectedStaffIds.has(person.id)), [allStaff, selectedStaffIds]);
@@ -350,6 +354,54 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
     setSelectedRoomIds(new Set());
   };
   const moveRoom = (roomId: string, staffId: string) => moveRooms([roomId], staffId);
+  const resolveDropTarget = (clientX: number, clientY: number) => {
+    const target = document.elementFromPoint(clientX, clientY)?.closest('[data-team-drop-id]') as HTMLElement | null;
+    return target?.dataset.teamDropId || null;
+  };
+  const beginTouchDrag = (event: React.PointerEvent<HTMLButtonElement>, room: RoomForAssignment) => {
+    if (event.pointerType === 'mouse') return;
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    touchDragStartRef.current = {
+      roomId: room.id,
+      roomNumber: room.room_number,
+      startX: event.clientX,
+      startY: event.clientY,
+      pointerId: event.pointerId,
+    };
+    setTouchDrag({ roomId: room.id, roomNumber: room.room_number, x: event.clientX, y: event.clientY, active: false });
+  };
+  const updateTouchDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const start = touchDragStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const distance = Math.hypot(event.clientX - start.startX, event.clientY - start.startY);
+    if (distance < 8 && !touchDrag?.active) return;
+    event.preventDefault();
+
+    const scroller = plannerScrollerRef.current;
+    if (scroller) {
+      const bounds = scroller.getBoundingClientRect();
+      const edge = 44;
+      if (event.clientX < bounds.left + edge) scroller.scrollBy({ left: -22, behavior: 'auto' });
+      else if (event.clientX > bounds.right - edge) scroller.scrollBy({ left: 22, behavior: 'auto' });
+    }
+
+    setTouchDrag({ roomId: start.roomId, roomNumber: start.roomNumber, x: event.clientX, y: event.clientY, active: true });
+    setDropTargetId(resolveDropTarget(event.clientX, event.clientY));
+  };
+  const finishTouchDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const start = touchDragStartRef.current;
+    if (!start || start.pointerId !== event.pointerId) return;
+    const targetId = resolveDropTarget(event.clientX, event.clientY) || dropTargetId;
+    if (touchDrag?.active && targetId) {
+      event.preventDefault();
+      event.stopPropagation();
+      moveRoom(start.roomId, targetId);
+    }
+    touchDragStartRef.current = null;
+    setTouchDrag(null);
+    setDropTargetId(null);
+  };
   const toggleRoomSelection = (roomId: string) => setSelectedRoomIds(previous => {
     const next = new Set(previous);
     if (next.has(roomId)) next.delete(roomId); else next.add(roomId);
@@ -433,7 +485,8 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[96dvh] max-h-[96dvh] w-[99vw] max-w-none flex-col overflow-hidden p-0">\n        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24">
+      <DialogContent className="flex h-[96dvh] max-h-[96dvh] w-[99vw] max-w-none flex-col overflow-hidden p-0">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex flex-wrap items-center gap-2 text-lg sm:text-xl">
             <CalendarClock className="h-5 w-5 text-primary" />{t.title}<Badge variant="outline">{selectedDate}</Badge>
@@ -501,32 +554,98 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
               <span className="text-violet-700">■ {t.unbooked}</span>
             </div>
             {rooms.length === 0 ? <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">{t.noRooms}</div> : (
-              <div className="grid min-h-0 w-full gap-2 pb-2" style={{ gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(0, 1fr))` }}>
-                {columns.map(column => (
-                  <section key={column.id} className="flex min-w-0 flex-col rounded-lg border bg-card" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const roomId = event.dataTransfer.getData('text/plain'); if (roomId) moveRoom(roomId, column.id); }}>
-                    <div className="border-b px-2 py-1.5"><div className="flex items-center justify-between gap-1"><div className="min-w-0 truncate text-sm font-semibold">{column.name}</div><Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{column.rooms.length}</Badge></div><div className="text-[10px] text-muted-foreground">≈ {Math.round(column.rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0) / 60 * 10) / 10}h</div>{selectedRoomIds.size > 0 && <Button className="mt-1 h-6 w-full px-1 text-[10px]" size="sm" variant="outline" onClick={() => moveRooms(selectedRoomIds, column.id)}>{selectedRoomIds.size > 1 ? `${t.moveSelectedHere} (${selectedRoomIds.size})` : t.moveHere}</Button>}</div>
+              <div ref={plannerScrollerRef} className="flex min-h-0 w-full snap-x snap-mandatory gap-2 overflow-x-auto pb-3 md:grid md:snap-none md:overflow-visible" style={{ gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(0, 1fr))` }}>
+                {columns.map(column => {
+                  const isDropTarget = dropTargetId === column.id;
+                  return (
+                  <section
+                    key={column.id}
+                    data-team-drop-id={column.id}
+                    className={`flex w-[72vw] min-w-[190px] max-w-[240px] snap-start flex-col rounded-lg border bg-card transition-all duration-200 md:w-auto md:min-w-0 md:max-w-none ${isDropTarget ? 'scale-[1.01] border-primary bg-primary/[0.05] shadow-lg ring-2 ring-primary/30' : ''}`}
+                    onDragOver={event => { event.preventDefault(); setDropTargetId(column.id); }}
+                    onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTargetId(null); }}
+                    onDrop={event => {
+                      event.preventDefault();
+                      const roomId = event.dataTransfer.getData('text/plain');
+                      if (roomId) moveRoom(roomId, column.id);
+                      setDropTargetId(null);
+                    }}
+                  >
+                    <div className={`border-b px-2 py-1.5 transition-colors ${isDropTarget ? 'bg-primary/10' : ''}`}>
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="min-w-0 truncate text-sm font-semibold">{column.name}</div>
+                        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{column.rooms.length}</Badge>
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">≈ {Math.round(column.rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0) / 60 * 10) / 10}h</div>
+                      {isDropTarget && <div className="mt-1 rounded bg-primary px-2 py-1 text-center text-[10px] font-semibold text-primary-foreground animate-pulse">{t.dropHere}</div>}
+                      {selectedRoomIds.size > 0 && <Button className="mt-1 h-6 w-full px-1 text-[10px]" size="sm" variant="outline" onClick={() => moveRooms(selectedRoomIds, column.id)}>{selectedRoomIds.size > 1 ? `${t.moveSelectedHere} (${selectedRoomIds.size})` : t.moveHere}</Button>}
+                    </div>
                     <div className="min-h-0 flex-1 space-y-1 p-1.5">
                       {Array.from(new Map(column.rooms.map(room => [slntTeamBPropertyKey(room.room_number), column.rooms.filter(candidate => slntTeamBPropertyKey(candidate.room_number) === slntTeamBPropertyKey(room.room_number))])).entries()).flatMap(([property, propertyRooms]) => [
-                        <button key={`property-${column.id}-${property}`} type="button" className="mt-1 flex w-full items-center justify-between rounded bg-muted/60 px-2 py-1 text-[10px] font-semibold hover:bg-muted" onClick={() => togglePropertySelection(propertyRooms)}>
-                          <span className="truncate">{property}</span><span>{t.selectProperty} · {propertyRooms.length}</span>
+                        <button key={`property-${column.id}-${property}`} type="button" className="mt-1 flex w-full items-center justify-between gap-2 rounded bg-muted/60 px-2 py-1 text-[10px] font-semibold hover:bg-muted" onClick={() => togglePropertySelection(propertyRooms)}>
+                          <span className="min-w-0 flex-1 truncate text-left">{property}</span><span className="shrink-0">{t.selectProperty} · {propertyRooms.length}</span>
                         </button>,
                         ...propertyRooms.map(room => {
                         const unsold = isUnsoldPlanningRoom(room); const selected = selectedRoomIds.has(room.id);
                         const serviceLabel = room.is_checkout_room ? t.checkout : room.linen_change_required ? t.fullClean : room.towel_change_required ? t.towel : unsold ? t.unbooked : t.onRequest;
                         const serviceCode = room.is_checkout_room ? null : room.linen_change_required ? 'C' : room.towel_change_required ? 'T' : null;
                         const serviceClass = room.is_checkout_room ? 'bg-amber-100 text-amber-800' : room.linen_change_required ? 'bg-rose-100 text-rose-800' : room.towel_change_required ? 'bg-orange-100 text-orange-800' : unsold ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800';
-                        return <button key={room.id} type="button" draggable onDragStart={event => event.dataTransfer.setData('text/plain', room.id)} onClick={() => toggleRoomSelection(room.id)} className={`flex w-full items-center gap-1 rounded border px-1.5 py-1 text-left text-[11px] leading-tight transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`} title={serviceLabel}><GripVertical className="h-3 w-3 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>{serviceCode && <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${serviceClass}`}>{serviceCode}</span>}<span className={`max-w-[76px] truncate rounded px-1 py-0.5 text-[9px] font-medium ${serviceClass}`}>{serviceLabel}</span></button>;
+                        const isTouchDragging = touchDrag?.active && touchDrag.roomId === room.id;
+                        return (
+                          <div
+                            key={room.id}
+                            role="button"
+                            tabIndex={0}
+                            draggable
+                            onDragStart={event => {
+                              event.dataTransfer.effectAllowed = 'move';
+                              event.dataTransfer.setData('text/plain', room.id);
+                            }}
+                            onDragEnd={() => setDropTargetId(null)}
+                            onClick={() => { if (!touchDrag?.active) toggleRoomSelection(room.id); }}
+                            onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleRoomSelection(room.id); } }}
+                            className={`flex w-full items-center gap-1 rounded border px-1.5 py-1 text-left text-[11px] leading-tight transition-all duration-200 ${isTouchDragging ? 'opacity-30 scale-95' : ''} ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`}
+                            title={serviceLabel}
+                          >
+                            <button
+                              type="button"
+                              aria-label={`${t.dragRoom}: ${room.room_number}`}
+                              className="flex h-7 w-7 shrink-0 touch-none items-center justify-center rounded text-muted-foreground active:scale-95 active:bg-muted"
+                              onClick={event => event.stopPropagation()}
+                              onPointerDown={event => beginTouchDrag(event, room)}
+                              onPointerMove={updateTouchDrag}
+                              onPointerUp={finishTouchDrag}
+                              onPointerCancel={() => { touchDragStartRef.current = null; setTouchDrag(null); setDropTargetId(null); }}
+                            >
+                              <GripVertical className="h-4 w-4" />
+                            </button>
+                            <span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>
+                            {serviceCode && <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${serviceClass}`}>{serviceCode}</span>}
+                            <span className={`max-w-[86px] truncate rounded px-1 py-0.5 text-[9px] font-medium ${serviceClass}`}>{serviceLabel}</span>
+                          </div>
+                        );
                         }),
                       ])}
                     </div>
                   </section>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        </div>\n        <DialogFooter className="absolute inset-x-0 bottom-0 z-20 flex-shrink-0 gap-2 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_20px_rgba(0,0,0,0.06)] backdrop-blur sm:justify-between">
+        </div>
+        {touchDrag?.active && (
+          <div
+            className="pointer-events-none fixed z-[100] flex max-w-[220px] items-center gap-2 rounded-xl border border-primary/40 bg-background/95 px-3 py-2 text-sm font-semibold shadow-2xl ring-2 ring-primary/20 backdrop-blur transition-transform duration-75"
+            style={{ left: Math.min(touchDrag.x + 14, window.innerWidth - 230), top: Math.max(12, touchDrag.y - 24) }}
+          >
+            <GripVertical className="h-4 w-4 text-primary" />
+            <span className="truncate">{touchDrag.roomNumber}</span>
+          </div>
+        )}
+        <DialogFooter className="absolute inset-x-0 bottom-0 z-20 flex-shrink-0 gap-2 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_20px_rgba(0,0,0,0.06)] backdrop-blur sm:justify-between">
           <div>{step === 'rooms' && <Button variant="outline" onClick={() => setStep('staff')}><ArrowLeft className="mr-2 h-4 w-4" />{t.back}</Button>}</div>
           <div className="flex gap-2"><Button variant="ghost" onClick={() => onOpenChange(false)}>{t.close}</Button>{step === 'staff' ? <Button disabled={selectedStaffIds.size === 0 || rooms.length === 0} onClick={continueToRooms}><Wand2 className="mr-2 h-4 w-4" />{t.continue}</Button> : <Button disabled={saving || !!error || rooms.length === 0} onClick={() => void savePlan()}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}{saving ? t.saving : t.save}</Button>}</div>
         </DialogFooter>
