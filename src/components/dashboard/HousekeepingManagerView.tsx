@@ -893,7 +893,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   return (
     <>
     <Tabs value={innerTab} onValueChange={(val) => { setInnerTab(val); onActiveInnerTabChange?.(val); }} className="space-y-6">
-      {!isReception && (
+      {!isReception && !isSlntTenant && (
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="team" className="text-xs sm:text-sm truncate" data-training="team-view-tab">{t('manager.teamView')}</TabsTrigger>
           <TabsTrigger value="early-signout" className="text-xs sm:text-sm truncate" data-training="pending-approvals">{t('manager.earlySignOutApprovals')}</TabsTrigger>
@@ -942,7 +942,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           )}
           {profile && hasManagerPowers(profile.role) && (
             <>
-              <Button
+              {!isSlntTenant && <Button
                 variant={bulkUnassignMode ? "destructive" : "outline"}
                 onClick={() => {
                   setBulkUnassignMode(!bulkUnassignMode);
@@ -952,9 +952,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
               >
                 <Trash2 className="h-4 w-4" />
                 {bulkUnassignMode ? t('common.cancel') : t('team.bulkUnassign')}
-              </Button>
+              </Button>}
               
-              {bulkUnassignMode && selectedAssignments.length > 0 && (
+              {!isSlntTenant && bulkUnassignMode && selectedAssignments.length > 0 && (
                 <Button
                   variant="destructive"
                   onClick={() => setUnassignDialogOpen(true)}
@@ -1037,7 +1037,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       {/* Hotel Room Overview */}
-      {managerHotelName && !isSlntTenant && (
+      {managerHotelName && (
         <HotelRoomOverview
           selectedDate={selectedDate}
           hotelName={managerHotelName}
