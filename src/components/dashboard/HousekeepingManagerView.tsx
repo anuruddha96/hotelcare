@@ -901,7 +901,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       <TabsContent value="team" className="space-y-6" data-training="team-view">
-      {isSlntTenant && slntRosterNotice && (
+      {isSlntTenant && slntRosterNotice?.kind === 'error' && (
         <div role="alert" className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${slntRosterNotice.kind === 'missing' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-destructive/60 bg-destructive/5 text-destructive'}`}>
           <p className="flex-1 min-w-52">{slntRosterNotice.message}</p>
           <div className="flex flex-wrap gap-2">
@@ -922,7 +922,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold">{t('team.management')}</h2>
+          <h2 className="text-xl font-semibold">{isSlntTenant ? 'Today’s work' : t('team.management')}</h2>
           {venuesEnabled && <div className="inline-flex rounded-md border p-1 gap-1">
             <Button size="sm" variant={selectedDate === todayBudapest() ? 'default' : 'ghost'} onClick={() => setSelectedDate(todayBudapest())}>Today</Button>
             <Button size="sm" variant={selectedDate === format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd') ? 'default' : 'ghost'} onClick={() => setSelectedDate(format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd'))}>Tomorrow</Button>
@@ -973,10 +973,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Wand2 className="h-4 w-4" />
-                <span className="truncate">{t('manager.autoAssign')}</span>
+                <span className="truncate">{isSlntTenant ? 'Rebalance' : t('manager.autoAssign')}</span>
                </Button>
 
-               <Button
+               {!isSlntTenant && <Button
                  variant="outline"
                  onClick={() => setPublicAreaDialogOpen(true)}
                  disabled={!slntRosterReady}
@@ -984,9 +984,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                >
                  <MapPin className="h-4 w-4" />
                  <span className="truncate">{t('manager.publicAreas')}</span>
-               </Button>
+               </Button>}
                
-               <Button 
+               {!isSlntTenant && <Button 
                  variant="outline"
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                  onClick={() => setAssignmentDialogOpen(true)}
@@ -994,7 +994,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                >
                  <Plus className="h-4 w-4" />
                  {t('team.assignRoom')}
-               </Button>
+               </Button>}
              </>
            )}
          </div>
@@ -1037,7 +1037,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       {/* Hotel Room Overview */}
-      {managerHotelName && (
+      {managerHotelName && !isSlntTenant && (
         <HotelRoomOverview
           selectedDate={selectedDate}
           hotelName={managerHotelName}
@@ -1057,7 +1057,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-1 ${isSlntTenant ? "xl:grid-cols-2 gap-3" : "md:grid-cols-2 lg:grid-cols-3 gap-4"}`}>
         {[...housekeepingStaff].sort((a, b) => {
           const aCount = teamAssignments.find(t => t.staff_id === a.id)?.total_assigned || 0;
           const bCount = teamAssignments.find(t => t.staff_id === b.id)?.total_assigned || 0;
@@ -1100,18 +1100,18 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
               onDrop={canDragAssign ? (e) => handleDropOnStaff(e, staff) : undefined}
 
             >
-              <CardHeader className="pb-3">
+              <CardHeader className={isSlntTenant ? "px-3 py-3 pb-2" : "pb-3"}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle className="text-lg">{staff.full_name}</CardTitle>
-                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <CardTitle className={isSlntTenant ? "text-base" : "text-lg"}>{staff.full_name}</CardTitle>
+                    {!isSlntTenant && <div className="mt-1 flex flex-wrap items-center gap-1">
                       <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground max-w-[180px] truncate">
                         @{(staff.email || '').split('@')[0] || staff.nickname || staff.full_name}
                       </span>
                       {staff.nickname && (
                         <span className="text-[11px] text-muted-foreground">({staff.nickname})</span>
                       )}
-                    </div>
+                    </div>}
                     {staffAttendance[staff.id]?.status === 'on_break' && (
                       <div className="mt-2 space-y-1">
                         <Badge className="bg-amber-500 text-white text-xs font-semibold">
@@ -1127,10 +1127,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     )}
                     {venuesEnabled && (() => {
                       const shift = staffSchedules[staff.id];
-                      if (!shift) return <Badge variant="outline" className="mt-2 text-[10px]">{isSlntTenant && !slntRosterReady && slntRosterNotice?.kind !== 'missing' ? "Roster unavailable" : "Not scheduled"}</Badge>;
-                      if (shift.status === 'off') return <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
+                      if (!shift) return isSlntTenant ? null : <Badge variant="outline" className="mt-2 text-[10px]">Not scheduled</Badge>;
+                      if (shift.status === 'off') return isSlntTenant ? null : <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
                       const names = shift.staff_schedule_venues?.map((row) => venueName(row.venue_id)).filter(Boolean).join(', ');
-                      return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{names ? ` · ${names}` : ''}</div>;
+                      return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{!isSlntTenant && names ? ` · ${names}` : ''}</div>;
                     })()}
                   </div>
                   <Badge variant={assignment?.total_assigned ? "default" : "secondary"}>
@@ -1138,7 +1138,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className={isSlntTenant ? "space-y-2 px-3 pb-3" : "space-y-3"}>
                 {/* Assigned unit chips — drag one out to unassign, drop one in to assign. */}
                 {venuesEnabled && (
                   <div
@@ -1192,7 +1192,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     {/* Progress Bar */}
                     <div className="space-y-1">
                       <div className="flex justify-between text-sm">
-                        <span>{t('team.progress')}</span>
+                        <span>{isSlntTenant ? `${assignment.completed || 0} done · ${Math.max(0, (assignment.total_assigned || 0) - (assignment.completed || 0))} remaining` : t('team.progress')}</span>
                         <span>{progressPercentage}%</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
@@ -1204,7 +1204,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     </div>
 
                     {/* Status Breakdown */}
-                        <div className="grid grid-cols-4 gap-2 text-center">
+                        <div className={`grid grid-cols-4 gap-2 text-center ${isSlntTenant ? "border-t pt-2" : ""}`}>
                       <div 
                         className="cursor-pointer hover:bg-green-50 rounded p-1 transition-colors"
                         onClick={() => {
