@@ -1057,7 +1057,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-1 ${isSlntTenant ? "xl:grid-cols-2 gap-3" : "md:grid-cols-2 lg:grid-cols-3 gap-4"}`}>
         {[...housekeepingStaff].sort((a, b) => {
           const aCount = teamAssignments.find(t => t.staff_id === a.id)?.total_assigned || 0;
           const bCount = teamAssignments.find(t => t.staff_id === b.id)?.total_assigned || 0;
@@ -1100,18 +1100,18 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
               onDrop={canDragAssign ? (e) => handleDropOnStaff(e, staff) : undefined}
 
             >
-              <CardHeader className="pb-3">
+              <CardHeader className={isSlntTenant ? "px-3 py-3 pb-2" : "pb-3"}>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle className="text-lg">{staff.full_name}</CardTitle>
-                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <CardTitle className={isSlntTenant ? "text-base" : "text-lg"}>{staff.full_name}</CardTitle>
+                    {!isSlntTenant && <div className="mt-1 flex flex-wrap items-center gap-1">
                       <span className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground max-w-[180px] truncate">
                         @{(staff.email || '').split('@')[0] || staff.nickname || staff.full_name}
                       </span>
                       {staff.nickname && (
                         <span className="text-[11px] text-muted-foreground">({staff.nickname})</span>
                       )}
-                    </div>
+                    </div>}
                     {staffAttendance[staff.id]?.status === 'on_break' && (
                       <div className="mt-2 space-y-1">
                         <Badge className="bg-amber-500 text-white text-xs font-semibold">
@@ -1138,7 +1138,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className={isSlntTenant ? "space-y-2 px-3 pb-3" : "space-y-3"}>
                 {/* Assigned unit chips — drag one out to unassign, drop one in to assign. */}
                 {venuesEnabled && (
                   <div
@@ -1192,7 +1192,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     {/* Progress Bar */}
                     <div className="space-y-1">
                       <div className="flex justify-between text-sm">
-                        <span>{t('team.progress')}</span>
+                        <span>{isSlntTenant ? `${assignment.completed || 0} done · ${Math.max(0, (assignment.total_assigned || 0) - (assignment.completed || 0))} remaining` : t('team.progress')}</span>
                         <span>{progressPercentage}%</span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-2">
