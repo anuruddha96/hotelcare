@@ -381,7 +381,11 @@ async function pullPrevioAvailability(
   const byKey = new Map<string, PrevioAvailabilityRow>();
   let cursor = from;
   while (cursor <= to) {
-    const maxEnd = addDays(cursor, 364);
+    // Previo measures the maximum range as the difference between the two
+    // dates (filterTo must be later than filterFrom). A 365-day horizon is
+    // therefore valid as from..from+365. Using +364 produced a final one-day
+    // request where from === to, which Previo rejects as an invalid range.
+    const maxEnd = addDays(cursor, 365);
     const end = maxEnd > to ? to : maxEnd;
     const params = new URLSearchParams({
       filterFrom: cursor,
