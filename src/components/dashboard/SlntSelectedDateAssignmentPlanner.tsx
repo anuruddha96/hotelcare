@@ -350,6 +350,14 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
     setSelectedRoomIds(new Set());
   };
   const moveRoom = (roomId: string, staffId: string) => moveRooms([roomId], staffId);
+  const moveDraggedSelection = (draggedRoomId: string, staffId: string) => {
+    // Dragging any selected room moves the whole selected batch. Dragging an
+    // unselected room remains the familiar single-room move.
+    const ids = selectedRoomIds.has(draggedRoomId) && selectedRoomIds.size > 1
+      ? Array.from(selectedRoomIds)
+      : [draggedRoomId];
+    moveRooms(ids, staffId);
+  };
   const toggleRoomSelection = (roomId: string) => setSelectedRoomIds(previous => {
     const next = new Set(previous);
     if (next.has(roomId)) next.delete(roomId); else next.add(roomId);
@@ -433,7 +441,8 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[96dvh] max-h-[96dvh] w-[99vw] max-w-none flex-col overflow-hidden p-0">\n        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-3 pb-24 sm:p-4 sm:pb-24">
+      <DialogContent className="flex h-[96dvh] max-h-[96dvh] w-[99vw] max-w-none flex-col overflow-hidden p-0">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-3 pb-6 sm:p-4 sm:pb-6">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex flex-wrap items-center gap-2 text-lg sm:text-xl">
             <CalendarClock className="h-5 w-5 text-primary" />{t.title}<Badge variant="outline">{selectedDate}</Badge>
@@ -488,7 +497,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
             </div>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 py-2">
+          <div className="min-h-0 flex-1 overflow-y-auto py-2 pb-4">
             {existingChanged && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{t.changed}</div>}
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="text-muted-foreground">{t.selectHint}</span>{capturedAt && <span className="text-xs text-muted-foreground">PMS: {new Date(capturedAt).toLocaleString()}</span>}</div>
             {selectedRoomIds.size > 0 && <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/[0.04] px-3 py-2 text-xs"><Layers3 className="h-4 w-4 text-primary" /><strong>{selectedRoomIds.size} {t.selectedRooms}</strong><Button size="sm" variant="ghost" className="h-7" onClick={() => setSelectedRoomIds(new Set())}>{t.clearSelection}</Button></div>}
@@ -503,7 +512,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
             {rooms.length === 0 ? <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">{t.noRooms}</div> : (
               <div className="grid min-h-0 w-full gap-2 pb-2" style={{ gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(0, 1fr))` }}>
                 {columns.map(column => (
-                  <section key={column.id} className="flex min-w-0 flex-col rounded-lg border bg-card" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const roomId = event.dataTransfer.getData('text/plain'); if (roomId) moveRoom(roomId, column.id); }}>
+                  <section key={column.id} className="flex min-w-0 flex-col rounded-lg border bg-card" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); const roomId = event.dataTransfer.getData('text/plain'); if (roomId) moveDraggedSelection(roomId, column.id); }}>
                     <div className="border-b px-2 py-1.5"><div className="flex items-center justify-between gap-1"><div className="min-w-0 truncate text-sm font-semibold">{column.name}</div><Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{column.rooms.length}</Badge></div><div className="text-[10px] text-muted-foreground">≈ {Math.round(column.rooms.reduce((sum, room) => sum + calculateRoomTime(room), 0) / 60 * 10) / 10}h</div>{selectedRoomIds.size > 0 && <Button className="mt-1 h-6 w-full px-1 text-[10px]" size="sm" variant="outline" onClick={() => moveRooms(selectedRoomIds, column.id)}>{selectedRoomIds.size > 1 ? `${t.moveSelectedHere} (${selectedRoomIds.size})` : t.moveHere}</Button>}</div>
                     <div className="min-h-0 flex-1 space-y-1 p-1.5">
                       {Array.from(new Map(column.rooms.map(room => [slntTeamBPropertyKey(room.room_number), column.rooms.filter(candidate => slntTeamBPropertyKey(candidate.room_number) === slntTeamBPropertyKey(room.room_number))])).entries()).flatMap(([property, propertyRooms]) => [
@@ -515,7 +524,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
                         const serviceLabel = room.is_checkout_room ? t.checkout : room.linen_change_required ? t.fullClean : room.towel_change_required ? t.towel : unsold ? t.unbooked : t.onRequest;
                         const serviceCode = room.is_checkout_room ? null : room.linen_change_required ? 'C' : room.towel_change_required ? 'T' : null;
                         const serviceClass = room.is_checkout_room ? 'bg-amber-100 text-amber-800' : room.linen_change_required ? 'bg-rose-100 text-rose-800' : room.towel_change_required ? 'bg-orange-100 text-orange-800' : unsold ? 'bg-violet-100 text-violet-800' : 'bg-blue-100 text-blue-800';
-                        return <button key={room.id} type="button" draggable onDragStart={event => event.dataTransfer.setData('text/plain', room.id)} onClick={() => toggleRoomSelection(room.id)} className={`flex w-full items-center gap-1 rounded border px-1.5 py-1 text-left text-[11px] leading-tight transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`} title={serviceLabel}><GripVertical className="h-3 w-3 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>{serviceCode && <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${serviceClass}`}>{serviceCode}</span>}<span className={`max-w-[76px] truncate rounded px-1 py-0.5 text-[9px] font-medium ${serviceClass}`}>{serviceLabel}</span></button>;
+                        return <button key={room.id} type="button" draggable onDragStart={event => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', room.id); }} onClick={() => toggleRoomSelection(room.id)} className={`flex w-full items-center gap-1 rounded border px-1.5 py-1 text-left text-[11px] leading-tight transition ${selected ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'bg-background hover:border-primary/50'}`} title={selected && selectedRoomIds.size > 1 ? `${selectedRoomIds.size} selected · drag to move together` : serviceLabel}><GripVertical className="h-3 w-3 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 truncate font-medium">{room.room_number}</span>{serviceCode && <span className={`rounded px-1 py-0.5 text-[9px] font-bold ${serviceClass}`}>{serviceCode}</span>}<span className={`max-w-[76px] truncate rounded px-1 py-0.5 text-[9px] font-medium ${serviceClass}`}>{serviceLabel}</span></button>;
                         }),
                       ])}
                     </div>
@@ -526,7 +535,8 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
           </div>
         )}
 
-        </div>\n        <DialogFooter className="absolute inset-x-0 bottom-0 z-20 flex-shrink-0 gap-2 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_20px_rgba(0,0,0,0.06)] backdrop-blur sm:justify-between">
+        </div>
+        <DialogFooter className="z-20 flex-shrink-0 gap-2 border-t bg-background/95 px-4 py-3 shadow-[0_-8px_20px_rgba(0,0,0,0.06)] backdrop-blur sm:justify-between">
           <div>{step === 'rooms' && <Button variant="outline" onClick={() => setStep('staff')}><ArrowLeft className="mr-2 h-4 w-4" />{t.back}</Button>}</div>
           <div className="flex gap-2"><Button variant="ghost" onClick={() => onOpenChange(false)}>{t.close}</Button>{step === 'staff' ? <Button disabled={selectedStaffIds.size === 0 || rooms.length === 0} onClick={continueToRooms}><Wand2 className="mr-2 h-4 w-4" />{t.continue}</Button> : <Button disabled={saving || !!error || rooms.length === 0} onClick={() => void savePlan()}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}{saving ? t.saving : t.save}</Button>}</div>
         </DialogFooter>
