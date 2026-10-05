@@ -15,10 +15,47 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Authenticated role cannot execute maintenance collaboration RPC';
   END IF;
+  IF has_function_privilege(
+    'anon',
+    'public.get_maintenance_property_teammates()'::regprocedure,
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'Anonymous role can execute maintenance teammate lookup';
+  END IF;
+  IF NOT has_function_privilege(
+    'authenticated',
+    'public.get_maintenance_property_teammates()'::regprocedure,
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'Authenticated role cannot execute maintenance teammate lookup';
+  END IF;
 END;
 $security$;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000002', false);
 SET ROLE authenticated;
+
+DO $team$
+BEGIN
+  IF (SELECT count(*) FROM public.get_maintenance_property_teammates()) <> 2 THEN
+    RAISE EXCEPTION 'Property teammate lookup returned the wrong number of users';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.get_maintenance_property_teammates()
+    WHERE id='00000000-0000-4000-8000-000000000001' AND full_name='Worker One'
+  ) THEN
+    RAISE EXCEPTION 'Assigned teammate is missing from property lookup';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.get_maintenance_property_teammates()
+    WHERE id IN (
+      '00000000-0000-4000-8000-000000000003',
+      '00000000-0000-4000-8000-000000000004'
+    )
+  ) THEN
+    RAISE EXCEPTION 'Property teammate lookup leaked another hotel or organization';
+  END IF;
+END;
+$team$;
 
 SELECT public.work_maintenance_ticket(
   '00000000-0000-4000-8000-000000000010',
