@@ -1173,6 +1173,15 @@ export default function RateStrategyGrid({
   /** The cell currently being typed into: "min|<date>" or "inv|<rawName>|<date>". */
   const [restrictionEdit, setRestrictionEdit] = useState<{ key: string; value: string } | null>(null);
   const [restrictionBusy, setRestrictionBusy] = useState<string | null>(null);
+  const [inventoryEditor, setInventoryEditor] = useState<{
+    date: string;
+    rawName: string;
+    obkId: string | null;
+    label: string;
+    units: number;
+    current: number;
+    value: number;
+  } | null>(null);
 
   const loadMinStay = useCallback(async () => {
     if (!hotelId) { setMinStayByDate(new Map()); return; }
@@ -1360,12 +1369,15 @@ export default function RateStrategyGrid({
 
   const commitInventory = (date: string, rawName: string, obkId: string | null, label: string, raw: string) => {
     setRestrictionEdit(null);
+    setInventoryEditor(null);
     const rooms = Math.round(Number(raw));
     if (!Number.isFinite(rooms) || rooms < 0 || rooms > 999) {
       if (raw.trim()) toast.error("Rooms to sell must be a whole number.");
       return;
     }
     const cellKey = `${rawName}|${date}`;
+    const current = leftByTypeDate?.get(cellKey);
+    if (current === rooms) return;
     setInvOverride((prev) => new Map(prev).set(cellKey, rooms));
     void sendRestriction({ key: `inv|${cellKey}`, date, roomsToSell: rooms, obkId, roomTypeName: label });
   };
@@ -3337,34 +3349,9 @@ export default function RateStrategyGrid({
                       const left = override ?? leftByTypeDate?.get(cell);
                       const key = `inv|${cell}`;
                       // Rooms for sale is a room-type level Previo value. Revenue
-                      // admins can edit the exact cell; the server writes it via
-                      // EQC and only reports success after REST read-back agrees.
-                      const editing = canEditRates && restrictionEdit?.key === key;
+                      // admins edit it with the +/- stepper opened from the cell;
+                      // the server writes it via EQC and verifies Previo read-back.
                       const busy = restrictionBusy === key;
-                      if (editing) {
-                        return (
-                          <div key={d} className={`flex items-center justify-center shrink-0 ${dayEdge(d)}`} style={{ width: CELL_W }}>
-                            <input
-                              autoFocus
-                              type="number"
-                              min={0}
-                              max={units || 999}
-                              inputMode="numeric"
-                              className="h-5 w-[85%] rounded border bg-background px-1 text-center text-[10px] tabular-nums"
-                              value={restrictionEdit.value}
-                              onChange={(e) => setRestrictionEdit({ key, value: e.target.value })}
-                              onBlur={(e) => commitInventory(d, row.rawName, row.obkOfType, row.typeName, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  e.currentTarget.blur(); // onBlur commits exactly once
-                                }
-                                if (e.key === "Escape") setRestrictionEdit(null);
-                              }}
-                            />
-                          </div>
-                        );
-                      }
                       // The closing price is frozen when the room type first
                       // sold out, so later bulk / manual / automation changes
                       // never rewrite what the date actually sold for.
@@ -3383,7 +3370,15 @@ export default function RateStrategyGrid({
                           disabled={!canEditRates || busy || left === undefined}
                           onClick={() => {
                             if (!canEditRates || busy || left === undefined) return;
-                            setRestrictionEdit({ key, value: String(left) });
+                            setInventoryEditor({
+                              date: d,
+                              rawName: row.rawName,
+                              obkId: row.obkOfType,
+                              label: row.typeName,
+                              units,
+                              current: left,
+                              value: left,
+                            });
                           }}
                           title={left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
@@ -3728,6 +3723,83 @@ export default function RateStrategyGrid({
         </div>
       )}
 
+
+      {/* Rooms-to-sell editor — intentionally button-first for phones. */}
+      <Dialog open={!!inventoryEditor} onOpenChange={(open) => { if (!open) setInventoryEditor(null); }}>
+        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-sm rounded-2xl p-5">
+          <DialogHeader>
+            <DialogTitle className="text-base">Rooms to sell</DialogTitle>
+          </DialogHeader>
+          {inventoryEditor && (
+            <div className="space-y-4">
+              <div className="rounded-lg border bg-muted/30 p-3">
+                <div className="font-medium leading-tight">{inventoryEditor.label}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {inventoryEditor.date} · Previo currently shows {inventoryEditor.current} · physical capacity {inventoryEditor.units}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-center gap-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="h-14 w-14 rounded-full p-0 text-2xl"
+                  aria-label="Decrease rooms to sell"
+                  disabled={inventoryEditor.value <= 0}
+                  onClick={() => setInventoryEditor((prev) => prev
+                    ? { ...prev, value: Math.max(0, prev.value - 1) }
+                    : prev)}
+                >
+                  −
+                </Button>
+                <div className="min-w-[92px] text-center">
+                  <div className="text-4xl font-semibold tabular-nums">{inventoryEditor.value}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {inventoryEditor.value === 0 ? "Sold out" : inventoryEditor.value === 1 ? "room for sale" : "rooms for sale"}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="h-14 w-14 rounded-full p-0 text-2xl"
+                  aria-label="Increase rooms to sell"
+                  disabled={inventoryEditor.value >= inventoryEditor.units}
+                  onClick={() => setInventoryEditor((prev) => prev
+                    ? { ...prev, value: Math.min(prev.units, prev.value + 1) }
+                    : prev)}
+                >
+                  +
+                </Button>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Saving writes this exact value to Previo. HotelCare then reads Previo back before confirming the change.
+              </p>
+
+              <DialogFooter className="gap-2 sm:gap-2">
+                <Button type="button" variant="outline" onClick={() => setInventoryEditor(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={inventoryEditor.value === inventoryEditor.current}
+                  onClick={() => commitInventory(
+                    inventoryEditor.date,
+                    inventoryEditor.rawName,
+                    inventoryEditor.obkId,
+                    inventoryEditor.label,
+                    String(inventoryEditor.value),
+                  )}
+                >
+                  Save to Previo
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Price the selected block */}
       <Dialog open={rangeToolOpen} onOpenChange={(o) => { setRangeToolOpen(o); if (!o) clearRange(); }}>
