@@ -7,6 +7,7 @@ on:
       - 'supabase/migrations/20261005090000_maintenance_property_team_collaboration.sql'
       - 'supabase/migrations/20261005092500_harden_maintenance_property_team_rpc.sql'
       - 'supabase/migrations/20261005094000_maintenance_property_teammate_lookup.sql'
+      - 'supabase/migrations/20261005121000_maintenance_optional_completion_photo.sql'
       - 'supabase/tests/maintenance_team_collaboration_*.sql'
       - '.github/workflows/maintenance-team-collaboration-sql-ci.yml'
 
@@ -49,4 +50,5 @@ jobs:
             -f supabase/migrations/20261005090000_maintenance_property_team_collaboration.sql \
             -f supabase/migrations/20261005092500_harden_maintenance_property_team_rpc.sql \
             -f supabase/migrations/20261005094000_maintenance_property_teammate_lookup.sql \
+            -f supabase/migrations/20261005121000_maintenance_optional_completion_photo.sql \
             -f supabase/tests/maintenance_team_collaboration_test.sql
