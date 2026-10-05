@@ -50,6 +50,11 @@ CREATE TABLE public.comments (
   created_at timestamptz DEFAULT now()
 );
 
+-- The production caller can SELECT hotel-scoped tickets/comments through RLS.
+-- The disposable fixture has no RLS policies, so grant read-only verification
+-- access to the test role while all mutations still go through the RPC.
+GRANT SELECT ON public.tickets, public.comments TO authenticated;
+
 INSERT INTO public.hotel_configurations (hotel_id, hotel_name) VALUES
   ('hotel-a','Hotel A'),
   ('hotel-b','Hotel B');
