@@ -19,10 +19,10 @@ AS $function$
 DECLARE
   v_user public.profiles%ROWTYPE;
   v_ticket public.tickets%ROWTYPE;
-  v_action text := pg_catalog.lower(pg_catalog.btrim(pg_catalog.coalesce(p_action, '')));
-  v_note text := pg_catalog.btrim(pg_catalog.coalesce(p_note, ''));
-  v_hold_reason text := pg_catalog.lower(pg_catalog.btrim(pg_catalog.coalesce(p_hold_reason, '')));
-  v_completion_photo text := pg_catalog.btrim(pg_catalog.coalesce(p_completion_photo, ''));
+  v_action text := pg_catalog.lower(pg_catalog.btrim(coalesce(p_action, '')));
+  v_note text := pg_catalog.btrim(coalesce(p_note, ''));
+  v_hold_reason text := pg_catalog.lower(pg_catalog.btrim(coalesce(p_hold_reason, '')));
+  v_completion_photo text := pg_catalog.btrim(coalesce(p_completion_photo, ''));
   v_assignee_name text;
   v_assist_prefix text := '';
   v_history text;
@@ -71,14 +71,14 @@ BEGIN
     RAISE EXCEPTION 'Completed tickets cannot be changed from the worker view' USING ERRCODE = '22023';
   END IF;
 
-  IF pg_catalog.coalesce(v_ticket.pending_supervisor_approval, false) THEN
+  IF coalesce(v_ticket.pending_supervisor_approval, false) THEN
     RAISE EXCEPTION 'This ticket is already awaiting supervisor approval' USING ERRCODE = '22023';
   END IF;
 
   IF v_ticket.assigned_to IS NOT NULL THEN
     SELECT full_name INTO v_assignee_name FROM public.profiles WHERE id = v_ticket.assigned_to;
     IF v_ticket.assigned_to IS DISTINCT FROM auth.uid() THEN
-      v_assist_prefix := 'Assisting ticket assigned to ' || pg_catalog.coalesce(v_assignee_name, 'another maintenance teammate') || '. ';
+      v_assist_prefix := 'Assisting ticket assigned to ' || coalesce(v_assignee_name, 'another maintenance teammate') || '. ';
     END IF;
   END IF;
 
@@ -119,7 +119,7 @@ BEGIN
 
   ELSE
     IF v_ticket.status IS DISTINCT FROM 'in_progress'::public.ticket_status
-       OR pg_catalog.coalesce(v_ticket.on_hold, false) THEN
+       OR coalesce(v_ticket.on_hold, false) THEN
       RAISE EXCEPTION 'Start or resume the ticket before submitting completion' USING ERRCODE = '22023';
     END IF;
     IF pg_catalog.length(v_note) < 3 THEN
