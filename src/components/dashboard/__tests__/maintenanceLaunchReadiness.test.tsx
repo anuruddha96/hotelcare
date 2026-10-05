@@ -35,13 +35,16 @@ describe('maintenance launch readiness wiring', () => {
     expect(source).not.toContain('assigned_to_profile:profiles!tickets_assigned_to_fkey');
   });
 
-  it('keeps completion photos optional and non-blocking', () => {
+  it('offers an explicit photo-or-skip choice without making a photo mandatory', () => {
     const source = read('MaintenanceStaffView.tsx');
     expect(source).toContain("if (completionFile) {");
     expect(source).toContain("toast.warning(c.photoSkipped)");
     expect(source).toContain("runTeamAction(selected, 'submit', resolution.trim(), null, uploadedPath)");
-    expect(source).toContain("disabled={isSubmittingCompletion || !signedIn || !resolution.trim()}");
-    expect(source).not.toContain("!resolution.trim() || !completionFile");
+    expect(source).toContain("const [completionPhotoSkipped, setCompletionPhotoSkipped] = useState(false)");
+    expect(source).toContain("setCompletionPhotoSkipped(true)");
+    expect(source).toContain("{c.takePhoto}");
+    expect(source).toContain("{c.skipPhoto}");
+    expect(source).toContain("(!completionFile && !completionPhotoSkipped)");
     expect(source).not.toContain("A completion photo is required");
   });
 
