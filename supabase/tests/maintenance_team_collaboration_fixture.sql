@@ -81,6 +81,8 @@ ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 -- The production caller can SELECT hotel-scoped tickets/comments through RLS.
 -- The disposable fixture has no RLS policies, so grant read-only verification
 -- access to the test role while all mutations still go through the RPC.
+GRANT USAGE ON SCHEMA auth TO authenticated;
+GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
 GRANT SELECT ON public.tickets, public.comments, public.profiles, public.hotel_configurations TO authenticated;
 GRANT USAGE ON SCHEMA storage TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO authenticated;
