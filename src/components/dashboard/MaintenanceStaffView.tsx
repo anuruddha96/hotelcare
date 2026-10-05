@@ -34,7 +34,7 @@ const EN: Copy = {
   statusOpen: 'Open', statusProgress: 'In progress', statusHold: 'Pending', statusApproval: 'Awaiting approval', statusDone: 'Done',
   holdReason: 'Why is this pending?', parts: 'Waiting for parts', purchase: 'Purchase in progress', access: 'Waiting for room access', approvalReason: 'Waiting for approval', contractor: 'External contractor needed', other: 'Other',
   pendingDetails: 'Add details so the supervisor knows what is blocking the repair.', saveHold: 'Save pending reason', cancel: 'Cancel', saveNote: 'Save note', notePlaceholder: 'Write an update for the supervisor…',
-  resolutionPlaceholder: 'Describe the repair and what was done…', photoOptional: 'Completion photo (optional).', photoInvalid: 'Choose an image file.', photoSkipped: 'Photo could not be uploaded. The work will be submitted without it.', submitApproval: 'Submit for supervisor approval',
+  resolutionPlaceholder: 'Describe the repair and what was done…', photoOptional: 'Completion photo (optional).', takePhoto: 'Take / choose photo', skipPhoto: 'Skip photo', photoSkipSelected: 'No photo will be attached. You can still submit the completed work.', photoChoice: 'Choose a photo or skip it if you do not have one.', photoInvalid: 'Choose an image file.', photoSkipped: 'Photo could not be uploaded. The work will be submitted without it.', submitApproval: 'Submit for supervisor approval',
   approvalHint: 'Submitted. No further action is needed unless a supervisor returns the repair for correction.',
   assignedTo: 'Assigned to', unassigned: 'Unassigned', sharedTicket: 'Shared property ticket',
   workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', refresh: 'Refresh', retry: 'Retry', loadFailed: 'Maintenance tasks could not be loaded. Your last visible list has been kept.',
@@ -46,7 +46,7 @@ const HU: Copy = {
   statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusHold: 'Függőben', statusApproval: 'Jóváhagyásra vár', statusDone: 'Kész',
   holdReason: 'Miért van függőben?', parts: 'Alkatrészre vár', purchase: 'Beszerzés folyamatban', access: 'Szobahozzáférésre vár', approvalReason: 'Jóváhagyásra vár', contractor: 'Külső szakember szükséges', other: 'Egyéb',
   pendingDetails: 'Írjon részleteket, hogy a felügyelő lássa, mi akadályozza a javítást.', saveHold: 'Függő ok mentése', cancel: 'Mégse', saveNote: 'Jegyzet mentése', notePlaceholder: 'Írjon frissítést a felügyelőnek…',
-  resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoOptional: 'Befejezési fotó (opcionális).', photoInvalid: 'Válasszon képfájlt.', photoSkipped: 'A fotót nem sikerült feltölteni. A munka fotó nélkül kerül beküldésre.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
+  resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoOptional: 'Befejezési fotó (opcionális).', takePhoto: 'Fotó készítése / kiválasztása', skipPhoto: 'Fotó kihagyása', photoSkipSelected: 'Nem lesz fotó csatolva. A befejezett munka így is beküldhető.', photoChoice: 'Válasszon fotót, vagy hagyja ki, ha nincs fotó.', photoInvalid: 'Válasszon képfájlt.', photoSkipped: 'A fotót nem sikerült feltölteni. A munka fotó nélkül kerül beküldésre.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
   approvalHint: 'Beküldve. Nincs további teendő, kivéve ha a felügyelő javításra visszaküldi.',
   assignedTo: 'Hozzárendelve', unassigned: 'Nincs hozzárendelve', sharedTicket: 'Közös hotelfeladat',
   workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', refresh: 'Frissítés', retry: 'Újra', loadFailed: 'A karbantartási feladatok betöltése sikertelen. Az előző lista megmaradt.',
@@ -92,6 +92,7 @@ export function MaintenanceStaffView() {
   const [holdDetails, setHoldDetails] = useState('');
   const [resolution, setResolution] = useState('');
   const [completionFile, setCompletionFile] = useState<File | null>(null);
+  const [completionPhotoSkipped, setCompletionPhotoSkipped] = useState(false);
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -267,6 +268,7 @@ export function MaintenanceStaffView() {
     if (next === 'complete') {
       setResolution(ticket.resolution_text || '');
       setCompletionFile(null);
+      setCompletionPhotoSkipped(false);
       if (fileRef.current) fileRef.current.value = '';
     }
     setDialog(next);
@@ -281,6 +283,7 @@ export function MaintenanceStaffView() {
     setHoldDetails('');
     setResolution('');
     setCompletionFile(null);
+    setCompletionPhotoSkipped(false);
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -346,7 +349,7 @@ export function MaintenanceStaffView() {
 
       await runTeamAction(selected, 'submit', resolution.trim(), null, uploadedPath);
       toast.success(c.submitted);
-      setResolution(''); setCompletionFile(null); setDialog(null); setSelected(null); void refresh();
+      setResolution(''); setCompletionFile(null); setCompletionPhotoSkipped(false); setDialog(null); setSelected(null); void refresh();
     } catch (error) {
       console.error(error);
       if (uploadedPath) await supabase.storage.from('ticket-attachments').remove([uploadedPath]).catch(() => undefined);
@@ -443,24 +446,62 @@ export function MaintenanceStaffView() {
         <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] max-w-lg overflow-y-auto p-4 sm:p-6">
           <DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader>
           <Textarea value={resolution} onChange={event => setResolution(event.target.value)} placeholder={c.resolutionPlaceholder} rows={4} disabled={isSubmittingCompletion} />
-          <p className="text-xs text-muted-foreground">{language === 'hu'
-            ? 'A befejezési fotó opcionális. Ha szeretne, készítsen képet vagy válasszon a galériából.'
-            : 'A completion photo is optional. Add one from the camera or gallery if useful.'}</p>
-          <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label={c.photoOptional} onChange={event => {
+          <p className="text-xs text-muted-foreground">{c.photoChoice}</p>
+          <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label={c.takePhoto} onChange={event => {
             const file = event.currentTarget.files?.[0] || null;
-            if (file && !file.type.startsWith('image/')) { toast.error(c.photoInvalid); event.currentTarget.value = ''; setCompletionFile(null); return; }
-            setCompletionFile(file);
+            if (file && !file.type.startsWith('image/')) {
+              toast.error(c.photoInvalid);
+              event.currentTarget.value = '';
+              setCompletionFile(null);
+              setCompletionPhotoSkipped(false);
+              return;
+            }
+            if (file) {
+              setCompletionFile(file);
+              setCompletionPhotoSkipped(false);
+            }
           }} />
-          <Button type="button" variant="outline" disabled={isSubmittingCompletion} className="h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-all py-2 text-left" onClick={() => fileRef.current?.click()}>
-            <Camera className="mr-2 h-4 w-4 shrink-0" /><span className="min-w-0 flex-1">{completionFile
-              ? `${language === 'hu' ? 'Kiválasztott fotó' : 'Selected photo'}: ${completionFile.name}`
-              : language === 'hu' ? 'Opcionális fotó készítése / kiválasztása' : 'Take or choose optional completion photo'}</span>
-          </Button>
-          {!completionFile && <p className="text-xs text-muted-foreground" role="status">{c.photoOptional}</p>}
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={completionFile ? 'secondary' : 'outline'}
+              disabled={isSubmittingCompletion}
+              className="h-auto min-h-12 w-full min-w-0 whitespace-normal py-2"
+              onClick={() => {
+                setCompletionPhotoSkipped(false);
+                fileRef.current?.click();
+              }}
+            >
+              <Camera className="mr-2 h-4 w-4 shrink-0" />
+              <span className="min-w-0 break-words">{c.takePhoto}</span>
+            </Button>
+            <Button
+              type="button"
+              variant={completionPhotoSkipped ? 'secondary' : 'outline'}
+              disabled={isSubmittingCompletion}
+              className="h-auto min-h-12 w-full min-w-0 whitespace-normal py-2"
+              onClick={() => {
+                setCompletionFile(null);
+                setCompletionPhotoSkipped(true);
+                if (fileRef.current) fileRef.current.value = '';
+              }}
+            >
+              <span className="min-w-0 break-words">{c.skipPhoto}</span>
+            </Button>
+          </div>
+          {completionFile ? (
+            <p className="rounded-md border bg-muted/40 p-2 text-xs" role="status">
+              {language === 'hu' ? 'Kiválasztott fotó' : 'Selected photo'}: {completionFile.name}
+            </p>
+          ) : completionPhotoSkipped ? (
+            <p className="rounded-md border border-green-200 bg-green-50 p-2 text-xs text-green-800" role="status">{c.photoSkipSelected}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground" role="status">{c.photoOptional}</p>
+          )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal py-2" variant="outline" disabled={isSubmittingCompletion} onClick={closeDialog}>{c.cancel}</Button>
             <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal break-words bg-green-600 py-2 text-center leading-snug hover:bg-green-700"
-              onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !signedIn || !resolution.trim()}>
+              onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !signedIn || !resolution.trim() || (!completionFile && !completionPhotoSkipped)}>
               <CheckCircle2 className="mr-1 h-4 w-4 shrink-0" />{isSubmittingCompletion ? (language === 'hu' ? 'Beküldés…' : 'Submitting…') : c.submitApproval}
             </Button>
           </div>
