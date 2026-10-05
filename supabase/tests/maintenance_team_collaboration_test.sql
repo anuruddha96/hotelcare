@@ -57,6 +57,47 @@ BEGIN
 END;
 $team$;
 
+INSERT INTO storage.objects (bucket_id, name)
+VALUES (
+  'ticket-attachments',
+  '00000000-0000-4000-8000-000000000010/completion-shared.jpg'
+);
+
+DO $storage$
+DECLARE denied boolean := false;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM storage.objects
+    WHERE name='00000000-0000-4000-8000-000000000010/completion-shared.jpg'
+  ) THEN
+    RAISE EXCEPTION 'Same-property maintenance attachment upload was not allowed';
+  END IF;
+
+  BEGIN
+    INSERT INTO storage.objects (bucket_id, name)
+    VALUES (
+      'ticket-attachments',
+      '00000000-0000-4000-8000-000000000012/cross-property.jpg'
+    );
+  EXCEPTION WHEN SQLSTATE '42501' THEN
+    denied := true;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'Cross-property maintenance attachment upload was not denied';
+  END IF;
+
+  DELETE FROM storage.objects
+  WHERE name='00000000-0000-4000-8000-000000000010/completion-shared.jpg';
+
+  IF EXISTS (
+    SELECT 1 FROM storage.objects
+    WHERE name='00000000-0000-4000-8000-000000000010/completion-shared.jpg'
+  ) THEN
+    RAISE EXCEPTION 'Same-property maintenance attachment cleanup was not allowed';
+  END IF;
+END;
+$storage$;
+
 SELECT public.work_maintenance_ticket(
   '00000000-0000-4000-8000-000000000010',
   'start',
@@ -143,6 +184,40 @@ BEGIN
   END IF;
 END;
 $test$;
+
+SELECT public.work_maintenance_ticket(
+  '00000000-0000-4000-8000-000000000014',
+  'submit',
+  'Completed and verified without a photo.',
+  '2026-10-05T06:34:00Z',
+  NULL,
+  NULL
+);
+
+DO $optional$
+DECLARE t public.tickets%ROWTYPE;
+BEGIN
+  SELECT * INTO t
+  FROM public.tickets
+  WHERE id='00000000-0000-4000-8000-000000000014';
+
+  IF t.pending_supervisor_approval IS DISTINCT FROM true
+     OR t.resolution_text <> 'Completed and verified without a photo.'
+     OR cardinality(coalesce(t.completion_photos, ARRAY[]::text[])) <> 0
+     OR t.assigned_to <> '00000000-0000-4000-8000-000000000001' THEN
+    RAISE EXCEPTION 'Photo-optional completion failed or changed assignment';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.comments c
+    WHERE c.ticket_id=t.id
+      AND c.user_id='00000000-0000-4000-8000-000000000002'
+      AND c.content LIKE '%No completion photo attached%'
+  ) THEN
+    RAISE EXCEPTION 'Photo-optional completion audit is missing';
+  END IF;
+END;
+$optional$;
 
 DO $test$
 DECLARE denied boolean;
