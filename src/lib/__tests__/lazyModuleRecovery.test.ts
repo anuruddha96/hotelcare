@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { freshApplicationUrl, isLazyModuleCrash } from '../lazyModuleRecovery';
+import { freshApplicationUrl, isExternalDomMutationCrash, isLazyModuleCrash } from '../lazyModuleRecovery';
 
 describe('lazy module crash recovery', () => {
   const lazyStack = '\nLazy\nSuspense\nAuthenticatedShell';
@@ -23,6 +23,16 @@ describe('lazy module crash recovery', () => {
     expect(isLazyModuleCrash(new Error('undefined is not an object'), '\nRoomCard\nSuspense')).toBe(false);
     expect(isLazyModuleCrash(new Error('Room record unavailable'), lazyStack)).toBe(false);
     expect(isLazyModuleCrash(null, lazyStack)).toBe(false);
+  });
+
+  it('recognizes localized React DOM mutation crashes caused by external translators', () => {
+    expect(isExternalDomMutationCrash(
+      new DOMException("Nem sikerült végrehajtani a 'removeChild' parancsot a 'Node' csomóponton"),
+    )).toBe(true);
+    expect(isExternalDomMutationCrash(
+      new DOMException("Failed to execute 'insertBefore' on 'Node': The node is not a child"),
+    )).toBe(true);
+    expect(isExternalDomMutationCrash(new Error('Ticket update failed'))).toBe(false);
   });
 
   it('keeps the tenant, hotel, query and anchor and replaces an existing stale nonce', () => {
