@@ -13,18 +13,18 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END;
 $role$;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;
-CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $uid$
   SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
-$;
+$uid$;
 
 CREATE SCHEMA IF NOT EXISTS storage;
 CREATE OR REPLACE FUNCTION storage.foldername(p_name text)
 RETURNS text[]
 LANGUAGE sql
 IMMUTABLE
-AS $
+AS $folder$
   SELECT string_to_array(p_name, '/');
-$;
+$folder$;
 
 CREATE TYPE public.ticket_status AS ENUM ('open','in_progress','completed');
 
