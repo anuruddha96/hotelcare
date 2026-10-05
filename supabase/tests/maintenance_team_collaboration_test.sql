@@ -1,4 +1,22 @@
 \set ON_ERROR_STOP on
+DO $security$
+BEGIN
+  IF has_function_privilege(
+    'anon',
+    'public.work_maintenance_ticket(uuid,text,text,timestamp with time zone,text,text)'::regprocedure,
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'Anonymous role can execute maintenance collaboration RPC';
+  END IF;
+  IF NOT has_function_privilege(
+    'authenticated',
+    'public.work_maintenance_ticket(uuid,text,text,timestamp with time zone,text,text)'::regprocedure,
+    'EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'Authenticated role cannot execute maintenance collaboration RPC';
+  END IF;
+END;
+$security$;
 SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000002', false);
 SET ROLE authenticated;
 
