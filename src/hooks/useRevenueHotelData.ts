@@ -390,31 +390,14 @@ export function useRevenueHotelData(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runLoad]);
 
-  // Rooms-for-sale is operational inventory, so it should feel live. The
-  // database mirror is refreshed immediately after HotelCare writes and by the
-  // Previo availability sync. Subscribe to those mirror changes and keep a
-  // modest poll as a fallback for clients/networks where realtime is delayed.
+  // Rooms-for-sale is operational inventory. Poll the lightweight mirror
+  // independently from rates/reservations so manual Previo changes surface
+  // quickly without opening extra realtime channels or triggering a PMS sync.
   useEffect(() => {
     if (!hotelId) return;
     const refresh = () => runWhenRevenueEditorsClosed(() => { void refreshAvailability(); });
-    const realtime = supabase as any;
-    const builder = typeof realtime.channel === "function"
-      ? realtime.channel(`revenue-availability:${hotelId}`)
-      : null;
-    const channel = builder && typeof builder.on === "function"
-      ? builder
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "revenue_room_type_availability", filter: `hotel_id=eq.${hotelId}` },
-          refresh,
-        )
-        .subscribe()
-      : null;
-    const timer = window.setInterval(refresh, 30_000);
-    return () => {
-      window.clearInterval(timer);
-      if (channel && typeof realtime.removeChannel === "function") void realtime.removeChannel(channel);
-    };
+    const timer = window.setInterval(refresh, 15_000);
+    return () => window.clearInterval(timer);
   }, [hotelId, refreshAvailability]);
 
   useEffect(() => {
