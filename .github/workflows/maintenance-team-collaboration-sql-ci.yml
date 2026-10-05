@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/20261005090000_maintenance_property_team_collaboration.sql'
+      - 'supabase/migrations/20261005092500_harden_maintenance_property_team_rpc.sql'
       - 'supabase/tests/maintenance_team_collaboration_*.sql'
       - '.github/workflows/maintenance-team-collaboration-sql-ci.yml'
 
@@ -45,4 +46,5 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 \
             -f supabase/tests/maintenance_team_collaboration_fixture.sql \
             -f supabase/migrations/20261005090000_maintenance_property_team_collaboration.sql \
+            -f supabase/migrations/20261005092500_harden_maintenance_property_team_rpc.sql \
             -f supabase/tests/maintenance_team_collaboration_test.sql
