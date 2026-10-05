@@ -24,6 +24,7 @@ import { callPrevioXml, type PrevioCredentials } from "./previoCredentials.ts";
 
 const EQC_AR_ENDPOINT = "https://api.previo.app/eqc1/ar";
 const EQC_AR_NS = "http://www.expediaconnect.com/EQC/AR/2007/02";
+const EQC_AR_NS_2011 = "http://www.expediaconnect.com/EQC/AR/2011/06";
 const PREVIO_WRITE_TIMEOUT_MS = 10_000;
 
 /** The single supported write transport. */
@@ -224,6 +225,157 @@ function matchingObjectKindFragments(fragment: string, obkId: string): string[] 
         ?? block.match(/\bobkId\s*=\s*"([^"]*)"/i)?.[1]?.trim();
       return id === String(obkId).trim();
     });
+}
+
+export interface InventoryWriteTarget {
+  /** Previo room type id. */
+  obkId: string;
+  /** YYYY-MM-DD, inclusive. */
+  from: string;
+  /** YYYY-MM-DD, inclusive. */
+  to: string;
+  /** Exact number of rooms to sell. 0 closes the room type. */
+  roomsToSell: number;
+}
+
+type InventoryXmlVariant = "2011-total" | "2007-total";
+
+/**
+ * Build an EQC availability-only message.
+ *
+ * Previo documents EQC as the API for sending both rates and availability.
+ * Availability in Expedia QuickConnect is the RoomType-level Inventory element.
+ * We use totalInventoryAvailable, never flexibleAllocation: the former is
+ * an absolute rooms-to-sell value and therefore matches Previo UI semantics.
+ */
+export function buildInventoryUpdateXml(
+  hotelId: string,
+  target: InventoryWriteTarget,
+  variant: InventoryXmlVariant = "2011-total",
+): string {
+  const rooms = Math.max(0, Math.trunc(Number(target.roomsToSell) || 0));
+  if (variant === "2011-total") {
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AvailRateUpdateRQ xmlns="${EQC_AR_NS_2011}">
+  <Hotel id="${esc(hotelId)}" />
+  <AvailRateUpdate>
+    <DateRange from="${esc(target.from)}" to="${esc(target.to)}" />
+    <RoomType id="${esc(target.obkId)}">
+      <Inventory totalInventoryAvailable="${esc(rooms)}" />
+    </RoomType>
+  </AvailRateUpdate>
+</AvailRateUpdateRQ>`;
+  }
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<AvailRateUpdateRQ xmlns="${EQC_AR_NS}">
+  <Hotel id="${esc(hotelId)}" />
+  <DateRange from="${esc(target.from)}" to="${esc(target.to)}" />
+  <RoomType id="${esc(target.obkId)}">
+    <Inventory totalInventoryAvailable="${esc(rooms)}" />
+  </RoomType>
+</AvailRateUpdateRQ>`;
+}
+
+async function postEqcInventory(
+  apiKey: string,
+  body: string,
+  method: string,
+): Promise<RateWriteAttempt> {
+  let status = 0;
+  let text = "";
+  try {
+    const response = await fetch(EQC_AR_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Authorization": `ApiKey ${apiKey}`,
+      },
+      body,
+      signal: AbortSignal.timeout(PREVIO_WRITE_TIMEOUT_MS),
+    });
+    status = response.status;
+    text = await response.text();
+  } catch (e) {
+    return {
+      method,
+      ok: false,
+      status: 0,
+      message: e instanceof Error ? e.message : String(e),
+    };
+  }
+
+  const err = text.match(/<Error[^>]*code="([^"]*)"[^>]*>([^<]*)<\/Error>/i);
+  const success = /<Success\s*\/?>/i.test(text);
+  const ok = status >= 200 && status < 300 && !err && success;
+  return {
+    method,
+    ok,
+    status,
+    message: err
+      ? `${err[1]}: ${err[2].trim()}`
+      : ok
+        ? "Success"
+        : text.replace(/\s+/g, " ").trim().slice(0, 300),
+  };
+}
+
+/**
+ * Write Previo room-type "rooms for sale".
+ *
+ * Try the current EQC 2011 envelope first. Only schema/namespace failures
+ * fall back to the older compact 2007 envelope already used by HotelCare.
+ */
+export async function writePrevioInventory(opts: {
+  creds: PrevioCredentials;
+  pmsHotelId: string;
+  target: InventoryWriteTarget;
+}): Promise<RateWriteResult> {
+  const key = eqcApiKey(opts.creds);
+  if (!key) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{
+        method: "eqc:AvailRateUpdate:inventory",
+        ok: false,
+        status: 0,
+        message: "No Previo API key available for EQC availability writes.",
+      }],
+    };
+  }
+
+  const rooms = Number(opts.target.roomsToSell);
+  if (!Number.isFinite(rooms) || rooms < 0 || !Number.isInteger(rooms)) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{
+        method: "eqc:AvailRateUpdate:inventory",
+        ok: false,
+        status: 0,
+        message: "Rooms to sell must be a non-negative whole number.",
+      }],
+    };
+  }
+
+  const attempts: RateWriteAttempt[] = [];
+  const variants: InventoryXmlVariant[] = ["2011-total", "2007-total"];
+  for (const variant of variants) {
+    const method = `eqc:AvailRateUpdate:inventory:${variant}`;
+    const attempt = await postEqcInventory(
+      key,
+      buildInventoryUpdateXml(String(opts.pmsHotelId ?? ""), opts.target, variant),
+      method,
+    );
+    attempts.push(attempt);
+    if (attempt.ok) return { ok: true, method, attempts };
+
+    const schemaRejected = /\b3010\b|schema|namespace|unexpected element|validation/i.test(attempt.message);
+    if (!schemaRejected) break;
+  }
+
+  return { ok: false, method: null, attempts };
 }
 
 /** Read back one price so a push can be confirmed against Previo itself. */
