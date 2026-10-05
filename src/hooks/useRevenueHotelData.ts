@@ -398,9 +398,11 @@ export function useRevenueHotelData(
     if (!hotelId) return;
     const refresh = () => runWhenRevenueEditorsClosed(() => { void refreshAvailability(); });
     const realtime = supabase as any;
-    const channel = typeof realtime.channel === "function"
-      ? realtime
-        .channel(`revenue-availability:${hotelId}`)
+    const builder = typeof realtime.channel === "function"
+      ? realtime.channel(`revenue-availability:${hotelId}`)
+      : null;
+    const channel = builder && typeof builder.on === "function"
+      ? builder
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "revenue_room_type_availability", filter: `hotel_id=eq.${hotelId}` },
