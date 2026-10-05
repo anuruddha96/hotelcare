@@ -87,6 +87,8 @@ interface Props {
   soldOutPrices?: SoldOutPrice[];
   /** Reload the hotel's rates after Previo confirms a price push. */
   onRatesUpdated?: () => void | Promise<void>;
+  /** Fast refresh of Previo rooms-for-sale after an inventory write. */
+  onAvailabilityUpdated?: () => void | Promise<void>;
   /** Tell the page how far ahead the calendar needs data loaded. */
   onHorizonDaysChange?: (days: number) => void;
 }
@@ -305,7 +307,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [],
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
-  demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onHorizonDaysChange,
+  demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onAvailabilityUpdated, onHorizonDaysChange,
 }: Props) {
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
@@ -1249,6 +1251,21 @@ export default function RateStrategyGrid({
     value: number;
   } | null>(null);
 
+  useEffect(() => {
+    if (invOverride.size === 0 || !leftByTypeDate) return;
+    setInvOverride((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const [key, optimisticValue] of prev) {
+        if (leftByTypeDate.get(key) === optimisticValue) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [leftByTypeDate, invOverride.size]);
+
   const loadMinStay = useCallback(async () => {
     if (!hotelId) { setMinStayByDate(new Map()); return; }
     const { data } = await supabase
@@ -1328,12 +1345,15 @@ export default function RateStrategyGrid({
           : `${opts.roomTypeName ?? "Room type"} on ${opts.date}: ${opts.roomsToSell} to sell in Previo`,
       );
       if (opts.roomsToSell !== undefined) {
-        await onRatesUpdated?.();
-        setInvOverride((prev) => {
-          const next = new Map(prev);
-          next.delete(opts.key.replace(/^inv\|/, ""));
-          return next;
-        });
+        // The server has already read this value back from Previo and mirrored
+        // it to revenue_room_type_availability. Keep the verified value on
+        // screen until the live availability prop catches up; otherwise the
+        // cell briefly falls back to stale inventory (the exact 2 -> 1 bug).
+        setInvOverride((prev) => new Map(prev).set(
+          opts.key.replace(/^inv\|/, ""),
+          Math.max(0, Math.trunc(opts.roomsToSell!)),
+        ));
+        await onAvailabilityUpdated?.();
       }
     } catch (e) {
       toast.error((e as Error).message);
@@ -1347,7 +1367,7 @@ export default function RateStrategyGrid({
     } finally {
       setRestrictionBusy(null);
     }
-  }, [hotelId, loadMinStay, onRatesUpdated]);
+  }, [hotelId, loadMinStay, onAvailabilityUpdated]);
 
   const commitMinStay = (date: string, raw: string) => {
     setRestrictionEdit(null);
