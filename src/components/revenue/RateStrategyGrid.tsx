@@ -3355,7 +3355,10 @@ export default function RateStrategyGrid({
                               onChange={(e) => setRestrictionEdit({ key, value: e.target.value })}
                               onBlur={(e) => commitInventory(d, row.rawName, row.obkOfType, row.typeName, e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === "Enter") commitInventory(d, row.rawName, row.obkOfType, row.typeName, (e.target as HTMLInputElement).value);
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  e.currentTarget.blur(); // onBlur commits exactly once
+                                }
                                 if (e.key === "Escape") setRestrictionEdit(null);
                               }}
                             />
