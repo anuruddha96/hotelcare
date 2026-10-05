@@ -22,8 +22,8 @@ let cacheUser: string | null = null;
 const CACHE_LIMIT = 80;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
-/** Only mounted for a worker's assigned tickets. The endpoint independently
- * authorizes ticket access with the worker's own JWT and database RLS. */
+/** Mounted for hotel-scoped maintenance tickets. The endpoint independently
+ * authorizes each ticket with the worker's own JWT and database RLS. */
 export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallback, revision = 0 }: Props) {
   const { user } = useAuth();
   const host = useRef<HTMLDivElement>(null);
