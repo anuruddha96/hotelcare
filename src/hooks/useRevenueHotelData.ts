@@ -397,18 +397,21 @@ export function useRevenueHotelData(
   useEffect(() => {
     if (!hotelId) return;
     const refresh = () => runWhenRevenueEditorsClosed(() => { void refreshAvailability(); });
-    const channel = (supabase as any)
-      .channel(`revenue-availability:${hotelId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "revenue_room_type_availability", filter: `hotel_id=eq.${hotelId}` },
-        refresh,
-      )
-      .subscribe();
+    const realtime = supabase as any;
+    const channel = typeof realtime.channel === "function"
+      ? realtime
+        .channel(`revenue-availability:${hotelId}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "revenue_room_type_availability", filter: `hotel_id=eq.${hotelId}` },
+          refresh,
+        )
+        .subscribe()
+      : null;
     const timer = window.setInterval(refresh, 30_000);
     return () => {
       window.clearInterval(timer);
-      void (supabase as any).removeChannel(channel);
+      if (channel && typeof realtime.removeChannel === "function") void realtime.removeChannel(channel);
     };
   }, [hotelId, refreshAvailability]);
 
