@@ -77,6 +77,11 @@ CREATE TABLE storage.objects (
   name text NOT NULL UNIQUE
 );
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Fixture can verify storage rows"
+ON storage.objects
+FOR SELECT
+TO authenticated
+USING (true);
 
 -- The production caller can SELECT hotel-scoped tickets/comments through RLS.
 -- The disposable fixture has no RLS policies, so grant read-only verification
