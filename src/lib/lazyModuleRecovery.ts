@@ -22,3 +22,15 @@ export function freshApplicationUrl(href: string, timestamp: number): string {
   url.searchParams.set('chunk-recovery', String(timestamp));
   return url.toString();
 }
+
+
+/**
+ * Browser translators and some DOM-mutating extensions can replace React-owned
+ * text nodes. React later tries to remove or insert relative to the original
+ * node and the browser throws a NotFoundError. The method names remain stable
+ * even when the rest of the DOMException message is localized.
+ */
+export function isExternalDomMutationCrash(error: Error | null): boolean {
+  if (!error) return false;
+  return /\b(?:removeChild|insertBefore|replaceChild)\b/i.test(error.message);
+}
