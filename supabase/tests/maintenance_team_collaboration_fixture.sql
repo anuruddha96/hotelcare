@@ -1,7 +1,17 @@
 -- Disposable fixture for property-scoped maintenance collaboration CI.
 CREATE SCHEMA IF NOT EXISTS auth;
-DO $ BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END $;
-DO $ BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $role$
+BEGIN
+  CREATE ROLE authenticated;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END;
+$role$;
+DO $role$
+BEGIN
+  CREATE ROLE anon;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END;
+$role$;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
