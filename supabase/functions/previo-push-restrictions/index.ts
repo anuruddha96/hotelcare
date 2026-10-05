@@ -269,7 +269,10 @@ Deno.serve(async (req) => {
                 target: {
                   obkId: resolved.obkId,
                   from: item.date,
-                  to: rangeTo,
+                  // Inventory editing is intentionally atomic for now. The UI
+                  // edits one room type/date cell and verification below reads
+                  // that exact date back from Previo before we report success.
+                  to: item.date,
                   roomsToSell: rooms,
                 },
               });
