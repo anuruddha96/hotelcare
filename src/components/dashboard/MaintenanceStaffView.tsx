@@ -139,10 +139,14 @@ export function MaintenanceStaffView() {
       const ticketSelect = `
         id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at, sla_due_date,
         attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text, assigned_to,
-        created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
-        assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name)
+        created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
       `;
-      const [{ data: attendance }, { data: activeData, error: activeError }, { data: completedData, error: completedError }] = await Promise.all([
+      const [
+        { data: attendance },
+        { data: activeData, error: activeError },
+        { data: completedData, error: completedError },
+        { data: teamData, error: teamError },
+      ] = await Promise.all([
         supabase.from('staff_attendance').select('id').eq('user_id', user.id).eq('work_date', today).eq('status', 'checked_in').limit(1),
         (supabase as any).from('tickets').select(ticketSelect)
           .eq('organization_slug', profile.organization_slug)
@@ -159,11 +163,21 @@ export function MaintenanceStaffView() {
           .or('pending_supervisor_approval.is.null,pending_supervisor_approval.eq.false')
           .order('closed_at', { ascending: false })
           .limit(30),
+        (supabase as any).rpc('get_maintenance_property_teammates'),
       ]);
-      if (activeError || completedError) throw activeError || completedError;
+      if (activeError || completedError || teamError) throw activeError || completedError || teamError;
       setSignedIn(!!attendance?.length);
-      const activeRows = sortMaintenanceTickets((activeData || []) as Ticket[]);
-      const completedRows = (completedData || []) as Ticket[];
+      const teamById = new Map<string, string>(
+        ((teamData || []) as Array<{ id: string; full_name: string }>).map(member => [member.id, member.full_name]),
+      );
+      const attachAssignee = (rows: unknown[]) => (rows as Ticket[]).map(ticket => ({
+        ...ticket,
+        assigned_to_profile: ticket.assigned_to && teamById.has(ticket.assigned_to)
+          ? { full_name: teamById.get(ticket.assigned_to)! }
+          : null,
+      }));
+      const activeRows = sortMaintenanceTickets(attachAssignee(activeData || []) as Ticket[]);
+      const completedRows = attachAssignee(completedData || []) as Ticket[];
       for (const ticket of activeRows) {
         if (previouslyAwaiting.current.has(ticket.id) && !ticket.pending_supervisor_approval && ticket.status === 'in_progress') {
           toast.info(language === 'hu' ? `Javítás visszaküldve: ${ticket.ticket_number}. Nézze meg az előzményeket.` : `Repair returned for correction: ${ticket.ticket_number}. Check ticket history.`);
