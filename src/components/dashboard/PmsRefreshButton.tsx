@@ -11,6 +11,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { PmsSyncHistoryPanel } from '@/components/pms/PmsSyncHistoryPanel';
 
 interface Props {
@@ -47,6 +50,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [coverageOpen, setCoverageOpen] = useState(false);
   const [justSuccess, setJustSuccess] = useState(false);
 
   // Show for all eligible managers regardless of whether the hotel has a
@@ -121,6 +125,13 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   const total = meta.total ?? meta.rowCount ?? 0;
   const checkouts = meta.checkouts ?? 0;
   const notFound = meta.notFound ?? 0;
+  const syncedRooms: string[] = Array.isArray(meta.syncedRooms)
+    ? meta.syncedRooms
+    : Array.from(new Set([...(meta.checkoutRooms || []), ...(meta.dailyRooms || [])]));
+  const missingRooms: string[] = Array.isArray(meta.missingRooms) ? meta.missingRooms : [];
+  const unmatchedRooms: string[] = Array.isArray(meta.unmatchedRooms) ? meta.unmatchedRooms : [];
+  const excludedRooms: string[] = Array.isArray(meta.excludedRooms) ? meta.excludedRooms : [];
+  const coverageIssueCount = missingRooms.length + unmatchedRooms.length;
   const relTime = busy
     ? 'syncing now'
     : t.lastAt
@@ -269,10 +280,15 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
             {t.lastAt && total > 0 && (
               <>
                 <span className="opacity-40">·</span>
-                <span>
+                <button
+                  type="button"
+                  onClick={() => setCoverageOpen(true)}
+                  className="rounded px-1 py-0.5 underline-offset-2 hover:bg-background/70 hover:underline"
+                  title="View synced and unsynced room coverage"
+                >
                   <span className="font-medium text-foreground tabular-nums">{updated}</span>
                   <span className="tabular-nums">/{total}</span> rooms
-                </span>
+                </button>
                 {checkouts > 0 && (
                   <>
                     <span className="opacity-40">·</span>
@@ -283,10 +299,18 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
                     </span>
                   </>
                 )}
-                {notFound > 0 && (
+                {(coverageIssueCount > 0 || notFound > 0) && (
                   <>
                     <span className="opacity-40">·</span>
-                    <span className="text-amber-600 dark:text-amber-500">{notFound} PMS listing{notFound === 1 ? '' : 's'} not mapped</span>
+                    <button
+                      type="button"
+                      onClick={() => setCoverageOpen(true)}
+                      className="font-medium text-amber-700 underline-offset-2 hover:underline dark:text-amber-400"
+                    >
+                      {missingRooms.length > 0 && `${missingRooms.length} active room${missingRooms.length === 1 ? '' : 's'} not synced`}
+                      {missingRooms.length > 0 && (unmatchedRooms.length > 0 || notFound > 0) ? ' · ' : ''}
+                      {(unmatchedRooms.length > 0 || notFound > 0) && `${unmatchedRooms.length || notFound} PMS listing${(unmatchedRooms.length || notFound) === 1 ? '' : 's'} not mapped`}
+                    </button>
                   </>
                 )}
               </>
@@ -329,6 +353,103 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
           <span>{busy ? 'Refreshing' : justSuccess ? 'Synced!' : 'PMS Refresh'}</span>
         </span>
       </Button>
+
+      <Dialog open={coverageOpen} onOpenChange={setCoverageOpen}>
+        <DialogContent className="max-h-[88dvh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>PMS room coverage</DialogTitle>
+            <DialogDescription>
+              Operational SLNT coverage only. Confirmed inactive inventory — Technikai, WR Pension, Sobi Apartment Budapest and Downtown Terrace Passion — is ignored and never creates a warning.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border bg-emerald-500/5 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Synced</div>
+              <div className="mt-1 text-2xl font-semibold text-emerald-700 dark:text-emerald-400">{updated}</div>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Operational total</div>
+              <div className="mt-1 text-2xl font-semibold">{total}</div>
+            </div>
+            <div className={cn('rounded-lg border p-3', coverageIssueCount ? 'border-amber-300 bg-amber-50 dark:bg-amber-950/20' : 'bg-emerald-500/5')}>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Needs attention</div>
+              <div className={cn('mt-1 text-2xl font-semibold', coverageIssueCount ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400')}>{coverageIssueCount}</div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <section>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Successfully synced</h3>
+                <Badge variant="secondary">{syncedRooms.length}</Badge>
+              </div>
+              {syncedRooms.length > 0 ? (
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {syncedRooms.map(room => (
+                    <div key={room} className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                      <span className="min-w-0 truncate">{room}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Run PMS Refresh to populate room-level coverage.</p>
+              )}
+            </section>
+
+            {missingRooms.length > 0 && (
+              <section>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">Active rooms not synced</h3>
+                  <Badge variant="outline">{missingRooms.length}</Badge>
+                </div>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {missingRooms.map(room => (
+                    <div key={room} className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-sm dark:bg-amber-950/20">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                      <span className="min-w-0 truncate">{room}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {unmatchedRooms.length > 0 && (
+              <section>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">PMS listings not mapped</h3>
+                  <Badge variant="outline">{unmatchedRooms.length}</Badge>
+                </div>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {unmatchedRooms.map(room => (
+                    <div key={room} className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-sm dark:bg-amber-950/20">
+                      <XCircle className="h-4 w-4 shrink-0 text-amber-600" />
+                      <span className="min-w-0 truncate">{room}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {excludedRooms.length > 0 && (
+              <section>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-muted-foreground">Ignored confirmed inactive PMS listings</h3>
+                  <Badge variant="secondary">{excludedRooms.length}</Badge>
+                </div>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {excludedRooms.map(room => (
+                    <div key={room} className="rounded-md border bg-muted/30 px-2.5 py-2 text-sm text-muted-foreground">
+                      {room}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <PmsSyncHistoryPanel
         open={historyOpen}

@@ -207,12 +207,21 @@ export const SLNT_WORKBOOK_INACTIVE_UNITS = [
 
 export function isSlntInactiveOperationalUnit(roomNumber: string): boolean {
   const normalized = normalizeUnitName(roomNumber);
-  if (SLNT_WORKBOOK_INACTIVE_UNITS.some(name => normalizeUnitName(name) === normalized)) return true;
+  const core = coreUnitKey(roomNumber);
+  const inactiveSingles = SLNT_WORKBOOK_INACTIVE_UNITS.map(name => normalizeUnitName(name));
+
+  // The PMS often appends marketing copy (" - ...", "with ...", "by ...").
+  // Compare both the full normalized label and the marketing-free core so
+  // confirmed inactive units never appear as missing/unmapped warnings.
+  if (inactiveSingles.some(name => name === normalized || name === core)) return true;
+
   // User-confirmed inactive inventory: every WR Pension room and every
   // Technikai/technical room. Keep the records mapped for audit/PMS identity,
   // but never expose them as operational housekeeping inventory.
   return normalized.startsWith('wr pension ') || normalized === 'wr pension'
-    || normalized.startsWith('technikai ') || normalized === 'technikai';
+    || core.startsWith('wr pension ') || core === 'wr pension'
+    || normalized.startsWith('technikai ') || normalized === 'technikai'
+    || core.startsWith('technikai ') || core === 'technikai';
 }
 
 export function isSlntWorkbookActiveUnit(roomNumber: string, status?: string | null): boolean {

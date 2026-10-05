@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveSuggestion, extractRoomNames, isTechnicalRow, normalizeUnitName, isSlntWorkbookActiveUnit, slntPmsIdentityKey } from './slntUnitMapping';
+import { deriveSuggestion, extractRoomNames, isTechnicalRow, normalizeUnitName, isSlntInactiveOperationalUnit, isSlntWorkbookActiveUnit, slntPmsIdentityKey } from './slntUnitMapping';
 
 describe('slnt unit mapping', () => {
   it('normalizes accents and punctuation', () => {
@@ -46,6 +46,14 @@ describe('SLNT authoritative two-PMS inventory', () => {
     expect(isSlntWorkbookActiveUnit('Downtown Terrace Passion', 'clean')).toBe(false);
     expect(isSlntWorkbookActiveUnit('Technikai 1', 'clean')).toBe(false);
     expect(isSlntWorkbookActiveUnit('K4 – Room 7', 'clean')).toBe(true);
+  });
+
+  it('ignores confirmed inactive PMS listings even when Previo appends marketing text', () => {
+    expect(isSlntInactiveOperationalUnit('Sobi Apartment Budapest - central apartment')).toBe(true);
+    expect(isSlntInactiveOperationalUnit('Downtown Terrace Passion with balcony')).toBe(true);
+    expect(isSlntInactiveOperationalUnit('WR Pension 104 - Budapest')).toBe(true);
+    expect(isSlntInactiveOperationalUnit('Technikai 2')).toBe(true);
+    expect(isSlntInactiveOperationalUnit('Silver Rooms 14 - Budapest')).toBe(false);
   });
 
   it('keeps identical external room ids isolated by Previo account', () => {
