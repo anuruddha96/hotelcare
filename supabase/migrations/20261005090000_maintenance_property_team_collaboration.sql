@@ -151,5 +151,5 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.work_maintenance_ticket(uuid,text,text,timestamptz,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.work_maintenance_ticket(uuid,text,text,timestamptz,text,text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.work_maintenance_ticket(uuid,text,text,timestamptz,text,text) TO authenticated;
