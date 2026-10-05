@@ -1,5 +1,29 @@
 // Keep this entry free of static imports: recovery must work even if React or
 // an optimized dependency cannot be fetched by an already-open browser tab.
+
+// HotelCare owns its translations. Chrome/Android page translation can wrap or
+// replace React text nodes behind React's back; the next reconciliation can then
+// throw a DOM NotFoundError such as removeChild/insertBefore. Mark the document
+// as non-translatable before React loads, including portal content mounted to body.
+function protectReactDomFromBrowserTranslation() {
+  const protect = (node: HTMLElement | null) => {
+    if (!node) return;
+    node.setAttribute("translate", "no");
+    node.classList.add("notranslate");
+  };
+
+  protect(document.documentElement);
+  const protectMountedRoots = () => {
+    protect(document.body);
+    protect(document.getElementById("root"));
+  };
+
+  if (document.body) protectMountedRoots();
+  else document.addEventListener("DOMContentLoaded", protectMountedRoots, { once: true });
+}
+
+protectReactDomFromBrowserTranslation();
+
 const RECOVERY_PARAM = "chunk-recovery";
 const isSlntRoute = /^\/slnt(?:\/|$)/.test(window.location.pathname);
 const isModuleLoadFailure = (message: string) =>
