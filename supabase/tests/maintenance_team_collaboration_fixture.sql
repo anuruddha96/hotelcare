@@ -13,9 +13,18 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END;
 $role$;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;
-CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $
   SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
-$$;
+$;
+
+CREATE SCHEMA IF NOT EXISTS storage;
+CREATE OR REPLACE FUNCTION storage.foldername(p_name text)
+RETURNS text[]
+LANGUAGE sql
+IMMUTABLE
+AS $
+  SELECT string_to_array(p_name, '/');
+$;
 
 CREATE TYPE public.ticket_status AS ENUM ('open','in_progress','completed');
 
@@ -62,10 +71,19 @@ CREATE TABLE public.comments (
   created_at timestamptz DEFAULT now()
 );
 
+CREATE TABLE storage.objects (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  bucket_id text NOT NULL,
+  name text NOT NULL UNIQUE
+);
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
 -- The production caller can SELECT hotel-scoped tickets/comments through RLS.
 -- The disposable fixture has no RLS policies, so grant read-only verification
 -- access to the test role while all mutations still go through the RPC.
-GRANT SELECT ON public.tickets, public.comments TO authenticated;
+GRANT SELECT ON public.tickets, public.comments, public.profiles, public.hotel_configurations TO authenticated;
+GRANT USAGE ON SCHEMA storage TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON storage.objects TO authenticated;
 
 INSERT INTO public.hotel_configurations (hotel_id, hotel_name) VALUES
   ('hotel-a','Hotel A'),
@@ -83,4 +101,5 @@ INSERT INTO public.tickets (
   ('00000000-0000-4000-8000-000000000010','maintenance','Hotel A','rdhotels','00000000-0000-4000-8000-000000000001','open','2026-10-05T06:30:00Z',false,false),
   ('00000000-0000-4000-8000-000000000011','maintenance','hotel-a','rdhotels','00000000-0000-4000-8000-000000000001','in_progress','2026-10-05T06:31:00Z',false,false),
   ('00000000-0000-4000-8000-000000000012','maintenance','hotel-b','rdhotels','00000000-0000-4000-8000-000000000003','open','2026-10-05T06:32:00Z',false,false),
-  ('00000000-0000-4000-8000-000000000013','maintenance','hotel-a','slnt','00000000-0000-4000-8000-000000000004','open','2026-10-05T06:33:00Z',false,false);
+  ('00000000-0000-4000-8000-000000000013','maintenance','hotel-a','slnt','00000000-0000-4000-8000-000000000004','open','2026-10-05T06:33:00Z',false,false),
+  ('00000000-0000-4000-8000-000000000014','maintenance','hotel-a','rdhotels','00000000-0000-4000-8000-000000000001','in_progress','2026-10-05T06:34:00Z',false,false);
