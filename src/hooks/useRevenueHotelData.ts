@@ -172,6 +172,8 @@ export interface RevenueHotelData {
   /** True while later dates of the requested horizon are still being fetched. */
   extending: boolean;
   reload: () => Promise<void>;
+  /** Refresh only Previo room-type rooms-for-sale without reloading rates/reservations. */
+  refreshAvailability: () => Promise<void>;
 }
 
 /** Loads every Revenue Management input for ONE hotel. */
@@ -207,13 +209,19 @@ export function useRevenueHotelData(
   const today = budapestToday();
   const horizonEnd = addDays(today, effectiveHorizonDays - 1);
 
-  const loadAvailability = useCallback(async (next: PublishedRevenuePayload) => {
+  const refreshAvailability = useCallback(async () => {
     if (!hotelId) { setAvailability([]); return; }
-    const rateObks = new Set((next.rates ?? []).map((r) => String(r.obk_id ?? "")).filter(Boolean));
+
+    // Availability is independent from the published revenue payload. Read it
+    // directly from the mirror so a Previo/manual inventory change can become
+    // visible without waiting for the heavier rates/reservations payload.
+    const metadata = payloadRef.current?.roomTypes?.length
+      ? payloadRef.current.roomTypes
+      : roomMetadata;
     const obkIds = Array.from(new Set(
-      (next.roomTypes ?? [])
+      (metadata ?? [])
         .map((room) => String(room.pms_room_id ?? ""))
-        .filter((id) => id && rateObks.has(id)),
+        .filter(Boolean),
     ));
     if (obkIds.length === 0) { setAvailability([]); return; }
 
@@ -230,9 +238,7 @@ export function useRevenueHotelData(
         .order("stay_date", { ascending: true })
         .range(fromRow, fromRow + pageSize - 1);
       if (error) {
-        // Availability is an enhancement over the reservation-derived fallback;
-        // never blank the revenue screen because this mirror is temporarily unavailable.
-        setAvailability([]);
+        // Keep the last verified values on screen on a transient read failure.
         return;
       }
       const page = (data ?? []) as RoomTypeAvailability[];
@@ -240,7 +246,7 @@ export function useRevenueHotelData(
       if (page.length < pageSize) break;
     }
     setAvailability(rows);
-  }, [hotelId, today, horizonEnd]);
+  }, [hotelId, today, horizonEnd, roomMetadata]);
 
   const runLoad = useCallback(async () => {
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
@@ -323,7 +329,7 @@ export function useRevenueHotelData(
           const first = await fetchStage(FIRST_WINDOW_DAYS);
           if (requestVersion !== requestVersionRef.current) return;
           const firstPayload = apply(first, true);
-          await loadAvailability(firstPayload);
+          await refreshAvailability();
           setLoading(false);
           setExtending(true);
         }
@@ -337,7 +343,7 @@ export function useRevenueHotelData(
           const requested = await fetchStage(effectiveHorizonDays);
           if (requestVersion !== requestVersionRef.current) return;
           const requestedPayload = apply(requested, !wantsWindow);
-          await loadAvailability(requestedPayload);
+          await refreshAvailability();
         }
       } catch (e) {
         if (requestVersion !== requestVersionRef.current) return;
@@ -354,14 +360,15 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current?.promise === request) inFlightRef.current = null;
     }
-  }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, today, loadAvailability]);
+  }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, today, refreshAvailability]);
 
   /** A sync or successful price push requires a fresh read, even during a prior load. */
   const reload = useCallback(async () => {
     const current = inFlightRef.current;
     if (current) await current.promise;
     await runLoad();
-  }, [runLoad]);
+    await refreshAvailability();
+  }, [runLoad, refreshAvailability]);
 
   useEffect(() => {
     requestVersionRef.current += 1;
@@ -382,6 +389,16 @@ export function useRevenueHotelData(
     void runLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runLoad]);
+
+  // Rooms-for-sale is operational inventory. Poll the lightweight mirror
+  // independently from rates/reservations so manual Previo changes surface
+  // quickly without opening extra realtime channels or triggering a PMS sync.
+  useEffect(() => {
+    if (!hotelId) return;
+    const refresh = () => runWhenRevenueEditorsClosed(() => { void refreshAvailability(); });
+    const timer = window.setInterval(refresh, 15_000);
+    return () => window.clearInterval(timer);
+  }, [hotelId, refreshAvailability]);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -439,7 +456,7 @@ export function useRevenueHotelData(
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, cancellations, soldOutPrices, availability, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
+    nights, snapshots, rates, cancellations, soldOutPrices, availability, metrics, lastSyncAt, lastSyncBy, thresholds, reload, refreshAvailability,
     extending,
   };
 }

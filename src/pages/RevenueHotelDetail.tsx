@@ -1195,6 +1195,7 @@ export default function RevenueHotelDetail() {
             leftByTypeDate={leftByTypeDate}
             soldOutPrices={live.soldOutPrices}
             onRatesUpdated={live.reload}
+            onAvailabilityUpdated={live.refreshAvailability}
             onHorizonDaysChange={growHorizon}
           />
 
