@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, Eye, MessageSquare, PauseCircle, Play, RefreshCw, Wrench } from 'lucide-react';
+import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, Eye, MessageSquare, PauseCircle, Play, RefreshCw, User, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 
 type Ticket = {
@@ -22,11 +22,13 @@ type Ticket = {
   priority: 'low' | 'medium' | 'high' | 'urgent'; status: 'open' | 'in_progress' | 'completed';
   created_at: string; updated_at: string; sla_due_date: string | null; attachment_urls: string[] | null; completion_photos: string[] | null;
   pending_supervisor_approval: boolean | null; on_hold: boolean | null; hold_reason: string | null; resolution_text: string | null;
+  assigned_to: string | null;
   created_by_profile?: { full_name: string; role?: string } | null;
+  assigned_to_profile?: { full_name: string } | null;
 };
 type Copy = Record<string, string>;
 const EN: Copy = {
-  title: 'My Maintenance Tasks', subtitle: 'Work only on tickets assigned to you for this hotel.', signedIn: 'Attendance checked in', notSignedIn: 'Check in under Work Status before starting maintenance work',
+  title: 'Maintenance Team Tasks', subtitle: 'All maintenance tickets for this hotel are shared with the property maintenance team. Assignment shows the owner, but teammates can assist and update the same ticket.', signedIn: 'Attendance checked in', notSignedIn: 'Check in under Work Status before starting maintenance work',
   active: 'Active', approval: 'Awaiting approval', done: 'Done', noTasks: 'No maintenance tasks in this section.', room: 'Room', hotel: 'Hotel',
   attachments: 'Issue photos', completionPhotos: 'Completion photos', start: 'Start work', note: 'Add note', hold: 'Pending / hold', resume: 'Resume work', complete: 'Complete work',
   statusOpen: 'Open', statusProgress: 'In progress', statusHold: 'Pending', statusApproval: 'Awaiting approval', statusDone: 'Done',
@@ -34,10 +36,11 @@ const EN: Copy = {
   pendingDetails: 'Add details so the supervisor knows what is blocking the repair.', saveHold: 'Save pending reason', cancel: 'Cancel', saveNote: 'Save note', notePlaceholder: 'Write an update for the supervisor…',
   resolutionPlaceholder: 'Describe the repair and what was done…', photoRequired: 'Add one completion photo before submitting.', submitApproval: 'Submit for supervisor approval',
   approvalHint: 'Submitted. No further action is needed unless a supervisor returns the repair for correction.',
+  assignedTo: 'Assigned to', unassigned: 'Unassigned', sharedTicket: 'Shared property ticket',
   workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', refresh: 'Refresh', retry: 'Retry', loadFailed: 'Maintenance tasks could not be loaded. Your last visible list has been kept.',
 };
 const HU: Copy = {
-  ...EN, title: 'Karbantartási feladataim', subtitle: 'Csak az Önhöz rendelt, ehhez a hotelhez tartozó jegyeken dolgozzon.', signedIn: 'Munkaidő: bejelentkezve', notSignedIn: 'Karbantartási munka indítása előtt jelentkezzen be a Munkaidő menüben',
+  ...EN, title: 'Karbantartási csapat feladatai', subtitle: 'A hotel összes karbantartási jegye közös a helyszíni karbantartó csapat számára. A hozzárendelés mutatja a felelőst, de a csapattársak is segíthetnek és frissíthetik ugyanazt a jegyet.', signedIn: 'Munkaidő: bejelentkezve', notSignedIn: 'Karbantartási munka indítása előtt jelentkezzen be a Munkaidő menüben',
   active: 'Aktív', approval: 'Jóváhagyásra vár', done: 'Kész', noTasks: 'Ebben a részben nincs karbantartási feladat.', room: 'Szoba',
   attachments: 'Hibafotók', completionPhotos: 'Befejezési fotók', start: 'Munka indítása', note: 'Jegyzet', hold: 'Függőben', resume: 'Munka folytatása', complete: 'Munka befejezése',
   statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusHold: 'Függőben', statusApproval: 'Jóváhagyásra vár', statusDone: 'Kész',
@@ -45,6 +48,7 @@ const HU: Copy = {
   pendingDetails: 'Írjon részleteket, hogy a felügyelő lássa, mi akadályozza a javítást.', saveHold: 'Függő ok mentése', cancel: 'Mégse', saveNote: 'Jegyzet mentése', notePlaceholder: 'Írjon frissítést a felügyelőnek…',
   resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoRequired: 'A beküldés előtt adjon hozzá egy befejezési fotót.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
   approvalHint: 'Beküldve. Nincs további teendő, kivéve ha a felügyelő javításra visszaküldi.',
+  assignedTo: 'Hozzárendelve', unassigned: 'Nincs hozzárendelve', sharedTicket: 'Közös hotelfeladat',
   workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', refresh: 'Frissítés', retry: 'Újra', loadFailed: 'A karbantartási feladatok betöltése sikertelen. Az előző lista megmaradt.',
 };
 const translations: Record<string, Copy> = {
@@ -134,14 +138,18 @@ export function MaintenanceStaffView() {
       const today = todayBudapest();
       const ticketSelect = `
         id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at, sla_due_date,
-        attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
+        attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text, assigned_to,
         created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
       `;
-      const [{ data: attendance }, { data: activeData, error: activeError }, { data: completedData, error: completedError }] = await Promise.all([
+      const [
+        { data: attendance },
+        { data: activeData, error: activeError },
+        { data: completedData, error: completedError },
+        { data: teamData, error: teamError },
+      ] = await Promise.all([
         supabase.from('staff_attendance').select('id').eq('user_id', user.id).eq('work_date', today).eq('status', 'checked_in').limit(1),
         (supabase as any).from('tickets').select(ticketSelect)
           .eq('organization_slug', profile.organization_slug)
-          .eq('assigned_to', user.id)
           .eq('department', 'maintenance')
           .in('hotel', hotelKeys)
           .neq('status', 'completed')
@@ -149,18 +157,27 @@ export function MaintenanceStaffView() {
           .limit(250),
         (supabase as any).from('tickets').select(ticketSelect)
           .eq('organization_slug', profile.organization_slug)
-          .eq('assigned_to', user.id)
           .eq('department', 'maintenance')
           .in('hotel', hotelKeys)
           .eq('status', 'completed')
           .or('pending_supervisor_approval.is.null,pending_supervisor_approval.eq.false')
           .order('closed_at', { ascending: false })
           .limit(30),
+        (supabase as any).rpc('get_maintenance_property_teammates'),
       ]);
-      if (activeError || completedError) throw activeError || completedError;
+      if (activeError || completedError || teamError) throw activeError || completedError || teamError;
       setSignedIn(!!attendance?.length);
-      const activeRows = sortMaintenanceTickets((activeData || []) as Ticket[]);
-      const completedRows = (completedData || []) as Ticket[];
+      const teamById = new Map<string, string>(
+        ((teamData || []) as Array<{ id: string; full_name: string }>).map(member => [member.id, member.full_name]),
+      );
+      const attachAssignee = (rows: unknown[]) => (rows as Ticket[]).map(ticket => ({
+        ...ticket,
+        assigned_to_profile: ticket.assigned_to && teamById.has(ticket.assigned_to)
+          ? { full_name: teamById.get(ticket.assigned_to)! }
+          : null,
+      }));
+      const activeRows = sortMaintenanceTickets(attachAssignee(activeData || []) as Ticket[]);
+      const completedRows = attachAssignee(completedData || []) as Ticket[];
       for (const ticket of activeRows) {
         if (previouslyAwaiting.current.has(ticket.id) && !ticket.pending_supervisor_approval && ticket.status === 'in_progress') {
           toast.info(language === 'hu' ? `Javítás visszaküldve: ${ticket.ticket_number}. Nézze meg az előzményeket.` : `Repair returned for correction: ${ticket.ticket_number}. Check ticket history.`);
@@ -185,9 +202,13 @@ export function MaintenanceStaffView() {
     void refresh();
     if (!user?.id) return;
     const channel = supabase.channel(`maintenance-staff-${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `assigned_to=eq.${user.id}` }, (event: any) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, (event: any) => {
         const record = event.new || event.old;
-        if (!record?.hotel || hotelScopeRef.current.has(record.hotel)) void refresh();
+        if (
+          record?.department === 'maintenance'
+          && record?.organization_slug === profile?.organization_slug
+          && (!record?.hotel || hotelScopeRef.current.has(record.hotel))
+        ) void refresh();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_attendance', filter: `user_id=eq.${user.id}` }, () => void refresh())
       .subscribe();
@@ -209,14 +230,31 @@ export function MaintenanceStaffView() {
     setHistoryRevision(prev => ({ ...prev, [ticketId]: (prev[ticketId] || 0) + 1 }));
   };
 
+  const runTeamAction = async (
+    ticket: Ticket,
+    action: 'start' | 'hold' | 'resume' | 'submit',
+    note: string | null = null,
+    actionHoldReason: string | null = null,
+    completionPhoto: string | null = null,
+  ) => {
+    const { error } = await (supabase as any).rpc('work_maintenance_ticket', {
+      p_ticket_id: ticket.id,
+      p_action: action,
+      p_note: note,
+      p_expected_updated_at: ticket.updated_at,
+      p_hold_reason: actionHoldReason,
+      p_completion_photo: completionPhoto,
+    });
+    if (error) throw error;
+    setHistoryRevision(prev => ({ ...prev, [ticket.id]: (prev[ticket.id] || 0) + 1 }));
+  };
+
   const startWork = async (ticket: Ticket) => {
     if (!signedIn) { toast.error(c.notSignedIn); return; }
     if (busyTicketId) return;
     setBusyTicketId(ticket.id);
     try {
-      const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: false, hold_reason: null, updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
-      if (error) throw error;
-      await addComment(ticket.id, `▶ ${c.workStarted}`).catch(console.error);
+      await runTeamAction(ticket, 'start');
       toast.success(c.workStarted); void refresh();
     } catch { toast.error(c.failed); }
     finally { setBusyTicketId(null); }
@@ -264,10 +302,7 @@ export function MaintenanceStaffView() {
     if (!signedIn) { toast.error(c.notSignedIn); return; }
     setBusyTicketId(selected.id);
     try {
-      const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: true, hold_reason: holdReason, updated_at: new Date().toISOString() }).eq('id', selected.id).eq('assigned_to', user?.id);
-      if (error) throw error;
-      const label = c[HOLD_REASONS.find(([value]) => value === holdReason)?.[1] || 'other'];
-      await addComment(selected.id, `⏸ ${label}${holdDetails.trim() ? ` — ${holdDetails.trim()}` : ''}`);
+      await runTeamAction(selected, 'hold', holdDetails.trim() || null, holdReason);
       toast.success(c.holdSaved);
       setHoldReason(''); setHoldDetails(''); setDialog(null); setSelected(null); void refresh();
     } catch { toast.error(c.failed); }
@@ -279,9 +314,7 @@ export function MaintenanceStaffView() {
     if (busyTicketId) return;
     setBusyTicketId(ticket.id);
     try {
-      const { error } = await supabase.from('tickets').update({ on_hold: false, hold_reason: null, status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
-      if (error) throw error;
-      await addComment(ticket.id, `▶ ${c.resumed}`).catch(console.error);
+      await runTeamAction(ticket, 'resume');
       toast.success(c.resumed); void refresh();
     } catch { toast.error(c.failed); }
     finally { setBusyTicketId(null); }
@@ -293,20 +326,21 @@ export function MaintenanceStaffView() {
     if (!selected || !resolution.trim() || !completionFile || !user?.id) { toast.error(c.photoRequired); return; }
     if (!completionFile.type.startsWith('image/')) { toast.error(c.photoRequired); return; }
     setIsSubmittingCompletion(true);
+    let uploadedPath: string | null = null;
     try {
       const ext = completionFile.name.split('.').pop() || 'jpg';
       const path = `${selected.id}/completion-${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage.from('ticket-attachments').upload(path, completionFile, { upsert: false });
       if (uploadError) throw uploadError;
-      const { error } = await supabase.from('tickets').update({
-        status: 'in_progress', resolution_text: resolution.trim(), completion_photos: [path], pending_supervisor_approval: true,
-        on_hold: false, hold_reason: null, updated_at: new Date().toISOString(),
-      }).eq('id', selected.id).eq('assigned_to', user.id);
-      if (error) throw error;
-      await addComment(selected.id, `✅ ${c.submitted}: ${resolution.trim()}`);
+      uploadedPath = path;
+      await runTeamAction(selected, 'submit', resolution.trim(), null, path);
       toast.success(c.submitted);
       setResolution(''); setCompletionFile(null); setDialog(null); setSelected(null); void refresh();
-    } catch (error) { console.error(error); toast.error(c.failed); }
+    } catch (error) {
+      console.error(error);
+      if (uploadedPath) await supabase.storage.from('ticket-attachments').remove([uploadedPath]).catch(() => undefined);
+      toast.error(c.failed);
+    }
     finally { setIsSubmittingCompletion(false); }
   };
 
@@ -364,7 +398,16 @@ export function MaintenanceStaffView() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3 p-3 pt-0">
-            <div className="rounded-lg bg-muted/50 p-2 text-xs"><div className="flex items-center gap-1 text-muted-foreground"><Building2 className="h-3 w-3" />{c.hotel}</div><div className="break-words font-semibold">{ticket.hotel || '—'}</div></div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="rounded-lg bg-muted/50 p-2 text-xs"><div className="flex items-center gap-1 text-muted-foreground"><Building2 className="h-3 w-3" />{c.hotel}</div><div className="break-words font-semibold">{ticket.hotel || '—'}</div></div>
+              <div className="rounded-lg bg-muted/50 p-2 text-xs">
+                <div className="flex items-center gap-1 text-muted-foreground"><User className="h-3 w-3" />{c.assignedTo}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                  <span className="break-words font-semibold">{ticket.assigned_to_profile?.full_name || c.unassigned}</span>
+                  {ticket.assigned_to && ticket.assigned_to !== user?.id && <Badge variant="outline" className="text-[10px]">{c.sharedTicket}</Badge>}
+                </div>
+              </div>
+            </div>
             <MaintenanceTicketLanguagePanel ticket={ticket} language={language} reporterFallback={ticket.created_by_profile?.full_name} revision={historyRevision[ticket.id] || 0} />
             {ticket.on_hold && ticket.hold_reason && <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800"><PauseCircle className="h-4 w-4 shrink-0" />{c[HOLD_REASONS.find(([value]) => value === ticket.hold_reason)?.[1] || 'other']}</div>}
 

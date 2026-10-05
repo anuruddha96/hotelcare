@@ -37,7 +37,7 @@ serve(async (request) => {
     // Never accept a hotel, employee ID or ticket text supplied by the caller as authority.
     const { data: ticket, error: ticketError } = await scoped.from('tickets')
       .select('id, assigned_to, department, created_by, title, description, resolution_text, hold_reason, updated_at')
-      .eq('id', ticketId).eq('assigned_to', identity.user.id).eq('department', 'maintenance').maybeSingle();
+      .eq('id', ticketId).eq('department', 'maintenance').maybeSingle();
     if (ticketError || !ticket) return json({ error: 'Ticket unavailable' }, 404);
 
     const service = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
