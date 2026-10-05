@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw, Copy } from 'lucide-react';
 import { reportClientError, getLastAction } from '@/lib/clientErrorReporter';
-import { freshApplicationUrl, isLazyModuleCrash } from '@/lib/lazyModuleRecovery';
+import { freshApplicationUrl, isExternalDomMutationCrash, isLazyModuleCrash } from '@/lib/lazyModuleRecovery';
 
 interface Props {
   children: React.ReactNode;
@@ -34,6 +34,18 @@ export class ErrorBoundary extends React.Component<Props, State> {
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary] Caught render error:', error, info);
     this.setState({ componentStack: info.componentStack || null });
+
+    if (isExternalDomMutationCrash(error)) {
+      // Stop browser translation from mutating any more React-managed nodes
+      // before the technician taps Reload.
+      document.documentElement.setAttribute('translate', 'no');
+      document.documentElement.classList.add('notranslate');
+      document.body?.setAttribute('translate', 'no');
+      document.body?.classList.add('notranslate');
+      document.getElementById('root')?.setAttribute('translate', 'no');
+      document.getElementById('root')?.classList.add('notranslate');
+    }
+
     void reportClientError(error, {
       componentStack: info.componentStack || undefined,
       context: this.props.context || 'ErrorBoundary',
@@ -43,7 +55,10 @@ export class ErrorBoundary extends React.Component<Props, State> {
   handleReset = () => {
     // React.lazy remembers a fulfilled-but-undefined module. Resetting the
     // boundary immediately rethrows, so use a fresh document for this case.
-    if (isLazyModuleCrash(this.state.error, this.state.componentStack)) {
+    if (
+      isLazyModuleCrash(this.state.error, this.state.componentStack) ||
+      isExternalDomMutationCrash(this.state.error)
+    ) {
       this.handleReload();
       return;
     }
@@ -52,9 +67,13 @@ export class ErrorBoundary extends React.Component<Props, State> {
   };
 
   handleReload = () => {
-    if (isLazyModuleCrash(this.state.error, this.state.componentStack)) {
-      // A plain Safari reload can reuse a broken module graph. Use a new URL
-      // while retaining the exact hotel route, other query params and hash.
+    const needsFreshDocument =
+      isLazyModuleCrash(this.state.error, this.state.componentStack) ||
+      isExternalDomMutationCrash(this.state.error);
+
+    if (needsFreshDocument) {
+      // A fresh document also removes browser-translator wrappers or extension
+      // mutations that no longer match React's virtual DOM.
       window.location.replace(freshApplicationUrl(window.location.href, Date.now()));
       return;
     }
@@ -83,6 +102,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       const isFullscreen = this.props.variant === 'fullscreen';
       const lazyModuleCrash = isLazyModuleCrash(this.state.error, this.state.componentStack);
+      const externalDomMutationCrash = isExternalDomMutationCrash(this.state.error);
       return (
         <div
           className={`flex flex-col items-center justify-center p-6 text-center space-y-4 ${
@@ -97,7 +117,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <p className="text-sm text-muted-foreground mt-1">
               {lazyModuleCrash
                 ? 'A part of the app did not load correctly. Reload the latest app version to continue. Any unsaved changes may be lost.'
-                : this.props.fallbackMessage || 'An unexpected error occurred. Please try again.'}
+                : externalDomMutationCrash
+                  ? 'The page was changed outside HotelCare, usually by browser translation. Reload to restore the app. Saved work is kept.'
+                  : this.props.fallbackMessage || 'An unexpected error occurred. Please try again.'}
             </p>
             {this.state.error?.message && (
               <p className="text-xs text-muted-foreground mt-2 font-mono break-all">
@@ -106,9 +128,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
             )}
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button onClick={isFullscreen || lazyModuleCrash ? this.handleReload : this.handleReset} variant="default">
+            <Button onClick={isFullscreen || lazyModuleCrash || externalDomMutationCrash ? this.handleReload : this.handleReset} variant="default">
               <RefreshCw className="h-4 w-4 mr-2" />
-              {lazyModuleCrash ? 'Reload latest version' : isFullscreen ? 'Reload' : 'Retry'}
+              {lazyModuleCrash || externalDomMutationCrash ? 'Reload latest version' : isFullscreen ? 'Reload' : 'Retry'}
             </Button>
             {isFullscreen && !lazyModuleCrash && (
               <Button onClick={this.handleReset} variant="outline">
