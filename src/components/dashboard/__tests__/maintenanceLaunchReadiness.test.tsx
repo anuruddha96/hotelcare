@@ -26,11 +26,13 @@ describe('maintenance launch readiness wiring', () => {
     expect(source).toContain('pendingSeen');
   });
 
-  it('keeps worker completion behind supervisor approval', () => {
+  it('routes shared worker actions through secure property-scoped RPCs', () => {
     const source = read('MaintenanceStaffView.tsx');
-    expect(source).toContain('pending_supervisor_approval: true');
-    expect(source).toContain("status: 'in_progress'");
-    expect(source).toContain("completion_photos: [path]");
+    expect(source).toContain("rpc('work_maintenance_ticket'");
+    expect(source).toContain("runTeamAction(selected, 'submit'");
+    expect(source).toContain('p_completion_photo: completionPhoto');
+    expect(source).toContain("rpc('get_maintenance_property_teammates'");
+    expect(source).not.toContain('assigned_to_profile:profiles!tickets_assigned_to_fkey');
   });
 
   it('prevents stale maintenance resolution dialogs from overwriting completed work', () => {
