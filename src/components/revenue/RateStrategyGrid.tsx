@@ -167,6 +167,19 @@ function leftTone(left: number, units: number): string {
   return "text-muted-foreground";
 }
 
+/**
+ * Previo shows a small +N / -N when its final "rooms for sale" differs from
+ * physical inventory minus booked rooms. Keep the exact same meaning here.
+ */
+export function manualInventoryDelta(finalRoomsForSale: number, physicalRooms: number, soldRooms: number): number {
+  const automatic = Math.max(0, Math.max(0, Math.trunc(physicalRooms)) - Math.max(0, Math.trunc(soldRooms)));
+  return Math.trunc(finalRoomsForSale) - automatic;
+}
+
+function signedInventoryDelta(delta: number): string {
+  return delta > 0 ? `+${delta}` : String(delta).replace("-", "−");
+}
+
 /** Monday starts a new week — the strongest rhythm the eye can follow. */
 function isMonday(d: string): boolean {
   return new Date(`${d}T00:00:00Z`).getUTCDay() === 1;
@@ -1137,6 +1150,58 @@ export default function RateStrategyGrid({
     return m;
   }, [metrics]);
 
+  // What availability would be with no manual PMS override: physical rooms
+  // minus booked room-nights. Comparing this with Previo's native rooms-for-
+  // sale value reproduces the +1 / -1 marker shown in Previo itself.
+  const calculatedLeftByTypeDate = useMemo(() => {
+    const soldBy = new Map<string, number>();
+    for (const night of (nights ?? [])) {
+      if (!night.room_type_name) continue;
+      const key = `${night.room_type_name}|${night.stay_date}`;
+      soldBy.set(key, (soldBy.get(key) ?? 0) + 1);
+    }
+
+    const out = new Map<string, number>();
+    for (const room of roomTypes) {
+      if (!room.pms_room_id || (room.num_rooms || 0) <= 0) continue;
+      for (const metric of metrics) {
+        const key = `${room.name}|${metric.stay_date}`;
+        out.set(key, Math.max(0, (room.num_rooms || 0) - (soldBy.get(key) ?? 0)));
+      }
+    }
+    return out;
+  }, [nights, roomTypes, metrics]);
+
+  const manualAdjustmentByTypeDate = useMemo(() => {
+    const out = new Map<string, number>();
+    if (!leftByTypeDate) return out;
+    for (const [key, finalValue] of leftByTypeDate) {
+      const automatic = calculatedLeftByTypeDate.get(key);
+      if (automatic === undefined) continue;
+      const delta = Math.trunc(finalValue) - automatic;
+      if (delta !== 0) out.set(key, delta);
+    }
+    return out;
+  }, [leftByTypeDate, calculatedLeftByTypeDate]);
+
+  const houseManualAdjustmentByDate = useMemo(() => {
+    const inventoryTypes = roomTypes.filter(
+      (room) => room.pms_room_id
+        && (room.num_rooms || 0) > 0
+        && room.is_sellable !== false
+        && room.counts_toward_inventory !== false,
+    );
+    const out = new Map<string, number>();
+    for (const metric of metrics) {
+      let total = 0;
+      for (const room of inventoryTypes) {
+        total += manualAdjustmentByTypeDate.get(`${room.name}|${metric.stay_date}`) ?? 0;
+      }
+      if (total !== 0) out.set(metric.stay_date, total);
+    }
+    return out;
+  }, [roomTypes, metrics, manualAdjustmentByTypeDate]);
+
   // House-level "Left to sell" must reconcile with the room-type rows. When
   // Previo's native availability is mirrored, leftByTypeDate carries those
   // exact values; when it is absent the parent has already filled the same map
@@ -1179,6 +1244,7 @@ export default function RateStrategyGrid({
     obkId: string | null;
     label: string;
     units: number;
+    calculated: number;
     current: number;
     value: number;
   } | null>(null);
@@ -3049,14 +3115,24 @@ export default function RateStrategyGrid({
                     const m = metricByDate.get(d);
                     const units = m?.roomsAvailable ?? 0;
                     const left = houseLeftByDate.get(d) ?? m?.roomsLeft ?? 0;
+                    const manual = houseManualAdjustmentByDate.get(d) ?? 0;
                     return (
                       <div
                         key={d}
-                        title={`${left} of ${units} rooms left to sell on ${d}`}
-                        className={`flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
+                        title={`${left} of ${units} rooms left to sell on ${d}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}`}
+                        className={`relative flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
                         <span className="leading-none">{units ? (left === 0 ? "Sold out" : left) : "—"}</span>
+                        {manual !== 0 && (
+                          <span
+                            className="absolute right-1 top-0.5 font-semibold text-destructive"
+                            style={{ fontSize: fz(8) }}
+                            aria-label={`Manual inventory adjustment ${signedInventoryDelta(manual)}`}
+                          >
+                            {signedInventoryDelta(manual)}
+                          </span>
+                        )}
                         {units > 0 && (
                           <span className="mt-0.5 h-1 w-8 rounded-full bg-muted overflow-hidden">
                             <span
@@ -3347,6 +3423,8 @@ export default function RateStrategyGrid({
                       const cell = `${row.rawName}|${d}`;
                       const override = invOverride.get(cell);
                       const left = override ?? leftByTypeDate?.get(cell);
+                      const calculated = calculatedLeftByTypeDate.get(cell);
+                      const manual = left !== undefined && calculated !== undefined ? Math.trunc(left) - calculated : 0;
                       const key = `inv|${cell}`;
                       // Rooms for sale is a room-type level Previo value. Revenue
                       // admins edit it with the +/- stepper opened from the cell;
@@ -3376,16 +3454,15 @@ export default function RateStrategyGrid({
                               obkId: row.obkOfType,
                               label: row.typeName,
                               units,
+                              calculated: calculated ?? left,
                               current: left,
                               value: left,
                             });
                           }}
                           title={left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
-                            : left === 0
-                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`
-                              : `${row.typeName} · ${left} of ${units} left on ${d}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
-                          className={`flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
+                            : `${row.typeName} · ${left === 0 ? "sold out" : `${left} of ${units} left`} on ${d}${calculated !== undefined ? ` · automatic ${calculated}` : ""}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}${left === 0 && closedAt != null ? ` · last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
+                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W, fontSize: fz(10) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
@@ -3405,6 +3482,15 @@ export default function RateStrategyGrid({
                               )}
                             </>
                           ) : `${left} left`}
+                          {!busy && manual !== 0 && (
+                            <span
+                              className="absolute right-1 top-0.5 font-semibold text-destructive"
+                              style={{ fontSize: fz(8) }}
+                              aria-label={`Manual inventory adjustment ${signedInventoryDelta(manual)}`}
+                            >
+                              {signedInventoryDelta(manual)}
+                            </span>
+                          )}
                         </button>
                       );
 
@@ -3735,7 +3821,23 @@ export default function RateStrategyGrid({
               <div className="rounded-lg border bg-muted/30 p-3">
                 <div className="font-medium leading-tight">{inventoryEditor.label}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {inventoryEditor.date} · Previo currently shows {inventoryEditor.current} · physical capacity {inventoryEditor.units}
+                  {inventoryEditor.date} · physical capacity {inventoryEditor.units}
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Automatic</div>
+                    <div className="mt-0.5 font-semibold tabular-nums">{inventoryEditor.calculated}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Manual</div>
+                    <div className={`mt-0.5 font-semibold tabular-nums ${inventoryEditor.value - inventoryEditor.calculated !== 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                      {signedInventoryDelta(inventoryEditor.value - inventoryEditor.calculated)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Final</div>
+                    <div className="mt-0.5 font-semibold tabular-nums">{inventoryEditor.value}</div>
+                  </div>
                 </div>
               </div>
 
@@ -3775,7 +3877,7 @@ export default function RateStrategyGrid({
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Saving writes this exact value to Previo. HotelCare then reads Previo back before confirming the change.
+                Automatic = physical rooms minus booked rooms. Manual shows the +/− override, just like Previo. Saving writes the final Rooms to sell value to Previo and HotelCare reads it back before confirming.
               </p>
 
               <DialogFooter className="gap-2 sm:gap-2">
