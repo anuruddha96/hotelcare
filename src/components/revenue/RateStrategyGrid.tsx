@@ -1252,6 +1252,14 @@ export default function RateStrategyGrid({
           ? `Minimum stay for ${opts.date} set to ${opts.minStay} night${opts.minStay === 1 ? "" : "s"} in Previo`
           : `${opts.roomTypeName ?? "Room type"} on ${opts.date}: ${opts.roomsToSell} to sell in Previo`,
       );
+      if (opts.roomsToSell !== undefined) {
+        await onRatesUpdated?.();
+        setInvOverride((prev) => {
+          const next = new Map(prev);
+          next.delete(opts.key.replace(/^inv\|/, ""));
+          return next;
+        });
+      }
     } catch (e) {
       toast.error((e as Error).message);
       // Roll the optimistic value back so nobody trusts a change that failed.
@@ -1264,7 +1272,7 @@ export default function RateStrategyGrid({
     } finally {
       setRestrictionBusy(null);
     }
-  }, [hotelId, loadMinStay]);
+  }, [hotelId, loadMinStay, onRatesUpdated]);
 
   const commitMinStay = (date: string, raw: string) => {
     setRestrictionEdit(null);
@@ -3328,10 +3336,10 @@ export default function RateStrategyGrid({
                       const override = invOverride.get(cell);
                       const left = override ?? leftByTypeDate?.get(cell);
                       const key = `inv|${cell}`;
-                      // Previo's price channel refuses availability writes, so
-                      // this row reads out what the PMS says instead of
-                      // pretending it can be changed from here.
-                      const editing = false;
+                      // Rooms for sale is a room-type level Previo value. Revenue
+                      // admins can edit the exact cell; the server writes it via
+                      // EQC and only reports success after REST read-back agrees.
+                      const editing = canEditRates && restrictionEdit?.key === key;
                       const busy = restrictionBusy === key;
                       if (editing) {
                         return (
@@ -3369,13 +3377,17 @@ export default function RateStrategyGrid({
                         <button
                           key={d}
                           type="button"
-                          disabled
+                          disabled={!canEditRates || busy || left === undefined}
+                          onClick={() => {
+                            if (!canEditRates || busy || left === undefined) return;
+                            setRestrictionEdit({ key, value: String(left) });
+                          }}
                           title={left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : left === 0
-                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`
-                              : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
-                          className={`flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
+                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`
+                              : `${row.typeName} · ${left} of ${units} left on ${d}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
+                          className={`flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W, fontSize: fz(10) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
