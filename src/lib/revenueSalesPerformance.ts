@@ -1,4 +1,4 @@
-export type SalesPerformanceCompare = "goal" | "yesterday" | "lastweek" | "lastmonth" | "custom";
+export type SalesPerformanceCompare = "goal" | "yesterday" | "lastweek" | "lastmonth" | "lastyear" | "custom";
 export type SalesPerformanceMetric = "value" | "nights" | "adr";
 
 export interface SalesPerformanceBooking {
@@ -75,6 +75,10 @@ export function shiftIsoMonths(date: string, amount: number): string {
   return new Date(Date.UTC(targetYear, targetMonth, clampedDay)).toISOString().slice(0, 10);
 }
 
+export function shiftIsoYears(date: string, amount: number): string {
+  return shiftIsoMonths(date, amount * 12);
+}
+
 function enumerateDays(from: string, to: string): string[] {
   if (!from || !to || to < from) return [];
   const days: string[] = [];
@@ -107,6 +111,7 @@ function comparisonDayFor(
   const shift = shiftForCompare(input.compare);
   if (shift !== null) return addIsoDays(currentDay, shift);
   if (input.compare === "lastmonth") return shiftIsoMonths(currentDay, -1);
+  if (input.compare === "lastyear") return shiftIsoYears(currentDay, -1);
   if (input.compare === "custom") {
     const customDays = input.customCompareFrom && input.customCompareTo
       ? enumerateDays(input.customCompareFrom, input.customCompareTo)
