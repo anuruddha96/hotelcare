@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Area, Bar, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer,
+  Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer,
   Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
 import {
@@ -19,7 +19,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
 import { convert, currencySymbol, toBaseCurrency, useRevenueCurrency } from "@/lib/revenueCurrency";
 import { buildPeriodRevenueSalesGoals, periodTotalToDaily } from "@/lib/revenueSalesGoals";
-import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  buildSalesPerformanceSeries,
+  getSalesPerformancePace,
+  type SalesPerformanceMetric,
+} from "@/lib/revenueSalesPerformance";
 
 /* ------------------------------------------------------------------ types */
 
@@ -177,9 +181,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [stayFrom, setStayFrom] = useState(today);
   const [stayTo, setStayTo] = useState(addDays(today, 365));
   const [showCancelled, setShowCancelled] = useState(false);
-  const isMobile = useIsMobile();
   const revenueCurrency = useRevenueCurrency();
   const [compare, setCompare] = useState<CompareKey>("goal");
+  const [chartMetric, setChartMetric] = useState<SalesPerformanceMetric>("value");
   const [filter, setFilter] = useState<BookingFilter>("all");
   const [sort, setSort] = useState<SortKey>("created");
   const [futureNights, setFutureNights] = useState(3);
@@ -448,62 +452,85 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   /* --------------------------------------------------------------- chart */
   const nowMinutes = budapestMinutes(new Date().toISOString());
   const isTodayPeriod = bookedFrom === today && bookedTo === today;
+  const isSingleDayPeriod = bookedFrom === bookedTo;
 
-  const chart = useMemo(() => {
-    const cutoff = isTodayPeriod ? nowMinutes : 24 * 60 - 1;
-    const buckets: number[] = [];
-    for (let m = 0; m <= cutoff; m += 120) buckets.push(m);
-    if (buckets[buckets.length - 1] < cutoff) buckets.push(cutoff);
+  const chart = useMemo(() => buildSalesPerformanceSeries({
+    bookings: allBookings,
+    from: bookedFrom,
+    to: bookedTo,
+    today,
+    nowMinutes,
+    compare,
+    goals: {
+      days: periodGoals.days,
+      targetValue: periodGoals.targetValue,
+      targetRoomNights: periodGoals.targetRoomNights,
+      targetAdr: goals.targetAdr,
+    },
+  }), [
+    allBookings,
+    bookedFrom,
+    bookedTo,
+    today,
+    nowMinutes,
+    compare,
+    periodGoals.days,
+    periodGoals.targetValue,
+    periodGoals.targetRoomNights,
+    goals.targetAdr,
+  ]);
 
-    const seriesFor = (list: SaleBooking[]) => {
-      let value = 0, nights = 0;
-      return buckets.map((m) => {
-        let windowValue = 0;
-        const windowRes = new Set<string>();
-        for (const b of list) {
-          if (b.createdMinutes <= m && b.createdMinutes > m - 120) {
-            value += b.revenue; nights += b.roomNights;
-            windowValue += b.revenue; windowRes.add(b.res_id);
-          }
-        }
-        return { value: Math.round(value), nights, windowValue: Math.round(windowValue), windowBookings: windowRes.size };
-      });
-    };
+  const pace = useMemo(() => getSalesPerformancePace(chart, chartMetric), [chart, chartMetric]);
 
-    const base = seriesFor(liveBookings.slice().sort((a, b) => a.createdMinutes - b.createdMinutes));
+  const compareLabel = compare === "yesterday"
+    ? (isTodayPeriod ? "Yesterday" : "Previous day")
+    : compare === "lastweek"
+      ? (isSingleDayPeriod ? "Same weekday last week" : "Same period last week")
+      : periodGoals.days === 1
+        ? "Daily goal pace"
+        : `${periodGoals.days}-day goal pace`;
 
-    const compareDay = compare === "yesterday" ? addDays(today, -1)
-      : compare === "lastweek" ? addDays(today, -7) : null;
-    const compareList = compareDay
-      ? allBookings.filter((b) => !b.cancelled && b.createdDay === compareDay)
-        .sort((a, b) => a.createdMinutes - b.createdMinutes)
-      : [];
-    const cmp = compareDay ? seriesFor(compareList) : null;
+  const periodLabel = isTodayPeriod
+    ? "Today"
+    : isSingleDayPeriod
+      ? fmtDay(bookedFrom)
+      : `${fmtDay(bookedFrom)} – ${fmtDay(bookedTo)}`;
 
-    return buckets.map((m, i) => ({
-      label: `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`,
-      value: base[i].value,
-      nights: base[i].nights,
-      // Non-cumulative: what actually got booked inside this two-hour window.
-      windowValue: base[i].windowValue,
-      windowBookings: base[i].windowBookings,
-      adr: base[i].nights ? Math.round(base[i].value / base[i].nights) : null,
-      compare: cmp ? cmp[i].value : periodGoals.targetValue ? Math.round((periodGoals.targetValue * (m + 1)) / (24 * 60)) : null,
-    }));
-  }, [liveBookings, allBookings, compare, today, periodGoals.targetValue, isTodayPeriod, nowMinutes]);
+  const metricDisplayValue = (value: number | null) => {
+    if (value === null || !Number.isFinite(value)) return "—";
+    if (chartMetric === "nights") return `${Math.round(value * 10) / 10} room nights`;
+    return eur(Math.round(value));
+  };
 
-  /** Busiest booking window and the individual booking times behind it. */
+  const paceSummary = pace.delta === null
+    ? compare === "goal"
+      ? `Set the ${chartMetric === "value" ? "booking-value" : chartMetric === "nights" ? "room-night" : "ADR"} target to see goal pace`
+      : `${compareLabel} comparison is not available yet`
+    : `${metricDisplayValue(Math.abs(pace.delta))} ${pace.delta >= 0 ? "ahead of" : "behind"} ${compareLabel.toLowerCase()}`;
+
+  const paceTone = pace.delta === null
+    ? "text-muted-foreground"
+    : pace.delta >= 0
+      ? "text-emerald-600 dark:text-emerald-400"
+      : "text-red-600 dark:text-red-400";
+
+  const netBookingValue = kpi.revenue - kpi.cancelledRevenue;
+
+  /** Busiest booking period and the individual booking times behind it. */
   const bookingTiming = useMemo(() => {
     const withTime = liveBookings.filter((b) => b.created);
     if (withTime.length === 0) return null;
     let peak = chart[0];
-    for (const c of chart) if (c.windowValue > (peak?.windowValue ?? 0)) peak = c;
+    for (const point of chart) {
+      if (point.grossValueWindow > (peak?.grossValueWindow ?? 0)) peak = point;
+    }
     const times = withTime
       .slice()
-      .sort((a, b) => b.createdMinutes - a.createdMinutes)
+      .sort((a, b) => new Date(b.created as string).getTime() - new Date(a.created as string).getTime())
       .map((b) => ({
         key: b.key,
         res: b.res_id,
+        day: b.createdDay,
         time: `${String(Math.floor(b.createdMinutes / 60)).padStart(2, "0")}:${String(b.createdMinutes % 60).padStart(2, "0")}`,
         revenue: b.revenue,
         nights: b.roomNights,
@@ -513,8 +540,6 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const last = times[0];
     return { peak, times, first, last };
   }, [liveBookings, chart]);
-
-  const compareLabel = compare === "yesterday" ? "Yesterday" : compare === "lastweek" ? "Same weekday last week" : periodGoals.days === 1 ? "Daily goal pace" : `${periodGoals.days}-day goal pace`;
 
   /* -------------------------------------------------------- ADR recovery */
   const recovery = useMemo(() => {
@@ -858,8 +883,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             <strong className="text-foreground">Why it can differ from the pickup chart:</strong> the
             Demand &amp; pickup horizon counts rooms gained and lost per <strong>stay date</strong>,
             so a booking made weeks ago and cancelled or shortened today shows as negative pickup there.
-            Cancellations here only count bookings that were both <strong>created and cancelled</strong> in
-            this period — that is why this can read 0 while the chart shows red bars.
+            Cancellations here are assigned to the <strong>day the cancellation happened</strong>, even if the
+            reservation was originally created earlier. This makes the booking-pace chart show the real positive
+            and negative commercial movement during the selected period.
           </p>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             Tap the <Info className="inline h-3 w-3 align-[-1px]" /> on any figure for its exact definition.
@@ -1017,7 +1043,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 tone={kpi.cancelled > 0 ? "text-red-600 dark:text-red-400" : undefined}
                 value={kpi.cancelled ? `−${kpi.cancelledNights} n` : "0"}
                 sub={kpi.cancelled ? `${kpi.cancelled} booking${kpi.cancelled === 1 ? "" : "s"} · ${eur(Math.round(kpi.cancelledRevenue))} lost` : "none created in this period"}
-                info="Bookings that were created in this period and are now cancelled or a no-show. A booking made last month but cancelled today is NOT counted here — it still appears as negative pickup in the Demand & pickup horizon, which compares stay-date occupancy day over day. So 0 here with red bars there is normal."
+                info="Reservations cancelled or marked no-show during the selected period. The cancellation is assigned to when it happened, so a reservation created earlier but cancelled today is included in today's negative movement."
               />
               <Kpi
                 label="Net room nights"
@@ -1059,96 +1085,214 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </div>
 
             {/* ------------------------------------------------- chart */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-medium">Today’s sales performance</h3>
+            <div className="rounded-lg border p-3 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold">Booking pace</h3>
+                  <p className="text-[11px] text-muted-foreground">{periodLabel} · booking-created performance</p>
+                </div>
                 <Select value={compare} onValueChange={(v) => setCompare(v as CompareKey)}>
-                  <SelectTrigger className="h-9 w-[210px] text-xs" aria-label="Comparison"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-[205px] max-w-full text-xs" aria-label="Booking pace comparison"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="goal">Versus daily goal</SelectItem>
-                    <SelectItem value="yesterday">Versus yesterday</SelectItem>
-                    <SelectItem value="lastweek">Versus same weekday last week</SelectItem>
+                    <SelectItem value="goal">Versus goal pace</SelectItem>
+                    <SelectItem value="yesterday">Versus previous day</SelectItem>
+                    <SelectItem value="lastweek">Versus same period last week</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="h-64">
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 rounded-md bg-muted/30 p-3 text-xs">
+                <Mini label="Net booking value" value={eur(Math.round(netBookingValue))} />
+                <Mini label="Net room nights" value={String(kpi.netNights)} />
+                <Mini label="Actual ADR" value={kpi.adr === null ? "—" : eur(Math.round(kpi.adr))} />
+                <Mini
+                  label="Cancellations"
+                  value={kpi.cancelled ? `−${eur(Math.round(kpi.cancelledRevenue))} · ${kpi.cancelledNights} n` : "0"}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Pace vs {compareLabel}</p>
+                  <p className={`text-sm font-semibold ${paceTone}`}>{paceSummary}</p>
+                </div>
+                {pace.current !== null && (
+                  <div className="shrink-0 text-right">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Current</p>
+                    <p className="text-sm font-semibold tabular-nums">{metricDisplayValue(pace.current)}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 rounded-md border overflow-hidden">
+                {([
+                  ["value", "Value"],
+                  ["nights", "Room nights"],
+                  ["adr", "ADR"],
+                ] as const).map(([key, label]) => (
+                  <Button
+                    key={key}
+                    size="sm"
+                    variant={chartMetric === key ? "secondary" : "ghost"}
+                    className="h-8 rounded-none text-xs"
+                    onClick={() => setChartMetric(key)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="h-56 sm:h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chart} margin={{ top: 8, right: 4, left: -8, bottom: 0 }}>
+                  <ComposedChart data={chart} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
-                    <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                    {/* Compact labels (12k) so large euro totals are never clipped. */}
-                    <YAxis yAxisId="v" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={40}
-                      tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v)))} />
-                    <YAxis yAxisId="adr" orientation="right" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={38}
-                      domain={[0, (max: number) => Math.max(goals.targetAdr * 1.4, max * 1.15)]} />
-                    <RTooltip
-                      contentStyle={{ fontSize: 11, padding: "4px 8px" }}
-                      formatter={(value: unknown, name: string, item: any) => {
-                        if (name === "Booked in this window") {
-                          const n = item?.payload?.windowBookings ?? 0;
-                          return [`${eur(Number(value))} · ${n} booking${n === 1 ? "" : "s"}`, name];
-                        }
-                        return [eur(Number(value)), name];
-                      }}
-                      labelFormatter={(l) => `${l} Budapest · booked in the 2h up to this point`}
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={18}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    {goals.targetAdr > 0 && (
-                      <ReferenceLine yAxisId="adr" y={goals.targetAdr} stroke="hsl(var(--primary))" strokeDasharray="5 3"
-                        label={{ value: `ADR target ${eur(goals.targetAdr)}`, position: "right", fontSize: 10, fill: "hsl(var(--primary))" }} />
+                    <YAxis
+                      tick={{ fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={42}
+                      tickFormatter={(v: number) => {
+                        if (chartMetric === "nights") return String(Math.round(v * 10) / 10);
+                        if (Math.abs(v) >= 1000) return `${Math.round(v / 100) / 10}k`;
+                        return String(Math.round(v));
+                      }}
+                    />
+                    <RTooltip
+                      contentStyle={{ fontSize: 11, padding: "6px 8px" }}
+                      formatter={(value: unknown, name: string, item: any) => {
+                        const numeric = Number(value);
+                        const isCancellation = name.startsWith("Cancelled");
+                        const amount = isCancellation ? Math.abs(numeric) : numeric;
+                        const formatted = chartMetric === "nights"
+                          ? `${Math.round(amount * 10) / 10} room nights`
+                          : eur(Math.round(amount));
+                        if (name.startsWith("New ")) {
+                          const n = item?.payload?.windowBookings ?? 0;
+                          return [`${formatted} · ${n} booking${n === 1 ? "" : "s"}`, name];
+                        }
+                        if (isCancellation) {
+                          const n = item?.payload?.windowCancellations ?? 0;
+                          return [`−${formatted} · ${n} cancellation${n === 1 ? "" : "s"}`, name];
+                        }
+                        return [formatted, name];
+                      }}
+                      labelFormatter={(label) => isSingleDayPeriod
+                        ? `${label} Budapest time`
+                        : `${label} · booking-created day`}
+                    />
+
+                    {chartMetric !== "adr" && (
+                      <>
+                        <Bar
+                          dataKey={chartMetric === "value" ? "grossValueWindow" : "grossNightsWindow"}
+                          name={chartMetric === "value" ? "New booking value" : "New room nights"}
+                          stackId="activity"
+                          fill="hsl(199 89% 48% / 0.38)"
+                          barSize={16}
+                          radius={[3, 3, 0, 0]}
+                        />
+                        <Bar
+                          dataKey={chartMetric === "value" ? "cancelledValueWindow" : "cancelledNightsWindow"}
+                          name={chartMetric === "value" ? "Cancelled value" : "Cancelled room nights"}
+                          stackId="activity"
+                          fill="hsl(0 72% 51% / 0.52)"
+                          barSize={16}
+                          radius={[0, 0, 3, 3]}
+                        />
+                      </>
                     )}
-                    {/* Bars show WHEN the bookings actually landed, not the running total. */}
-                    <Bar yAxisId="v" dataKey="windowValue" name="Booked in this window"
-                      fill="hsl(199 89% 48% / 0.35)" barSize={14} radius={[3, 3, 0, 0]} />
-                    <Area yAxisId="v" type="monotone" dataKey="value" name="Booking value" stroke="hsl(199 89% 48%)"
-                      fill="hsl(199 89% 48% / 0.15)" strokeWidth={2} />
-                    {/* The pace/compare line is desktop-only: on a phone it just
-                        adds a fifth overlapping series. */}
-                    {!isMobile && (
-                      <Line yAxisId="v" type="monotone" dataKey="compare" name={compareLabel} stroke="hsl(var(--muted-foreground))"
-                        strokeDasharray="4 3" strokeWidth={1.5} dot={false} connectNulls />
-                    )}
-                    <Line yAxisId="adr" type="monotone" dataKey="adr" name="ADR" stroke="hsl(160 84% 39%)" strokeWidth={2} dot={false} connectNulls />
+
+                    <Line
+                      type="monotone"
+                      dataKey={chartMetric === "value" ? "netValue" : chartMetric === "nights" ? "netNights" : "adr"}
+                      name={chartMetric === "value" ? "Net booking value" : chartMetric === "nights" ? "Net room nights" : "ADR"}
+                      stroke="hsl(199 89% 48%)"
+                      strokeWidth={2.5}
+                      dot={false}
+                      connectNulls
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={chartMetric === "value" ? "compareValue" : chartMetric === "nights" ? "compareNights" : "compareAdr"}
+                      name={compareLabel}
+                      stroke="hsl(var(--muted-foreground))"
+                      strokeDasharray="5 4"
+                      strokeWidth={1.75}
+                      dot={false}
+                      connectNulls
+                    />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Bars show what was actually booked in each two-hour window (left axis, {currencySymbol()});
-                the filled line is the running total since 00:00 Budapest and the green line is ADR on the
-                right axis{isMobile ? "" : `, against ${compareLabel.toLowerCase()}`}.
-                Today so far: {kpi.roomNights} room night{kpi.roomNights === 1 ? "" : "s"}.
-                {periodGoals.targetValue || periodGoals.targetRoomNights
-                  ? ` Selected-period goal (${periodGoals.days} day${periodGoals.days === 1 ? "" : "s"}): ${periodGoals.targetValue ? eur(periodGoals.targetValue) : "—"} value · ${periodGoals.targetRoomNights ? Math.round(periodGoals.targetRoomNights * 10) / 10 : "—"} room nights.`
-                  : " Goals are not set yet."}
+
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                {chartMetric !== "adr" && (
+                  <>
+                    <span><span className="inline-block h-2 w-2 rounded-sm bg-sky-500/50 mr-1" />New bookings</span>
+                    <span><span className="inline-block h-2 w-2 rounded-sm bg-red-500/50 mr-1" />Cancellations</span>
+                  </>
+                )}
+                <span><span className="inline-block h-[2px] w-3 bg-sky-500 align-middle mr-1" />{chartMetric === "adr" ? "ADR" : "Cumulative net"}</span>
+                <span><span className="inline-block h-[2px] w-3 border-t border-dashed border-muted-foreground align-middle mr-1" />{compareLabel}</span>
+              </div>
+
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {isSingleDayPeriod
+                  ? "Bars show activity in two-hour booking windows; the solid line shows the cumulative result up to that time."
+                  : "Each bar is one booking-created day; the solid line shows the cumulative result across the selected period."}
+                {" "}Cancellations are negative movement and the comparison line is always visible on mobile.
+                {compare === "goal" && " Goal pace uses a transparent linear baseline from the property's configured daily target."}
               </p>
 
               {bookingTiming && (
-                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    <Mini label="First booking" value={bookingTiming.first?.time ?? "—"} />
-                    <Mini label="Latest booking" value={bookingTiming.last?.time ?? "—"} />
-                    <Mini label="Busiest window" value={bookingTiming.peak ? `${bookingTiming.peak.label}` : "—"} />
-                    <Mini label="Booked in that window" value={eur(bookingTiming.peak?.windowValue ?? 0)} />
+                <Section title="Booking activity details" defaultOpen={false}>
+                  <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <Mini
+                        label="First booking"
+                        value={bookingTiming.first
+                          ? `${isSingleDayPeriod ? "" : `${fmtDay(bookingTiming.first.day)} · `}${bookingTiming.first.time}`
+                          : "—"}
+                      />
+                      <Mini
+                        label="Latest booking"
+                        value={bookingTiming.last
+                          ? `${isSingleDayPeriod ? "" : `${fmtDay(bookingTiming.last.day)} · `}${bookingTiming.last.time}`
+                          : "—"}
+                      />
+                      <Mini label="Busiest period" value={bookingTiming.peak?.label ?? "—"} />
+                      <Mini label="Booked in that period" value={eur(bookingTiming.peak?.grossValueWindow ?? 0)} />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {bookingTiming.times.slice(0, 12).map((t) => (
+                        <span
+                          key={t.key}
+                          className="rounded-md border bg-background px-2 py-1 text-[11px] tabular-nums"
+                          title={`${t.res} · ${t.channel} · ${t.nights} night${t.nights === 1 ? "" : "s"}`}
+                        >
+                          <span className="font-medium">{isSingleDayPeriod ? t.time : `${fmtDay(t.day)} ${t.time}`}</span>
+                          <span className="text-muted-foreground"> · {eur(Math.round(t.revenue))}</span>
+                        </span>
+                      ))}
+                      {bookingTiming.times.length > 12 && (
+                        <span className="px-2 py-1 text-[11px] text-muted-foreground">
+                          +{bookingTiming.times.length - 12} more
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Booking times use Budapest time and come from the reservation creation timestamp in Previo.
+                    </p>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {bookingTiming.times.slice(0, 24).map((t) => (
-                      <span key={t.key}
-                        className="rounded-md border bg-background px-2 py-1 text-[11px] tabular-nums"
-                        title={`${t.res} · ${t.channel} · ${t.nights} night${t.nights === 1 ? "" : "s"}`}>
-                        <span className="font-medium">{t.time}</span>
-                        <span className="text-muted-foreground"> · {eur(Math.round(t.revenue))}</span>
-                      </span>
-                    ))}
-                    {bookingTiming.times.length > 24 && (
-                      <span className="px-2 py-1 text-[11px] text-muted-foreground">
-                        +{bookingTiming.times.length - 24} more
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    Booking times are Budapest time, taken from when each reservation was created in Previo.
-                  </p>
-                </div>
+                </Section>
               )}
             </div>
 
