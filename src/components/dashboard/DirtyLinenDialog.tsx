@@ -94,9 +94,15 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   }, [open, workDate]);
 
   useEffect(() => {
-    if (!userId || !org || !roomId) {
+    // Room cards keep their dialog components mounted even while closed. Do not
+    // start one queue + initial Supabase read per hidden room card: on mobile
+    // that creates a burst of parallel requests and can surface as
+    // "TypeError: Load failed" before the request even reaches Supabase.
+    if (!open || !userId || !org || !roomId) {
       setQueue(null);
+      setSnapshot(initialSnapshot);
       setLoaded(false);
+      setLoadError(null);
       return;
     }
     let mounted = true;
@@ -155,7 +161,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
       window.removeEventListener('online', online);
       document.removeEventListener('visibilitychange', visible);
     };
-  }, [userId, org, roomId, workDate, assignmentId, fetchMyRecords, refreshToken]);
+  }, [open, userId, org, roomId, workDate, assignmentId, fetchMyRecords, refreshToken]);
 
   useEffect(() => {
     if (!open) return;
