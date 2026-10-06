@@ -349,6 +349,59 @@ async function syncAccount(admin:any, account:any, source="manual") {
   return { ok:true, account_id:account.id, account_label:account.label, mapped_rooms:mappings.length, rooms_updated:updated, checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed };
 }
 
+
+async function maybeFinalizeTeamBAfterFullSync(admin:any, source:string) {
+  const { date: today } = budapestParts();
+  const accountsRes = await admin.from("pms_accounts")
+    .select("id,pms_hotel_id,last_sync_success_at")
+    .eq("organization_slug",ORG)
+    .eq("hotel_id",HOTEL)
+    .eq("pms_type","previo")
+    .eq("is_active",true)
+    .eq("sync_paused",false);
+  if (accountsRes.error) {
+    return { ok:false, status:"distribution_check_failed", error:accountsRes.error.message };
+  }
+
+  const accounts = accountsRes.data || [];
+  const configuredIds = new Set(accounts.map((a:any)=>String(a.pms_hotel_id)));
+  const required = Array.from(EXPECTED_PREVIO_HOTEL_IDS);
+  const missing = required.filter(id=>!configuredIds.has(id));
+  const fresh = accounts.filter((a:any)=>
+    EXPECTED_PREVIO_HOTEL_IDS.has(String(a.pms_hotel_id))
+    && dateOnly(a.last_sync_success_at)===today
+  );
+
+  if (missing.length || fresh.length < required.length) {
+    return {
+      ok:true,
+      status:"waiting_for_full_pms_sync",
+      source,
+      service_date:today,
+      fresh_accounts:fresh.length,
+      required_accounts:required.length,
+      missing_hotel_ids:missing,
+    };
+  }
+
+  const finalize = await admin.rpc("finalize_slnt_team_b_after_full_pms_sync", {
+    p_service_date: today,
+  });
+  if (finalize.error) {
+    return {
+      ok:false,
+      status:"distribution_failed",
+      source,
+      service_date:today,
+      error:finalize.error.message,
+    };
+  }
+  return {
+    ...(finalize.data || {}),
+    source,
+  };
+}
+
 Deno.serve(async req => {
   if (req.method==="OPTIONS") return new Response("ok",{headers:cors});
   const url=Deno.env.get("SUPABASE_URL")!; const service=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -367,15 +420,27 @@ Deno.serve(async req => {
     if (missingHotelIds.length) return json({ok:false,error:`SLNT merged PMS sync incomplete. Missing active Previo account(s): ${missingHotelIds.join(", ")}`},409);
     if (mode==="sync_account") {
       const id=String(body.account_id||""); const account=accounts.find((a:any)=>a.id===id); if(!account) return json({error:"Active SLNT PMS account not found"},404);
-      try { return json(await syncAccount(admin,account,"manual_server_test")); } catch(e) { const msg=errText(e); await admin.from("pms_accounts").update({last_sync_at:new Date().toISOString(),last_sync_status:"failed",last_sync_error:msg,consecutive_failures:1}).eq("id",id); return json({ok:false,error:msg},500); }
+      try {
+        const syncResult=await syncAccount(admin,account,"manual_server_test");
+        const teamBFinalization=await maybeFinalizeTeamBAfterFullSync(admin,"manual_server_test");
+        return json({...syncResult,team_b_finalization:teamBFinalization},teamBFinalization?.ok===false?500:200);
+      } catch(e) {
+        const msg=errText(e); await admin.from("pms_accounts").update({last_sync_at:new Date().toISOString(),last_sync_status:"failed",last_sync_error:msg,consecutive_failures:1}).eq("id",id); return json({ok:false,error:msg},500);
+      }
     }
     if (mode==="sync_all") {
       const results=[]; for(const account of accounts){ try{results.push(await syncAccount(admin,account,"manual_server_all"));}catch(e){results.push({ok:false,account_id:account.id,error:errText(e)});} }
-      return json({ok:results.every((r:any)=>r.ok),results});
+      const allSynced=results.every((r:any)=>r.ok);
+      const teamBFinalization=allSynced
+        ? await maybeFinalizeTeamBAfterFullSync(admin,"manual_server_all")
+        : {ok:false,status:"held_pms_sync_failed"};
+      return json({ok:allSynced && teamBFinalization?.ok!==false,results,team_b_finalization:teamBFinalization});
     }
     if (mode!=="scheduled") return json({error:"Unsupported mode"},400);
     const clock=budapestParts(); if(clock.hour!==7) return json({ok:true,skipped:true,reason:"outside_07_budapest_window",clock});
     const slot=Math.floor(clock.minute/5); const account=accounts[slot]; if(!account) return json({ok:true,skipped:true,reason:"no_slnt_account_for_slot",slot});
-    return json(await syncAccount(admin,account,"scheduled_07_budapest"));
+    const syncResult=await syncAccount(admin,account,"scheduled_07_budapest");
+    const teamBFinalization=await maybeFinalizeTeamBAfterFullSync(admin,"scheduled_07_budapest");
+    return json({...syncResult,team_b_finalization:teamBFinalization},teamBFinalization?.ok===false?500:200);
   } catch(e){ console.error("[SLNT morning PMS sync]",e); return json({ok:false,error:errText(e)},500); }
 });
