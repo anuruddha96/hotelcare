@@ -722,12 +722,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return nextMeta;
   };
 
-  // Manual release of a checkout room. Stamped in pms_metadata so the next PMS
-  // refresh does not re-block the room as "guest still in house".
+  // Manual release of a checkout room. Persist the sticky manual marker FIRST.
+  // PMS reconciliation deliberately honours manualReadyToCleanAt for the current
+  // Budapest business date. Writing the assignment first left a race where a
+  // concurrent PMS refresh could immediately set ready_to_clean=false again
+  // before the marker existed (seen on Gozsdu 3002/B44).
   const releaseReadyToClean = async (room: RoomData) => {
     const assignment = assignmentMap.get(room.id);
     const now = new Date().toISOString();
     const source = isReception && isGozsduCourtHotel(hotelName) ? 'reception_ui' : 'manager_ui';
+
+    await mergeRoomMetadata(room, {
+      manualReadyToCleanAt: now,
+      manualReadyToCleanBy: profile?.id || profile?.full_name || null,
+      manualReadyToCleanSource: source,
+    });
+
     const { data: updated, error } = await supabase
       .from('room_assignments')
       .update({ ready_to_clean: true, pms_hold: false, pms_hold_reason: null } as any)
@@ -735,16 +745,25 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       .eq('assignment_date', selectedDate)
       .eq('assignment_type', 'checkout_cleaning')
       .neq('status', 'completed')
-      .select('id')
+      .select('id, ready_to_clean, pms_hold')
       .maybeSingle();
     if (error) throw error;
-    if (!updated?.id) throw new Error('The checkout assignment changed. Refresh and try again.');
+    if (!updated?.id || updated.ready_to_clean !== true) {
+      throw new Error('The checkout assignment changed. Refresh and try again.');
+    }
 
-    await mergeRoomMetadata(room, {
-      manualReadyToCleanAt: now,
-      manualReadyToCleanBy: profile?.id || profile?.full_name || null,
-      manualReadyToCleanSource: source,
-    });
+    // Read back the persisted state instead of trusting the optimistic update.
+    // If a concurrent reconciliation touched the row, the manual marker above
+    // makes the next PMS pass converge back to RTC=true.
+    const { data: verified, error: verifyError } = await supabase
+      .from('room_assignments')
+      .select('id, ready_to_clean, pms_hold')
+      .eq('id', updated.id)
+      .maybeSingle();
+    if (verifyError) throw verifyError;
+    if (!verified?.id || verified.ready_to_clean !== true) {
+      throw new Error('RTC release was not persisted. Refresh and try again.');
+    }
 
     const { error: auditError } = await supabase.from('pms_change_events').insert({
       hotel_id: room.hotel,
@@ -761,6 +780,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         ready_to_clean: true,
         pms_hold: false,
         previo_checked_out_today: room.pms_metadata?.checkedOutToday === true,
+        manual_ready_to_clean_at: now,
       },
       is_conflict: room.pms_metadata?.checkedOutToday !== true,
     } as any);
