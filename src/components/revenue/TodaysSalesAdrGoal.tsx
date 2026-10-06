@@ -22,6 +22,7 @@ import { buildPeriodRevenueSalesGoals, periodTotalToDaily } from "@/lib/revenueS
 import {
   buildSalesPerformanceSeries,
   getSalesPerformancePace,
+  shiftIsoMonths,
   type SalesPerformanceMetric,
 } from "@/lib/revenueSalesPerformance";
 
@@ -79,7 +80,7 @@ const DEFAULT_GOALS: SalesGoals = {
 };
 
 type PresetKey = "today" | "yesterday" | "last7" | "month" | "custom";
-type CompareKey = "goal" | "yesterday" | "lastweek";
+type CompareKey = "goal" | "yesterday" | "lastweek" | "lastmonth" | "custom";
 type BookingFilter = "all" | "below" | "above" | "direct" | "ota";
 type SortKey = "created" | "adr_asc" | "adr_desc" | "value" | "arrival";
 
@@ -182,7 +183,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [stayTo, setStayTo] = useState(addDays(today, 365));
   const [showCancelled, setShowCancelled] = useState(false);
   const revenueCurrency = useRevenueCurrency();
-  const [compare, setCompare] = useState<CompareKey>("goal");
+  const [compare, setCompare] = useState<CompareKey>("lastweek");
+  const [compareCustomFrom, setCompareCustomFrom] = useState(addDays(today, -7));
+  const [compareCustomTo, setCompareCustomTo] = useState(addDays(today, -7));
   const [chartMetric, setChartMetric] = useState<SalesPerformanceMetric>("value");
   const [filter, setFilter] = useState<BookingFilter>("all");
   const [sort, setSort] = useState<SortKey>("created");
@@ -197,6 +200,23 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       default: return [today, today];
     }
   }, [preset, today, customFrom, customTo]);
+
+  const comparisonRange = useMemo<[string, string] | null>(() => {
+    switch (compare) {
+      case "yesterday":
+        return [addDays(bookedFrom, -1), addDays(bookedTo, -1)];
+      case "lastweek":
+        return [addDays(bookedFrom, -7), addDays(bookedTo, -7)];
+      case "lastmonth":
+        return [shiftIsoMonths(bookedFrom, -1), shiftIsoMonths(bookedTo, -1)];
+      case "custom":
+        return compareCustomFrom && compareCustomTo
+          ? [compareCustomFrom, compareCustomTo]
+          : null;
+      default:
+        return null;
+    }
+  }, [compare, bookedFrom, bookedTo, compareCustomFrom, compareCustomTo]);
 
   /* --------------------------------------------------------------- goals */
   // The database is the single source of truth for property goals. Monetary
@@ -299,10 +319,14 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const load = useCallback(async () => {
     if (!hotelId) { setLoading(false); return; }
     setLoading(true);
-    // Reach back far enough to also cover the comparison periods (yesterday and
-    // the same weekday last week), and one extra day either side for timezone.
-    const wideFrom = `${addDays(bookedFrom, -8)}T00:00:00Z`;
-    const wideTo = `${addDays(bookedTo, 1)}T23:59:59Z`;
+    // Pull both the selected production period and its active comparison range.
+    // The extra day on each side protects Budapest/UTC boundary conversions.
+    const compareFrom = comparisonRange?.[0] ?? bookedFrom;
+    const compareTo = comparisonRange?.[1] ?? bookedTo;
+    const earliestDay = [bookedFrom, compareFrom].sort()[0];
+    const latestDay = [bookedTo, compareTo].sort().at(-1) ?? bookedTo;
+    const wideFrom = `${addDays(earliestDay, -1)}T00:00:00Z`;
+    const wideTo = `${addDays(latestDay, 1)}T23:59:59Z`;
     const cols = "res_id, room_key, stay_date, room_type_name, guests, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, status_id";
     const [live, cancelled, cancelledInPeriod] = await Promise.all([
       supabase.from("revenue_booking_nights").select(cols)
@@ -327,7 +351,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     }
     setCancelledRows(Array.from(merged.values()));
     setLoading(false);
-  }, [hotelId, bookedFrom, bookedTo]);
+  }, [hotelId, bookedFrom, bookedTo, comparisonRange]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -461,6 +485,8 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     today,
     nowMinutes,
     compare,
+    customCompareFrom: compare === "custom" ? compareCustomFrom : null,
+    customCompareTo: compare === "custom" ? compareCustomTo : null,
     goals: {
       days: periodGoals.days,
       targetValue: periodGoals.targetValue,
@@ -474,6 +500,8 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     today,
     nowMinutes,
     compare,
+    compareCustomFrom,
+    compareCustomTo,
     periodGoals.days,
     periodGoals.targetValue,
     periodGoals.targetRoomNights,
@@ -486,9 +514,13 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     ? (isTodayPeriod ? "Yesterday" : "Previous day")
     : compare === "lastweek"
       ? (isSingleDayPeriod ? "Same weekday last week" : "Same period last week")
-      : periodGoals.days === 1
-        ? "Daily goal pace"
-        : `${periodGoals.days}-day goal pace`;
+      : compare === "lastmonth"
+        ? (isSingleDayPeriod ? "Same date last month" : "Same period last month")
+        : compare === "custom"
+          ? "Custom period"
+          : periodGoals.days === 1
+            ? "Daily goal pace"
+            : `${periodGoals.days}-day goal pace`;
 
   const periodLabel = isTodayPeriod
     ? "Today"
@@ -1094,12 +1126,40 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 <Select value={compare} onValueChange={(v) => setCompare(v as CompareKey)}>
                   <SelectTrigger className="h-9 w-[205px] max-w-full text-xs" aria-label="Booking pace comparison"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="goal">Versus goal pace</SelectItem>
-                    <SelectItem value="yesterday">Versus previous day</SelectItem>
                     <SelectItem value="lastweek">Versus same period last week</SelectItem>
+                    <SelectItem value="lastmonth">Versus same period last month</SelectItem>
+                    <SelectItem value="yesterday">Versus previous day</SelectItem>
+                    <SelectItem value="goal">Versus goal pace</SelectItem>
+                    <SelectItem value="custom">Versus custom period</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+
+              {compare === "custom" && (
+                <div className="grid grid-cols-2 gap-2 rounded-md border bg-muted/20 p-3">
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Compare from</Label>
+                    <Input
+                      type="date"
+                      className="h-9"
+                      value={compareCustomFrom}
+                      onChange={(e) => setCompareCustomFrom(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] text-muted-foreground">Compare to</Label>
+                    <Input
+                      type="date"
+                      className="h-9"
+                      value={compareCustomTo}
+                      onChange={(e) => setCompareCustomTo(e.target.value)}
+                    />
+                  </div>
+                  <p className="col-span-2 text-[10px] text-muted-foreground">
+                    Custom comparison aligns dates in order. For the clearest like-for-like view, select the same number of days as the current period.
+                  </p>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 rounded-md bg-muted/30 p-3 text-xs">
                 <Mini label="Net booking value" value={eur(Math.round(netBookingValue))} />
@@ -1249,6 +1309,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                   ? "Bars show activity in two-hour booking windows; the solid line shows the cumulative result up to that time."
                   : "Each bar is one booking-created day; the solid line shows the cumulative result across the selected period."}
                 {" "}Cancellations are negative movement and the comparison line is always visible on mobile.
+                {compare === "lastweek" && " Same period last week is the default benchmark."}
+                {compare === "lastmonth" && " Monthly comparison uses the same calendar date or date range in the previous month."}
+                {compare === "custom" && " Custom comparison follows the dates selected above."}
                 {compare === "goal" && " Goal pace uses a transparent linear baseline from the property's configured daily target."}
               </p>
 
