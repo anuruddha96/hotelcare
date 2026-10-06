@@ -1186,36 +1186,74 @@ export default function RateStrategyGrid({
     return out;
   }, [leftByTypeDate, calculatedLeftByTypeDate]);
 
-  const houseManualAdjustmentByDate = useMemo(() => {
-    const inventoryTypes = roomTypes.filter(
+  // A room type belongs in hotel occupancy/inventory only when the current
+  // revenue snapshot actually counts it. Previo can expose non-room products
+  // (breakfast, visitor centre, technical inventory) as object kinds. Those
+  // must never create phantom "rooms left" or manual +/- markers.
+  const houseInventoryTypes = useMemo(() => {
+    const countedCapacity = Math.max(0, ...metrics.map((m) => Number(m.roomsAvailable) || 0));
+    const candidates = roomTypes.filter(
       (room) => room.pms_room_id
         && (room.num_rooms || 0) > 0
         && room.is_sellable !== false
         && room.counts_toward_inventory !== false,
     );
+    if (!countedCapacity) return candidates;
+
+    // The revenue sync's physical-room denominator is authoritative. Prefer
+    // room types that are evidenced by reservations/rates, then stop exactly
+    // at that denominator. This protects legacy properties where old non-room
+    // PMS object kinds were mistakenly flagged as inventory-counting.
+    const evidenced = new Set<string>();
+    for (const night of nights ?? []) if (night.room_type_name) evidenced.add(night.room_type_name);
+    for (const room of roomTypes) {
+      if (rates.some((rate) => rate.room_type_name === room.name)) evidenced.add(room.name);
+    }
+    const ordered = [...candidates].sort((a, b) =>
+      Number(evidenced.has(b.name)) - Number(evidenced.has(a.name))
+    );
+    const selected: RevenueRoomType[] = [];
+    let capacity = 0;
+    for (const room of ordered) {
+      const next = capacity + (room.num_rooms || 0);
+      if (next <= countedCapacity) {
+        selected.push(room);
+        capacity = next;
+      }
+      if (capacity === countedCapacity) break;
+    }
+    return capacity === countedCapacity ? selected : candidates;
+  }, [roomTypes, metrics, nights, rates]);
+
+  const houseManualAdjustmentByDate = useMemo(() => {
     const out = new Map<string, number>();
     for (const metric of metrics) {
       let total = 0;
-      for (const room of inventoryTypes) {
+      for (const room of houseInventoryTypes) {
         total += manualAdjustmentByTypeDate.get(`${room.name}|${metric.stay_date}`) ?? 0;
       }
       if (total !== 0) out.set(metric.stay_date, total);
     }
     return out;
-  }, [roomTypes, metrics, manualAdjustmentByTypeDate]);
+  }, [houseInventoryTypes, metrics, manualAdjustmentByTypeDate]);
 
-  // House-level "Left to sell" must reconcile with the room-type rows. When
-  // Previo's native availability is mirrored, leftByTypeDate carries those
-  // exact values; when it is absent the parent has already filled the same map
-  // from reservations as a fallback. Only inventory-counting room types are
-  // summed so duplicate/non-room PMS products cannot inflate the house total.
+  const houseManualAdjustmentDetailsByDate = useMemo(() => {
+    const out = new Map<string, Array<{ roomType: string; delta: number }>>();
+    for (const metric of metrics) {
+      const details = houseInventoryTypes.flatMap((room) => {
+        const delta = manualAdjustmentByTypeDate.get(`${room.name}|${metric.stay_date}`) ?? 0;
+        return delta === 0 ? [] : [{ roomType: room.name, delta }];
+      });
+      if (details.length) out.set(metric.stay_date, details);
+    }
+    return out;
+  }, [houseInventoryTypes, metrics, manualAdjustmentByTypeDate]);
+
+  // House-level "Left to sell" must reconcile with the room-type rows. Previo
+  // native availability is authoritative, including positive inventory above
+  // physical vacancy (overbooking) and negative restrictions below it.
   const houseLeftByDate = useMemo(() => {
-    const inventoryTypes = roomTypes.filter(
-      (room) => room.pms_room_id
-        && (room.num_rooms || 0) > 0
-        && room.is_sellable !== false
-        && room.counts_toward_inventory !== false,
-    );
+    const inventoryTypes = houseInventoryTypes;
     if (!leftByTypeDate || inventoryTypes.length === 0) return new Map<string, number>();
 
     const out = new Map<string, number>();
@@ -1230,7 +1268,7 @@ export default function RateStrategyGrid({
       if (known) out.set(metric.stay_date, total);
     }
     return out;
-  }, [roomTypes, leftByTypeDate, metrics]);
+  }, [houseInventoryTypes, leftByTypeDate, metrics]);
 
   // ---- Minimum stay + rooms to sell -----------------------------------
   // Both are restrictions rather than prices, so they travel to Previo on
@@ -3136,10 +3174,14 @@ export default function RateStrategyGrid({
                     const units = m?.roomsAvailable ?? 0;
                     const left = houseLeftByDate.get(d) ?? m?.roomsLeft ?? 0;
                     const manual = houseManualAdjustmentByDate.get(d) ?? 0;
+                    const manualDetails = houseManualAdjustmentDetailsByDate.get(d) ?? [];
+                    const manualDetailLabel = manualDetails
+                      .map(({ roomType, delta }) => `${roomType} ${signedInventoryDelta(delta)}`)
+                      .join(" · ");
                     return (
                       <div
                         key={d}
-                        title={`${left} of ${units} rooms left to sell on ${d}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}`}
+                        title={`${left} of ${units} rooms left to sell on ${d}${manualDetailLabel ? ` · Previo manual inventory: ${manualDetailLabel}` : ""}`}
                         className={`relative flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
