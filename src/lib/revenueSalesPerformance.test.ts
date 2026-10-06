@@ -85,4 +85,47 @@ describe("revenueSalesPerformance", () => {
     expect(getSalesPerformancePace(points, "nights").benchmark).toBeNull();
     expect(getSalesPerformancePace(points, "adr").benchmark).toBeNull();
   });
+
+  it("compares the same calendar day in the previous month", () => {
+    const points = buildSalesPerformanceSeries({
+      bookings: [
+        { res_id: "today", createdDay: "2026-10-06", createdMinutes: 420, roomNights: 2, revenue: 260, cancelled: false },
+        { res_id: "last-month", createdDay: "2026-09-06", createdMinutes: 410, roomNights: 1, revenue: 140, cancelled: false },
+      ],
+      from: "2026-10-06",
+      to: "2026-10-06",
+      today: "2026-10-06",
+      nowMinutes: 480,
+      compare: "lastmonth",
+      goals: { days: 1, targetValue: 0, targetRoomNights: 0, targetAdr: 0 },
+    });
+
+    const pace = getSalesPerformancePace(points, "value");
+    expect(pace.current).toBe(260);
+    expect(pace.benchmark).toBe(140);
+    expect(pace.delta).toBe(120);
+  });
+
+  it("aligns custom comparison dates by day order", () => {
+    const points = buildSalesPerformanceSeries({
+      bookings: [
+        { res_id: "a", createdDay: "2026-10-05", createdMinutes: 300, roomNights: 1, revenue: 100, cancelled: false },
+        { res_id: "b", createdDay: "2026-10-06", createdMinutes: 300, roomNights: 1, revenue: 120, cancelled: false },
+        { res_id: "ca", createdDay: "2026-08-15", createdMinutes: 300, roomNights: 1, revenue: 80, cancelled: false },
+        { res_id: "cb", createdDay: "2026-08-16", createdMinutes: 300, roomNights: 1, revenue: 90, cancelled: false },
+      ],
+      from: "2026-10-05",
+      to: "2026-10-06",
+      today: "2026-10-06",
+      nowMinutes: 480,
+      compare: "custom",
+      customCompareFrom: "2026-08-15",
+      customCompareTo: "2026-08-16",
+      goals: { days: 2, targetValue: 0, targetRoomNights: 0, targetAdr: 0 },
+    });
+
+    expect(points[0].compareValue).toBe(80);
+    expect(points[1].compareValue).toBe(170);
+  });
+
 });
