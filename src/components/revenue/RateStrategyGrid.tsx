@@ -1237,6 +1237,18 @@ export default function RateStrategyGrid({
     return out;
   }, [houseInventoryTypes, metrics, manualAdjustmentByTypeDate]);
 
+  const houseManualAdjustmentDetailsByDate = useMemo(() => {
+    const out = new Map<string, Array<{ roomType: string; delta: number }>>();
+    for (const metric of metrics) {
+      const details = houseInventoryTypes.flatMap((room) => {
+        const delta = manualAdjustmentByTypeDate.get(`${room.name}|${metric.stay_date}`) ?? 0;
+        return delta === 0 ? [] : [{ roomType: room.name, delta }];
+      });
+      if (details.length) out.set(metric.stay_date, details);
+    }
+    return out;
+  }, [houseInventoryTypes, metrics, manualAdjustmentByTypeDate]);
+
   // House-level "Left to sell" must reconcile with the room-type rows. Previo
   // native availability is authoritative, including positive inventory above
   // physical vacancy (overbooking) and negative restrictions below it.
@@ -3162,10 +3174,14 @@ export default function RateStrategyGrid({
                     const units = m?.roomsAvailable ?? 0;
                     const left = houseLeftByDate.get(d) ?? m?.roomsLeft ?? 0;
                     const manual = houseManualAdjustmentByDate.get(d) ?? 0;
+                    const manualDetails = houseManualAdjustmentDetailsByDate.get(d) ?? [];
+                    const manualDetailLabel = manualDetails
+                      .map(({ roomType, delta }) => `${roomType} ${signedInventoryDelta(delta)}`)
+                      .join(" · ");
                     return (
                       <div
                         key={d}
-                        title={`${left} of ${units} rooms left to sell on ${d}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}`}
+                        title={`${left} of ${units} rooms left to sell on ${d}${manualDetailLabel ? ` · Previo manual inventory: ${manualDetailLabel}` : ""}`}
                         className={`relative flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
