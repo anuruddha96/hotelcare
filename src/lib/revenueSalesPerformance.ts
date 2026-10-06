@@ -1,4 +1,4 @@
-export type SalesPerformanceCompare = "goal" | "yesterday" | "lastweek";
+export type SalesPerformanceCompare = "goal" | "yesterday" | "lastweek" | "lastmonth" | "custom";
 export type SalesPerformanceMetric = "value" | "nights" | "adr";
 
 export interface SalesPerformanceBooking {
@@ -47,16 +47,32 @@ interface BuildSalesPerformanceSeriesInput {
   nowMinutes: number;
   compare: SalesPerformanceCompare;
   goals: SalesPerformanceGoals;
+  customCompareFrom?: string | null;
+  customCompareTo?: string | null;
 }
 
 const DAY_MS = 86_400_000;
 const MINUTES_PER_DAY = 24 * 60;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function addIsoDays(date: string, amount: number): string {
+export function addIsoDays(date: string, amount: number): string {
   const parsed = Date.parse(`${date}T00:00:00Z`);
   if (!Number.isFinite(parsed)) return date;
   return new Date(parsed + amount * DAY_MS).toISOString().slice(0, 10);
+}
+
+export function shiftIsoMonths(date: string, amount: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return date;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const monthStart = new Date(Date.UTC(year, monthIndex + amount, 1));
+  const targetYear = monthStart.getUTCFullYear();
+  const targetMonth = monthStart.getUTCMonth();
+  const daysInTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const clampedDay = Math.max(1, Math.min(day, daysInTargetMonth));
+  return new Date(Date.UTC(targetYear, targetMonth, clampedDay)).toISOString().slice(0, 10);
 }
 
 function enumerateDays(from: string, to: string): string[] {
@@ -80,6 +96,25 @@ function dailyLabel(date: string): string {
 function shiftForCompare(compare: SalesPerformanceCompare): number | null {
   if (compare === "yesterday") return -1;
   if (compare === "lastweek") return -7;
+  return null;
+}
+
+function comparisonDayFor(
+  input: BuildSalesPerformanceSeriesInput,
+  currentDay: string,
+  currentIndex = 0,
+): string | null {
+  const shift = shiftForCompare(input.compare);
+  if (shift !== null) return addIsoDays(currentDay, shift);
+  if (input.compare === "lastmonth") return shiftIsoMonths(currentDay, -1);
+  if (input.compare === "custom") {
+    const customDays = input.customCompareFrom && input.customCompareTo
+      ? enumerateDays(input.customCompareFrom, input.customCompareTo)
+      : input.customCompareFrom
+        ? [input.customCompareFrom]
+        : [];
+    return customDays[currentIndex] ?? null;
+  }
   return null;
 }
 
@@ -156,8 +191,7 @@ function buildIntradaySeries(input: BuildSalesPerformanceSeriesInput): SalesPerf
   if (buckets.length === 0 || buckets[buckets.length - 1] < cutoff) buckets.push(cutoff);
 
   const current = oneDaySeries(input.bookings, input.from, buckets);
-  const shift = shiftForCompare(input.compare);
-  const compareDay = shift === null ? null : addIsoDays(input.from, shift);
+  const compareDay = comparisonDayFor(input, input.from, 0);
   const shifted = compareDay ? oneDaySeries(input.bookings, compareDay, buckets) : null;
 
   const dailyTargetValue = input.goals.days > 0 ? input.goals.targetValue / input.goals.days : 0;
@@ -194,7 +228,6 @@ function buildIntradaySeries(input: BuildSalesPerformanceSeriesInput): SalesPerf
 
 function buildDailySeries(input: BuildSalesPerformanceSeriesInput): SalesPerformancePoint[] {
   const days = enumerateDays(input.from, input.to);
-  const shift = shiftForCompare(input.compare);
   const dailyTargetValue = input.goals.days > 0 ? input.goals.targetValue / input.goals.days : 0;
   const dailyTargetNights = input.goals.days > 0 ? input.goals.targetRoomNights / input.goals.days : 0;
 
@@ -228,19 +261,21 @@ function buildDailySeries(input: BuildSalesPerformanceSeriesInput): SalesPerform
       compareValue = dailyTargetValue > 0 ? Math.round(dailyTargetValue * (index + 1)) : null;
       compareNights = dailyTargetNights > 0 ? Math.round(dailyTargetNights * (index + 1) * 10) / 10 : null;
       compareAdr = input.goals.targetAdr > 0 ? input.goals.targetAdr : null;
-    } else if (shift !== null) {
-      const compareDay = addIsoDays(day, shift);
-      const compareLive = input.bookings.filter((b) => !b.cancelled && b.createdDay === compareDay);
-      const compareCancelled = input.bookings.filter((b) => b.cancelled && b.createdDay === compareDay);
+    } else {
+      const compareDay = comparisonDayFor(input, day, index);
+      if (compareDay) {
+        const compareLive = input.bookings.filter((b) => !b.cancelled && b.createdDay === compareDay);
+        const compareCancelled = input.bookings.filter((b) => b.cancelled && b.createdDay === compareDay);
 
-      compareGrossValue += compareLive.reduce((sum, b) => sum + b.revenue, 0);
-      compareCancelledValue += compareCancelled.reduce((sum, b) => sum + b.revenue, 0);
-      compareGrossNights += compareLive.reduce((sum, b) => sum + b.roomNights, 0);
-      compareCancelledNights += compareCancelled.reduce((sum, b) => sum + b.roomNights, 0);
+        compareGrossValue += compareLive.reduce((sum, b) => sum + b.revenue, 0);
+        compareCancelledValue += compareCancelled.reduce((sum, b) => sum + b.revenue, 0);
+        compareGrossNights += compareLive.reduce((sum, b) => sum + b.roomNights, 0);
+        compareCancelledNights += compareCancelled.reduce((sum, b) => sum + b.roomNights, 0);
 
-      compareValue = Math.round(compareGrossValue - compareCancelledValue);
-      compareNights = compareGrossNights - compareCancelledNights;
-      compareAdr = compareGrossNights > 0 ? Math.round(compareGrossValue / compareGrossNights) : null;
+        compareValue = Math.round(compareGrossValue - compareCancelledValue);
+        compareNights = compareGrossNights - compareCancelledNights;
+        compareAdr = compareGrossNights > 0 ? Math.round(compareGrossValue / compareGrossNights) : null;
+      }
     }
 
     return {
