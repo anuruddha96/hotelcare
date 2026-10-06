@@ -23,6 +23,7 @@ import {
   buildSalesPerformanceSeries,
   getSalesPerformancePace,
   shiftIsoMonths,
+  shiftIsoYears,
   type SalesPerformanceMetric,
 } from "@/lib/revenueSalesPerformance";
 
@@ -80,7 +81,7 @@ const DEFAULT_GOALS: SalesGoals = {
 };
 
 type PresetKey = "today" | "yesterday" | "last7" | "month" | "custom";
-type CompareKey = "goal" | "yesterday" | "lastweek" | "lastmonth" | "custom";
+type CompareKey = "goal" | "yesterday" | "lastweek" | "lastmonth" | "lastyear" | "custom";
 type BookingFilter = "all" | "below" | "above" | "direct" | "ota";
 type SortKey = "created" | "adr_asc" | "adr_desc" | "value" | "arrival";
 
@@ -209,6 +210,8 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         return [addDays(bookedFrom, -7), addDays(bookedTo, -7)];
       case "lastmonth":
         return [shiftIsoMonths(bookedFrom, -1), shiftIsoMonths(bookedTo, -1)];
+      case "lastyear":
+        return [shiftIsoYears(bookedFrom, -1), shiftIsoYears(bookedTo, -1)];
       case "custom":
         return compareCustomFrom && compareCustomTo
           ? [compareCustomFrom, compareCustomTo]
@@ -516,8 +519,10 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       ? (isSingleDayPeriod ? "Same weekday last week" : "Same period last week")
       : compare === "lastmonth"
         ? (isSingleDayPeriod ? "Same date last month" : "Same period last month")
-        : compare === "custom"
-          ? "Custom period"
+        : compare === "lastyear"
+          ? (isSingleDayPeriod ? "Same date last year" : "Same period last year")
+          : compare === "custom"
+            ? "Custom period"
           : periodGoals.days === 1
             ? "Daily goal pace"
             : `${periodGoals.days}-day goal pace`;
@@ -1128,6 +1133,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                   <SelectContent>
                     <SelectItem value="lastweek">Versus same period last week</SelectItem>
                     <SelectItem value="lastmonth">Versus same period last month</SelectItem>
+                    <SelectItem value="lastyear">Versus same period last year (YoY)</SelectItem>
                     <SelectItem value="yesterday">Versus previous day</SelectItem>
                     <SelectItem value="goal">Versus goal pace</SelectItem>
                     <SelectItem value="custom">Versus custom period</SelectItem>
@@ -1311,6 +1317,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 {" "}Cancellations are negative movement and the comparison line is always visible on mobile.
                 {compare === "lastweek" && " Same period last week is the default benchmark."}
                 {compare === "lastmonth" && " Monthly comparison uses the same calendar date or date range in the previous month."}
+                {compare === "lastyear" && " YoY comparison uses the same calendar date or date range in the previous year, with leap-day dates safely aligned to the last valid February date."}
                 {compare === "custom" && " Custom comparison follows the dates selected above."}
                 {compare === "goal" && " Goal pace uses a transparent linear baseline from the property's configured daily target."}
               </p>
