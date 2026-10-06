@@ -110,8 +110,12 @@ function oneDaySeries(
   let grossNights = 0;
   let cancelledNights = 0;
 
-  return buckets.map((minute) => {
-    const windowStart = minute - 120;
+  return buckets.map((minute, index) => {
+    // Use the previous bucket edge rather than "minute - 120". The final
+    // point is the live current time and is often not aligned to a 2-hour
+    // boundary; using a rolling 120-minute window there would double-count
+    // bookings already included in the previous bucket.
+    const windowStart = index === 0 ? -1 : buckets[index - 1];
     const liveInWindow = live.filter((b) => b.createdMinutes <= minute && b.createdMinutes > windowStart);
     const cancelledInWindow = cancelled.filter((b) => b.createdMinutes <= minute && b.createdMinutes > windowStart);
 
