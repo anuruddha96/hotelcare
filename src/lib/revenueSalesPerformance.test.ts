@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSalesPerformanceSeries, getSalesPerformancePace } from "./revenueSalesPerformance";
+import { buildSalesPerformanceSeries, getSalesPerformancePace, shiftIsoYears } from "./revenueSalesPerformance";
 
 describe("revenueSalesPerformance", () => {
   it("shows cancellations as negative activity and keeps cumulative net value", () => {
@@ -104,6 +104,31 @@ describe("revenueSalesPerformance", () => {
     expect(pace.current).toBe(260);
     expect(pace.benchmark).toBe(140);
     expect(pace.delta).toBe(120);
+  });
+
+  it("compares the same calendar day in the previous year", () => {
+    const points = buildSalesPerformanceSeries({
+      bookings: [
+        { res_id: "today", createdDay: "2026-10-06", createdMinutes: 420, roomNights: 2, revenue: 260, cancelled: false },
+        { res_id: "last-year", createdDay: "2025-10-06", createdMinutes: 410, roomNights: 3, revenue: 330, cancelled: false },
+      ],
+      from: "2026-10-06",
+      to: "2026-10-06",
+      today: "2026-10-06",
+      nowMinutes: 480,
+      compare: "lastyear",
+      goals: { days: 1, targetValue: 0, targetRoomNights: 0, targetAdr: 0 },
+    });
+
+    const valuePace = getSalesPerformancePace(points, "value");
+    expect(valuePace.current).toBe(260);
+    expect(valuePace.benchmark).toBe(330);
+    expect(valuePace.delta).toBe(-70);
+    expect(getSalesPerformancePace(points, "nights").benchmark).toBe(3);
+  });
+
+  it("clamps leap-day year comparisons to the last valid February date", () => {
+    expect(shiftIsoYears("2028-02-29", -1)).toBe("2027-02-28");
   });
 
   it("aligns custom comparison dates by day order", () => {
