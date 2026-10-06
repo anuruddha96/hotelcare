@@ -244,7 +244,8 @@ export function MaintenanceStaffView() {
   useEffect(() => { void loadVisiblePhotoUrls(filtered); }, [filtered, loadVisiblePhotoUrls]);
 
   const loadMikaAccess = useCallback(async (rows: Ticket[]) => {
-    const mikaRows = rows.filter(ticket => ticket.hotel && publicHotelName(ticket.hotel) === 'Hotel Mika Downtown');
+    const normalizeHotelName = (hotel: string) => hotel === 'hotel-mika-downtown' || hotel === 'mika' ? 'Hotel Mika Downtown' : hotel;
+    const mikaRows = rows.filter(ticket => ticket.hotel && normalizeHotelName(ticket.hotel) === 'Hotel Mika Downtown');
     if (!mikaRows.length) return;
     setAccessLoading(prev => ({ ...prev, ...Object.fromEntries(mikaRows.map(ticket => [ticket.id, true])) }));
     const results = await Promise.all(mikaRows.map(async ticket => {
