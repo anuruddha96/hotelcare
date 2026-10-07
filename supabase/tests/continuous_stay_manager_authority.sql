@@ -6,35 +6,65 @@ DECLARE
   r public.rooms%ROWTYPE;
   review public.housekeeping_stay_extension_reviews%ROWTYPE;
 BEGIN
+  -- Start exactly where Room 117 starts: Previo still reports a checkout
+  -- reservation with four completed nights.
   INSERT INTO public.rooms(
     id, hotel, organization_slug, is_checkout_room, guest_nights_stayed, pms_metadata
   ) VALUES (
     room_id,
     'Hotel Memories Budapest',
     'rdhotels',
-    false,
+    true,
     4,
     jsonb_build_object(
       'pmsSyncDate', work_day::text,
       'lastPmsRefreshDate', work_day::text,
       'currentNight', 4,
       'totalNights', 4,
-      'arrivalDate', (work_day - 3)::text,
-      'manual_daily', true,
-      'manual_checkout', false,
-      'manual_moved_date', work_day::text,
-      'manual_moved_at', work_day::text || 'T09:00:00+02:00',
-      'manual_moved_by', '00000000-0000-4000-8000-000000000001',
-      'occupiedToday', true,
-      'scheduledDepartureToday', false
+      'arrivalDate', (work_day - 4)::text,
+      'departureDate', work_day::text,
+      'occupiedToday', false,
+      'scheduledDepartureToday', true
     )
   );
 
-  -- The real extension arrives after the manager already confirmed the guest
-  -- is staying. The review must not ask that manager/reception to verify again.
+  -- Éva/manager confirms the guest is staying. HotelCare opens one provisional
+  -- additional stay night and records the explicit manual decision.
   UPDATE public.rooms
-  SET guest_nights_stayed = 5,
+  SET is_checkout_room = false,
+      guest_nights_stayed = 5,
       pms_metadata = pms_metadata
+        || jsonb_build_object(
+          'currentNight', 5,
+          'totalNights', 5,
+          'manual_daily', true,
+          'manual_checkout', false,
+          'manual_moved_date', work_day::text,
+          'manual_moved_at', work_day::text || 'T09:00:00+02:00',
+          'manual_moved_by', '00000000-0000-4000-8000-000000000001',
+          'occupiedToday', true,
+          'stayThroughToday', true,
+          'scheduledDepartureToday', false,
+          'checkedOutToday', false
+        )
+  WHERE id = room_id;
+
+  SELECT * INTO review
+  FROM public.housekeeping_stay_extension_reviews
+  WHERE room_id = room_id;
+
+  IF review.id IS NULL THEN
+    RAISE EXCEPTION 'Manager-confirmed provisional extension review was not recorded';
+  END IF;
+  IF review.identity_status <> 'verified' OR review.status <> 'acknowledged' THEN
+    RAISE EXCEPTION 'Manager-confirmed extension was not auto-verified/acknowledged: %/%',
+      review.identity_status, review.status;
+  END IF;
+
+  -- The real replacement Previo reservation then expands the continuous stay.
+  -- It must update the same review without reopening identity verification.
+  UPDATE public.rooms
+  SET pms_metadata = pms_metadata
         || jsonb_build_object(
           'currentNight', 5,
           'totalNights', 7,
@@ -48,12 +78,10 @@ BEGIN
   FROM public.housekeeping_stay_extension_reviews
   WHERE room_id = room_id;
 
-  IF review.id IS NULL THEN
-    RAISE EXCEPTION 'Expected extension review was not recorded';
-  END IF;
-  IF review.identity_status <> 'verified' OR review.status <> 'acknowledged' THEN
-    RAISE EXCEPTION 'Manager-confirmed extension was not auto-verified/acknowledged: %/%',
-      review.identity_status, review.status;
+  IF review.identity_status <> 'verified' OR review.status <> 'acknowledged'
+     OR review.planned_nights <> 7 THEN
+    RAISE EXCEPTION 'Real Previo extension reopened identity review or lost total nights: %/%/%',
+      review.identity_status, review.status, review.planned_nights;
   END IF;
 
   -- A later strong-identity PMS turnover is allowed to invalidate the same-day
