@@ -50,7 +50,7 @@ describe("revenue sales/pickup integrity", () => {
       snapshots: [],
       cancellations: [],
       movements: [],
-      rates: [],
+      ratedDates: new Set(),
       roomsAvailable: 82,
       windowDays: -48,
     });
