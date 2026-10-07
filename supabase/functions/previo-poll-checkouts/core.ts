@@ -22,6 +22,7 @@ import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentia
 import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";
 import { verifiedGozsduCheckouts } from "../_shared/previoExplicitCheckoutEvidence.ts";
 import { verifiedGozsduRestCheckouts } from "../_shared/previoRestCheckoutEvidence.ts";
+import { shouldHealSlntCheckoutRtc } from "../_shared/slntRtcInvariant.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -807,6 +808,64 @@ async function pollOneHotel(
     }
   } catch (e: any) {
     result.errors.push(`stale cleanup: ${e?.message || e}`);
+  }
+
+  // SLNT final-state RTC invariant.
+  //
+  // A Previo poll can confirm checkout first and a manager/auto-assignment
+  // action can create or refresh the housekeeping assignment a moment later.
+  // That leaves the room correctly marked checked-out/RTC while the newer
+  // assignment still has ready_to_clean=false. Reconcile once more from the
+  // authoritative, date-stamped room state at the END of each account poll.
+  //
+  // Keep this SLNT-only: other tenants retain their existing checkout logic.
+  // Never infer RTC from schedule, dirtiness, clean status, or the clock.
+  if (!dryRun && hotelId === "slnt-group") {
+    try {
+      const { data: rtcRooms, error: rtcRoomsError } = await service
+        .from("rooms")
+        .select("id, status, checkout_time, pms_metadata")
+        .in("hotel", hotelKeys)
+        .eq("is_checkout_room", true);
+      if (rtcRoomsError) throw rtcRoomsError;
+
+      const releaseRoomIds = (rtcRooms ?? [])
+        .filter((room: any) => shouldHealSlntCheckoutRtc(room, today))
+        .map((room: any) => room.id);
+
+      if (releaseRoomIds.length > 0) {
+        const { data: healedAssignments, error: healError } = await service
+          .from("room_assignments")
+          .update({
+            ready_to_clean: true,
+            pms_hold: false,
+            pms_hold_reason: null,
+            pms_hold_event_id: null,
+            updated_at: nowIso(),
+          })
+          .select("id, room_id")
+          .in("room_id", releaseRoomIds)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .eq("ready_to_clean", false)
+          .in("status", ["assigned", "in_progress"]);
+
+        if (healError) throw healError;
+
+        const healed = healedAssignments?.length ?? 0;
+        if (healed > 0) {
+          result.marked += healed;
+          result.diagnostics.push({
+            source: "slnt-rtc-final-state-invariant",
+            accepted: true,
+            repairedAssignments: healed,
+            reason: "same-day explicit Previo checkout was already confirmed but the live assignment was still waiting for RTC",
+          });
+        }
+      }
+    } catch (e: any) {
+      result.errors.push(`SLNT RTC invariant: ${e?.message || e}`);
+    }
   }
 
   return result;
