@@ -36,7 +36,7 @@ import { venueEdgeStyle } from '@/lib/venueColors';
 import { addDays } from 'date-fns';
 import { todayBudapest, rollForwardSelectedBusinessDate } from '@/lib/budapestTime';
 import { useVenues } from '@/hooks/useVenues';
-import { getSlntRosterNotice, slntRosterBlocksManualAssignment, type SlntRosterNotice } from '@/lib/slntRosterNotice';
+import { getSlntRosterNotice, slntRosterAllowsManualAssignment, type SlntRosterNotice } from '@/lib/slntRosterNotice';
 import {
   initStagedScope,
   stageMove,
@@ -183,7 +183,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [slntRosterNotice, setSlntRosterNotice] = useState<SlntRosterNotice | null>(null);
   const [slntVerifiedKey, setSlntVerifiedKey] = useState<string | null>(null);
   const scheduleRequestId = useRef(0);
-  const slntRosterReady = !isSlntTenant || (slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}` && !slntRosterBlocksManualAssignment(slntRosterNotice));
+  const slntRosterReady = !isSlntTenant || slntRosterAllowsManualAssignment(slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}`, slntRosterNotice);
   const openSlntStaffSchedule = () => {
     if (!profile?.assigned_hotel) return;
     window.dispatchEvent(new CustomEvent('hotelcare:open-slnt-staff-schedule', {
