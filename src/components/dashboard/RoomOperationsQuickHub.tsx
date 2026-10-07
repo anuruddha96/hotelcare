@@ -252,7 +252,11 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       if (requestRef.current !== requestId) return;
 
       const assignment = (assignmentRows || []).find((candidate) => candidate.status !== 'completed') || assignmentRows?.[0] || null;
-      const flags = parseRoomFlags(room.notes || null);
+      // Never surface legacy implementation/audit lines in the shared human
+      // note editor. The DB migration removes them permanently; this also makes
+      // old rows clear immediately before that migration reaches production.
+      const humanRoomNotes = stripRoomTypeSystemNotes(room.notes || null);
+      const flags = parseRoomFlags(humanRoomNotes);
       const minibarPendingUnits = (minibarRows || [])
         .filter((row) => !row.is_cleared)
         .reduce((sum, row) => sum + Number(row.quantity_used || 0), 0);
@@ -987,6 +991,35 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       ? 'border-rose-200 bg-rose-50 text-rose-900'
       : statusTone(effectiveStatus);
 
+  const activeRoomTypeNotice = selection?.pmsMetadata?.roomTypeChangeNotice as RoomTypeNotice | undefined;
+  const managerTypeNotice = activeRoomTypeNotice?.date === selectedDate
+    ? activeRoomTypeNotice
+    : null;
+  const currentContinuousNight = Number(
+    selection?.pmsMetadata?.continuousStay?.currentNight
+      ?? selection?.guestNightsStayed
+      ?? selection?.pmsMetadata?.currentNight
+      ?? managerTypeNotice?.nightsStayed
+      ?? 0,
+  ) || null;
+  const continuousTotalNights = Number(
+    selection?.pmsMetadata?.continuousStay?.totalNights
+      ?? selection?.pmsMetadata?.totalNights
+      ?? 0,
+  ) || null;
+  const previousReservationNights = Number(
+    selection?.pmsMetadata?.extensionServiceSnapshot?.guestNightsStayed ?? 0,
+  ) || null;
+  const linkedReservationCount = Array.isArray(selection?.pmsMetadata?.continuousStay?.reservationIds)
+    ? selection!.pmsMetadata!.continuousStay.reservationIds.length
+    : 0;
+  const currentRequiredService = selection?.isCheckout
+    ? 'Checkout'
+    : roomServiceLabel({
+        towelChangeRequired: selection?.towelChangeRequired,
+        linenChangeRequired: selection?.linenChangeRequired,
+      });
+
   const mainView = !selection ? null : (
     <div className="space-y-4">
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -996,7 +1029,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         </div>
         <div className={`rounded-xl border p-3 ${selection.isCheckout ? 'border-orange-200 bg-orange-50 text-orange-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
           <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Service</p>
-          <p className="mt-1 text-sm font-bold">{selection.isCheckout ? 'Checkout' : 'Daily'}</p>
+          <p className="mt-1 text-sm font-bold">{currentRequiredService}</p>
         </div>
         <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-violet-900">
           <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Housekeeper</p>
@@ -1007,6 +1040,40 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <p className="mt-1 text-sm font-bold">{selection.roomSizeSqm ? `${selection.roomSizeSqm} m²` : selection.roomCategory || '—'}</p>
         </div>
       </section>
+
+      {managerTypeNotice && (
+        <section className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
+          <div className="flex items-start gap-2">
+            <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-300">Manager update</p>
+              {managerTypeNotice.to === 'daily' ? (
+                <>
+                  <p className="mt-1 text-sm font-bold">Guest staying — Daily service</p>
+                  <p className="mt-1 text-sm"><strong>Required today:</strong> {currentRequiredService}</p>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs opacity-80">
+                    {previousReservationNights && <span>Previous reservation: {previousReservationNights} nights</span>}
+                    {currentContinuousNight && (
+                      <span>
+                        Continuous stay: night {currentContinuousNight}
+                        {continuousTotalNights && continuousTotalNights >= currentContinuousNight ? '/' + continuousTotalNights : ''}
+                      </span>
+                    )}
+                    {linkedReservationCount > 1 && <span>{linkedReservationCount} linked reservations</span>}
+                  </div>
+                  <p className="mt-1 text-xs opacity-80">Changed by {managerTypeNotice.by}. This is an operational instruction, not a request for the housekeeper to verify the booking.</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm font-bold">Checkout cleaning</p>
+                  <p className="mt-1 text-sm">Wait for <strong>Guest Checked Out</strong> before entering.</p>
+                  <p className="mt-1 text-xs opacity-80">Changed by {managerTypeNotice.by}.</p>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3 sm:p-4">
         <div className="mb-3 flex items-center justify-between gap-2">
