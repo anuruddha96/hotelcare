@@ -51,3 +51,10 @@ export function getSlntRosterNotice(
 export function slntRosterBlocksManualAssignment(notice: SlntRosterNotice | null): boolean {
   return !!notice && notice.kind !== 'missing';
 }
+
+export function slntRosterAllowsManualAssignment(
+  rosterVerified: boolean,
+  notice: SlntRosterNotice | null,
+): boolean {
+  return rosterVerified && !slntRosterBlocksManualAssignment(notice);
+}
