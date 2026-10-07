@@ -31,6 +31,21 @@ describe('minibar quick add failure boundary', () => {
     expect(persistence.createUsage).not.toHaveBeenCalled();
   });
 
+  it('fails closed when multiple active records make the duplicate state ambiguous', async () => {
+    const persistence = setup({
+      findExisting: vi.fn().mockResolvedValue({
+        data: [
+          { id: 'guest-1', source: 'guest' },
+          { id: 'staff-1', source: 'reception' },
+        ],
+        error: null,
+      }),
+    });
+    await expect(persistMinibarQuickAdd(persistence, 1)).rejects.toThrow('Multiple active minibar records');
+    expect(persistence.confirmGuest).not.toHaveBeenCalled();
+    expect(persistence.createUsage).not.toHaveBeenCalled();
+  });
+
   it('does not create duplicates when staff usage already exists', async () => {
     const persistence = setup({ findExisting: vi.fn().mockResolvedValue({ data: [{ id: 'staff-1', source: 'reception' }], error: null }) });
     await expect(persistMinibarQuickAdd(persistence, 1)).resolves.toBe('already-recorded');

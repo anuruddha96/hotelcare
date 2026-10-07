@@ -33,6 +33,9 @@ export async function persistMinibarQuickAdd(
   const lookup = await persistence.findExisting();
   if (lookup.error) throw new Error(`Cannot check existing minibar usage: ${lookup.error.message}`);
   if (!lookup.data) throw new Error('Existing minibar usage could not be verified. Please retry.');
+  if (lookup.data.length > 1) {
+    throw new Error('Multiple active minibar records exist for this room and item. Refresh or ask a manager to resolve them before recording again.');
+  }
 
   const existing = lookup.data[0];
   if (existing) {
