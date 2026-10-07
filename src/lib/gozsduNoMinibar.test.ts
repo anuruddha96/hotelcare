@@ -7,6 +7,8 @@ describe('housekeeping minibar policy', () => {
     expect(isNoMinibarOrganization('SLNT-GROUP')).toBe(true);
     expect(isNoMinibarRoom('slnt', 'SLNT Group', 'slnt-group')).toBe(true);
     expect(isNoMinibarRoom('slnt', 'SLNT Group', 'Silver Rooms')).toBe(true);
+    expect(requiredDailyPhotoCategories('SLNT Group', 'Silver Rooms', 'slnt'))
+      .toEqual(['trash_bin', 'bathroom', 'bed', 'tea_coffee_table']);
     expect(isNoMinibarRoom('rdhotels', 'Hotel Memories Budapest', 'Hotel Memories Budapest')).toBe(false);
   });
 
