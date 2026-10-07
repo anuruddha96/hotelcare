@@ -1623,12 +1623,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   >
                     <option value="">{t('roomOverview.bedNone')}</option>
                     <option value="Double Bed">{t('roomOverview.bedDouble')}</option>
-                    <option value="Twin Beds Together">Beds together (BT)</option>
-                    <option value="Single Bed">Single beds (SB)</option>
-                    <option value="Sofa Bed">Sofa bed</option>
-                    <option value="Extra Bed">Extra bed</option>
-                    <option value="Baby Bed">Baby bed</option>
-                    <option value="Remove Baby Bed">Remove baby bed</option>
+                    <option value="Twin Beds Together">{t('gozsdu.bedsTogether')} (BT)</option>
+                    <option value="Single Bed">{t('gozsdu.singleBeds')} (SB)</option>
+                    <option value="Sofa Bed">{t('gozsdu.sofaBed')}</option>
+                    <option value="Extra Bed">{t('gozsdu.extraBed')}</option>
+                    <option value="Baby Bed">{t('gozsdu.babyBed')}</option>
+                    <option value="Remove Baby Bed">{t('gozsdu.removeBabyBed')}</option>
                     <option value="Extra Cot Added">{t('roomOverview.bedExtraCot')}</option>
                   </select>
                 </div>
@@ -3054,7 +3054,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 </div>
                 {/* Bed Configuration */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">🛏️ Bed Configuration</label>
+                  <label className="text-sm font-medium">🛏️ {t('roomOverview.bedConfig')}</label>
                   <p className="text-xs text-muted-foreground">{t('roomOverview.bedRequirementHint')}</p>
                   <Select
                     value={(selectedRoom as any)?.bed_configuration || 'none'}
@@ -3083,7 +3083,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       <SelectItem value="Twin Beds">{t('bed.twinBeds')}</SelectItem>
                       <SelectItem value="Twin Beds Separated">{t('bed.twinBedsSeparated')}</SelectItem>
                       <SelectItem value="Single Bed">{t('bed.singleBed')}</SelectItem>
-                      <SelectItem value="Sofa Bed">Sofa Bed</SelectItem>
+                      <SelectItem value="Sofa Bed">{t('gozsdu.sofaBed')}</SelectItem>
                       <SelectItem value="Extra Cot Added">{t('bed.extraCotAdded')}</SelectItem>
                     </SelectContent>
                   </Select>
