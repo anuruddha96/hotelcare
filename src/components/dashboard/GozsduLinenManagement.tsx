@@ -103,11 +103,22 @@ export function GozsduLinenManagement() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!profile?.id) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void load();
+      }, 650);
+    };
     const channel = supabase.channel(`gozsdu-linen-manager-${profile.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, () => { void load(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments' }, () => { void load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments' }, scheduleRefresh)
       .subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      void supabase.removeChannel(channel);
+    };
   }, [profile?.id, load]);
 
   const sessions = useMemo(() => {
