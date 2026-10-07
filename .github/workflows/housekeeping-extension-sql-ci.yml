@@ -7,8 +7,10 @@ on:
       - 'supabase/migrations/2026092014*'
       - 'supabase/migrations/2026092015*'
       - 'supabase/migrations/2026092016*'
+      - 'supabase/migrations/2026100711*'
       - 'supabase/tests/stay_extension*'
       - 'supabase/tests/manual_room_override_same_day.sql'
+      - 'supabase/tests/continuous_stay_manager_authority.sql'
       - '.github/workflows/housekeeping-extension-sql-ci.yml'
 
 permissions:
@@ -53,3 +55,5 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/stay_extension_integration.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260920163000_preserve_same_day_manual_room_type.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/manual_room_override_same_day.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261007111000_continuous_stay_manager_authority.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/continuous_stay_manager_authority.sql
