@@ -11,7 +11,7 @@ as $$
   select trim(
     regexp_replace(
       regexp_replace(
-        lower(unaccent(coalesce(p_title, ''))),
+        lower(coalesce(p_title, '')),
         '\m(19|20)[0-9]{2}\M',
         '',
         'g'
