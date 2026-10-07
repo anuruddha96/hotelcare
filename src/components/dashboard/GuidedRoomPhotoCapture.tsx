@@ -13,7 +13,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { isNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
+import { requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
 import {
   HOUSEKEEPING_PHOTO_CATALOG,
   getHousekeepingPhotoCategory,
@@ -80,7 +80,6 @@ export function GuidedRoomPhotoCapture({
   onRequestComplete,
 }: Props) {
   const { user, profile } = useAuth();
-  const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, hotel);
   const fallbackCategories = useMemo(
     () => requiredDailyPhotoCategories(profile?.assigned_hotel, hotel, profile?.organization_slug)
       .filter(isHousekeepingPhotoCategory) as Category[],
