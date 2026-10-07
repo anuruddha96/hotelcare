@@ -575,3 +575,33 @@ BEGIN
     RAISE EXCEPTION 'Memories repeated carry lineage failed: %',v_payload;
   END IF;
 END $$;
+
+
+-- The carry-forward trigger helpers are SECURITY DEFINER and are driven by
+-- PostgreSQL triggers. Client roles must not be able to invoke them directly.
+DO $$
+BEGIN
+  IF has_function_privilege(
+       'anon',
+       'public.hc_attach_memories_missed_service_carry()',
+       'EXECUTE'
+     )
+     OR has_function_privilege(
+       'authenticated',
+       'public.hc_attach_memories_missed_service_carry()',
+       'EXECUTE'
+     )
+     OR has_function_privilege(
+       'anon',
+       'public.hc_attach_portfolio_missed_service_carry()',
+       'EXECUTE'
+     )
+     OR has_function_privilege(
+       'authenticated',
+       'public.hc_attach_portfolio_missed_service_carry()',
+       'EXECUTE'
+     )
+  THEN
+    RAISE EXCEPTION 'carry-forward trigger helpers must not be directly executable by client roles';
+  END IF;
+END $$;
