@@ -14,7 +14,7 @@ import { Shirt, Plus, Minus, CheckCircle, Trash2, RefreshCw, AlertTriangle } fro
 import { getLocalDateString } from '@/lib/utils';
 import { translateLinenItem } from '@/lib/linen-item-i18n';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
-import { gozsduLinenLabel, loadHotelLinenCatalogue, type LinenCatalogueItem } from '@/lib/gozsduLinenCatalogue';
+import { gozsduLinenLabel, isSlntLinenHotel, loadHotelLinenCatalogue, slntLinenLabel, type LinenCatalogueItem } from '@/lib/gozsduLinenCatalogue';
 import { DirtyLinenReliableQueue, dirtyLinenQueueKey, type LinenQueueSnapshot } from '@/lib/dirtyLinenReliableQueue';
 
 interface DirtyLinenDialogProps {
@@ -42,8 +42,11 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   const { user, profile } = useAuth();
   const { t, language } = useTranslation();
   const gozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
+  const slnt = isSlntLinenHotel(profile?.assigned_hotel);
   const displayName = (item: Pick<LinenCatalogueItem, 'name' | 'display_name'>) =>
-    gozsdu ? gozsduLinenLabel(item, language, t) : translateLinenItem(item.display_name || item.name.replace(/_/g, ' '), t);
+    gozsdu ? gozsduLinenLabel(item, language, t)
+      : slnt ? slntLinenLabel(item, language)
+        : translateLinenItem(item.display_name || item.name.replace(/_/g, ' '), t);
   const [workDate, setWorkDate] = useState(() => getLocalDateString(new Date()));
   const [linenItems, setLinenItems] = useState<LinenCatalogueItem[]>([]);
   const [myRecords, setMyRecords] = useState<LinenRecord[]>([]);
