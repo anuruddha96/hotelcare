@@ -196,7 +196,7 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
       <p className="text-xs font-bold uppercase tracking-wide">Manager update</p>
       {activeManagerTypeNotice.to === 'daily' ? <>
         <p className="mt-1 text-sm font-bold">Guest staying — Daily service</p>
-        <p className="mt-1 text-sm"><strong>Required today:</strong> {managerRequiredService || 'Daily Cleaning'}</p>
+        <p className="mt-1 text-sm"><strong>Required today:</strong> {managerRequiredService || 'Daily service'}</p>
         {currentStayNight && <p className="text-xs opacity-80">Continuous stay: night {currentStayNight}</p>}
         <p className="mt-1 text-xs opacity-80">Changed by {activeManagerTypeNotice.by}. Follow the required service above.</p>
       </> : <>
