@@ -35,6 +35,7 @@ import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import {
   effectiveCarryServiceFlags,
+  getCarryForwardManagerCopy,
   getHousekeepingCarryForward,
   isPortfolioCarryForwardHotel,
 } from '@/lib/housekeepingCarryForward';
@@ -1038,6 +1039,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const portfolioCarry = !isCheckout && isPortfolioCarryForwardHotel(room.hotel)
       ? getHousekeepingCarryForward(assignment?.previous_day_context)
       : null;
+    const portfolioCarryCopy = portfolioCarry
+      ? getCarryForwardManagerCopy(portfolioCarry)
+      : null;
     const effectiveService = effectiveCarryServiceFlags({
       towelChangeRequired: room.towel_change_required,
       linenChangeRequired: room.linen_change_required,
@@ -1218,7 +1222,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {effectiveService.towelChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {effectiveService.linenChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
-          {portfolioCarry && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-600 text-white" title={portfolioCarry.instruction}>↪</span>}
+          {portfolioCarry && portfolioCarryCopy && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-600 text-white" title={`${portfolioCarryCopy.summary} · ${portfolioCarryCopy.detail || ''}`}>↪</span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {(() => {
@@ -1404,17 +1408,20 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
 
-              {portfolioCarry && (
+              {portfolioCarry && portfolioCarryCopy && (
                 <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/30">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                    ↪ Carried service from yesterday · {portfolioCarry.sourceBusinessDate}
+                    ↪ Carried housekeeping task
                   </p>
-                  <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-950 dark:text-amber-100">
-                    {portfolioCarry.instruction}
+                  <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
+                    {portfolioCarryCopy.action}
                   </p>
-                  {portfolioCarry.attemptCount > 1 && (
-                    <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
-                      Outstanding since {portfolioCarry.originalDueDate} · attempt {portfolioCarry.attemptCount}
+                  <p className="mt-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                    {portfolioCarryCopy.summary}
+                  </p>
+                  {portfolioCarryCopy.detail && (
+                    <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                      {portfolioCarryCopy.detail}
                     </p>
                   )}
                 </div>
@@ -2621,6 +2628,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               const selectedCarry = !isCheckout && isPortfolioCarryForwardHotel(selectedRoom.hotel)
                 ? getHousekeepingCarryForward(assignment?.previous_day_context)
                 : null;
+              const selectedCarryCopy = selectedCarry
+                ? getCarryForwardManagerCopy(selectedCarry)
+                : null;
               const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
               const roomStatus = selectedRoom.status;
               return (
@@ -2729,14 +2739,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     </div>
                   </div>
 
-                  {selectedCarry && (
+                  {selectedCarry && selectedCarryCopy && (
                     <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
                       <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                        ↪ Carried service from yesterday · {selectedCarry.sourceBusinessDate}
+                        ↪ Carried housekeeping task
                       </p>
-                      <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-950 dark:text-amber-100">
-                        {selectedCarry.instruction}
+                      <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
+                        {selectedCarryCopy.action}
                       </p>
+                      <p className="mt-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                        {selectedCarryCopy.summary}
+                      </p>
+                      {selectedCarryCopy.detail && (
+                        <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                          {selectedCarryCopy.detail}
+                        </p>
+                      )}
                     </div>
                   )}
 
