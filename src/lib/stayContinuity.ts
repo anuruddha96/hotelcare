@@ -388,15 +388,25 @@ export function reconcileContinuousStay(input: {
   // reservation, advance one continuous stay-night rather than reverting to the
   // old checkout reservation's final-night counter.
   if (manualDailyOverride && snapshotDate === businessDate && snapshot) {
-    const completedNights = Math.max(
+    // The snapshot stores the completed checkout segment before the manager
+    // confirmed the guest is staying. Repeated PMS refreshes must be
+    // idempotent: guest_nights_stayed / stored continuousStay may already hold
+    // the provisional +1 night, so never add another night on top of them.
+    // If a previously linked extension disappeared/cancelled, its old total
+    // must also be pruned rather than kept as an 8-night stale plan.
+    const snapshotCompletedNights = Math.max(
       positive(snapshot.guestNightsStayed),
       positive(snapshot.currentNight),
       positive(snapshot.totalNights),
+    );
+    const persistedCurrentNight = Math.max(
       positive(storedGuestNights),
       stored?.currentNight || 0,
     );
-    const currentNight = Math.max(1, completedNights + 1);
-    const totalNights = Math.max(currentNight, stored?.totalNights || 0);
+    const currentNight = snapshotCompletedNights
+      ? snapshotCompletedNights + 1
+      : Math.max(1, persistedCurrentNight);
+    const totalNights = currentNight;
     return {
       currentNight,
       totalNights,
