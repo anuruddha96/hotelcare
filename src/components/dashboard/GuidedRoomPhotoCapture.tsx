@@ -81,12 +81,18 @@ export function GuidedRoomPhotoCapture({
 }: Props) {
   const { user, profile } = useAuth();
   const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, hotel);
-  // The guest-facing minibar category does not exist at Gozsdu or SLNT.
-  // Historical minibar evidence is preserved; it is not a current step or a
-  // completion gate.
-  const STEPS = useMemo(() => noMinibar
-    ? ALL_STEPS.filter(step => step.key !== 'minibar')
-    : ALL_STEPS, [noMinibar]);
+  const fallbackCategories = useMemo(
+    () => requiredDailyPhotoCategories(profile?.assigned_hotel, hotel, profile?.organization_slug)
+      .filter(isHousekeepingPhotoCategory) as Category[],
+    [profile?.assigned_hotel, profile?.organization_slug, hotel],
+  );
+  const [configuredCategories, setConfiguredCategories] = useState<Category[]>(fallbackCategories);
+  const STEPS = useMemo(
+    () => configuredCategories
+      .map(category => getHousekeepingPhotoCategory(category))
+      .filter((step): step is NonNullable<typeof step> => !!step),
+    [configuredCategories],
+  );
   const { t, language } = useTranslation();
   const locale: Language = language === 'hu' || language === 'vi' || language === 'mn' || language === 'es' ? language : 'en';
   const copy = TEXT[locale];
@@ -105,6 +111,7 @@ export function GuidedRoomPhotoCapture({
   const [skipDetail, setSkipDetail] = useState('');
   const [limitedNote, setLimitedNote] = useState('');
   const [exitWarning, setExitWarning] = useState(false);
+  const [completeNowOpen, setCompleteNowOpen] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -116,13 +123,13 @@ export function GuidedRoomPhotoCapture({
   const anySkipped = STEPS.some(step => evidence[step.key].skipped.length > 0);
   const complete = resolved === STEPS.length;
   const skipAllowed = assignmentType === 'daily_cleaning';
-  const incompleteCopy = noMinibar ? ({
-    en: 'Complete all four applicable sections with a photo or a justified skip.',
-    hu: 'Mind a négy alkalmazható részhez fotó vagy indokolt kihagyás szükséges.',
-    vi: 'Bốn mục áp dụng cần ảnh hoặc lý do bỏ qua.',
-    mn: 'Хамаарах дөрвөн хэсэг бүрд зураг эсвэл алгасах шалтгаан шаардлагатай.',
-    es: 'Las cuatro secciones aplicables necesitan foto o motivo de omisión.',
-  } as const)[locale] : copy.incomplete;
+  const incompleteCopy = ({
+    en: 'Finish every required photo section before completing the room.',
+    hu: 'A szoba befejezése előtt készítsd el az összes kötelező fotót.',
+    vi: 'Hoàn tất tất cả ảnh bắt buộc trước khi hoàn thành phòng.',
+    mn: 'Өрөөг дуусгахаас өмнө бүх шаардлагатай зургийг бүрэн авна уу.',
+    es: 'Completa todas las fotos obligatorias antes de finalizar la habitación.',
+  } as const)[locale];
 
   const stopCamera = useCallback(() => {
     stream.current?.getTracks().forEach(track => track.stop());
@@ -137,21 +144,28 @@ export function GuidedRoomPhotoCapture({
     if (!assignmentId) { setPhotos([]); setAssignmentType(null); return; }
     let active = true;
     setPhotos([]); setAssignmentType(null); setIndex(0); setPreviousCategory(null);
-    setLimitedNote(''); setSkipCategory(null); setLoading(true);
+    setLimitedNote(''); setSkipCategory(null); setCompleteNowOpen(false); setLoading(true);
     void (async () => {
-      const { data, error } = await supabase.from('room_assignments').select('completion_photos, notes, assignment_type').eq('id', assignmentId).single();
+      const [assignmentResult, requirementsResult] = await Promise.all([
+        supabase.from('room_assignments').select('completion_photos, notes, assignment_type').eq('id', assignmentId).single(),
+        (supabase as any).rpc('get_housekeeping_photo_requirements', { p_assignment_id: assignmentId }),
+      ]);
       if (!active) return;
-      if (error) toast.error(copy.error);
+      if (assignmentResult.error) toast.error(copy.error);
       else {
-        setPhotos((data?.completion_photos || []) as string[]);
-        setAssignmentType(data?.assignment_type || null);
-        const detail = String(data?.notes || '').split('\n').find(line => line.includes(DETAIL));
+        setPhotos((assignmentResult.data?.completion_photos || []) as string[]);
+        setAssignmentType(assignmentResult.data?.assignment_type || null);
+        const detail = String(assignmentResult.data?.notes || '').split('\n').find(line => line.includes(DETAIL));
         setLimitedNote(detail ? detail.replace(DETAIL, '').trim() : '');
       }
+      const serverCategories = (requirementsResult.data || [])
+        .map((row: any) => String(row.category))
+        .filter(isHousekeepingPhotoCategory) as Category[];
+      setConfiguredCategories(serverCategories.length ? serverCategories : fallbackCategories);
       setLoading(false);
     })();
     return () => { active = false; };
-  }, [open, assignmentId, noMinibar, copy.error, stopCamera]);
+  }, [open, assignmentId, fallbackCategories, copy.error, stopCamera]);
 
   const persist = async (transform: (urls: string[]) => string[]) => {
     if (!assignmentId) throw new Error('Missing room assignment');
