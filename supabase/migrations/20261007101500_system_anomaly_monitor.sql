@@ -178,7 +178,7 @@ BEGIN
      AND v_db.xact_rollback >= v_prev.xact_rollback
      AND v_db.deadlocks >= v_prev.deadlocks THEN
 
-    v_window_seconds := pg_catalog.extract(epoch FROM (v_now - v_prev.captured_at));
+    v_window_seconds := extract(epoch FROM (v_now - v_prev.captured_at));
     IF v_window_seconds BETWEEN 30 AND 1800 THEN
       v_commit_delta := v_db.xact_commit - v_prev.xact_commit;
       v_rollback_delta := v_db.xact_rollback - v_prev.xact_rollback;
@@ -248,8 +248,8 @@ BEGIN
         s.calls,
         s.total_exec_time,
         pg_catalog.left(pg_catalog.regexp_replace(s.query, E'\\s+', ' ', 'g'), 1200) AS query_sample,
-        pg_catalog.row_number() OVER (ORDER BY s.calls DESC) AS by_calls,
-        pg_catalog.row_number() OVER (ORDER BY s.total_exec_time DESC) AS by_exec
+        row_number() OVER (ORDER BY s.calls DESC) AS by_calls,
+        row_number() OVER (ORDER BY s.total_exec_time DESC) AS by_exec
       FROM extensions.pg_stat_statements s
       WHERE s.dbid = (
         SELECT oid FROM pg_catalog.pg_database
@@ -261,9 +261,9 @@ BEGIN
     FROM ranked
     WHERE by_calls <= 250 OR by_exec <= 250
   LOOP
-    IF pg_catalog.position('detect_system_anomalies' IN pg_catalog.lower(v_q.query_sample)) > 0
-       OR pg_catalog.position('system_monitor_query_snapshot' IN pg_catalog.lower(v_q.query_sample)) > 0
-       OR pg_catalog.position('pg_stat_statements' IN pg_catalog.lower(v_q.query_sample)) > 0 THEN
+    IF position('detect_system_anomalies' IN pg_catalog.lower(v_q.query_sample)) > 0
+       OR position('system_monitor_query_snapshot' IN pg_catalog.lower(v_q.query_sample)) > 0
+       OR position('pg_stat_statements' IN pg_catalog.lower(v_q.query_sample)) > 0 THEN
       CONTINUE;
     END IF;
 
@@ -277,7 +277,7 @@ BEGIN
     IF v_have_qprev
        AND v_q.calls >= v_qprev.calls
        AND v_q.total_exec_time >= v_qprev.total_exec_time THEN
-      v_q_window := pg_catalog.extract(epoch FROM (v_now - v_qprev.captured_at));
+      v_q_window := extract(epoch FROM (v_now - v_qprev.captured_at));
 
       IF v_q_window BETWEEN 30 AND 1800 THEN
         v_delta_calls := v_q.calls - v_qprev.calls;
@@ -379,7 +379,7 @@ BEGIN
       CASE a.severity WHEN 'critical' THEN 0 ELSE 1 END,
       a.detected_at
     FOR UPDATE SKIP LOCKED
-    LIMIT pg_catalog.greatest(1, pg_catalog.least(coalesce(p_limit, 10), 20))
+    LIMIT greatest(1, least(coalesce(p_limit, 10), 20))
   )
   UPDATE public.system_anomaly_alerts a
   SET status = 'sending',
