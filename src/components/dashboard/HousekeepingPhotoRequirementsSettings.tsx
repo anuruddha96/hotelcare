@@ -3,11 +3,13 @@ import { ChevronDown, ChevronUp, Loader2, Save, SlidersHorizontal } from 'lucide
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
 import {
   HOUSEKEEPING_PHOTO_CATALOG,
+  getHousekeepingPhotoLabel,
   type HousekeepingPhotoCategory,
 } from '@/lib/housekeepingPhotoRequirements';
 
@@ -27,6 +29,7 @@ export function HousekeepingPhotoRequirementsSettings({
   hotelName,
 }: Props) {
   const { profile } = useAuth();
+  const { language } = useTranslation();
   const canManage = !!profile && (profile.is_super_admin === true || TOP_MANAGER_ROLES.has(profile.role));
   const fallback = useMemo(
     () => requiredDailyPhotoCategories(hotelId, hotelName, organizationSlug) as HousekeepingPhotoCategory[],
@@ -130,20 +133,20 @@ export function HousekeepingPhotoRequirementsSettings({
               <div key={item.key} className="flex items-center gap-3 rounded-lg border bg-background px-3 py-2">
                 <span className="text-xl w-7 text-center" aria-hidden="true">{item.emoji}</span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">{item.labels.en}</div>
+                  <div className="text-sm font-medium">{getHousekeepingPhotoLabel(item.key, language)}</div>
                   <div className="text-[10px] text-muted-foreground">{enabled ? 'Required · step ' + (orderIndex + 1) : 'Not required'}</div>
                 </div>
                 {enabled && (
                   <div className="flex items-center gap-1">
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={'Move ' + item.labels.en + ' up'} disabled={orderIndex <= 0} onClick={() => move(item.key, -1)}>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={'Move ' + getHousekeepingPhotoLabel(item.key, language) + ' up'} disabled={orderIndex <= 0} onClick={() => move(item.key, -1)}>
                       <ChevronUp className="h-4 w-4" />
                     </Button>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={'Move ' + item.labels.en + ' down'} disabled={orderIndex < 0 || orderIndex === selected.length - 1} onClick={() => move(item.key, 1)}>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={'Move ' + getHousekeepingPhotoLabel(item.key, language) + ' down'} disabled={orderIndex < 0 || orderIndex === selected.length - 1} onClick={() => move(item.key, 1)}>
                       <ChevronDown className="h-4 w-4" />
                     </Button>
                   </div>
                 )}
-                <Switch checked={enabled} onCheckedChange={value => toggle(item.key, value)} aria-label={'Require ' + item.labels.en + ' photo'} />
+                <Switch checked={enabled} onCheckedChange={value => toggle(item.key, value)} aria-label={'Require ' + getHousekeepingPhotoLabel(item.key, language) + ' photo'} />
               </div>
             );
           })}
