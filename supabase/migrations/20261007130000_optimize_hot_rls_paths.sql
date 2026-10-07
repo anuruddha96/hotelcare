@@ -52,12 +52,12 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
-  SELECT COALESCE(array_agg(DISTINCT k ORDER BY k), ARRAY[]::text[])
+  SELECT COALESCE(array_agg(DISTINCT key ORDER BY key), ARRAY[]::text[])
   FROM public.profiles p
-  CROSS JOIN LATERAL public.pms_hotel_room_keys(p.assigned_hotel) AS k
+  CROSS JOIN LATERAL public.pms_hotel_room_keys(p.assigned_hotel) AS keys(key)
   WHERE p.id = _uid
     AND p.assigned_hotel IS NOT NULL
-    AND k IS NOT NULL;
+    AND key IS NOT NULL;
 $$;
 
 REVOKE ALL ON FUNCTION public.user_assigned_hotel_keys(uuid) FROM PUBLIC;
@@ -154,9 +154,7 @@ FOR SELECT
 TO authenticated
 USING (
   (SELECT auth.uid()) IS NOT NULL
-  AND hotel_id = ANY((
-    SELECT public.user_accessible_hotel_ids((SELECT auth.uid()))
-  ))
+  AND hotel_id = ANY ((SELECT public.user_accessible_hotel_ids((SELECT auth.uid())))::text[])
   AND (
     (SELECT public.is_super_admin((SELECT auth.uid())))
     OR organization_slug = (
@@ -174,9 +172,7 @@ FOR SELECT
 TO authenticated
 USING (
   hotel_id IS NOT NULL
-  AND hotel_id = ANY((
-    SELECT public.user_accessible_hotel_ids((SELECT auth.uid()))
-  ))
+  AND hotel_id = ANY ((SELECT public.user_accessible_hotel_ids((SELECT auth.uid())))::text[])
 );
 
 DROP POLICY IF EXISTS "Revenue users view accessible pickup actions"
@@ -187,9 +183,7 @@ FOR SELECT
 TO authenticated
 USING (
   (SELECT public.is_revenue_user((SELECT auth.uid())))
-  AND hotel_id = ANY((
-    SELECT public.user_accessible_hotel_ids((SELECT auth.uid()))
-  ))
+  AND hotel_id = ANY ((SELECT public.user_accessible_hotel_ids((SELECT auth.uid())))::text[])
 );
 
 DROP POLICY IF EXISTS "Revenue users update accessible pickup actions"
@@ -200,15 +194,11 @@ FOR UPDATE
 TO authenticated
 USING (
   (SELECT public.is_revenue_user((SELECT auth.uid())))
-  AND hotel_id = ANY((
-    SELECT public.user_accessible_hotel_ids((SELECT auth.uid()))
-  ))
+  AND hotel_id = ANY ((SELECT public.user_accessible_hotel_ids((SELECT auth.uid())))::text[])
 )
 WITH CHECK (
   (SELECT public.is_revenue_user((SELECT auth.uid())))
-  AND hotel_id = ANY((
-    SELECT public.user_accessible_hotel_ids((SELECT auth.uid()))
-  ))
+  AND hotel_id = ANY ((SELECT public.user_accessible_hotel_ids((SELECT auth.uid())))::text[])
 );
 
 DROP POLICY IF EXISTS "Revenue users delete accessible pickup actions"
@@ -219,9 +209,7 @@ FOR DELETE
 TO authenticated
 USING (
   (SELECT public.is_revenue_user((SELECT auth.uid())))
-  AND hotel_id = ANY((
-    SELECT public.user_accessible_hotel_ids((SELECT auth.uid()))
-  ))
+  AND hotel_id = ANY ((SELECT public.user_accessible_hotel_ids((SELECT auth.uid())))::text[])
 );
 
 -- Pickup history had two stable user-profile checks per row.
@@ -258,12 +246,8 @@ USING (
     AND (
       (SELECT public.get_user_role((SELECT auth.uid()))::text)
         IN ('admin', 'top_management', 'top_management_manager', 'reception', 'housekeeping')
-      OR hotel = ANY((
-        SELECT public.user_assigned_hotel_keys((SELECT auth.uid()))
-      ))
-      OR id = ANY((
-        SELECT public.user_assigned_room_ids((SELECT auth.uid()))
-      ))
+      OR hotel = ANY ((SELECT public.user_assigned_hotel_keys((SELECT auth.uid())))::text[])
+      OR id = ANY ((SELECT public.user_assigned_room_ids((SELECT auth.uid())))::uuid[])
     )
   )
 );
@@ -281,9 +265,7 @@ USING (
   OR (SELECT public.is_super_admin((SELECT auth.uid())))
   OR (SELECT public.get_user_role((SELECT auth.uid()))::text)
        IN ('admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager')
-  OR venue_id = ANY((
-    SELECT public.user_slnt_visible_venue_ids((SELECT auth.uid()))
-  ))
+  OR venue_id = ANY ((SELECT public.user_slnt_visible_venue_ids((SELECT auth.uid())))::uuid[])
 );
 
 -- Consolidate room-assignment SELECT permissions so the caller profile is not
@@ -313,9 +295,7 @@ USING (
                'top_management_manager', 'reception', 'front_office')
       OR (
         (SELECT public.get_user_role((SELECT auth.uid()))::text) = 'housekeeping'
-        AND assigned_to = ANY((
-          SELECT public.user_same_hotel_housekeeper_ids((SELECT auth.uid()))
-        ))
+        AND assigned_to = ANY ((SELECT public.user_same_hotel_housekeeper_ids((SELECT auth.uid())))::uuid[])
       )
     )
   )
@@ -363,9 +343,7 @@ USING (
       SELECT public.get_user_organization_slug((SELECT auth.uid()))
     )
   )
-  OR room_id = ANY((
-    SELECT public.rdhotels_active_room_ids((SELECT auth.uid()))
-  ))
+  OR room_id = ANY ((SELECT public.rdhotels_active_room_ids((SELECT auth.uid())))::uuid[])
 );
 
 DROP POLICY IF EXISTS rdhotels_room_assignments_active_hotel_update
@@ -379,17 +357,13 @@ USING (
   COALESCE((
     SELECT public.get_user_organization_slug((SELECT auth.uid()))
   ), '') <> 'rdhotels'
-  OR room_id = ANY((
-    SELECT public.rdhotels_active_room_ids((SELECT auth.uid()))
-  ))
+  OR room_id = ANY ((SELECT public.rdhotels_active_room_ids((SELECT auth.uid())))::uuid[])
 )
 WITH CHECK (
   COALESCE((
     SELECT public.get_user_organization_slug((SELECT auth.uid()))
   ), '') <> 'rdhotels'
-  OR room_id = ANY((
-    SELECT public.rdhotels_active_room_ids((SELECT auth.uid()))
-  ))
+  OR room_id = ANY ((SELECT public.rdhotels_active_room_ids((SELECT auth.uid())))::uuid[])
 );
 
 -- Cover the remaining hot reads. The date/org/room assignment index added in
