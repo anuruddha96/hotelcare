@@ -870,8 +870,11 @@ export async function runPmsRefresh(
 
         if (stayContinuity.resetForDifferentGuest) {
           // A strongly identified different guest invalidates today's manual
-          // stayover bridge. Keep the audit event, but never carry the previous
-          // guest's room-service history into a real same-day turnover.
+          // stayover bridge. The transient reset reason tells the database's
+          // same-day manual-override guard that this is a verified PMS turnover,
+          // not an ordinary sync trying to undo a manager decision.
+          updateData.pms_metadata.manualOverrideResetReason = "definitive_new_guest";
+          updateData.pms_metadata.manualOverrideResetAt = new Date().toISOString();
           for (const key of [
             "manual_daily", "manual_daily_at", "manual_daily_by",
             "manual_checkout", "manual_checkout_at", "manual_checkout_by",
