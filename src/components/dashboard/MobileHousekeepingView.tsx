@@ -86,6 +86,7 @@ export function MobileHousekeepingView() {
   const [selectedRoom, setSelectedRoom] = useState<{ id: string; room_number: string } | null>(null);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
   const [imageCaptureDialogOpen, setImageCaptureDialogOpen] = useState(false);
+  const [pendingScrollAssignmentId, setPendingScrollAssignmentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -390,11 +391,10 @@ export function MobileHousekeepingView() {
 
   const handleStatusUpdate = (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => {
     setAssignments(prev => {
-      // Update the specific assignment while maintaining the original order
       const updatedAssignments = prev.map(assignment => {
         if (assignment.id === assignmentId) {
-          return { 
-            ...assignment, 
+          return {
+            ...assignment,
             status: newStatus,
             started_at: newStatus === 'in_progress' ? new Date().toISOString() : assignment.started_at,
             completed_at: newStatus === 'completed' ? new Date().toISOString() : assignment.completed_at
@@ -402,12 +402,34 @@ export function MobileHousekeepingView() {
         }
         return assignment;
       });
-      
-      console.log('Local status update - maintaining order for assignment:', assignmentId, 'new status:', newStatus);
+
+      // In-progress rooms are the first priority bucket. Move the room there
+      // immediately so mobile users do not remain scrolled to its old position
+      // while waiting for the realtime refetch to re-sort the list.
+      if (newStatus === 'in_progress') {
+        const focused = updatedAssignments.find(assignment => assignment.id === assignmentId);
+        if (focused) {
+          return [focused, ...updatedAssignments.filter(assignment => assignment.id !== assignmentId)];
+        }
+      }
       return updatedAssignments;
     });
+    if (newStatus === 'in_progress') {
+      setPendingScrollAssignmentId(assignmentId);
+    }
     fetchSummary();
   };
+
+  useEffect(() => {
+    if (!pendingScrollAssignmentId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const element = document.getElementById(`housekeeping-assignment-${pendingScrollAssignmentId}`);
+      if (!element) return;
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setPendingScrollAssignmentId(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingScrollAssignmentId, assignments]);
 
   const getAssignmentTypeLabel = (type: string) => {
     switch (type) {
@@ -631,7 +653,11 @@ export function MobileHousekeepingView() {
         ) : (
           <div className="space-y-3">
             {visibleAssignments.map((assignment) => (
-              <div key={assignment.id}>
+              <div
+                key={assignment.id}
+                id={`housekeeping-assignment-${assignment.id}`}
+                className="scroll-mt-4"
+              >
                 <ErrorBoundary
                   context={`AssignedRoomCard:${assignment.id}`}
                   fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
