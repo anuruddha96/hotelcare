@@ -107,20 +107,31 @@ function chooseEffective<T extends PrevioStayCandidate>(candidates: T[], today: 
   const active = eligible.filter((candidate) =>
     candidate.arrivalDate <= today && candidate.departureDate > today,
   );
-  const explicitInHouse = active.filter((candidate) => IN_HOUSE.has(candidate.statusId));
-  const arrivals = active.filter((candidate) => candidate.arrivalDate === today);
   const checkouts = eligible.filter((candidate) => candidate.departureDate === today);
 
   const mostSpecific = (list: T[]) => [...list].sort((a, b) => {
+    const inHouseDiff = Number(IN_HOUSE.has(b.statusId)) - Number(IN_HOUSE.has(a.statusId));
+    if (inHouseDiff) return inHouseDiff;
     const start = b.arrivalDate.localeCompare(a.arrivalDate);
     if (start) return start;
     return a.departureDate.localeCompare(b.departureDate);
   })[0] ?? null;
 
-  return mostSpecific(explicitInHouse)
-    ?? mostSpecific(arrivals)
-    ?? mostSpecific(active)
-    ?? mostSpecific(checkouts);
+  // Same-day turnover and same-guest extension both produce two reservations
+  // for one room. Only let the new reservation supersede checkout cleaning
+  // when identity proves they are one continuous guest stay. Otherwise the old
+  // guest's checkout clean must still happen before the new arrival.
+  const extensionActive = active.filter((candidate) =>
+    checkouts.some((checkout) =>
+      checkout.departureDate === candidate.arrivalDate
+      && isSamePrevioGuest(checkout, candidate),
+    ),
+  );
+  if (extensionActive.length) return mostSpecific(extensionActive);
+  if (checkouts.length) return mostSpecific(checkouts);
+
+  const arrivals = active.filter((candidate) => candidate.arrivalDate === today);
+  return mostSpecific(arrivals) ?? mostSpecific(active);
 }
 
 function bestPrevious<T extends PrevioStayCandidate>(all: T[], current: T, used: Set<T>): T | null {
