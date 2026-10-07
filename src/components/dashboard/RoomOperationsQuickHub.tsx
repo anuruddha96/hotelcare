@@ -25,6 +25,13 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
+import {
+  buildDirectRoomTypeNotice,
+  buildRoomTypeTransition,
+  roomServiceLabel,
+  stripRoomTypeSystemNotes,
+  type RoomTypeNotice,
+} from '@/lib/roomTypeTransition';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -54,6 +61,7 @@ type RoomSelection = {
   linenChangeRequired: boolean;
   roomCleaning: boolean;
   collectExtraTowels: boolean;
+  guestNightsStayed: number | null;
   assignmentId: string | null;
   assignedTo: string | null;
   assignmentStatus: string | null;
@@ -188,6 +196,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       linenChangeRequired: false,
       roomCleaning: false,
       collectExtraTowels: false,
+      guestNightsStayed: null,
       assignmentId: null,
       assignedTo: null,
       assignmentStatus: null,
@@ -213,7 +222,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
       let roomQuery = supabase
         .from('rooms')
-        .select('id, hotel, room_number, status, notes, pms_metadata, room_type, room_category, room_size_sqm, floor_number, bed_configuration, is_checkout_room, towel_change_required, linen_change_required, last_cleaned_at')
+        .select('id, hotel, room_number, status, notes, pms_metadata, room_type, room_category, room_size_sqm, floor_number, bed_configuration, is_checkout_room, towel_change_required, linen_change_required, guest_nights_stayed, last_cleaned_at')
         .in('hotel', hotelKeys);
       roomQuery = roomId
         ? roomQuery.eq('id', roomId)
@@ -267,6 +276,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         linenChangeRequired: !!room.linen_change_required,
         roomCleaning: !!flags.roomCleaning,
         collectExtraTowels: !!flags.collectExtraTowels,
+        guestNightsStayed: room.guest_nights_stayed ?? null,
         assignmentId: assignment?.id || null,
         assignedTo: assignment?.assigned_to || null,
         assignmentStatus: assignment?.status || null,
@@ -565,23 +575,213 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   };
 
   const switchService = async () => {
-    if (!canManage || !selection?.roomId) return;
+    if (!canManage || readOnlyForPast || !selection?.roomId) return;
     const nextCheckout = !selection.isCheckout;
+    const roomId = selection.roomId;
+    const assignmentId = selection.assignmentId;
     setActionLoading('service');
+
+    let originalRoom: any = null;
+    let originalAssignment: any = null;
+    let roomChanged = false;
+    let assignmentChanged = false;
+
     try {
-      const roomUpdate = supabase.from('rooms').update({ is_checkout_room: nextCheckout } as any).eq('id', selection.roomId);
-      const assignmentUpdate = selection.assignmentId
-        ? supabase.from('room_assignments').update({ assignment_type: nextCheckout ? 'checkout_cleaning' : 'daily_cleaning' } as any).eq('id', selection.assignmentId)
-        : Promise.resolve({ error: null } as any);
-      const [roomResult, assignmentResult] = await Promise.all([roomUpdate, assignmentUpdate]);
-      if (roomResult.error) throw roomResult.error;
-      if (assignmentResult.error) throw assignmentResult.error;
-      setSelection((current) => current ? { ...current, isCheckout: nextCheckout } : current);
-      toast.success(`Room ${selection.roomNumber} changed to ${nextCheckout ? 'Checkout' : 'Daily'}`);
+      const [{ data: freshRoom, error: roomReadError }, { data: freshAssignment, error: assignmentReadError }] = await Promise.all([
+        supabase.from('rooms')
+          .select('id,hotel,room_number,is_checkout_room,notes,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
+          .eq('id', roomId)
+          .maybeSingle(),
+        assignmentId
+          ? supabase.from('room_assignments')
+              .select('id,status,assignment_type,ready_to_clean,notes')
+              .eq('id', assignmentId)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null } as any),
+      ]);
+      if (roomReadError) throw roomReadError;
+      if (assignmentReadError) throw assignmentReadError;
+      if (!freshRoom?.id) throw new Error('Room changed or is no longer available. Refresh and retry.');
+      if (freshAssignment && ['in_progress', 'completed'].includes(freshAssignment.status)) {
+        throw new Error('Cleaning already started or finished. Resolve the current assignment before changing its type.');
+      }
+
+      originalRoom = freshRoom;
+      originalAssignment = freshAssignment;
+      const meta = freshRoom.pms_metadata && typeof freshRoom.pms_metadata === 'object'
+        ? freshRoom.pms_metadata as Record<string, any>
+        : {};
+      const nowIso = new Date().toISOString();
+      const transition = buildRoomTypeTransition({
+        metadata: meta,
+        target: nextCheckout ? 'checkout' : 'daily',
+        date: selectedDate,
+        roomNumber: freshRoom.room_number,
+        actorId: profile?.id || '',
+        actorName: profile?.full_name || 'Manager',
+        nowIso,
+        previousRoomNotes: freshRoom.notes,
+        serviceSnapshot: {
+          reservationId: meta.reservationId != null ? String(meta.reservationId) : null,
+          guestFingerprint: meta.guestFingerprint != null ? String(meta.guestFingerprint) : null,
+          guestIdentityStrength: meta.guestIdentityStrength === 'strong' || meta.guestIdentityStrength === 'name'
+            ? meta.guestIdentityStrength
+            : 'none',
+          arrivalDate: meta.arrivalDate != null ? String(meta.arrivalDate) : null,
+          departureDate: meta.departureDate != null ? String(meta.departureDate) : null,
+          guestNightsStayed: freshRoom.guest_nights_stayed,
+          currentNight: Number(meta.currentNight ?? 0) || null,
+          totalNights: Number(meta.totalNights ?? 0) || null,
+          towelChangeRequired: freshRoom.towel_change_required,
+          linenChangeRequired: freshRoom.linen_change_required,
+        },
+      });
+
+      const roomPatch: Record<string, unknown> = {
+        is_checkout_room: nextCheckout,
+        pms_metadata: transition.metadata,
+        notes: transition.note,
+      };
+      if (!nextCheckout && transition.continuedNight) {
+        roomPatch.guest_nights_stayed = transition.continuedNight;
+      }
+
+      const { data: persistedRows, error: roomWriteError } = await supabase.from('rooms')
+        .update(roomPatch as any)
+        .eq('id', roomId)
+        .select('id,pms_metadata,notes,guest_nights_stayed,towel_change_required,linen_change_required');
+      if (roomWriteError) throw roomWriteError;
+      if (persistedRows?.length !== 1) throw new Error('Room type update was not persisted.');
+      roomChanged = true;
+
+      const persistedRoom = persistedRows[0] as any;
+      const persistedMeta = persistedRoom.pms_metadata && typeof persistedRoom.pms_metadata === 'object'
+        ? persistedRoom.pms_metadata as Record<string, any>
+        : transition.metadata;
+      const finalServiceLabel = nextCheckout
+        ? null
+        : roomServiceLabel({
+            towelChangeRequired: persistedRoom.towel_change_required,
+            linenChangeRequired: persistedRoom.linen_change_required,
+          });
+      const finalNotice = buildDirectRoomTypeNotice({
+        date: selectedDate,
+        at: transition.notice.at,
+        from: nextCheckout ? 'daily' : 'checkout',
+        to: nextCheckout ? 'checkout' : 'daily',
+        by: profile?.full_name || 'Manager',
+        serviceLabel: finalServiceLabel,
+        nightsStayed: Number(
+          persistedMeta?.continuousStay?.currentNight
+            ?? persistedRoom.guest_nights_stayed
+            ?? persistedMeta.currentNight
+            ?? 0,
+        ) || null,
+      });
+      const finalMetadata = { ...persistedMeta, roomTypeChangeNotice: finalNotice };
+
+      const { error: noticeError } = await supabase.from('rooms')
+        .update({ pms_metadata: finalMetadata } as any)
+        .eq('id', roomId);
+      if (noticeError) throw noticeError;
+
+      if (freshAssignment?.id) {
+        const cleanedAssignmentNotes = stripRoomTypeSystemNotes(freshAssignment.notes);
+        const { data: changedRows, error: assignmentWriteError } = await supabase.from('room_assignments')
+          .update({
+            assignment_type: nextCheckout ? 'checkout_cleaning' : 'daily_cleaning',
+            ready_to_clean: !nextCheckout,
+            ...(cleanedAssignmentNotes !== freshAssignment.notes ? { notes: cleanedAssignmentNotes } : {}),
+          } as any)
+          .eq('id', freshAssignment.id)
+          .eq('status', freshAssignment.status)
+          .select('id');
+        if (assignmentWriteError) throw assignmentWriteError;
+        if (changedRows?.length !== 1) throw new Error('Assignment changed while the room type was being updated.');
+        assignmentChanged = true;
+      }
+
+      const cleanHumanNote = stripRoomTypeSystemNotes(persistedRoom.notes);
+      notesSavedDraftRef.current = cleanHumanNote || '';
+      setNotesDraft(cleanHumanNote || '');
+      setSelection((current) => current ? {
+        ...current,
+        isCheckout: nextCheckout,
+        pmsMetadata: finalMetadata,
+        roomNotes: cleanHumanNote,
+        guestNightsStayed: persistedRoom.guest_nights_stayed ?? current.guestNightsStayed,
+        towelChangeRequired: !!persistedRoom.towel_change_required,
+        linenChangeRequired: !!persistedRoom.linen_change_required,
+        assignmentType: freshAssignment?.id
+          ? (nextCheckout ? 'checkout_cleaning' : 'daily_cleaning')
+          : current.assignmentType,
+        readyToClean: freshAssignment?.id ? !nextCheckout : current.readyToClean,
+        assignmentNotes: freshAssignment?.id
+          ? stripRoomTypeSystemNotes(freshAssignment.notes)
+          : current.assignmentNotes,
+      } : current);
+
+      void supabase.from('pms_change_events').insert({
+        hotel_id: freshRoom.hotel || hotelName,
+        room_id: roomId,
+        room_label: freshRoom.room_number,
+        event_type: 'room_type_switched_manual',
+        source: 'manager_ui',
+        before: {
+          is_checkout_room: !!freshRoom.is_checkout_room,
+          guest_nights_stayed: freshRoom.guest_nights_stayed,
+          towel_change_required: !!freshRoom.towel_change_required,
+          linen_change_required: !!freshRoom.linen_change_required,
+        },
+        after: {
+          is_checkout_room: nextCheckout,
+          date: selectedDate,
+          by: profile?.id || null,
+          guest_nights_stayed: persistedRoom.guest_nights_stayed,
+          required_service: finalServiceLabel,
+          manager_confirmed_guest_staying: !nextCheckout,
+        },
+        is_conflict: false,
+      } as any).then(({ error }) => {
+        if (error) console.warn('Room type audit event failed', error);
+      });
+
+      toast.success(nextCheckout
+        ? `Room ${selection.roomNumber} changed to Checkout cleaning`
+        : `Room ${selection.roomNumber}: guest staying · ${finalServiceLabel || 'Daily Cleaning'}`);
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      await loadRoom({ roomNumber: selection.roomNumber, roomId });
     } catch (error) {
       console.error('Failed to switch service', error);
-      toast.error('Could not change service type.');
+
+      // There is no single transaction RPC for this UI action. Compensate any
+      // partial write so housekeepers never see a half-switched room.
+      if (assignmentChanged && originalAssignment?.id) {
+        const { error: rollbackAssignmentError } = await supabase.from('room_assignments')
+          .update({
+            assignment_type: originalAssignment.assignment_type,
+            ready_to_clean: originalAssignment.ready_to_clean,
+            notes: originalAssignment.notes,
+          } as any)
+          .eq('id', originalAssignment.id);
+        if (rollbackAssignmentError) console.error('Assignment rollback failed', rollbackAssignmentError);
+      }
+      if (roomChanged && originalRoom?.id) {
+        const { error: rollbackRoomError } = await supabase.from('rooms')
+          .update({
+            is_checkout_room: originalRoom.is_checkout_room,
+            notes: originalRoom.notes,
+            pms_metadata: originalRoom.pms_metadata,
+            guest_nights_stayed: originalRoom.guest_nights_stayed,
+            towel_change_required: originalRoom.towel_change_required,
+            linen_change_required: originalRoom.linen_change_required,
+          } as any)
+          .eq('id', originalRoom.id);
+        if (rollbackRoomError) console.error('Room rollback failed', rollbackRoomError);
+      }
+
+      toast.error(error instanceof Error ? error.message : 'Could not change service type.');
+      await loadRoom({ roomNumber: selection.roomNumber, roomId });
     } finally {
       setActionLoading(null);
     }
@@ -838,7 +1038,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         <Button
           type="button"
           className={`mb-3 w-full justify-between ${selection.isCheckout ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-500 hover:bg-orange-600'}`}
-          disabled={!canManage || actionLoading === 'service'}
+          disabled={!canManage || readOnlyForPast || actionLoading === 'service'}
           onClick={() => void switchService()}
         >
           <span className="flex items-center gap-2"><ArrowLeftRight className="h-4 w-4" /> Switch to {selection.isCheckout ? 'Daily' : 'Checkout'}</span>
