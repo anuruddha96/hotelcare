@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { searchLostFoundItems, labelFor, LOST_FOUND_ITEMS, type LangKey, type LostFoundItem } from '@/lib/lostFoundItems';
 import { cn } from '@/lib/utils';
+import { todayBudapest } from '@/lib/budapestTime';
+import { LOST_FOUND_UPDATED_EVENT } from '@/lib/lostFoundVisibility';
 
 interface LostAndFoundDialogProps {
   open: boolean;
@@ -32,7 +34,7 @@ export function LostAndFoundDialog({
   assignmentId,
   onItemReported,
 }: LostAndFoundDialogProps) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { t, language } = useTranslation();
   const lang = (['en', 'hu', 'es', 'vi', 'mn', 'uk'].includes(language) ? language : 'en') as LangKey;
 
@@ -160,16 +162,45 @@ export function LostAndFoundDialog({
         const { data: { publicUrl } } = supabase.storage.from('room-photos').getPublicUrl(data.path);
         uploadedUrls.push(publicUrl);
       }
-      const { error: insertError } = await supabase.from('lost_and_found').insert({
-        room_id: roomId || null,
-        assignment_id: assignmentId || null,
-        reported_by: user.id,
-        item_description: finalDescription,
-        photo_urls: uploadedUrls,
-        notes: notes || null,
-        status: 'pending',
-      });
+      let organizationSlug = profile?.organization_slug || null;
+
+      // A room-linked report should inherit the room's tenant scope. This
+      // prevents a valid insert from later becoming invisible after a tenant
+      // or property filter is applied.
+      if (roomId) {
+        const { data: roomScope, error: roomScopeError } = await supabase
+          .from('rooms')
+          .select('id, organization_slug')
+          .eq('id', roomId)
+          .maybeSingle();
+        if (roomScopeError) throw roomScopeError;
+        if (!roomScope?.id) throw new Error('The selected room could not be verified.');
+        organizationSlug = roomScope.organization_slug || organizationSlug;
+      }
+
+      if (!organizationSlug) {
+        throw new Error('The property scope could not be determined. Please refresh and try again.');
+      }
+
+      const { data: insertedItem, error: insertError } = await supabase
+        .from('lost_and_found')
+        .insert({
+          room_id: roomId || null,
+          assignment_id: assignmentId || null,
+          reported_by: user.id,
+          item_description: finalDescription,
+          photo_urls: uploadedUrls,
+          notes: notes || null,
+          status: 'pending',
+          found_date: todayBudapest(),
+          organization_slug: organizationSlug,
+        })
+        .select('id, room_id, reported_by, organization_slug, status')
+        .single();
       if (insertError) throw insertError;
+      if (!insertedItem?.id) throw new Error('The Lost & Found item was not persisted.');
+
+      window.dispatchEvent(new CustomEvent(LOST_FOUND_UPDATED_EVENT));
       toast.success('Lost & Found item reported successfully');
       onItemReported?.();
       handleClose();
