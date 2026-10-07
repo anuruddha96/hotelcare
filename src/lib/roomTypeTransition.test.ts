@@ -1,70 +1,122 @@
 import { describe, expect, it } from 'vitest';
-import { buildRoomTypeTransition, upsertRoomTypeNote } from './roomTypeTransition';
+import {
+  buildDirectRoomTypeNotice,
+  buildRoomTypeTransition,
+  stripRoomTypeSystemNotes,
+} from './roomTypeTransition';
 import { GOZSDU_ROOM_OVERRIDE_KEY, readGozsduRoomOverride } from './gozsduRoomBucketOverride';
 
 const input = {
-  date: '2026-09-21', roomNumber: '144', actorId: 'manager-1', actorName: 'Manager',
-  nowIso: '2026-09-21T12:00:00.000Z', previousRoomNotes: '[ROOM_CLEANING] Keep extra pillows',
+  date: '2026-10-07',
+  roomNumber: '117',
+  actorId: 'manager-eva',
+  actorName: 'Éva',
+  nowIso: '2026-10-07T07:15:00.000Z',
+  previousRoomNotes: 'Previous guest bed setup: Baby Bed\n[ROOM TYPE 2026-10-07] Old technical text',
 };
 
-describe('confirmed manual room type changes', () => {
-  it('marks checkout-to-daily as a possible extension without touching the reservation', () => {
+describe('authoritative manager room type changes', () => {
+  it('turns checkout into a confirmed stayover without asking the housekeeper to verify with reception', () => {
     const result = buildRoomTypeTransition({
-      ...input, target: 'daily', metadata: {
-        scheduledDepartureToday: true, checkedOutToday: true, departureTime: '10:00',
-        reservationId: 'previo-booking-123', currentNight: 4,
+      ...input,
+      target: 'daily',
+      metadata: {
+        scheduledDepartureToday: true,
+        checkedOutToday: false,
+        reservationId: 'previo-A',
+        arrivalDate: '2026-10-02',
+        departureDate: '2026-10-07',
+        currentNight: 5,
+        totalNights: 5,
+      },
+      serviceSnapshot: {
+        reservationId: 'previo-A',
+        guestFingerprint: 'pms-guest',
+        guestIdentityStrength: 'strong',
+        arrivalDate: '2026-10-02',
+        departureDate: '2026-10-07',
+        guestNightsStayed: 5,
+        currentNight: 5,
+        totalNights: 5,
       },
     });
+
     expect(result.metadata.manual_daily).toBe(true);
     expect(result.metadata.manual_checkout).toBe(false);
+    expect(result.metadata.occupiedToday).toBe(true);
     expect(result.metadata.scheduledDepartureToday).toBe(false);
-    expect(result.metadata.checkedOutToday).toBe(false);
-    expect(result.metadata.reservationId).toBe('previo-booking-123');
-    expect(result.note).toContain('Possible stay extension');
-    expect(result.note).toContain('Keep extra pillows');
-    expect(result.notice.from).toBe('checkout');
-    expect(result.notice.to).toBe('daily');
+    expect(result.continuedNight).toBe(6);
+    expect(result.metadata.currentNight).toBe(6);
+    expect(result.metadata.totalNights).toBe(6);
+    expect(result.notice.message).toContain('Guest staying — Daily service');
+    expect(result.notice.message).toContain('Éva');
+    expect(result.notice.message.toLowerCase()).not.toContain('verify');
+    expect(result.notice.message.toLowerCase()).not.toContain('reception');
+
+    const snapshot = result.metadata.extensionServiceSnapshot as Record<string, unknown>;
+    expect(snapshot.reservationId).toBe('previo-A');
+    expect(snapshot.guestNightsStayed).toBe(5);
+    expect(snapshot.departureDate).toBe('2026-10-07');
   });
 
-  it('marks daily-to-checkout and clears stale manual RTC without declaring PMS checkout', () => {
+  it('keeps human notes but removes old technical room-type lines', () => {
     const result = buildRoomTypeTransition({
-      ...input, target: 'checkout', metadata: { manual_daily: true, manualReadyToCleanAt: 'stale-time' },
+      ...input,
+      target: 'daily',
+      metadata: { currentNight: 2, totalNights: 2 },
+      serviceSnapshot: { guestNightsStayed: 2 },
+    });
+    expect(result.note).toBe('Previous guest bed setup: Baby Bed');
+    expect(result.note).not.toContain('[ROOM TYPE');
+  });
+
+  it('keeps checkout instructions direct and does not claim PMS has checked the guest out', () => {
+    const result = buildRoomTypeTransition({
+      ...input,
+      target: 'checkout',
+      metadata: { manual_daily: true, manualReadyToCleanAt: 'stale-time' },
     });
     expect(result.metadata.manual_checkout).toBe(true);
     expect(result.metadata.manual_daily).toBe(false);
     expect(result.metadata.manualReadyToCleanAt).toBeNull();
+    expect(result.notice.message).toContain('Wait for Guest Checked Out');
     expect(result.metadata.scheduledDepartureToday).toBeUndefined();
-    expect(result.note).toContain('wait for Ready to Clean');
   });
 
-  it('replaces the same-day notice without deleting housekeeping instructions', () => {
-    const first = upsertRoomTypeNote('Existing note', input.date, 'First change');
-    const second = upsertRoomTypeNote(first, input.date, 'Second change');
-    expect(second).toContain('Existing note');
-    expect(second).toContain('Second change');
-    expect(second).not.toContain('First change');
-    expect(second.match(/\[ROOM TYPE 2026-09-21\]/g)).toHaveLength(1);
-  });
-
-  it('preserves Gozsdu historical overrides and its no-service day', () => {
+  it('preserves Gozsdu historical overrides and records the manager decision without a verification instruction', () => {
     const result = buildRoomTypeTransition({
-      ...input, target: 'daily', metadata: {
+      ...input,
+      target: 'daily',
+      metadata: {
         [GOZSDU_ROOM_OVERRIDE_KEY]: {
-          '2026-09-20': { date: '2026-09-20', bucket: 'checkout', service: 'none' },
+          '2026-10-06': { date: '2026-10-06', bucket: 'checkout', service: 'none' },
         },
       },
       gozsduPlan: { bucket: 'other', service: 'none' },
     });
     expect(readGozsduRoomOverride(result.metadata, input.date)?.bucket).toBe('other');
-    expect(readGozsduRoomOverride(result.metadata, '2026-09-20')?.bucket).toBe('checkout');
+    expect(readGozsduRoomOverride(result.metadata, '2026-10-06')?.bucket).toBe('checkout');
+    expect(readGozsduRoomOverride(result.metadata, input.date)?.reason).toContain('Manager confirmed guest staying');
   });
 
-  it('keeps Gozsdu towel versus full-textile service explicitly property scoped', () => {
-    const result = buildRoomTypeTransition({
-      ...input, target: 'daily', metadata: {}, gozsduPlan: { bucket: 'service', service: 'change_room' },
+  it('builds the final housekeeper action from persisted service requirements', () => {
+    const notice = buildDirectRoomTypeNotice({
+      date: input.date,
+      at: input.nowIso,
+      from: 'checkout',
+      to: 'daily',
+      by: 'Éva',
+      serviceLabel: 'Full Room Change',
+      nightsStayed: 6,
     });
-    expect(readGozsduRoomOverride(result.metadata, input.date)?.service).toBe('change_room');
-    const ordinary = buildRoomTypeTransition({ ...input, target: 'daily', metadata: {} });
-    expect(ordinary.metadata[GOZSDU_ROOM_OVERRIDE_KEY]).toBeUndefined();
+    expect(notice.message).toBe(
+      'Guest staying — Daily service. Changed from Checkout to Daily by Éva. Required today: Full Room Change. Stay so far: 6 nights.',
+    );
+  });
+
+  it('removes only system room-type lines', () => {
+    expect(stripRoomTypeSystemNotes(
+      'Baby Bed — reset after cleaning\n[ROOM TYPE 2026-10-07] technical\nGuest asked for extra pillow',
+    )).toBe('Baby Bed — reset after cleaning\nGuest asked for extra pillow');
   });
 });
