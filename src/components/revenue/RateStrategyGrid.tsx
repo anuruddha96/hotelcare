@@ -35,7 +35,7 @@ import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/ra
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
-import { buildRevenueEventBands } from "@/lib/revenueEventBands";
+import { buildRevenueEventBands, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import DayChangesSheet from "@/components/revenue/DayChangesSheet";
@@ -2210,18 +2210,7 @@ export default function RateStrategyGrid({
    */
   const rankedEventsByDate = useMemo(() => {
     const out = new Map<string, DemandEventDetail[]>();
-    const impactWeight: Record<string, number> = { high: 300, medium: 200, low: 100 };
-    const categoryWeight: Record<string, number> = {
-      conference: 35, sport: 32, concert: 30, festival: 28, holiday: 24, other: 10,
-    };
-    const score = (event: DemandEventDetail) => {
-      const impact = impactWeight[String(event.impact || "").toLowerCase()] ?? 0;
-      const category = categoryWeight[String(event.category || "other").toLowerCase()] ?? 10;
-      // Prefer events with a venue/source context when the declared impact is
-      // tied. This is deterministic and avoids arbitrary database ordering.
-      const evidence = (event.venue ? 4 : 0) + (event.url ? 3 : 0) + (event.notes ? 1 : 0);
-      return impact + category + evidence;
-    };
+    const score = (event: DemandEventDetail) => scoreRevenueEvent(event);
     for (const d of dates) {
       const unique = new Map<string, DemandEventDetail>();
       for (const event of eventsByDate?.get(d) ?? []) {
@@ -3393,8 +3382,8 @@ export default function RateStrategyGrid({
                         const withinSpan = Math.min(spanDays - 1, Math.floor(offset / CELL_W));
                         setDemandDay(dates[band.startIndex + withinSpan] ?? band.startDate);
                       }}
-                      title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact`}
-                      aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact. Tap for details.`}
+                      title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact${band.event.category ? ` · ${band.event.category}` : ""}${band.event.venue ? ` · ${band.event.venue}` : ""}`}
+                      aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact${band.event.category ? `, ${band.event.category}` : ""}${band.event.venue ? `, ${band.event.venue}` : ""}. Tap for details.`}
                       className={`absolute z-10 flex min-w-0 items-center justify-start gap-1 overflow-hidden rounded-[4px] border px-1 text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
                       style={{
                         left: band.startIndex * CELL_W + 1,
