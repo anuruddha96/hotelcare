@@ -329,23 +329,67 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       toast.error("Every selected event must have a valid source URL.");
       return;
     }
-    // The unique index is on lower(title), so PostgREST cannot resolve it as a
-    // conflict target — duplicates are filtered out client-side before insert.
-    const { error } = await (supabase as any).from("demand_events").insert(
-      chosen.map((c) => ({
+
+    let saved = 0;
+    for (const candidate of chosen) {
+      const verifiedSource = sourceUrl(candidate.url)!;
+      const payload = {
         organization_slug: orgSlug,
         hotel_id: hotelId,
-        city: c.city, country: c.country,
-        title: c.title, category: c.category, venue: c.venue,
-        event_date: c.event_date, end_date: c.end_date,
-        expected_impact: c.expected_impact,
-        recurs_annually: c.recurs_annually,
-        url: c.url, confidence: c.confidence,
-        source: "ai", approved: true,
-      })),
-    );
-    if (error) { toast.error(error.message); return; }
-    toast.success(`${chosen.length} event${chosen.length === 1 ? "" : "s"} added to the calendar`);
+        city: candidate.city,
+        country: candidate.country,
+        title: candidate.title,
+        category: candidate.category,
+        venue: candidate.venue,
+        event_date: candidate.event_date,
+        end_date: candidate.end_date,
+        expected_impact: candidate.expected_impact,
+        recurs_annually: candidate.recurs_annually,
+        url: verifiedSource,
+        confidence: candidate.confidence,
+        source: "ai",
+        approved: true,
+      };
+
+      const { error: insertError } = await (supabase as any).from("demand_events").insert(payload);
+      if (!insertError) {
+        saved += 1;
+        continue;
+      }
+
+      // A legacy unsourced row can occupy the expression-based unique key.
+      // Repair it in place instead of failing the whole verified save.
+      if (String((insertError as any).code ?? "") === "23505") {
+        const { data: existing, error: lookupError } = await (supabase as any)
+          .from("demand_events")
+          .select("id")
+          .eq("organization_slug", orgSlug)
+          .ilike("city", candidate.city)
+          .eq("event_date", candidate.event_date)
+          .ilike("title", candidate.title)
+          .limit(1)
+          .maybeSingle();
+        if (lookupError || !existing?.id) {
+          toast.error(lookupError?.message ?? `Could not repair ${candidate.title}.`);
+          return;
+        }
+        const { error: updateError } = await (supabase as any)
+          .from("demand_events")
+          .update(payload)
+          .eq("id", existing.id);
+        if (updateError) {
+          toast.error(updateError.message);
+          return;
+        }
+        saved += 1;
+        continue;
+      }
+
+      toast.error(insertError.message);
+      return;
+    }
+
+    toast.success(`${saved} verified event${saved === 1 ? "" : "s"} saved with sources`);
     setCandidates(null);
     setAlreadyAdded([]);
     void load();
