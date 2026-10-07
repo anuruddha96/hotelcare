@@ -41,6 +41,7 @@ import {
 } from '@/lib/housekeepingCarryForward';
 import { isCurrentNoServiceOutcome, selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { canOfferCheckoutRtc, shouldConfirmManualRtc, shouldInterceptCheckoutMarkClean } from '@/lib/checkoutRtcGuard';
 import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
@@ -234,6 +235,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
   const [syncFlash, setSyncFlash] = useState(false);
   const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
+  const [pendingCheckoutCleanDecision, setPendingCheckoutCleanDecision] = useState<{ roomId: string; roomNumber: string } | null>(null);
   const [unassigning, setUnassigning] = useState(false);
   // Inverse drag: a housekeeper chip from the tray dropped onto a room chip.
   const [hkDrag, setHkDrag] = useState<{ staffId: string; staffName: string } | null>(null);
@@ -790,6 +792,58 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true, pms_hold: false } : a));
   };
 
+  const confirmReadyToCleanRelease = (room: RoomData, assignment?: AssignmentData) => {
+    const needsConfirmation = shouldConfirmManualRtc({
+      pmsRtcToday: isPmsRtcToday(room.pms_metadata),
+      checkedOutToday: room.pms_metadata?.checkedOutToday === true,
+      pmsHold: assignment?.pms_hold,
+    });
+    if (!needsConfirmation) return true;
+    return window.confirm(
+      `Confirm the guest has physically checked out from room ${room.room_number}.\n\nThis will release the checkout room to housekeeping as Ready to Clean (RTC). It does not change the guest reservation or fake a checkout in the PMS.`,
+    );
+  };
+
+  const markRoomCleanFromOverview = async (room: RoomData) => {
+    const assignment = assignmentMap.get(room.id);
+    setActionLoading('clean');
+    try {
+      const { error } = await (supabase as any).rpc('manager_mark_room_clean', {
+        p_room_id: room.id,
+        p_assignment_id: assignment?.id ?? null,
+        p_expected_assignment_date: selectedDate,
+        p_source: 'hotel_room_overview',
+      });
+      if (error) throw error;
+
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+
+      try {
+        const { data: response, error: pmsError } = await supabase.functions.invoke('previo-update-room-status', {
+          body: { roomId: room.id, status: 'clean', assignmentId: assignment?.id || undefined },
+        });
+        if (pmsError || response?.success === false) {
+          throw pmsError || new Error(response?.error || 'PMS rejected the clean status');
+        }
+        if (response?.skipped) toast.success(`Room ${room.room_number} marked clean in HotelCare`);
+        else toast.success(`Room ${room.room_number} marked clean and synced to PMS`);
+      } catch (syncError) {
+        console.error('Room clean saved, PMS sync failed', syncError);
+        toast.warning(`Room ${room.room_number} is clean in HotelCare, but PMS sync failed`);
+      }
+
+      setRoomSizeDialogOpen(false);
+      await fetchData();
+      return true;
+    } catch (error) {
+      console.error('Failed to mark room clean from Hotel Room Overview', error);
+      toast.error((error as Error)?.message || 'Failed to mark room clean');
+      return false;
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // Switch a room between the Checkout and Daily buckets. The manual decision
   // is persisted as a sticky override so the next PMS sync keeps it for today.
   const switchRoomType = async (room: RoomData, newIsCheckout: boolean) => {
@@ -1048,7 +1102,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       carryForward: portfolioCarry,
       isCheckout,
     });
-    const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
+    const canMarkReadyToClean = selectedDate === todayBudapest() && canOfferCheckoutRtc({
+      isCheckout,
+      assignmentType: assignment?.assignment_type,
+      assignmentStatus: assignment?.status,
+      readyToClean: assignment?.ready_to_clean,
+    });
     const slntChipMode = getSlntRoomChipMode({
       isSlntTenant,
       assignedTo: assignment?.assigned_to ?? null,
@@ -1313,12 +1372,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   disabled={actionLoading === `ready-${room.id}`}
                   onClick={async (e) => {
                     e.stopPropagation();
-                    if (isReception && isGozsduCourtHotel(hotelName)) {
-                      const confirmed = window.confirm(
-                        `Confirm the guest has physically checked out from room ${room.room_number}.\n\nThis will manually release the room to housekeeping as Ready to Clean (RTC). It will not change or fake the checkout status in Previo.`,
-                      );
-                      if (!confirmed) return;
-                    }
+                    if (!confirmReadyToCleanRelease(room, assignment)) return;
                     setActionLoading(`ready-${room.id}`);
                     try {
                       await releaseReadyToClean(room);
@@ -2631,7 +2685,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               const selectedCarryCopy = selectedCarry
                 ? getCarryForwardManagerCopy(selectedCarry)
                 : null;
-              const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
+              const canMarkReadyToClean = selectedDate === todayBudapest() && canOfferCheckoutRtc({
+      isCheckout,
+      assignmentType: assignment?.assignment_type,
+      assignmentStatus: assignment?.status,
+      readyToClean: assignment?.ready_to_clean,
+    });
               const roomStatus = selectedRoom.status;
               return (
                 <>
@@ -2674,24 +2733,21 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           variant="outline"
                           size="sm"
                           className="flex-1 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
-                          disabled={actionLoading === 'clean'}
+                          disabled={actionLoading === 'clean' || selectedDate !== todayBudapest()}
                           onClick={async () => {
-                            setActionLoading('clean');
-                            try {
-                              const { error } = await supabase
-                                .from('rooms')
-                                .update({ status: 'clean' } as any)
-                                .eq('id', selectedRoom.id);
-                              if (error) throw error;
-                              setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'clean' } : r));
-                              toast.success(`Room ${selectedRoom.room_number} marked as clean`);
-                              setRoomSizeDialogOpen(false);
-                              await fetchData();
-                            } catch (err) {
-                              toast.error('Failed to update room status');
-                            } finally {
-                              setActionLoading(null);
+                            if (shouldInterceptCheckoutMarkClean({
+                              isCheckout,
+                              assignmentType: assignment?.assignment_type,
+                              assignmentStatus: assignment?.status,
+                              readyToClean: assignment?.ready_to_clean,
+                            })) {
+                              setPendingCheckoutCleanDecision({
+                                roomId: selectedRoom.id,
+                                roomNumber: selectedRoom.room_number,
+                              });
+                              return;
                             }
+                            await markRoomCleanFromOverview(selectedRoom);
                           }}
                         >
                           {actionLoading === 'clean' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
@@ -2886,22 +2942,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         className="w-full justify-start gap-2"
                         disabled={actionLoading === 'ready' || (assignment?.ready_to_clean === true)}
                         onClick={async () => {
+                          if (!assignment || !confirmReadyToCleanRelease(selectedRoom, assignment)) return;
                           setActionLoading('ready');
                           try {
-                            if (assignment) {
-                              await releaseReadyToClean(selectedRoom);
-                            } else {
-                              const { error } = await supabase
-                                .from('rooms')
-                                .update({ status: 'ready_to_clean' } as any)
-                                .eq('id', selectedRoom.id);
-                              if (error) throw error;
-                            }
-                            toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
+                            await releaseReadyToClean(selectedRoom);
+                            toast.success(`Room ${selectedRoom.room_number} marked as Ready to Clean`);
                             setRoomSizeDialogOpen(false);
                             await fetchData();
                           } catch (err) {
-                            toast.error('Failed to mark room as ready');
+                            toast.error((err as Error)?.message || 'Failed to mark room as ready');
                           } finally {
                             setActionLoading(null);
                           }
@@ -3059,6 +3108,69 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!pendingCheckoutCleanDecision}
+        onOpenChange={(open) => { if (!open && actionLoading !== 'clean' && actionLoading !== 'rtc-decision') setPendingCheckoutCleanDecision(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Checkout room: Ready to Clean first?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Room {pendingCheckoutCleanDecision?.roomNumber ?? ''} is a checkout room and has not been released to housekeeping yet. If the guest has left but cleaning is still pending, choose Ready to Clean. Only choose Mark Clean if the room has already been physically cleaned.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:flex-row sm:justify-end">
+            <AlertDialogCancel disabled={actionLoading === 'clean' || actionLoading === 'rtc-decision'}>Cancel</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={actionLoading === 'clean' || actionLoading === 'rtc-decision'}
+              onClick={async () => {
+                if (!pendingCheckoutCleanDecision) return;
+                const target = rooms.find(room => room.id === pendingCheckoutCleanDecision.roomId);
+                if (!target) {
+                  toast.error('Room changed. Refresh and try again.');
+                  setPendingCheckoutCleanDecision(null);
+                  return;
+                }
+                const ok = await markRoomCleanFromOverview(target);
+                if (ok) setPendingCheckoutCleanDecision(null);
+              }}
+            >
+              Already Clean — Mark Clean
+            </Button>
+            <AlertDialogAction
+              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={actionLoading === 'clean' || actionLoading === 'rtc-decision'}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!pendingCheckoutCleanDecision) return;
+                const target = rooms.find(room => room.id === pendingCheckoutCleanDecision.roomId);
+                const targetAssignment = target ? assignmentMap.get(target.id) : undefined;
+                if (!target || !targetAssignment) {
+                  toast.error('Checkout assignment changed. Refresh and try again.');
+                  setPendingCheckoutCleanDecision(null);
+                  return;
+                }
+                setActionLoading('rtc-decision');
+                try {
+                  await releaseReadyToClean(target);
+                  toast.success(`Room ${target.room_number} is Ready to Clean`);
+                  setPendingCheckoutCleanDecision(null);
+                  await fetchData(true);
+                } catch (error) {
+                  toast.error((error as Error)?.message || 'Failed to release room as Ready to Clean');
+                } finally {
+                  setActionLoading(null);
+                }
+              }}
+            >
+              Ready to Clean
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!pendingUnassign} onOpenChange={(o) => { if (!o) setPendingUnassign(null); }}>
         <AlertDialogContent>
