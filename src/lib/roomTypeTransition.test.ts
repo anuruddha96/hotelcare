@@ -8,11 +8,19 @@ const input = {
 };
 
 describe('confirmed manual room type changes', () => {
-  it('marks checkout-to-daily as a possible extension without touching the reservation', () => {
+  it('marks checkout-to-daily as a confirmed stay and preserves service history without touching the reservation', () => {
     const result = buildRoomTypeTransition({
       ...input, target: 'daily', metadata: {
         scheduledDepartureToday: true, checkedOutToday: true, departureTime: '10:00',
         reservationId: 'previo-booking-123', currentNight: 4,
+      },
+      serviceSnapshot: {
+        reservationId: 'previo-booking-123',
+        guestNightsStayed: 4,
+        currentNight: 4,
+        totalNights: 4,
+        towelChangeRequired: true,
+        linenChangeRequired: false,
       },
     });
     expect(result.metadata.manual_daily).toBe(true);
@@ -20,7 +28,11 @@ describe('confirmed manual room type changes', () => {
     expect(result.metadata.scheduledDepartureToday).toBe(false);
     expect(result.metadata.checkedOutToday).toBe(false);
     expect(result.metadata.reservationId).toBe('previo-booking-123');
-    expect(result.note).toContain('Possible stay extension');
+    expect(result.note).toContain('Guest staying — Daily service');
+    expect(result.note).toContain('Towel Change + Daily Cleaning');
+    expect(result.note).not.toContain('verify');
+    expect((result.metadata.extensionServiceSnapshot as any).guestNightsStayed).toBe(4);
+    expect((result.metadata.extensionServiceSnapshot as any).reservationId).toBe('previo-booking-123');
     expect(result.note).toContain('Keep extra pillows');
     expect(result.notice.from).toBe('checkout');
     expect(result.notice.to).toBe('daily');
@@ -66,5 +78,30 @@ describe('confirmed manual room type changes', () => {
     expect(readGozsduRoomOverride(result.metadata, input.date)?.service).toBe('change_room');
     const ordinary = buildRoomTypeTransition({ ...input, target: 'daily', metadata: {} });
     expect(ordinary.metadata[GOZSDU_ROOM_OVERRIDE_KEY]).toBeUndefined();
+  });
+});
+
+
+describe('extension service instructions', () => {
+  it('prioritizes a full room change when historical service state says linen is due', () => {
+    const result = buildRoomTypeTransition({
+      ...input, target: 'daily', metadata: { currentNight: 10, totalNights: 10 },
+      serviceSnapshot: {
+        guestNightsStayed: 10, currentNight: 10, totalNights: 10,
+        towelChangeRequired: true, linenChangeRequired: true,
+      },
+    });
+    expect(result.notice.serviceLabel).toBe('Full Room Change');
+    expect(result.notice.nightsStayed).toBe(10);
+    expect(result.note).toContain('Required today: Full Room Change');
+  });
+
+  it('does not invent a towel or full-room service when neither historical flag is due', () => {
+    const result = buildRoomTypeTransition({
+      ...input, target: 'daily', metadata: {},
+      serviceSnapshot: { guestNightsStayed: 2, towelChangeRequired: false, linenChangeRequired: false },
+    });
+    expect(result.notice.serviceLabel).toBe('Normal Daily Cleaning');
+    expect(result.note).toContain('Stay so far: 2 nights');
   });
 });
