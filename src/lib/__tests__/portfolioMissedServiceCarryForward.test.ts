@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const migration = readFileSync(
-  'supabase/migrations/20260925180000_portfolio_missed_service_carry_forward.sql',
+  'supabase/migrations/20261007100000_restore_housekeeping_missed_service_carry_forward.sql',
   'utf8',
 );
 const card = readFileSync('src/components/dashboard/AssignedRoomCardLegacy.tsx', 'utf8');
@@ -36,10 +36,11 @@ describe('portfolio missed-service carry-forward contract', () => {
     expect(materialize).not.toContain('linen_change_required =');
   });
 
-  it('shows the instruction to housekeepers and managers', () => {
-    expect(card).toContain('Carried service from yesterday');
+  it('shows short action-first copy to housekeepers and lineage to managers', () => {
+    expect(card).toContain('getCarryForwardHousekeeperCopy');
     expect(card).toContain('setTranslatedCarryNote');
-    expect(overview).toContain('Carried service from yesterday');
+    expect(overview).toContain('Carried housekeeping task');
+    expect(overview).toContain('getCarryForwardManagerCopy');
     expect(overview).toContain('effectiveCarryServiceFlags');
   });
 });
