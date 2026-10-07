@@ -112,7 +112,9 @@ const sourceHost = (value: string | null | undefined): string => {
 
 const eventTitleKey = (value: string): string =>
   value
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    .replace(/['’]s\b/g, "")
     .replace(/\b(?:19|20)\d{2}\b/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
