@@ -905,7 +905,7 @@ Deno.serve(async (req) => {
             stay_date: d.stay_date,
             old_rate_eur: d.old_price,
             new_rate_eur: d.new_price,
-            source: isEngine ? "pickup_automation" : "manual_push",
+            source: isEngine ? "autopilot" : "manual",
             notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo · pushed by ${pusherLabel}`,
           })));
         return { pushedIds: successfulIds, failedIds: [], errors: [] };
