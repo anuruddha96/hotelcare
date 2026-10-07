@@ -31,6 +31,51 @@ export function clean(v: unknown, max: number): string {
 
 export const isDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ""));
 
+export function eventIdentityTitle(value: unknown): string {
+  let normalized = clean(value, 300)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/['’]s\b/g, "")
+    .replace(/\b(?:19|20)\d{2}\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+(?:concert|event|performances?)$/, "")
+    .trim();
+  if (normalized === "labor day") normalized = "labour day";
+  return normalized;
+}
+
+const LOW_TRUST_SOURCE_HOSTS = new Set([
+  "10times.com",
+  "www.10times.com",
+  "tripsapien.com",
+  "www.tripsapien.com",
+  "wikipedia.org",
+  "en.wikipedia.org",
+  "de.wikipedia.org",
+  "festivalfinder.eu",
+  "www.festivalfinder.eu",
+  "europaticket.com",
+  "www.europaticket.com",
+  "ticket-budapest.com",
+  "www.ticket-budapest.com",
+  "carnifest.com",
+  "www.carnifest.com",
+  "budapestopera-tickets.com",
+  "www.budapestopera-tickets.com",
+]);
+
+export function isLowTrustEventSource(value: unknown): boolean {
+  const normalized = normalizeSourceUrl(value);
+  if (!normalized) return true;
+  try {
+    const host = new URL(normalized).hostname.toLowerCase();
+    return LOW_TRUST_SOURCE_HOSTS.has(host);
+  } catch {
+    return true;
+  }
+}
+
 /** Only real, navigable web URLs may become demand-event sources. */
 export function normalizeSourceUrl(value: unknown): string | null {
   const raw = clean(value, 500);
@@ -81,8 +126,11 @@ const instructions = [
   "Report the exact published dates. Never estimate, never round a festival to a full week, and never rely on memory.",
   "Include the full range of demand drivers: arena and club concerts, festivals, sport fixtures and races, congresses, trade fairs and exhibitions, public holidays, school holidays, and smaller published local events that still fill hotels.",
   "Every event must include the exact source URL you actually opened in web search and used to verify its dates. Never invent, reconstruct, shorten, or guess a URL. If you cannot provide that exact source URL, leave the event out.",
-  "For high-impact events, cross-check the exact dates against an official organizer, venue, governing body, or official ticket/calendar page whenever one exists. If sources conflict, use the official source and do not guess.",
-  "Only include events that take place, at least partly, inside the requested month and city.",
+  "The final source MUST be an official organiser, official venue, governing body, government/public authority, or official tourism-board page. Aggregators, Wikipedia, generic event directories, travel blogs and ticket resellers may be used only to discover the official page and must never be returned as the final source.",
+  "Verify the physical event location. Do not report an event merely because a search result mentions the requested city. Return the actual venue city and country from the source.",
+  "An event outside the requested city may be included only when it is in the same country, within roughly 50 km of the requested market, and clearly drives hotel demand in that market (for example Formula 1 at a nearby circuit). Otherwise omit it.",
+  "For high-impact events, cross-check the exact dates against the official organizer, venue or governing body. If sources conflict, omit the event rather than guessing.",
+  "Only include events that take place, at least partly, inside the requested month and requested hotel market.",
 ].join(" ");
 
 const schema = {
@@ -103,9 +151,14 @@ const schema = {
           expected_impact: { type: "string", enum: ["low", "medium", "high"] },
           recurs_annually: { type: "boolean" },
           source_url: { type: "string" },
+          source_type: { type: "string", enum: ["official_organizer", "official_venue", "governing_body", "government", "tourism_board"] },
+          venue_city: { type: "string" },
+          venue_country: { type: "string" },
+          market_relevant: { type: "boolean" },
+          distance_from_market_km: { type: ["number", "null"] },
           confidence: { type: "number" },
         },
-        required: ["date", "end_date", "title", "category", "venue", "expected_impact", "recurs_annually", "source_url", "confidence"],
+        required: ["date", "end_date", "title", "category", "venue", "expected_impact", "recurs_annually", "source_url", "source_type", "venue_city", "venue_country", "market_relevant", "distance_from_market_km", "confidence"],
       },
     },
   },
@@ -153,17 +206,20 @@ export async function searchEvents(opts: {
   }>;
 
   /** Same event when the titles match and the date ranges touch (or it recurs in the same month/day). */
-  const isKnown = (title: string, from: string, to: string | null) => {
-    const key = normTitle(title);
+  const isKnown = (title: string, from: string, to: string | null, sourceUrl?: string | null) => {
+    const key = eventIdentityTitle(title);
+    const normalizedSource = normalizeSourceUrl(sourceUrl);
     const a1 = from, a2 = to ?? from;
     return known.some((k) => {
       // Legacy rows without a source are deliberately not treated as known.
       // A fresh verified search must be allowed to repair/replace them.
       if (!k.approved || !normalizeSourceUrl(k.url)) return false;
-      if (normTitle(k.title) !== key) return false;
-      if (k.recurs_annually) return k.event_date.slice(5, 7) === from.slice(5, 7);
+      if (k.recurs_annually && k.event_date.slice(5, 7) !== from.slice(5, 7)) return false;
       const b1 = k.event_date, b2 = k.end_date ?? k.event_date;
-      return a1 <= b2 && b1 <= a2;
+      const overlaps = a1 <= b2 && b1 <= a2;
+      if (!overlaps) return false;
+      if (eventIdentityTitle(k.title) === key) return true;
+      return normalizedSource !== null && normalizeSourceUrl(k.url) === normalizedSource;
     });
   };
 
@@ -172,8 +228,10 @@ export async function searchEvents(opts: {
     `For each event give: date (YYYY-MM-DD first day), end_date (YYYY-MM-DD, only for multi-day events), title, ` +
     `category (concert, festival, sports, conference, fair, holiday, other), venue, expected_impact on hotel demand ` +
     `(low, medium, high), whether it takes place on the same dates every year, the source_url you verified the dates on, ` +
-    `and a confidence between 0 and 1. Be thorough, but return at most 25 of the strongest verified demand drivers. ` +
-    `Keep titles and venue names concise and use one direct source URL per event.`;
+    `source_type (official_organizer, official_venue, governing_body, government, tourism_board), actual venue_city, actual venue_country, ` +
+    `whether the event is relevant to the requested hotel market, approximate distance_from_market_km (0 when inside the city), ` +
+    `and a confidence between 0 and 1. Be conservative: omit anything whose date, location or official source cannot be verified. ` +
+    `Return at most 25 of the strongest verified demand drivers. Keep titles and venue names concise and use one direct official source URL per event.`;
 
   // deno-lint-ignore no-explicit-any
   const askOpenAI = async (compactRetry = false): Promise<{ events: any[]; error?: string; retryable?: boolean }> => {
@@ -246,8 +304,9 @@ export async function searchEvents(opts: {
   }
   if (!events.length && aiError) return { all: [], candidates: [], duplicates: [], error: aiError };
 
-  const seen = new Set<string>();
-  const all: EventCandidate[] = events
+  const seenIdentity = new Set<string>();
+  const seenSource = new Set<string>();
+  const verified = events
     // deno-lint-ignore no-explicit-any
     .filter((e: any) => e?.title && isDate(e?.date))
     // deno-lint-ignore no-explicit-any
@@ -255,6 +314,17 @@ export async function searchEvents(opts: {
       const event_date = String(e.date);
       const end_date = isDate(e.end_date) && String(e.end_date) >= event_date ? String(e.end_date) : null;
       const url = normalizeSourceUrl(e.source_url);
+      const sourceType = String(e.source_type ?? "");
+      const venueCity = clean(e.venue_city, 120);
+      const venueCountry = clean(e.venue_country, 120);
+      const distanceKm = Number.isFinite(Number(e.distance_from_market_km)) ? Number(e.distance_from_market_km) : null;
+      const sameCity = venueCity.toLowerCase() === city.trim().toLowerCase();
+      const sameCountry = venueCountry.toLowerCase() === country.trim().toLowerCase();
+      const officialSource = ["official_organizer", "official_venue", "governing_body", "government", "tourism_board"].includes(sourceType);
+      const locationAccepted = sameCountry && (
+        sameCity
+        || (e.market_relevant === true && distanceKm !== null && distanceKm >= 0 && distanceKm <= 50)
+      );
       return {
         event_date,
         end_date,
@@ -267,19 +337,30 @@ export async function searchEvents(opts: {
         confidence: Number.isFinite(Number(e.confidence)) ? Number(e.confidence) : null,
         city,
         country,
-      } as EventCandidate;
+        _verified_source: officialSource && !isLowTrustEventSource(url),
+        _verified_location: locationAccepted,
+      } as EventCandidate & { _verified_source: boolean; _verified_location: boolean };
     })
     .filter((c) => c.title.length > 1 && c.event_date >= monthStart && c.event_date <= monthEnd)
-    // No source means no event. This is deliberately strict because these
-    // rows feed pricing decisions and must always be auditable by a manager.
-    .filter((c) => c.url !== null)
-    .filter((c) => {
-      const key = `${normTitle(c.title)}|${c.event_date}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+    // No official source or verified market location means no live event.
+    // This deliberately favors a smaller, trustworthy pricing calendar.
+    .filter((candidate) =>
+      candidate.url !== null
+      && candidate._verified_source === true
+      && candidate._verified_location === true
+      && (candidate.confidence ?? 0) >= 0.8
+    )
+    .filter((candidate) => {
+      const identityKey = `${eventIdentityTitle(candidate.title)}|${candidate.event_date}|${candidate.end_date ?? candidate.event_date}`;
+      const sourceKey = `${normalizeSourceUrl(candidate.url) ?? ""}|${candidate.event_date}|${candidate.end_date ?? candidate.event_date}`;
+      if (seenIdentity.has(identityKey) || seenSource.has(sourceKey)) return false;
+      seenIdentity.add(identityKey);
+      seenSource.add(sourceKey);
       return true;
     })
     .sort((a, b) => a.event_date.localeCompare(b.event_date));
+
+  const all: EventCandidate[] = verified.map(({ _verified_source, _verified_location, ...candidate }) => candidate);
 
   // Cache the raw suggestions so repeated searches are cheap to audit.
   for (const c of all) {
@@ -299,7 +380,7 @@ export async function searchEvents(opts: {
 
   return {
     all,
-    duplicates: all.filter((c) => isKnown(c.title, c.event_date, c.end_date)),
-    candidates: all.filter((c) => !isKnown(c.title, c.event_date, c.end_date)),
+    duplicates: all.filter((c) => isKnown(c.title, c.event_date, c.end_date, c.url)),
+    candidates: all.filter((c) => !isKnown(c.title, c.event_date, c.end_date, c.url)),
   };
 }
