@@ -36,9 +36,25 @@ export function getSlntRosterNotice(
   if (publishedCount === 0) {
     return {
       kind: 'missing',
-      message: `No published housekeeping shifts were found for ${selectedDate} at this SLNT property. Open Staff schedule, add the shifts and venues, then publish the roster before assigning rooms.`,
+      message: `No published housekeeping shifts were found for ${selectedDate} at this SLNT property. You can still assign rooms manually; Staff schedule is optional for today's manual allocation.`,
       action: 'schedule',
     };
   }
   return null;
+}
+
+/**
+ * A successfully verified empty SLNT roster is informational, not a blocker.
+ * Manual room assignment must remain available even when no shifts are published.
+ * Setup, permission and connection failures still block because roster state is unknown.
+ */
+export function slntRosterBlocksManualAssignment(notice: SlntRosterNotice | null): boolean {
+  return !!notice && notice.kind !== 'missing';
+}
+
+export function slntRosterAllowsManualAssignment(
+  rosterVerified: boolean,
+  notice: SlntRosterNotice | null,
+): boolean {
+  return rosterVerified && !slntRosterBlocksManualAssignment(notice);
 }

@@ -36,7 +36,7 @@ import { venueEdgeStyle } from '@/lib/venueColors';
 import { addDays } from 'date-fns';
 import { todayBudapest, rollForwardSelectedBusinessDate } from '@/lib/budapestTime';
 import { useVenues } from '@/hooks/useVenues';
-import { getSlntRosterNotice, type SlntRosterNotice } from '@/lib/slntRosterNotice';
+import { getSlntRosterNotice, slntRosterAllowsManualAssignment, type SlntRosterNotice } from '@/lib/slntRosterNotice';
 import {
   initStagedScope,
   stageMove,
@@ -183,7 +183,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [slntRosterNotice, setSlntRosterNotice] = useState<SlntRosterNotice | null>(null);
   const [slntVerifiedKey, setSlntVerifiedKey] = useState<string | null>(null);
   const scheduleRequestId = useRef(0);
-  const slntRosterReady = !isSlntTenant || (slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}` && !slntRosterNotice);
+  const slntRosterReady = !isSlntTenant || slntRosterAllowsManualAssignment(slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}`, slntRosterNotice);
   const openSlntStaffSchedule = () => {
     if (!profile?.assigned_hotel) return;
     window.dispatchEvent(new CustomEvent('hotelcare:open-slnt-staff-schedule', {
@@ -233,7 +233,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       toast.error(slntRosterNotice?.message ?? 'Checking the published SLNT roster. Please wait.');
       return;
     }
-    if (staff && venuesEnabled) {
+    if (staff && venuesEnabled && slntRosterNotice?.kind !== 'missing') {
       const shift = staffSchedules[staff.id];
       const allowedVenues = new Set(shift?.staff_schedule_venues?.map((row) => row.venue_id) ?? []);
       const selectedVenueIds = selectedUnits.map((unit) => roomAssignments.find((room) => room.room_id === unit.roomId)?.venue_id).filter(Boolean) as string[];
@@ -782,7 +782,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         }
         setStaffSchedules(published);
         setSlntRosterNotice(getSlntRosterNotice(rows.length, selectedDate));
-        setSlntVerifiedKey(rows.length > 0 ? `${profile.assigned_hotel}|${selectedDate}` : null);
+        // A successful RPC verifies the roster state even when it is empty.
+        // Empty is a valid SLNT operating mode: manual room assignment stays available.
+        setSlntVerifiedKey(`${profile.assigned_hotel}|${selectedDate}`);
       } catch (cause) {
         if (requestId !== scheduleRequestId.current) return;
         console.error('[SLNT HK roster] failed verification', cause);
@@ -911,15 +913,18 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       <TabsContent value="team" className="space-y-6" data-training="team-view">
-      {isSlntTenant && slntRosterNotice?.kind === 'error' && (
-        <div role="alert" className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${slntRosterNotice.kind === 'missing' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-destructive/60 bg-destructive/5 text-destructive'}`}>
+      {isSlntTenant && slntRosterNotice && (
+        <div
+          role={slntRosterNotice.kind === 'missing' ? 'status' : 'alert'}
+          className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${slntRosterNotice.kind === 'missing' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-destructive/60 bg-destructive/5 text-destructive'}`}
+        >
           <p className="flex-1 min-w-52">{slntRosterNotice.message}</p>
           <div className="flex flex-wrap gap-2">
             {slntRosterNotice.action === 'schedule' && (
-              <Button size="sm" onClick={openSlntStaffSchedule}>Open Staff schedule</Button>
+              <Button size="sm" variant="outline" onClick={openSlntStaffSchedule}>Open Staff schedule</Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => void fetchStaffSchedules()}>
-              {slntRosterNotice.action === 'schedule' ? 'Check roster again' : 'Retry roster'}
+            <Button variant="ghost" size="sm" onClick={() => void fetchStaffSchedules()}>
+              {slntRosterNotice.action === 'schedule' ? 'Check roster' : 'Retry roster'}
             </Button>
           </div>
         </div>
