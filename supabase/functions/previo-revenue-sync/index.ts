@@ -205,6 +205,26 @@ interface Night {
   stay_to: string;
 }
 
+/**
+ * Gozsdu (and potentially other Previo properties) can expose source-less,
+ * multi-year reservation records used to hold apartment inventory. They are
+ * valid on-the-books inventory signals, but they are not a one-day commercial
+ * sale and must not create hundreds of pickup room-nights when first seen.
+ *
+ * A source/channel always wins, and normal source-less direct bookings are
+ * preserved. Only source-less stays longer than a full leap year are excluded
+ * from sales-created and pickup movement KPIs.
+ */
+const MAX_SOURCELESS_SALES_PICKUP_STAY_NIGHTS = 366;
+
+function countsTowardRevenueSalesPickup(
+  row: Pick<Night, "stay_from" | "stay_to" | "source_name">,
+): boolean {
+  if (row.source_name?.trim()) return true;
+  const span = daysBetween(row.stay_from, row.stay_to);
+  return !Number.isFinite(span) || span <= MAX_SOURCELESS_SALES_PICKUP_STAY_NIGHTS;
+}
+
 
 /**
  * Pull the ISO 4217 code out of whatever Previo returned ("9 HUF", "<code>EUR</code>", "eur").
@@ -1589,6 +1609,20 @@ serve(async (req) => {
   // far-future cancelled rows that nothing would ever clean up.
   const cancelledNights = allNights.filter((n) => !!n.cancelled_at && n.stay_date <= to);
 
+  // Inventory-hold reservations remain in the on-the-books dataset so
+  // occupancy/revenue behavior is unchanged, but they must not enter
+  // booking-created sales or pickup movement math.
+  const salesPickupNights = nights.filter(countsTowardRevenueSalesPickup);
+  const salesPickupCancelledNights = cancelledNights.filter(countsTowardRevenueSalesPickup);
+  const suppressedPickupReservationIds = new Set(
+    nights.filter((n) => !countsTowardRevenueSalesPickup(n)).map((n) => n.res_id),
+  );
+  if (suppressedPickupReservationIds.size > 0) {
+    softNotes.push(
+      `sales/pickup excluded ${suppressedPickupReservationIds.size} source-less multi-year inventory hold reservation(s)`,
+    );
+  }
+
   // Room-nights that vanished since the previous sync. Previo's cancelled-status
   // filter is unreliable per property, so a disappearance is our primary signal
   // that a night was lost (cancellation, shortened stay, moved dates).
@@ -1610,8 +1644,8 @@ serve(async (req) => {
       }
       return counts;
     };
-    const presentCounts = countByStayKey(nights);
-    const cancelledCounts = countByStayKey(cancelledNights);
+    const presentCounts = countByStayKey(salesPickupNights);
+    const cancelledCounts = countByStayKey(salesPickupCancelledNights);
     const previousByStayKey = new Map<string, any[]>();
     // A partial read of the previous book makes every unread reservation look
     // brand new — that is how a large property printed +40 pickup on dates that
@@ -1642,6 +1676,7 @@ serve(async (req) => {
         }
         if (!prevRows?.length) break;
         for (const row of prevRows) {
+          if (!countsTowardRevenueSalesPickup(row as Pick<Night, "stay_from" | "stay_to" | "source_name">)) continue;
           const key = stayKeyOf(row as any);
           const rows = previousByStayKey.get(key) ?? [];
           rows.push(row);
@@ -1857,7 +1892,11 @@ serve(async (req) => {
     slot.revenue += n.nightly_price_eur ?? 0;
     // Stored as UTC; a booking made at 01:00 Budapest is still "yesterday" in
     // UTC, so compare Budapest calendar days or early-morning pickup is lost.
-    if (n.created_at_pms && budapestDayOf(n.created_at_pms) === today) slot.created += 1;
+    if (
+      n.created_at_pms
+      && budapestDayOf(n.created_at_pms) === today
+      && countsTowardRevenueSalesPickup(n)
+    ) slot.created += 1;
   }
   const capturedAt = new Date().toISOString();
   const snapshots = Array.from(perDate.entries()).map(([stayDate, v]) => ({
@@ -1915,6 +1954,7 @@ serve(async (req) => {
     requeuedCells,
     divergentDrafts,
     bookingNights: nights.length,
+    salesPickupExcludedReservations: suppressedPickupReservationIds.size,
     availabilityRows: availabilityRowsStored,
     // Loss instrumentation: how many room-nights Previo reported as cancelled
     // and how many simply vanished between two syncs. Without these counters a

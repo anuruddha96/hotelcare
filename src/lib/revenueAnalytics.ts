@@ -31,6 +31,32 @@ export function daysBetween(a: string, b: string): number {
 }
 
 /**
+ * Previo can expose source-less multi-year reservation records that are used as
+ * apartment inventory holds rather than a normal hotel sale. They still belong
+ * in the on-the-books inventory picture, but treating the whole multi-year span
+ * as a booking created today makes sales and pickup explode by hundreds of
+ * room-nights in one sync.
+ *
+ * Keep normal direct bookings (which may also have no source) and every
+ * channel-attributed booking. Only suppress source-less stays longer than a
+ * full leap year from booking-created/pickup KPIs.
+ */
+export const MAX_SOURCELESS_SALES_PICKUP_STAY_NIGHTS = 366;
+
+export function countsTowardRevenueSalesPickup(row: {
+  stay_from?: string | null;
+  stay_to?: string | null;
+  source_name?: string | null;
+}): boolean {
+  if (row.source_name?.trim()) return true;
+  const from = row.stay_from?.slice(0, 10);
+  const to = row.stay_to?.slice(0, 10);
+  if (!from || !to) return true;
+  const span = daysBetween(from, to);
+  return !Number.isFinite(span) || span <= MAX_SOURCELESS_SALES_PICKUP_STAY_NIGHTS;
+}
+
+/**
  * The pickup window the automation engine itself uses: a ROLLING 48 hours, not
  * a Budapest calendar day. Encoded as a negative number of hours so the single
  * `pickupWindowDays` value can carry either mode without a second prop.
@@ -271,7 +297,7 @@ export function buildDayMetrics(params: {
     if ((n.nightly_price_eur ?? 0) > 0) {
       pricedRooms.set(n.stay_date, (pricedRooms.get(n.stay_date) ?? 0) + 1);
     }
-    if (n.created_at_pms) {
+    if (n.created_at_pms && countsTowardRevenueSalesPickup(n)) {
       if (inWindow(n.created_at_pms)) {
 
         const set = createdRes.get(n.stay_date) ?? new Set<string>();

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChevronLeft, ChevronRight, BedDouble, Coins, Gauge, DoorOpen, TrendingUp, TrendingDown, Info, CalendarPlus } from "lucide-react";
-import { budapestDayOf, formatMonth, pickupWindowLabel, pickupWindowStartMs, PICKUP_WINDOW_48H, type BookingNight, type CancelledNight, type DayMetrics } from "@/lib/revenueAnalytics";
+import { budapestDayOf, countsTowardRevenueSalesPickup, formatMonth, pickupWindowLabel, pickupWindowStartMs, PICKUP_WINDOW_48H, type BookingNight, type CancelledNight, type DayMetrics } from "@/lib/revenueAnalytics";
 import { money, eurEquivalent, setRevenueCurrency, setDisplayCurrency, currencySymbol, useRevenueCurrency, isForeignCurrency } from "@/lib/revenueCurrency";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -144,10 +144,11 @@ export default function MonthPerformanceHeader({
     const revenue = rows.reduce((s, m) => s + m.revenueEur, 0);
     const left = rows.reduce((s, m) => s + m.roomsLeft, 0);
     const pickup = rows.reduce((s, m) => s + (m.netPickup ?? 0), 0);
-    // Movement behind the net figure: reservations that came in and rooms lost
-    // inside the selected booking window.
-    const gained = rows.reduce((s, m) => s + (m.newBookings ?? 0), 0);
-    const lost = rows.reduce((s, m) => s + (m.roomsLost ?? 0), 0);
+    // Keep the breakdown on the exact same durable movement source as net
+    // pickup. Mixing creation timestamps with sync-diff net movement made the
+    // subtitle fail its own arithmetic (for example +39 beside 74 in / 36 out).
+    const gained = rows.reduce((s, m) => s + (m.pickupGained ?? 0), 0);
+    const lost = rows.reduce((s, m) => s + (m.pickupLost ?? 0), 0);
     const datesUp = rows.filter((m) => (m.netPickup ?? 0) > 0).length;
     const datesDown = rows.filter((m) => (m.netPickup ?? 0) < 0).length;
     return {
@@ -193,7 +194,7 @@ export default function MonthPerformanceHeader({
     let todayUnpricedNights = 0;
     const todayRes = new Set<string>();
     for (const n of nights) {
-      if (!n.created_at_pms) continue;
+      if (!n.created_at_pms || !countsTowardRevenueSalesPickup(n)) continue;
       if (budapestDayOf(n.created_at_pms) === today) {
         todayRoomNights += 1;
         todayRevenue += n.nightly_price_eur ?? 0;
@@ -211,6 +212,7 @@ export default function MonthPerformanceHeader({
     const todayCancelledRes = new Set<string>();
     let todayCancelledNights = 0;
     for (const c of cancellations) {
+      if (!countsTowardRevenueSalesPickup(c)) continue;
       if (c.cancelled_at && budapestDayOf(c.cancelled_at) === today) {
         todayCancelledNights += 1;
         todayCancelledRes.add(c.res_id);
@@ -548,7 +550,7 @@ export default function MonthPerformanceHeader({
             tone={agg.pickup < 0 ? "text-destructive" : agg.pickup > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}
             explain={{
               title: "Pickup in window",
-              body: `For stay dates in ${monthLabel}, counting only movement during "${windowLabel(pickupWindowDays)}":\n\n• ${agg.gained} reservation${agg.gained === 1 ? "" : "s"} came in\n• ${agg.lost} room-night${agg.lost === 1 ? "" : "s"} were lost (cancellations or no-shows)\n• net ${agg.pickup > 0 ? "+" : ""}${agg.pickup}\n• ${agg.datesUp} date${agg.datesUp === 1 ? "" : "s"} up · ${agg.datesDown} down\n\nChange the window with the selector above.`,
+              body: `For stay dates in ${monthLabel}, counting only movement during "${windowLabel(pickupWindowDays)}":\n\n• ${agg.gained} room-night${agg.gained === 1 ? "" : "s"} came in\n• ${agg.lost} room-night${agg.lost === 1 ? "" : "s"} were lost (cancellations or no-shows)\n• net ${agg.pickup > 0 ? "+" : ""}${agg.pickup}\n• ${agg.datesUp} date${agg.datesUp === 1 ? "" : "s"} up · ${agg.datesDown} down\n\nChange the window with the selector above.`,
             }}
           />
 
