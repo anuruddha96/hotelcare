@@ -304,8 +304,9 @@ export async function searchEvents(opts: {
   }
   if (!events.length && aiError) return { all: [], candidates: [], duplicates: [], error: aiError };
 
-  const seen = new Set<string>();
-  const all: EventCandidate[] = events
+  const seenIdentity = new Set<string>();
+  const seenSource = new Set<string>();
+  const verified = events
     // deno-lint-ignore no-explicit-any
     .filter((e: any) => e?.title && isDate(e?.date))
     // deno-lint-ignore no-explicit-any
@@ -343,16 +344,23 @@ export async function searchEvents(opts: {
     .filter((c) => c.title.length > 1 && c.event_date >= monthStart && c.event_date <= monthEnd)
     // No official source or verified market location means no live event.
     // This deliberately favors a smaller, trustworthy pricing calendar.
-    .filter((c: EventCandidate & { _verified_source?: boolean; _verified_location?: boolean }) =>
-      c.url !== null && c._verified_source === true && c._verified_location === true && (c.confidence ?? 0) >= 0.8
+    .filter((candidate) =>
+      candidate.url !== null
+      && candidate._verified_source === true
+      && candidate._verified_location === true
+      && (candidate.confidence ?? 0) >= 0.8
     )
-    .filter((c) => {
-      const key = `${eventIdentityTitle(c.title)}|${c.event_date}|${c.end_date ?? c.event_date}|${normalizeSourceUrl(c.url) ?? ""}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+    .filter((candidate) => {
+      const identityKey = `${eventIdentityTitle(candidate.title)}|${candidate.event_date}|${candidate.end_date ?? candidate.event_date}`;
+      const sourceKey = `${normalizeSourceUrl(candidate.url) ?? ""}|${candidate.event_date}|${candidate.end_date ?? candidate.event_date}`;
+      if (seenIdentity.has(identityKey) || seenSource.has(sourceKey)) return false;
+      seenIdentity.add(identityKey);
+      seenSource.add(sourceKey);
       return true;
     })
     .sort((a, b) => a.event_date.localeCompare(b.event_date));
+
+  const all: EventCandidate[] = verified.map(({ _verified_source, _verified_location, ...candidate }) => candidate);
 
   // Cache the raw suggestions so repeated searches are cheap to audit.
   for (const c of all) {
