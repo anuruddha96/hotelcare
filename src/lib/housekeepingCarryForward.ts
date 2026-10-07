@@ -116,3 +116,82 @@ export function effectiveCarryServiceFlags(input: {
 
   return { towelChangeRequired, linenChangeRequired };
 }
+
+
+export type CarryForwardDisplayInput = {
+  serviceType: CarryForwardServiceType;
+  reason: CarryForwardReason;
+  sourceBusinessDate: string;
+  originalDueDate?: string | null;
+  attemptCount?: number | null;
+  propertyId?: string | null;
+};
+
+export type CarryForwardHousekeeperCopy = {
+  action: string;
+  reason: string;
+  message: string;
+  icon: '🧺' | '🧹';
+};
+
+export type CarryForwardManagerCopy = {
+  action: string;
+  summary: string;
+  detail: string | null;
+  reasonLabel: 'DND' | 'No Service';
+};
+
+function carryForwardAction(input: CarryForwardDisplayInput): string {
+  if (input.serviceType === 'towel_change') return 'Towel change today';
+  if (input.propertyId === 'gozsdu-court') return 'Complete textile change today';
+  return 'Full room clean today';
+}
+
+/**
+ * Housekeeper copy is deliberately short and action-first. The backend keeps
+ * the full lineage/audit instruction; operational cards should not expose that
+ * technical history as the task itself.
+ */
+export function getCarryForwardHousekeeperCopy(
+  input: CarryForwardDisplayInput,
+): CarryForwardHousekeeperCopy {
+  const action = carryForwardAction(input);
+  const reasonLabel = input.reason === 'dnd' ? 'DND' : 'No Service';
+  const reason = `Missed yesterday — ${reasonLabel}`;
+  return {
+    action,
+    reason,
+    message: `${action}. ${reason}.`,
+    icon: input.serviceType === 'towel_change' ? '🧺' : '🧹',
+  };
+}
+
+/**
+ * Managers get the same clear action plus dated lineage. This is intentionally
+ * human-readable rather than exposing previous_day_context or other backend
+ * implementation details.
+ */
+export function getCarryForwardManagerCopy(
+  input: CarryForwardDisplayInput,
+): CarryForwardManagerCopy {
+  const action = carryForwardAction(input);
+  const reasonLabel = input.reason === 'dnd' ? 'DND' : 'No Service';
+  const originalDueDate = input.originalDueDate || input.sourceBusinessDate;
+  const attemptCount = Number.isInteger(input.attemptCount) && Number(input.attemptCount) > 0
+    ? Number(input.attemptCount)
+    : 1;
+  const serviceLabel = input.serviceType === 'towel_change'
+    ? 'Towel change'
+    : input.propertyId === 'gozsdu-court'
+      ? 'Complete textile change'
+      : 'Full room clean';
+
+  return {
+    action,
+    reasonLabel,
+    summary: `${serviceLabel} carried from ${input.sourceBusinessDate} · ${reasonLabel}`,
+    detail: attemptCount > 1
+      ? `Originally due ${originalDueDate} · attempt ${attemptCount}`
+      : `Originally due ${originalDueDate}`,
+  };
+}
