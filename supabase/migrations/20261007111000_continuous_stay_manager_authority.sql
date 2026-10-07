@@ -7,6 +7,42 @@
 --    date, mark the existing stay-extension review identity as verified so the
 --    manager is not asked to "confirm with reception" again.
 
+-- Scope guard: continuous-stay authority belongs only to Previo-connected
+-- properties. This includes portfolio tenants such as SLNT that use active
+-- Previo PMS accounts, while future/non-Previo PMS integrations remain untouched.
+CREATE OR REPLACE FUNCTION public.hc_hotel_uses_previo(_hotel text, _meta jsonb DEFAULT '{}'::jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+BEGIN
+  IF lower(coalesce(_meta ->> 'pmsProvider', '')) = 'previo'
+     OR _meta ? 'pms_hotel_id'
+     OR _meta ? 'pms_account_id'
+  THEN
+    RETURN true;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1
+    FROM public.pms_configurations pc
+    LEFT JOIN public.hotel_configurations hc ON hc.hotel_id = pc.hotel_id
+    WHERE lower(coalesce(pc.pms_type, '')) = 'previo'
+      AND (pc.hotel_id = _hotel OR hc.hotel_name = _hotel)
+  ) OR EXISTS (
+    SELECT 1
+    FROM public.pms_accounts pa
+    LEFT JOIN public.hotel_configurations hc ON hc.hotel_id = pa.hotel_id
+    WHERE lower(coalesce(pa.pms_type, '')) = 'previo'
+      AND coalesce(pa.is_active, true)
+      AND (pa.hotel_id = _hotel OR hc.hotel_name = _hotel)
+  );
+END;
+$function$;
+
+
 CREATE OR REPLACE FUNCTION public.enforce_manual_room_type_override()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -31,6 +67,10 @@ DECLARE
   marker text;
   key text;
 BEGIN
+  IF NOT public.hc_hotel_uses_previo(NEW.hotel, new_meta) THEN
+    RETURN NEW;
+  END IF;
+
   -- A strong-identity PMS turnover is the one case allowed to invalidate a
   -- same-day stayover override. pmsRefresh emits this marker only after the
   -- Previo resolver has proved that the next arrival is a different guest.
@@ -196,16 +236,19 @@ SET search_path = ''
 AS $function$
 DECLARE
   meta jsonb;
+  room_hotel text;
   move_day date;
   actor_text text;
   actor_id uuid;
 BEGIN
-  SELECT coalesce(r.pms_metadata, '{}'::jsonb)
-    INTO meta
+  SELECT coalesce(r.pms_metadata, '{}'::jsonb), r.hotel
+    INTO meta, room_hotel
   FROM public.rooms r
   WHERE r.id = NEW.room_id;
 
-  IF meta IS NULL OR coalesce(meta ->> 'manual_daily', 'false') <> 'true' THEN
+  IF meta IS NULL
+     OR NOT public.hc_hotel_uses_previo(room_hotel, meta)
+     OR coalesce(meta ->> 'manual_daily', 'false') <> 'true' THEN
     RETURN NEW;
   END IF;
 
@@ -253,6 +296,10 @@ DECLARE
   actor_text text;
   actor_id uuid;
 BEGIN
+  IF NOT public.hc_hotel_uses_previo(NEW.hotel, new_meta) THEN
+    RETURN NEW;
+  END IF;
+
   IF coalesce(new_meta ->> 'manual_daily', 'false') <> 'true'
      OR new_meta ->> 'manual_moved_at' IS NOT DISTINCT FROM old_meta ->> 'manual_moved_at'
   THEN
@@ -301,9 +348,22 @@ WHERE review.status <> 'resolved'
     SELECT 1
     FROM public.rooms r
     WHERE r.id = review.room_id
+      AND public.hc_hotel_uses_previo(r.hotel, coalesce(r.pms_metadata, '{}'::jsonb))
       AND coalesce(r.pms_metadata ->> 'manual_daily', 'false') = 'true'
       AND public.hc_manager_confirmation_day(coalesce(r.pms_metadata, '{}'::jsonb)) = review.business_date
   );
+
+-- Re-scope the original extension detector as well. The detector migration
+-- predates multi-PMS support, so without this replacement a future non-Previo
+-- integration could still create Previo-style continuity reviews.
+DROP TRIGGER IF EXISTS zzz_hc_detect_stay_extension ON public.rooms;
+CREATE TRIGGER zzz_hc_detect_stay_extension
+AFTER UPDATE OF pms_metadata, guest_nights_stayed, is_checkout_room ON public.rooms
+FOR EACH ROW WHEN (
+  OLD.pms_metadata IS DISTINCT FROM NEW.pms_metadata
+  AND public.hc_hotel_uses_previo(NEW.hotel, coalesce(NEW.pms_metadata, '{}'::jsonb))
+)
+EXECUTE FUNCTION public.hc_record_stay_extension_review();
 
 REVOKE ALL ON FUNCTION public.hc_manager_confirmation_day(jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.hc_mark_manager_confirmed_extension_review() FROM PUBLIC;
