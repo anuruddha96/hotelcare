@@ -1,13 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { getSlntRosterNotice } from './slntRosterNotice';
+import { getSlntRosterNotice, slntRosterAllowsManualAssignment } from './slntRosterNotice';
 
 describe('SLNT roster explanations', () => {
   it('shows a schedule CTA when the published roster is genuinely empty', () => {
-    expect(getSlntRosterNotice(0, '2026-09-23')).toEqual({
+    const notice = getSlntRosterNotice(0, '2026-09-23');
+    expect(notice).toEqual({
       kind: 'missing',
       message: expect.stringContaining('2026-09-23'),
       action: 'schedule',
     });
+    expect(notice?.message).toContain('still assign rooms manually');
+  });
+
+  it('allows manual SLNT room assignment after an empty roster was verified', () => {
+    const notice = getSlntRosterNotice(0, '2026-09-23');
+    expect(slntRosterAllowsManualAssignment(true, notice)).toBe(true);
+  });
+
+  it('keeps manual assignment blocked while roster state is unknown or failed', () => {
+    expect(slntRosterAllowsManualAssignment(false, getSlntRosterNotice(0, '2026-09-23'))).toBe(false);
+    expect(slntRosterAllowsManualAssignment(true, getSlntRosterNotice(0, '2026-09-23', {
+      code: '42501', message: 'Not authorized to read the SLNT housekeeping roster',
+    }))).toBe(false);
+    expect(slntRosterAllowsManualAssignment(true, getSlntRosterNotice(0, '2026-09-23', {
+      code: '503', message: 'server unavailable',
+    }))).toBe(false);
   });
   it('does not confuse an uninstalled RPC with an unpublished schedule', () => {
     expect(getSlntRosterNotice(0, '2026-09-23', {
