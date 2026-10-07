@@ -126,6 +126,12 @@ export function buildRoomTypeTransition(params: {
         positive(serviceSnapshot?.guestNightsStayed),
         positive(serviceSnapshot?.currentNight),
         positive(old.currentNight),
+        // On a real checkout reservation the PMS may omit "Night / Total" from
+        // today's housekeeping view even though the reservation total remains
+        // available. For Checkout -> Daily, total nights are therefore a safe
+        // fallback for the completed segment before the extension starts.
+        target === 'daily' ? positive(serviceSnapshot?.totalNights) : 0,
+        target === 'daily' ? positive(old.totalNights) : 0,
       );
   const priorTotal = reuseSameDaySnapshot
     ? Math.max(positive(priorSnapshot?.totalNights), priorCurrent)
