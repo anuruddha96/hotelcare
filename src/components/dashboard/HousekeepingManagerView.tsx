@@ -431,11 +431,23 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   }, [stagedEnabled]);
 
 
-  // Real-time subscriptions for live updates
+  // Real-time subscriptions for live updates. A full PMS/housekeeping
+  // reconciliation may mutate dozens of assignments in one burst. Refresh the
+  // manager summaries once per burst instead of twice for every changed row.
   useEffect(() => {
+    let assignmentRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleAssignmentRefresh = () => {
+      if (assignmentRefreshTimer) window.clearTimeout(assignmentRefreshTimer);
+      assignmentRefreshTimer = window.setTimeout(() => {
+        assignmentRefreshTimer = null;
+        console.log('Assignment changes settled, refreshing manager data');
+        void Promise.all([fetchTeamAssignments(), fetchRoomAssignments()]);
+      }, 650);
+    };
+
     // Subscribe to profile changes (new housekeeping staff)
     const profilesChannel = supabase
-      .channel('profiles-changes')
+      .channel(`profiles-changes-${selectedDate}`)
       .on(
         'postgres_changes',
         {
@@ -446,32 +458,29 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         },
         () => {
           console.log('Profile change detected, refreshing staff list');
-          fetchHousekeepingStaff();
+          void fetchHousekeepingStaff();
         }
       )
       .subscribe();
 
-    // Subscribe to room assignment changes
+    // Only today's/selected day's assignment mutations matter to this view.
     const assignmentsChannel = supabase
-      .channel('assignments-changes')
+      .channel(`assignments-changes-${selectedDate}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'room_assignments'
+          table: 'room_assignments',
+          filter: `assignment_date=eq.${selectedDate}`
         },
-        () => {
-          console.log('Assignment change detected, refreshing data');
-          fetchTeamAssignments();
-          fetchRoomAssignments();
-        }
+        scheduleAssignmentRefresh
       )
       .subscribe();
 
     // Subscribe to staff attendance changes (for break status)
     const attendanceChannel = supabase
-      .channel('attendance-changes')
+      .channel(`attendance-changes-${selectedDate}`)
       .on(
         'postgres_changes',
         {
@@ -482,15 +491,16 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         },
         () => {
           console.log('Attendance change detected, refreshing attendance data');
-          fetchStaffAttendance();
+          void fetchStaffAttendance();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(profilesChannel);
-      supabase.removeChannel(assignmentsChannel);
-      supabase.removeChannel(attendanceChannel);
+      if (assignmentRefreshTimer) window.clearTimeout(assignmentRefreshTimer);
+      void supabase.removeChannel(profilesChannel);
+      void supabase.removeChannel(assignmentsChannel);
+      void supabase.removeChannel(attendanceChannel);
     };
   }, [selectedDate]);
 

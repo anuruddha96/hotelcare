@@ -99,17 +99,32 @@ export function GozsduLaundrynerTasks() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!eligible) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void load(true);
+      }, 650);
+    };
     const channel = supabase.channel(`gozsdu-laundry-${user?.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, () => { void load(true); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_laundry_room_progress' }, () => { void load(true); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => { void load(true); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_laundry_room_progress' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (event: any) => {
+        const hotel = event.new?.hotel ?? event.old?.hotel;
+        if (!hotel || ['gozsdu-court', 'Gozsdu Court Budapest'].includes(hotel)) scheduleRefresh();
+      })
       .subscribe();
     const poll = window.setInterval(() => {
       const date = todayBudapest();
       if (date !== workDate) { setSelectedRoom(null); setWorkDate(date); }
       else void load(true);
     }, 20_000);
-    return () => { window.clearInterval(poll); void supabase.removeChannel(channel); };
+    return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      window.clearInterval(poll);
+      void supabase.removeChannel(channel);
+    };
   }, [eligible, user?.id, workDate, load]);
 
   const grouped = useMemo(() => groupLaundryRooms(rooms), [rooms]);

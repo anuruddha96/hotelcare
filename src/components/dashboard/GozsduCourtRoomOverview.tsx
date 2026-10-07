@@ -179,22 +179,59 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
 
   useEffect(() => { void load(); }, [load, refreshKey]);
   useEffect(() => {
-    const onChanged = () => { void load(true); };
-    window.addEventListener('pms-sync-completed', onChanged);
-    window.addEventListener('hk-assignments-changed', onChanged);
-    const onVisible = () => { if (!document.hidden) onChanged(); };
+    // A PMS sync updates many room rows in a few seconds. Realtime emits one
+    // event per row; calling load() for every event multiplied a single sync
+    // into hundreds of identical rooms/assignment requests. Collapse bursts
+    // into one refresh and never allow overlapping full-board loads.
+    let cancelled = false;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let refreshInFlight = false;
+    let refreshQueued = false;
+
+    const runRefresh = async () => {
+      if (cancelled || document.hidden) return;
+      if (refreshInFlight) {
+        refreshQueued = true;
+        return;
+      }
+      refreshInFlight = true;
+      try {
+        await load(true);
+      } finally {
+        refreshInFlight = false;
+        if (refreshQueued && !cancelled) {
+          refreshQueued = false;
+          scheduleRefresh();
+        }
+      }
+    };
+
+    const scheduleRefresh = () => {
+      if (cancelled) return;
+      if (debounceTimer) window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        debounceTimer = null;
+        void runRefresh();
+      }, 650);
+    };
+
+    window.addEventListener('pms-sync-completed', scheduleRefresh);
+    window.addEventListener('hk-assignments-changed', scheduleRefresh);
+    const onVisible = () => { if (!document.hidden) scheduleRefresh(); };
     document.addEventListener('visibilitychange', onVisible);
-    const timer = window.setInterval(() => { if (!document.hidden) onChanged(); }, 60_000);
+    const timer = window.setInterval(() => { if (!document.hidden) void runRefresh(); }, 60_000);
     const channel = supabase.channel(`gozsdu-room-overview-${selectedDate}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (event: any) => {
-        if (HOTEL_KEYS.includes(event.new?.hotel || event.old?.hotel)) onChanged();
+        if (HOTEL_KEYS.includes(event.new?.hotel || event.old?.hotel)) scheduleRefresh();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, onChanged)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_housekeeping_room_registry' }, onChanged)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_housekeeping_room_registry' }, scheduleRefresh)
       .subscribe();
     return () => {
-      window.removeEventListener('pms-sync-completed', onChanged);
-      window.removeEventListener('hk-assignments-changed', onChanged);
+      cancelled = true;
+      if (debounceTimer) window.clearTimeout(debounceTimer);
+      window.removeEventListener('pms-sync-completed', scheduleRefresh);
+      window.removeEventListener('hk-assignments-changed', scheduleRefresh);
       document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(timer);
       void supabase.removeChannel(channel);
