@@ -17,7 +17,7 @@ const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note
 const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
-  "manual_moved_at", "manual_moved_by",
+  "manual_moved_at", "manual_moved_date", "manual_moved_by",
   "manual_no_show", "manual_no_show_at", "manual_no_show_by",
 ];
 // Per-day PMS state that must be wiped when a new work day starts, so the
