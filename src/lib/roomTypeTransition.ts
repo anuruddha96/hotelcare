@@ -8,7 +8,24 @@ export type RoomTypeNotice = {
   to: RoomCleaningType;
   by: string;
   message: string;
+  serviceLabel?: string;
+  nightsStayed?: number | null;
 };
+
+export type ExtensionServiceSnapshot = {
+  reservationId?: string | null;
+  guestNightsStayed?: number | null;
+  currentNight?: number | null;
+  totalNights?: number | null;
+  towelChangeRequired?: boolean;
+  linenChangeRequired?: boolean;
+};
+
+export function extensionServiceLabel(snapshot?: ExtensionServiceSnapshot): string {
+  if (snapshot?.linenChangeRequired) return 'Full Room Change';
+  if (snapshot?.towelChangeRequired) return 'Towel Change + Daily Cleaning';
+  return 'Normal Daily Cleaning';
+}
 
 /** Preserve real housekeeping instructions, but show only the latest type-change notice. */
 export function upsertRoomTypeNote(previous: string | null, date: string, message: string): string {
@@ -29,15 +46,20 @@ export function buildRoomTypeTransition(params: {
   nowIso: string;
   gozsduPlan?: { bucket: 'checkout' | 'service' | 'other'; service: 'none' | 'towel_change' | 'change_room' };
   previousRoomNotes: string | null;
+  serviceSnapshot?: ExtensionServiceSnapshot;
 }): { metadata: Record<string, unknown>; note: string; notice: RoomTypeNotice } {
-  const { metadata, target, date, roomNumber, actorId, actorName, nowIso, gozsduPlan, previousRoomNotes } = params;
+  const { metadata, target, date, roomNumber, actorId, actorName, nowIso, gozsduPlan, previousRoomNotes, serviceSnapshot } = params;
   const old = metadata || {};
   const checkout = target === 'checkout';
+  const nightsStayed = serviceSnapshot?.guestNightsStayed ?? serviceSnapshot?.currentNight ?? null;
+  const serviceLabel = extensionServiceLabel(serviceSnapshot);
   const message = checkout
-    ? `Room ${roomNumber} changed from Daily to Checkout cleaning. Confirm departure with reception before entering; wait for Ready to Clean.`
-    : `Room ${roomNumber} changed from Checkout to Daily cleaning. Possible stay extension: reception must verify the reservation. Follow this hotel's towel/linen service rules.`;
+    ? `Room ${roomNumber} changed from Daily to Checkout cleaning. Confirm departure before entering; wait for Guest Checked Out.`
+    : `Guest staying — Daily service. Changed from Checkout to Daily by ${actorName}. Required today: ${serviceLabel}.${nightsStayed != null ? ` Stay so far: ${nightsStayed} night${nightsStayed === 1 ? '' : 's'}.` : ''}`;
   const notice: RoomTypeNotice = {
     date, at: nowIso, from: checkout ? 'daily' : 'checkout', to: target, by: actorName, message,
+    serviceLabel: checkout ? undefined : serviceLabel,
+    nightsStayed: checkout ? undefined : nightsStayed,
   };
   const next: Record<string, unknown> = {
     ...old,
@@ -47,6 +69,17 @@ export function buildRoomTypeTransition(params: {
     manual_moved_at: nowIso,
     manual_moved_by: actorId,
     roomTypeChangeNotice: notice,
+    ...(checkout ? {} : {
+      extensionServiceSnapshot: {
+        capturedAt: nowIso,
+        reservationId: serviceSnapshot?.reservationId ?? old.reservationId ?? null,
+        guestNightsStayed: serviceSnapshot?.guestNightsStayed ?? null,
+        currentNight: serviceSnapshot?.currentNight ?? old.currentNight ?? null,
+        totalNights: serviceSnapshot?.totalNights ?? old.totalNights ?? null,
+        towelChangeRequired: serviceSnapshot?.towelChangeRequired === true,
+        linenChangeRequired: serviceSnapshot?.linenChangeRequired === true,
+      },
+    }),
     ...(checkout
       ? { manual_checkout_at: nowIso, manual_checkout_by: actorId, manualReadyToCleanAt: null, manualReadyToCleanBy: null }
       : { manual_daily_at: nowIso, manual_daily_by: actorId, scheduledDepartureToday: false, departureTime: null, checkedOutToday: false }),
@@ -61,7 +94,7 @@ export function buildRoomTypeTransition(params: {
         date,
         bucket: gozsduPlan.bucket,
         service: gozsduPlan.service,
-        reason: checkout ? 'Manually changed from Daily to Checkout' : 'Possible stay extension; verify with reception',
+        reason: checkout ? 'Manually changed from Daily to Checkout' : `Manager confirmed guest staying; ${serviceLabel}`,
         changedAt: nowIso,
         changedBy: actorId,
       },
