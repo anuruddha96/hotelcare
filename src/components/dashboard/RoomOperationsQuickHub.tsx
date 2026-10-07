@@ -706,13 +706,16 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       }
 
       const cleanHumanNote = stripRoomTypeSystemNotes(persistedRoom.notes);
-      notesSavedDraftRef.current = cleanHumanNote || '';
-      setNotesDraft(cleanHumanNote || '');
+      const cleanFlags = parseRoomFlags(cleanHumanNote);
+      notesSavedDraftRef.current = cleanFlags.cleanNotes;
+      setNotesDraft(cleanFlags.cleanNotes);
       setSelection((current) => current ? {
         ...current,
         isCheckout: nextCheckout,
         pmsMetadata: finalMetadata,
         roomNotes: cleanHumanNote,
+        roomCleaning: !!cleanFlags.roomCleaning,
+        collectExtraTowels: !!cleanFlags.collectExtraTowels,
         guestNightsStayed: persistedRoom.guest_nights_stayed ?? current.guestNightsStayed,
         towelChangeRequired: !!persistedRoom.towel_change_required,
         linenChangeRequired: !!persistedRoom.linen_change_required,
