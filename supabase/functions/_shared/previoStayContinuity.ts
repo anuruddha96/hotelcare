@@ -24,6 +24,9 @@ export type PrevioContinuousStay<T extends PrevioStayCandidate> = {
   guestIdentityStrength: PrevioGuestIdentityStrength;
   confidence: 'strong' | 'probable' | 'single';
   extensionLinked: boolean;
+  sameDayTurnover: boolean;
+  turnoverConfidence: 'strong' | 'ambiguous' | null;
+  competingArrival: T | null;
 };
 
 const CANCELLED = new Set([7, 8]);
@@ -94,12 +97,21 @@ function intersects(a: Set<string>, b: Set<string>): boolean {
  * Strong identifiers are authoritative when both reservations have them.
  * Name matching is a fallback only when at least one segment lacks a strong id.
  */
-export function isSamePrevioGuest(a: PrevioStayCandidate, b: PrevioStayCandidate): boolean {
+export function previoGuestRelationship(
+  a: PrevioStayCandidate,
+  b: PrevioStayCandidate,
+): 'same' | 'different' | 'unknown' {
   const left = keySets(a);
   const right = keySets(b);
-  if (left.strong.size && right.strong.size) return intersects(left.strong, right.strong);
-  if (left.name.size && right.name.size) return intersects(left.name, right.name);
-  return false;
+  if (left.strong.size && right.strong.size) {
+    return intersects(left.strong, right.strong) ? 'same' : 'different';
+  }
+  if (left.name.size && right.name.size && intersects(left.name, right.name)) return 'same';
+  return 'unknown';
+}
+
+export function isSamePrevioGuest(a: PrevioStayCandidate, b: PrevioStayCandidate): boolean {
+  return previoGuestRelationship(a, b) === 'same';
 }
 
 function chooseEffective<T extends PrevioStayCandidate>(candidates: T[], today: string): T | null {
@@ -178,6 +190,9 @@ export function resolvePrevioContinuousStay<T extends PrevioStayCandidate>(
       guestIdentityStrength: 'none',
       confidence: 'single',
       extensionLinked: false,
+      sameDayTurnover: false,
+      turnoverConfidence: null,
+      competingArrival: null,
     };
   }
 
@@ -216,6 +231,19 @@ export function resolvePrevioContinuousStay<T extends PrevioStayCandidate>(
   const reservationIds = Array.from(new Set(
     segments.map((segment) => segment.reservationId).filter((value): value is string => !!value),
   ));
+
+  const competingArrivals = candidates.filter((candidate) =>
+    candidate !== effective
+    && !CANCELLED.has(candidate.statusId)
+    && candidate.arrivalDate === today
+    && candidate.departureDate > today
+    && effective.departureDate === today
+    && previoGuestRelationship(effective, candidate) !== 'same',
+  );
+  const strongTurnover = competingArrivals.find((candidate) =>
+    previoGuestRelationship(effective, candidate) === 'different',
+  ) ?? null;
+  const competingArrival = strongTurnover ?? competingArrivals[0] ?? null;
   const strongFingerprints = Array.from(new Set(
     segments
       .filter((segment) => segment.guestIdentityStrength === 'strong')
@@ -240,5 +268,8 @@ export function resolvePrevioContinuousStay<T extends PrevioStayCandidate>(
     guestIdentityStrength: identityStrength,
     confidence: segments.length === 1 ? 'single' : identityStrength === 'strong' ? 'strong' : 'probable',
     extensionLinked: segments.length > 1,
+    sameDayTurnover: !!competingArrival,
+    turnoverConfidence: strongTurnover ? 'strong' : competingArrival ? 'ambiguous' : null,
+    competingArrival,
   };
 }
