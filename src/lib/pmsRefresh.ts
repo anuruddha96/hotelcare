@@ -802,6 +802,9 @@ export async function runPmsRefresh(
           ...(existingMetadata ?? {}),
           pmsSyncDate: today,
           lastPmsRefreshDate: today,
+          // This refresh path is Previo-specific. Stamp the provider so
+          // room-level extension continuity never leaks to another PMS.
+          pmsProvider: "previo",
           // Keep the Previo room id on the room so outbound status pushes
           // (supervisor approval -> "clean" in Previo) can address it.
           ...(previoRoomId ? { roomId: previoRoomId } : {}),
