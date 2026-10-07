@@ -185,16 +185,28 @@ export function PerformanceLeaderboard() {
   }, [timeframe, user]);
 
   const fetchData = async () => {
-    if (!user) return;
+    // Auth can briefly be unresolved while the workspace is switching hotels.
+    // Never leave the performance view stuck behind an infinite spinner.
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const dateFrom = new Date(Date.now() - parseInt(timeframe) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      const { data: profileData } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('assigned_hotel, organization_slug')
         .eq('id', user.id)
         .single();
+
+      if (profileError) throw profileError;
+      if (!profileData?.organization_slug || !profileData?.assigned_hotel) {
+        setLeaderboard([]);
+        setOverviewStats({ avgMinutes: 0, efficiency: 0, completed: 0, bestTime: 0, totalHousekeepers: 0, outliersExcluded: 0 });
+        return;
+      }
 
       let hotelNames: string[] = [];
       if (profileData?.assigned_hotel) {
@@ -241,13 +253,35 @@ export function PerformanceLeaderboard() {
       const enhancedLeaderboard: LeaderboardEntry[] = [];
       
       for (const housekeeper of housekeepers) {
-        // Fetch performance data with assignment info
-        const { data: performanceData } = await supabase
-          .from('housekeeping_performance')
-          .select('*, room_assignments(is_dnd, break_periods, total_break_time_minutes)')
-          .eq('housekeeper_id', housekeeper.id)
-          .gte('assignment_date', dateFrom);
+        // Fetch independent datasets concurrently. The previous sequential waterfall
+        // multiplied latency per housekeeper and could make manager views appear stuck.
+        const [performanceResult, attendanceResult, ratingsResult] = await Promise.all([
+          supabase
+            .from('housekeeping_performance')
+            .select('*, room_assignments(is_dnd, break_periods, total_break_time_minutes)')
+            .eq('housekeeper_id', housekeeper.id)
+            .gte('assignment_date', dateFrom),
+          supabase
+            .from('staff_attendance')
+            .select('*')
+            .eq('user_id', housekeeper.id)
+            .gte('work_date', dateFrom)
+            .not('check_out_time', 'is', null)
+            .order('work_date', { ascending: false }),
+          supabase
+            .from('housekeeper_ratings')
+            .select('rating')
+            .eq('housekeeper_id', housekeeper.id)
+            .gte('rating_date', dateFrom),
+        ]);
 
+        if (performanceResult.error) throw performanceResult.error;
+        if (attendanceResult.error) throw attendanceResult.error;
+        if (ratingsResult.error) throw ratingsResult.error;
+
+        const performanceData = performanceResult.data;
+        const attendanceData = attendanceResult.data;
+        const ratingsData = ratingsResult.data;
         const totalRaw = performanceData?.length || 0;
         const { valid: validPerformanceData, excluded } = filterRealisticRecords(performanceData || []);
         totalOutliers += excluded;
@@ -260,22 +294,6 @@ export function PerformanceLeaderboard() {
             actual_duration_minutes: Math.max(1, p.actual_duration_minutes - breakMinutes)
           };
         });
-
-        // Attendance data
-        const { data: attendanceData } = await supabase
-          .from('staff_attendance')
-          .select('*')
-          .eq('user_id', housekeeper.id)
-          .gte('work_date', dateFrom)
-          .not('check_out_time', 'is', null)
-          .order('work_date', { ascending: false });
-
-        // Ratings data
-        const { data: ratingsData } = await supabase
-          .from('housekeeper_ratings')
-          .select('rating')
-          .eq('housekeeper_id', housekeeper.id)
-          .gte('rating_date', dateFrom);
 
         const uniqueDays = new Set(adjustedData.map(p => p.assignment_date)).size;
 
