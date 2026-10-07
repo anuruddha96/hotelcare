@@ -51,6 +51,11 @@ export type IncomingStayRow = {
   ContinuousStaySegmentCount?: unknown;
   ContinuousStayConfidence?: unknown;
   ExtensionLinked?: unknown;
+  SameDayTurnover?: unknown;
+  SameDayTurnoverConfidence?: unknown;
+  NextArrivalReservationId?: unknown;
+  NextArrivalGuestFingerprint?: unknown;
+  NextArrivalGuestIdentityStrength?: unknown;
 };
 
 export type ReconciledStay = {
@@ -220,8 +225,10 @@ export function reconcileContinuousStay(input: {
     incomingFingerprint,
     incomingStrength,
   );
+  const definitiveTurnover = row.SameDayTurnover === true
+    && row.SameDayTurnoverConfidence === 'strong';
 
-  if (strongConflict) {
+  if (strongConflict || definitiveTurnover) {
     const single = localCurrent && localTotal ? {
       originalArrivalDate: incomingArrival,
       finalDepartureDate: incomingDeparture,
