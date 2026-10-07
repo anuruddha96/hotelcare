@@ -187,10 +187,30 @@ function isMonday(d: string): boolean {
   return new Date(`${d}T00:00:00Z`).getUTCDay() === 1;
 }
 
+type WeekendTradingTone = "peak" | "sunday" | null;
+
+/**
+ * Friday and Saturday are the strongest leisure/revenue trading nights.
+ * Sunday remains part of the weekend block, but is deliberately quieter so
+ * the eye can distinguish the start of the working week at a glance.
+ */
+function weekendTradingTone(d: string): WeekendTradingTone {
+  const day = new Date(`${d}T00:00:00Z`).getUTCDay();
+  if (day === 5 || day === 6) return "peak";
+  if (day === 0) return "sunday";
+  return null;
+}
+
 /** Friday kicks off the high-value weekend trading block. */
 function isWeekendTrading(d: string): boolean {
-  const day = new Date(`${d}T00:00:00Z`).getUTCDay();
-  return day === 5 || day === 6 || day === 0;
+  return weekendTradingTone(d) !== null;
+}
+
+function weekendLabelTone(d: string): string {
+  const tone = weekendTradingTone(d);
+  if (tone === "peak") return "font-bold text-foreground";
+  if (tone === "sunday") return "font-semibold text-foreground/80";
+  return "text-muted-foreground";
 }
 
 /** Vertical rules: month > week > day, so columns never blur together. */
@@ -200,10 +220,12 @@ function dayEdge(d: string): string {
 }
 
 /** Zebra shading so a long row of numbers stays trackable.
- *  Fri–Sun (the revenue weekend trading block) gets a stronger muted fill
- *  so users can immediately spot the high-value columns. */
+ *  Friday + Saturday get the stronger weekend fill; Sunday stays visibly
+ *  related but lighter so the three days no longer read as one flat block. */
 function dayBg(d: string, i: number): string {
-  if (isWeekendTrading(d)) return "bg-primary/15";
+  const weekendTone = weekendTradingTone(d);
+  if (weekendTone === "peak") return "bg-primary/20";
+  if (weekendTone === "sunday") return "bg-primary/10";
   return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
 }
 
@@ -2966,10 +2988,10 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W, height: DAY_H , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${DAY_H}px` }}
                       >
 
-                        <span className={`${isWeekendTrading(d) ? "font-bold text-foreground" : "text-muted-foreground"}`} style={{ fontSize: fz(10) }}>
+                        <span className={weekendLabelTone(d)} style={{ fontSize: fz(10) }}>
                           {formatWeekday(d)}
                         </span>
-                        <span className="font-medium" style={{ fontSize: fz(12) }}>{formatDay(d)}</span>
+                        <span className="font-semibold tabular-nums" style={{ fontSize: fz(12) }}>{formatDay(d)}</span>
                         {dayOrigins.length > 0 && (
                           <span
                             className="absolute bottom-0 left-1/2 flex h-3 w-6 -translate-x-1/2 cursor-pointer items-end justify-center gap-[2px]"
@@ -3136,8 +3158,8 @@ export default function RateStrategyGrid({
                       <div
                         key={d}
                         title={`${m?.roomsSold ?? 0} / ${m?.roomsAvailable ?? 0} rooms · ${tone.label}`}
-                        className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
-                        style={{ width: CELL_W, fontSize: fz(11), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
+                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
+                        style={{ width: CELL_W, fontSize: fz(12), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         {pct ? `${Math.round(pct)}%` : "—"}
                       </div>
@@ -3171,8 +3193,8 @@ export default function RateStrategyGrid({
                       <div
                         key={d}
                         title={`${left} of ${units} rooms left to sell on ${d}${manualDetailLabel ? ` · Previo manual inventory: ${manualDetailLabel}` : ""}`}
-                        className={`relative flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
-                        style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
+                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
+                        style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
                         <span className="leading-none">{units ? (left === 0 ? "Sold out" : left) : "—"}</span>
                         {manual !== 0 && (
@@ -3513,8 +3535,8 @@ export default function RateStrategyGrid({
                           title={left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : `${row.typeName} · ${left === 0 ? "sold out" : `${left} of ${units} left`} on ${d}${calculated !== undefined ? ` · automatic ${calculated}` : ""}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}${left === 0 && closedAt != null ? ` · last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
-                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
-                          style={{ width: CELL_W, fontSize: fz(10) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
+                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
+                          style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
                             <>
@@ -3554,8 +3576,8 @@ export default function RateStrategyGrid({
                         <div
                           key={d}
                           title={value === null ? `${d} · no data` : `${d} · ${eur(value)}`}
-                          className={`flex items-center justify-center shrink-0 tabular-nums ${dayEdge(d)}`}
-                          style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
+                          className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${dayBg(d, i)} ${dayEdge(d)}`}
+                          style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {value === null ? eur(null) : priceLabel(value)}
                         </div>
@@ -3704,8 +3726,8 @@ export default function RateStrategyGrid({
                            place the cell's story is told, so the browser
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
-                         style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                         style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
 
                       >
                         {shown === undefined ? (
