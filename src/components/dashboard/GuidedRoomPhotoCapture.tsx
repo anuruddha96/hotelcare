@@ -322,13 +322,13 @@ export function GuidedRoomPhotoCapture({
           <Progress value={resolved / STEPS.length * 100} className="h-1.5" />
           <div className="flex gap-1 overflow-x-auto py-1" role="group" aria-label={copy.review}>
             {STEPS.map((step, position) => {
-              const StepIcon = step.icon;
               const done = evidence[step.key].real.length > 0;
               const skipped = evidence[step.key].skipped.length > 0;
-              return <button key={step.key} type="button" disabled={busy || loading} aria-current={position === index ? 'step' : undefined} aria-label={`${position + 1}. ${t(step.translation)}${done ? `, ${evidence[step.key].real.length} ${copy.taken}` : skipped ? `, ${copy.skipped}` : ''}`} onClick={() => { setIndex(position); setPreviousCategory(null); }} className={cn('min-w-12 flex-1 flex flex-col items-center gap-1 rounded-lg px-1 py-1.5 text-[10px] leading-tight transition-colors', position === index ? 'bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted')}>
-                <span className={cn('h-8 w-8 rounded-full flex items-center justify-center', done ? 'bg-emerald-600 text-white' : skipped ? 'bg-amber-100 text-amber-800' : 'bg-muted text-foreground')}>
-                  {done ? <Check className="h-4 w-4" /> : <StepIcon className="h-4 w-4" />}
-                </span><span className="max-w-16 line-clamp-2 text-center">{t(step.translation)}</span>
+              const stepLabel = getHousekeepingPhotoLabel(step.key, language);
+              return <button key={step.key} type="button" disabled={busy || loading} aria-current={position === index ? 'step' : undefined} aria-label={`${position + 1}. ${stepLabel}${done ? `, ${evidence[step.key].real.length} ${copy.taken}` : skipped ? `, ${copy.skipped}` : ''}`} onClick={() => { setIndex(position); setPreviousCategory(null); }} className={cn('min-w-12 flex-1 flex flex-col items-center gap-1 rounded-lg px-1 py-1.5 text-[10px] leading-tight transition-colors', position === index ? 'bg-primary/10 ring-2 ring-primary' : 'hover:bg-muted')}>
+                <span className={cn('h-8 w-8 rounded-full flex items-center justify-center text-base', done ? 'bg-emerald-600 text-white' : skipped ? 'bg-amber-100 text-amber-800' : 'bg-muted text-foreground')}>
+                  {done ? <Check className="h-4 w-4" /> : <span aria-hidden="true">{step.emoji}</span>}
+                </span><span className="max-w-16 line-clamp-2 text-center">{stepLabel}</span>
               </button>;
             })}
           </div>
@@ -336,10 +336,10 @@ export function GuidedRoomPhotoCapture({
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-3" style={{ WebkitOverflowScrolling: 'touch' }}>
           {loading ? <p role="status" className="py-10 text-center text-sm">{copy.loading}</p> : <>
             <div className="rounded-xl border-2 border-primary/30 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><Icon className="h-6 w-6 text-primary" /><div><p className="text-xs text-muted-foreground">{copy.step} {index + 1} / {STEPS.length}</p><h3 className="font-bold text-lg">{t(current.translation)}</h3></div></div><Badge variant={active.real.length ? 'default' : active.skipped.length ? 'outline' : 'secondary'}>{active.real.length ? `${active.real.length} ${copy.taken}` : active.skipped.length ? copy.skipped : copy.required}</Badge></div>
+              <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><span className="text-2xl" aria-hidden="true">{current.emoji}</span><div><p className="text-xs text-muted-foreground">{copy.step} {index + 1} / {STEPS.length}</p><h3 className="font-bold text-lg">{getHousekeepingPhotoLabel(current.key, language)}</h3></div></div><Badge variant={active.real.length ? 'default' : active.skipped.length ? 'outline' : 'secondary'}>{active.real.length ? `${active.real.length} ${copy.taken}` : active.skipped.length ? copy.skipped : copy.required}</Badge></div>
               <p className="text-xs text-muted-foreground">{active.real.length ? copy.anotherHint : copy.prompt}</p>
-              {active.real.length > 0 && <div className="grid grid-cols-3 gap-2" aria-label={`${t(current.translation)} ${copy.taken}`}>
-                {active.real.map((url, number) => <a key={url} href={url} target="_blank" rel="noreferrer" className="aspect-square rounded-lg border overflow-hidden" aria-label={`${t(current.translation)} ${number + 1}`}><img src={url} alt={`${t(current.translation)} ${number + 1}`} loading="lazy" className="h-full w-full object-cover" /></a>)}
+              {active.real.length > 0 && <div className="grid grid-cols-3 gap-2" aria-label={`${getHousekeepingPhotoLabel(current.key, language)} ${copy.taken}`}>
+                {active.real.map((url, number) => <a key={url} href={url} target="_blank" rel="noreferrer" className="aspect-square rounded-lg border overflow-hidden" aria-label={`${getHousekeepingPhotoLabel(current.key, language)} ${number + 1}`}><img src={url} alt={`${getHousekeepingPhotoLabel(current.key, language)} ${number + 1}`} loading="lazy" className="h-full w-full object-cover" /></a>)}
               </div>}
               {active.skipped.length > 0 && <p className="rounded-lg bg-amber-50 text-amber-900 p-2 text-xs">{labels[reasonOf(active.skipped[0]) || 'other']}</p>}
               <Button className="w-full min-h-12 text-base" disabled={busy} onClick={() => void startCamera(current.key)}><Camera className="h-5 w-5 mr-2" />{active.real.length ? copy.another : copy.take}</Button>
@@ -347,7 +347,7 @@ export function GuidedRoomPhotoCapture({
               {skipAllowed && !active.real.length && !active.skipped.length && <Button className="w-full min-h-10 text-amber-800" variant="ghost" disabled={busy} onClick={() => { setSkipCategory(current.key); setSkipDetail(''); setSkipReason('guest_limited_service'); }}><SkipForward className="h-4 w-4 mr-2" />{copy.skip}</Button>}
               {active.skipped.length > 0 && <Button className="w-full min-h-10" variant="ghost" disabled={busy} onClick={() => void undoSkip()}><RotateCcw className="h-4 w-4 mr-2" />{copy.undo}</Button>}
             </div>
-            {showPreviousShortcut && previous && <Button variant="outline" className="w-full min-h-11 border-dashed" disabled={busy} onClick={() => void startCamera(previous.key)}><ImagePlus className="h-4 w-4 mr-2" />{copy.anotherPrevious} {t(previous.translation)}</Button>}
+            {showPreviousShortcut && previous && <Button variant="outline" className="w-full min-h-11 border-dashed" disabled={busy} onClick={() => void startCamera(previous.key)}><ImagePlus className="h-4 w-4 mr-2" />{copy.anotherPrevious} {getHousekeepingPhotoLabel(previous.key, language)}</Button>}
             <div className="flex justify-between gap-2"><Button variant="ghost" disabled={busy || index === 0} onClick={() => { setIndex(i => i - 1); setPreviousCategory(null); }}><ArrowLeft className="h-4 w-4 mr-1" />{copy.back}</Button><Button variant="ghost" disabled={busy || index === STEPS.length - 1} onClick={() => { setIndex(i => i + 1); setPreviousCategory(null); }}>{copy.next}<ArrowRight className="h-4 w-4 ml-1" /></Button></div>
             {anySkipped && <div className="rounded-xl border border-amber-300 bg-amber-50/50 p-3 space-y-2"><Label htmlFor="limited-service-note" className="font-semibold">{copy.limitedTitle}</Label><p className="text-xs text-muted-foreground">{copy.limitedHelp}</p><Textarea id="limited-service-note" rows={2} value={limitedNote} onChange={event => setLimitedNote(event.target.value)} placeholder={copy.limitedPlaceholder} /></div>}
             {!complete && resolved > 0 && <p className="text-xs text-muted-foreground">{incompleteCopy}</p>}
@@ -357,8 +357,20 @@ export function GuidedRoomPhotoCapture({
       </DialogContent>
     </Dialog>
     <input ref={picker} type="file" accept="image/*" capture="environment" className="hidden" onChange={event => void handleSelected(event)} />
-    <AlertDialog open={cameraOpen} onOpenChange={next => { if (!next) stopCamera(); }}><AlertDialogContent className="w-[calc(100vw-0.75rem)] max-w-xl p-3"><AlertDialogHeader><AlertDialogTitle>{t(STEPS.find(step => step.key === cameraCategory)?.translation || '')} — {roomNumber}</AlertDialogTitle><AlertDialogDescription>{copy.camera}</AlertDialogDescription></AlertDialogHeader><div className="aspect-[3/4] sm:aspect-video overflow-hidden rounded-xl bg-black"><video ref={video} playsInline muted autoPlay className="w-full h-full object-cover" /></div><canvas ref={canvas} className="hidden" /><AlertDialogFooter className="grid grid-cols-2 gap-2"><AlertDialogCancel onClick={stopCamera}>{copy.cancelled}</AlertDialogCancel><AlertDialogAction disabled={busy || cameraLoading} onClick={() => void capture()}><Camera className="h-4 w-4 mr-1" />{copy.take}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={cameraOpen} onOpenChange={next => { if (!next) stopCamera(); }}><AlertDialogContent className="w-[calc(100vw-0.75rem)] max-w-xl p-3"><AlertDialogHeader><AlertDialogTitle>{getHousekeepingPhotoLabel(cameraCategory, language)} — {roomNumber}</AlertDialogTitle><AlertDialogDescription>{copy.camera}</AlertDialogDescription></AlertDialogHeader><div className="aspect-[3/4] sm:aspect-video overflow-hidden rounded-xl bg-black"><video ref={video} playsInline muted autoPlay className="w-full h-full object-cover" /></div><canvas ref={canvas} className="hidden" /><AlertDialogFooter className="grid grid-cols-2 gap-2"><AlertDialogCancel onClick={stopCamera}>{copy.cancelled}</AlertDialogCancel><AlertDialogAction disabled={busy || cameraLoading} onClick={() => void capture()}><Camera className="h-4 w-4 mr-1" />{copy.take}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <AlertDialog open={!!skipCategory} onOpenChange={next => { if (!next && !busy) setSkipCategory(null); }}><AlertDialogContent className="w-[calc(100vw-1rem)] max-w-md"><AlertDialogHeader><AlertDialogTitle>{copy.skipTitle}</AlertDialogTitle><AlertDialogDescription>{copy.skipHelp}</AlertDialogDescription></AlertDialogHeader><div className="space-y-3"><Label htmlFor="photo-skip-reason">{copy.reason}</Label><Select value={skipReason} onValueChange={value => setSkipReason(value as SkipReason)} disabled={busy}><SelectTrigger id="photo-skip-reason"><SelectValue /></SelectTrigger><SelectContent>{REASONS.map(reason => <SelectItem key={reason} value={reason}>{labels[reason]}</SelectItem>)}</SelectContent></Select><Label htmlFor="photo-skip-detail">{copy.detail}</Label><Textarea id="photo-skip-detail" value={skipDetail} onChange={event => setSkipDetail(event.target.value)} rows={2} /></div><AlertDialogFooter><AlertDialogCancel disabled={busy}>{copy.cancelled}</AlertDialogCancel><AlertDialogAction disabled={busy || (skipReason === 'other' && skipDetail.trim().length < 3)} onClick={() => void recordSkip()}>{copy.confirm}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <AlertDialog open={exitWarning} onOpenChange={setExitWarning}><AlertDialogContent className="w-[calc(100vw-1rem)] max-w-md"><AlertDialogHeader><AlertDialogTitle>{copy.exitTitle}</AlertDialogTitle><AlertDialogDescription>{copy.exitHelp}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>{copy.cancelled}</AlertDialogCancel><AlertDialogAction onClick={() => { setExitWarning(false); onOpenChange(false); }}>{copy.leave}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={completeNowOpen} onOpenChange={setCompleteNowOpen}>
+      <AlertDialogContent className="w-[calc(100vw-1rem)] max-w-md">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{copy.completeNowTitle}</AlertDialogTitle>
+          <AlertDialogDescription>{copy.completeNowHelp}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setCompleteNowOpen(false)}>{copy.notYet}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => { setCompleteNowOpen(false); onRequestComplete?.(); }}>{copy.completeNow}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </>;
 }
