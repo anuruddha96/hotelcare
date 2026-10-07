@@ -8,15 +8,21 @@ import { GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME } from '@/lib/gozsdu-hou
 import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { toast } from 'sonner';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { canOfferCheckoutRtc, shouldConfirmManualRtc, shouldInterceptCheckoutMarkClean } from '@/lib/checkoutRtcGuard';
 
 type Assignment = {
   id: string;
   assigned_to: string;
   status: string;
+  assignment_type: string;
+  ready_to_clean: boolean | null;
+  pms_hold: boolean | null;
   priority: number | null;
   notes: string | null;
   service_result: string | null;
@@ -37,6 +43,7 @@ type Room = {
   last_cleaned_by: string | null;
   towel_change_required: boolean | null;
   linen_change_required: boolean | null;
+  is_checkout_room: boolean | null;
   is_dnd: boolean | null;
   pms_metadata: any;
 };
@@ -51,7 +58,7 @@ type Props = {
 };
 
 const HOTEL_KEYS = [GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME];
-const ROOM_SELECT = 'id,hotel,status,notes,room_type,room_category,room_size_sqm,floor_number,bed_configuration,last_cleaned_at,last_cleaned_by,towel_change_required,linen_change_required,is_dnd,pms_metadata';
+const ROOM_SELECT = 'id,hotel,status,notes,room_type,room_category,room_size_sqm,floor_number,bed_configuration,last_cleaned_at,last_cleaned_by,towel_change_required,linen_change_required,is_checkout_room,is_dnd,pms_metadata';
 
 function formatDateTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : 'Not recorded';
@@ -77,6 +84,7 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
   const [note, setNote] = useState('');
   const [panel, setPanel] = useState<'main' | 'requests'>('main');
   const [moreOpen, setMoreOpen] = useState(false);
+  const [checkoutCleanDecisionOpen, setCheckoutCleanDecisionOpen] = useState(false);
 
   const load = useCallback(async (replaceDraft = true) => {
     setLoading(true);
@@ -85,7 +93,7 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
         supabase.from('rooms').select(ROOM_SELECT)
           .eq('id', roomId).in('hotel', HOTEL_KEYS).maybeSingle(),
         supabase.from('room_assignments')
-          .select('id,assigned_to,status,priority,notes,service_result,supervisor_approved')
+          .select('id,assigned_to,status,assignment_type,ready_to_clean,pms_hold,priority,notes,service_result,supervisor_approved')
           .eq('room_id', roomId).eq('assignment_date', selectedDate)
           .order('created_at', { ascending: false }).limit(10),
       ]);
@@ -226,14 +234,116 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
     }
   };
 
-  const markClean = async () => {
+  const markReadyToClean = async (skipConfirmation = false) => {
     if (!canManage || !today || busy) return;
-    if (!window.confirm(`Confirm room ${roomLabel} has actually been cleaned? This will approve cleaning and send Clean to Previo.`)) return;
+    setBusy('rtc');
+    let previousMetadata: any = null;
+    let metadataSaved = false;
+    try {
+      const latest = await guardCurrentRoom();
+      const { data: rows, error: assignmentError } = await supabase.from('room_assignments')
+        .select('id,status,assignment_type,ready_to_clean,pms_hold')
+        .eq('room_id', roomId)
+        .eq('assignment_date', selectedDate)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (assignmentError) throw assignmentError;
+      const checkoutAssignment = (rows || []).find(row => row.assignment_type === 'checkout_cleaning' && row.status !== 'completed');
+      if (!checkoutAssignment) throw new Error('The active checkout cleaning assignment is unavailable. Refresh and try again.');
+      if (checkoutAssignment.ready_to_clean === true) {
+        toast.success(`Room ${roomLabel} is already Ready to Clean`);
+        return;
+      }
+
+      if (!skipConfirmation && shouldConfirmManualRtc({
+        pmsRtcToday: isPmsRtcToday(latest.pms_metadata),
+        checkedOutToday: latest.pms_metadata?.checkedOutToday === true,
+        pmsHold: checkoutAssignment.pms_hold,
+      })) {
+        const confirmed = window.confirm(
+          `Confirm the guest has physically checked out from room ${roomLabel}.\n\nThis will release the room to housekeeping as Ready to Clean (RTC). It does not change the guest reservation or fake a checkout in Previo.`,
+        );
+        if (!confirmed) return;
+      }
+
+      const now = new Date().toISOString();
+      previousMetadata = latest.pms_metadata && typeof latest.pms_metadata === 'object' && !Array.isArray(latest.pms_metadata)
+        ? latest.pms_metadata
+        : {};
+      const nextMetadata = {
+        ...previousMetadata,
+        manualReadyToCleanAt: now,
+        manualReadyToCleanBy: profile?.id || profile?.full_name || null,
+        manualReadyToCleanSource: 'manager_ui',
+      };
+
+      const { data: roomRows, error: roomError } = await supabase.from('rooms')
+        .update({ pms_metadata: nextMetadata } as any)
+        .eq('id', roomId)
+        .in('hotel', HOTEL_KEYS)
+        .select('id');
+      if (roomError || roomRows?.length !== 1) throw roomError || new Error('Could not save the RTC release marker.');
+      metadataSaved = true;
+
+      const { data: updatedRows, error: updateError } = await supabase.from('room_assignments')
+        .update({ ready_to_clean: true, pms_hold: false, pms_hold_reason: null } as any)
+        .eq('id', checkoutAssignment.id)
+        .eq('room_id', roomId)
+        .eq('assignment_date', selectedDate)
+        .eq('assignment_type', 'checkout_cleaning')
+        .neq('status', 'completed')
+        .select('id,ready_to_clean');
+      if (updateError || updatedRows?.length !== 1 || updatedRows[0]?.ready_to_clean !== true) {
+        throw updateError || new Error('The checkout assignment changed. Refresh and try again.');
+      }
+
+      const { error: auditError } = await supabase.from('pms_change_events').insert({
+        hotel_id: latest.hotel,
+        room_id: roomId,
+        room_label: roomLabel,
+        event_type: 'rtc_released_manual',
+        source: 'manager_ui',
+        before: {
+          ready_to_clean: !!checkoutAssignment.ready_to_clean,
+          pms_hold: !!checkoutAssignment.pms_hold,
+          previo_checked_out_today: latest.pms_metadata?.checkedOutToday === true,
+        },
+        after: {
+          ready_to_clean: true,
+          pms_hold: false,
+          manual_ready_to_clean_at: now,
+        },
+        is_conflict: latest.pms_metadata?.checkedOutToday !== true,
+      } as any);
+      if (auditError) console.warn('[Gozsdu] RTC audit event could not be written', auditError);
+
+      toast.success(`Room ${roomLabel} is Ready to Clean`);
+      await load(false);
+      refreshBoard(true);
+    } catch (error) {
+      if (metadataSaved && previousMetadata) {
+        const { error: rollbackError } = await supabase.from('rooms')
+          .update({ pms_metadata: previousMetadata } as any)
+          .eq('id', roomId)
+          .in('hotel', HOTEL_KEYS);
+        if (rollbackError) console.error('[Gozsdu] RTC marker rollback failed', rollbackError);
+      }
+      console.error('[Gozsdu] manual RTC release failed', error);
+      toast.error(error instanceof Error ? error.message : 'Could not release this checkout room as Ready to Clean.');
+      await load(false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const markClean = async (skipConfirmation = false) => {
+    if (!canManage || !today || busy) return;
+    if (!skipConfirmation && !window.confirm(`Confirm room ${roomLabel} has actually been cleaned? This will approve cleaning and send Clean to Previo.`)) return;
     setBusy('clean');
     try {
       await guardCurrentRoom();
       const { data: currentAssignments, error: assignmentError } = await supabase.from('room_assignments')
-        .select('id,status,notes,service_result').eq('room_id', roomId).eq('assignment_date', selectedDate)
+        .select('id,status,assignment_type,ready_to_clean,pms_hold,notes,service_result').eq('room_id', roomId).eq('assignment_date', selectedDate)
         .order('created_at', { ascending: false }).limit(10);
       if (assignmentError) throw assignmentError;
 
@@ -387,6 +497,22 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
       ? { label: 'Medium', className: 'border-amber-300 bg-amber-100 text-amber-800' }
       : { label: 'Low', className: 'border-sky-300 bg-sky-100 text-sky-800' };
   const roomType = room.room_category || room.room_type || 'Not set';
+  const isCheckout = assignment?.assignment_type === 'checkout_cleaning'
+    || room.is_checkout_room === true
+    || serviceLabel.toLowerCase().startsWith('checkout');
+  const canReleaseRtc = today && canOfferCheckoutRtc({
+    isCheckout,
+    assignmentType: assignment?.assignment_type,
+    assignmentStatus: assignment?.status,
+    readyToClean: assignment?.ready_to_clean,
+  });
+  const interceptCheckoutClean = shouldInterceptCheckoutMarkClean({
+    isCheckout,
+    assignmentType: assignment?.assignment_type,
+    assignmentStatus: assignment?.status,
+    readyToClean: assignment?.ready_to_clean,
+  });
+  const checkoutAssignmentMissing = isCheckout && assignment?.assignment_type !== 'checkout_cleaning';
 
   return <div className="space-y-4 border-t pt-4" aria-label="Gozsdu room operations essentials">
     {panel === 'requests' ? <>
@@ -446,11 +572,45 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
           <p className="mt-0.5 opacity-75">Change Checkout / Second-day service in the Gozsdu cleaning plan above. This keeps the Previo reservation and departure untouched.</p>
         </div>
 
-        {canManage && <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5">
-          <Button className="w-full bg-emerald-600 font-bold hover:bg-emerald-700" disabled={!today || !!busy} onClick={() => void markClean()}>
+        {canManage && <div className="mb-3 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5">
+          {isCheckout && canReleaseRtc && assignment?.ready_to_clean !== true && (
+            <Button
+              className="w-full bg-emerald-600 font-bold hover:bg-emerald-700"
+              disabled={!today || !!busy}
+              onClick={() => void markReadyToClean()}
+            >
+              {busy === 'rtc' ? 'Releasing…' : <><CheckCircle2 className="mr-2 h-4 w-4" />Ready to Clean</>}
+            </Button>
+          )}
+          {isCheckout && assignment?.ready_to_clean === true && (
+            <div className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-center text-xs font-bold text-emerald-800">
+              ✓ Ready to Clean — housekeeping can start
+            </div>
+          )}
+          {checkoutAssignmentMissing && (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+              Checkout cleaning assignment is not available yet. Refresh or run the PMS sync before changing cleaning status.
+            </p>
+          )}
+          <Button
+            variant={isCheckout ? 'outline' : 'default'}
+            className={isCheckout ? 'w-full border-emerald-400 bg-white font-bold text-emerald-800 hover:bg-emerald-100' : 'w-full bg-emerald-600 font-bold hover:bg-emerald-700'}
+            disabled={!today || !!busy || checkoutAssignmentMissing}
+            onClick={() => {
+              if (interceptCheckoutClean) {
+                setCheckoutCleanDecisionOpen(true);
+                return;
+              }
+              void markClean();
+            }}
+          >
             {busy === 'clean' ? 'Saving and syncing…' : <><CheckCircle2 className="mr-2 h-4 w-4" />Mark Clean & Sync PMS</>}
           </Button>
-          <p className="mt-1.5 text-[10px] leading-snug text-emerald-900/75">Supervisor override: confirms the room as cleaned, clears active DND / No Service state, approves the assignment and pushes Clean to the PMS.</p>
+          <p className="text-[10px] leading-snug text-emerald-900/75">
+            {isCheckout
+              ? 'Checkout flow: release the room as Ready to Clean first. Use Mark Clean only when cleaning is actually finished.'
+              : 'Supervisor override: confirms the room as cleaned, clears active DND / No Service state, approves the assignment and pushes Clean to the PMS.'}
+          </p>
         </div>}
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -556,5 +716,41 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
         </div>}
       </section>
     </>}
+
+    <AlertDialog open={checkoutCleanDecisionOpen} onOpenChange={setCheckoutCleanDecisionOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Make this checkout room Ready to Clean?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Room {roomLabel} is a checkout room that has not been released to housekeeping yet. Choose Ready to Clean if the guest has left and cleaning is still pending. Choose Mark Clean only if the room is already physically cleaned.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="sm:flex-row sm:justify-end">
+          <AlertDialogCancel disabled={!!busy}>Cancel</AlertDialogCancel>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!!busy}
+            onClick={() => {
+              setCheckoutCleanDecisionOpen(false);
+              void markClean(true);
+            }}
+          >
+            Already Clean — Mark Clean
+          </Button>
+          <AlertDialogAction
+            className="bg-emerald-600 hover:bg-emerald-700"
+            disabled={!!busy}
+            onClick={(event) => {
+              event.preventDefault();
+              setCheckoutCleanDecisionOpen(false);
+              void markReadyToClean(true);
+            }}
+          >
+            Ready to Clean
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>;
 }
