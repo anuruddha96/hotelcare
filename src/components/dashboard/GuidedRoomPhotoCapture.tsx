@@ -13,7 +13,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { isGozsduNoMinibarRoom } from '@/lib/gozsduNoMinibar';
+import { isNoMinibarRoom } from '@/lib/gozsduNoMinibar';
 
 type Category = 'bed' | 'tea_coffee_table' | 'bathroom' | 'trash_bin' | 'minibar';
 type SkipReason = 'guest_limited_service' | 'guest_present_privacy' | 'area_not_serviced' | 'not_applicable' | 'no_access' | 'other';
@@ -70,9 +70,10 @@ const limitedMarker = `${NON_FULL_CLEAN} ${LIMITED} Limited stayover service —
 /** Single-card mobile stepper; all evidence remains assignment-scoped and immediately saved. */
 export function GuidedRoomPhotoCapture({ open, onOpenChange, roomNumber, hotel, assignmentId, onPhotoCaptured }: Props) {
   const { user, profile } = useAuth();
-  const noMinibar = isGozsduNoMinibarRoom(profile?.assigned_hotel, hotel);
-  // The guest-facing minibar category does not exist at Gozsdu. Historical
-  // minibar evidence is preserved; it is not a current step or a completion gate.
+  const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, hotel);
+  // The guest-facing minibar category does not exist at Gozsdu or SLNT.
+  // Historical minibar evidence is preserved; it is not a current step or a
+  // completion gate.
   const STEPS = useMemo(() => noMinibar
     ? ALL_STEPS.filter(step => step.key !== 'minibar')
     : ALL_STEPS, [noMinibar]);

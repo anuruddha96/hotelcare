@@ -12,6 +12,7 @@ interface PreCompleteChecklistDialogProps {
   onOpenDirtyLinen: () => void;
   onOpenMinibar: () => void;
   loading?: boolean;
+  showMinibar?: boolean;
 }
 
 export function PreCompleteChecklistDialog({
@@ -21,6 +22,7 @@ export function PreCompleteChecklistDialog({
   onOpenDirtyLinen,
   onOpenMinibar,
   loading = false,
+  showMinibar = true,
 }: PreCompleteChecklistDialogProps) {
   const { t } = useTranslation();
   const [linenChecked, setLinenChecked] = useState(false);
@@ -33,7 +35,7 @@ export function PreCompleteChecklistDialog({
     }
   }, [open]);
 
-  const canConfirm = linenChecked && minibarChecked && !loading;
+  const canConfirm = linenChecked && (!showMinibar || minibarChecked) && !loading;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !loading && onOpenChange(o)}>
@@ -80,7 +82,7 @@ export function PreCompleteChecklistDialog({
             </div>
           </label>
 
-          <label
+          {showMinibar && (<label
             className="flex items-start gap-3 rounded-xl border border-border bg-card p-4 cursor-pointer hover:bg-accent/30 transition-colors"
           >
             <Checkbox
@@ -107,7 +109,7 @@ export function PreCompleteChecklistDialog({
                 {t('preComplete.openMinibar')}
               </button>
             </div>
-          </label>
+          </label>)}
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2">

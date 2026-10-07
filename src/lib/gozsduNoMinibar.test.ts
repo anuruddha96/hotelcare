@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { isGozsduNoMinibarRoom, requiredDailyPhotoCategories } from './gozsduNoMinibar';
+import { isGozsduNoMinibarRoom, isNoMinibarOrganization, isNoMinibarRoom, requiredDailyPhotoCategories } from './gozsduNoMinibar';
 
-describe('Gozsdu-only minibar policy', () => {
+describe('housekeeping minibar policy', () => {
+  it('suppresses minibar for every SLNT venue without affecting RD properties', () => {
+    expect(isNoMinibarOrganization('slnt')).toBe(true);
+    expect(isNoMinibarOrganization('SLNT-GROUP')).toBe(true);
+    expect(isNoMinibarRoom('slnt', 'SLNT Group', 'slnt-group')).toBe(true);
+    expect(isNoMinibarRoom('slnt', 'SLNT Group', 'Silver Rooms')).toBe(true);
+    expect(requiredDailyPhotoCategories('SLNT Group', 'Silver Rooms', 'slnt'))
+      .toEqual(['trash_bin', 'bathroom', 'bed', 'tea_coffee_table']);
+    expect(isNoMinibarRoom('rdhotels', 'Hotel Memories Budapest', 'Hotel Memories Budapest')).toBe(false);
+  });
+
   it('matches exact property ID and display name aliases', () => {
     expect(isGozsduNoMinibarRoom('gozsdu-court', 'Gozsdu Court Budapest')).toBe(true);
     expect(isGozsduNoMinibarRoom('Gozsdu Court Budapest', 'gozsdu-court')).toBe(true);

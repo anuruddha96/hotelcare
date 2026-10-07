@@ -19,8 +19,9 @@ const STANDARD_DAILY_PHOTOS = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_c
 export function requiredDailyPhotoCategories(
   selectedHotel: string | null | undefined,
   roomHotel: string | null | undefined,
+  organizationSlug?: string | null,
 ): readonly string[] {
-  return isGozsduNoMinibarRoom(selectedHotel, roomHotel)
+  return isNoMinibarRoom(organizationSlug, selectedHotel, roomHotel)
     ? STANDARD_DAILY_PHOTOS.filter(category => category !== 'minibar')
     : STANDARD_DAILY_PHOTOS;
 }
