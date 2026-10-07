@@ -1015,6 +1015,9 @@ export async function runPmsRefresh(
               total_nights: guestTotalNights,
               linked_by: stayContinuity.continuousStay?.linkedBy,
               confidence: stayContinuity.continuousStay?.confidence,
+              original_arrival_date: stayContinuity.continuousStay?.originalArrivalDate ?? null,
+              final_departure_date: stayContinuity.continuousStay?.finalDepartureDate ?? null,
+              segments: stayContinuity.continuousStay?.segments ?? [],
             },
             false,
           );
@@ -1024,6 +1027,7 @@ export async function runPmsRefresh(
             {
               reservation_ids: previousIds,
               removed_reservation_ids: removedIds,
+              segments: existingMetadata?.continuousStay?.segments ?? [],
             },
             {
               reservation_ids: nextIds,
