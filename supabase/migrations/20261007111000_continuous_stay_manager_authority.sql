@@ -18,10 +18,7 @@ SECURITY DEFINER
 SET search_path = ''
 AS $function$
 BEGIN
-  IF lower(coalesce(_meta ->> 'pmsProvider', '')) = 'previo'
-     OR _meta ? 'pms_hotel_id'
-     OR _meta ? 'pms_account_id'
-  THEN
+  IF lower(coalesce(_meta ->> 'pmsProvider', '')) = 'previo' THEN
     RETURN true;
   END IF;
 
