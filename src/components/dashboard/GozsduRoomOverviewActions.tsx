@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { todayBudapest } from '@/lib/budapestTime';
 import { GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME, getGozsduHousekeepingCycle } from '@/lib/gozsdu-housekeeping';
@@ -28,11 +29,7 @@ type RoomRow = {
 type Assignment = { id: string; assigned_to: string; status: string; assignment_type: string };
 const HOTEL_KEYS = [GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME];
 const ROOM_SELECT = 'id,hotel,room_number,room_name,status,notes,room_type,floor_number,room_size_sqm,last_cleaned_at,last_cleaned_by,is_checkout_room,pms_metadata';
-const SECTION_NAMES: Array<{ bucket: GozsduRoomBucket; title: string }> = [
-  { bucket: 'checkout', title: 'Checkout' },
-  { bucket: 'service', title: 'Second-day cleaning' },
-  { bucket: 'other', title: 'Other rooms' },
-];
+const SECTION_BUCKETS: GozsduRoomBucket[] = ['checkout', 'service', 'other'];
 
 /** Gozsdu has distinct PMS display labels and internal room IDs. All click and
  * drag actions resolve the ID and stay within this property's live inventory.
@@ -40,6 +37,7 @@ const SECTION_NAMES: Array<{ bucket: GozsduRoomBucket; title: string }> = [
  * quick hub must not be attached, as it can select a different room. */
 export function GozsduRoomOverviewActions(props: Props) {
   const { user, profile } = useAuth();
+  const { t } = useTranslation();
   const role = String(profile?.role || '').toLowerCase();
   const canManage = hasManagerPowers(profile?.role) || role === 'supervisor';
   const canOpen = canManage || role === 'reception';
@@ -63,11 +61,25 @@ export function GozsduRoomOverviewActions(props: Props) {
     .filter(([id, name]) => !!id && !!name?.trim())
     .sort((a, b) => a[1].localeCompare(b[1]));
 
+  const sectionTitle = (value: GozsduRoomBucket) => value === 'checkout'
+    ? t('gozsdu.checkoutCleaning')
+    : value === 'service'
+      ? t('gozsdu.secondDayCleaning')
+      : t('gozsdu.otherNoService');
+
+  const roomStatusLabel = (value: string | null) => value === 'dirty'
+    ? t('gozsdu.statusDirty')
+    : value === 'out_of_order'
+      ? t('gozsdu.statusOutOfOrder')
+      : value === 'clean'
+        ? t('roomOverview.statusClean')
+        : value || t('gozsdu.statusUnknown');
+
   const openRoom = async (id: string, targetBucket: GozsduRoomBucket | null = null, targetStaff = 'keep') => {
     if (!canOpen || !id) return;
     const current = ++requestId.current;
     setRoom(null);
-    setLabel('Room');
+    setLabel(t('gozsdu.roomDialogTitle'));
     setBucket('');
     setStaffId('keep');
     setCurrentStaff(null);
@@ -238,7 +250,7 @@ export function GozsduRoomOverviewActions(props: Props) {
         });
       }
       toast.success(staffId === 'keep'
-        ? `Room ${label} moved to ${SECTION_NAMES.find(item => item.bucket === bucket)?.title}`
+        ? `Room ${label} moved to ${sectionTitle(bucket as GozsduRoomBucket)}`
         : `Room ${label} assigned to ${props.staffMap[staffId]} · ${bucket === 'checkout' ? 'Checkout' : service === 'change_room' ? 'Full cleaning / textile change' : 'Towel change'}`);
       setOpen(false);
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
@@ -271,23 +283,23 @@ export function GozsduRoomOverviewActions(props: Props) {
     <>
       <div onClickCapture={onChipClick} onDragOverCapture={onDragOver} onDropCapture={onDrop}
         onDragEndCapture={() => { lastDragEnded.current = Date.now(); setDropZone(null); }}>
-        {canEdit && <div className="mb-2 space-y-2 rounded-lg border border-primary/30 bg-muted/30 p-2" aria-label="Gozsdu room assignment controls">
-          <p className="text-xs text-muted-foreground">Drag a room into a cleaning section or onto a housekeeper below. For cleaning type and direct assignment, click its room chip. Dropping opens a confirmation before changes are saved.</p>
+        {canEdit && <div className="mb-2 space-y-2 rounded-lg border border-primary/30 bg-muted/30 p-2" aria-label={t('gozsdu.assignmentControlsAria')}>
+          <p className="text-xs text-muted-foreground">{t('gozsdu.assignmentControlsHelp')}</p>
           <div className="flex flex-wrap gap-1.5">
-            {SECTION_NAMES.map(item => <div key={item.bucket}
-              onDragOver={event => { if (Array.from(event.dataTransfer.types).some(type => type.toLowerCase() === 'roomid')) { event.preventDefault(); setDropZone(item.bucket); } }}
-              onDrop={event => { const payload = readRoomDragPayload(event); if (!payload) return; event.preventDefault(); event.stopPropagation(); setDropZone(null); void openRoom(payload.roomId, item.bucket); }}
-              className={`rounded-md border border-dashed px-2 py-1.5 text-xs font-medium transition-colors ${dropZone === item.bucket ? 'border-primary bg-primary/15 ring-2 ring-primary' : 'border-border bg-background'}`}>
-              Drop → {item.title}
+            {SECTION_BUCKETS.map(section => <div key={section}
+              onDragOver={event => { if (Array.from(event.dataTransfer.types).some(type => type.toLowerCase() === 'roomid')) { event.preventDefault(); setDropZone(section); } }}
+              onDrop={event => { const payload = readRoomDragPayload(event); if (!payload) return; event.preventDefault(); event.stopPropagation(); setDropZone(null); void openRoom(payload.roomId, section); }}
+              className={`rounded-md border border-dashed px-2 py-1.5 text-xs font-medium transition-colors ${dropZone === section ? 'border-primary bg-primary/15 ring-2 ring-primary' : 'border-border bg-background'}`}>
+              {t('gozsdu.dropRoomHere')} → {sectionTitle(section)}
             </div>)}
           </div>
           {availableStaff.length > 0 && <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">Assign to:</span>
+            <span className="text-xs text-muted-foreground">{t('gozsdu.assignTo')}</span>
             {availableStaff.map(([id, name]) => <div key={id}
               onDragOver={event => { if (Array.from(event.dataTransfer.types).some(type => type.toLowerCase() === 'roomid')) { event.preventDefault(); setDropZone(id); } }}
               onDrop={event => { const payload = readRoomDragPayload(event); if (!payload) return; event.preventDefault(); event.stopPropagation(); setDropZone(null); void openRoom(payload.roomId, null, id); }}
               className={`rounded-full border px-2 py-1 text-xs ${dropZone === id ? 'border-primary bg-primary/15 ring-2 ring-primary' : 'bg-background'}`}
-              title={`Drop a room here to assign to ${name}`}>{name}</div>)}
+              title={`${t('gozsdu.assignTo')} ${name}`}>{name}</div>)}
           </div>}
         </div>}
         <GozsduCourtRoomOverview {...props} />
@@ -295,61 +307,61 @@ export function GozsduRoomOverviewActions(props: Props) {
       <Dialog open={open} onOpenChange={next => { if (!next) requestId.current++; setOpen(next); }}>
         <DialogContent className="flex max-h-[94dvh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden p-0">
           <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 px-4 py-4 sm:px-5">
-            <DialogTitle>Room {label} · Gozsdu Court Budapest</DialogTitle>
+            <DialogTitle>{t('gozsdu.roomDialogTitle')} {label} · Gozsdu Court Budapest</DialogTitle>
             <p className="text-xs text-muted-foreground">{props.selectedDate}</p>
           </DialogHeader>
           <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
-            {loading ? <p className="text-sm text-muted-foreground">Loading room details…</p> : room ? (
+            {loading ? <p className="text-sm text-muted-foreground">{t('gozsdu.loadingRoomDetails')}</p> : room ? (
               <>
-                <section className="space-y-4 rounded-xl border border-primary/20 bg-muted/20 p-3 sm:p-4" aria-label="Gozsdu-specific cleaning plan">
+                <section className="space-y-4 rounded-xl border border-primary/20 bg-muted/20 p-3 sm:p-4" aria-label={t('gozsdu.cleaningPlan')}>
                   <div>
-                    <h3 className="font-semibold">Gozsdu cleaning plan</h3>
-                    <p className="text-xs text-muted-foreground">Room status: {room.status || 'Unknown'} · currently assigned: {currentStaff ? props.staffMap[currentStaff] || 'Existing housekeeper' : 'Unassigned'}</p>
+                    <h3 className="font-semibold">{t('gozsdu.cleaningPlan')}</h3>
+                    <p className="text-xs text-muted-foreground">{t('gozsdu.roomStatus')}: {roomStatusLabel(room.status)} · {t('gozsdu.currentlyAssigned')}: {currentStaff ? props.staffMap[currentStaff] || t('gozsdu.assignedHousekeeper') : t('gozsdu.unassigned')}</p>
                   </div>
-                  {locked && <p role="alert" className="rounded border border-amber-400 bg-amber-50 p-2 text-xs text-amber-900">Cleaning is already in progress or completed. Reassignment and cleaning-type changes are locked.</p>}
+                  {locked && <p role="alert" className="rounded border border-amber-400 bg-amber-50 p-2 text-xs text-amber-900">{t('gozsdu.cleaningLocked')}</p>}
                   {canEdit && !locked ? <>
-                    <label className="block space-y-1 text-sm font-medium">Cleaning section
+                    <label className="block space-y-1 text-sm font-medium">{t('gozsdu.cleaningSection')}
                       <Select value={bucket} onValueChange={value => setBucket(value as GozsduRoomBucket)}>
-                        <SelectTrigger><SelectValue placeholder="Choose a cleaning section" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={t('gozsdu.chooseCleaningSection')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="checkout">Checkout cleaning</SelectItem>
-                          <SelectItem value="service">Second-day cleaning</SelectItem>
-                          <SelectItem value="other">Other rooms — no service today</SelectItem>
+                          <SelectItem value="checkout">{t('gozsdu.checkoutCleaning')}</SelectItem>
+                          <SelectItem value="service">{t('gozsdu.secondDayCleaning')}</SelectItem>
+                          <SelectItem value="other">{t('gozsdu.otherNoService')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </label>
-                    {bucket === 'service' && <label className="block space-y-1 text-sm font-medium">Cleaning required
+                    {bucket === 'service' && <label className="block space-y-1 text-sm font-medium">{t('gozsdu.cleaningRequired')}
                       <Select value={service} onValueChange={value => setService(value as Service)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="towel_change">Towel change</SelectItem>
-                          <SelectItem value="change_room">Full cleaning / complete textile change</SelectItem>
+                          <SelectItem value="towel_change">{t('gozsdu.towelChange')}</SelectItem>
+                          <SelectItem value="change_room">{t('gozsdu.fullTextileChange')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </label>}
-                    <label className="block space-y-1 text-sm font-medium">Assign to housekeeper
+                    <label className="block space-y-1 text-sm font-medium">{t('gozsdu.assignHousekeeper')}
                       <Select value={staffId} onValueChange={setStaffId}>
-                        <SelectTrigger><SelectValue placeholder="Choose housekeeper" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={t('gozsdu.chooseHousekeeper')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="keep">{currentStaff ? 'Keep existing housekeeper' : 'Do not assign yet'}</SelectItem>
-                          {availableStaff.map(([id, name]) => <SelectItem key={id} value={id}>{name}{props.signedInHousekeepers?.some(person => person.id === id) ? ' · Signed in' : ''}</SelectItem>)}
+                          <SelectItem value="keep">{currentStaff ? t('gozsdu.keepExistingHousekeeper') : t('gozsdu.doNotAssignYet')}</SelectItem>
+                          {availableStaff.map(([id, name]) => <SelectItem key={id} value={id}>{name}{props.signedInHousekeepers?.some(person => person.id === id) ? ` · ${t('gozsdu.signedIn')}` : ''}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </label>
-                    <label className="block space-y-1 text-sm font-medium">Reason (optional)
-                      <Input value={reason} onChange={event => setReason(event.target.value)} maxLength={200} placeholder="e.g. Cleaning missed yesterday" />
+                    <label className="block space-y-1 text-sm font-medium">{t('gozsdu.reasonOptional')}
+                      <Input value={reason} onChange={event => setReason(event.target.value)} maxLength={200} placeholder={t('gozsdu.reasonPlaceholder')} />
                     </label>
-                    <p className="text-xs text-muted-foreground">Changes HotelCare's plan for this date only; never changes the Previo reservation or guest departure. Room assignments cannot be changed after cleaning starts.</p>
+                    <p className="text-xs text-muted-foreground">{t('gozsdu.planScopeHint')}</p>
                     <Button className="w-full" disabled={saving || !bucket || (bucket === 'other' && staffId !== 'keep')}
-                      onClick={() => void save()}>{saving ? 'Saving…' : staffId === 'keep' ? 'Save cleaning section' : 'Save & assign room'}</Button>
-                  </> : <p className="text-xs text-muted-foreground">Only authorized managers and supervisors can change the cleaning plan. Past dates remain read-only.</p>}
+                      onClick={() => void save()}>{saving ? t('gozsdu.saving') : staffId === 'keep' ? t('gozsdu.saveCleaningSection') : t('gozsdu.saveAssignRoom')}</Button>
+                  </> : <p className="text-xs text-muted-foreground">{t('gozsdu.managerOnlyHint')}</p>}
                 </section>
                 <GozsduRoomEssentials key={`${room.id}:${props.selectedDate}`} roomId={room.id}
                   roomLabel={label} selectedDate={props.selectedDate} serviceLabel={serviceLabel}
                   staffMap={props.staffMap} onChanged={() => { if (room?.id) void openRoom(room.id); }} />
-                <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setDetailsOpen(true); }}>Open full room details</Button>
+                <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setDetailsOpen(true); }}>{t('gozsdu.openFullRoomDetails')}</Button>
               </>
-            ) : <p className="text-sm text-muted-foreground">Room information is unavailable. Refresh the overview.</p>}
+            ) : <p className="text-sm text-muted-foreground">{t('gozsdu.roomUnavailable')}</p>}
           </div>
         </DialogContent>
       </Dialog>
