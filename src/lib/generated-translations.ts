@@ -109,7 +109,7 @@ export const generatedTranslations: Record<string, Record<string, string>> = {
     "cleanType.daily": "Napi takarítás",
     "cleanType.deep": "Nagytakarítás",
     "actions.photosRequired": "Szobafotók szükségesek",
-    "actions.photosRequiredMessage": "Szobafotókat kell készítenie, mielőtt befejezi ezt a napi takarítási feladatot. Kérjük, koppintson a „Szobafotók” gombra a szükséges fotók elkészítéséhez.",
+    "actions.photosRequiredMessage": "Készítsd el a hiányzó szobafotókat a befejezés előtt.",
     "actions.completeTask": "Feladat befejezése",
     "actions.completing": "Befejezés...",
     "actions.holdToComplete": "Tartsa lenyomva a befejezéshez",
