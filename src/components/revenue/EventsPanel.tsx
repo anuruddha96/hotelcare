@@ -105,6 +105,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EventEdit | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<SearchRun | null>(null);
 
 
@@ -393,6 +394,10 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     () => events.find((e) => e.id === selectedId) ?? null,
     [events, selectedId],
   );
+  const selectedDateEvents = useMemo(
+    () => selectedDate ? (eventsByDay[selectedDate] ?? []) : [],
+    [eventsByDay, selectedDate],
+  );
 
 
   return (
@@ -580,9 +585,23 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                     return (
                       <div
                         key={cell.date ?? `pad-${idx}`}
+                        role={cell.date ? "button" : undefined}
+                        tabIndex={cell.date ? 0 : undefined}
+                        aria-label={cell.date ? `Open ${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"} for ${cell.date}` : undefined}
+                        onClick={() => {
+                          if (!cell.date) return;
+                          setSelectedDate(cell.date);
+                          setSelectedId(null);
+                        }}
+                        onKeyDown={(ev) => {
+                          if (!cell.date || (ev.key !== "Enter" && ev.key !== " ")) return;
+                          ev.preventDefault();
+                          setSelectedDate(cell.date);
+                          setSelectedId(null);
+                        }}
                         className={`min-h-[84px] border-b border-r p-1 ${
-                          cell.date ? "" : "bg-muted/20"
-                        } ${cell.date === todayStr ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : ""}`}
+                          cell.date ? "cursor-pointer transition-colors hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/50" : "bg-muted/20"
+                        } ${cell.date === todayStr ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : ""} ${cell.date === selectedDate ? "bg-primary/10 ring-2 ring-inset ring-primary/50" : ""}`}
                       >
                         {cell.date && (
                           <>
@@ -599,7 +618,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                                 <button
                                   key={`${cell.date}-${e.id}`}
                                   type="button"
-                                  onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}
+                                  onClick={(ev) => { ev.stopPropagation(); setSelectedDate(cell.date); setSelectedId(e.id === selectedId ? null : e.id); }}
                                   title={`${e.title}${e.venue ? ` · ${e.venue}` : ""}`}
                                   className={`block w-full truncate rounded px-1 py-0.5 text-left text-[10px] leading-tight transition-colors hover:opacity-80 ${impactTone(e.expected_impact)} ${
                                     selectedId === e.id ? "ring-1 ring-primary" : ""
@@ -609,9 +628,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                                 </button>
                               ))}
                               {dayEvents.length > 3 && (
-                                <span className="block px-1 text-[10px] text-muted-foreground">
+                                <button
+                                  type="button"
+                                  onClick={(ev) => { ev.stopPropagation(); setSelectedDate(cell.date); setSelectedId(null); }}
+                                  className="block w-full px-1 text-left text-[10px] font-medium text-primary hover:underline"
+                                >
                                   +{dayEvents.length - 3} more
-                                </span>
+                                </button>
                               )}
                             </div>
                           </>
@@ -621,6 +644,49 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                   })}
                 </div>
               </div>
+
+              {selectedDate && !selectedEvent && (
+                <div className="rounded-lg border p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {new Date(`${selectedDate}T00:00:00Z`).toLocaleDateString(undefined, {
+                          timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
+                        })}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedDateEvents.length} event{selectedDateEvents.length === 1 ? "" : "s"} recorded
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => setSelectedDate(null)} aria-label="Close date events">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {selectedDateEvents.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No events recorded for this date.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {selectedDateEvents.map((e) => (
+                        <button
+                          key={e.id}
+                          type="button"
+                          onClick={() => setSelectedId(e.id)}
+                          className="flex w-full items-start justify-between gap-3 rounded-md border p-2 text-left hover:bg-muted/40"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">{e.title}</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {e.category}{e.venue ? ` · ${e.venue}` : ""} · {fmtDay(e.event_date)}
+                              {e.end_date ? ` – ${fmtDay(e.end_date)}` : ""}
+                            </span>
+                          </span>
+                          <Badge variant="secondary" className={impactTone(e.expected_impact)}>{e.expected_impact}</Badge>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {events.length === 0 && (
                 <p className="text-sm text-muted-foreground">
