@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,11 +10,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { format, endOfDay } from 'date-fns';
 import { Calendar as CalendarIcon, Package, Search, Eye, CheckCircle, Trash2, Plus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { LostAndFoundDialog } from './LostAndFoundDialog';
 import { useTranslation } from '@/hooks/useTranslation';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { isLostFoundItemVisibleInHotel, LOST_FOUND_UPDATED_EVENT } from '@/lib/lostFoundVisibility';
 
 interface LostAndFoundItem {
   id: string;
@@ -52,36 +54,15 @@ export function LostAndFoundManagement() {
   const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
   const canAddItems = hasManagerPowers(profile?.role);
 
-  useEffect(() => {
-    fetchLostAndFound();
-  }, [selectedDate]);
-
-  const fetchLostAndFound = async () => {
+  const fetchLostAndFound = useCallback(async () => {
     setLoading(true);
     try {
       const endDate = endOfDay(selectedDate);
       const userHotel = profile?.assigned_hotel;
 
-      // Resolve hotel name via hotel_configurations for proper matching
-      let resolvedHotelNames: string[] = [];
-      if (userHotel) {
-        const { data: hotelConfigs } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_id, hotel_name');
-        
-        if (hotelConfigs) {
-          const match = hotelConfigs.find(
-            c => c.hotel_id === userHotel || c.hotel_name === userHotel
-          );
-          if (match) {
-            resolvedHotelNames = [match.hotel_id, match.hotel_name].filter(Boolean);
-          } else {
-            resolvedHotelNames = [userHotel];
-          }
-        } else {
-          resolvedHotelNames = [userHotel];
-        }
-      }
+      const resolvedHotelNames = userHotel
+        ? await resolveHotelKeys(userHotel)
+        : [];
 
       // Fetch ALL uncollected items + date-filtered claimed items
       const { data, error } = await supabase
@@ -118,10 +99,17 @@ export function LostAndFoundManagement() {
       
       let filteredData = data || [];
 
-      // Filter by hotel
+      // Filter by the selected property without losing legacy manager-created
+      // rows. Room-linked items use the room hotel; roomless legacy rows are
+      // visible only to the reporter because the old schema has no property
+      // column for a safe shared-hotel match.
       if (resolvedHotelNames.length > 0) {
-        filteredData = filteredData.filter((item: any) => 
-          resolvedHotelNames.includes(item.rooms?.hotel)
+        filteredData = filteredData.filter((item: any) =>
+          isLostFoundItemVisibleInHotel(item, {
+            hotelKeys: resolvedHotelNames,
+            organizationSlug: profile?.organization_slug,
+            userId: user?.id,
+          }),
         );
       }
 
@@ -144,7 +132,37 @@ export function LostAndFoundManagement() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [profile?.assigned_hotel, profile?.organization_slug, selectedDate, user?.id]);
+
+  useEffect(() => {
+    void fetchLostAndFound();
+  }, [fetchLostAndFound]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refreshSoon = () => {
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void fetchLostAndFound(), 250);
+    };
+
+    window.addEventListener(LOST_FOUND_UPDATED_EVENT, refreshSoon);
+    const channel = supabase
+      .channel(`lost-found-management-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'lost_and_found' },
+        refreshSoon,
+      )
+      .subscribe();
+
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      window.removeEventListener(LOST_FOUND_UPDATED_EVENT, refreshSoon);
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchLostAndFound, user?.id]);
 
   const handleClaimItem = async () => {
     if (!selectedItem || !claimedBy.trim()) return;
