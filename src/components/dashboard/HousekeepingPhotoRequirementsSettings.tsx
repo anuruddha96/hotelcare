@@ -41,11 +41,10 @@ export function HousekeepingPhotoRequirementsSettings({
     let cancelled = false;
     setLoading(true);
     void (async () => {
-      const { data, error } = await (supabase as any)
-        .from('housekeeping_photo_requirements')
-        .select('category,sort_order')
-        .eq('hotel_configuration_id', hotelConfigurationId)
-        .order('sort_order');
+      const { data, error } = await (supabase as any).rpc(
+        'get_hotel_housekeeping_photo_requirements',
+        { p_hotel_configuration_id: hotelConfigurationId },
+      );
       if (cancelled) return;
       if (error) {
         console.warn('[HousekeepingPhotoRequirementsSettings] load failed', error);
