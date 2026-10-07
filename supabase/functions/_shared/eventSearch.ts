@@ -33,7 +33,9 @@ export const isDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? "")
 
 export function eventIdentityTitle(value: unknown): string {
   let normalized = clean(value, 300)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    .replace(/['’]s\b/g, "")
     .replace(/\b(?:19|20)\d{2}\b/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
