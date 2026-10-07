@@ -38,6 +38,17 @@ type DisplayNotice = RoomTypeNotice & {
   reservationCount?: number;
 };
 
+async function hotelUsesPrevio(hotelKeys: string[], metadata?: Record<string, unknown> | null): Promise<boolean> {
+  if (metadata?.pmsProvider === 'previo') return true;
+  const [configurationResult, accountResult] = await Promise.all([
+    supabase.from('pms_configurations').select('hotel_id,pms_type').in('hotel_id', hotelKeys).eq('pms_type', 'previo').limit(1),
+    supabase.from('pms_accounts').select('hotel_id,pms_type,is_active').in('hotel_id', hotelKeys).eq('pms_type', 'previo').eq('is_active', true).limit(1),
+  ]);
+  if (configurationResult.error) console.warn('Could not confirm Previo PMS configuration', configurationResult.error);
+  if (accountResult.error) console.warn('Could not confirm Previo PMS account', accountResult.error);
+  return !!configurationResult.data?.length || !!accountResult.data?.length;
+}
+
 /** Capture only room type changes; preserve housekeeper assignment and all other drag paths. */
 export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozsdu }: {
   children: React.ReactNode; selectedDate: string; hotelName: string; isGozsdu: boolean;
@@ -56,17 +67,19 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
       const keys = await resolveHotelKeys(hotelName);
       const { data, error } = await supabase.from('rooms')
         .select('id,hotel,room_number,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
-        .in('hotel', keys.length ? keys : [hotelName]);
+        .in('hotel', hotelKeys);
       if (error) throw error;
+      const hotelKeys = keys.length ? keys : [hotelName];
       const latest: DisplayNotice[] = [];
-      const isSlnt = (keys.length ? keys : [hotelName]).some(key =>
+      const isPrevioClient = await hotelUsesPrevio(hotelKeys);
+      const isSlnt = hotelKeys.some(key =>
         String(key).trim().toLowerCase() === 'slnt-group' || String(key).trim().toLowerCase().includes('slnt')
       );
       for (const room of data || []) {
         const meta = room.pms_metadata as any;
         const notice = meta?.roomTypeChangeNotice as RoomTypeNotice | undefined;
         if (notice?.date === selectedDate && (notice.to === 'checkout' || notice.to === 'daily')) {
-          const isPrevioRoom = meta?.pmsProvider === 'previo' || meta?.pms_hotel_id != null || meta?.pms_account_id != null;
+          const isPrevioRoom = isPrevioClient || meta?.pmsProvider === 'previo';
           latest.push({
             ...notice,
             ...(notice.to === 'daily' && !isGozsdu ? {
@@ -209,16 +222,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
       const isSlnt = hotelKeys.some(key =>
         String(key).trim().toLowerCase() === 'slnt-group' || String(key).trim().toLowerCase().includes('slnt')
       );
-      let isPrevioClient = meta.pmsProvider === 'previo' || meta.pms_hotel_id != null || meta.pms_account_id != null;
-      if (!isPrevioClient) {
-        const [configurationResult, accountResult] = await Promise.all([
-          supabase.from('pms_configurations').select('hotel_id,pms_type').in('hotel_id', hotelKeys).eq('pms_type', 'previo').limit(1),
-          supabase.from('pms_accounts').select('hotel_id,pms_type,is_active').in('hotel_id', hotelKeys).eq('pms_type', 'previo').eq('is_active', true).limit(1),
-        ]);
-        if (configurationResult.error) console.warn('Could not confirm Previo PMS configuration', configurationResult.error);
-        if (accountResult.error) console.warn('Could not confirm Previo PMS account', accountResult.error);
-        isPrevioClient = !!configurationResult.data?.length || !!accountResult.data?.length;
-      }
+      const isPrevioClient = await hotelUsesPrevio(hotelKeys, meta);
       const service = isGozsdu ? getGozsduHousekeepingCycle({
         currentNight: Number(meta.currentNight ?? 0), totalNights: Number(meta.totalNights ?? 0), isCheckout: false,
       }).service : 'none';
