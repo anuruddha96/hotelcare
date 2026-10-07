@@ -35,10 +35,12 @@ function positive(value: unknown): number {
 export function roomServiceLabel(input: {
   towelChangeRequired?: boolean | null;
   linenChangeRequired?: boolean | null;
+  routineDailyCleaning?: boolean;
 }): string {
+  const routineDailyCleaning = input.routineDailyCleaning !== false;
   if (input.linenChangeRequired) return 'Full Room Change';
-  if (input.towelChangeRequired) return 'Towel Change + Daily Cleaning';
-  return 'Normal Daily Cleaning';
+  if (input.towelChangeRequired) return routineDailyCleaning ? 'Towel Change + Daily Cleaning' : 'Towel Change';
+  return routineDailyCleaning ? 'Normal Daily Cleaning' : 'No scheduled stayover cleaning';
 }
 
 /** Remove old implementation/audit lines without touching human instructions. */
@@ -68,6 +70,7 @@ export function buildDirectRoomTypeNotice(input: {
   by: string;
   serviceLabel?: string | null;
   nightsStayed?: number | null;
+  continuousStayEnabled?: boolean;
 }): RoomTypeNotice {
   const { date, at, from, to, by } = input;
   if (to === 'checkout') {
@@ -79,6 +82,15 @@ export function buildDirectRoomTypeNotice(input: {
   }
   const serviceLabel = input.serviceLabel || 'Daily Cleaning';
   const nights = positive(input.nightsStayed);
+  if (input.continuousStayEnabled === false) {
+    return {
+      date, at, from, to, by,
+      serviceLabel,
+      nightsStayed: null,
+      managerConfirmed: true,
+      message: `Daily cleaning confirmed by ${by}. Required today: ${serviceLabel}.`,
+    };
+  }
   return {
     date, at, from, to, by,
     serviceLabel,
@@ -100,10 +112,14 @@ export function buildRoomTypeTransition(params: {
   gozsduPlan?: { bucket: 'checkout' | 'service' | 'other'; service: 'none' | 'towel_change' | 'change_room' };
   previousRoomNotes: string | null;
   serviceSnapshot?: RoomTypeServiceSnapshot;
+  continuousStayEnabled?: boolean;
+  routineDailyCleaning?: boolean;
 }): { metadata: Record<string, unknown>; note: string | null; notice: RoomTypeNotice; continuedNight: number | null } {
   const {
     metadata, target, date, actorId, actorName, nowIso,
     gozsduPlan, previousRoomNotes, serviceSnapshot,
+    continuousStayEnabled = true,
+    routineDailyCleaning = true,
   } = params;
   const old = metadata || {};
   const checkout = target === 'checkout';
@@ -144,7 +160,7 @@ export function buildRoomTypeTransition(params: {
   // more night than the completed checkout segment. This temporary open-ended
   // counter is replaced by the real continuous total as soon as Previo sends
   // the extension reservation.
-  const continuedNight = !checkout && priorCurrent
+  const continuedNight = continuousStayEnabled && !checkout && priorCurrent
     ? priorCurrent + 1
     : null;
   const provisionalTotal = continuedNight
@@ -160,8 +176,10 @@ export function buildRoomTypeTransition(params: {
     serviceLabel: checkout ? null : roomServiceLabel({
       towelChangeRequired: serviceSnapshot?.towelChangeRequired,
       linenChangeRequired: serviceSnapshot?.linenChangeRequired,
+      routineDailyCleaning,
     }),
-    nightsStayed: continuedNight ?? priorCurrent,
+    nightsStayed: continuousStayEnabled ? (continuedNight ?? priorCurrent) : null,
+    continuousStayEnabled,
   });
 
   const next: Record<string, unknown> = {
@@ -192,7 +210,7 @@ export function buildRoomTypeTransition(params: {
           stayThroughToday: true,
           ...(continuedNight ? { currentNight: continuedNight } : {}),
           ...(provisionalTotal ? { totalNights: provisionalTotal } : {}),
-          extensionServiceSnapshot: reuseSameDaySnapshot
+          ...(continuousStayEnabled ? { extensionServiceSnapshot: reuseSameDaySnapshot
             ? {
                 ...priorSnapshot,
                 capturedAt: priorSnapshot?.capturedAt ?? nowIso,
@@ -213,7 +231,7 @@ export function buildRoomTypeTransition(params: {
                 totalNights: positive(serviceSnapshot?.totalNights) || priorTotal || null,
                 towelChangeRequired: serviceSnapshot?.towelChangeRequired === true,
                 linenChangeRequired: serviceSnapshot?.linenChangeRequired === true,
-              },
+              } } : {}),
         }),
   };
 
