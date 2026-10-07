@@ -138,18 +138,28 @@ export async function searchEvents(opts: {
 
   const { data: existing } = await admin
     .from("demand_events")
-    .select("title, event_date, end_date, recurs_annually")
+    .select("title, event_date, end_date, recurs_annually, url, approved")
     .ilike("city", city)
     .ilike("country", country)
     .limit(5000);
 
-  const known = (existing ?? []) as Array<{ title: string; event_date: string; end_date: string | null; recurs_annually: boolean }>;
+  const known = (existing ?? []) as Array<{
+    title: string;
+    event_date: string;
+    end_date: string | null;
+    recurs_annually: boolean;
+    url: string | null;
+    approved: boolean;
+  }>;
 
   /** Same event when the titles match and the date ranges touch (or it recurs in the same month/day). */
   const isKnown = (title: string, from: string, to: string | null) => {
     const key = normTitle(title);
     const a1 = from, a2 = to ?? from;
     return known.some((k) => {
+      // Legacy rows without a source are deliberately not treated as known.
+      // A fresh verified search must be allowed to repair/replace them.
+      if (!k.approved || !normalizeSourceUrl(k.url)) return false;
       if (normTitle(k.title) !== key) return false;
       if (k.recurs_annually) return k.event_date.slice(5, 7) === from.slice(5, 7);
       const b1 = k.event_date, b2 = k.end_date ?? k.event_date;
