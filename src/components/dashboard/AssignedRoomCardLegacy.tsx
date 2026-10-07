@@ -55,6 +55,7 @@ import { todayBudapest } from '@/lib/budapestTime';
 import { isGozsduNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
 import {
   effectiveCarryServiceFlags,
+  getCarryForwardHousekeeperCopy,
   getHousekeepingCarryForward,
   isPortfolioCarryForwardHotel,
 } from '@/lib/housekeepingCarryForward';
@@ -158,6 +159,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const canUseDnd = !isCheckoutClean && assignment.assignment_type === 'daily_cleaning';
   const portfolioCarry = !isCheckoutClean && isPortfolioCarryForwardHotel(assignment.rooms?.hotel)
     ? getHousekeepingCarryForward(assignment.previous_day_context)
+    : null;
+  const portfolioCarryCopy = portfolioCarry
+    ? getCarryForwardHousekeeperCopy(portfolioCarry)
     : null;
   const effectiveService = effectiveCarryServiceFlags({
     towelChangeRequired: assignment.rooms?.towel_change_required,
@@ -1053,27 +1057,30 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       {/* === SPECIAL INSTRUCTIONS — Between header and content === */}
       {hasSpecialInstructions && (
         <div data-training="room-special-instructions" className="px-6 pb-2 space-y-2">
-          {portfolioCarry && (
+          {portfolioCarry && portfolioCarryCopy && (
             <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-600 rounded-lg shadow-sm">
               <div className="flex items-start gap-2">
-                <History className="h-4 w-4 text-amber-700 dark:text-amber-300 mt-0.5 flex-shrink-0" />
+                <span className="text-lg leading-none" aria-hidden="true">{portfolioCarryCopy.icon}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide">
-                    Carried service from yesterday · {portfolioCarry.sourceBusinessDate}
-                  </p>
-                  <p className="text-sm text-amber-950 dark:text-amber-100 font-semibold mt-1 whitespace-pre-wrap break-words">
-                    {translatedCarryNote || portfolioCarry.instruction}
-                  </p>
-                  {portfolioCarry.attemptCount > 1 && (
-                    <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
-                      Outstanding since {portfolioCarry.originalDueDate} · attempt {portfolioCarry.attemptCount}
+                  {translatedCarryNote ? (
+                    <p className="text-sm text-amber-950 dark:text-amber-100 font-bold whitespace-pre-wrap break-words">
+                      {translatedCarryNote}
                     </p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-bold text-amber-950 dark:text-amber-100">
+                        {portfolioCarryCopy.action}
+                      </p>
+                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mt-0.5">
+                        {portfolioCarryCopy.reason}
+                      </p>
+                    </>
                   )}
                   {!translatedCarryNote && (
                     <button
                       type="button"
                       className="mt-1.5 flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 font-medium"
-                      onClick={() => handleTranslateNote(portfolioCarry.instruction, setTranslatedCarryNote)}
+                      onClick={() => handleTranslateNote(portfolioCarryCopy.message, setTranslatedCarryNote)}
                       disabled={translating}
                     >
                       {translating ? <LucideLoader className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
@@ -1900,10 +1907,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               {t('housekeeping.warningExplanation') || 'This room has special instructions that require your attention before cleaning:'}
             </p>
             <ul className="space-y-2 text-sm">
-              {portfolioCarry && (
+              {portfolioCarry && portfolioCarryCopy && (
                 <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
-                  <span>↪️</span>
-                  <span>{translatedCarryNote || portfolioCarry.instruction}</span>
+                  <span>{portfolioCarryCopy.icon}</span>
+                  <span>{translatedCarryNote || portfolioCarryCopy.message}</span>
                 </li>
               )}
               {showTowelChange && (
