@@ -7,15 +7,22 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { ArrowLeft, ArrowRight, Bath, Bed, Camera, Check, CheckCircle, Coffee, ImagePlus, RotateCcw, SkipForward, Trash2, Upload, Wine, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, CheckCircle, ImagePlus, RotateCcw, SkipForward, Upload, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { isNoMinibarRoom } from '@/lib/gozsduNoMinibar';
+import { isNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
+import {
+  HOUSEKEEPING_PHOTO_CATALOG,
+  getHousekeepingPhotoCategory,
+  getHousekeepingPhotoLabel,
+  isHousekeepingPhotoCategory,
+  type HousekeepingPhotoCategory,
+} from '@/lib/housekeepingPhotoRequirements';
 
-type Category = 'bed' | 'tea_coffee_table' | 'bathroom' | 'trash_bin' | 'minibar';
+type Category = HousekeepingPhotoCategory;
 type SkipReason = 'guest_limited_service' | 'guest_present_privacy' | 'area_not_serviced' | 'not_applicable' | 'no_access' | 'other';
 type Language = 'en' | 'hu' | 'vi' | 'mn' | 'es';
 interface Props {
@@ -24,19 +31,13 @@ interface Props {
   roomNumber: string;
   hotel?: string;
   assignmentId?: string;
-  onPhotoCaptured?: () => void;
+  onPhotoCaptured?: () => void | Promise<void>;
+  completionIntent?: boolean;
+  onRequestComplete?: () => void;
 }
 
-// The order follows how staff walk through the room. Keys and filenames are
-// unchanged: existing photos, completion validation and supervisor evidence
-// continue to use the same five categories.
-const ALL_STEPS = [
-  { key: 'bed', translation: 'photoCategory.bed', icon: Bed },
-  { key: 'tea_coffee_table', translation: 'photoCategory.teaCoffeeTable', icon: Coffee },
-  { key: 'bathroom', translation: 'photoCategory.bathroom', icon: Bath },
-  { key: 'trash_bin', translation: 'photoCategory.trashBin', icon: Trash2 },
-  { key: 'minibar', translation: 'photoCategory.minibar', icon: Wine },
-] as const;
+// The filenames remain category-key based so existing evidence stays valid.
+const ALL_STEPS = HOUSEKEEPING_PHOTO_CATALOG;
 const REASONS: SkipReason[] = ['guest_limited_service', 'guest_present_privacy', 'area_not_serviced', 'not_applicable', 'no_access', 'other'];
 const LIMITED = '[LIMITED_SERVICE]';
 const DETAIL = '[LIMITED_SERVICE_DETAIL]';
@@ -68,7 +69,16 @@ const stripLimited = (value: string) => value.split('\n').filter(line => !line.i
 const limitedMarker = `${NON_FULL_CLEAN} ${LIMITED} Limited stayover service — not a full room clean. Skipped photo sections are recorded as evidence cards.`;
 
 /** Single-card mobile stepper; all evidence remains assignment-scoped and immediately saved. */
-export function GuidedRoomPhotoCapture({ open, onOpenChange, roomNumber, hotel, assignmentId, onPhotoCaptured }: Props) {
+export function GuidedRoomPhotoCapture({
+  open,
+  onOpenChange,
+  roomNumber,
+  hotel,
+  assignmentId,
+  onPhotoCaptured,
+  completionIntent = false,
+  onRequestComplete,
+}: Props) {
   const { user, profile } = useAuth();
   const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, hotel);
   // The guest-facing minibar category does not exist at Gozsdu or SLNT.
