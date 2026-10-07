@@ -30,7 +30,13 @@ type AssignmentRow = {
   id: string; status: string; assignment_type: string;
   ready_to_clean: boolean | null; notes: string | null;
 };
-type DisplayNotice = RoomTypeNotice & { roomId: string; roomNumber: string };
+type DisplayNotice = RoomTypeNotice & {
+  roomId: string;
+  roomNumber: string;
+  previousReservationNights?: number | null;
+  continuousTotalNights?: number | null;
+  reservationCount?: number;
+};
 
 /** Capture only room type changes; preserve housekeeper assignment and all other drag paths. */
 export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozsdu }: {
@@ -66,6 +72,11 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
               }),
               nightsStayed: Number(meta?.continuousStay?.currentNight ?? room.guest_nights_stayed ?? meta?.currentNight ?? notice.nightsStayed ?? 0) || null,
             } : {}),
+            previousReservationNights: Number(meta?.extensionServiceSnapshot?.guestNightsStayed ?? 0) || null,
+            continuousTotalNights: Number(meta?.continuousStay?.totalNights ?? meta?.totalNights ?? 0) || null,
+            reservationCount: Array.isArray(meta?.continuousStay?.reservationIds)
+              ? meta.continuousStay.reservationIds.length
+              : 0,
             roomId: room.id,
             roomNumber: room.room_number,
           });
@@ -358,7 +369,14 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
               <span className="font-semibold">Room {notice.roomNumber} · {notice.to === 'daily' ? 'Guest staying · Daily' : 'Checkout cleaning'}</span>
               {' · '}{notice.by} · {new Date(notice.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {notice.to === 'daily'
-                ? ` · Required today: ${notice.serviceLabel || 'Daily Cleaning'}${notice.nightsStayed ? ` · Stay so far: ${notice.nightsStayed} nights` : ''}`
+                ? <>
+                    {` · Required today: ${notice.serviceLabel || 'Daily Cleaning'}`}
+                    {notice.previousReservationNights ? ` · Previous reservation: ${notice.previousReservationNights} nights` : ''}
+                    {notice.nightsStayed
+                      ? ` · Continuous stay: night ${notice.nightsStayed}${notice.continuousTotalNights && notice.continuousTotalNights >= notice.nightsStayed ? `/${notice.continuousTotalNights}` : ''}`
+                      : ''}
+                    {notice.reservationCount && notice.reservationCount > 1 ? ` · ${notice.reservationCount} linked reservations` : ''}
+                  </>
                 : ' · Wait for Guest Checked Out before entry.'}
             </p>
           ))}
