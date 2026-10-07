@@ -159,6 +159,128 @@ describe('continuous stay reconciliation', () => {
     expect(result.continuousStay?.reservationIds).not.toContain('B');
   });
 
+
+  it('lets a manager bridge an ambiguous same-room arrival when the PMS name/id changed', () => {
+    const result = reconcileContinuousStay({
+      ...base,
+      manualDailyOverride: true,
+      storedGuestNights: 5,
+      existingMetadata: {
+        extensionServiceSnapshot: {
+          managerConfirmedDate: '2026-10-07',
+          reservationId: 'A',
+          arrivalDate: '2026-10-02',
+          departureDate: '2026-10-07',
+          guestNightsStayed: 5,
+          currentNight: 5,
+          totalNights: 5,
+        },
+      },
+      row: {
+        ReservationId: 'A',
+        ArrivalDate: '2026-10-02',
+        DepartureDate: '2026-10-07',
+        CurrentNight: 5,
+        TotalNights: 5,
+        ContinuousStayCurrentNight: 5,
+        ContinuousStayTotalNights: 5,
+        ContinuousStayOriginalArrival: '2026-10-02',
+        ContinuousStayFinalDeparture: '2026-10-07',
+        ContinuousStayReservationIds: ['A'],
+        ContinuousStaySegmentCount: 1,
+        SameDayTurnover: true,
+        SameDayTurnoverConfidence: 'ambiguous',
+        NextArrivalReservationId: 'B',
+        NextArrivalArrivalDate: '2026-10-07',
+        NextArrivalDepartureDate: '2026-10-10',
+      },
+    });
+    expect(result.managerConfirmedContinuation).toBe(true);
+    expect(result.linkedExtension).toBe(true);
+    expect(result.currentNight).toBe(6);
+    expect(result.totalNights).toBe(8);
+    expect(result.continuousStay?.reservationIds).toEqual(['A', 'B']);
+  });
+
+  it('cancels a manual stayover bridge when Previo proves a different guest turnover', () => {
+    const result = reconcileContinuousStay({
+      ...base,
+      manualDailyOverride: true,
+      storedGuestNights: 5,
+      existingMetadata: {
+        extensionServiceSnapshot: {
+          managerConfirmedDate: '2026-10-07',
+          reservationId: 'A',
+          guestFingerprint: 'guest-old',
+          guestIdentityStrength: 'strong',
+          departureDate: '2026-10-07',
+          guestNightsStayed: 5,
+        },
+      },
+      row: {
+        ReservationId: 'A',
+        GuestFingerprint: 'guest-old',
+        GuestIdentityStrength: 'strong',
+        ArrivalDate: '2026-10-02',
+        DepartureDate: '2026-10-07',
+        CurrentNight: 5,
+        TotalNights: 5,
+        ContinuousStayCurrentNight: 5,
+        ContinuousStayTotalNights: 5,
+        ContinuousStayOriginalArrival: '2026-10-02',
+        ContinuousStayFinalDeparture: '2026-10-07',
+        ContinuousStayReservationIds: ['A'],
+        ContinuousStaySegmentCount: 1,
+        SameDayTurnover: true,
+        SameDayTurnoverConfidence: 'strong',
+        NextArrivalReservationId: 'B',
+        NextArrivalGuestFingerprint: 'guest-new',
+        NextArrivalGuestIdentityStrength: 'strong',
+        NextArrivalArrivalDate: '2026-10-07',
+        NextArrivalDepartureDate: '2026-10-10',
+      },
+    });
+    expect(result.resetForDifferentGuest).toBe(true);
+    expect(result.managerConfirmedContinuation).toBe(false);
+    expect(result.currentNight).toBe(5);
+    expect(result.continuousStay?.reservationIds).toEqual(['A']);
+  });
+
+  it('does not let a single edge checkout snapshot erase a same-day manager continuation', () => {
+    const result = reconcileContinuousStay({
+      ...base,
+      manualDailyOverride: true,
+      storedGuestNights: 5,
+      existingMetadata: {
+        extensionServiceSnapshot: {
+          managerConfirmedDate: '2026-10-07',
+          reservationId: 'A',
+          arrivalDate: '2026-10-02',
+          departureDate: '2026-10-07',
+          guestNightsStayed: 5,
+          currentNight: 5,
+          totalNights: 5,
+        },
+      },
+      row: {
+        ReservationId: 'A',
+        ArrivalDate: '2026-10-02',
+        DepartureDate: '2026-10-07',
+        CurrentNight: 5,
+        TotalNights: 5,
+        ContinuousStayCurrentNight: 5,
+        ContinuousStayTotalNights: 5,
+        ContinuousStayOriginalArrival: '2026-10-02',
+        ContinuousStayFinalDeparture: '2026-10-07',
+        ContinuousStayReservationIds: ['A'],
+        ContinuousStaySegmentCount: 1,
+      },
+    });
+    expect(result.currentNight).toBe(6);
+    expect(result.totalNights).toBe(6);
+    expect(result.managerConfirmedContinuation).toBe(true);
+  });
+
   it('does not double count the same reservation on repeated PMS refreshes', () => {
     const result = reconcileContinuousStay({
       ...base,
