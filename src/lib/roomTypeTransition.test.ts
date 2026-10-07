@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDirectRoomTypeNotice,
   buildRoomTypeTransition,
+  roomServiceLabel,
   stripRoomTypeSystemNotes,
 } from './roomTypeTransition';
 import { GOZSDU_ROOM_OVERRIDE_KEY, readGozsduRoomOverride } from './gozsduRoomBucketOverride';
@@ -169,6 +170,35 @@ describe('authoritative manager room type changes', () => {
     expect(notice.message).toBe(
       'Guest staying — Daily service. Changed from Checkout to Daily by Éva. Required today: Full Room Change. Stay so far: 6 nights.',
     );
+  });
+
+  it('does not create continuous-stay counters when the hotel is not on Previo', () => {
+    const result = buildRoomTypeTransition({
+      ...input,
+      target: 'daily',
+      continuousStayEnabled: false,
+      metadata: { currentNight: 5, totalNights: 5 },
+      serviceSnapshot: { guestNightsStayed: 5, currentNight: 5, totalNights: 5 },
+    });
+    expect(result.continuedNight).toBeNull();
+    expect(result.metadata.extensionServiceSnapshot).toBeUndefined();
+    expect(result.metadata.currentNight).toBe(5);
+    expect(result.notice.nightsStayed).toBeNull();
+    expect(result.notice.message).toContain('Daily cleaning confirmed');
+    expect(result.notice.message).not.toContain('Guest staying');
+  });
+
+  it('shows SLNT-style stayover service without inventing routine daily cleaning', () => {
+    expect(roomServiceLabel({
+      towelChangeRequired: false,
+      linenChangeRequired: false,
+      routineDailyCleaning: false,
+    })).toBe('No scheduled stayover cleaning');
+    expect(roomServiceLabel({
+      towelChangeRequired: true,
+      linenChangeRequired: false,
+      routineDailyCleaning: false,
+    })).toBe('Towel Change');
   });
 
   it('removes only system room-type lines', () => {
