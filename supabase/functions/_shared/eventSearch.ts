@@ -204,17 +204,20 @@ export async function searchEvents(opts: {
   }>;
 
   /** Same event when the titles match and the date ranges touch (or it recurs in the same month/day). */
-  const isKnown = (title: string, from: string, to: string | null) => {
+  const isKnown = (title: string, from: string, to: string | null, sourceUrl?: string | null) => {
     const key = eventIdentityTitle(title);
+    const normalizedSource = normalizeSourceUrl(sourceUrl);
     const a1 = from, a2 = to ?? from;
     return known.some((k) => {
       // Legacy rows without a source are deliberately not treated as known.
       // A fresh verified search must be allowed to repair/replace them.
       if (!k.approved || !normalizeSourceUrl(k.url)) return false;
-      if (eventIdentityTitle(k.title) !== key) return false;
-      if (k.recurs_annually) return k.event_date.slice(5, 7) === from.slice(5, 7);
+      if (k.recurs_annually && k.event_date.slice(5, 7) !== from.slice(5, 7)) return false;
       const b1 = k.event_date, b2 = k.end_date ?? k.event_date;
-      return a1 <= b2 && b1 <= a2;
+      const overlaps = a1 <= b2 && b1 <= a2;
+      if (!overlaps) return false;
+      if (eventIdentityTitle(k.title) === key) return true;
+      return normalizedSource !== null && normalizeSourceUrl(k.url) === normalizedSource;
     });
   };
 
@@ -367,7 +370,7 @@ export async function searchEvents(opts: {
 
   return {
     all,
-    duplicates: all.filter((c) => isKnown(c.title, c.event_date, c.end_date)),
-    candidates: all.filter((c) => !isKnown(c.title, c.event_date, c.end_date)),
+    duplicates: all.filter((c) => isKnown(c.title, c.event_date, c.end_date, c.url)),
+    candidates: all.filter((c) => !isKnown(c.title, c.event_date, c.end_date, c.url)),
   };
 }
