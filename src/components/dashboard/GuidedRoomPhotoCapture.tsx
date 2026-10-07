@@ -92,7 +92,7 @@ export function GuidedRoomPhotoCapture({
       .filter((step): step is NonNullable<typeof step> => !!step),
     [configuredCategories],
   );
-  const { t, language } = useTranslation();
+  const { language } = useTranslation();
   const locale: Language = language === 'hu' || language === 'vi' || language === 'mn' || language === 'es' ? language : 'en';
   const copy = TEXT[locale];
   const labels = REASON_LABELS[locale];
