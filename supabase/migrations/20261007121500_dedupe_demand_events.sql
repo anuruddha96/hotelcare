@@ -7,11 +7,16 @@ returns text
 language sql
 immutable
 parallel safe
-as $$
+as $
   select trim(
     regexp_replace(
       regexp_replace(
-        lower(coalesce(p_title, '')),
+        regexp_replace(
+          translate(lower(coalesce(p_title, '')), 'áéíóöőúüű', 'aeiooouuu'),
+          '[''’]s\M',
+          '',
+          'g'
+        ),
         '\m(19|20)[0-9]{2}\M',
         '',
         'g'
@@ -21,22 +26,89 @@ as $$
       'g'
     )
   )
-$$;
+$;
 
--- Known spelling variants that should share one identity.
+-- Known spelling variants and harmless label suffixes share one identity.
 create or replace function public.demand_event_identity_title_key(p_title text)
 returns text
 language sql
 immutable
 parallel safe
-as $$
-  select case public.demand_event_title_key(p_title)
+as $
+  with base as (
+    select trim(
+      regexp_replace(
+        public.demand_event_title_key(p_title),
+        '\s+(concert|event|performances?)
+
+-- First remove legacy rows that can no longer be displayed safely.
+update public.demand_events
+set approved = false, updated_at = now()
+where approved = true
+  and (url is null or btrim(url) = '' or url !~* '^https?://');
+
+-- Collapse exact/safe semantic duplicates. Prefer official/verified/manual
+-- sources, then stronger confidence, then the most recently maintained row.
+with ranked as (
+  select
+    id,
+    row_number() over (
+      partition by
+        organization_slug,
+        lower(trim(country)),
+        lower(trim(city)),
+        event_date,
+        coalesce(end_date, event_date),
+        public.demand_event_identity_title_key(title)
+      order by
+        case
+          when source = 'verified_official' then 0
+          when source = 'manual' then 1
+          when url ~* '(formula1|uefa|mupa|opera|hungexpo|budapestinfo|durerkert|mvm-dome)' then 2
+          when source = 'ai_auto' then 3
+          else 4
+        end,
+        confidence desc nulls last,
+        updated_at desc,
+        created_at desc,
+        id
+    ) as rn
+  from public.demand_events
+  where approved = true
+)
+update public.demand_events d
+set approved = false, updated_at = now()
+from ranked r
+where d.id = r.id and r.rn > 1;
+
+-- A partial unique index keeps historical/unapproved rows for audit while
+-- making it impossible for the live calendar to accumulate duplicates again.
+drop index if exists public.demand_events_approved_identity_unique;
+create unique index demand_events_approved_identity_unique
+on public.demand_events (
+  organization_slug,
+  lower(trim(country)),
+  lower(trim(city)),
+  event_date,
+  coalesce(end_date, event_date),
+  public.demand_event_identity_title_key(title)
+)
+where approved = true;
+
+comment on index public.demand_events_approved_identity_unique is
+  'Prevents duplicate approved demand events after title/date normalization.';
+,
+        '',
+        'g'
+      )
+    ) as value
+  )
+  select case value
     when 'labor day' then 'labour day'
-    when 'berlioz symphonie fantastique concert' then 'berlioz symphonie fantastique'
-    when 'mefistofele opera performances' then 'mefistofele'
-    else public.demand_event_title_key(p_title)
+    else value
   end
-$$;
+  from base
+$;
 
 -- First remove legacy rows that can no longer be displayed safely.
 update public.demand_events
