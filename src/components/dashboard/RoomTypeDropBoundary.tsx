@@ -306,7 +306,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
       void loadNotices();
       toast.success(change.to === 'daily'
-        ? `Room ${room.room_number}: guest staying · ${finalServiceLabel || 'Daily Cleaning'}.`
+        ? `Room ${room.room_number}: guest staying · ${finalServiceLabel || 'Daily service'}.`
         : `Room ${room.room_number} changed to Checkout cleaning.`);
       void supabase.from('pms_change_events').insert({
         hotel_id: room.hotel, room_id: room.id, room_label: room.room_number,
@@ -370,7 +370,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
               {' · '}{notice.by} · {new Date(notice.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {notice.to === 'daily'
                 ? <>
-                    {` · Required today: ${notice.serviceLabel || 'Daily Cleaning'}`}
+                    {` · Required today: ${notice.serviceLabel || 'Daily service'}`}
                     {notice.previousReservationNights ? ` · Previous reservation: ${notice.previousReservationNights} nights` : ''}
                     {notice.nightsStayed
                       ? ` · Continuous stay: night ${notice.nightsStayed}${notice.continuousTotalNights && notice.continuousTotalNights >= notice.nightsStayed ? `/${notice.continuousTotalNights}` : ''}`
