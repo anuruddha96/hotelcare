@@ -209,7 +209,7 @@ export function buildRoomTypeTransition(params: {
           occupiedToday: true,
           stayThroughToday: true,
           ...(continuedNight ? { currentNight: continuedNight } : {}),
-          ...(provisionalTotal ? { totalNights: provisionalTotal } : {}),
+          ...(continuousStayEnabled && provisionalTotal ? { totalNights: provisionalTotal } : {}),
           ...(continuousStayEnabled ? { extensionServiceSnapshot: reuseSameDaySnapshot
             ? {
                 ...priorSnapshot,
