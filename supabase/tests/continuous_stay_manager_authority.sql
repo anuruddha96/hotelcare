@@ -2,7 +2,7 @@
 DO $test$
 DECLARE
   work_day date := (now() AT TIME ZONE 'Europe/Budapest')::date;
-  room_id uuid := '77777777-7777-4777-8777-777777777777';
+  target_room_id uuid := '77777777-7777-4777-8777-777777777777';
   r public.rooms%ROWTYPE;
   review public.housekeeping_stay_extension_reviews%ROWTYPE;
 BEGIN
@@ -11,7 +11,7 @@ BEGIN
   INSERT INTO public.rooms(
     id, hotel, organization_slug, is_checkout_room, guest_nights_stayed, pms_metadata
   ) VALUES (
-    room_id,
+    target_room_id,
     'Hotel Memories Budapest',
     'rdhotels',
     true,
@@ -47,11 +47,11 @@ BEGIN
           'scheduledDepartureToday', false,
           'checkedOutToday', false
         )
-  WHERE id = room_id;
+  WHERE id = target_room_id;
 
   SELECT * INTO review
   FROM public.housekeeping_stay_extension_reviews
-  WHERE room_id = room_id;
+  WHERE room_id = target_room_id;
 
   IF review.id IS NULL THEN
     RAISE EXCEPTION 'Manager-confirmed provisional extension review was not recorded';
@@ -72,11 +72,11 @@ BEGIN
           'occupiedToday', true,
           'stayThroughToday', true
         )
-  WHERE id = room_id;
+  WHERE id = target_room_id;
 
   SELECT * INTO review
   FROM public.housekeeping_stay_extension_reviews
-  WHERE room_id = room_id;
+  WHERE room_id = target_room_id;
 
   IF review.identity_status <> 'verified' OR review.status <> 'acknowledged'
      OR review.planned_nights <> 7 THEN
@@ -98,9 +98,9 @@ BEGIN
         'manualOverrideResetReason', 'definitive_new_guest',
         'manualOverrideResetAt', now()::text
       )
-  WHERE id = room_id;
+  WHERE id = target_room_id;
 
-  SELECT * INTO r FROM public.rooms WHERE id = room_id;
+  SELECT * INTO r FROM public.rooms WHERE id = target_room_id;
   IF NOT r.is_checkout_room THEN
     RAISE EXCEPTION 'Verified different-guest turnover could not restore checkout';
   END IF;
