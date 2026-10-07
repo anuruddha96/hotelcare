@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   effectiveCarryServiceFlags,
+  getCarryForwardHousekeeperCopy,
+  getCarryForwardManagerCopy,
   getHousekeepingCarryForward,
   isPortfolioCarryForwardHotel,
 } from './housekeepingCarryForward';
@@ -38,6 +40,33 @@ describe('portfolio housekeeping carry-forward', () => {
       attemptCount: 2,
       policySource: 'gozsdu_property_cycle',
       instruction: 'Complete Textile Change remains outstanding.',
+    });
+  });
+
+  it('turns carry lineage into short housekeeper and manager copy', () => {
+    const carry = getHousekeepingCarryForward({
+      carry_forward: {
+        active: true,
+        property_id: 'mika-downtown',
+        source_business_date: '2026-10-06',
+        original_due_date: '2026-10-05',
+        service_type: 'towel_change',
+        reason: 'dnd',
+        attempt_count: 2,
+      },
+    });
+    expect(carry).not.toBeNull();
+    expect(getCarryForwardHousekeeperCopy(carry!)).toEqual({
+      action: 'Towel change today',
+      reason: 'Missed yesterday — DND',
+      message: 'Towel change today. Missed yesterday — DND.',
+      icon: '🧺',
+    });
+    expect(getCarryForwardManagerCopy(carry!)).toEqual({
+      action: 'Towel change today',
+      summary: 'Towel change carried from 2026-10-06 · DND',
+      detail: 'Originally due 2026-10-05 · attempt 2',
+      reasonLabel: 'DND',
     });
   });
 
