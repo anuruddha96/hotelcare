@@ -186,6 +186,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       .eq("organization_slug", slug)
       .ilike("city", marketCity)
       .ilike("country", marketCountry)
+      .eq("approved", true)
       .order("event_date", { ascending: true })
       .limit(1000);
 
