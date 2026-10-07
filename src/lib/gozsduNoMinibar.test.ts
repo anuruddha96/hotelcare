@@ -8,7 +8,7 @@ describe('housekeeping minibar policy', () => {
     expect(isNoMinibarRoom('slnt', 'SLNT Group', 'slnt-group')).toBe(true);
     expect(isNoMinibarRoom('slnt', 'SLNT Group', 'Silver Rooms')).toBe(true);
     expect(requiredDailyPhotoCategories('SLNT Group', 'Silver Rooms', 'slnt'))
-      .toEqual(['trash_bin', 'bathroom', 'bed', 'tea_coffee_table']);
+      .toEqual(['bed', 'tea_coffee_table', 'bathroom', 'trash_bin']);
     expect(isNoMinibarRoom('rdhotels', 'Hotel Memories Budapest', 'Hotel Memories Budapest')).toBe(false);
   });
 
@@ -23,9 +23,9 @@ describe('housekeeping minibar policy', () => {
 
   it('keeps four non-minibar photos for Gozsdu and five for all other hotels', () => {
     expect(requiredDailyPhotoCategories('gozsdu-court', 'Gozsdu Court Budapest'))
-      .toEqual(['trash_bin', 'bathroom', 'bed', 'tea_coffee_table']);
+      .toEqual(['bed', 'tea_coffee_table', 'bathroom', 'trash_bin']);
     expect(requiredDailyPhotoCategories('memories-budapest', 'Hotel Memories Budapest'))
-      .toEqual(['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table']);
+      .toEqual(['bed', 'tea_coffee_table', 'bathroom', 'trash_bin', 'minibar']);
     expect(requiredDailyPhotoCategories('gozsdu-court', 'Hotel Ottofiori')).toContain('minibar');
   });
 
@@ -34,6 +34,6 @@ describe('housekeeping minibar policy', () => {
     expect(requiredDailyPhotoCategories('gozsdu-court', undefined)).toContain('minibar');
     expect(requiredDailyPhotoCategories(undefined, 'Gozsdu Court Budapest')).toContain('minibar');
     expect(requiredDailyPhotoCategories(' Gozsdu Court Budapest ', ' GOZSDU-COURT '))
-      .toEqual(['trash_bin', 'bathroom', 'bed', 'tea_coffee_table']);
+      .toEqual(['bed', 'tea_coffee_table', 'bathroom', 'trash_bin']);
   });
 });

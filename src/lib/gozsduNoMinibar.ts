@@ -14,7 +14,7 @@ export function isGozsduNoMinibarRoom(
   return isGozsduCourtHotel(selectedHotel) && isGozsduCourtHotel(roomHotel);
 }
 
-const STANDARD_DAILY_PHOTOS = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'] as const;
+const STANDARD_DAILY_PHOTOS = ['bed', 'tea_coffee_table', 'bathroom', 'trash_bin', 'minibar'] as const;
 
 export function requiredDailyPhotoCategories(
   selectedHotel: string | null | undefined,
