@@ -29,8 +29,10 @@ const IMPACT_WEIGHT: Record<string, number> = {
 const CATEGORY_WEIGHT: Record<string, number> = {
   conference: 35,
   sport: 32,
+  sports: 32,
   concert: 30,
   festival: 28,
+  fair: 26,
   holiday: 24,
   other: 10,
 };
@@ -40,7 +42,7 @@ function isoDate(value?: string | null): string | null {
   return match?.[1] ?? null;
 }
 
-function eventScore(event: RevenueEventBandInput): number {
+export function scoreRevenueEvent(event: RevenueEventBandInput): number {
   const impact = IMPACT_WEIGHT[String(event.impact || "").toLowerCase()] ?? 0;
   const category = CATEGORY_WEIGHT[String(event.category || "other").toLowerCase()] ?? 10;
   const evidence = (event.venue ? 4 : 0) + (event.url ? 3 : 0) + (event.notes ? 1 : 0);
@@ -91,7 +93,7 @@ export function buildRevenueEventBands<T extends RevenueEventBandInput>(
         endDate,
         String(event.venue ?? "").trim().toLowerCase(),
       ].join("|");
-      const score = eventScore(event);
+      const score = scoreRevenueEvent(event);
       const existing = candidates.get(key);
       if (!existing || score > existing.score) {
         candidates.set(key, {
