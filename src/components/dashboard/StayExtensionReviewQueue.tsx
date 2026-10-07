@@ -150,7 +150,7 @@ export function StayExtensionReviewQueue({ hotel, organizationSlug }: Props) {
               <p className="mt-1 flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300"><Clock3 className="h-3.5 w-3.5" />Next: {item.next_services.map((service) => `${service.label} ${service.dueDate}`).join(', ')}</p>
             )}
             {item.identity_status === 'needs_verification' && (
-              <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">Room-night continuity suggests an extension; confirm the same guest with reception before acting.</p>
+              <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">Room-night continuity suggests an extension. A manager must confirm whether this is the same continuous stay before acting on the suggested services.</p>
             )}
             <label htmlFor={`extension-note-${item.id}`} className="mt-3 block text-xs font-medium">Supervisor note (required when dismissing)</label>
             <input id={`extension-note-${item.id}`} value={notes[item.id] ?? ''} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white" placeholder="Optional review note" />
