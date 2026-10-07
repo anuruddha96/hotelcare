@@ -198,20 +198,36 @@ export function GozsduLaundrynerTasksV2() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!eligible) return;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void load(true);
+      }, 650);
+    };
     const channel = supabase.channel(`gozsdu-laundry-safe-${user?.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => { void load(true); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments' }, () => { void load(true); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_laundry_room_progress' }, () => { void load(true); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, () => { void load(true); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (event: any) => {
+        const hotel = event.new?.hotel ?? event.old?.hotel;
+        if (!hotel || HOTELS.includes(hotel)) scheduleRefresh();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${workDate}` }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_laundry_room_progress' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, scheduleRefresh)
       .subscribe();
     const poll = window.setInterval(() => {
       const date = todayBudapest();
       if (date !== workDate) { setSelectedRoom(null); setWorkDate(date); }
       else void load(true);
     }, 20_000);
-    const onVisible = () => { if (!document.hidden) void load(true); };
+    const onVisible = () => { if (!document.hidden) scheduleRefresh(); };
     document.addEventListener('visibilitychange', onVisible);
-    return () => { window.clearInterval(poll); document.removeEventListener('visibilitychange', onVisible); void supabase.removeChannel(channel); };
+    return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      window.clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+      void supabase.removeChannel(channel);
+    };
   }, [eligible, user?.id, workDate, load]);
 
   const grouped = useMemo(() => groupCurrentLaundryRooms(rooms, assignments, workDate, managerBuckets), [rooms, assignments, workDate, managerBuckets]);
