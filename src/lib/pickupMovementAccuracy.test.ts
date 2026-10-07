@@ -62,6 +62,36 @@ describe("accurate Previo movement presentation", () => {
     });
   });
 
+  it("sums guests once per room for a Previo multi-room group reservation", () => {
+    const groupRoom = (room_key: string, room_type_name: string, nightly_price_eur: number): BookingNight => ({
+      ...booked("2026-10-07", room_key),
+      res_id: "116826215",
+      room_type_name,
+      stay_from: "2026-10-07",
+      stay_to: "2026-10-08",
+      nightly_price_eur,
+      created_at_pms: "2026-10-07T10:44:00Z",
+      guests: 1,
+      source_name: "Booking.com XML",
+    });
+    const rows = buildReservationMovementRows([
+      groupRoom("twin-1", "Deluxe Twin Room", 79.96),
+      groupRoom("twin-2", "Deluxe Twin Room", 79.96),
+      groupRoom("twin-3", "Deluxe Twin Room", 79.96),
+      groupRoom("quad-1", "Deluxe Quadruple Room", 90.24),
+    ], [], Date.parse("2026-10-07T00:00:00Z"));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      resId: "116826215",
+      nights: 1,
+      guests: 4,
+      value: 330.12,
+    });
+    expect(rows[0].rooms).toHaveLength(4);
+    expect(sumReservationMovementRows(rows).gained).toBe(4);
+  });
+
   it("does not double-count a duplicate imported room-night", () => {
     const rows = buildReservationMovementRows([], [cancelled("2026-09-19"), cancelled("2026-09-19")], start);
     expect(sumReservationMovementRows(rows).lost).toBe(1);
