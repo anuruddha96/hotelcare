@@ -755,7 +755,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
 
       toast.success(nextCheckout
         ? `Room ${selection.roomNumber} changed to Checkout cleaning`
-        : `Room ${selection.roomNumber}: guest staying · ${finalServiceLabel || 'Daily Cleaning'}`);
+        : `Room ${selection.roomNumber}: guest staying · ${finalServiceLabel || 'Daily service'}`);
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
       await loadRoom({ roomNumber: selection.roomNumber, roomId });
     } catch (error) {
