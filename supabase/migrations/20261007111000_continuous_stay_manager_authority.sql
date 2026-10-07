@@ -291,6 +291,20 @@ AFTER UPDATE OF is_checkout_room, pms_metadata ON public.rooms
 FOR EACH ROW
 EXECUTE FUNCTION public.hc_verify_extension_review_after_room_move();
 
+-- Backfill reviews that already existed before this migration but whose room
+-- was already explicitly moved Checkout -> Daily by a manager today. Rewriting
+-- identity_status to itself intentionally invokes the trigger above.
+UPDATE public.housekeeping_stay_extension_reviews AS review
+SET identity_status = review.identity_status
+WHERE review.status <> 'resolved'
+  AND EXISTS (
+    SELECT 1
+    FROM public.rooms r
+    WHERE r.id = review.room_id
+      AND coalesce(r.pms_metadata ->> 'manual_daily', 'false') = 'true'
+      AND public.hc_manager_confirmation_day(coalesce(r.pms_metadata, '{}'::jsonb)) = review.business_date
+  );
+
 REVOKE ALL ON FUNCTION public.hc_manager_confirmation_day(jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.hc_mark_manager_confirmed_extension_review() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.hc_verify_extension_review_after_room_move() FROM PUBLIC;
