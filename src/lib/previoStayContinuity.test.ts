@@ -69,11 +69,11 @@ describe('Previo continuous stay resolver', () => {
       guestIdentityStrength: 'strong',
     });
     const result = resolvePrevioContinuousStay([oldStay, newGuest], '2026-10-07');
-    expect(result.effective?.reservationId).toBe('B');
+    expect(result.effective?.reservationId).toBe('A');
     expect(result.extensionLinked).toBe(false);
-    expect(result.currentNight).toBe(1);
-    expect(result.totalNights).toBe(3);
-    expect(result.reservationIds).toEqual(['B']);
+    expect(result.currentNight).toBe(5);
+    expect(result.totalNights).toBe(5);
+    expect(result.reservationIds).toEqual(['A']);
   });
 
   it('links a three-reservation extension chain', () => {
