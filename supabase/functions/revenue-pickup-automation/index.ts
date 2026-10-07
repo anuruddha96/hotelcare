@@ -458,6 +458,48 @@ async function queueIntents(
       payload = safe.changes as Array<Record<string, unknown>>;
     }
   }
+  const keyOf = (row: any) => `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
+  let dates = Array.from(new Set(payload.map((row: any) => String(row.stay_date))));
+
+  // A publisher may claim an earlier draft while this evaluation is still
+  // running. Claimed rows remain status='draft' briefly, so blindly inserting
+  // another draft for the same cell hits the partial unique index and can turn
+  // into a retry/error storm. Never replace work already owned by the
+  // publisher; defer the affected cell/date to the next automation cycle.
+  const { data: claimedDrafts, error: claimedDraftError } = await admin.from("revenue_rate_drafts")
+    .select("stay_date,room_type_name,occupancy")
+    .eq("hotel_id", rule.hotel_id)
+    .in("stay_date", dates)
+    .eq("status", "draft")
+    .is("superseded_at", null)
+    .not("claimed_at", "is", null);
+  if (claimedDraftError) throw claimedDraftError;
+
+  const claimedKeys = new Set(((claimedDrafts ?? []) as any[]).map(keyOf));
+  if (claimedKeys.size > 0) {
+    if (context) {
+      const blockedDates = new Set(
+        payload.filter((row: any) => claimedKeys.has(keyOf(row))).map((row: any) => String(row.stay_date)),
+      );
+      for (const stayDate of blockedDates) {
+        const manifest = context.dateManifest[stayDate] as { decision_id?: string | null } | undefined;
+        if (manifest?.decision_id) {
+          await admin.from("revenue_date_decisions").update({
+            status: "held",
+            decision_reason: "publisher_in_flight",
+            reason_detail: "Held: a previous price for this date is already being published. The next automation cycle will re-evaluate it.",
+          }).eq("id", manifest.decision_id);
+        }
+        delete context.dateManifest[stayDate];
+      }
+      payload = payload.filter((row: any) => !blockedDates.has(String(row.stay_date)));
+    } else {
+      payload = payload.filter((row: any) => !claimedKeys.has(keyOf(row)));
+    }
+    if (payload.length === 0) return null;
+    dates = Array.from(new Set(payload.map((row: any) => String(row.stay_date))));
+  }
+
   const runId = crypto.randomUUID();
   const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
     id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
@@ -467,9 +509,7 @@ async function queueIntents(
   });
   if (runError) throw runError;
 
-  const keyOf = (row: any) => `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
   const incomingKeys = new Set(payload.map(keyOf));
-  const dates = Array.from(new Set(payload.map((row: any) => row.stay_date)));
 
   // Coalesce only work that has not been claimed by the publisher. Historical
   // rows remain in place as superseded intents; claimed/sending rows are never
