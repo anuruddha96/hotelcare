@@ -102,9 +102,13 @@ export type MemoriesCarryForwardReason = 'dnd' | 'no_service';
 
 export interface MemoriesCarryForwardService {
   active: true;
+  propertyId: 'memories-budapest';
   sourceBusinessDate: string;
+  originalDueDate: string;
   serviceType: MemoriesCarryForwardServiceType;
   reason: MemoriesCarryForwardReason;
+  attemptCount: number;
+  policySource: string | null;
   instruction: string;
 }
 
@@ -127,10 +131,15 @@ export function getMemoriesCarryForwardService(
   const serviceType = carry.service_type;
   const reason = carry.reason;
   const sourceBusinessDate = String(carry.source_business_date || '').trim();
+  const originalDueDate = String(carry.original_due_date || sourceBusinessDate).trim();
+  const rawAttempt = Number(carry.attempt_count ?? 1);
+  const attemptCount = Number.isInteger(rawAttempt) && rawAttempt > 0 ? rawAttempt : 1;
+  const policySource = typeof carry.policy_source === 'string' ? carry.policy_source : null;
 
   if (serviceType !== 'towel_change' && serviceType !== 'full_clean') return null;
   if (reason !== 'dnd' && reason !== 'no_service') return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceBusinessDate)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(originalDueDate)) return null;
 
   const fallbackService = serviceType === 'full_clean'
     ? 'full room cleaning (Change Room)'
@@ -148,9 +157,13 @@ export function getMemoriesCarryForwardService(
 
   return {
     active: true,
+    propertyId: 'memories-budapest',
     sourceBusinessDate,
+    originalDueDate,
     serviceType,
     reason,
+    attemptCount,
+    policySource,
     instruction,
   };
 }
