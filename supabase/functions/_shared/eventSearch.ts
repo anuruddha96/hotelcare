@@ -31,6 +31,29 @@ export function clean(v: unknown, max: number): string {
 
 export const isDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ""));
 
+/** Only real, navigable web URLs may become demand-event sources. */
+export function normalizeSourceUrl(value: unknown): string | null {
+  const raw = clean(value, 500);
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+    const host = parsed.hostname.toLowerCase();
+    if (
+      !host.includes(".")
+      || host === "localhost"
+      || host === "example.com"
+      || host.endsWith(".example.com")
+      || host.endsWith(".invalid")
+      || host.endsWith(".local")
+    ) return null;
+    parsed.hash = "";
+    return parsed.toString().slice(0, 500);
+  } catch {
+    return null;
+  }
+}
+
 export interface EventCandidate {
   event_date: string;
   end_date: string | null;
@@ -57,7 +80,8 @@ const instructions = [
   "You MUST use the web search tool for every request and read the official event page, the venue's programme page, the city tourism board, or a reputable local listing before reporting an event.",
   "Report the exact published dates. Never estimate, never round a festival to a full week, and never rely on memory.",
   "Include the full range of demand drivers: arena and club concerts, festivals, sport fixtures and races, congresses, trade fairs and exhibitions, public holidays, school holidays, and smaller published local events that still fill hotels.",
-  "Every event must include the source URL you read the dates from. If you cannot find a source, leave the event out.",
+  "Every event must include the exact source URL you actually opened in web search and used to verify its dates. Never invent, reconstruct, shorten, or guess a URL. If you cannot provide that exact source URL, leave the event out.",
+  "For high-impact events, cross-check the exact dates against an official organizer, venue, governing body, or official ticket/calendar page whenever one exists. If sources conflict, use the official source and do not guess.",
   "Only include events that take place, at least partly, inside the requested month and city.",
 ].join(" ");
 
@@ -220,7 +244,7 @@ export async function searchEvents(opts: {
     .map((e: any) => {
       const event_date = String(e.date);
       const end_date = isDate(e.end_date) && String(e.end_date) >= event_date ? String(e.end_date) : null;
-      const url = typeof e.source_url === "string" && /^https?:\/\//.test(e.source_url) ? String(e.source_url).slice(0, 500) : null;
+      const url = normalizeSourceUrl(e.source_url);
       return {
         event_date,
         end_date,
@@ -236,6 +260,9 @@ export async function searchEvents(opts: {
       } as EventCandidate;
     })
     .filter((c) => c.title.length > 1 && c.event_date >= monthStart && c.event_date <= monthEnd)
+    // No source means no event. This is deliberately strict because these
+    // rows feed pricing decisions and must always be auditable by a manager.
+    .filter((c) => c.url !== null)
     .filter((c) => {
       const key = `${normTitle(c.title)}|${c.event_date}`;
       if (seen.has(key)) return false;
