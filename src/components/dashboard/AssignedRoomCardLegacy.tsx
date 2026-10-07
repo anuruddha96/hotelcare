@@ -52,7 +52,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
-import { isGozsduNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
+import { isGozsduNoMinibarRoom, isNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
 import {
   effectiveCarryServiceFlags,
   getCarryForwardHousekeeperCopy,
@@ -106,7 +106,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const { t, language } = useTranslation();
   const { user, profile } = useAuth();
   const { toast: showToast } = useToast();
-  const noMinibar = isGozsduNoMinibarRoom(profile?.assigned_hotel, assignment.rooms?.hotel);
+  const gozsduNoMinibar = isGozsduNoMinibarRoom(profile?.assigned_hotel, assignment.rooms?.hotel);
+  const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, assignment.rooms?.hotel);
   const completionInFlight = useRef(false);
   const [loading, setLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
@@ -593,12 +594,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  // At Gozsdu a staff member finishes through the normal completion/status path
-  // without the shared linen/minibar confirmation. HoldButton can fire click
-  // and hold callbacks; this synchronous guard prevents duplicate submission.
+  // Gozsdu keeps its existing direct-complete path. SLNT has no minibar, but
+  // still requires the translated dirty-linen confirmation before completion.
+  // HoldButton can fire click and hold callbacks; this synchronous guard
+  // prevents duplicate submission.
   const handleCompleteRequest = () => {
     if (loading || completionInFlight.current || assignment.status !== 'in_progress') return;
-    if (!noMinibar) { setPreCompleteOpen(true); return; }
+    if (!gozsduNoMinibar) { setPreCompleteOpen(true); return; }
     completionInFlight.current = true;
     void updateAssignmentStatus('completed').finally(() => { completionInFlight.current = false; });
   };
@@ -1204,9 +1206,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <MapPin className="h-3 w-3" />
-            <span>{t('common.floor')} {assignment.rooms?.floor_number ?? '?'}</span>
-            <span>·</span>
-            <span>{assignment.rooms?.hotel || 'Unknown'}</span>
+            {assignment.rooms?.floor_number != null && (
+              <>
+                <span>{t('common.floor')} {assignment.rooms.floor_number}</span>
+                <span>·</span>
+              </>
+            )}
+            <span>{assignment.rooms?.hotel || profile?.assigned_hotel || '—'}</span>
             {assignment.rooms?.room_name && (
               <>
                 <span>·</span>
@@ -1636,7 +1642,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <p className="text-sm text-purple-800 mb-2">
               {t('roomCard.needUpdateAfterCompletion')}
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className={`grid grid-cols-1 ${!noMinibar ? 'sm:grid-cols-2' : ''} gap-2`}>
               <Button
                 size="sm"
                 variant="outline"
@@ -1646,7 +1652,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <Shirt className="h-4 w-4 shrink-0" />
                 <span className="text-center break-words">{t('actions.updateDirtyLinen')}</span>
               </Button>
-              <Button
+              {!noMinibar && (<Button
                 size="sm"
                 variant="outline"
                 onClick={() => setRoomDetailOpen(true)}
@@ -1654,7 +1660,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               >
                 <BedDouble className="h-4 w-4 shrink-0" />
                 <span className="text-center break-words">{t('roomCard.addMinibarLate')}</span>
-              </Button>
+              </Button>)}
             </div>
 
             {assignment.supervisor_approved && (
@@ -1862,7 +1868,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       />
 
       {/* Pre-complete confirmation dialog */}
-      {!noMinibar && <PreCompleteChecklistDialog
+      {!gozsduNoMinibar && <PreCompleteChecklistDialog
         open={preCompleteOpen}
         onOpenChange={setPreCompleteOpen}
         loading={loading}
@@ -1874,6 +1880,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           setPreCompleteOpen(false);
           setRoomDetailOpen(true);
         }}
+        showMinibar={!noMinibar}
         onConfirm={async () => {
           setPreCompleteOpen(false);
           await updateAssignmentStatus('completed');
