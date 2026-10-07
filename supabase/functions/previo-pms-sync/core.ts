@@ -18,6 +18,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials, type PrevioXmlAuthVariant } from "../_shared/previoCredentials.ts";
 import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../_shared/budapestBusinessDate.ts";
+import {
+  opaquePrevioFingerprint,
+  resolvePrevioContinuousStay,
+  type PrevioGuestIdentityStrength,
+  type PrevioStayCandidate,
+} from "../_shared/previoStayContinuity.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -345,18 +351,89 @@ serve(async (req) => {
     // the !res branch and get mis-flagged as no-shows.
     const windowStart = addDays(today, -30);
 
-    interface ParsedReservation {
-      objId: number | null;
-      roomName: string;
-      arrivalDate: string;
-      departureDate: string;
+    interface ParsedReservation extends PrevioStayCandidate {
       departureTime: string | null;
-      statusId: number;
       guestsCount: number;
       note: string | null;
       /** Reception's clean housekeeping/internal note (preferred over OTA note when present). */
       internalNote: string | null;
     }
+
+    const guestIdentityFromXml = (block: string): {
+      guestKeys: string[];
+      guestFingerprint: string | null;
+      guestIdentityStrength: PrevioGuestIdentityStrength;
+    } => {
+      const keys = new Set<string>();
+      const strongKeys: string[] = [];
+      const guestBlocks = block.match(/<guest\b[^>]*>[\s\S]*?<\/guest>/gi) || [];
+      for (const guestBlock of guestBlocks) {
+        const grabGuest = (tag: string) => {
+          const match = guestBlock.match(new RegExp(`<${tag}[^>]*>([^<]*)<\\/${tag}>`, "i"));
+          return normalizeIdentity(match?.[1] || "");
+        };
+        for (const tag of ["guestId", "customerId", "clientId", "personId", "email", "phone", "mobile"]) {
+          const value = grabGuest(tag);
+          if (!value) continue;
+          const key = `strong:${tag.toLowerCase()}:${value}`;
+          keys.add(key);
+          strongKeys.push(key);
+        }
+        const first = grabGuest("firstName") || grabGuest("firstname") || grabGuest("givenName");
+        const last = grabGuest("lastName") || grabGuest("lastname") || grabGuest("surname") || grabGuest("familyName");
+        if (first && last) keys.add(`name:${first}|${last}`);
+      }
+      const hasName = Array.from(keys).some((key) => key.startsWith("name:"));
+      return {
+        guestKeys: Array.from(keys),
+        guestFingerprint: strongKeys[0] ? opaquePrevioFingerprint(strongKeys[0]) : null,
+        guestIdentityStrength: strongKeys.length ? "strong" : hasName ? "name" : "none",
+      };
+    };
+
+    const normalizeIdentity = (value: unknown): string => String(value ?? "")
+      .trim().toLocaleLowerCase("en-US").replace(/\s+/g, " ");
+
+    const guestIdentityFromObject = (raw: any): {
+      guestKeys: string[];
+      guestFingerprint: string | null;
+      guestIdentityStrength: PrevioGuestIdentityStrength;
+    } => {
+      const keys = new Set<string>();
+      const strongKeys: string[] = [];
+      const candidates: any[] = [];
+      if (raw && typeof raw === "object") candidates.push(raw);
+      for (const key of ["guest", "customer", "client", "person"]) {
+        if (raw?.[key] && typeof raw[key] === "object") candidates.push(raw[key]);
+      }
+      for (const listKey of ["guests", "guestList", "customers"]) {
+        if (Array.isArray(raw?.[listKey])) candidates.push(...raw[listKey]);
+      }
+      for (const guest of candidates) {
+        for (const key of ["guestId", "customerId", "clientId", "personId", "email", "phone", "mobile"]) {
+          const value = normalizeIdentity(guest?.[key]);
+          if (!value) continue;
+          const identityKey = `strong:${key.toLowerCase()}:${value}`;
+          keys.add(identityKey);
+          strongKeys.push(identityKey);
+        }
+        const first = normalizeIdentity(guest?.firstName ?? guest?.firstname ?? guest?.givenName);
+        const last = normalizeIdentity(guest?.lastName ?? guest?.lastname ?? guest?.surname ?? guest?.familyName);
+        if (first && last) keys.add(`name:${first}|${last}`);
+      }
+      const hasName = Array.from(keys).some((key) => key.startsWith("name:"));
+      return {
+        guestKeys: Array.from(keys),
+        guestFingerprint: strongKeys[0] ? opaquePrevioFingerprint(strongKeys[0]) : null,
+        guestIdentityStrength: strongKeys.length ? "strong" : hasName ? "name" : "none",
+      };
+    };
+
+    const reservationIdFromObject = (raw: any): string | null => {
+      const value = raw?.reservationId ?? raw?.resId ?? raw?.bookingId ?? raw?.reservation_id ?? raw?.booking_id;
+      const text = String(value ?? "").trim();
+      return text || null;
+    };
 
     // Previo exposes several candidate tag/field names for the reception's
     // internal/housekeeping note (varies by tenant + API version). We probe
@@ -464,6 +541,8 @@ serve(async (req) => {
     };
     const reservationsByRoomName = new Map<string, ParsedReservation>();
     const reservationsByObjId = new Map<number, ParsedReservation>();
+    const reservationCandidatesByRoomName = new Map<string, ParsedReservation[]>();
+    const reservationCandidatesByObjId = new Map<number, ParsedReservation[]>();
     let reservationFetchError: string | null = null;
     let reservationFallbackSource: string | null = null;
     let reservationIssue: Record<string, unknown> | null = null;
@@ -471,6 +550,24 @@ serve(async (req) => {
     const reservationDiagnostics: Array<Record<string, unknown>> = [];
 
     const indexReservation = (rec: ParsedReservation) => {
+      const candidateKey = (item: ParsedReservation) => item.reservationId
+        ? `id:${item.reservationId}`
+        : [item.objId ?? "", item.roomName, item.arrivalDate, item.departureDate, item.statusId,
+            item.guestFingerprint ?? item.guestKeys.join("|")].join("::");
+      const addCandidate = <K,>(map: Map<K, ParsedReservation[]>, key: K, item: ParsedReservation) => {
+        const existing = map.get(key) || [];
+        const identity = candidateKey(item);
+        if (!existing.some((candidate) => candidateKey(candidate) === identity)) {
+          map.set(key, [...existing, item]);
+        }
+      };
+      if (rec.roomName) addCandidate(reservationCandidatesByRoomName, rec.roomName, rec);
+      const numericCandidateRoom = extractRoomNumber(rec.roomName);
+      if (numericCandidateRoom && numericCandidateRoom !== rec.roomName) {
+        addCandidate(reservationCandidatesByRoomName, numericCandidateRoom, rec);
+      }
+      if (rec.objId != null) addCandidate(reservationCandidatesByObjId, rec.objId, rec);
+
       const rank = (r: ParsedReservation) => {
         if (r.departureDate === today) return 4;                                   // checkout today
         if (r.arrivalDate < today && r.departureDate > today) return 3;            // true stay-through
@@ -519,14 +616,21 @@ serve(async (req) => {
           || Number(grab(block, "numOfGuests") || grab(block, "persons") || grab(block, "pax") || 0)
           || 0;
         const noteMatch = block.match(/<note>([^<]*)<\/note>/);
+        const identity = guestIdentityFromXml(block);
+        const reservationId = ["reservationId", "resId", "bookingId"]
+          .map((tag) => grab(block, tag)).find(Boolean) || null;
         indexReservation({
           objId,
           roomName,
+          reservationId,
           arrivalDate: arrival,
           departureDate: departure,
           departureTime,
           statusId,
           guestsCount,
+          guestKeys: identity.guestKeys,
+          guestFingerprint: identity.guestFingerprint,
+          guestIdentityStrength: identity.guestIdentityStrength,
           note: noteMatch ? noteMatch[1].trim() || null : null,
           internalNote: grabInternalNoteFromXml(block),
         });
@@ -632,14 +736,19 @@ serve(async (req) => {
       const guests = Array.isArray(res.guests) ? res.guests.length
         : Array.isArray(res.guestList) ? res.guestList.length
           : Number(res.guestsCount ?? res.people ?? res.persons ?? res.pax ?? 0) || 0;
+      const identity = guestIdentityFromObject(res);
       indexReservation({
         objId: Number.isFinite(Number(room.roomId)) && Number(room.roomId) > 0 ? Number(room.roomId) : null,
         roomName: String(room.name ?? "").trim(),
+        reservationId: reservationIdFromObject(res),
         arrivalDate,
         departureDate,
         departureTime: cleanTime(departureRaw),
         statusId,
         guestsCount: guests,
+        guestKeys: identity.guestKeys,
+        guestFingerprint: identity.guestFingerprint,
+        guestIdentityStrength: identity.guestIdentityStrength,
         note: res.note || res.notes || res.comment ? String(res.note ?? res.notes ?? res.comment).trim() : null,
         internalNote: pickInternalNoteFromObj(res),
       });
@@ -681,14 +790,19 @@ serve(async (req) => {
             const guests = Array.isArray(item?.guests) ? item.guests.length
               : Array.isArray(item?.guestList) ? item.guestList.length
                 : Number(item?.guestsCount ?? item?.people ?? item?.persons ?? item?.pax ?? item?.guestCount ?? 0) || 0;
+            const identity = guestIdentityFromObject(item);
             indexReservation({
               objId,
               roomName,
+              reservationId: reservationIdFromObject(item),
               arrivalDate,
               departureDate,
               departureTime: cleanTime(item?.departureDate ?? item?.departure ?? item?.to ?? item?.dateTo ?? item?.endDate ?? item?.checkOut),
               statusId: statusIdFrom(item),
               guestsCount: guests,
+              guestKeys: identity.guestKeys,
+              guestFingerprint: identity.guestFingerprint,
+              guestIdentityStrength: identity.guestIdentityStrength,
               note: item?.note || item?.notes || item?.comment ? String(item.note ?? item.notes ?? item.comment).trim() : null,
               internalNote: pickInternalNoteFromObj(item),
             });
@@ -748,11 +862,15 @@ serve(async (req) => {
           indexReservation({
             objId: null,
             roomName,
+            reservationId: null,
             arrivalDate: arrival,
             departureDate: today,
             departureTime: item?.departureTime ? String(item.departureTime) : null,
             statusId: item?.status === "checked_out" ? 6 : 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
+            guestKeys: [],
+            guestFingerprint: null,
+            guestIdentityStrength: "none",
             note: item?.notes ? String(item.notes) : null,
             internalNote: null,
           });
@@ -770,11 +888,15 @@ serve(async (req) => {
           indexReservation({
             objId: null,
             roomName,
+            reservationId: null,
             arrivalDate: arrival,
             departureDate: departure,
             departureTime: null,
             statusId: 1,
             guestsCount: Number(item?.guestCount ?? 0) || 0,
+            guestKeys: [],
+            guestFingerprint: null,
+            guestIdentityStrength: "none",
             note: item?.notes ? String(item.notes) : null,
             internalNote: null,
           });
@@ -812,17 +934,27 @@ serve(async (req) => {
 
     const rows = rooms.map((r) => {
       const roomNumber = extractRoomNumber(r.name);
-      const res = (r.roomId ? reservationsByObjId.get(r.roomId) : undefined)
+      const candidatePool = [
+        ...(r.roomId ? reservationCandidatesByObjId.get(r.roomId) || [] : []),
+        ...(reservationCandidatesByRoomName.get(r.name) || []),
+        ...(roomNumber !== r.name ? reservationCandidatesByRoomName.get(roomNumber) || [] : []),
+      ];
+      const continuity = resolvePrevioContinuousStay(candidatePool, today);
+      const res = continuity.effective
+        ?? (r.roomId ? reservationsByObjId.get(r.roomId) : undefined)
         ?? reservationsByRoomName.get(r.name)
         ?? (roomNumber !== r.name ? reservationsByRoomName.get(roomNumber) : undefined);
+      const continuousArrival = continuity.effective ? continuity.originalArrivalDate : res?.arrivalDate ?? null;
+      const continuousDeparture = continuity.effective ? continuity.finalDepartureDate : res?.departureDate ?? null;
       const isCancelled = !!res && isCancelledStatus(res.statusId);
-      const isArrival = !!res && res.arrivalDate === today;
+      const isArrival = !!res && continuousArrival === today;
       const isCheckedIn = !!res && isInHouseStatus(res.statusId);
       // Occupancy guard: a guest who already slept here (arrival before today,
       // departure still ahead) or who is checked in IS occupancy, so the room
       // can never be a no-show, whatever the check-in status workflow says.
       const hasOccupancyToday = !!res && !isCancelled
-        && (isCheckedIn || (res.arrivalDate < today && res.departureDate > today));
+        && (isCheckedIn || (!!continuousArrival && !!continuousDeparture
+          && continuousArrival < today && continuousDeparture > today));
       // A no-show is a reservation state Previo owns (statusId 8). We never
       // infer it from a pre-arrival status: many properties simply do not check
       // guests in, so an in-house guest would be wrongly flagged.
@@ -832,19 +964,22 @@ serve(async (req) => {
 
       const isNotArrived = !!res && isArrival && !isCancelled && !isNoShow && !isCheckedIn;
       const isOccupied = !!res && !isCancelled && !isNoShow && !isNotArrived
-        && res.arrivalDate <= today && res.departureDate > today;
-      const isDeparture = !!res && !isCancelled && !isNoShow && res.departureDate === today;
+        && !!continuousArrival && !!continuousDeparture
+        && continuousArrival <= today && continuousDeparture > today;
+      const isDeparture = !!res && !isCancelled && !isNoShow && continuousDeparture === today;
 
-      const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
+      const isDepartureTomorrow = !!res && continuousDeparture === tomorrow;
       const isCheckedOut = !!res && isCheckedOutStatus(res.statusId) && isDeparture;
       // Only real checkouts (today or already checked out) belong in the
       // Checkout Rooms bucket. "Departs tomorrow" stays a daily room but
       // still surfaces via the C/O+1 badge (DepartureTomorrow flag below).
       const isCheckoutRoom = isCheckedOut || isDeparture;
-      const totalNights = res ? diffDays(res.arrivalDate, res.departureDate) : 0;
-      const currentNight = res
-        ? Math.min(totalNights, Math.max(1, diffDays(res.arrivalDate, today) + (isDeparture ? 0 : 1)))
+      const reservationLocalTotalNights = res ? diffDays(res.arrivalDate, res.departureDate) : 0;
+      const reservationLocalCurrentNight = res
+        ? Math.min(reservationLocalTotalNights, Math.max(1, diffDays(res.arrivalDate, today) + (res.departureDate === today ? 0 : 1)))
         : 0;
+      const totalNights = continuity.effective ? continuity.totalNights : reservationLocalTotalNights;
+      const currentNight = continuity.effective ? continuity.currentNight : reservationLocalCurrentNight;
       const cleanMap: Record<number, string> = { 1: "Untidy", 2: "Clean", 3: "Clean", 4: "Untidy", 5: "Untidy" };
       const statusLabel = cleanMap[r.roomCleanStatusId] ?? "";
 
@@ -870,8 +1005,27 @@ serve(async (req) => {
           ? (res?.departureTime || (accountRow?.hotel_id === "slnt-group" ? "10:00" : "11:00"))
           : null,
         DepartureTomorrow: !isNoShow && !isCancelled && departureTomorrowConfirmed,
-        DepartureDate: res?.departureDate ?? null,
-        ArrivalDate: res?.arrivalDate ?? null,
+        DepartureDate: continuousDeparture,
+        ArrivalDate: continuousArrival,
+        ReservationDepartureDate: res?.departureDate ?? null,
+        ReservationArrivalDate: res?.arrivalDate ?? null,
+        ReservationId: res?.reservationId ?? null,
+        GuestFingerprint: res?.guestFingerprint ?? null,
+        GuestIdentityStrength: res?.guestIdentityStrength ?? "none",
+        ContinuousStayOriginalArrival: continuity.originalArrivalDate,
+        ContinuousStayFinalDeparture: continuity.finalDepartureDate,
+        ContinuousStayCurrentNight: continuity.currentNight || null,
+        ContinuousStayTotalNights: continuity.totalNights || null,
+        ContinuousStayReservationIds: continuity.reservationIds,
+        ContinuousStaySegments: continuity.segments.map((segment) => ({
+          reservationId: segment.reservationId,
+          arrivalDate: segment.arrivalDate,
+          departureDate: segment.departureDate,
+          nights: diffDays(segment.arrivalDate, segment.departureDate),
+        })),
+        ContinuousStaySegmentCount: continuity.segments.length,
+        ContinuousStayConfidence: continuity.confidence,
+        ExtensionLinked: continuity.extensionLinked,
         Arrival: !isNoShow && !isCancelled && isArrival ? "15:00" : null,
         CheckedOut: isCheckedOut,
         IsCheckoutRoom: !isNoShow && !isCancelled && isCheckoutRoom,
