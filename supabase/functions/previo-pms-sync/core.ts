@@ -1031,6 +1031,8 @@ serve(async (req) => {
         NextArrivalReservationId: continuity.competingArrival?.reservationId ?? null,
         NextArrivalGuestFingerprint: continuity.competingArrival?.guestFingerprint ?? null,
         NextArrivalGuestIdentityStrength: continuity.competingArrival?.guestIdentityStrength ?? "none",
+        NextArrivalArrivalDate: continuity.competingArrival?.arrivalDate ?? null,
+        NextArrivalDepartureDate: continuity.competingArrival?.departureDate ?? null,
         Arrival: !isNoShow && !isCancelled && isArrival ? "15:00" : null,
         CheckedOut: isCheckedOut,
         IsCheckoutRoom: !isNoShow && !isCancelled && isCheckoutRoom,
