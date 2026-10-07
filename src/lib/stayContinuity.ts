@@ -56,6 +56,8 @@ export type IncomingStayRow = {
   NextArrivalReservationId?: unknown;
   NextArrivalGuestFingerprint?: unknown;
   NextArrivalGuestIdentityStrength?: unknown;
+  NextArrivalArrivalDate?: unknown;
+  NextArrivalDepartureDate?: unknown;
 };
 
 export type ReconciledStay = {
@@ -194,16 +196,6 @@ export function reconcileContinuousStay(input: {
   const localCurrent = positive(row.CurrentNight);
   const localTotal = positive(row.TotalNights);
   const edge = edgeContinuousStay(row, nowIso);
-  if (edge) {
-    return {
-      currentNight: edge.currentNight,
-      totalNights: edge.totalNights,
-      continuousStay: edge,
-      linkedExtension: edge.linkedBy === 'previo_chain',
-      resetForDifferentGuest: false,
-      managerConfirmedContinuation: false,
-    };
-  }
 
   const stored = parseStoredContinuousStay(existingMetadata?.continuousStay);
   const snapshotRaw = existingMetadata?.extensionServiceSnapshot;
@@ -228,7 +220,21 @@ export function reconcileContinuousStay(input: {
   const definitiveTurnover = row.SameDayTurnover === true
     && row.SameDayTurnoverConfidence === 'strong';
 
+  // A proven different guest always ends the previous continuity. The edge
+  // intentionally keeps the old checkout reservation as the housekeeping
+  // source for same-day turnover, so retain its night facts while clearing the
+  // manager extension marker.
   if (strongConflict || definitiveTurnover) {
+    if (edge) {
+      return {
+        currentNight: edge.currentNight,
+        totalNights: edge.totalNights,
+        continuousStay: edge,
+        linkedExtension: false,
+        resetForDifferentGuest: true,
+        managerConfirmedContinuation: false,
+      };
+    }
     const single = localCurrent && localTotal ? {
       originalArrivalDate: incomingArrival,
       finalDepartureDate: incomingDeparture,
@@ -257,13 +263,55 @@ export function reconcileContinuousStay(input: {
     };
   }
 
+  // A multi-segment chain was proven server-side from contiguous same-room,
+  // same-guest reservations. This is stronger than any browser-local fallback.
+  if (edge?.linkedBy === 'previo_chain') {
+    return {
+      currentNight: edge.currentNight,
+      totalNights: edge.totalNights,
+      continuousStay: edge,
+      linkedExtension: true,
+      resetForDifferentGuest: false,
+      managerConfirmedContinuation: false,
+    };
+  }
+
   const snapshotDate = iso(snapshot?.managerConfirmedDate);
   const previousDeparture = iso(snapshot?.departureDate) ?? snapshotDate;
+
+  // If the edge kept checkout cleaning because the new reservation identity
+  // was ambiguous (missing id / spelling change), an explicit manager
+  // Checkout -> Daily decision is the authority that safely bridges it.
+  const useCompetingArrival = manualDailyOverride
+    && row.SameDayTurnover === true
+    && row.SameDayTurnoverConfidence === 'ambiguous'
+    && !!iso(row.NextArrivalArrivalDate);
+
+  const bridgeReservationId = useCompetingArrival
+    ? stringOrNull(row.NextArrivalReservationId)
+    : incomingReservationId;
+  const bridgeFingerprint = useCompetingArrival
+    ? stringOrNull(row.NextArrivalGuestFingerprint)
+    : incomingFingerprint;
+  const bridgeStrength = useCompetingArrival
+    ? identityStrength(row.NextArrivalGuestIdentityStrength)
+    : incomingStrength;
+  const bridgeArrival = useCompetingArrival
+    ? iso(row.NextArrivalArrivalDate)
+    : incomingArrival;
+  const bridgeDeparture = useCompetingArrival
+    ? iso(row.NextArrivalDepartureDate)
+    : incomingDeparture;
+  const bridgeCurrent = useCompetingArrival ? 1 : localCurrent;
+  const bridgeTotal = useCompetingArrival
+    ? dayDiff(bridgeArrival, bridgeDeparture)
+    : localTotal;
+
   const managerBridge = manualDailyOverride
     && !!snapshot
     && snapshotDate === businessDate
-    && !!incomingArrival
-    && previousDeparture === incomingArrival;
+    && !!bridgeArrival
+    && previousDeparture === bridgeArrival;
 
   if (managerBridge) {
     const previousNights = Math.max(
@@ -272,14 +320,14 @@ export function reconcileContinuousStay(input: {
       positive(snapshot?.totalNights),
       positive(storedGuestNights),
     );
-    const incomingNights = localTotal || dayDiff(incomingArrival, incomingDeparture);
-    const currentNight = previousNights + Math.max(1, localCurrent || 1);
+    const incomingNights = bridgeTotal || dayDiff(bridgeArrival, bridgeDeparture);
+    const currentNight = previousNights + Math.max(1, bridgeCurrent || 1);
     const totalNights = Math.max(currentNight, previousNights + Math.max(1, incomingNights));
 
     const reservationIds = Array.from(new Set([
       stringOrNull(snapshot?.reservationId),
       ...(stored?.reservationIds || []),
-      incomingReservationId,
+      bridgeReservationId,
     ].filter((item): item is string => !!item)));
 
     const segments: ContinuousStaySegment[] = [...(stored?.segments || [])];
@@ -299,17 +347,17 @@ export function reconcileContinuousStay(input: {
         });
       }
     }
-    if (incomingArrival && incomingDeparture && incomingDeparture > incomingArrival) {
+    if (bridgeArrival && bridgeDeparture && bridgeDeparture > bridgeArrival) {
       if (!segments.some(segment =>
-        segment.arrivalDate === incomingArrival
-        && segment.departureDate === incomingDeparture
-        && segment.reservationId === incomingReservationId
+        segment.arrivalDate === bridgeArrival
+        && segment.departureDate === bridgeDeparture
+        && segment.reservationId === bridgeReservationId
       )) {
         segments.push({
-          reservationId: incomingReservationId,
-          arrivalDate: incomingArrival,
-          departureDate: incomingDeparture,
-          nights: incomingNights || dayDiff(incomingArrival, incomingDeparture),
+          reservationId: bridgeReservationId,
+          arrivalDate: bridgeArrival,
+          departureDate: bridgeDeparture,
+          nights: incomingNights || dayDiff(bridgeArrival, bridgeDeparture),
         });
       }
     }
@@ -318,12 +366,12 @@ export function reconcileContinuousStay(input: {
       currentNight,
       totalNights,
       continuousStay: {
-        originalArrivalDate: priorArrival ?? incomingArrival,
-        finalDepartureDate: incomingDeparture,
+        originalArrivalDate: priorArrival ?? bridgeArrival,
+        finalDepartureDate: bridgeDeparture,
         currentNight,
         totalNights,
-        guestFingerprint: incomingFingerprint ?? previousFingerprint,
-        guestIdentityStrength: incomingStrength !== 'none' ? incomingStrength : previousStrength,
+        guestFingerprint: bridgeFingerprint ?? previousFingerprint,
+        guestIdentityStrength: bridgeStrength !== 'none' ? bridgeStrength : previousStrength,
         reservationIds,
         segments,
         linkedBy: 'manager_confirmed',
@@ -336,9 +384,9 @@ export function reconcileContinuousStay(input: {
     };
   }
 
-  // While a manager-confirmed Checkout -> Daily decision is waiting for the
-  // new Previo reservation, keep the accumulated stay instead of resetting it
-  // to the old checkout reservation's final-night counter.
+  // While the manager-confirmed stay is waiting for the replacement Previo
+  // reservation, advance one continuous stay-night rather than reverting to the
+  // old checkout reservation's final-night counter.
   if (manualDailyOverride && snapshotDate === businessDate && snapshot) {
     const completedNights = Math.max(
       positive(snapshot.guestNightsStayed),
@@ -371,6 +419,19 @@ export function reconcileContinuousStay(input: {
       linkedExtension: !!stored && stored.reservationIds.length > 1,
       resetForDifferentGuest: false,
       managerConfirmedContinuation: true,
+    };
+  }
+
+  // No manager bridge is active: a single-reservation edge snapshot is the
+  // canonical current PMS fact.
+  if (edge) {
+    return {
+      currentNight: edge.currentNight,
+      totalNights: edge.totalNights,
+      continuousStay: edge,
+      linkedExtension: false,
+      resetForDifferentGuest: false,
+      managerConfirmedContinuation: false,
     };
   }
 
