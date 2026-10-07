@@ -995,13 +995,15 @@ export async function runPmsRefresh(
       if (reservationDataAuthoritative && nowNoShow && !wasNoShow) {
         pushEvent("no_show_detected", { isNoShow: false }, { isNoShow: true }, false);
       }
-      if (reservationDataAuthoritative && stayContinuity.linkedExtension) {
+      if (reservationDataAuthoritative) {
         const previousIds = Array.isArray(existingMetadata?.continuousStay?.reservationIds)
           ? existingMetadata.continuousStay.reservationIds.map(String)
           : [];
         const nextIds = stayContinuity.continuousStay?.reservationIds || [];
         const newlyLinked = nextIds.some((id) => !previousIds.includes(id));
-        if (newlyLinked || existingMetadata?.continuousStay?.linkedBy !== stayContinuity.continuousStay?.linkedBy) {
+        const removedIds = previousIds.filter((id) => !nextIds.includes(id));
+        if (stayContinuity.linkedExtension
+            && (newlyLinked || existingMetadata?.continuousStay?.linkedBy !== stayContinuity.continuousStay?.linkedBy)) {
           pushEvent("stay_extension_linked",
             {
               reservation_ids: previousIds,
@@ -1013,6 +1015,20 @@ export async function runPmsRefresh(
               total_nights: guestTotalNights,
               linked_by: stayContinuity.continuousStay?.linkedBy,
               confidence: stayContinuity.continuousStay?.confidence,
+            },
+            false,
+          );
+        }
+        if (removedIds.length > 0 && !stayContinuity.resetForDifferentGuest) {
+          pushEvent("stay_extension_unlinked",
+            {
+              reservation_ids: previousIds,
+              removed_reservation_ids: removedIds,
+            },
+            {
+              reservation_ids: nextIds,
+              current_night: guestNightsStayed,
+              manager_continuation_active: stayContinuity.managerConfirmedContinuation,
             },
             false,
           );
