@@ -48,21 +48,34 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
     if (!canChange) return;
     try {
       const keys = await resolveHotelKeys(hotelName);
-      const { data, error } = await supabase.from('rooms').select('id,hotel,room_number,pms_metadata')
+      const { data, error } = await supabase.from('rooms')
+        .select('id,hotel,room_number,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
         .in('hotel', keys.length ? keys : [hotelName]);
       if (error) throw error;
       const latest: DisplayNotice[] = [];
       for (const room of data || []) {
-        const notice = (room.pms_metadata as any)?.roomTypeChangeNotice as RoomTypeNotice | undefined;
+        const meta = room.pms_metadata as any;
+        const notice = meta?.roomTypeChangeNotice as RoomTypeNotice | undefined;
         if (notice?.date === selectedDate && (notice.to === 'checkout' || notice.to === 'daily')) {
-          latest.push({ ...notice, roomId: room.id, roomNumber: room.room_number });
+          latest.push({
+            ...notice,
+            ...(notice.to === 'daily' && !isGozsdu ? {
+              serviceLabel: roomServiceLabel({
+                towelChangeRequired: room.towel_change_required,
+                linenChangeRequired: room.linen_change_required,
+              }),
+              nightsStayed: Number(meta?.continuousStay?.currentNight ?? room.guest_nights_stayed ?? meta?.currentNight ?? notice.nightsStayed ?? 0) || null,
+            } : {}),
+            roomId: room.id,
+            roomNumber: room.room_number,
+          });
         }
       }
       setNotices(latest.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5));
     } catch (error) {
       console.error('Could not refresh room-type change notices', error);
     }
-  }, [canChange, hotelName, selectedDate]);
+  }, [canChange, hotelName, selectedDate, isGozsdu]);
 
   useEffect(() => {
     void loadNotices();
