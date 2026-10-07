@@ -85,6 +85,14 @@ export function buildReservationMovementRows(
         nights: new Set(roomRows.map((row) => row.stay_date)).size,
         value: roundMoney(roomRows.reduce((sum, row) => sum + (Number(row.nightly_price_eur) || 0), 0)),
       }));
+      // Previo group reservations repeat the per-room guest count on every
+      // room-night. Count guests once per distinct room item, then sum across
+      // the group. Math.max() across all nights made a 4-room / 4-guest group
+      // appear as 1 guest in the movement board.
+      const guests = [...byRoom.values()].reduce(
+        (sum, roomRows) => sum + Math.max(1, ...roomRows.map((row) => Number(row.guests) || 1)),
+        0,
+      );
       result.push({
         key,
         resId: rows[0].res_id,
@@ -96,7 +104,7 @@ export function buildReservationMovementRows(
         originalCheckout,
         nights: new Set(dates).size,
         rooms,
-        guests: Math.max(1, ...rows.map((row) => Number(row.guests) || 1)),
+        guests,
         value: roundMoney(rooms.reduce((sum, room) => sum + room.value, 0)),
         channel: rows[0].source_name ?? "Direct / unknown",
       });
