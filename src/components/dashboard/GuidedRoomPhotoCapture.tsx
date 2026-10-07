@@ -117,7 +117,7 @@ export function GuidedRoomPhotoCapture({
   const stream = useRef<MediaStream | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const pickerCategory = useRef<Category>('bed');
-  const current = STEPS[Math.min(index, STEPS.length - 1)];
+  const current = STEPS[Math.min(index, Math.max(0, STEPS.length - 1))] || ALL_STEPS[0];
   const evidence = useMemo(() => Object.fromEntries(STEPS.map(step => [step.key, { real: photos.filter(url => categoryOf(url) === step.key && !isSkip(url)), skipped: photos.filter(url => categoryOf(url) === step.key && isSkip(url)) }])) as Record<Category, { real: string[]; skipped: string[] }>, [photos, STEPS]);
   const resolved = STEPS.filter(step => evidence[step.key].real.length || evidence[step.key].skipped.length).length;
   const anySkipped = STEPS.some(step => evidence[step.key].skipped.length > 0);
