@@ -407,16 +407,21 @@ export function reconcileContinuousStay(input: {
         totalNights,
         guestFingerprint: previousFingerprint,
         guestIdentityStrength: previousStrength,
+        // If a previously linked Previo extension disappears (cancelled,
+        // deleted or replaced), do not keep that reservation in the active
+        // continuity merely because it existed in an earlier sync. Keep the
+        // manager-confirmed provisional stay anchored to the original checkout
+        // segment until a new contiguous reservation is observed.
         reservationIds: Array.from(new Set([
+          ...(edge?.reservationIds || []),
           stringOrNull(snapshot.reservationId),
-          ...(stored?.reservationIds || []),
         ].filter((item): item is string => !!item))),
-        segments: stored?.segments || [],
+        segments: edge?.segments?.length ? edge.segments : [],
         linkedBy: 'manager_confirmed',
         confidence: 'manager_confirmed',
         updatedAt: nowIso,
       },
-      linkedExtension: !!stored && stored.reservationIds.length > 1,
+      linkedExtension: false,
       resetForDifferentGuest: false,
       managerConfirmedContinuation: true,
     };
