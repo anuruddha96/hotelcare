@@ -116,6 +116,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [dndPhotoDialogOpen, setDndPhotoDialogOpen] = useState(false);
   const [enhancedDndPhotoDialogOpen, setEnhancedDndPhotoDialogOpen] = useState(false);
   const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
+  const [completionPhotoIntent, setCompletionPhotoIntent] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
   const [towelChangeOnlyOpen, setTowelChangeOnlyOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
@@ -386,32 +387,43 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => {
-    // Check for room photos on daily cleaning completion - require ALL 5 categories
-    if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
-      const { data: assignmentData } = await supabase
+  const getMissingRequiredPhotos = async (): Promise<string[]> => {
+    const [assignmentResult, requirementsResult] = await Promise.all([
+      supabase
         .from('room_assignments')
         .select('completion_photos')
         .eq('id', assignment.id)
-        .single();
+        .single(),
+      (supabase as any).rpc('get_housekeeping_photo_requirements', { p_assignment_id: assignment.id }),
+    ]);
 
-      const photos: string[] = assignmentData?.completion_photos || [];
-      const requiredCategories = requiredDailyPhotoCategories(profile?.assigned_hotel, assignment.rooms?.hotel, profile?.organization_slug);
-      const missing = requiredCategories.filter(cat => {
-        return !photos.some(url => {
-          const filename = url.split('/').pop() || '';
-          return filename.startsWith(cat + '_');
-        });
-      });
+    const photos: string[] = (assignmentResult.data?.completion_photos || []) as string[];
+    const serverRequirements = (requirementsResult.data || []).map((row: any) => String(row.category));
+    const requiredCategories = serverRequirements.length
+      ? serverRequirements
+      : [...requiredDailyPhotoCategories(profile?.assigned_hotel, assignment.rooms?.hotel, profile?.organization_slug)];
 
-      if (photos.length === 0 || missing.length > 0) {
-        toast.error(t('actions.photosRequired'), {
-          description: missing.length > 0
-            ? `${t('actions.photosRequiredMessage')} (Missing: ${missing.join(', ')})`
-            : t('actions.photosRequiredMessage'),
-          duration: 6000
-        });
-        setDailyPhotoDialogOpen(true);
+    return requiredCategories.filter(category => !photos.some(url => {
+      const filename = decodeURIComponent(url.split('#')[0].split('?')[0].split('/').pop() || '');
+      return filename.startsWith(category + '_');
+    }));
+  };
+
+  const openRequiredPhotoFlow = () => {
+    setCompletionPhotoIntent(true);
+    toast.error(t('actions.photosRequired'), {
+      description: t('actions.photosRequiredMessage'),
+      duration: 3500,
+    });
+    setDailyPhotoDialogOpen(true);
+  };
+
+  const updateAssignmentStatus = async (newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => {
+    // Client-side safety check mirrors the server-authoritative configurable policy.
+    if (newStatus === 'completed' && assignment.assignment_type === 'daily_cleaning') {
+      const missing = await getMissingRequiredPhotos();
+      if (missing.length > 0) {
+        openRequiredPhotoFlow();
         return;
       }
     }
@@ -582,27 +594,51 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         ? `Room ${roomNum} completed and awaiting supervisor approval`
         : `Room ${roomNum} marked as ${newStatus}`;
       toast.success(message);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating assignment status:', error);
       void reportClientError(error, {
         context: 'updateAssignmentStatus',
         action: `status=${newStatus} assignment=${assignment.id}`,
       });
-      toast.error('Failed to update status');
+      const message = String(error?.message || '');
+      if (newStatus === 'completed' && message.toLowerCase().includes('required photo')) {
+        openRequiredPhotoFlow();
+      } else {
+        toast.error(t('common.error'), {
+          description: language === 'hu'
+            ? 'A szoba frissítése nem sikerült. Kérjük, próbáld újra.'
+            : 'Could not update the room. Please try again.',
+        });
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // Gozsdu keeps its existing direct-complete path. SLNT has no minibar, but
-  // still requires the translated dirty-linen confirmation before completion.
-  // HoldButton can fire click and hold callbacks; this synchronous guard
-  // prevents duplicate submission.
-  const handleCompleteRequest = () => {
-    if (loading || completionInFlight.current || assignment.status !== 'in_progress') return;
-    if (!gozsduNoMinibar) { setPreCompleteOpen(true); return; }
+  const continueCompletionAfterPhotos = () => {
+    setCompletionPhotoIntent(false);
+    if (!gozsduNoMinibar) {
+      setPreCompleteOpen(true);
+      return;
+    }
+    if (completionInFlight.current) return;
     completionInFlight.current = true;
     void updateAssignmentStatus('completed').finally(() => { completionInFlight.current = false; });
+  };
+
+  // Check required evidence before opening the final linen/minibar confirmation.
+  // If photos are missing, the capture flow remembers that completion was the
+  // user's intent and asks whether to finish immediately after the last photo.
+  const handleCompleteRequest = async () => {
+    if (loading || completionInFlight.current || assignment.status !== 'in_progress') return;
+    if (assignment.assignment_type === 'daily_cleaning') {
+      const missing = await getMissingRequiredPhotos();
+      if (missing.length > 0) {
+        openRequiredPhotoFlow();
+        return;
+      }
+    }
+    continueCompletionAfterPhotos();
   };
 
   const handleRetrieveDNDRoom = async () => {
@@ -683,7 +719,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     }
   };
 
-  // Refresh assignment photos after capture
+  // Refresh assignment photos after capture. GuidedRoomPhotoCapture owns the
+  // success/prompt UX so this refresh stays silent and avoids duplicate toasts.
   const handlePhotoCaptured = async () => {
     try {
       const { data, error } = await supabase
@@ -692,10 +729,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         .eq('id', assignment.id)
         .single();
 
-      if (!error && data) {
-        setCurrentPhotos(data.completion_photos || []);
-        toast.success('Photos saved successfully! You can now complete the room.');
-      }
+      if (!error && data) setCurrentPhotos(data.completion_photos || []);
     } catch (error) {
       console.error('Error refreshing photos:', error);
     }
@@ -1447,7 +1481,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   {!isCheckoutClean && (
                     <button
                       type="button"
-                      onClick={() => setDailyPhotoDialogOpen(true)}
+                      onClick={() => { setCompletionPhotoIntent(false); setDailyPhotoDialogOpen(true); }}
                       className={`${tileBase} border-border`}
                       data-training="room-photos-button"
                     >
@@ -1810,6 +1844,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         assignmentId={assignment.id}
         hotel={assignment.rooms?.hotel}
         onPhotoCaptured={handlePhotoCaptured}
+        completionIntent={completionPhotoIntent}
+        onRequestComplete={continueCompletionAfterPhotos}
       />
 
       {/* Enhanced DND Photo Dialog */}
