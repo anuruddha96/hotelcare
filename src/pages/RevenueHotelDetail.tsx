@@ -191,6 +191,8 @@ export default function RevenueHotelDetail() {
         .ilike("city", marketCity)
         .ilike("country", marketCountry)
         .eq("approved", true)
+        .not("url", "is", null)
+        .neq("url", "")
         .limit(1000);
       if (!cancelled) setDemandEvents((data ?? []) as any);
     })();

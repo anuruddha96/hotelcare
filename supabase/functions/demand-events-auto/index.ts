@@ -161,26 +161,71 @@ serve(async (req) => {
 
         let added = 0;
         if (result.candidates.length > 0) {
-          const rows = result.candidates.map((candidate) => ({
-            organization_slug: runner!.organizationSlug,
-            hotel_id: runner!.hotelId || null,
-            city: candidate.city,
-            country: candidate.country,
-            title: candidate.title,
-            category: candidate.category,
-            venue: candidate.venue,
-            event_date: candidate.event_date,
-            end_date: candidate.end_date,
-            expected_impact: candidate.expected_impact,
-            recurs_annually: candidate.recurs_annually,
-            url: candidate.url,
-            confidence: candidate.confidence,
-            source: "ai_auto",
-            approved: true,
-          }));
-          const { data: ins, error } = await admin.from("demand_events").insert(rows).select("id");
-          if (error) console.error("auto event insert failed", error.message);
-          added = (ins ?? []).length;
+          for (const candidate of result.candidates) {
+            // searchEvents never returns an unsourced candidate. Keep this
+            // defensive guard so an automatic run can never publish one.
+            if (!candidate.url) continue;
+
+            const payload = {
+              organization_slug: runner!.organizationSlug,
+              hotel_id: runner!.hotelId || null,
+              city: candidate.city,
+              country: candidate.country,
+              title: candidate.title,
+              category: candidate.category,
+              venue: candidate.venue,
+              event_date: candidate.event_date,
+              end_date: candidate.end_date,
+              expected_impact: candidate.expected_impact,
+              recurs_annually: candidate.recurs_annually,
+              url: candidate.url,
+              confidence: candidate.confidence,
+              source: "ai_auto",
+              approved: true,
+            };
+
+            const { data: ins, error: insertError } = await admin
+              .from("demand_events")
+              .insert(payload)
+              .select("id");
+
+            if (!insertError) {
+              added += (ins ?? []).length;
+              continue;
+            }
+
+            // Legacy unsourced/unapproved rows may still own the expression
+            // unique key. Repair those rows in place with the verified result.
+            if (String(insertError.code ?? "") === "23505") {
+              const { data: existing, error: lookupError } = await admin
+                .from("demand_events")
+                .select("id")
+                .eq("organization_slug", runner!.organizationSlug)
+                .ilike("city", candidate.city)
+                .eq("event_date", candidate.event_date)
+                .ilike("title", candidate.title)
+                .limit(1)
+                .maybeSingle();
+
+              if (lookupError || !existing?.id) {
+                console.error("auto event repair lookup failed", lookupError?.message ?? candidate.title);
+                continue;
+              }
+
+              const { error: updateError } = await admin
+                .from("demand_events")
+                .update(payload)
+                .eq("id", existing.id);
+              if (updateError) {
+                console.error("auto event repair failed", updateError.message);
+                continue;
+              }
+              added += 1;
+              continue;
+            }
+
+            console.error("auto event insert failed", insertError.message);
+          }
         }
 
         // Each tenant gets a local refresh record so existing RLS/UI continues
