@@ -30,6 +30,7 @@ export interface DemandEventRow {
   expected_impact: string;
   recurs_annually: boolean;
   notes: string | null;
+  url: string | null;
   source: string;
   confidence: number | null;
   approved: boolean;
@@ -55,6 +56,7 @@ interface EventEdit {
   end_date: string;
   expected_impact: string;
   recurs_annually: boolean;
+  url: string;
 }
 
 interface SearchRun {
@@ -84,6 +86,17 @@ const impactTone = (impact: string) =>
   impact === "high" ? "bg-red-100 text-red-700"
     : impact === "medium" ? "bg-amber-100 text-amber-700"
     : "bg-muted text-muted-foreground";
+
+const sourceUrl = (value: string | null | undefined): string | null => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+};
 
 /**
  * The demand events calendar: manual entries plus an on-demand AI search for a
@@ -117,6 +130,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [venue, setVenue] = useState("");
+  const [manualSourceUrl, setManualSourceUrl] = useState("");
   const [recurring, setRecurring] = useState(false);
 
   useEffect(() => {
@@ -187,11 +201,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       .ilike("city", marketCity)
       .ilike("country", marketCountry)
       .eq("approved", true)
+      .not("url", "is", null)
       .order("event_date", { ascending: true })
       .limit(1000);
 
     // Annual events are stored once and projected onto the month being viewed.
     const rows = ((data ?? []) as DemandEventRow[]).filter((row) => {
+      if (!sourceUrl(row.url)) return false;
       if (!row.recurs_annually) return row.event_date <= range.end && (row.end_date ?? row.event_date) >= range.start;
       return String(row.event_date).slice(5, 7) === month.slice(5, 7);
     });
@@ -245,6 +261,8 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const addManual = async () => {
     if (!orgSlug) return;
     if (!title.trim() || !startDate) { toast.error("A title and a date are required."); return; }
+    const verifiedSource = sourceUrl(manualSourceUrl);
+    if (!verifiedSource) { toast.error("A valid source URL is required for every event."); return; }
     const { error } = await (supabase as any).from("demand_events").insert({
       organization_slug: orgSlug,
       hotel_id: hotelId,
@@ -256,11 +274,12 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       end_date: endDate || null,
       expected_impact: impact,
       recurs_annually: recurring,
+      url: verifiedSource,
       source: "manual",
       approved: true,
     });
     if (error) { toast.error(error.message); return; }
-    setTitle(""); setVenue(""); setStartDate(""); setEndDate(""); setRecurring(false);
+    setTitle(""); setVenue(""); setStartDate(""); setEndDate(""); setManualSourceUrl(""); setRecurring(false);
     toast.success("Event added");
     void load();
   };
@@ -306,6 +325,10 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     if (!orgSlug || !candidates) return;
     const chosen = candidates.filter((_, i) => picked[i]);
     if (!chosen.length) { toast.error("Nothing selected."); return; }
+    if (chosen.some((candidate) => !sourceUrl(candidate.url))) {
+      toast.error("Every selected event must have a valid source URL.");
+      return;
+    }
     // The unique index is on lower(title), so PostgREST cannot resolve it as a
     // conflict target — duplicates are filtered out client-side before insert.
     const { error } = await (supabase as any).from("demand_events").insert(
@@ -337,18 +360,22 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       end_date: e.end_date ?? "",
       expected_impact: e.expected_impact,
       recurs_annually: e.recurs_annually,
+      url: e.url ?? "",
     });
   };
 
   const saveEdit = async () => {
     if (!editingId || !edit) return;
     if (!edit.title.trim() || !edit.event_date) { toast.error("A title and a date are required."); return; }
+    const verifiedSource = sourceUrl(edit.url);
+    if (!verifiedSource) { toast.error("A valid source URL is required for every event."); return; }
     const { error } = await (supabase as any).from("demand_events").update({
       title: edit.title.trim(),
       event_date: edit.event_date,
       end_date: edit.end_date || null,
       expected_impact: edit.expected_impact,
       recurs_annually: edit.recurs_annually,
+      url: verifiedSource,
       source: "manual",
     }).eq("id", editingId);
     if (error) { toast.error(error.message); return; }
@@ -692,21 +719,31 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                   ) : (
                     <div className="space-y-2">
                       {selectedDateEvents.map((e) => (
-                        <button
-                          key={e.id}
-                          type="button"
-                          onClick={() => setSelectedId(e.id)}
-                          className="flex w-full items-start justify-between gap-3 rounded-md border p-2 text-left hover:bg-muted/40"
-                        >
-                          <span className="min-w-0">
+                        <div key={e.id} className="flex items-start gap-2 rounded-md border p-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedId(e.id)}
+                            className="min-w-0 flex-1 text-left hover:opacity-80"
+                          >
                             <span className="block truncate text-sm font-medium">{e.title}</span>
                             <span className="block text-xs text-muted-foreground">
                               {e.category}{e.venue ? ` · ${e.venue}` : ""} · {fmtDay(e.event_date)}
                               {e.end_date ? ` – ${fmtDay(e.end_date)}` : ""}
                             </span>
-                          </span>
-                          <Badge variant="secondary" className={impactTone(e.expected_impact)}>{e.expected_impact}</Badge>
-                        </button>
+                          </button>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <Badge variant="secondary" className={impactTone(e.expected_impact)}>{e.expected_impact}</Badge>
+                            <a
+                              href={e.url ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-primary hover:bg-primary/10"
+                              onClick={(ev) => ev.stopPropagation()}
+                            >
+                              <ExternalLink className="h-3 w-3" /> Source
+                            </a>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -741,6 +778,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           value={edit.end_date}
                           onChange={(ev) => setEdit({ ...edit, end_date: ev.target.value })}
                           className="h-8"
+                        />
+                        <Input
+                          type="url"
+                          value={edit.url}
+                          onChange={(ev) => setEdit({ ...edit, url: ev.target.value })}
+                          className="h-8 sm:col-span-2"
+                          placeholder="Source URL (required)"
                         />
                         <Select
                           value={edit.expected_impact}
@@ -791,6 +835,14 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           {selectedEvent.end_date ? ` – ${fmtDay(selectedEvent.end_date)}` : ""}
                           {selectedEvent.venue ? ` · ${selectedEvent.venue}` : ""} · {selectedEvent.category} · {selectedEvent.city}
                         </p>
+                        <a
+                          href={selectedEvent.url ?? "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary underline underline-offset-2"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" /> Open source
+                        </a>
                       </div>
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="icon" onClick={() => startEdit(selectedEvent)} aria-label="Edit event">
@@ -833,6 +885,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} className="h-8" />
                 <Input placeholder="Venue (optional)" value={venue} onChange={(e) => setVenue(e.target.value)} className="h-8" />
+                <Input
+                  type="url"
+                  placeholder="Source URL (required)"
+                  value={manualSourceUrl}
+                  onChange={(e) => setManualSourceUrl(e.target.value)}
+                  className="h-8 sm:col-span-2"
+                />
                 <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-8" />
                 <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="End date" className="h-8" />
                 <Select value={category} onValueChange={setCategory}>
