@@ -100,10 +100,8 @@ export function LostAndFoundManagement() {
       
       let filteredData = data || [];
 
-      // Filter by the selected property without losing legacy manager-created
-      // rows. Room-linked items use the room hotel; roomless legacy rows are
-      // visible only to the reporter because the old schema has no property
-      // column for a safe shared-hotel match.
+      // Filter by the selected property using the persisted hotel scope. The
+      // linked room remains a compatibility fallback for older room records.
       if (resolvedHotelNames.length > 0) {
         filteredData = filteredData.filter((item: any) =>
           isLostFoundItemVisibleInHotel(item, {
