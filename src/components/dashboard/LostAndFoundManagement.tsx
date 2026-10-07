@@ -141,7 +141,7 @@ export function LostAndFoundManagement() {
   useEffect(() => {
     if (!user?.id) return;
 
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let timer: number | null = null;
     const refreshSoon = () => {
       if (timer) window.clearTimeout(timer);
       timer = window.setTimeout(() => void fetchLostAndFound(), 250);
