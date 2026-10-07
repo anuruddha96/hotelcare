@@ -52,11 +52,33 @@ describe('Hotel Memories missed-service carry-forward parsing', () => {
       },
     })).toEqual({
       active: true,
+      propertyId: 'memories-budapest',
       sourceBusinessDate: '2026-09-25',
+      originalDueDate: '2026-09-25',
       serviceType: 'towel_change',
       reason: 'dnd',
+      attemptCount: 1,
+      policySource: null,
       instruction: 'Please retry towels.',
     });
+  });
+
+  it('parses repeated carry lineage for manager history', () => {
+    const carry = getMemoriesCarryForwardService({
+      carry_forward: {
+        active: true,
+        property_id: 'memories-budapest',
+        source_business_date: '2026-10-06',
+        original_due_date: '2026-10-05',
+        service_type: 'full_clean',
+        reason: 'no_service',
+        attempt_count: 2,
+        policy_source: 'memories_service_cycle',
+      },
+    });
+    expect(carry?.originalDueDate).toBe('2026-10-05');
+    expect(carry?.attemptCount).toBe(2);
+    expect(carry?.policySource).toBe('memories_service_cycle');
   });
 
   it('builds a readable fallback for a No Service full-clean carry', () => {

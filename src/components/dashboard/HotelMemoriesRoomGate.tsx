@@ -15,6 +15,7 @@ import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
 import { useTranslation } from '@/hooks/useTranslation';
+import { getCarryForwardHousekeeperCopy } from '@/lib/housekeepingCarryForward';
 import {
   getMemoriesCarryForwardService,
   HOUSEKEEPING_SERVICE_RESULT_GUEST_DECLINED,
@@ -106,6 +107,9 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const carryForward = isMemories && !isCheckout
     ? getMemoriesCarryForwardService(assignment.previous_day_context)
     : null;
+  const carryForwardCopy = carryForward
+    ? getCarryForwardHousekeeperCopy(carryForward)
+    : null;
   const hasTowelRequest = !!assignment.rooms?.towel_change_required
     || carryForward?.serviceType === 'towel_change';
   const hasCleanRequest = roomFlags.roomCleaning
@@ -134,17 +138,17 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
 
   useEffect(() => {
     setTranslatedCarryInstruction(null);
-  }, [carryForward?.instruction]);
+  }, [carryForwardCopy?.message]);
 
   const translateCarryInstruction = async () => {
-    if (!carryForward || translatingCarryInstruction) return;
+    if (!carryForwardCopy || translatingCarryInstruction) return;
     setTranslatingCarryInstruction(true);
     try {
       const { data, error } = await supabase.functions.invoke('translate-note', {
-        body: { text: carryForward.instruction, targetLanguage: language },
+        body: { text: carryForwardCopy.message, targetLanguage: language },
       });
       if (error) throw error;
-      setTranslatedCarryInstruction(data?.translatedText || carryForward.instruction);
+      setTranslatedCarryInstruction(data?.translatedText || carryForwardCopy.message);
     } catch (error) {
       console.error('Failed to translate carried Hotel Memories service instruction:', error);
       toast.error('Translation failed');
@@ -153,18 +157,26 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     }
   };
 
-  const carryForwardBanner = carryForward ? (
+  const carryForwardBanner = carryForward && carryForwardCopy ? (
     <Card className="border-2 border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 shadow-sm">
       <CardContent className="p-3">
         <div className="flex items-start gap-2">
-          <History className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span className="text-xl leading-none" aria-hidden="true">{carryForwardCopy.icon}</span>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-              Carried service from yesterday · {carryForward.sourceBusinessDate}
-            </p>
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm font-semibold leading-snug text-amber-950 dark:text-amber-100">
-              {translatedCarryInstruction || carryForward.instruction}
-            </p>
+            {translatedCarryInstruction ? (
+              <p className="whitespace-pre-wrap break-words text-sm font-bold leading-snug text-amber-950 dark:text-amber-100">
+                {translatedCarryInstruction}
+              </p>
+            ) : (
+              <>
+                <p className="text-sm font-bold leading-snug text-amber-950 dark:text-amber-100">
+                  {carryForwardCopy.action}
+                </p>
+                <p className="mt-0.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  {carryForwardCopy.reason}
+                </p>
+              </>
+            )}
             {!translatedCarryInstruction && (
               <button
                 type="button"
@@ -175,7 +187,7 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
                 {translatingCarryInstruction
                   ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   : <Globe className="h-3.5 w-3.5" />}
-                Translate instruction
+                Translate
               </button>
             )}
           </div>

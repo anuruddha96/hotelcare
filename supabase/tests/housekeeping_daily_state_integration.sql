@@ -493,3 +493,85 @@ BEGIN
     RAISE EXCEPTION 'repeated carry lineage failed: %',v_payload;
   END IF;
 END $$;
+
+
+-- Memories repeated carry lineage: a carried towel task that is missed again via
+-- No Service must remain due even when the room's natural T/C flags are false.
+DO $$
+DECLARE
+  v_room uuid := '00000000-0000-0000-0000-000000000051';
+  v_payload jsonb;
+BEGIN
+  INSERT INTO public.rooms(
+    id,hotel,organization_slug,room_number,status,is_checkout_room,
+    towel_change_required,linen_change_required,is_dnd,notes,pms_metadata
+  ) VALUES (
+    v_room,'memories-budapest','rdhotels','036','dirty',false,
+    false,false,false,null,
+    '{"pmsSyncDate":"2026-09-27","lastPmsRefreshDate":"2026-09-27","scheduledDepartureToday":false,"arrivalToday":false,"reservationId":"memories-stay-036"}'::jsonb
+  );
+
+  INSERT INTO public.room_assignments(
+    id,room_id,assignment_date,assignment_type,status,supervisor_approved,
+    created_at,updated_at,is_dnd,dnd_attempt_count,notes,service_result
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000052',v_room,DATE '2026-09-26',
+    'daily_cleaning','completed',false,now(),now(),false,0,
+    '[NO_SERVICE] Guest declined','guest_declined'
+  );
+
+  UPDATE public.room_assignments
+  SET previous_day_context='{
+    "carry_forward":{
+      "version":2,
+      "active":true,
+      "property_id":"memories-budapest",
+      "source_business_date":"2026-09-25",
+      "original_due_date":"2026-09-25",
+      "service_type":"towel_change",
+      "reason":"dnd",
+      "attempt_count":1,
+      "policy_source":"memories_service_cycle",
+      "instruction":"Towel change was missed."
+    }
+  }'::jsonb
+  WHERE id='00000000-0000-0000-0000-000000000052';
+
+  INSERT INTO public.housekeeping_room_snapshots(
+    id,business_date,room_id,hotel,organization_slug,room_number,room_status,
+    is_checkout_room,is_dnd,towel_change_required,linen_change_required,room_notes,pms_metadata,
+    had_dnd,had_no_service,had_room_cleaning_request,had_extra_towels_request,had_ready_to_clean,
+    assignment_notes,source,final_state,finalized_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000053',DATE '2026-09-26',v_room,
+    'memories-budapest','rdhotels','036','dirty',false,false,false,false,null,
+    '{"reservationId":"memories-stay-036"}'::jsonb,
+    false,true,false,false,false,'[NO_SERVICE] Guest declined','live_capture',
+    '{
+      "version":1,
+      "business_date":"2026-09-26",
+      "hotel":"memories-budapest",
+      "is_checkout_room_at_close":false,
+      "towel_change_required_for_assignment":false,
+      "linen_change_required_for_assignment":false,
+      "had_dnd":false,
+      "had_no_service":true,
+      "service_result":"guest_declined",
+      "pms_metadata_at_close":{"reservationId":"memories-stay-036"}
+    }'::jsonb,
+    now()
+  );
+
+  SELECT public.hc_memories_previous_service_context(
+    v_room,DATE '2026-09-27','daily_cleaning'
+  ) #> '{carry_forward}'
+  INTO v_payload;
+
+  IF v_payload ->> 'service_type' IS DISTINCT FROM 'towel_change'
+     OR v_payload ->> 'original_due_date' IS DISTINCT FROM '2026-09-25'
+     OR (v_payload ->> 'attempt_count')::integer IS DISTINCT FROM 2
+     OR v_payload ->> 'reason' IS DISTINCT FROM 'no_service'
+     OR v_payload ->> 'property_id' IS DISTINCT FROM 'memories-budapest' THEN
+    RAISE EXCEPTION 'Memories repeated carry lineage failed: %',v_payload;
+  END IF;
+END $$;
