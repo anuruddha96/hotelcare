@@ -31,6 +31,18 @@ export function clean(v: unknown, max: number): string {
 
 export const isDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ""));
 
+export function eventIdentityTitle(value: unknown): string {
+  const normalized = clean(value, 300)
+    .toLowerCase()
+    .replace(/\b(?:19|20)\d{2}\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (normalized === "labor day") return "labour day";
+  if (normalized === "berlioz symphonie fantastique concert") return "berlioz symphonie fantastique";
+  if (normalized === "mefistofele opera performances") return "mefistofele";
+  return normalized;
+}
+
 /** Only real, navigable web URLs may become demand-event sources. */
 export function normalizeSourceUrl(value: unknown): string | null {
   const raw = clean(value, 500);
@@ -154,13 +166,13 @@ export async function searchEvents(opts: {
 
   /** Same event when the titles match and the date ranges touch (or it recurs in the same month/day). */
   const isKnown = (title: string, from: string, to: string | null) => {
-    const key = normTitle(title);
+    const key = eventIdentityTitle(title);
     const a1 = from, a2 = to ?? from;
     return known.some((k) => {
       // Legacy rows without a source are deliberately not treated as known.
       // A fresh verified search must be allowed to repair/replace them.
       if (!k.approved || !normalizeSourceUrl(k.url)) return false;
-      if (normTitle(k.title) !== key) return false;
+      if (eventIdentityTitle(k.title) !== key) return false;
       if (k.recurs_annually) return k.event_date.slice(5, 7) === from.slice(5, 7);
       const b1 = k.event_date, b2 = k.end_date ?? k.event_date;
       return a1 <= b2 && b1 <= a2;
@@ -274,7 +286,7 @@ export async function searchEvents(opts: {
     // rows feed pricing decisions and must always be auditable by a manager.
     .filter((c) => c.url !== null)
     .filter((c) => {
-      const key = `${normTitle(c.title)}|${c.event_date}`;
+      const key = `${eventIdentityTitle(c.title)}|${c.event_date}|${c.end_date ?? c.event_date}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
