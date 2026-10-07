@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRevenueEventBands, type RevenueEventBandInput } from './revenueEventBands';
+import { buildRevenueEventBands, scoreRevenueEvent, type RevenueEventBandInput } from './revenueEventBands';
 
 const dates = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05'];
 
@@ -45,6 +45,22 @@ describe('buildRevenueEventBands', () => {
     expect(bands.map((band) => band.event.title)).toContain('Low 1');
     expect(bands.map((band) => band.event.title)).not.toContain('Low 2');
     expect(new Set(bands.map((band) => band.lane)).size).toBe(5);
+  });
+
+  it('recognizes the sports category used by demand events', () => {
+    const grandPrix = scoreRevenueEvent({
+      title: 'Formula 1 Hungarian Grand Prix',
+      impact: 'high',
+      category: 'sports',
+      venue: 'Hungaroring',
+    });
+    const generic = scoreRevenueEvent({
+      title: 'Generic high-impact event',
+      impact: 'high',
+      category: 'other',
+      venue: 'Budapest',
+    });
+    expect(grandPrix).toBeGreaterThan(generic);
   });
 
   it('reuses a lane once the previous event has ended', () => {
