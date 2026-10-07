@@ -107,17 +107,33 @@ export function buildRoomTypeTransition(params: {
   } = params;
   const old = metadata || {};
   const checkout = target === 'checkout';
+  const priorSnapshotRaw = old.extensionServiceSnapshot;
+  const priorSnapshot = priorSnapshotRaw && typeof priorSnapshotRaw === 'object' && !Array.isArray(priorSnapshotRaw)
+    ? priorSnapshotRaw as Record<string, unknown>
+    : null;
+  const reuseSameDaySnapshot = priorSnapshot?.managerConfirmedDate === date;
 
-  const priorCurrent = Math.max(
-    positive(serviceSnapshot?.guestNightsStayed),
-    positive(serviceSnapshot?.currentNight),
-    positive(old.currentNight),
-  );
-  const priorTotal = Math.max(
-    positive(serviceSnapshot?.totalNights),
-    positive(old.totalNights),
-    priorCurrent,
-  );
+  // Re-opening the same manager decision today must be idempotent. Once a
+  // Checkout -> Daily bridge captured the completed checkout segment, use that
+  // original segment again instead of incrementing the already-continued night.
+  const priorCurrent = reuseSameDaySnapshot
+    ? Math.max(
+        positive(priorSnapshot?.guestNightsStayed),
+        positive(priorSnapshot?.currentNight),
+        positive(priorSnapshot?.totalNights),
+      )
+    : Math.max(
+        positive(serviceSnapshot?.guestNightsStayed),
+        positive(serviceSnapshot?.currentNight),
+        positive(old.currentNight),
+      );
+  const priorTotal = reuseSameDaySnapshot
+    ? Math.max(positive(priorSnapshot?.totalNights), priorCurrent)
+    : Math.max(
+        positive(serviceSnapshot?.totalNights),
+        positive(old.totalNights),
+        priorCurrent,
+      );
   // A checkout changed to Daily means the guest will occupy the room for one
   // more night than the completed checkout segment. This temporary open-ended
   // counter is replaced by the real continuous total as soon as Previo sends
@@ -170,22 +186,28 @@ export function buildRoomTypeTransition(params: {
           stayThroughToday: true,
           ...(continuedNight ? { currentNight: continuedNight } : {}),
           ...(provisionalTotal ? { totalNights: provisionalTotal } : {}),
-          extensionServiceSnapshot: {
-            capturedAt: nowIso,
-            managerConfirmedDate: date,
-            reservationId: serviceSnapshot?.reservationId ?? old.reservationId ?? null,
-            guestFingerprint: serviceSnapshot?.guestFingerprint ?? old.guestFingerprint ?? null,
-            guestIdentityStrength: serviceSnapshot?.guestIdentityStrength ?? old.guestIdentityStrength ?? 'none',
-            arrivalDate: serviceSnapshot?.arrivalDate ?? old.arrivalDate ?? null,
-            // The source room is a checkout bucket, so today's business date is
-            // a reliable bridge date even when the PMS omitted DepartureDate.
-            departureDate: serviceSnapshot?.departureDate ?? old.departureDate ?? date,
-            guestNightsStayed: positive(serviceSnapshot?.guestNightsStayed) || priorCurrent || null,
-            currentNight: positive(serviceSnapshot?.currentNight) || priorCurrent || null,
-            totalNights: positive(serviceSnapshot?.totalNights) || priorTotal || null,
-            towelChangeRequired: serviceSnapshot?.towelChangeRequired === true,
-            linenChangeRequired: serviceSnapshot?.linenChangeRequired === true,
-          },
+          extensionServiceSnapshot: reuseSameDaySnapshot
+            ? {
+                ...priorSnapshot,
+                capturedAt: priorSnapshot?.capturedAt ?? nowIso,
+                managerConfirmedDate: date,
+              }
+            : {
+                capturedAt: nowIso,
+                managerConfirmedDate: date,
+                reservationId: serviceSnapshot?.reservationId ?? old.reservationId ?? null,
+                guestFingerprint: serviceSnapshot?.guestFingerprint ?? old.guestFingerprint ?? null,
+                guestIdentityStrength: serviceSnapshot?.guestIdentityStrength ?? old.guestIdentityStrength ?? 'none',
+                arrivalDate: serviceSnapshot?.arrivalDate ?? old.arrivalDate ?? null,
+                // The source room is a checkout bucket, so today's business date is
+                // a reliable bridge date even when the PMS omitted DepartureDate.
+                departureDate: serviceSnapshot?.departureDate ?? old.departureDate ?? date,
+                guestNightsStayed: positive(serviceSnapshot?.guestNightsStayed) || priorCurrent || null,
+                currentNight: positive(serviceSnapshot?.currentNight) || priorCurrent || null,
+                totalNights: positive(serviceSnapshot?.totalNights) || priorTotal || null,
+                towelChangeRequired: serviceSnapshot?.towelChangeRequired === true,
+                linenChangeRequired: serviceSnapshot?.linenChangeRequired === true,
+              },
         }),
   };
 
