@@ -25,7 +25,7 @@ describe('housekeeping minibar policy', () => {
     expect(requiredDailyPhotoCategories('gozsdu-court', 'Gozsdu Court Budapest'))
       .toEqual(['bed', 'tea_coffee_table', 'bathroom', 'trash_bin']);
     expect(requiredDailyPhotoCategories('memories-budapest', 'Hotel Memories Budapest'))
-      .toEqual(['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table']);
+      .toEqual(['bed', 'tea_coffee_table', 'bathroom', 'trash_bin', 'minibar']);
     expect(requiredDailyPhotoCategories('gozsdu-court', 'Hotel Ottofiori')).toContain('minibar');
   });
 
