@@ -4,6 +4,7 @@ export interface LostFoundVisibilityItem {
   room_id: string | null;
   reported_by: string;
   organization_slug?: string | null;
+  hotel?: string | null;
   rooms?: {
     hotel?: string | null;
   } | null;
@@ -26,10 +27,9 @@ export function normalizeLostFoundHotelKey(value: string | null | undefined): st
 }
 
 /**
- * Lost & Found rows are primarily property-scoped through their linked room.
- * Older manager-created "General" rows have no room/property column in the
- * legacy schema; keep those recoverable only by the reporter instead of
- * leaking them to managers at other properties.
+ * Lost & Found rows are property-scoped by their persisted hotel key, with
+ * the linked room retained as a compatibility fallback for older rows. Truly
+ * unscoped legacy rows remain recoverable only by their reporter.
  */
 export function isLostFoundItemVisibleInHotel(
   item: LostFoundVisibilityItem,
@@ -40,9 +40,9 @@ export function isLostFoundItemVisibleInHotel(
 
   if (expectedOrg && itemOrg && expectedOrg !== itemOrg) return false;
 
-  const roomHotel = normalizeLostFoundHotelKey(item.rooms?.hotel);
-  if (roomHotel) {
-    return scope.hotelKeys.some((key) => normalizeLostFoundHotelKey(key) === roomHotel);
+  const itemHotel = normalizeLostFoundHotelKey(item.hotel || item.rooms?.hotel);
+  if (itemHotel) {
+    return scope.hotelKeys.some((key) => normalizeLostFoundHotelKey(key) === itemHotel);
   }
 
   return !!scope.userId && item.reported_by === scope.userId;

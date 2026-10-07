@@ -5195,6 +5195,7 @@ export type Database = {
           claimed_by: string | null
           created_at: string
           found_date: string
+          hotel: string | null
           id: string
           item_description: string
           notes: string | null
@@ -5211,6 +5212,7 @@ export type Database = {
           claimed_by?: string | null
           created_at?: string
           found_date?: string
+          hotel?: string | null
           id?: string
           item_description: string
           notes?: string | null
@@ -5227,6 +5229,7 @@ export type Database = {
           claimed_by?: string | null
           created_at?: string
           found_date?: string
+          hotel?: string | null
           id?: string
           item_description?: string
           notes?: string | null

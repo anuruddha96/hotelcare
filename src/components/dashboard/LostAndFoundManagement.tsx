@@ -20,7 +20,8 @@ import { isLostFoundItemVisibleInHotel, LOST_FOUND_UPDATED_EVENT } from '@/lib/l
 
 interface LostAndFoundItem {
   id: string;
-  room_id: string;
+  room_id: string | null;
+  hotel: string | null;
   item_description: string;
   photo_urls: string[];
   found_date: string;
@@ -32,10 +33,10 @@ interface LostAndFoundItem {
   rooms: {
     room_number: string;
     hotel: string;
-  };
+  } | null;
   profiles: {
     full_name: string;
-  };
+  } | null;
 }
 
 export function LostAndFoundManagement() {
@@ -99,10 +100,8 @@ export function LostAndFoundManagement() {
       
       let filteredData = data || [];
 
-      // Filter by the selected property without losing legacy manager-created
-      // rows. Room-linked items use the room hotel; roomless legacy rows are
-      // visible only to the reporter because the old schema has no property
-      // column for a safe shared-hotel match.
+      // Filter by the selected property using the persisted hotel scope. The
+      // linked room remains a compatibility fallback for older room records.
       if (resolvedHotelNames.length > 0) {
         filteredData = filteredData.filter((item: any) =>
           isLostFoundItemVisibleInHotel(item, {
@@ -325,7 +324,7 @@ export function LostAndFoundManagement() {
                         </div>
                         <div className="flex items-center justify-between">
                           <span>{t('lostFound.hotel')}:</span>
-                          <span className="text-xs">{item.rooms?.hotel || 'N/A'}</span>
+                          <span className="text-xs">{item.rooms?.hotel || item.hotel || 'N/A'}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span>{t('lostFound.found')}:</span>
@@ -411,7 +410,7 @@ export function LostAndFoundManagement() {
                   <strong>Room:</strong> {selectedItem.rooms?.room_number || 'N/A'}
                 </div>
                 <div>
-                  <strong>Hotel:</strong> {selectedItem.rooms?.hotel || 'N/A'}
+                  <strong>Hotel:</strong> {selectedItem.rooms?.hotel || selectedItem.hotel || 'N/A'}
                 </div>
                 <div>
                   <strong>Status:</strong> <Badge>{selectedItem.status}</Badge>

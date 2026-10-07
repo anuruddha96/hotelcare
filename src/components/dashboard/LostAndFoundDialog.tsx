@@ -163,22 +163,24 @@ export function LostAndFoundDialog({
         uploadedUrls.push(publicUrl);
       }
       let organizationSlug = profile?.organization_slug || null;
+      let hotel = profile?.assigned_hotel || null;
 
-      // A room-linked report should inherit the room's tenant scope. This
-      // prevents a valid insert from later becoming invisible after a tenant
-      // or property filter is applied.
+      // Room-linked reports inherit the authoritative room property. General
+      // manager reports keep the currently selected property from the profile,
+      // so they remain visible to every manager at that hotel.
       if (roomId) {
         const { data: roomScope, error: roomScopeError } = await supabase
           .from('rooms')
-          .select('id, organization_slug')
+          .select('id, organization_slug, hotel')
           .eq('id', roomId)
           .maybeSingle();
         if (roomScopeError) throw roomScopeError;
         if (!roomScope?.id) throw new Error('The selected room could not be verified.');
         organizationSlug = roomScope.organization_slug || organizationSlug;
+        hotel = roomScope.hotel || hotel;
       }
 
-      if (!organizationSlug) {
+      if (!organizationSlug || !hotel) {
         throw new Error('The property scope could not be determined. Please refresh and try again.');
       }
 
@@ -194,8 +196,9 @@ export function LostAndFoundDialog({
           status: 'pending',
           found_date: todayBudapest(),
           organization_slug: organizationSlug,
+          hotel,
         })
-        .select('id, room_id, reported_by, organization_slug, status')
+        .select('id, room_id, reported_by, organization_slug, hotel, status')
         .single();
       if (insertError) throw insertError;
       if (!insertedItem?.id) throw new Error('The Lost & Found item was not persisted.');

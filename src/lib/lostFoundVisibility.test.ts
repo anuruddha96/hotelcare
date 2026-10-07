@@ -33,30 +33,46 @@ describe('lostFoundVisibility', () => {
     })).toBe(false);
   });
 
-  it('keeps a legacy roomless manager item recoverable by its reporter', () => {
+  it('shares a property-scoped general item with managers at the same hotel', () => {
+    expect(isLostFoundItemVisibleInHotel({
+      room_id: null,
+      reported_by: 'manager-2',
+      organization_slug: 'rdhotels',
+      hotel: 'Hotel Memories Budapest',
+      rooms: null,
+    }, {
+      hotelKeys: ['memories-budapest', 'Hotel Memories Budapest'],
+      organizationSlug: 'rdhotels',
+      userId: 'manager-1',
+    })).toBe(true);
+  });
+
+  it('does not expose a property-scoped general item at another hotel', () => {
+    expect(isLostFoundItemVisibleInHotel({
+      room_id: null,
+      reported_by: 'manager-2',
+      organization_slug: 'rdhotels',
+      hotel: 'Gozsdu Court Budapest',
+      rooms: null,
+    }, {
+      hotelKeys: ['memories-budapest', 'Hotel Memories Budapest'],
+      organizationSlug: 'rdhotels',
+      userId: 'manager-1',
+    })).toBe(false);
+  });
+
+  it('keeps a truly unscoped legacy item recoverable only by its reporter', () => {
     expect(isLostFoundItemVisibleInHotel({
       room_id: null,
       reported_by: 'manager-1',
       organization_slug: 'rdhotels',
+      hotel: null,
       rooms: null,
     }, {
       hotelKeys: ['memories-budapest'],
       organizationSlug: 'rdhotels',
       userId: 'manager-1',
     })).toBe(true);
-  });
-
-  it('does not expose another users roomless legacy item across properties', () => {
-    expect(isLostFoundItemVisibleInHotel({
-      room_id: null,
-      reported_by: 'manager-2',
-      organization_slug: 'rdhotels',
-      rooms: null,
-    }, {
-      hotelKeys: ['memories-budapest'],
-      organizationSlug: 'rdhotels',
-      userId: 'manager-1',
-    })).toBe(false);
   });
 
   it('rejects a row explicitly scoped to another organization', () => {
