@@ -396,7 +396,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         .single();
 
       const photos: string[] = assignmentData?.completion_photos || [];
-      const requiredCategories = requiredDailyPhotoCategories(profile?.assigned_hotel, assignment.rooms?.hotel);
+      const requiredCategories = requiredDailyPhotoCategories(profile?.assigned_hotel, assignment.rooms?.hotel, profile?.organization_slug);
       const missing = requiredCategories.filter(cat => {
         return !photos.some(url => {
           const filename = url.split('/').pop() || '';
@@ -1663,7 +1663,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </Button>)}
             </div>
 
-            {assignment.supervisor_approved && (
+            {assignment.supervisor_approved && !noMinibar && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
                 {t('minibar.addedLateNotice')}
               </p>
