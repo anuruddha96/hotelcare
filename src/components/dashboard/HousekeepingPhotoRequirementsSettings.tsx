@@ -32,7 +32,7 @@ export function HousekeepingPhotoRequirementsSettings({
   const { language } = useTranslation();
   const canManage = !!profile && (profile.is_super_admin === true || TOP_MANAGER_ROLES.has(profile.role));
   const fallback = useMemo(
-    () => requiredDailyPhotoCategories(hotelId, hotelName, organizationSlug) as HousekeepingPhotoCategory[],
+    () => [...requiredDailyPhotoCategories(hotelId, hotelName, organizationSlug)] as HousekeepingPhotoCategory[],
     [hotelId, hotelName, organizationSlug],
   );
   const [selected, setSelected] = useState<HousekeepingPhotoCategory[]>(fallback);
