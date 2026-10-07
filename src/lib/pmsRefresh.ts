@@ -10,13 +10,14 @@ import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
 import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "@/lib/previoHousekeepingNote";
 import { normalizeUnitName, isTechnicalRow, buildUnitResolver, isSlntInactiveOperationalUnit, isSlntWorkbookActiveUnit } from "@/lib/slntUnitMapping";
+import { reconcileContinuousStay } from "@/lib/stayContinuity";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
 const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Syst[ée]m\s*-/i;
 const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
-  "manual_moved_at", "manual_moved_by",
+  "manual_moved_at", "manual_moved_date", "manual_moved_by",
   "manual_no_show", "manual_no_show_at", "manual_no_show_by",
 ];
 // Per-day PMS state that must be wiped when a new work day starts, so the
@@ -525,7 +526,7 @@ export async function runPmsRefresh(
 
       const lookup = async (matcher: (q: any) => any) => {
         const q = supabase.from("rooms")
-          .select("id, hotel, room_number, status, guest_count, is_checkout_room, pms_metadata, bed_configuration, notes, last_cleaned_at, towel_change_required, linen_change_required, last_towel_change, last_linen_change")
+          .select("id, hotel, room_number, status, guest_count, guest_nights_stayed, is_checkout_room, pms_metadata, bed_configuration, notes, last_cleaned_at, towel_change_required, linen_change_required, last_towel_change, last_linen_change")
           .in("hotel", hotelKeys);
         return await matcher(q);
       };
@@ -631,10 +632,11 @@ export async function runPmsRefresh(
         : rawExistingMetadata;
 
       const nightTotal = classification.nightTotal;
-      // Previo provides guest nights, NOT a universal towel/linen schedule.
-      // Every property owns its rules; neither due flags nor service-completion
-      // dates may be inferred from this shared PMS refresh.
-      const guestNightsStayed = nightTotal?.currentNight ?? 0;
+      // Reservation-local nights are only a starting point. Reception may
+      // extend a guest by creating a second Previo reservation in the same
+      // physical room, so the durable continuous-stay layer below may replace
+      // this 1/N counter with the accumulated room stay.
+      const reservationGuestNightsStayed = nightTotal?.currentNight ?? 0;
 
       const previoStatusRaw = row.Status ? String(row.Status).trim().toLowerCase() : "";
       const mappedStatus =
@@ -693,16 +695,32 @@ export async function runPmsRefresh(
       const manualDailyOverride = existingMetadata?.manual_daily === true
         || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
       const manualNoShowOverride = existingMetadata?.manual_no_show === true;
+
+      const stayContinuity = reconcileContinuousStay({
+        row,
+        existingMetadata,
+        storedGuestNights: (room as any).guest_nights_stayed ?? null,
+        manualDailyOverride,
+        businessDate: today,
+        nowIso: new Date().toISOString(),
+      });
+      const effectiveManualDailyOverride = manualDailyOverride && !stayContinuity.resetForDifferentGuest;
+      const guestNightsStayed = stayContinuity.currentNight || reservationGuestNightsStayed;
+      const guestTotalNights = stayContinuity.totalNights
+        || nightTotal?.totalNights
+        || Number(row.TotalNights ?? 0)
+        || guestNightsStayed;
+
       const hasProtectedCheckoutAssignment = protectedCheckoutAssignmentRoomIds.has(room.id);
-      // When PMS positively reports a stay-through guest (future departure
-      // date, no checkout today) nothing may keep the checkout flag alive —
-      // not even an in-progress checkout cleaning that was generated from
-      // yesterday's stale flag. Only an explicit manager checkout mark wins.
-      const pmsSaysStaying = classification.isStayThrough;
-      const preserveExistingCheckout = !manualDailyOverride && currentCheckoutFlag && !shouldBeCheckoutRoom && (
+      // A linked extension or a manager-confirmed Checkout -> Daily decision is
+      // occupancy, even while Previo still exposes the old checkout reservation.
+      const pmsSaysStaying = classification.isStayThrough
+        || stayContinuity.linkedExtension
+        || stayContinuity.managerConfirmedContinuation;
+      const preserveExistingCheckout = !effectiveManualDailyOverride && currentCheckoutFlag && !shouldBeCheckoutRoom && (
         manualOverride || (!pmsSaysStaying && (!reservationDataAuthoritative || hasProtectedCheckoutAssignment))
       );
-      const effectiveCheckoutFlag = manualDailyOverride
+      const effectiveCheckoutFlag = effectiveManualDailyOverride
         ? false
         : preserveExistingCheckout ? true : shouldBeCheckoutRoom;
 
@@ -784,6 +802,9 @@ export async function runPmsRefresh(
           ...(existingMetadata ?? {}),
           pmsSyncDate: today,
           lastPmsRefreshDate: today,
+          // This refresh path is Previo-specific. Stamp the provider so
+          // room-level extension continuity never leaks to another PMS.
+          pmsProvider: "previo",
           // Keep the Previo room id on the room so outbound status pushes
           // (supervisor approval -> "clean" in Previo) can address it.
           ...(previoRoomId ? { roomId: previoRoomId } : {}),
@@ -799,16 +820,26 @@ export async function runPmsRefresh(
         // carry the separate "towel change required" flag on those rooms.
         // Preserve explicit manager/service requirements across PMS syncs;
         // a new, unoccupied arrival never inherits the previous guest's work.
-        const newGuest = classification.isNotArrived || classification.isCancelled || classification.isNoShow;
+        const newGuest = !stayContinuity.linkedExtension
+          && !stayContinuity.managerConfirmedContinuation
+          && (classification.isNotArrived || classification.isCancelled || classification.isNoShow);
         updateData.towel_change_required = newGuest ? false : !!room.towel_change_required;
         updateData.linen_change_required = newGuest ? false : !!room.linen_change_required;
-        updateData.pms_metadata.scheduledDepartureToday = manualDailyOverride ? false : isScheduledDeparture;
+        updateData.pms_metadata.scheduledDepartureToday = effectiveManualDailyOverride ? false : isScheduledDeparture;
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
-        updateData.pms_metadata.departureTime = manualDailyOverride ? null : departureParsed;
-        updateData.pms_metadata.checkedOutToday = manualDailyOverride ? false : isCheckedOut;
+        updateData.pms_metadata.departureTime = effectiveManualDailyOverride ? null : departureParsed;
+        updateData.pms_metadata.checkedOutToday = effectiveManualDailyOverride ? false : isCheckedOut;
         updateData.pms_metadata.reservationStatusId = row.RawReservationStatusId ?? row.ReservationStatusId ?? null;
-        updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
-        updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
+        updateData.pms_metadata.reservationId = row.ReservationId ?? existingMetadata?.reservationId ?? null;
+        updateData.pms_metadata.guestFingerprint = row.GuestFingerprint ?? existingMetadata?.guestFingerprint ?? null;
+        updateData.pms_metadata.guestIdentityStrength = row.GuestIdentityStrength ?? existingMetadata?.guestIdentityStrength ?? "none";
+        updateData.pms_metadata.arrivalDate = row.ArrivalDate ?? existingMetadata?.arrivalDate ?? null;
+        updateData.pms_metadata.departureDate = row.DepartureDate ?? existingMetadata?.departureDate ?? null;
+        updateData.pms_metadata.currentNight = guestNightsStayed || null;
+        updateData.pms_metadata.totalNights = guestTotalNights || null;
+        if (stayContinuity.continuousStay) {
+          updateData.pms_metadata.continuousStay = stayContinuity.continuousStay;
+        }
         // A manager's manual no-show mark for today wins over the PMS snapshot —
         // but only while the PMS shows no occupancy. Once the guest is in-house
         // (PMS says occupied / mid-stay), the no-show flag is cleared.
@@ -822,16 +853,38 @@ export async function runPmsRefresh(
 
         // Arrival today (vacant room expecting a guest) — neither checkout nor
         // a daily stayover; surfaced in its own Arrivals bucket in Team View.
-        updateData.pms_metadata.arrivalToday = !effectiveCheckoutFlag && (
-          !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
-        );
-        updateData.pms_metadata.occupiedToday = classification.isDailyRoom;
+        updateData.pms_metadata.arrivalToday = !effectiveCheckoutFlag
+          && !stayContinuity.managerConfirmedContinuation
+          && !stayContinuity.linkedExtension
+          && (
+            !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
+          );
+        updateData.pms_metadata.occupiedToday = classification.isDailyRoom
+          || stayContinuity.managerConfirmedContinuation
+          || (stayContinuity.linkedExtension && !classification.isCancelled && !classification.isNoShow);
         // Arrival that has not checked in yet — shown as "Not checked in" in
         // the Arrivals bucket. Never treated as a no-show on its own.
         updateData.pms_metadata.notArrived = !effectiveCheckoutFlag
           && !updateData.pms_metadata.isNoShow
           && classification.isNotArrived;
-        updateData.pms_metadata.stayThroughToday = classification.isStayThrough;
+        updateData.pms_metadata.stayThroughToday = classification.isStayThrough
+          || stayContinuity.managerConfirmedContinuation
+          || stayContinuity.linkedExtension;
+
+        if (stayContinuity.resetForDifferentGuest) {
+          // A strongly identified different guest invalidates today's manual
+          // stayover bridge. The transient reset reason tells the database's
+          // same-day manual-override guard that this is a verified PMS turnover,
+          // not an ordinary sync trying to undo a manager decision.
+          updateData.pms_metadata.manualOverrideResetReason = "definitive_new_guest";
+          updateData.pms_metadata.manualOverrideResetAt = new Date().toISOString();
+          for (const key of [
+            "manual_daily", "manual_daily_at", "manual_daily_by",
+            "manual_checkout", "manual_checkout_at", "manual_checkout_by",
+            "manual_moved_at", "manual_moved_by", "extensionServiceSnapshot",
+            "roomTypeChangeNotice",
+          ]) delete updateData.pms_metadata[key];
+        }
         if (verifiedSlntNoteTarget) {
           updateData.pms_metadata.noteOta = row.NoteOta ?? null;
           updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
@@ -944,6 +997,62 @@ export async function runPmsRefresh(
       const nowNoShow = updateData.pms_metadata?.isNoShow === true;
       if (reservationDataAuthoritative && nowNoShow && !wasNoShow) {
         pushEvent("no_show_detected", { isNoShow: false }, { isNoShow: true }, false);
+      }
+      if (reservationDataAuthoritative) {
+        const previousIds = Array.isArray(existingMetadata?.continuousStay?.reservationIds)
+          ? existingMetadata.continuousStay.reservationIds.map(String)
+          : [];
+        const nextIds = stayContinuity.continuousStay?.reservationIds || [];
+        const newlyLinked = nextIds.some((id) => !previousIds.includes(id));
+        const removedIds = previousIds.filter((id) => !nextIds.includes(id));
+        if (stayContinuity.linkedExtension
+            && (newlyLinked || existingMetadata?.continuousStay?.linkedBy !== stayContinuity.continuousStay?.linkedBy)) {
+          pushEvent("stay_extension_linked",
+            {
+              reservation_ids: previousIds,
+              current_night: existingMetadata?.continuousStay?.currentNight ?? (room as any).guest_nights_stayed ?? null,
+            },
+            {
+              reservation_ids: nextIds,
+              current_night: guestNightsStayed,
+              total_nights: guestTotalNights,
+              linked_by: stayContinuity.continuousStay?.linkedBy,
+              confidence: stayContinuity.continuousStay?.confidence,
+              original_arrival_date: stayContinuity.continuousStay?.originalArrivalDate ?? null,
+              final_departure_date: stayContinuity.continuousStay?.finalDepartureDate ?? null,
+              segments: stayContinuity.continuousStay?.segments ?? [],
+            },
+            false,
+          );
+        }
+        if (removedIds.length > 0 && !stayContinuity.resetForDifferentGuest) {
+          pushEvent("stay_extension_unlinked",
+            {
+              reservation_ids: previousIds,
+              removed_reservation_ids: removedIds,
+              segments: existingMetadata?.continuousStay?.segments ?? [],
+            },
+            {
+              reservation_ids: nextIds,
+              current_night: guestNightsStayed,
+              manager_continuation_active: stayContinuity.managerConfirmedContinuation,
+            },
+            false,
+          );
+        }
+      }
+      if (reservationDataAuthoritative && stayContinuity.resetForDifferentGuest) {
+        pushEvent("stay_continuity_reset_new_guest",
+          {
+            reservation_ids: existingMetadata?.continuousStay?.reservationIds ?? [],
+            guest_fingerprint: existingMetadata?.guestFingerprint ?? null,
+          },
+          {
+            reservation_id: row.ReservationId ?? null,
+            guest_fingerprint: row.GuestFingerprint ?? null,
+          },
+          false,
+        );
       }
       if (reservationDataAuthoritative && !!updateData.pms_metadata && wasNoShow && !nowNoShow) {
         // Guest is in-house / PMS reports occupancy — the earlier no-show mark

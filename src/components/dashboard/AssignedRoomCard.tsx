@@ -11,7 +11,8 @@ import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest } from '@/lib/budapestTime';
 import { parsePrevioLateCheckoutTime } from '@/lib/previoLateCheckout';
-import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { gozsduServiceLabel, isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { roomServiceLabel, type RoomTypeNotice } from '@/lib/roomTypeTransition';
 import { readGozsduRoomOverride } from '@/lib/gozsduRoomBucketOverride';
 import { gozsduWorkPresentation } from '@/lib/gozsduWorkPresentation';
 import { supabase } from '@/integrations/supabase/client';
@@ -166,9 +167,43 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
       ?? parsePrevioLateCheckoutTime(meta?.noteOta)
     : null;
 
+  const roomTypeNotice = meta?.roomTypeChangeNotice as RoomTypeNotice | undefined;
+  const activeManagerTypeNotice = roomTypeNotice?.date === date
+    && (roomTypeNotice.to === 'daily' || roomTypeNotice.to === 'checkout')
+    ? roomTypeNotice
+    : null;
+  const currentStayNight = Number(
+    meta?.continuousStay?.currentNight
+      ?? roomForDisplay?.guest_nights_stayed
+      ?? meta?.currentNight
+      ?? activeManagerTypeNotice?.nightsStayed
+      ?? 0,
+  ) || null;
+  const managerRequiredService = activeManagerTypeNotice?.to === 'daily'
+    ? isGozsduRoom && gozsduOverride
+      ? gozsduServiceLabel(gozsduOverride.service)
+      : roomServiceLabel({
+          towelChangeRequired: roomForDisplay?.towel_change_required,
+          linenChangeRequired: roomForDisplay?.linen_change_required,
+        })
+    : null;
+
   return <div className={`space-y-2${isGozsduRoom ? ' gozsdu-housekeeper-card' : ''}${isCheckoutClean ? ' checkout-housekeeper-card' : ''}`}>
     {gozsduOverride && gozsduOverride.bucket !== 'other' && <div role="status" className="rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs font-semibold">
       Manager cleaning plan: {gozsduOverride.bucket === 'checkout' ? 'Checkout cleaning' : gozsduOverride.service === 'change_room' ? 'Full cleaning / complete textile change' : 'Towel change'}
+    </div>}
+    {activeManagerTypeNotice && <div role="status" aria-live="polite" className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
+      <p className="text-xs font-bold uppercase tracking-wide">Manager update</p>
+      {activeManagerTypeNotice.to === 'daily' ? <>
+        <p className="mt-1 text-sm font-bold">Guest staying — Daily service</p>
+        <p className="mt-1 text-sm"><strong>Required today:</strong> {managerRequiredService || 'Daily service'}</p>
+        {currentStayNight && <p className="text-xs opacity-80">Continuous stay: night {currentStayNight}</p>}
+        <p className="mt-1 text-xs opacity-80">Changed by {activeManagerTypeNotice.by}. Follow the required service above.</p>
+      </> : <>
+        <p className="mt-1 text-sm font-bold">Checkout cleaning</p>
+        <p className="mt-1 text-sm">Wait for <strong>Guest Checked Out</strong> before entering.</p>
+        <p className="mt-1 text-xs opacity-80">Changed by {activeManagerTypeNotice.by}.</p>
+      </>}
     </div>}
     {plannedRoomNotes.length > 0 && <div role="status" className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100">
       <div className="flex items-start gap-2">
