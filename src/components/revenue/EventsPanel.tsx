@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { scoreRevenueEvent } from "@/lib/revenueEventBands";
 
 export interface DemandEventRow {
   id: string;
@@ -207,6 +208,8 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     setCandidates(null);
     setAlreadyAdded([]);
     setSearchedMonth(null);
+    setSelectedDate(null);
+    setSelectedId(null);
   };
 
 
@@ -374,6 +377,25 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
         if (key.slice(0, 7) !== month) continue;
         (map[key] ??= []).push(e);
       }
+    }
+    for (const rows of Object.values(map)) {
+      rows.sort((a, b) => {
+        const aScore = scoreRevenueEvent({
+          title: a.title,
+          impact: a.expected_impact,
+          category: a.category,
+          venue: a.venue,
+          notes: a.notes,
+        });
+        const bScore = scoreRevenueEvent({
+          title: b.title,
+          impact: b.expected_impact,
+          category: b.category,
+          venue: b.venue,
+          notes: b.notes,
+        });
+        return bScore - aScore || a.title.localeCompare(b.title);
+      });
     }
     return map;
   }, [events, month]);
@@ -585,30 +607,32 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                     return (
                       <div
                         key={cell.date ?? `pad-${idx}`}
-                        role={cell.date ? "button" : undefined}
-                        tabIndex={cell.date ? 0 : undefined}
-                        aria-label={cell.date ? `Open ${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"} for ${cell.date}` : undefined}
                         onClick={() => {
                           if (!cell.date) return;
                           setSelectedDate(cell.date);
                           setSelectedId(null);
                         }}
-                        onKeyDown={(ev) => {
-                          if (!cell.date || (ev.key !== "Enter" && ev.key !== " ")) return;
-                          ev.preventDefault();
-                          setSelectedDate(cell.date);
-                          setSelectedId(null);
-                        }}
                         className={`min-h-[84px] border-b border-r p-1 ${
-                          cell.date ? "cursor-pointer transition-colors hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/50" : "bg-muted/20"
+                          cell.date ? "cursor-pointer transition-colors hover:bg-primary/5" : "bg-muted/20"
                         } ${cell.date === todayStr ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : ""} ${cell.date === selectedDate ? "bg-primary/10 ring-2 ring-inset ring-primary/50" : ""}`}
                       >
                         {cell.date && (
                           <>
                             <div className="mb-1 flex items-center justify-between">
-                              <span className={`text-[11px] ${cell.date === todayStr ? "font-bold text-primary" : "text-muted-foreground"}`}>
+                              <button
+                                type="button"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setSelectedDate(cell.date);
+                                  setSelectedId(null);
+                                }}
+                                className={`rounded px-1 text-[11px] font-medium hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                                  cell.date === todayStr ? "font-bold text-primary" : "text-muted-foreground"
+                                }`}
+                                aria-label={`Open all events for ${cell.date}`}
+                              >
                                 {Number(cell.date.slice(8, 10))}
-                              </span>
+                              </button>
                               {dayEvents.length > 2 && (
                                 <span className="text-[10px] text-muted-foreground">{dayEvents.length}</span>
                               )}
