@@ -1064,7 +1064,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
                     )}
                     {linkedReservationCount > 1 && <span>{linkedReservationCount} linked reservations</span>}
                   </div>
-                  <p className="mt-1 text-xs opacity-80">Changed by {managerTypeNotice.by}. This is an operational instruction, not a request for the housekeeper to verify the booking.</p>
+                  <p className="mt-1 text-xs opacity-80">Changed by {managerTypeNotice.by}. Housekeeping should follow the required service above.</p>
                 </>
               ) : (
                 <>
