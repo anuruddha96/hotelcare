@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 const migration = readFileSync(
-  'supabase/migrations/20260925153000_memories_missed_service_carry_forward.sql',
+  'supabase/migrations/20261007100000_restore_housekeeping_missed_service_carry_forward.sql',
   'utf8',
 );
 const gate = readFileSync('src/components/dashboard/HotelMemoriesRoomGate.tsx', 'utf8');
@@ -29,12 +29,20 @@ describe('Hotel Memories missed-service carry-forward contract', () => {
     expect(migration).toContain('v_same_reservation');
   });
 
-  it('renders the carried instruction for both housekeepers and managers', () => {
+  it('renders a short action for housekeepers and dated lineage for managers', () => {
     expect(gate).toContain('getMemoriesCarryForwardService');
-    expect(gate).toContain('Translate instruction');
+    expect(gate).toContain('getCarryForwardHousekeeperCopy');
     expect(gate).toContain("carryForward?.serviceType === 'towel_change'");
     expect(gate).toContain("carryForward?.serviceType === 'full_clean'");
-    expect(manager).toContain('Carried service from yesterday');
-    expect(manager).toContain('getMemoriesCarryForwardService');
+    expect(manager).toContain('Carried housekeeping task');
+    expect(manager).toContain('getCarryForwardManagerCopy');
+  });
+
+  it('restores repeated carry lineage and current-day reconciliation', () => {
+    expect(migration).toContain("'original_due_date'");
+    expect(migration).toContain("'attempt_count'");
+    expect(migration).toContain("'memories_service_cycle'");
+    expect(migration).toContain('hc_refresh_memories_missed_service_carry(v_today)');
+    expect(migration).toContain('hc_refresh_portfolio_missed_service_carry(v_today)');
   });
 });
