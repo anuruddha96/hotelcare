@@ -463,6 +463,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const saveEdit = async () => {
     if (!editingId || !edit) return;
     if (!edit.title.trim() || !edit.event_date) { toast.error("A title and a date are required."); return; }
+    if (edit.end_date && edit.end_date < edit.event_date) { toast.error("End date cannot be before the start date."); return; }
     const verifiedSource = sourceUrl(edit.url);
     if (!verifiedSource) { toast.error("A valid source URL is required for every event."); return; }
     const { error } = await (supabase as any).from("demand_events").update({
@@ -476,9 +477,16 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       url: verifiedSource,
       source: "manual",
     }).eq("id", editingId);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      if (String((error as any).code ?? "") === "23505") {
+        toast.error("That edit would duplicate another event already in the calendar.");
+        return;
+      }
+      toast.error(error.message);
+      return;
+    }
     setEditingId(null); setEdit(null);
-    toast.success("Event updated");
+    toast.success("Verified event updated");
     void load();
   };
 
@@ -580,7 +588,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
 
       <CardContent className="space-y-3">
         {/* location + AI search */}
-        <Collapsible open={manualOpen} onOpenChange={setManualOpen}>
+        <Collapsible>
           <div className="flex items-center justify-between mb-2">
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
@@ -988,7 +996,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
 
 
         {/* manual entry */}
-        <Collapsible>
+        <Collapsible
+          open={manualOpen}
+          onOpenChange={(open) => {
+            setManualOpen(open);
+            if (open && !startDate && selectedDate) setStartDate(selectedDate);
+          }}
+        >
           <div className="flex items-center justify-between mb-2">
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
