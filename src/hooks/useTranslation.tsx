@@ -11,6 +11,7 @@ import { locationTranslations } from '@/lib/location-translations';
 import { generatedTranslations } from '@/lib/generated-translations';
 import { pendingTranslations } from '@/lib/pending-translations';
 import { publicAreaTaskTranslations } from '@/lib/public-area-task-translations';
+import { gozsduRoomTranslations } from '@/lib/gozsdu-room-translations';
 
 const translations = {
   en: {
@@ -4176,6 +4177,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...flattenBundle(locationTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(pendingTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(publicAreaTaskTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle((gozsduRoomTranslations as any)[lang] as Record<string, unknown> | undefined),
 });
 
 const getCachedTranslationBundle = (lang: Language): Record<string, string> => {
