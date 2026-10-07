@@ -281,6 +281,62 @@ describe('continuous stay reconciliation', () => {
     expect(result.managerConfirmedContinuation).toBe(true);
   });
 
+  it('prunes a previously linked extension when Previo later removes or cancels it', () => {
+    const result = reconcileContinuousStay({
+      ...base,
+      manualDailyOverride: true,
+      storedGuestNights: 6,
+      existingMetadata: {
+        extensionServiceSnapshot: {
+          managerConfirmedDate: '2026-10-07',
+          reservationId: 'A',
+          arrivalDate: '2026-10-02',
+          departureDate: '2026-10-07',
+          guestNightsStayed: 5,
+          currentNight: 5,
+          totalNights: 5,
+        },
+        continuousStay: {
+          originalArrivalDate: '2026-10-02',
+          finalDepartureDate: '2026-10-10',
+          currentNight: 6,
+          totalNights: 8,
+          guestFingerprint: null,
+          guestIdentityStrength: 'none',
+          reservationIds: ['A', 'B'],
+          segments: [
+            { reservationId: 'A', arrivalDate: '2026-10-02', departureDate: '2026-10-07', nights: 5 },
+            { reservationId: 'B', arrivalDate: '2026-10-07', departureDate: '2026-10-10', nights: 3 },
+          ],
+          linkedBy: 'manager_confirmed',
+          confidence: 'manager_confirmed',
+          updatedAt: '2026-10-07T08:00:00.000Z',
+        },
+      },
+      row: {
+        ReservationId: 'A',
+        ArrivalDate: '2026-10-02',
+        DepartureDate: '2026-10-07',
+        CurrentNight: 5,
+        TotalNights: 5,
+        ContinuousStayOriginalArrival: '2026-10-02',
+        ContinuousStayFinalDeparture: '2026-10-07',
+        ContinuousStayCurrentNight: 5,
+        ContinuousStayTotalNights: 5,
+        ContinuousStayReservationIds: ['A'],
+        ContinuousStaySegments: [
+          { reservationId: 'A', arrivalDate: '2026-10-02', departureDate: '2026-10-07', nights: 5 },
+        ],
+        ContinuousStaySegmentCount: 1,
+      },
+    });
+    expect(result.managerConfirmedContinuation).toBe(true);
+    expect(result.linkedExtension).toBe(false);
+    expect(result.continuousStay?.reservationIds).toEqual(['A']);
+    expect(result.continuousStay?.segments).toHaveLength(1);
+    expect(result.currentNight).toBe(6);
+  });
+
   it('does not double count the same reservation on repeated PMS refreshes', () => {
     const result = reconcileContinuousStay({
       ...base,
