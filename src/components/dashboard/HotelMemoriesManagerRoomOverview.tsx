@@ -9,6 +9,7 @@ import { parseRoomFlags } from '@/lib/room-service-flags';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { getCarryForwardManagerCopy } from '@/lib/housekeepingCarryForward';
 import {
   getMemoriesCarryForwardService,
   hasMemoriesGreenBoardRequest,
@@ -174,6 +175,9 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
   const carryForward = !checkout
     ? getMemoriesCarryForwardService(assignment.previous_day_context)
     : null;
+  const carryForwardCopy = carryForward
+    ? getCarryForwardManagerCopy(carryForward)
+    : null;
   const effectiveTowel = !checkout && (
     !!room.towel_change_required || carryForward?.serviceType === 'towel_change'
   );
@@ -245,17 +249,25 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
           </div>
         )}
 
-        {carryForward && (
+        {carryForward && carryForwardCopy && (
           <div className="rounded-lg border-2 border-amber-400 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                  Carried service from yesterday · {carryForward.sourceBusinessDate}
+                  Carried housekeeping task
                 </p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-sm font-semibold text-amber-950 dark:text-amber-100">
-                  {carryForward.instruction}
+                <p className="mt-1 text-sm font-bold text-amber-950 dark:text-amber-100">
+                  {carryForwardCopy.action}
                 </p>
+                <p className="mt-0.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  {carryForwardCopy.summary}
+                </p>
+                {carryForwardCopy.detail && (
+                  <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                    {carryForwardCopy.detail}
+                  </p>
+                )}
               </div>
             </div>
           </div>
