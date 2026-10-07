@@ -59,22 +59,29 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
         .in('hotel', keys.length ? keys : [hotelName]);
       if (error) throw error;
       const latest: DisplayNotice[] = [];
+      const isSlnt = (keys.length ? keys : [hotelName]).some(key =>
+        String(key).trim().toLowerCase() === 'slnt-group' || String(key).trim().toLowerCase().includes('slnt')
+      );
       for (const room of data || []) {
         const meta = room.pms_metadata as any;
         const notice = meta?.roomTypeChangeNotice as RoomTypeNotice | undefined;
         if (notice?.date === selectedDate && (notice.to === 'checkout' || notice.to === 'daily')) {
+          const isPrevioRoom = meta?.pmsProvider === 'previo' || meta?.pms_hotel_id != null || meta?.pms_account_id != null;
           latest.push({
             ...notice,
             ...(notice.to === 'daily' && !isGozsdu ? {
               serviceLabel: roomServiceLabel({
                 towelChangeRequired: room.towel_change_required,
                 linenChangeRequired: room.linen_change_required,
+                routineDailyCleaning: !isSlnt,
               }),
-              nightsStayed: Number(meta?.continuousStay?.currentNight ?? room.guest_nights_stayed ?? meta?.currentNight ?? notice.nightsStayed ?? 0) || null,
+              nightsStayed: isPrevioRoom
+                ? Number(meta?.continuousStay?.currentNight ?? room.guest_nights_stayed ?? meta?.currentNight ?? notice.nightsStayed ?? 0) || null
+                : null,
             } : {}),
-            previousReservationNights: Number(meta?.extensionServiceSnapshot?.guestNightsStayed ?? 0) || null,
-            continuousTotalNights: Number(meta?.continuousStay?.totalNights ?? meta?.totalNights ?? 0) || null,
-            reservationCount: Array.isArray(meta?.continuousStay?.reservationIds)
+            previousReservationNights: isPrevioRoom ? Number(meta?.extensionServiceSnapshot?.guestNightsStayed ?? 0) || null : null,
+            continuousTotalNights: isPrevioRoom ? Number(meta?.continuousStay?.totalNights ?? meta?.totalNights ?? 0) || null : null,
+            reservationCount: isPrevioRoom && Array.isArray(meta?.continuousStay?.reservationIds)
               ? meta.continuousStay.reservationIds.length
               : 0,
             roomId: room.id,
@@ -199,6 +206,19 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
       }
       const meta = room.pms_metadata && typeof room.pms_metadata === 'object' && !Array.isArray(room.pms_metadata)
         ? room.pms_metadata as Record<string, unknown> : {};
+      const isSlnt = hotelKeys.some(key =>
+        String(key).trim().toLowerCase() === 'slnt-group' || String(key).trim().toLowerCase().includes('slnt')
+      );
+      let isPrevioClient = meta.pmsProvider === 'previo' || meta.pms_hotel_id != null || meta.pms_account_id != null;
+      if (!isPrevioClient) {
+        const [configurationResult, accountResult] = await Promise.all([
+          supabase.from('pms_configurations').select('hotel_id,pms_type').in('hotel_id', hotelKeys).eq('pms_type', 'previo').limit(1),
+          supabase.from('pms_accounts').select('hotel_id,pms_type,is_active').in('hotel_id', hotelKeys).eq('pms_type', 'previo').eq('is_active', true).limit(1),
+        ]);
+        if (configurationResult.error) console.warn('Could not confirm Previo PMS configuration', configurationResult.error);
+        if (accountResult.error) console.warn('Could not confirm Previo PMS account', accountResult.error);
+        isPrevioClient = !!configurationResult.data?.length || !!accountResult.data?.length;
+      }
       const service = isGozsdu ? getGozsduHousekeepingCycle({
         currentNight: Number(meta.currentNight ?? 0), totalNights: Number(meta.totalNights ?? 0), isCheckout: false,
       }).service : 'none';
@@ -222,6 +242,8 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
         nowIso: new Date().toISOString(),
         gozsduPlan,
         previousRoomNotes: room.notes,
+        continuousStayEnabled: isPrevioClient,
+        routineDailyCleaning: !isSlnt,
         serviceSnapshot: {
           reservationId: meta.reservationId != null ? String(meta.reservationId) : null,
           guestFingerprint: meta.guestFingerprint != null ? String(meta.guestFingerprint) : null,
@@ -246,7 +268,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
         pms_metadata: transition.metadata,
         notes: transition.note,
       };
-      if (change.to === 'daily' && transition.continuedNight) {
+      if (isPrevioClient && change.to === 'daily' && transition.continuedNight) {
         roomPatch.guest_nights_stayed = transition.continuedNight;
       }
       const { data: updatedRows, error: roomError } = await supabase.from('rooms')
@@ -267,6 +289,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
           : roomServiceLabel({
               towelChangeRequired: persistedRoom.towel_change_required,
               linenChangeRequired: persistedRoom.linen_change_required,
+              routineDailyCleaning: !isSlnt,
             })
         : null;
       const finalNotice = buildDirectRoomTypeNotice({
@@ -276,7 +299,10 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
         to: change.to,
         by: profile?.full_name || 'Manager',
         serviceLabel: finalServiceLabel,
-        nightsStayed: Number(persistedRoom.guest_nights_stayed ?? persistedMeta.currentNight ?? 0) || null,
+        nightsStayed: isPrevioClient
+          ? Number(persistedRoom.guest_nights_stayed ?? persistedMeta.currentNight ?? 0) || null
+          : null,
+        continuousStayEnabled: isPrevioClient,
       });
       const finalMetadata = { ...persistedMeta, roomTypeChangeNotice: finalNotice };
       const { error: noticeError } = await supabase.from('rooms')
@@ -306,7 +332,9 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
       void loadNotices();
       toast.success(change.to === 'daily'
-        ? `Room ${room.room_number}: guest staying · ${finalServiceLabel || 'Daily service'}.`
+        ? isPrevioClient
+          ? `Room ${room.room_number}: guest staying · ${finalServiceLabel || 'Daily service'}.`
+          : `Room ${room.room_number} changed to Daily cleaning.`
         : `Room ${room.room_number} changed to Checkout cleaning.`);
       void supabase.from('pms_change_events').insert({
         hotel_id: room.hotel, room_id: room.id, room_label: room.room_number,
@@ -323,7 +351,8 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
           by: profile?.id || user?.id || null,
           guest_nights_stayed: persistedRoom.guest_nights_stayed,
           required_service: finalServiceLabel,
-          manager_confirmed_guest_staying: change.to === 'daily',
+          manager_confirmed_guest_staying: isPrevioClient && change.to === 'daily',
+          continuous_stay_provider: isPrevioClient ? 'previo' : null,
         },
         is_conflict: false,
       } as any).then(({ error }) => { if (error) console.warn('Room type audit event failed', error); });
@@ -391,7 +420,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
               {pending?.to === 'daily'
                 ? 'This confirms the guest is staying and changes Checkout to Daily. HotelCare keeps the room’s existing stay and service history, recalculates today’s required service, and shows the housekeeper a direct instruction.'
                 : 'This changes Daily to Checkout cleaning. The housekeeper must wait for Guest Checked Out before entering.'}
-              {' '}Only HotelCare’s cleaning plan changes; the Previo reservation is not edited.
+              {' '}Only HotelCare’s cleaning plan changes; the PMS reservation is not edited.
               {isGozsdu && pending?.to === 'daily' && ' Gozsdu’s service cycle determines whether cleaning is due. A room with no service due goes to Other rooms and must be unassigned first.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
