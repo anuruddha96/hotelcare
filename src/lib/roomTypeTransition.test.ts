@@ -59,6 +59,29 @@ describe('authoritative manager room type changes', () => {
     expect(snapshot.departureDate).toBe('2026-10-07');
   });
 
+  it('recovers the completed checkout nights when Previo omits the current-night value', () => {
+    const result = buildRoomTypeTransition({
+      ...input,
+      target: 'daily',
+      metadata: {
+        reservationId: 'previo-A',
+        arrivalDate: '2026-10-02',
+        departureDate: '2026-10-07',
+        currentNight: null,
+        totalNights: 5,
+      },
+      serviceSnapshot: {
+        reservationId: 'previo-A',
+        guestNightsStayed: null,
+        currentNight: null,
+        totalNights: 5,
+      },
+    });
+    expect(result.continuedNight).toBe(6);
+    expect(result.metadata.currentNight).toBe(6);
+    expect((result.metadata.extensionServiceSnapshot as any).guestNightsStayed).toBe(5);
+  });
+
   it('does not add another stay night when the same manager decision is repeated today', () => {
     const first = buildRoomTypeTransition({
       ...input,
