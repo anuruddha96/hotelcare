@@ -16,7 +16,7 @@ import {
   ChevronDown, Gauge, Info, Lightbulb, Loader2, Target, TrendingUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
+import { addDays, budapestDayOf, countsTowardRevenueSalesPickup, eur } from "@/lib/revenueAnalytics";
 import { convert, currencySymbol, toBaseCurrency, useRevenueCurrency } from "@/lib/revenueCurrency";
 import { buildPeriodRevenueSalesGoals, periodTotalToDaily } from "@/lib/revenueSalesGoals";
 import {
@@ -366,7 +366,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const build = (list: NightRow[], cancelledFeed: boolean): SaleBooking[] => {
       const byRes = new Map<string, NightRow[]>();
       for (const r of list) {
-        if (!r.created_at_pms) continue;
+        if (!r.created_at_pms || !countsTowardRevenueSalesPickup(r)) continue;
         if (stayFilterOn && (r.stay_date < stayFrom || r.stay_date > stayTo)) continue;
         const k = `${r.res_id}|${r.room_key ?? ""}`;
         const bucket = byRes.get(k);
