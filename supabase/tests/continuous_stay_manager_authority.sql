@@ -41,7 +41,7 @@ BEGIN
           'manual_checkout', false,
           'manual_moved_date', work_day::text,
           'manual_moved_at', work_day::text || 'T09:00:00+02:00',
-          'manual_moved_by', '00000000-0000-4000-8000-000000000001',
+          'manual_moved_by', 'manager-eva',
           'occupiedToday', true,
           'stayThroughToday', true,
           'scheduledDepartureToday', false,
