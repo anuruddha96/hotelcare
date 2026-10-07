@@ -54,6 +54,8 @@ interface EventEdit {
   title: string;
   event_date: string;
   end_date: string;
+  category: string;
+  venue: string;
   expected_impact: string;
   recurs_annually: boolean;
   url: string;
@@ -97,6 +99,26 @@ const sourceUrl = (value: string | null | undefined): string | null => {
     return null;
   }
 };
+
+const sourceHost = (value: string | null | undefined): string => {
+  const normalized = sourceUrl(value);
+  if (!normalized) return "source";
+  try {
+    return new URL(normalized).hostname.replace(/^www\./, "");
+  } catch {
+    return "source";
+  }
+};
+
+const eventTitleKey = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/\b(?:19|20)\d{2}\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+(?:concert|event|performances?)$/, "")
+    .trim()
+    .replace(/^labor day$/, "labour day");
 
 /**
  * The demand events calendar: manual entries plus an on-demand AI search for a
@@ -266,12 +288,14 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     const verifiedSource = sourceUrl(manualSourceUrl);
     if (!verifiedSource) { toast.error("A valid source URL is required for every event."); return; }
 
-    const normalizedTitle = title.trim().toLowerCase().replace(/\b(19|20)\d{2}\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+    const normalizedTitle = eventTitleKey(title.trim());
+    const manualEnd = endDate || startDate;
     const duplicate = events.find((event) => {
-      const existingTitle = event.title.toLowerCase().replace(/\b(19|20)\d{2}\b/g, "").replace(/[^a-z0-9]+/g, " ").trim();
-      return existingTitle === normalizedTitle
-        && event.event_date === startDate
-        && (event.end_date ?? event.event_date) === (endDate || startDate);
+      const existingTitle = eventTitleKey(event.title);
+      const existingEnd = event.end_date ?? event.event_date;
+      const overlaps = startDate <= existingEnd && event.event_date <= manualEnd;
+      const sameSource = sourceUrl(event.url) === verifiedSource;
+      return overlaps && (existingTitle === normalizedTitle || sameSource);
     });
     if (duplicate) {
       setSelectedDate(startDate);
@@ -428,6 +452,8 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       title: e.title,
       event_date: e.event_date,
       end_date: e.end_date ?? "",
+      category: e.category,
+      venue: e.venue ?? "",
       expected_impact: e.expected_impact,
       recurs_annually: e.recurs_annually,
       url: e.url ?? "",
@@ -443,6 +469,8 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       title: edit.title.trim(),
       event_date: edit.event_date,
       end_date: edit.end_date || null,
+      category: edit.category,
+      venue: edit.venue.trim() || null,
       expected_impact: edit.expected_impact,
       recurs_annually: edit.recurs_annually,
       url: verifiedSource,
@@ -591,7 +619,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                   Search result for {fmtMonth(month)} — {candidates.length} new, {alreadyAdded.length} already in your calendar
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Dates were read from the linked sources. Tick the ones you want to keep.
+                  Only events with an official source and a verified market location are shown here. Tick the ones you want to keep.
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -653,7 +681,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
                         >
-                          <ExternalLink className="h-3 w-3" /> Check the dates on the source
+                          <ExternalLink className="h-3 w-3" /> Official source · {sourceHost(c.url)}
                         </a>
                       )}
                     </div>
@@ -685,6 +713,9 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
 
         {/* the month's events, as a calendar */}
         <div className="space-y-3">
+          <p className="text-[11px] text-muted-foreground">
+            Live calendar rule: verified source + verified market location only. Uncertain or conflicting events stay out of pricing.
+          </p>
           {loading ? (
             <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading events…
@@ -810,7 +841,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                               className="inline-flex h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-primary hover:bg-primary/10"
                               onClick={(ev) => ev.stopPropagation()}
                             >
-                              <ExternalLink className="h-3 w-3" /> Source
+                              <ExternalLink className="h-3 w-3" /> {sourceHost(e.url)}
                             </a>
                           </div>
                         </div>
@@ -837,6 +868,23 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           className="h-8 sm:col-span-2"
                           placeholder="Title"
                         />
+                        <Input
+                          value={edit.venue}
+                          onChange={(ev) => setEdit({ ...edit, venue: ev.target.value })}
+                          className="h-8"
+                          placeholder="Venue"
+                        />
+                        <Select
+                          value={edit.category}
+                          onValueChange={(v) => setEdit({ ...edit, category: v })}
+                        >
+                          <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {CATEGORIES.map((categoryOption) => (
+                              <SelectItem key={categoryOption} value={categoryOption}>{categoryOption}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         <Input
                           type="date"
                           value={edit.event_date}
@@ -911,7 +959,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           rel="noreferrer"
                           className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary underline underline-offset-2"
                         >
-                          <ExternalLink className="h-3.5 w-3.5" /> Open source
+                          <ExternalLink className="h-3.5 w-3.5" /> Open source · {sourceHost(selectedEvent.url)}
                         </a>
                       </div>
                       <div className="flex items-center gap-1">
