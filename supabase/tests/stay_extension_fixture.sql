@@ -10,6 +10,17 @@ CREATE TABLE public.hotel_configurations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), hotel_id text NOT NULL,
   hotel_name text NOT NULL, organization_id uuid NOT NULL REFERENCES public.organizations(id)
 );
+CREATE TABLE public.pms_configurations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hotel_id text NOT NULL,
+  pms_type text NOT NULL
+);
+CREATE TABLE public.pms_accounts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hotel_id text NOT NULL,
+  pms_type text NOT NULL,
+  is_active boolean NOT NULL DEFAULT true
+);
 CREATE TABLE public.housekeeping_automation_settings (
   organization_slug text NOT NULL, hotel_id text NOT NULL, timezone text
 );
