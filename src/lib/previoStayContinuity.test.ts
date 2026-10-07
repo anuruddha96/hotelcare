@@ -71,6 +71,9 @@ describe('Previo continuous stay resolver', () => {
     const result = resolvePrevioContinuousStay([oldStay, newGuest], '2026-10-07');
     expect(result.effective?.reservationId).toBe('A');
     expect(result.extensionLinked).toBe(false);
+    expect(result.sameDayTurnover).toBe(true);
+    expect(result.turnoverConfidence).toBe('strong');
+    expect(result.competingArrival?.reservationId).toBe('B');
     expect(result.currentNight).toBe(5);
     expect(result.totalNights).toBe(5);
     expect(result.reservationIds).toEqual(['A']);
@@ -95,6 +98,31 @@ describe('Previo continuous stay resolver', () => {
     ], '2026-10-07');
     expect(result.extensionLinked).toBe(false);
     expect(result.reservationIds).toEqual(['B']);
+  });
+
+  it('keeps checkout authoritative but exposes an ambiguous same-day arrival for manager confirmation', () => {
+    const oldStay = candidate({
+      reservationId: 'A',
+      arrivalDate: '2026-10-02',
+      departureDate: '2026-10-07',
+      statusId: 6,
+      guestKeys: ['name:anuruddha|dharmasena'],
+      guestIdentityStrength: 'name',
+    });
+    const possibleExtension = candidate({
+      reservationId: 'B',
+      arrivalDate: '2026-10-07',
+      departureDate: '2026-10-10',
+      statusId: 1,
+      guestKeys: ['name:anuruddha|dharma sena'],
+      guestIdentityStrength: 'name',
+    });
+    const result = resolvePrevioContinuousStay([oldStay, possibleExtension], '2026-10-07');
+    expect(result.effective?.reservationId).toBe('A');
+    expect(result.extensionLinked).toBe(false);
+    expect(result.sameDayTurnover).toBe(true);
+    expect(result.turnoverConfidence).toBe('ambiguous');
+    expect(result.competingArrival?.reservationId).toBe('B');
   });
 
   it('uses name matching only when strong identity is unavailable', () => {
