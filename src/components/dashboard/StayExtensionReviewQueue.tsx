@@ -99,8 +99,8 @@ export function StayExtensionReviewQueue({ hotel, organizationSlug }: Props) {
 
   const acknowledge = async (item: ExtensionReview, resolved: boolean, verified: boolean) => {
     const note = (notes[item.id] ?? '').trim();
-    if (resolved && !verified && !note) {
-      setError('Please give a reason when dismissing a possible extension as a different guest.');
+    if (resolved && verified && !item.policy_configured && !note) {
+      setError('Add a note describing how the stayover service was handled before resolving this review.');
       return;
     }
     setBusyId(item.id);
@@ -152,8 +152,20 @@ export function StayExtensionReviewQueue({ hotel, organizationSlug }: Props) {
             {item.identity_status === 'needs_verification' && (
               <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">Room-night continuity suggests an extension. A manager must confirm whether this is the same continuous stay before acting on the suggested services.</p>
             )}
-            <label htmlFor={`extension-note-${item.id}`} className="mt-3 block text-xs font-medium">Supervisor note (required when dismissing)</label>
-            <input id={`extension-note-${item.id}`} value={notes[item.id] ?? ''} onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white" placeholder="Optional review note" />
+            <label htmlFor={`extension-note-${item.id}`} className="mt-3 block text-xs font-medium">
+              {item.identity_status === 'verified' && !item.policy_configured
+                ? 'Review note (required before service resolution)'
+                : 'Review note (optional)'}
+            </label>
+            <input
+              id={`extension-note-${item.id}`}
+              value={notes[item.id] ?? ''}
+              onChange={(event) => setNotes((current) => ({ ...current, [item.id]: event.target.value }))}
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+              placeholder={item.identity_status === 'verified' && !item.policy_configured
+                ? 'Describe how the stayover service was handled'
+                : 'Optional review note'}
+            />
             <div className="mt-2 flex flex-wrap gap-2">
               {item.identity_status !== 'verified' ? (
                 <button type="button" disabled={busyId === item.id} onClick={() => void acknowledge(item, false, true)} className="rounded-md bg-emerald-700 px-3 py-1.5 text-white disabled:opacity-50">Confirm same guest</button>
