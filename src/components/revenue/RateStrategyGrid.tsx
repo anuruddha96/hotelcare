@@ -3433,11 +3433,14 @@ export default function RateStrategyGrid({
                         : "border-border bg-muted/80 text-muted-foreground";
                     const roomy = count <= 2;
                     const mediumRoom = count === 3;
+                    const compactTwoLine = count === 4;
                     const titleClass = count === 1
-                      ? "line-clamp-4"
-                      : count <= 3
-                        ? "line-clamp-2"
-                        : "truncate";
+                      ? "line-clamp-5"
+                      : count === 2
+                        ? "line-clamp-3"
+                        : count <= 4
+                          ? "line-clamp-2"
+                          : "truncate";
                     const range = compactEventRange(band.event, d);
 
                     return (
@@ -3450,21 +3453,21 @@ export default function RateStrategyGrid({
                         }}
                         title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact${band.event.category ? ` · ${band.event.category}` : ""}${band.event.venue ? ` · ${band.event.venue}` : ""}`}
                         aria-label={`${band.event.title}, ${d}, ${impact || "unknown"} impact${band.event.category ? `, ${band.event.category}` : ""}${band.event.venue ? `, ${band.event.venue}` : ""}. Tap for details.`}
-                        className={`absolute z-30 flex min-w-0 overflow-hidden rounded-md border text-left font-medium shadow-sm transition-[box-shadow,transform] hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone} ${
-                          count <= 3
-                            ? "flex-col items-stretch justify-start"
-                            : "items-center justify-start"
+                        className={`absolute z-30 flex min-w-0 overflow-hidden border text-left font-medium shadow-sm transition-[box-shadow,transform] hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone} ${
+                          count <= 4
+                            ? "flex-col items-stretch justify-start rounded-md"
+                            : "items-center justify-start rounded-[4px]"
                         }`}
                         style={{
                           left: dateIndex * CELL_W + 1,
                           width: CELL_W - 2,
                           top: slot * slotHeight + 1,
                           height: Math.max(EVENT_LANE_H - 2, slotHeight - 2),
-                          paddingLeft: roomy ? 5 : 4,
-                          paddingRight: roomy ? 5 : 4,
-                          paddingTop: count <= 3 ? 3 : 1,
-                          paddingBottom: count <= 3 ? 3 : 1,
-                          fontSize: count === 1 ? fz(10) : fz(9),
+                          paddingLeft: roomy ? 5 : compactTwoLine ? 3 : 4,
+                          paddingRight: roomy ? 5 : compactTwoLine ? 3 : 4,
+                          paddingTop: count <= 3 ? 3 : compactTwoLine ? 2 : 1,
+                          paddingBottom: count <= 3 ? 3 : compactTwoLine ? 2 : 1,
+                          fontSize: count === 1 ? fz(10) : count === 5 ? fz(8) : fz(9),
                         }}
                       >
                         <span className={`w-full min-w-0 break-words text-left font-semibold leading-[1.12] ${titleClass}`}>
@@ -3479,21 +3482,18 @@ export default function RateStrategyGrid({
                           </span>
                         )}
 
-                        {(roomy || mediumRoom) && (
-                          <span className={`mt-auto flex w-full min-w-0 items-center gap-1 text-[8px] font-semibold uppercase tracking-wide opacity-75 ${
-                            roomy ? "justify-between" : "justify-end"
-                          }`}>
-                            {roomy && (
-                              <span className="min-w-0 truncate">
-                                {impact || "event"}{band.endDate !== band.startDate ? ` · ${range}` : ""}
-                              </span>
-                            )}
-                            <Eye className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+                        {roomy && (
+                          <span className="mt-auto w-full min-w-0 truncate text-left text-[8px] font-semibold uppercase tracking-wide opacity-75">
+                            {impact || "event"}{band.endDate !== band.startDate ? ` · ${range}` : ""}
                           </span>
                         )}
 
-                        {count >= 4 && (
-                          <Eye className="ml-1 h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
+                        {mediumRoom && (
+                          <span className="mt-auto w-full min-w-0 truncate text-left text-[8px] leading-none opacity-70">
+                            {band.event.category
+                              ? String(band.event.category).replace(/_/g, " ")
+                              : impact || "event"}
+                          </span>
                         )}
                       </button>
                     );
