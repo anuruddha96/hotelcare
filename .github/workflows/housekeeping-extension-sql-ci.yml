@@ -8,6 +8,7 @@ on:
       - 'supabase/migrations/2026092015*'
       - 'supabase/migrations/2026092016*'
       - 'supabase/migrations/2026100711*'
+      - 'supabase/migrations/20261008103000_guard_stay_extension_review_evidence.sql'
       - 'supabase/tests/stay_extension*'
       - 'supabase/tests/manual_room_override_same_day.sql'
       - 'supabase/tests/continuous_stay_manager_authority.sql'
@@ -57,3 +58,5 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/manual_room_override_same_day.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261007111000_continuous_stay_manager_authority.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/continuous_stay_manager_authority.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261008103000_guard_stay_extension_review_evidence.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/stay_extension_evidence_guard.sql
