@@ -29,7 +29,7 @@ import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
@@ -769,7 +769,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     }
 
     const { error: auditError } = await supabase.from('pms_change_events').insert({
-      hotel_id: room.hotel,
+      hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
       room_id: room.id,
       room_label: room.room_number,
       event_type: 'rtc_released_manual',
@@ -887,7 +887,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       : r));
 
     await supabase.from('pms_change_events').insert({
-      hotel_id: room.hotel,
+      hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
       room_id: room.id,
       room_label: room.room_number,
       event_type: 'room_type_switched_manual',
@@ -915,7 +915,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           isNoShow: false,
         });
     await supabase.from('pms_change_events').insert({
-      hotel_id: room.hotel,
+      hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
       room_id: room.id,
       room_label: room.room_number,
       event_type: value ? 'no_show_marked_manual' : 'no_show_cleared_manual',
@@ -1414,7 +1414,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           // Audit trail so cron/reconcile understands this was intentional.
 
                           await supabase.from('pms_change_events').insert({
-                            hotel_id: room.hotel,
+                            hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
                             room_id: room.id,
                             room_label: room.room_number,
                             event_type: 'rtc_reverted_manual',
