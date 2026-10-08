@@ -24,10 +24,20 @@ FOR EACH ROW WHEN (
     OR (
       coalesce(NEW.pms_metadata #>> '{continuousStay,linkedBy}', '') = 'previo_chain'
       AND coalesce(NEW.pms_metadata #>> '{continuousStay,confidence}', '') IN ('strong', 'probable')
-      AND jsonb_typeof(NEW.pms_metadata #> '{continuousStay,reservationIds}') = 'array'
-      AND jsonb_array_length(NEW.pms_metadata #> '{continuousStay,reservationIds}') >= 2
-      AND jsonb_typeof(NEW.pms_metadata #> '{continuousStay,segments}') = 'array'
-      AND jsonb_array_length(NEW.pms_metadata #> '{continuousStay,segments}') >= 2
+      AND jsonb_array_length(
+        CASE
+          WHEN jsonb_typeof(NEW.pms_metadata #> '{continuousStay,reservationIds}') = 'array'
+            THEN NEW.pms_metadata #> '{continuousStay,reservationIds}'
+          ELSE '[]'::jsonb
+        END
+      ) >= 2
+      AND jsonb_array_length(
+        CASE
+          WHEN jsonb_typeof(NEW.pms_metadata #> '{continuousStay,segments}') = 'array'
+            THEN NEW.pms_metadata #> '{continuousStay,segments}'
+          ELSE '[]'::jsonb
+        END
+      ) >= 2
     )
   )
 )
@@ -55,10 +65,20 @@ WHERE room.id = review.room_id
     OR (
       coalesce(room.pms_metadata #>> '{continuousStay,linkedBy}', '') = 'previo_chain'
       AND coalesce(room.pms_metadata #>> '{continuousStay,confidence}', '') IN ('strong', 'probable')
-      AND jsonb_typeof(room.pms_metadata #> '{continuousStay,reservationIds}') = 'array'
-      AND jsonb_array_length(room.pms_metadata #> '{continuousStay,reservationIds}') >= 2
-      AND jsonb_typeof(room.pms_metadata #> '{continuousStay,segments}') = 'array'
-      AND jsonb_array_length(room.pms_metadata #> '{continuousStay,segments}') >= 2
+      AND jsonb_array_length(
+        CASE
+          WHEN jsonb_typeof(room.pms_metadata #> '{continuousStay,reservationIds}') = 'array'
+            THEN room.pms_metadata #> '{continuousStay,reservationIds}'
+          ELSE '[]'::jsonb
+        END
+      ) >= 2
+      AND jsonb_array_length(
+        CASE
+          WHEN jsonb_typeof(room.pms_metadata #> '{continuousStay,segments}') = 'array'
+            THEN room.pms_metadata #> '{continuousStay,segments}'
+          ELSE '[]'::jsonb
+        END
+      ) >= 2
     )
   );
 
