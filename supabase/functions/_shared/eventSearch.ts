@@ -133,7 +133,6 @@ function eventSourceKey(value: unknown): string {
 function venueSimilarity(a: unknown, b: unknown): number {
   const aa = normalizedEventText(a);
   const bb = normalizedEventText(b);
-  if (!aa && !bb) return 1;
   if (!aa || !bb) return 0;
   if (aa === bb || aa.includes(bb) || bb.includes(aa)) return 1;
   return Math.max(tokenJaccard(aa, bb), bigramDice(aa, bb));
