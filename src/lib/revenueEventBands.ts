@@ -29,6 +29,88 @@ export function revenueEventBandColumnSpan(
   return Math.max(1, band.endIndex - band.startIndex + 1);
 }
 
+export interface RevenueSingleDayEventSlot {
+  topLane: number;
+  heightLanes: number;
+}
+
+/**
+ * Share the vertical lanes that are not occupied by multi-day pills between
+ * single-day events on one date. Empty contiguous gaps are used in full, and
+ * single-day cards split a gap evenly when several of them share it.
+ *
+ * This keeps long events as stable one-lane horizontal bars while allowing
+ * short events to become taller and show more useful detail.
+ */
+export function allocateRevenueSingleDayEventSlots(
+  laneCount: number,
+  occupiedLanes: readonly number[],
+  itemCount: number,
+): RevenueSingleDayEventSlot[] {
+  const lanes = Math.max(0, Math.floor(laneCount));
+  const wanted = Math.max(0, Math.floor(itemCount));
+  if (lanes === 0 || wanted === 0) return [];
+
+  const occupied = new Set(
+    occupiedLanes
+      .map((lane) => Math.floor(lane))
+      .filter((lane) => lane >= 0 && lane < lanes),
+  );
+
+  const segments: Array<{ start: number; length: number; count: number }> = [];
+  let start = -1;
+  for (let lane = 0; lane <= lanes; lane += 1) {
+    const free = lane < lanes && !occupied.has(lane);
+    if (free && start < 0) start = lane;
+    if ((!free || lane === lanes) && start >= 0) {
+      segments.push({ start, length: lane - start, count: 0 });
+      start = -1;
+    }
+  }
+
+  const totalFree = segments.reduce((sum, segment) => sum + segment.length, 0);
+  const count = Math.min(wanted, totalFree);
+  if (count === 0) return [];
+
+  // First spread one event into the largest available gaps so isolated empty
+  // areas do not remain wasted when there are fewer events than gaps.
+  const bySize = [...segments].sort((a, b) => b.length - a.length || a.start - b.start);
+  let remaining = count;
+  for (const segment of bySize) {
+    if (remaining <= 0) break;
+    segment.count = 1;
+    remaining -= 1;
+  }
+
+  // Then balance extra events into the gap that would still give the largest
+  // per-event height after adding one more card.
+  while (remaining > 0) {
+    const target = segments
+      .filter((segment) => segment.count > 0 && segment.count < segment.length)
+      .sort((a, b) =>
+        (b.length / (b.count + 1)) - (a.length / (a.count + 1))
+        || a.start - b.start
+      )[0];
+    if (!target) break;
+    target.count += 1;
+    remaining -= 1;
+  }
+
+  const slots: RevenueSingleDayEventSlot[] = [];
+  for (const segment of [...segments].sort((a, b) => a.start - b.start)) {
+    if (segment.count <= 0) continue;
+    const height = segment.length / segment.count;
+    for (let i = 0; i < segment.count; i += 1) {
+      slots.push({
+        topLane: segment.start + i * height,
+        heightLanes: height,
+      });
+    }
+  }
+
+  return slots.slice(0, count);
+}
+
 const IMPACT_WEIGHT: Record<string, number> = {
   high: 300,
   medium: 200,

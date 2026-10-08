@@ -36,7 +36,7 @@ import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECE
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
-import { buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
+import { allocateRevenueSingleDayEventSlots, buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import DayChangesSheet from "@/components/revenue/DayChangesSheet";
@@ -2211,6 +2211,49 @@ export default function RateStrategyGrid({
     ? Math.max(1, Math.min(5, eventBands.reduce((max, band) => Math.max(max, band.lane + 1), 0)))
     : 1;
 
+  /**
+   * Single-day events do not need a stable horizontal lane across dates. Give
+   * them the vertical space that remains after the continuous multi-day pills
+   * have claimed their lanes on that specific date. This restores the richer
+   * adaptive cards without breaking long events back into daily fragments.
+   */
+  const singleDayEventLayouts = useMemo(() => {
+    const layouts: Array<{
+      band: (typeof eventBands)[number];
+      dateIndex: number;
+      topLane: number;
+      heightLanes: number;
+    }> = [];
+
+    for (let dateIndex = 0; dateIndex < dates.length; dateIndex += 1) {
+      const multiDay = eventBands.filter((band) =>
+        revenueEventBandColumnSpan(band) > 1
+        && band.startIndex <= dateIndex
+        && band.endIndex >= dateIndex
+      );
+      const singleDay = eventBands
+        .filter((band) => band.startIndex === dateIndex && band.endIndex === dateIndex)
+        .sort((a, b) => a.lane - b.lane || b.score - a.score || a.event.title.localeCompare(b.event.title));
+
+      const slots = allocateRevenueSingleDayEventSlots(
+        EVENT_LANE_COUNT,
+        multiDay.map((band) => band.lane),
+        singleDay.length,
+      );
+
+      for (let i = 0; i < Math.min(singleDay.length, slots.length); i += 1) {
+        layouts.push({
+          band: singleDay[i],
+          dateIndex,
+          topLane: slots[i].topLane,
+          heightLanes: slots[i].heightLanes,
+        });
+      }
+    }
+
+    return layouts;
+  }, [dates, eventBands, EVENT_LANE_COUNT]);
+
   // Navigation is independent of fetched dates: display twelve future month
   // choices without eagerly loading their rate data.
   const monthChips = useMemo(() => nextCalendarMonths(today), [today]);
@@ -3413,7 +3456,9 @@ export default function RateStrategyGrid({
                     overlapping events and assigns a stable lane, so long-running
                     festivals/congresses remain one readable pill while unrelated
                     events keep their own space. */}
-                {showEventBand && lane === 0 && eventBands.map((band) => {
+                {showEventBand && lane === 0 && eventBands
+                  .filter((band) => revenueEventBandColumnSpan(band) > 1)
+                  .map((band) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
                     ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
@@ -3463,6 +3508,75 @@ export default function RateStrategyGrid({
                       {wide && (
                         <span className="shrink-0 text-[8px] font-semibold uppercase leading-none opacity-80">
                           {impact || "event"}{band.endDate !== band.startDate && range ? ` · ${range}` : ""}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+
+                {/* Single-day events stay inside their own date column, but use
+                    all vertical room not occupied by continuous multi-day pills.
+                    More height progressively reveals more useful context. */}
+                {showEventBand && lane === 0 && singleDayEventLayouts.map(({ band, dateIndex, topLane, heightLanes }) => {
+                  const impact = String(band.event.impact || "").toLowerCase();
+                  const tone = impact === "high"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    : impact === "medium"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      : "border-border bg-muted/80 text-muted-foreground";
+                  const expanded = heightLanes >= 1.45;
+                  const roomy = heightLanes >= 2.25;
+                  const generous = heightLanes >= 3;
+                  const date = dates[dateIndex] ?? band.startDate;
+                  const heightPx = Math.max(EVENT_LANE_H - 2, heightLanes * EVENT_LANE_H - 2);
+
+                  return (
+                    <button
+                      key={`single-${date}-${band.key}`}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDemandDay(date);
+                      }}
+                      title={`${band.event.title} · ${date} · ${impact || "unknown"} impact${band.event.category ? ` · ${band.event.category}` : ""}${band.event.venue ? ` · ${band.event.venue}` : ""}`}
+                      aria-label={`${band.event.title}, ${date}, ${impact || "unknown"} impact${band.event.category ? `, ${band.event.category}` : ""}${band.event.venue ? `, ${band.event.venue}` : ""}. Tap for details.`}
+                      className={`absolute z-30 flex min-w-0 overflow-hidden rounded-md border text-left font-medium shadow-sm transition-[box-shadow,transform] hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone} ${
+                        expanded
+                          ? "flex-col items-stretch justify-start px-1.5 py-1"
+                          : "items-center justify-start gap-1 px-1.5"
+                      }`}
+                      style={{
+                        left: dateIndex * CELL_W + 1,
+                        width: CELL_W - 2,
+                        top: topLane * EVENT_LANE_H + 1,
+                        height: heightPx,
+                        fontSize: generous ? fz(10) : fz(9),
+                      }}
+                    >
+                      <span className={`w-full min-w-0 break-words text-left font-semibold leading-[1.1] ${
+                        generous ? "line-clamp-4" : roomy ? "line-clamp-3" : expanded ? "line-clamp-2" : "truncate"
+                      }`}>
+                        {band.event.title}
+                      </span>
+
+                      {roomy && (band.event.category || band.event.venue) && (
+                        <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75">
+                          {band.event.category && (
+                            <span className="capitalize">{String(band.event.category).replace(/_/g, " ")}</span>
+                          )}
+                          {band.event.category && band.event.venue ? <span aria-hidden="true"> · </span> : null}
+                          {band.event.venue}
+                        </span>
+                      )}
+
+                      {expanded && (
+                        <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-80">
+                          <span className="min-w-0 truncate capitalize">
+                            {!roomy && band.event.category
+                              ? String(band.event.category).replace(/_/g, " ")
+                              : "event"}
+                          </span>
+                          <span className="shrink-0 font-semibold uppercase">{impact || "event"}</span>
                         </span>
                       )}
                     </button>
