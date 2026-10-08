@@ -7,6 +7,9 @@
 -- and require an approved manager/front-office role scoped to that property.
 -- Support both legacy display hotel names and canonical hotel keys.
 -- Automated server-side service_role writes remain unchanged.
+DROP POLICY IF EXISTS "Scoped hotel staff can record pms change events"
+  ON public.pms_change_events;
+
 CREATE POLICY "Scoped hotel staff can record pms change events"
 ON public.pms_change_events
 FOR INSERT TO authenticated
