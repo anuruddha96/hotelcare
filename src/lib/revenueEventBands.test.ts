@@ -253,7 +253,7 @@ describe('semantic event deduplication', () => {
       { title: 'Boris Brejcha Concert', impact: 'medium', category: 'concert', venue: 'MVM Dome', start: eventDate, end: eventDate },
       { title: 'Ferencvárosi TC vs Paksi SE', impact: 'medium', category: 'sports', venue: 'Groupama Arena', start: eventDate, end: eventDate },
       { title: 'Another important event', impact: 'high', category: 'conference', venue: 'BOK', start: eventDate, end: eventDate },
-    ]] as any);
+    ]]] as any);
 
     const visibleDates = [eventDate];
     const bands = buildRevenueEventBands(visibleDates, events, 5);
