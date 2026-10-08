@@ -2200,6 +2200,24 @@ export default function RateStrategyGrid({
     () => buildRevenueEventBands(dates, eventsByDate, 5),
     [dates, eventsByDate],
   );
+
+  /**
+   * Resolve the visible event cards for each date after the five-event cap has
+   * been applied. Rendering is date-local so every column can divide the full
+   * Events height between the events it actually contains: 1 event gets 100%,
+   * 2 get 50% each, 3 get a third each, and so on.
+   *
+   * Stable lane ordering keeps multi-day events in a predictable vertical
+   * order while still allowing sparse dates to reclaim otherwise-empty space.
+   */
+  const visibleEventBandsByDate = useMemo(
+    () => dates.map((_, dateIndex) =>
+      eventBands
+        .filter((band) => band.startIndex <= dateIndex && band.endIndex >= dateIndex)
+        .sort((a, b) => a.lane - b.lane || b.score - a.score || a.event.title.localeCompare(b.event.title))
+    ),
+    [dates, eventBands],
+  );
   // Five compact event lanes. Real in-flow lane spacers below own the DOM
   // height so iOS/WebKit cannot collapse the Events section back to one line.
   const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
@@ -3337,8 +3355,10 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
-                {/* Events — five physical lanes, with sparse days allowed to use the
-                    otherwise-empty vertical space for a richer, easier-to-read card. */}
+                {/* Events — the row keeps a fixed five-lane height, but each date
+                    dynamically shares that height between only the events visible
+                    on that date. Sparse days therefore become readable instead of
+                    leaving most of the Events area empty. */}
       {eventBands.length > 0 && (
         <div className="shrink-0 border-b-2 border-b-foreground/20 bg-card">
           {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
@@ -3385,76 +3405,90 @@ export default function RateStrategyGrid({
                   ))}
                 </div>
 
-                {showEventBand && eventBands.filter((band) => band.lane === lane).map((band) => {
-                  const impact = String(band.event.impact || "").toLowerCase();
-                  const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
-                    : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
-                      : "border-border bg-muted/80 text-muted-foreground";
-                  const spanDays = band.endIndex - band.startIndex + 1;
-                  const range = compactEventRange(band.event, band.startDate);
-                  // A day with one event should not waste four empty event lanes.
-                  // Let that event use the whole Events block so its title can wrap
-                  // and useful context stays visible on mobile without another tap.
-                  const startDayEventCount = rankedEventsByDate.get(band.startDate)?.length ?? 0;
-                  const expandedSoloEvent = spanDays === 1 && band.lane === 0 && startDayEventCount === 1;
-                  return (
-                    <button
-                      key={band.key}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const offset = Math.max(0, Math.min(rect.width - 1, e.clientX - rect.left));
-                        const withinSpan = Math.min(spanDays - 1, Math.floor(offset / CELL_W));
-                        setDemandDay(dates[band.startIndex + withinSpan] ?? band.startDate);
-                      }}
-                      title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact${band.event.category ? ` · ${band.event.category}` : ""}${band.event.venue ? ` · ${band.event.venue}` : ""}`}
-                      aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact${band.event.category ? `, ${band.event.category}` : ""}${band.event.venue ? `, ${band.event.venue}` : ""}. Tap for details.`}
-                      className={`absolute flex min-w-0 overflow-hidden border text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${
-                        expandedSoloEvent
-                          ? "z-30 flex-col items-stretch justify-start gap-1 rounded-md px-1.5 py-1.5"
-                          : "z-10 items-center justify-start gap-1 rounded-[4px] px-1"
-                      } ${tone}`}
-                      style={{
-                        left: band.startIndex * CELL_W + 1,
-                        width: Math.max(CELL_W - 2, spanDays * CELL_W - 2),
-                        top: expandedSoloEvent ? 2 : 1,
-                        height: expandedSoloEvent ? EVENT_ROW_H - 4 : (showEventBand ? EVENT_LANE_H : ROW_H) - 2,
-                        fontSize: expandedSoloEvent ? fz(10) : fz(9),
-                      }}
-                    >
-                      {expandedSoloEvent ? (
-                        <>
-                          <span className="w-full whitespace-normal break-words text-left font-semibold leading-[1.15]">
-                            {band.event.title}
+                {/* All event cards are anchored from the first physical lane.
+                    Overflow is intentional: it lets the cards use the complete
+                    five-lane Events block while the rows below remain the visual
+                    grid/background and date click targets. */}
+                {showEventBand && lane === 0 && dates.flatMap((d, dateIndex) => {
+                  const dayBands = visibleEventBandsByDate[dateIndex] ?? [];
+                  const count = dayBands.length;
+                  if (count === 0) return [];
+
+                  const slotHeight = EVENT_ROW_H / count;
+                  return dayBands.map((band, slot) => {
+                    const impact = String(band.event.impact || "").toLowerCase();
+                    const tone = impact === "high"
+                      ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                      : impact === "medium"
+                        ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                        : "border-border bg-muted/80 text-muted-foreground";
+                    const roomy = count <= 2;
+                    const mediumRoom = count === 3;
+                    const titleClass = count === 1
+                      ? "line-clamp-4"
+                      : count <= 3
+                        ? "line-clamp-2"
+                        : "truncate";
+                    const range = compactEventRange(band.event, d);
+
+                    return (
+                      <button
+                        key={`${d}-${band.key}`}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDemandDay(d);
+                        }}
+                        title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact${band.event.category ? ` · ${band.event.category}` : ""}${band.event.venue ? ` · ${band.event.venue}` : ""}`}
+                        aria-label={`${band.event.title}, ${d}, ${impact || "unknown"} impact${band.event.category ? `, ${band.event.category}` : ""}${band.event.venue ? `, ${band.event.venue}` : ""}. Tap for details.`}
+                        className={`absolute z-30 flex min-w-0 overflow-hidden rounded-md border text-left font-medium shadow-sm transition-[box-shadow,transform] hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone} ${
+                          count <= 3
+                            ? "flex-col items-stretch justify-start"
+                            : "items-center justify-start"
+                        }`}
+                        style={{
+                          left: dateIndex * CELL_W + 1,
+                          width: CELL_W - 2,
+                          top: slot * slotHeight + 1,
+                          height: Math.max(EVENT_LANE_H - 2, slotHeight - 2),
+                          paddingLeft: roomy ? 5 : 4,
+                          paddingRight: roomy ? 5 : 4,
+                          paddingTop: count <= 3 ? 3 : 1,
+                          paddingBottom: count <= 3 ? 3 : 1,
+                          fontSize: count === 1 ? fz(10) : fz(9),
+                        }}
+                      >
+                        <span className={`w-full min-w-0 break-words text-left font-semibold leading-[1.12] ${titleClass}`}>
+                          {band.event.title}
+                        </span>
+
+                        {roomy && (band.event.category || band.event.venue) && (
+                          <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75">
+                            {band.event.category && <span className="capitalize">{band.event.category}</span>}
+                            {band.event.category && band.event.venue ? <span aria-hidden="true"> · </span> : null}
+                            {band.event.venue}
                           </span>
-                          {(band.event.category || band.event.venue) && (
-                            <span className="mt-auto w-full min-w-0 text-left text-[8px] leading-tight opacity-75">
-                              {band.event.category && (
-                                <span className="capitalize">{band.event.category}</span>
-                              )}
-                              {band.event.category && band.event.venue ? <span aria-hidden="true"> · </span> : null}
-                              {band.event.venue && <span className="break-words">{band.event.venue}</span>}
-                            </span>
-                          )}
-                          <span className="flex w-full items-center justify-between gap-1 text-[8px] font-semibold uppercase tracking-wide opacity-75">
-                            <span>{impact || "event"}</span>
+                        )}
+
+                        {(roomy || mediumRoom) && (
+                          <span className={`mt-auto flex w-full min-w-0 items-center gap-1 text-[8px] font-semibold uppercase tracking-wide opacity-75 ${
+                            roomy ? "justify-between" : "justify-end"
+                          }`}>
+                            {roomy && (
+                              <span className="min-w-0 truncate">
+                                {impact || "event"}{band.endDate !== band.startDate ? ` · ${range}` : ""}
+                              </span>
+                            )}
                             <Eye className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
                           </span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="min-w-0 flex-1 truncate text-left">{band.event.title}</span>
-                          {spanDays > 1 && (
-                            <span className="shrink-0 tabular-nums opacity-75">{range}</span>
-                          )}
-                          <Eye className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
-                        </>
-                      )}
-                    </button>
-                  );
+                        )}
+
+                        {count >= 4 && (
+                          <Eye className="ml-1 h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
+                        )}
+                      </button>
+                    );
+                  });
                 })}
               </div>
             </div>
