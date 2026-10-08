@@ -1634,8 +1634,8 @@ Deno.serve(async (req) => {
     }
 
     const openai = createOpenAI({ apiKey: openAiKey });
-    // High-reasoning default so answers about live hotel data are accurate.
-    const modelId = selectAssistantModel(question, Deno.env.get("OPENAI_MODEL"));
+    // Everyday questions use Luna or Terra; deep analysis is separately routed to Sol.
+    const modelId = selectAssistantModel(question, Deno.env.get("OPENAI_STANDARD_MODEL"));
     const routine = classifyAssistantQuestion(question) === "routine";
     const hotels = await resolveAssistantHotels(service, profile as Profile);
     const revenueBrain = scopes.has("revenue")
