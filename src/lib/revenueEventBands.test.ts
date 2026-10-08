@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRevenueEventBands, revenueEventBandColumnSpan, revenueEventTitleKey, sameRevenueEvent, scoreRevenueEvent, type RevenueEventBandInput } from './revenueEventBands';
+import { allocateRevenueSingleDayEventSlots, buildRevenueEventBands, revenueEventBandColumnSpan, revenueEventTitleKey, sameRevenueEvent, scoreRevenueEvent, type RevenueEventBandInput } from './revenueEventBands';
 
 const dates = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05'];
 
@@ -85,6 +85,36 @@ describe('buildRevenueEventBands', () => {
   });
 });
 
+
+
+describe('allocateRevenueSingleDayEventSlots', () => {
+  it('lets one single-day event use the largest free vertical gap around long events', () => {
+    expect(allocateRevenueSingleDayEventSlots(5, [0, 1], 1)).toEqual([
+      { topLane: 2, heightLanes: 3 },
+    ]);
+  });
+
+  it('shares a free gap evenly between multiple single-day events', () => {
+    expect(allocateRevenueSingleDayEventSlots(5, [0, 1], 2)).toEqual([
+      { topLane: 2, heightLanes: 1.5 },
+      { topLane: 3.5, heightLanes: 1.5 },
+    ]);
+  });
+
+  it('uses separate free gaps when a long event occupies a middle lane', () => {
+    expect(allocateRevenueSingleDayEventSlots(5, [2], 2)).toEqual([
+      { topLane: 0, heightLanes: 2 },
+      { topLane: 3, heightLanes: 2 },
+    ]);
+  });
+
+  it('never creates more cards than there are free lanes', () => {
+    expect(allocateRevenueSingleDayEventSlots(3, [1], 5)).toEqual([
+      { topLane: 0, heightLanes: 1 },
+      { topLane: 2, heightLanes: 1 },
+    ]);
+  });
+});
 
 describe('semantic event deduplication', () => {
   const sameDay = (title: string, extra: Partial<RevenueEventBandInput> = {}): RevenueEventBandInput => ({
