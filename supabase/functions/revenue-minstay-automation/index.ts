@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { canRunLiveMinimumStay } from "../_shared/revenueAutomationEligibility.ts";
 
 const EQC_AR_ENDPOINT = "https://api.previo.app/eqc1/ar";
 const EQC_NS = "http://www.expediaconnect.com/EQC/AR/2007/02";
@@ -356,14 +357,7 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
     if (ruleError) throw ruleError;
 
-    const liveReady =
-      rule?.is_enabled === true &&
-      rule?.auto_publish === true &&
-      Number(rule?.engine_version ?? 0) >= 2 &&
-      rule?.mode === "live" &&
-      rule?.min_stay_automation_enabled === true &&
-      rule?.min_stay_automation_live === true;
-    if (!liveReady) {
+    if (!canRunLiveMinimumStay(rule)) {
       return json({ ok: true, skipped: true, hotel_id: hotelId, reason: "automation_disabled_or_not_live" });
     }
 
