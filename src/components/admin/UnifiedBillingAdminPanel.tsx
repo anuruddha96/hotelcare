@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 import { CreditCard, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +40,8 @@ const euros = (cents: number) => (cents / 100).toFixed(2);
 const cents = (value: string) => Math.round(Number(value) * 100);
 
 export default function UnifiedBillingAdminPanel() {
+  const { profile } = useAuth();
+  const initialSettings = useRef<Record<string, string>>({});
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [scope, setScope] = useState('');
@@ -61,10 +64,15 @@ export default function UnifiedBillingAdminPanel() {
     [hotels, org?.id],
   );
   const onSettingsDraft = useCallback((next: Settings | null) => {
+    if (!next || next.organization_slug !== slug) return;
     setSettingsDraft(next);
-  }, []);
+    const fingerprint = JSON.stringify(next);
+    if (!initialSettings.current[slug]) initialSettings.current[slug] = fingerprint;
+    else if (initialSettings.current[slug] !== fingerprint) setDirty(true);
+  }, [slug]);
 
   useEffect(() => {
+    if (!profile) return;
     let alive = true;
     (async () => {
       const [a, b] = await Promise.all([
@@ -73,13 +81,15 @@ export default function UnifiedBillingAdminPanel() {
       ]);
       if (!alive) return;
       if (a.error || b.error) { toast.error(a.error?.message ?? b.error?.message); setLoading(false); return; }
-      const organizations = (a.data ?? []) as Org[];
+      const organizations = ((a.data ?? []) as Org[]).filter((o) =>
+        Boolean(profile.is_super_admin) || o.slug === profile.organization_slug
+      );
       setOrgs(organizations);
       setHotels((b.data ?? []) as Hotel[]);
       if (organizations.length) setScope((old) => old || `${organizations[0].slug}|__all__`);
     })();
     return () => { alive = false; };
-  }, []);
+  }, [profile?.is_super_admin, profile?.organization_slug]);
 
   useEffect(() => {
     if (!slug) return;
@@ -170,6 +180,7 @@ export default function UnifiedBillingAdminPanel() {
     setTrials(payload?.module_trials ?? []);
     setAgreements(payload?.fixed_agreements ?? []);
     setCoverage(payload?.agreement_entitlements ?? []);
+    initialSettings.current[slug] = JSON.stringify(settingsDraft);
     setDirty(false);
     toast.success('Payment settings and agreements saved together.');
   };
@@ -186,9 +197,9 @@ export default function UnifiedBillingAdminPanel() {
             <Label>{label}</Label>
             <Select value={row.pricing_mode} onValueChange={(value) => setPrice(hotel,key,{pricing_mode:value as PricingMode})}>
               <SelectTrigger aria-label={`${label} pricing mode`}><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="inherit">Inherit standard rate</SelectItem><SelectItem value="per_room">Custom €/room/month</SelectItem><SelectItem value="fixed_monthly">Custom fixed €/month</SelectItem></SelectContent>
+              <SelectContent><SelectItem value="inherit">Inherit standard rate</SelectItem><SelectItem value="per_room">Custom /room/month</SelectItem><SelectItem value="fixed_monthly">Custom fixed /month</SelectItem></SelectContent>
             </Select>
-            <div className="space-y-1"><Label className="text-xs">Net EUR / month</Label>
+            <div className="space-y-1"><Label className="text-xs">Net {settingsDraft?.currency ?? 'EUR'} / month</Label>
               <Input type="number" min={0} step=".01" disabled={row.pricing_mode==='inherit'} value={euros(row.price_cents)}
                 onChange={(e) => setPrice(hotel,key,{price_cents:cents(e.target.value)})} />
             </div>
@@ -225,7 +236,7 @@ export default function UnifiedBillingAdminPanel() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-[1fr_180px_auto] md:items-center">
             <div className="space-y-1.5"><Label>Contract name</Label><Input value={agreement.label} onChange={(e)=>patchAgreement({label:e.target.value})}/></div>
-            <div className="space-y-1.5"><Label>Fixed net EUR / month</Label><Input type="number" step=".01" min={0} value={euros(agreement.price_cents)} onChange={(e)=>patchAgreement({price_cents:cents(e.target.value)})}/></div>
+            <div className="space-y-1.5"><Label>Fixed net {settingsDraft?.currency ?? 'EUR'} / month</Label><Input type="number" step=".01" min={0} value={euros(agreement.price_cents)} onChange={(e)=>patchAgreement({price_cents:cents(e.target.value)})}/></div>
             <label className="flex items-center gap-2"><Switch checked={agreement.enabled} onCheckedChange={(enabled)=>patchAgreement({enabled})}/> Enable agreement</label>
           </div>
           <p className="text-sm font-medium">Included coverage by hotel and module</p>
