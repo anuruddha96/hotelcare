@@ -85,6 +85,7 @@ Deno.serve(async (req) => {
         "",
     );
     if (!slug) return json({ error: "No organization" }, 400);
+    if (!caller.isSuperAdmin && slug !== caller.organizationSlug) return json({ error: "Organization access denied" }, 403);
 
     const settings = await loadSettings(slug);
     const hotels = await loadHotels(slug);
