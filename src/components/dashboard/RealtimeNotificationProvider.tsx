@@ -410,10 +410,12 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
             {
               event: 'UPDATE',
               schema: 'public',
-              table: 'tickets'
+              table: 'tickets',
+              ...(profile?.organization_slug ? { filter: `organization_slug=eq.${profile.organization_slug}` } : {}),
             },
             (payload: any) => {
               if (
+                payload.new.organization_slug === profile?.organization_slug &&
                 payload.new.pending_supervisor_approval === true &&
                 payload.old.pending_supervisor_approval !== true &&
                 payload.new.department === 'maintenance'
@@ -503,7 +505,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
         if (channel) supabase.removeChannel(channel);
       });
     };
-  }, [user?.id, profile?.role, showNotification, requestNotificationPermission, notificationPermission, t]);
+  }, [user?.id, profile?.role, profile?.organization_slug, showNotification, requestNotificationPermission, notificationPermission, t]);
 
   const dismissHighlightedMessage = () => {
     if (highlightedRoomMessage?.element) {
