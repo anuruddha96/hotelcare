@@ -577,7 +577,7 @@ export default function RevenueHotelDetail() {
       supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", targetHotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
         .eq("hotel_id", targetHotelId)
-        .neq("source", "previo") // 'previo-live' is occupancy, not movement.gte("stay_date", near).lte("stay_date", horizon)
+        .eq("source", "previo_sync_diff").gte("stay_date", near).lte("stay_date", horizon)
         .order("captured_at", { ascending: false }).limit(4000),
       (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct,source")
         .eq("hotel_id", targetHotelId).gte("stay_date", near).lte("stay_date", horizon).limit(2000),
@@ -631,7 +631,7 @@ export default function RevenueHotelDetail() {
       const [{ data: s }, { data: r }, { data: ev }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }, { data: occSnaps }, { data: dec }, { data: lp }] = await Promise.all([
         supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
           .eq("hotel_id", targetHotelId)
-          .neq("source", "previo") // exclude occupancy-as-of-now snapshots.gte("stay_date", past).lte("stay_date", horizon)
+          .eq("source", "previo_sync_diff").gte("stay_date", past).lte("stay_date", horizon)
           .order("captured_at", { ascending: false }).limit(10000),
         supabase.from("rate_recommendations").select("*")
           .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
