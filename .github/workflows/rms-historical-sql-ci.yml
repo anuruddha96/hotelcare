@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/20261008041000_rms_compact_daily_history.sql'
+      - 'supabase/migrations/20261008042000_rms_history_trigger_hardening.sql'
       - 'supabase/tests/rms_historical_daily_*.sql'
       - '.github/workflows/rms-historical-sql-ci.yml'
 
@@ -47,4 +48,5 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 \
             -f supabase/tests/rms_historical_daily_fixture.sql \
             -f supabase/migrations/20261008041000_rms_compact_daily_history.sql \
+            -f supabase/migrations/20261008042000_rms_history_trigger_hardening.sql \
             -f supabase/tests/rms_historical_daily_integration.sql
