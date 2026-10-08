@@ -17,7 +17,7 @@ export const rateDraftCellKey = (draft: Pick<ActiveRateDraftRef, "stay_date" | "
   `${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`;
 
 export async function findDraftsToSupersede(
-  fetchPage: (from: number, to: number) => Promise<RateDraftPageResult>,
+  fetchPage: (from: number, to: number) => PromiseLike<RateDraftPageResult>,
   incomingKeys: ReadonlySet<string>,
   pageSize = 500,
 ): Promise<string[]> {
