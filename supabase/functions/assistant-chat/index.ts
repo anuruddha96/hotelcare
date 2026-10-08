@@ -13,6 +13,8 @@ import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_sha
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
 import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
+import { selectAssistantModel, classifyAssistantQuestion } from "../_shared/aiModelPolicy.ts";
+import { logAiUsage } from "../_shared/aiBudget.ts";
 
 
 type Profile = {
@@ -1633,7 +1635,8 @@ Deno.serve(async (req) => {
 
     const openai = createOpenAI({ apiKey: openAiKey });
     // High-reasoning default so answers about live hotel data are accurate.
-    const modelId = Deno.env.get("OPENAI_MODEL") || "gpt-5.6";
+    const modelId = selectAssistantModel(question, Deno.env.get("OPENAI_MODEL"));
+    const routine = classifyAssistantQuestion(question) === "routine";
     const hotels = await resolveAssistantHotels(service, profile as Profile);
     const revenueBrain = scopes.has("revenue")
       ? `
@@ -1695,13 +1698,23 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
-      stopWhen: stepCountIs(12),
+      stopWhen: stepCountIs(routine ? 6 : 12),
 
       abortSignal: req.signal,
+      onFinish: async ({ totalUsage }) => {
+        await logAiUsage(service, {
+          organizationSlug: profile.organization_slug,
+          hotelId: profile.assigned_hotel,
+          functionName: routine ? "assistant-routine" : "assistant-standard",
+          model: modelId,
+          inputTokens: totalUsage?.inputTokens ?? 0,
+          outputTokens: totalUsage?.outputTokens ?? 0,
+        });
+      },
       providerOptions: {
         openai: {
           store: false,
-          reasoningEffort: "high",
+          reasoningEffort: routine ? "low" : "medium",
           reasoningSummary: "auto",
           include: ["reasoning.encrypted_content"],
         },
@@ -1727,9 +1740,9 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
           console.error("assistant reply persistence failed", assistantInsertError);
           return;
         }
-        const topicTitle = needsTopicTitle
-          ? await generateThreadTitle({ apiKey: openAiKey, question, answer, language })
-          : null;
+        // The thread already has a useful question-derived title. Avoid a
+        // second paid model call after every first reply.
+        const topicTitle = null;
         await service
           .from("assistant_threads")
           .update({
