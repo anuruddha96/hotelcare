@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
 
     const settings = await loadSettings(slug);
     const hotels = await loadHotels(slug);
-    const { moduleRows, accessRows } = await loadBillingOverrides(slug);
+    const { moduleRows, accessRows, agreements, entitlements, trials } = await loadBillingOverrides(slug);
     const db = admin();
 
     const { data: subs } = await db
@@ -105,7 +105,7 @@ Deno.serve(async (req) => {
       };
     });
     const modulePricing = hotels.flatMap((hotel) =>
-      MODULES.map((module) => resolveModulePricing(settings, hotel.hotel_id, module, moduleRows)),
+      MODULES.map((module) => resolveModulePricing(settings, hotel.hotel_id, module, moduleRows, agreements, entitlements)),
     );
 
     if (action === "summary") {
@@ -126,6 +126,7 @@ Deno.serve(async (req) => {
         trial_ends_at: trialEndsAt(settings),
         revenue_usage: usage,
         module_pricing: modulePricing,
+        module_trials: trials,
       });
     }
 
@@ -188,6 +189,7 @@ Deno.serve(async (req) => {
       const picked: string[] = [];
       const pickedItemIndexes: number[] = [];
       const sharedItemIndexes = new Map<string, number>();
+      const seenSelections = new Set<string>();
       let netCents = 0;
 
       for (const sel of selections) {
@@ -196,8 +198,15 @@ Deno.serve(async (req) => {
         const hotel = hotels.find((h) => h.hotel_id === sel.hotel_id);
         if (!hotel) continue;
         if (!moduleEnabled(settings, module)) continue;
+        const selectionKey = `${hotel.hotel_id}:${module}`;
+        if (seenSelections.has(selectionKey)) continue;
+        seenSelections.add(selectionKey);
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        if (trials.some((trial) => trial.enabled && trial.hotel_id === hotel.hotel_id && trial.module === module && trial.starts_on <= today && trial.ends_on >= today)) {
+          return json({ error: `${hotel.hotel_name}: ${moduleLabel(settings,module)} has a free trial. Subscribe after the trial ends.` }, 400);
+        }
 
-        const pricing = resolveModulePricing(settings, hotel.hotel_id, module, moduleRows);
+        const pricing = resolveModulePricing(settings, hotel.hotel_id, module, moduleRows, agreements, entitlements);
         if (pricing.pricing_mode === "custom") continue;
 
         if (pricing.pricing_mode === "percent") {
@@ -227,9 +236,11 @@ Deno.serve(async (req) => {
 
         // An organization-level fixed monthly agreement is one commercial charge
         // covering every selected property for that module, not one charge per hotel.
-        const sharedKey = pricing.pricing_mode === "fixed_monthly" && pricing.source === "organization"
-          ? `organization:${module}`
-          : null;
+        const sharedKey = pricing.source === 'agreement' && pricing.agreement_key
+          ? `agreement:${pricing.agreement_key}`
+          : pricing.pricing_mode === "fixed_monthly" && pricing.source === "organization"
+            ? `organization:${module}`
+            : null;
         const existingSharedIndex = sharedKey ? sharedItemIndexes.get(sharedKey) : undefined;
         if (existingSharedIndex !== undefined) {
           picked.push(`${hotel.hotel_id}:${module}`);
@@ -253,9 +264,11 @@ Deno.serve(async (req) => {
             tax_behavior: "exclusive",
             recurring: { interval: "month" },
             product_data: {
-              name: sharedKey
-                ? `${moduleLabel(settings, module)} — organization agreement`
-                : `${moduleLabel(settings, module)} — ${hotel.hotel_name}`,
+              name: pricing.source === 'agreement'
+                ? `${pricing.agreement_label ?? 'Negotiated modules'} — organization agreement`
+                : sharedKey
+                  ? `${moduleLabel(settings, module)} — organization agreement`
+                  : `${moduleLabel(settings, module)} — ${hotel.hotel_name}`,
               description: `${basis}${promotion?.active ? ` · ${promotion.label}` : ""}`,
             },
           },
