@@ -36,7 +36,7 @@ import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECE
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
-import { buildRevenueEventBands, scoreRevenueEvent } from "@/lib/revenueEventBands";
+import { buildRevenueEventBands, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import DayChangesSheet from "@/components/revenue/DayChangesSheet";
@@ -2253,13 +2253,21 @@ export default function RateStrategyGrid({
     const out = new Map<string, DemandEventDetail[]>();
     const score = (event: DemandEventDetail) => scoreRevenueEvent(event);
     for (const d of dates) {
-      const unique = new Map<string, DemandEventDetail>();
+      const unique: DemandEventDetail[] = [];
       for (const event of eventsByDate?.get(d) ?? []) {
-        const key = `${event.title.trim().toLowerCase()}|${event.start ?? d}`;
-        const current = unique.get(key);
-        if (!current || score(event) > score(current)) unique.set(key, event);
+        const duplicateIndex = unique.findIndex((existing) =>
+          sameRevenueEvent(
+            { ...existing, start: existing.start ?? d, end: existing.end ?? d },
+            { ...event, start: event.start ?? d, end: event.end ?? d },
+          )
+        );
+        if (duplicateIndex < 0) {
+          unique.push(event);
+          continue;
+        }
+        if (score(event) > score(unique[duplicateIndex])) unique[duplicateIndex] = event;
       }
-      out.set(d, [...unique.values()].sort((a, b) =>
+      out.set(d, unique.sort((a, b) =>
         score(b) - score(a)
         || a.title.localeCompare(b.title)
       ));
@@ -3434,6 +3442,7 @@ export default function RateStrategyGrid({
                     const roomy = count <= 2;
                     const mediumRoom = count === 3;
                     const compactTwoLine = count === 4;
+                    const compactFooter = count === 3 || count === 4;
                     const titleClass = count === 1
                       ? "line-clamp-5"
                       : count === 2
@@ -3488,11 +3497,14 @@ export default function RateStrategyGrid({
                           </span>
                         )}
 
-                        {mediumRoom && (
-                          <span className="mt-auto w-full min-w-0 truncate text-left text-[8px] leading-none opacity-70">
-                            {band.event.category
-                              ? String(band.event.category).replace(/_/g, " ")
-                              : impact || "event"}
+                        {compactFooter && (
+                          <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-75">
+                            <span className="min-w-0 truncate capitalize">
+                              {band.event.category
+                                ? String(band.event.category).replace(/_/g, " ")
+                                : "event"}
+                            </span>
+                            <span className="shrink-0 font-semibold uppercase">{impact || "event"}</span>
                           </span>
                         )}
                       </button>
