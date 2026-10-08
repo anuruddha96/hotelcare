@@ -199,6 +199,11 @@ Deno.serve(async (req) => {
         const hotel = hotels.find((h) => h.hotel_id === sel.hotel_id);
         if (!hotel) continue;
         if (!moduleEnabled(settings, module)) continue;
+        // Existing active subscription items belong to an existing Stripe contract.
+        // Never create another subscription for the same venue/module.
+        if ((subs ?? []).some((sub) => sub.hotel_id === hotel.hotel_id
+          && normaliseModule(String(sub.module)) === module
+          && ['active','trialing','past_due'].includes(String(sub.status)))) continue;
         const selectionKey = `${hotel.hotel_id}:${module}`;
         if (seenSelections.has(selectionKey)) continue;
         seenSelections.add(selectionKey);
