@@ -1,10 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { canRunLiveMinimumStay } from "../_shared/revenueAutomationEligibility.ts";
 
 const EQC_AR_ENDPOINT = "https://api.previo.app/eqc1/ar";
 const EQC_NS = "http://www.expediaconnect.com/EQC/AR/2007/02";
-const HOTEL_ID = "ottofiori";
-const TIME_ZONE = "Europe/Budapest";
+const DEFAULT_TIME_ZONE = "Europe/Budapest";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
@@ -271,11 +271,75 @@ Deno.serve(async (req: Request) => {
 
   const url = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   if (!url || !serviceKey) return json({ ok: false, error: "Supabase runtime configuration missing" }, 500);
-  const admin = createClient(url, serviceKey);
+
+  const body = await req.json().catch(() => ({} as Record<string, unknown>));
+  const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  const apiKey = req.headers.get("apikey") ?? "";
+  const serviceCall = bearer === serviceKey || apiKey === serviceKey;
+  const schedulerCall = body?.scheduled === true && !!anonKey && apiKey === anonKey;
+  if (!serviceCall && !schedulerCall) return json({ ok: false, error: "unauthorized" }, 401);
+
+  const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+
+  // The hourly cron remains a single call. It now dispatches one isolated
+  // service-role invocation per hotel that is fully live. Pre-provisioned
+  // hotels with is_enabled=false are never dispatched and therefore cannot
+  // write minimum-stay restrictions before an operator turns automation on.
+  const requestedHotelId = typeof body?.hotelId === "string" ? body.hotelId.trim() : "";
+  if (!requestedHotelId) {
+    const { data: eligible, error: eligibleError } = await admin
+      .from("revenue_pickup_automation_rules")
+      .select("hotel_id")
+      .eq("is_enabled", true)
+      .eq("auto_publish", true)
+      .eq("mode", "live")
+      .gte("engine_version", 2)
+      .eq("min_stay_automation_enabled", true)
+      .eq("min_stay_automation_live", true);
+    if (eligibleError) return json({ ok: false, error: eligibleError.message }, 500);
+
+    const functionUrl = `${url}/functions/v1/revenue-minstay-automation`;
+    const results: Array<Record<string, unknown>> = [];
+    for (const row of (eligible ?? []) as Array<{ hotel_id: string }>) {
+      try {
+        const response = await fetch(functionUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${serviceKey}`,
+            "apikey": serviceKey,
+          },
+          body: JSON.stringify({ hotelId: row.hotel_id, dispatched: true }),
+          signal: AbortSignal.timeout(55_000),
+        });
+        const payload = await response.json().catch(() => ({ ok: false, error: `HTTP ${response.status}` }));
+        results.push({ hotel_id: row.hotel_id, http_status: response.status, ...payload });
+      } catch (error) {
+        results.push({
+          hotel_id: row.hotel_id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return json({
+      ok: results.every((result) => result.ok !== false),
+      dispatched: results.length,
+      results,
+    });
+  }
+
+  // Cron callers can only request the dispatcher. A specific hotel may only
+  // be targeted by the service-role self-call (or another privileged worker).
+  if (!serviceCall) return json({ ok: false, error: "hotel-specific invocation requires service role" }, 403);
+  if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(requestedHotelId)) {
+    return json({ ok: false, error: "invalid hotelId" }, 400);
+  }
+
+  const hotelId = requestedHotelId;
   const now = new Date();
-  const today = isoDateInZone(now, TIME_ZONE);
-  const hotelId = HOTEL_ID;
   let runId: string | null = null;
 
   try {
@@ -287,11 +351,17 @@ Deno.serve(async (req: Request) => {
     if ((active ?? []).length > 0) return json({ ok: true, skipped: true, reason: "run_already_in_progress" });
 
     const { data: rule, error: ruleError } = await admin.from("revenue_pickup_automation_rules")
-      .select("id,hotel_id,organization_slug,min_stay_automation_enabled,min_stay_automation_horizon_days,min_stay_max_nights,min_stay_change_cooldown_hours")
-      .eq("hotel_id", hotelId).maybeSingle();
+      .select("id,hotel_id,organization_slug,is_enabled,auto_publish,engine_version,mode,run_timezone,min_stay_automation_enabled,min_stay_automation_live,min_stay_automation_horizon_days,min_stay_max_nights,min_stay_change_cooldown_hours")
+      .eq("hotel_id", hotelId)
+      .eq("name", "Pickup pricing")
+      .maybeSingle();
     if (ruleError) throw ruleError;
-    if (!rule?.min_stay_automation_enabled) return json({ ok: true, skipped: true, reason: "disabled" });
 
+    if (!canRunLiveMinimumStay(rule)) {
+      return json({ ok: true, skipped: true, hotel_id: hotelId, reason: "automation_disabled_or_not_live" });
+    }
+
+    const today = isoDateInZone(now, rule.run_timezone || DEFAULT_TIME_ZONE);
     const horizonDays = Math.max(7, Math.min(120, Number(rule.min_stay_automation_horizon_days ?? 90)));
     const horizonDate = addDays(today, horizonDays);
     const maxNights = Math.max(1, Math.min(3, Number(rule.min_stay_max_nights ?? 2)));
