@@ -90,6 +90,35 @@ begin
       v_source_columns,
       v_update_columns
     );
+
+    -- Engine V2's lockstep bounds come from revenue_price_floors, not only
+    -- from the main rule row. Clone Ottofiori's exact safety/floor rows so a
+    -- prepared hotel never falls back to the generic EUR 1 safety minimum.
+    delete from public.revenue_price_floors where hotel_id = v_target;
+    insert into public.revenue_price_floors (
+      hotel_id, organization_slug, room_type_name, occupancy, min_price, max_price,
+      occupancy_supplement, is_global_safety_max, notes, created_at, updated_at
+    )
+    select
+      v_target, organization_slug, room_type_name, occupancy, min_price, max_price,
+      occupancy_supplement, is_global_safety_max,
+      concat('RD Hotels Ottofiori baseline · ', coalesce(notes, 'Revenue safety floor')),
+      now(), now()
+    from public.revenue_price_floors
+    where hotel_id = 'ottofiori';
+
+    -- Pace bands are part of the Engine V2 decision input. Keep the target
+    -- properties on the same D+ occupancy curve as the live Ottofiori engine.
+    delete from public.revenue_pace_targets where hotel_id = v_target;
+    insert into public.revenue_pace_targets (
+      hotel_id, organization_slug, min_days_out, max_days_out,
+      target_occupancy_pct, month, weekday, created_at, updated_at
+    )
+    select
+      v_target, organization_slug, min_days_out, max_days_out,
+      target_occupancy_pct, month, weekday, now(), now()
+    from public.revenue_pace_targets
+    where hotel_id = 'ottofiori';
   end loop;
 
   -- Defense in depth: assert the migration itself never activates a target.
