@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { z } from "npm:zod@3.23.8";
 import { enforceRateSafety } from "../_shared/rateSafety.ts";
+import { findDraftsToSupersede } from "../_shared/rateDraftPagination.ts";
 
 const ChangeSchema = z.object({
   stay_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -128,17 +129,18 @@ Deno.serve(async (req) => {
         // stale cell would sink a six-month push. Rows already claimed by the
         // publisher are superseded too: the newest price a person asked for
         // always wins, and the in-flight row is discarded on completion.
-        const { data: existingDrafts } = await admin.from("revenue_rate_drafts")
-          .select("id,stay_date,room_type_name,occupancy")
-          .eq("hotel_id", hotelId).gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
-          .in("status", ["draft", "failed"])
-          .is("superseded_at", null);
-        const staleIds: string[] = [];
-        for (const row of existingDrafts ?? []) {
-          const key = `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
-          if (!byCell.has(key)) continue;
-          staleIds.push(row.id);
-        }
+        // Collect EVERY page before mutating statuses so the offset-based
+        // pagination stays stable, including bulk edits beyond 1,000 cells.
+        const staleIds = await findDraftsToSupersede(
+          (from, to) => admin.from("revenue_rate_drafts")
+            .select("id,stay_date,room_type_name,occupancy")
+            .eq("hotel_id", hotelId).gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
+            .in("status", ["draft", "failed"])
+            .is("superseded_at", null)
+            .order("id", { ascending: true })
+            .range(from, to),
+          new Set(byCell.keys()),
+        );
         const supersededAt = new Date().toISOString();
         for (const ids of chunks(staleIds, 300)) {
           const { error: supersedeError } = await admin.from("revenue_rate_drafts")
@@ -156,30 +158,42 @@ Deno.serve(async (req) => {
         });
 
         for (const batch of chunks(changes, 500)) {
-          let drafts: Array<{ id: string; stay_date: string; room_type_name: string; occupancy: number }> = [];
-          const { data: inserted, error } = await admin.from("revenue_rate_drafts")
-            .insert(batch.map(rowFor)).select("id,stay_date,room_type_name,occupancy");
-          if (error) {
-            // A whole chunk must never be lost because of one bad cell: fall
-            // back to row-by-row so the rest of the range still goes out, and
-            // report the offenders instead of failing the request.
-            console.warn("chunk insert failed, isolating rows", error.message);
-            for (const change of batch) {
-              const { data: one, error: rowError } = await admin.from("revenue_rate_drafts")
-                .insert(rowFor(change)).select("id,stay_date,room_type_name,occupancy").maybeSingle();
-              if (rowError || !one) {
-                rejected.push({
-                  stay_date: change.stay_date, room_type_name: change.room_type_name,
-                  occupancy: change.occupancy,
-                  reason: rowError?.message ?? "Could not be queued",
-                });
-                continue;
-              }
-              drafts.push(one);
+          type InsertedDraft = { id: string; stay_date: string; room_type_name: string; occupancy: number };
+          let insertAttempts = 0;
+          // Concurrent manager/automation runs may still race after the
+          // supersede pass. Split only constraint failures into smaller writes
+          // (instead of blindly retrying EVERY row after a 500-row conflict).
+          // Bound the attempts to avoid a self-inflicted database error storm.
+          const insertSubset = async (subset: typeof batch): Promise<InsertedDraft[]> => {
+            if (insertAttempts >= 64) {
+              for (const change of subset) rejected.push({
+                stay_date: change.stay_date, room_type_name: change.room_type_name,
+                occupancy: change.occupancy,
+                reason: "Rate cells are being changed concurrently; retry after the other publish finishes",
+              });
+              return [];
             }
-          } else {
-            drafts = inserted ?? [];
-          }
+            insertAttempts++;
+            const { data, error } = await admin.from("revenue_rate_drafts")
+              .insert(subset.map(rowFor)).select("id,stay_date,room_type_name,occupancy");
+            if (!error) return data ?? [];
+            // Connection faults and timeouts must not initiate hundreds of
+            // retries. Only isolate data/unique-constraint errors.
+            if (!["23505", "23514", "23502", "22P02"].includes(error.code ?? "")) throw error;
+            if (subset.length === 1) {
+              const change = subset[0];
+              rejected.push({
+                stay_date: change.stay_date, room_type_name: change.room_type_name,
+                occupancy: change.occupancy, reason: error.message,
+              });
+              return [];
+            }
+            const middle = Math.floor(subset.length / 2);
+            const first = await insertSubset(subset.slice(0, middle));
+            const second = await insertSubset(subset.slice(middle));
+            return [...first, ...second];
+          };
+          const drafts = await insertSubset(batch);
           if (drafts.length === 0) continue;
 
           const idsByCell = new Map(drafts.map((draft) => [
