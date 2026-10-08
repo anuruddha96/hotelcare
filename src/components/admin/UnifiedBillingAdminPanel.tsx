@@ -267,12 +267,7 @@ export default function UnifiedBillingAdminPanel() {
         </CardContent>
       </Card>
       <BillingSettingsPanel embedded organizationSlug={slug} onDraftChange={onSettingsDraft}/>
-      <div className="flex flex-wrap justify-end items-center gap-3">
-        <p className="text-xs text-muted-foreground">All changes save together. Existing Stripe subscriptions are not repriced automatically.</p>
-        <Button onClick={save} disabled={saving || loading || !settingsDraft || settingsDraft.organization_slug !== slug}>
-          <Save className="mr-2 h-4 w-4" /> {saving ? 'Saving…' : 'Save all payment settings'}
-        </Button>
-      </div>
+      <p className="text-xs text-muted-foreground">Changes save together with the single button above. Existing Stripe subscriptions are not repriced automatically.</p>
     </>}
   </div>;
 }
