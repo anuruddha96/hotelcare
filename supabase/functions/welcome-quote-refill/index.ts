@@ -1,6 +1,7 @@
 // Original HotelCare thoughts are generated in small batches; historical quotes
 // attributed to real people remain separate, sourced and unchanged.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.53.0";
+import { checkAiBudget, logAiUsage } from "../_shared/aiBudget.ts";
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-worker-secret", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { ...cors, "Content-Type": "application/json" } });
@@ -75,6 +76,8 @@ Deno.serve(async req => {
   const { count, error: countError } = await admin.from("welcome_quote_catalog").select("quote_key", { head: true, count: "exact" }).eq("provenance", "ai_original").gte("created_at", midnight);
   if (countError) return json({ ok: false, error: "Generation budget unavailable" }, 503);
   if ((count ?? 0) >= DAILY_MAX) return json({ ok: true, skipped: "daily generation limit", active: stock.length });
+  const budget = await checkAiBudget(admin, "hotelcare", { scheduled });
+  if (!budget.allowed) return json({ ok: true, skipped: "AI spending budget reached", active: stock.length });
   const { data: lease, error: leaseError } = await admin.rpc("claim_welcome_quote_refill_lease", { p_bootstrap: scheduled });
   if (leaseError || lease !== true) return json({ ok: true, skipped: "another refill or cooldown", active: stock.length });
   let inserted = 0;
@@ -101,6 +104,12 @@ Deno.serve(async req => {
       });
       if (!response.ok) { failure = `OpenAI HTTP ${response.status}`; paused = [401, 402, 403].includes(response.status); break; }
       const payload = await response.json();
+      await logAiUsage(admin, {
+        organizationSlug: "hotelcare", functionName: "welcome-original-thoughts",
+        model: "gpt-4o-mini",
+        inputTokens: Number(payload?.usage?.prompt_tokens ?? 0),
+        outputTokens: Number(payload?.usage?.completion_tokens ?? 0),
+      });
       const raw = payload?.choices?.[0]?.message?.content;
       if (!raw || payload?.choices?.[0]?.finish_reason === "length") { failure = "OpenAI response was empty or truncated"; break; }
       const parsed = JSON.parse(raw);
