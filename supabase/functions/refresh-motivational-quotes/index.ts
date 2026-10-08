@@ -46,7 +46,8 @@ serve(async (req) => {
   // A human trigger must be an admin; the cron calls with no user token.
   const authHeader = req.headers.get("Authorization") ?? "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-  if ((force || resume) && token && token !== ANON_KEY) {
+  if ((force || resume) && (!token || token === ANON_KEY)) return json({ ok: false, error: "Admin authorization required" }, 401);
+  if (force || resume) {
     const userClient = createClient(SUPABASE_URL, ANON_KEY);
     const { data: userRes } = await userClient.auth.getUser(token);
     if (!userRes?.user) return json({ ok: false, error: "Unauthorized" }, 401);
