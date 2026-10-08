@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isValidRealtimeUuid } from '@/lib/realtimeUuidFilter';
 import { toast } from 'sonner';
 
 type RequestStatus = 'requested' | 'delivered' | 'returned' | 'resolved';
@@ -357,6 +358,7 @@ export function RoomGuestRequestsPanel({
       return () => window.removeEventListener('hc:guest-request-changed', handleGuestRequestChanged);
     }
 
+    if (!isValidRealtimeUuid(roomId)) return;
     const channel = supabase
       .channel(`room-guest-requests-${roomId}`)
       .on(
@@ -372,7 +374,7 @@ export function RoomGuestRequestsPanel({
   }, [fetchRequests, hideWhenEmpty, roomId]);
 
   useEffect(() => {
-    if (!canCreateRequest) return;
+    if (!canCreateRequest || !isValidRealtimeUuid(roomId)) return;
     void refreshRecipient();
 
     const channel = supabase
@@ -390,7 +392,7 @@ export function RoomGuestRequestsPanel({
   }, [canCreateRequest, refreshRecipient, roomId]);
 
   useEffect(() => {
-    if (!canCreateRequest || !recipient?.housekeeperId) return;
+    if (!canCreateRequest || !isValidRealtimeUuid(roomId) || !isValidRealtimeUuid(recipient?.housekeeperId)) return;
     const channel = supabase
       .channel(`guest-request-attendance-${recipient.housekeeperId}-${roomId}`)
       .on(
