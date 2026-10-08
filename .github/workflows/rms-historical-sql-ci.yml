@@ -1,0 +1,50 @@
+name: RMS historical SQL CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261008041000_rms_compact_daily_history.sql'
+      - 'supabase/tests/rms_historical_daily_*.sql'
+      - '.github/workflows/rms-historical-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compact-history-sql:
+    name: Compact history SQL checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_rms_history_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_rms_history_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Apply compact-history migration and regression checks
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/rms_historical_daily_fixture.sql \
+            -f supabase/migrations/20261008041000_rms_compact_daily_history.sql \
+            -f supabase/tests/rms_historical_daily_integration.sql
