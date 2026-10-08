@@ -2210,7 +2210,6 @@ export default function RateStrategyGrid({
   const EVENT_LANE_COUNT = showEventBand
     ? Math.max(1, Math.min(5, eventBands.reduce((max, band) => Math.max(max, band.lane + 1), 0)))
     : 1;
-  const EVENT_ROW_H = showEventBand ? EVENT_LANE_H * EVENT_LANE_COUNT : ROW_H;
 
   // Navigation is independent of fetched dates: display twelve future month
   // choices without eagerly loading their rate data.
