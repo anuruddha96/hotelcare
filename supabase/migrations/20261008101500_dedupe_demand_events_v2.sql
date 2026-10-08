@@ -128,7 +128,6 @@ declare
   aa text := public.demand_event_norm_text(a);
   bb text := public.demand_event_norm_text(b);
 begin
-  if aa = '' and bb = '' then return 1; end if;
   if aa = '' or bb = '' then return 0; end if;
   if aa = bb or position(aa in bb) > 0 or position(bb in aa) > 0 then return 1; end if;
   return greatest(
@@ -320,7 +319,6 @@ candidate_pairs as materialized (
       extensions.word_similarity(b.title_norm, a.title_norm)
     ) as title_sim,
     case
-      when a.venue_norm = '' and b.venue_norm = '' then 1::real
       when a.venue_norm = '' or b.venue_norm = '' then 0::real
       when a.venue_norm = b.venue_norm
         or position(a.venue_norm in b.venue_norm) > 0
