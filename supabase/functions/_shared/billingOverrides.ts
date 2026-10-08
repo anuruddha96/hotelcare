@@ -84,6 +84,14 @@ export function resolveModulePricing(
   entitlements: AgreementEntitlement[] = [],
 ): ResolvedModulePricing {
   const key = normaliseModule(module);
+  const hotelRow = usableOverride(
+    rows.find((row) => row.hotel_id === hotelId && normaliseModule(row.module) === key),
+  );
+  // The explicitly agreed property-specific price wins even over a shared contract.
+  if (hotelRow) {
+    return { hotel_id: hotelId, module: key, pricing_mode: hotelRow.pricing_mode,
+      price_cents: Number(hotelRow.price_cents), source: 'hotel' };
+  }
   const matched = entitlements.find((row) => row.enabled && row.hotel_id === hotelId && normaliseModule(row.module) === key);
   const fixed = matched && agreements.find((row) => row.enabled && row.agreement_code === matched.agreement_code);
   if (fixed && fixed.price_cents > 0) {
@@ -92,13 +100,10 @@ export function resolveModulePricing(
       source: 'agreement', agreement_key: fixed.agreement_code, agreement_label: fixed.label,
     };
   }
-  const hotelRow = usableOverride(
-    rows.find((row) => row.hotel_id === hotelId && normaliseModule(row.module) === key),
-  );
   const orgRow = usableOverride(
     rows.find((row) => row.hotel_id == null && normaliseModule(row.module) === key),
   );
-  const override = hotelRow ?? orgRow;
+  const override = orgRow;
 
   if (override) {
     return {
@@ -106,7 +111,7 @@ export function resolveModulePricing(
       module: key,
       pricing_mode: override.pricing_mode,
       price_cents: Number(override.price_cents),
-      source: hotelRow ? 'hotel' : 'organization',
+      source: 'organization',
     };
   }
 
