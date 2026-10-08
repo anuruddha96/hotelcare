@@ -98,3 +98,18 @@ end
 $$;
 
 reset role;
+
+-- Internal trigger function must not be exposed as an RPC to client roles.
+do $$
+begin
+  if has_function_privilege('anon', 'public.upsert_revenue_historical_daily_from_snapshot()', 'EXECUTE') then
+    raise exception 'anon must not execute the historical trigger function';
+  end if;
+  if has_function_privilege('authenticated', 'public.upsert_revenue_historical_daily_from_snapshot()', 'EXECUTE') then
+    raise exception 'authenticated must not execute the historical trigger function';
+  end if;
+  if has_function_privilege('service_role', 'public.upsert_revenue_historical_daily_from_snapshot()', 'EXECUTE') then
+    raise exception 'service_role must not execute the internal trigger function directly';
+  end if;
+end
+$$;
