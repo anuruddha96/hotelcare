@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { z } from "npm:zod@3.23.8";
 import { enforceRateSafety } from "../_shared/rateSafety.ts";
+import { findDraftsToSupersede } from "../_shared/rateDraftPagination.ts";
 
 const ChangeSchema = z.object({
   stay_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -128,28 +129,18 @@ Deno.serve(async (req) => {
         // stale cell would sink a six-month push. Rows already claimed by the
         // publisher are superseded too: the newest price a person asked for
         // always wins, and the in-flight row is discarded on completion.
-        // PostgREST defaults to a 1,000-row response cap. Large bulk edits
-        // span thousands of active cells; reading only the first page left
-        // older drafts live, causing 23505 storms when replacements arrived.
-        // Read every page BEFORE changing statuses so offsets stay stable.
-        // Reject failed reads instead of assuming there are no existing drafts.
-        const staleIds: string[] = [];
-        const PAGE_SIZE = 500;
-        for (let offset = 0; ; offset += PAGE_SIZE) {
-          const { data: page, error: pageError } = await admin.from("revenue_rate_drafts")
+        // Collect EVERY page before mutating statuses so the offset-based
+        // pagination stays stable, including bulk edits beyond 1,000 cells.
+        const staleIds = await findDraftsToSupersede(
+          (from, to) => admin.from("revenue_rate_drafts")
             .select("id,stay_date,room_type_name,occupancy")
             .eq("hotel_id", hotelId).gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
             .in("status", ["draft", "failed"])
             .is("superseded_at", null)
             .order("id", { ascending: true })
-            .range(offset, offset + PAGE_SIZE - 1);
-          if (pageError) throw pageError;
-          for (const row of page ?? []) {
-            const key = `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
-            if (byCell.has(key)) staleIds.push(row.id);
-          }
-          if ((page ?? []).length < PAGE_SIZE) break;
-        }
+            .range(from, to),
+          new Set(byCell.keys()),
+        );
         const supersededAt = new Date().toISOString();
         for (const ids of chunks(staleIds, 300)) {
           const { error: supersedeError } = await admin.from("revenue_rate_drafts")
