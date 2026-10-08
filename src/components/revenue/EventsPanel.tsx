@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { scoreRevenueEvent } from "@/lib/revenueEventBands";
+import { sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
 export interface DemandEventRow {
   id: string;
@@ -109,18 +109,6 @@ const sourceHost = (value: string | null | undefined): string => {
     return "source";
   }
 };
-
-const eventTitleKey = (value: string): string =>
-  value
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/['’]s\b/g, "")
-    .replace(/\b(?:19|20)\d{2}\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+(?:concert|event|performances?)$/, "")
-    .trim()
-    .replace(/^labor day$/, "labour day");
 
 /**
  * The demand events calendar: manual entries plus an on-demand AI search for a
@@ -290,15 +278,33 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     const verifiedSource = sourceUrl(manualSourceUrl);
     if (!verifiedSource) { toast.error("A valid source URL is required for every event."); return; }
 
-    const normalizedTitle = eventTitleKey(title.trim());
     const manualEnd = endDate || startDate;
-    const duplicate = events.find((event) => {
-      const existingTitle = eventTitleKey(event.title);
-      const existingEnd = event.end_date ?? event.event_date;
-      const overlaps = startDate <= existingEnd && event.event_date <= manualEnd;
-      const sameSource = sourceUrl(event.url) === verifiedSource;
-      return overlaps && (existingTitle === normalizedTitle || sameSource);
-    });
+    const duplicate = events.find((event) =>
+      sameRevenueEvent(
+        {
+          title: event.title,
+          impact: event.expected_impact,
+          category: event.category,
+          venue: event.venue,
+          url: event.url,
+          start: event.event_date,
+          end: event.end_date ?? event.event_date,
+          source: event.source,
+          confidence: event.confidence,
+        },
+        {
+          title: title.trim(),
+          impact,
+          category,
+          venue: venue.trim() || null,
+          url: verifiedSource,
+          start: startDate,
+          end: manualEnd,
+          source: "manual",
+          confidence: 1,
+        },
+      )
+    );
     if (duplicate) {
       setSelectedDate(startDate);
       setSelectedId(duplicate.id);
@@ -468,6 +474,41 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     if (edit.end_date && edit.end_date < edit.event_date) { toast.error("End date cannot be before the start date."); return; }
     const verifiedSource = sourceUrl(edit.url);
     if (!verifiedSource) { toast.error("A valid source URL is required for every event."); return; }
+
+    const editedEnd = edit.end_date || edit.event_date;
+    const duplicate = events.find((event) =>
+      event.id !== editingId
+      && sameRevenueEvent(
+        {
+          title: event.title,
+          impact: event.expected_impact,
+          category: event.category,
+          venue: event.venue,
+          url: event.url,
+          start: event.event_date,
+          end: event.end_date ?? event.event_date,
+          source: event.source,
+          confidence: event.confidence,
+        },
+        {
+          title: edit.title.trim(),
+          impact: edit.expected_impact,
+          category: edit.category,
+          venue: edit.venue.trim() || null,
+          url: verifiedSource,
+          start: edit.event_date,
+          end: editedEnd,
+          source: "manual",
+          confidence: 1,
+        },
+      )
+    );
+    if (duplicate) {
+      setSelectedDate(edit.event_date);
+      setSelectedId(duplicate.id);
+      toast.error("That edit would duplicate another event already in the calendar.");
+      return;
+    }
     const { error } = await (supabase as any).from("demand_events").update({
       title: edit.title.trim(),
       event_date: edit.event_date,

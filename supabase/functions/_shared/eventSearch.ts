@@ -31,18 +31,149 @@ export function clean(v: unknown, max: number): string {
 
 export const isDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ""));
 
-export function eventIdentityTitle(value: unknown): string {
-  let normalized = clean(value, 300)
+const EVENT_GENERIC_TOKENS = new Set([
+  "concert", "concerts", "event", "events", "performance", "performances",
+  "festival", "fest", "international", "cultural", "show", "shows",
+  "vs", "versus", "and", "the", "at", "in", "of",
+]);
+
+function normalizedEventText(value: unknown): string {
+  return clean(value, 300)
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/['’]s\b/g, "")
-    .replace(/\b(?:19|20)\d{2}\b/g, "")
+    .replace(/['’]s\b/g, "s")
+    .replace(/\b(?:19|20)\d{2}\b/g, " ")
+    .replace(/\b(?:unnep|dcnnep)\b/g, " festival ")
+    .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+(?:concert|event|performances?)$/, "")
+    .replace(/\s+/g, " ")
     .trim();
-  if (normalized === "labor day") normalized = "labour day";
-  return normalized;
+}
+
+export function eventIdentityTitle(value: unknown): string {
+  const base = normalizedEventText(value);
+  if (!base) return "";
+
+  if (/^liszt\b/.test(base) && /\b(?:festival|fest)\b/.test(base)) return "liszt";
+  if (/^spar budapest marathon\b/.test(base)) return "budapest marathon spar";
+  if (/^all saints day\b/.test(base)) return "all saints day";
+  if (/^boxing day\b/.test(base)) return "boxing day";
+  if (/^st nicholas day\b/.test(base)) return "nicholas saint day";
+  if (/^new year s eve celebrations?\b/.test(base) || /^new years eve celebrations?\b/.test(base)) {
+    return "celebrations eve new years";
+  }
+
+  const tokens = base
+    .split(" ")
+    .filter(Boolean)
+    .filter((token) => !EVENT_GENERIC_TOKENS.has(token));
+  return [...new Set(tokens)].sort().join(" ");
+}
+
+function tokenJaccard(a: string, b: string): number {
+  const aa = new Set(a.split(" ").filter(Boolean));
+  const bb = new Set(b.split(" ").filter(Boolean));
+  if (!aa.size || !bb.size) return 0;
+  let intersection = 0;
+  for (const token of aa) if (bb.has(token)) intersection += 1;
+  return intersection / (aa.size + bb.size - intersection);
+}
+
+function bigramDice(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const counts = (value: string) => {
+    const out = new Map<string, number>();
+    const compact = value.replace(/\s+/g, " ").trim();
+    if (compact.length < 2) {
+      if (compact) out.set(compact, 1);
+      return out;
+    }
+    for (let i = 0; i < compact.length - 1; i += 1) {
+      const gram = compact.slice(i, i + 2);
+      out.set(gram, (out.get(gram) ?? 0) + 1);
+    }
+    return out;
+  };
+  const aa = counts(a);
+  const bb = counts(b);
+  let overlap = 0;
+  let aCount = 0;
+  let bCount = 0;
+  for (const count of aa.values()) aCount += count;
+  for (const count of bb.values()) bCount += count;
+  for (const [gram, count] of aa) overlap += Math.min(count, bb.get(gram) ?? 0);
+  return (2 * overlap) / Math.max(1, aCount + bCount);
+}
+
+function titleSimilarity(a: unknown, b: unknown): number {
+  const aBase = normalizedEventText(a);
+  const bBase = normalizedEventText(b);
+  if (!aBase || !bBase) return 0;
+  const aKey = eventIdentityTitle(a);
+  const bKey = eventIdentityTitle(b);
+  if (aKey && aKey === bKey) return 1;
+  return Math.max(tokenJaccard(aKey, bKey), bigramDice(aBase, bBase));
+}
+
+function eventSourceKey(value: unknown): string {
+  const normalized = normalizeSourceUrl(value);
+  if (!normalized) return "";
+  try {
+    const parsed = new URL(normalized);
+    parsed.hash = "";
+    parsed.search = "";
+    const path = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${parsed.hostname.toLowerCase().replace(/^www\./, "")}${path.toLowerCase()}`;
+  } catch {
+    return normalized.toLowerCase().replace(/[?#].*$/, "").replace(/\/+$/, "");
+  }
+}
+
+function venueSimilarity(a: unknown, b: unknown): number {
+  const aa = normalizedEventText(a);
+  const bb = normalizedEventText(b);
+  if (!aa || !bb) return 0;
+  if (aa === bb || aa.includes(bb) || bb.includes(aa)) return 1;
+  return Math.max(tokenJaccard(aa, bb), bigramDice(aa, bb));
+}
+
+function specialIdentity(key: string): boolean {
+  return [
+    "liszt",
+    "budapest marathon spar",
+    "all saints day",
+    "boxing day",
+    "nicholas saint day",
+    "celebrations eve new years",
+  ].includes(key);
+}
+
+function sameEventCandidate(
+  a: { title: string; event_date: string; end_date: string | null; venue?: string | null; url?: string | null; category?: string | null },
+  b: { title: string; event_date: string; end_date: string | null; venue?: string | null; url?: string | null; category?: string | null },
+): boolean {
+  const aEnd = a.end_date ?? a.event_date;
+  const bEnd = b.end_date ?? b.event_date;
+  if (!(a.event_date <= bEnd && b.event_date <= aEnd)) return false;
+
+  const aKey = eventIdentityTitle(a.title);
+  const bKey = eventIdentityTitle(b.title);
+  if (!aKey || !bKey) return false;
+
+  const similarity = titleSimilarity(a.title, b.title);
+  const sameSource = !!eventSourceKey(a.url) && eventSourceKey(a.url) === eventSourceKey(b.url);
+  const venueMatch = venueSimilarity(a.venue, b.venue);
+  const exactRange = a.event_date === b.event_date && aEnd === bEnd;
+  if (aKey === bKey) {
+    if (exactRange || specialIdentity(aKey)) return true;
+    if (sameSource || venueMatch >= 0.45) return true;
+    if (exactRange && ["holiday", "sports", "sport"].includes(String(a.category ?? "").toLowerCase())) return true;
+  }
+  if (similarity >= 0.84 && (sameSource || venueMatch >= 0.45)) return true;
+  if (exactRange && sameSource && venueMatch >= 0.55 && similarity >= 0.42) return true;
+  if (exactRange && venueMatch >= 0.78 && similarity >= 0.68) return true;
+  return false;
 }
 
 const LOW_TRUST_SOURCE_HOSTS = new Set([
@@ -191,7 +322,7 @@ export async function searchEvents(opts: {
 
   const { data: existing } = await admin
     .from("demand_events")
-    .select("title, event_date, end_date, recurs_annually, url, approved")
+    .select("title, event_date, end_date, recurs_annually, url, approved, venue, category")
     .ilike("city", city)
     .ilike("country", country)
     .limit(5000);
@@ -203,25 +334,30 @@ export async function searchEvents(opts: {
     recurs_annually: boolean;
     url: string | null;
     approved: boolean;
+    venue: string | null;
+    category: string | null;
   }>;
 
-  /** Same event when the titles match and the date ranges touch (or it recurs in the same month/day). */
-  const isKnown = (title: string, from: string, to: string | null, sourceUrl?: string | null) => {
-    const key = eventIdentityTitle(title);
-    const normalizedSource = normalizeSourceUrl(sourceUrl);
-    const a1 = from, a2 = to ?? from;
-    return known.some((k) => {
-      // Legacy rows without a source are deliberately not treated as known.
-      // A fresh verified search must be allowed to repair/replace them.
-      if (!k.approved || !normalizeSourceUrl(k.url)) return false;
-      if (k.recurs_annually && k.event_date.slice(5, 7) !== from.slice(5, 7)) return false;
-      const b1 = k.event_date, b2 = k.end_date ?? k.event_date;
-      const overlaps = a1 <= b2 && b1 <= a2;
-      if (!overlaps) return false;
-      if (eventIdentityTitle(k.title) === key) return true;
-      return normalizedSource !== null && normalizeSourceUrl(k.url) === normalizedSource;
-    });
-  };
+  /**
+   * Compare a verified candidate with the approved market pool. Sharing one
+   * monthly listing URL is never enough by itself: the title, date and venue
+   * still need to describe the same real event.
+   */
+  const isKnown = (candidate: EventCandidate) => known.some((k) => {
+    if (!k.approved || !normalizeSourceUrl(k.url)) return false;
+    if (k.recurs_annually && k.event_date.slice(5, 7) !== candidate.event_date.slice(5, 7)) return false;
+    return sameEventCandidate(
+      {
+        title: k.title,
+        event_date: k.event_date,
+        end_date: k.end_date,
+        venue: k.venue,
+        url: k.url,
+        category: k.category,
+      },
+      candidate,
+    );
+  });
 
   const prompt =
     `List demand-driving events in ${city}, ${country} that occur between ${monthStart} and ${monthEnd}. ` +
@@ -304,8 +440,7 @@ export async function searchEvents(opts: {
   }
   if (!events.length && aiError) return { all: [], candidates: [], duplicates: [], error: aiError };
 
-  const seenIdentity = new Set<string>();
-  const seenSource = new Set<string>();
+  const seenVerified: EventCandidate[] = [];
   const verified = events
     // deno-lint-ignore no-explicit-any
     .filter((e: any) => e?.title && isDate(e?.date))
@@ -351,11 +486,8 @@ export async function searchEvents(opts: {
       && (candidate.confidence ?? 0) >= 0.8
     )
     .filter((candidate) => {
-      const identityKey = `${eventIdentityTitle(candidate.title)}|${candidate.event_date}|${candidate.end_date ?? candidate.event_date}`;
-      const sourceKey = `${normalizeSourceUrl(candidate.url) ?? ""}|${candidate.event_date}|${candidate.end_date ?? candidate.event_date}`;
-      if (seenIdentity.has(identityKey) || seenSource.has(sourceKey)) return false;
-      seenIdentity.add(identityKey);
-      seenSource.add(sourceKey);
+      if (seenVerified.some((existing) => sameEventCandidate(existing, candidate))) return false;
+      seenVerified.push(candidate);
       return true;
     })
     .sort((a, b) => a.event_date.localeCompare(b.event_date));
@@ -380,7 +512,7 @@ export async function searchEvents(opts: {
 
   return {
     all,
-    duplicates: all.filter((c) => isKnown(c.title, c.event_date, c.end_date, c.url)),
-    candidates: all.filter((c) => !isKnown(c.title, c.event_date, c.end_date, c.url)),
+    duplicates: all.filter((candidate) => isKnown(candidate)),
+    candidates: all.filter((candidate) => !isKnown(candidate)),
   };
 }
