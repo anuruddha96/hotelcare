@@ -166,7 +166,7 @@ function sameEventCandidate(
   const venueMatch = venueSimilarity(a.venue, b.venue);
   const exactRange = a.event_date === b.event_date && aEnd === bEnd;
   if (aKey === bKey) {
-    if (specialIdentity(aKey)) return true;
+    if (exactRange || specialIdentity(aKey)) return true;
     if (sameSource || venueMatch >= 0.45) return true;
     if (exactRange && ["holiday", "sports", "sport"].includes(String(a.category ?? "").toLowerCase())) return true;
   }
