@@ -195,7 +195,6 @@ declare
     and public.demand_event_source_key(a_url) = public.demand_event_source_key(b_url)
   );
   exact_range boolean := (a_start = b_start and ae = be);
-  category_same boolean := lower(coalesce(a_category, '')) = lower(coalesce(b_category, ''));
   special_key boolean := ak = any(array[
     'liszt',
     'budapest marathon spar',
@@ -217,7 +216,7 @@ begin
     end if;
   end if;
 
-  if title_sim >= 0.84 and (source_same or venue_sim >= 0.45 or category_same) then
+  if title_sim >= 0.84 and (source_same or venue_sim >= 0.45) then
     return true;
   end if;
 
@@ -371,7 +370,6 @@ duplicate_pairs as (
       and (
         (p.a_source <> '' and p.a_source = p.b_source)
         or p.venue_sim >= 0.45
-        or p.a_category = p.b_category
       )
     )
     or (
