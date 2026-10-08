@@ -110,18 +110,6 @@ const sourceHost = (value: string | null | undefined): string => {
   }
 };
 
-const eventTitleKey = (value: string): string =>
-  value
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/['’]s\b/g, "")
-    .replace(/\b(?:19|20)\d{2}\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+(?:concert|event|performances?)$/, "")
-    .trim()
-    .replace(/^labor day$/, "labour day");
-
 /**
  * The demand events calendar: manual entries plus an on-demand AI search for a
  * chosen city and month. Nothing found by AI is used until it is approved here.
