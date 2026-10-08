@@ -3337,7 +3337,8 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
-                {/* Events — five physical rows so mobile always shows all top-five lanes. */}
+                {/* Events — five physical lanes, with sparse days allowed to use the
+                    otherwise-empty vertical space for a richer, easier-to-read card. */}
       {eventBands.length > 0 && (
         <div className="shrink-0 border-b-2 border-b-foreground/20 bg-card">
           {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
@@ -3368,7 +3369,7 @@ export default function RateStrategyGrid({
               </div>
 
               <div
-                className="relative shrink-0 overflow-hidden bg-card"
+                className="relative shrink-0 overflow-visible bg-card"
                 style={{ width: dates.length * CELL_W, height: showEventBand ? EVENT_LANE_H : ROW_H }}
               >
                 <div className="absolute inset-0 flex">
@@ -3393,6 +3394,11 @@ export default function RateStrategyGrid({
                       : "border-border bg-muted/80 text-muted-foreground";
                   const spanDays = band.endIndex - band.startIndex + 1;
                   const range = compactEventRange(band.event, band.startDate);
+                  // A day with one event should not waste four empty event lanes.
+                  // Let that event use the whole Events block so its title can wrap
+                  // and useful context stays visible on mobile without another tap.
+                  const startDayEventCount = rankedEventsByDate.get(band.startDate)?.length ?? 0;
+                  const expandedSoloEvent = spanDays === 1 && band.lane === 0 && startDayEventCount === 1;
                   return (
                     <button
                       key={band.key}
@@ -3406,20 +3412,47 @@ export default function RateStrategyGrid({
                       }}
                       title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact${band.event.category ? ` · ${band.event.category}` : ""}${band.event.venue ? ` · ${band.event.venue}` : ""}`}
                       aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` to ${band.endDate}` : ""}, ${impact || "unknown"} impact${band.event.category ? `, ${band.event.category}` : ""}${band.event.venue ? `, ${band.event.venue}` : ""}. Tap for details.`}
-                      className={`absolute z-10 flex min-w-0 items-center justify-start gap-1 overflow-hidden rounded-[4px] border px-1 text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
+                      className={`absolute flex min-w-0 overflow-hidden border text-left font-medium shadow-sm hover:ring-1 hover:ring-inset hover:ring-primary/60 ${
+                        expandedSoloEvent
+                          ? "z-30 flex-col items-stretch justify-start gap-1 rounded-md px-1.5 py-1.5"
+                          : "z-10 items-center justify-start gap-1 rounded-[4px] px-1"
+                      } ${tone}`}
                       style={{
                         left: band.startIndex * CELL_W + 1,
                         width: Math.max(CELL_W - 2, spanDays * CELL_W - 2),
-                        top: 1,
-                        height: (showEventBand ? EVENT_LANE_H : ROW_H) - 2,
-                        fontSize: fz(9),
+                        top: expandedSoloEvent ? 2 : 1,
+                        height: expandedSoloEvent ? EVENT_ROW_H - 4 : (showEventBand ? EVENT_LANE_H : ROW_H) - 2,
+                        fontSize: expandedSoloEvent ? fz(10) : fz(9),
                       }}
                     >
-                      <span className="min-w-0 flex-1 truncate text-left">{band.event.title}</span>
-                      {spanDays > 1 && (
-                        <span className="shrink-0 tabular-nums opacity-75">{range}</span>
+                      {expandedSoloEvent ? (
+                        <>
+                          <span className="w-full whitespace-normal break-words text-left font-semibold leading-[1.15]">
+                            {band.event.title}
+                          </span>
+                          {(band.event.category || band.event.venue) && (
+                            <span className="mt-auto w-full min-w-0 text-left text-[8px] leading-tight opacity-75">
+                              {band.event.category && (
+                                <span className="capitalize">{band.event.category}</span>
+                              )}
+                              {band.event.category && band.event.venue ? <span aria-hidden="true"> · </span> : null}
+                              {band.event.venue && <span className="break-words">{band.event.venue}</span>}
+                            </span>
+                          )}
+                          <span className="flex w-full items-center justify-between gap-1 text-[8px] font-semibold uppercase tracking-wide opacity-75">
+                            <span>{impact || "event"}</span>
+                            <Eye className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="min-w-0 flex-1 truncate text-left">{band.event.title}</span>
+                          {spanDays > 1 && (
+                            <span className="shrink-0 tabular-nums opacity-75">{range}</span>
+                          )}
+                          <Eye className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
+                        </>
                       )}
-                      <Eye className="h-2.5 w-2.5 shrink-0 opacity-70" aria-hidden="true" />
                     </button>
                   );
                 })}
