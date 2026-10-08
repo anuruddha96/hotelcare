@@ -15,7 +15,7 @@ import { Save, CreditCard, KeyRound, RefreshCw, BadgePercent, CalendarRange } fr
 
 interface Org { id: string; name: string; slug: string }
 
-interface Settings {
+export interface Settings {
   organization_slug: string;
   currency: string;
   revenue_price_cents: number;
@@ -66,7 +66,7 @@ interface Settings {
   grace_days: number;
 }
 
-const BLANK = (slug: string): Settings => ({
+export const BLANK = (slug: string): Settings => ({
   organization_slug: slug,
   currency: 'EUR',
   revenue_price_cents: 1500,
@@ -116,7 +116,13 @@ const BLANK = (slug: string): Settings => ({
   grace_days: 14,
 });
 
-export default function BillingSettingsPanel() {
+type Props = {
+  organizationSlug?: string;
+  embedded?: boolean;
+  onDraftChange?: (settings: Settings | null) => void;
+};
+
+export default function BillingSettingsPanel({ organizationSlug, embedded = false, onDraftChange }: Props = {}) {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [slug, setSlug] = useState<string>('');
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -126,13 +132,21 @@ export default function BillingSettingsPanel() {
   const [usageLoading, setUsageLoading] = useState(false);
 
   useEffect(() => {
+    if (organizationSlug) setSlug(organizationSlug);
+  }, [organizationSlug]);
+
+  useEffect(() => {
+    onDraftChange?.(settings);
+  }, [settings, onDraftChange]);
+
+  useEffect(() => {
     (async () => {
       const { data } = await supabase.from('organizations').select('id, name, slug').order('name');
       setOrgs((data ?? []) as Org[]);
-      if (data?.length) setSlug(data[0].slug);
+      if (data?.length && !organizationSlug) setSlug(data[0].slug);
       setLoading(false);
     })();
-  }, []);
+  }, [organizationSlug]);
 
   useEffect(() => {
     if (!slug) return;
@@ -241,7 +255,7 @@ export default function BillingSettingsPanel() {
         </p>
       </div>
 
-      <Card>
+      {!embedded && <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Organization</CardTitle>
         </CardHeader>
@@ -259,7 +273,7 @@ export default function BillingSettingsPanel() {
             </SelectContent>
           </Select>
         </CardContent>
-      </Card>
+      </Card>}
 
       {loading || !settings ? (
         <Skeleton className="h-64 w-full" />
@@ -876,10 +890,10 @@ export default function BillingSettingsPanel() {
           </Card>
 
           <div className="flex justify-end">
-            <Button onClick={save} disabled={saving}>
+            {!embedded && <Button onClick={save} disabled={saving}>
               <Save className="h-4 w-4 mr-2" />
               {saving ? 'Saving…' : 'Save settings'}
-            </Button>
+            </Button>}
           </div>
         </>
       )}

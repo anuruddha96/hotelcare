@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import {
+  activeModuleTrial,
   formatMoney,
   graceEndsAt,
   inGracePeriod,
@@ -124,16 +125,17 @@ export default function Billing() {
     const key = `${hotelId}|${module}`;
     const pricing = summary ? resolvedPricingFor(summary, hotelId, module) : null;
     const isOrganizationFixed = pricing?.source === 'organization' && pricing.pricing_mode === 'fixed_monthly';
+    const isAgreement = pricing?.source === 'agreement' && Boolean(pricing.agreement_key);
 
     setSelected((current) => {
       const next = { ...current };
       const turningOn = !current[key];
-      const targetHotels = isOrganizationFixed && summary
+      const targetHotels = (isOrganizationFixed || isAgreement) && summary
         ? summary.hotels.filter((hotel) => {
             const candidate = resolvedPricingFor(summary, hotel.hotel_id, module);
-            return candidate.source === 'organization'
-              && candidate.pricing_mode === 'fixed_monthly'
-              && candidate.price_cents === pricing?.price_cents;
+            return isAgreement
+              ? candidate.source === 'agreement' && candidate.agreement_key === pricing?.agreement_key && candidate.module === module
+              : candidate.source === 'organization' && candidate.pricing_mode === 'fixed_monthly' && candidate.price_cents === pricing?.price_cents;
           })
         : summary?.hotels.filter((hotel) => hotel.hotel_id === hotelId) ?? [];
 
@@ -160,8 +162,9 @@ export default function Billing() {
           : pricing.pricing_mode === 'fixed_monthly'
             ? pricing.price_cents
             : rooms * pricing.price_cents;
-        const organizationFixed = pricing.source === 'organization' && pricing.pricing_mode === 'fixed_monthly';
-        const billingKey = organizationFixed ? `organization|${module}` : key;
+        const organizationFixed = (pricing.source === 'organization' || pricing.source === 'agreement') && pricing.pricing_mode === 'fixed_monthly';
+        const billingKey = pricing.source === 'agreement' && pricing.agreement_key
+          ? `agreement|${pricing.agreement_key}` : organizationFixed ? `organization|${module}` : key;
         return { key, billingKey, organizationFixed, hotelId, module, hotel, pricing, rooms, total };
       })
       .filter((line) => line.pricing.pricing_mode !== 'custom');
@@ -309,6 +312,7 @@ export default function Billing() {
                             const Icon = MODULE_ICON[module];
                             const pricing = resolvedPricingFor(summary, hotel.hotel_id, module);
                             const active = isSubscriptionActive(subFor(hotel.hotel_id, module));
+                            const independentTrial = activeModuleTrial(summary,hotel.hotel_id,module);
                             const accessActive = active || Boolean(hotel.billing_bypass);
                             const custom = pricing.pricing_mode === 'custom';
                             const available = enabledFor(module);
@@ -318,7 +322,9 @@ export default function Billing() {
                             const priceText = pricing.pricing_mode === 'percent'
                               ? `${percentLabel} of realised revenue`
                               : pricing.pricing_mode === 'fixed_monthly'
-                                ? pricing.source === 'organization'
+                                ? pricing.source === 'agreement'
+                                  ? `Included in ${formatMoney(pricing.price_cents, currency)} shared / month`
+                                  : pricing.source === 'organization'
                                   ? `${formatMoney(pricing.price_cents, currency)} organization fixed / month`
                                   : `${formatMoney(pricing.price_cents, currency)} fixed / month`
                                 : custom
@@ -330,7 +336,7 @@ export default function Billing() {
                               <button
                                 key={module}
                                 type="button"
-                                disabled={!available || Boolean(hotel.billing_bypass) || (!custom && pricing.pricing_mode !== 'percent' && pricing.price_cents <= 0)}
+                                disabled={!available || Boolean(hotel.billing_bypass) || active || Boolean(independentTrial) || (!custom && pricing.pricing_mode !== 'percent' && pricing.price_cents <= 0)}
                                 onClick={() => custom ? setQuoteFor(hotel.hotel_name) : toggle(hotel.hotel_id, module)}
                                 className={`rounded-lg border p-2.5 text-left transition-colors disabled:opacity-60 ${on ? 'border-primary bg-primary/10' : 'hover:border-primary/50 hover:bg-muted/50'}`}
                               >
@@ -338,7 +344,7 @@ export default function Billing() {
                                 <span className="mt-0.5 block text-xs text-muted-foreground">{priceText}</span>
                                 {pricing.source !== 'standard' && <Badge variant="secondary" className="mt-1 text-[10px]">{pricing.source === 'hotel' ? 'Hotel agreement' : 'Organization agreement'}</Badge>}
                                 {promotion?.active && pricing.pricing_mode === 'per_room' && <Badge variant="secondary" className="mt-1 text-[10px]">{promotion.label}</Badge>}
-                                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground/80">{hotel.billing_bypass ? 'Access enabled by admin' : active ? 'Active subscription' : hintFor(module)}</span>
+                                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground/80">{hotel.billing_bypass ? 'Access enabled by admin' : active ? 'Active subscription' : independentTrial ? `Free trial until ${fmtDate(independentTrial.ends_on)}` : hintFor(module)}</span>
                               </button>
                             );
                           })}

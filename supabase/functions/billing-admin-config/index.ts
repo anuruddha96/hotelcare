@@ -40,13 +40,15 @@ Deno.serve(async (req) => {
     const action = String(body.action ?? 'load');
     const slug = String(body.organizationSlug ?? caller.organizationSlug ?? '').trim();
     if (!slug) return json({ error: 'No organization' }, 400);
+    if (!caller.isSuperAdmin && caller.organizationSlug !== slug) return json({ error: 'Organization access denied' }, 403);
 
     const db = admin();
     const { data: org } = await db.from('organizations').select('id, name, slug').eq('slug', slug).maybeSingle();
     if (!org) return json({ error: 'Organization not found' }, 404);
 
     const load = async () => {
-      const [{ data: hotels }, { data: moduleOverrides }, { data: accessOverrides }] = await Promise.all([
+      const [{ data: hotels }, { data: moduleOverrides }, { data: accessOverrides },
+        { data: agreements }, { data: entitlements }, { data: trials }] = await Promise.all([
         db
           .from('hotel_configurations')
           .select('hotel_id, hotel_name, is_active')
@@ -60,6 +62,9 @@ Deno.serve(async (req) => {
           .from('billing_access_overrides')
           .select('hotel_id, bypass_billing, reason, expires_at, updated_at')
           .eq('organization_slug', slug),
+        db.from('billing_fixed_agreements').select('agreement_code, label, price_cents, enabled').eq('organization_slug', slug),
+        db.from('billing_agreement_entitlements').select('agreement_code, hotel_id, module, enabled').eq('organization_slug', slug),
+        db.from('billing_module_trials').select('hotel_id, module, enabled, starts_on, ends_on').eq('organization_slug', slug),
       ]);
 
       return {
@@ -67,6 +72,9 @@ Deno.serve(async (req) => {
         hotels: hotels ?? [],
         module_overrides: moduleOverrides ?? [],
         access_overrides: accessOverrides ?? [],
+        fixed_agreements: agreements ?? [],
+        agreement_entitlements: entitlements ?? [],
+        module_trials: trials ?? [],
         organization_billing_bypass: activeBypass(
           (accessOverrides ?? []).find((row) => row.hotel_id == null),
         ),
@@ -74,6 +82,20 @@ Deno.serve(async (req) => {
     };
 
     if (action === 'load') return json(await load());
+    if (action === 'save_all') {
+      const { error } = await db.rpc('billing_admin_save_all', {
+        p_slug: slug,
+        p_settings: body.settings ?? null,
+        p_modules: body.moduleOverrides ?? [],
+        p_access: body.accessOverrides ?? [],
+        p_agreements: body.fixedAgreements ?? [],
+        p_entitlements: body.agreementEntitlements ?? [],
+        p_trials: body.moduleTrials ?? [],
+        p_actor: caller.userId,
+      });
+      if (error) throw error;
+      return json(await load());
+    }
     if (action !== 'save') return json({ error: 'Unknown action' }, 400);
 
     const knownHotels = new Set(

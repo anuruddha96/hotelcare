@@ -103,7 +103,9 @@ export interface ResolvedModulePricing {
   module: BillingModule;
   pricing_mode: BillingPricingMode;
   price_cents: number;
-  source: 'standard' | 'organization' | 'hotel';
+  source: 'standard' | 'organization' | 'hotel' | 'agreement';
+  agreement_key?: string;
+  agreement_label?: string;
 }
 
 export interface ModuleSubscription {
@@ -132,6 +134,14 @@ export interface BillingInvoice {
   invoice_pdf: string | null;
 }
 
+export interface BillingModuleTrial {
+  hotel_id: string;
+  module: BillingModule;
+  enabled: boolean;
+  starts_on: string;
+  ends_on: string;
+}
+
 export interface BillingSummary {
   settings: BillingSettings;
   hotels: BillingHotel[];
@@ -139,6 +149,7 @@ export interface BillingSummary {
   trial_ends_at: string | null;
   revenue_usage?: RevenueUsage[];
   module_pricing?: ResolvedModulePricing[];
+  module_trials?: BillingModuleTrial[];
 }
 
 const ACTIVE = ['active', 'trialing', 'past_due'];
@@ -177,10 +188,19 @@ export function billingBypassed(summary: BillingSummary | null, hotelId: string)
   return Boolean(summary?.hotels.find((hotel) => hotel.hotel_id === hotelId)?.billing_bypass);
 }
 
+/** Property/module trial dates are inclusive Budapest calendar days. */
+export function activeModuleTrial(summary: BillingSummary | null, hotelId: string, module: BillingModule) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  return summary?.module_trials?.find((row) =>
+    row.hotel_id === hotelId && normaliseModule(row.module) === normaliseModule(module)
+      && row.enabled && row.starts_on <= today && row.ends_on >= today
+  ) ?? null;
+}
+
 /** A module is usable while billing is bypassed, the trial runs or a subscription is active. */
 export function moduleUnlocked(summary: BillingSummary | null, hotelId: string, module: BillingModule) {
   if (!summary) return true;
-  if (billingBypassed(summary, hotelId) || courtesyOpen(summary)) return true;
+  if (billingBypassed(summary, hotelId) || courtesyOpen(summary) || activeModuleTrial(summary,hotelId,module)) return true;
   return isSubscriptionActive(
     summary.subscriptions.find(
       (s) => s.hotel_id === hotelId && normaliseModule(s.module) === normaliseModule(module),
@@ -192,6 +212,7 @@ export function moduleUnlocked(summary: BillingSummary | null, hotelId: string, 
 export function revenueUnlocked(summary: BillingSummary | null, hotelId: string) {
   if (!summary) return true;
   if (billingBypassed(summary, hotelId) || courtesyOpen(summary)) return true;
+  if (activeModuleTrial(summary,hotelId,'revenue_bi') || activeModuleTrial(summary,hotelId,'revenue_automation')) return true;
   return summary.subscriptions.some(
     (s) => s.hotel_id === hotelId && isRevenueModule(s.module) && isSubscriptionActive(s),
   );
