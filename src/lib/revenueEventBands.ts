@@ -209,15 +209,13 @@ export function sameRevenueEvent(
   const sameSource = !!sourceKey(a.url) && sourceKey(a.url) === sourceKey(b.url);
   const venueMatch = venueSimilarity(a.venue, b.venue);
   const exactRange = aRange.start === bRange.start && aRange.end === bRange.end;
-  const sameCategory = String(a.category ?? "").toLowerCase() === String(b.category ?? "").toLowerCase();
-
   if (aKey === bKey) {
     if (specialIdentity(aKey)) return true;
     if (sameSource || venueMatch >= 0.45) return true;
     if (exactRange && ["holiday", "sports", "sport"].includes(String(a.category ?? "").toLowerCase())) return true;
   }
 
-  if (titleSimilarity >= 0.84 && (sameSource || venueMatch >= 0.45 || sameCategory)) return true;
+  if (titleSimilarity >= 0.84 && (sameSource || venueMatch >= 0.45)) return true;
 
   // Same specific page + same date/venue can safely tolerate OCR/encoding
   // damage, but the title still has to retain a meaningful resemblance. This
