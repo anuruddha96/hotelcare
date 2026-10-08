@@ -325,7 +325,7 @@ export async function searchEvents(opts: {
 
   const { data: existing } = await admin
     .from("demand_events")
-    .select("title, event_date, end_date, recurs_annually, url, approved")
+    .select("title, event_date, end_date, recurs_annually, url, approved, venue, category")
     .ilike("city", city)
     .ilike("country", country)
     .limit(5000);
@@ -337,25 +337,30 @@ export async function searchEvents(opts: {
     recurs_annually: boolean;
     url: string | null;
     approved: boolean;
+    venue: string | null;
+    category: string | null;
   }>;
 
-  /** Same event when the titles match and the date ranges touch (or it recurs in the same month/day). */
-  const isKnown = (title: string, from: string, to: string | null, sourceUrl?: string | null) => {
-    const key = eventIdentityTitle(title);
-    const normalizedSource = normalizeSourceUrl(sourceUrl);
-    const a1 = from, a2 = to ?? from;
-    return known.some((k) => {
-      // Legacy rows without a source are deliberately not treated as known.
-      // A fresh verified search must be allowed to repair/replace them.
-      if (!k.approved || !normalizeSourceUrl(k.url)) return false;
-      if (k.recurs_annually && k.event_date.slice(5, 7) !== from.slice(5, 7)) return false;
-      const b1 = k.event_date, b2 = k.end_date ?? k.event_date;
-      const overlaps = a1 <= b2 && b1 <= a2;
-      if (!overlaps) return false;
-      if (eventIdentityTitle(k.title) === key) return true;
-      return normalizedSource !== null && normalizeSourceUrl(k.url) === normalizedSource;
-    });
-  };
+  /**
+   * Compare a verified candidate with the approved market pool. Sharing one
+   * monthly listing URL is never enough by itself: the title, date and venue
+   * still need to describe the same real event.
+   */
+  const isKnown = (candidate: EventCandidate) => known.some((k) => {
+    if (!k.approved || !normalizeSourceUrl(k.url)) return false;
+    if (k.recurs_annually && k.event_date.slice(5, 7) !== candidate.event_date.slice(5, 7)) return false;
+    return sameEventCandidate(
+      {
+        title: k.title,
+        event_date: k.event_date,
+        end_date: k.end_date,
+        venue: k.venue,
+        url: k.url,
+        category: k.category,
+      },
+      candidate,
+    );
+  });
 
   const prompt =
     `List demand-driving events in ${city}, ${country} that occur between ${monthStart} and ${monthEnd}. ` +
@@ -438,8 +443,7 @@ export async function searchEvents(opts: {
   }
   if (!events.length && aiError) return { all: [], candidates: [], duplicates: [], error: aiError };
 
-  const seenIdentity = new Set<string>();
-  const seenSource = new Set<string>();
+  const seenVerified: EventCandidate[] = [];
   const verified = events
     // deno-lint-ignore no-explicit-any
     .filter((e: any) => e?.title && isDate(e?.date))
@@ -485,11 +489,8 @@ export async function searchEvents(opts: {
       && (candidate.confidence ?? 0) >= 0.8
     )
     .filter((candidate) => {
-      const identityKey = `${eventIdentityTitle(candidate.title)}|${candidate.event_date}|${candidate.end_date ?? candidate.event_date}`;
-      const sourceKey = `${normalizeSourceUrl(candidate.url) ?? ""}|${candidate.event_date}|${candidate.end_date ?? candidate.event_date}`;
-      if (seenIdentity.has(identityKey) || seenSource.has(sourceKey)) return false;
-      seenIdentity.add(identityKey);
-      seenSource.add(sourceKey);
+      if (seenVerified.some((existing) => sameEventCandidate(existing, candidate))) return false;
+      seenVerified.push(candidate);
       return true;
     })
     .sort((a, b) => a.event_date.localeCompare(b.event_date));
@@ -514,7 +515,7 @@ export async function searchEvents(opts: {
 
   return {
     all,
-    duplicates: all.filter((c) => isKnown(c.title, c.event_date, c.end_date, c.url)),
-    candidates: all.filter((c) => !isKnown(c.title, c.event_date, c.end_date, c.url)),
+    duplicates: all.filter((candidate) => isKnown(candidate)),
+    candidates: all.filter((candidate) => !isKnown(candidate)),
   };
 }
