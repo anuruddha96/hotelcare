@@ -55,7 +55,6 @@ set search_path = public, extensions
 as $$
 declare
   v text;
-  result text;
 begin
   v := public.demand_event_norm_text(p_title);
   v := regexp_replace(v, '\m(unnep|dcnnep)\M', 'festival', 'g');
@@ -79,20 +78,17 @@ begin
     return 'celebrations eve new years';
   end if;
 
-  select coalesce(string_agg(token, ' ' order by token), '')
-    into result
-  from (
-    select distinct token
-    from regexp_split_to_table(v, '\s+') as token
-    where token <> ''
-      and token not in (
-        'concert','concerts','event','events','performance','performances',
-        'festival','fest','international','cultural','show','shows',
-        'vs','versus','and','the','at','in','of'
-      )
-  ) q;
-
-  return coalesce(result, '');
+  -- Keep this deliberately cheap: the fuzzy matcher handles harmless token
+  -- ordering/OCR variation. Removing generic labels here gives us a stable
+  -- key without running a set-returning token query for every comparison.
+  v := regexp_replace(
+    v,
+    '\m(concert|concerts|event|events|performance|performances|festival|fest|international|cultural|show|shows|vs|versus|and|the|at|in|of)\M',
+    ' ',
+    'g'
+  );
+  v := regexp_replace(v, '\s+', ' ', 'g');
+  return trim(v);
 end
 $$;
 
@@ -264,8 +260,9 @@ as $$
     + case when coalesce(p_title, '') ~* '[[:alpha:]][0-9]|[0-9][[:alpha:]]' then -20 else 15 end
 $$;
 
--- Clean the current live pool conservatively. We keep every loser row for
--- auditability and only flip approved=false.
+-- Clean the current/future live pool conservatively. Historical approved rows
+-- are left untouched because they no longer consume Rate & Pickup lanes. Every
+-- expensive normalized value is materialized once before pair comparison.
 do $$
 begin
   if exists (
@@ -280,37 +277,134 @@ begin
 end
 $$;
 
-with duplicate_losers as (
-  select d.id
+with base as materialized (
+  select
+    d.id,
+    d.organization_slug,
+    lower(trim(d.city)) as city_key,
+    lower(trim(d.country)) as country_key,
+    d.event_date,
+    coalesce(d.end_date, d.event_date) as end_date,
+    lower(coalesce(d.category, '')) as category_key,
+    public.demand_event_norm_text(d.title) as title_norm,
+    public.demand_event_title_identity_key(d.title) as title_key,
+    public.demand_event_norm_text(d.venue) as venue_norm,
+    public.demand_event_source_key(d.url) as source_key,
+    public.demand_event_quality_score(d.source, d.confidence, d.title, d.url) as quality,
+    d.created_at
   from public.demand_events d
   where d.approved = true
-    and exists (
-      select 1
-      from public.demand_events k
-      where k.approved = true
-        and k.id <> d.id
-        and k.organization_slug = d.organization_slug
-        and lower(trim(k.city)) = lower(trim(d.city))
-        and lower(trim(k.country)) = lower(trim(d.country))
-        and public.demand_event_same(
-          d.title, d.event_date, d.end_date, d.venue, d.url, d.category,
-          k.title, k.event_date, k.end_date, k.venue, k.url, k.category
+    and coalesce(d.end_date, d.event_date) >= current_date - 1
+),
+candidate_pairs as materialized (
+  select
+    a.id as a_id,
+    b.id as b_id,
+    a.title_key as a_title_key,
+    b.title_key as b_title_key,
+    a.category_key as a_category,
+    b.category_key as b_category,
+    a.source_key as a_source,
+    b.source_key as b_source,
+    a.event_date as a_start,
+    b.event_date as b_start,
+    a.end_date as a_end,
+    b.end_date as b_end,
+    a.quality as a_quality,
+    b.quality as b_quality,
+    a.created_at as a_created,
+    b.created_at as b_created,
+    greatest(
+      extensions.similarity(a.title_norm, b.title_norm),
+      extensions.similarity(a.title_key, b.title_key),
+      extensions.word_similarity(a.title_norm, b.title_norm),
+      extensions.word_similarity(b.title_norm, a.title_norm)
+    ) as title_sim,
+    case
+      when a.venue_norm = '' and b.venue_norm = '' then 1::real
+      when a.venue_norm = '' or b.venue_norm = '' then 0::real
+      when a.venue_norm = b.venue_norm
+        or position(a.venue_norm in b.venue_norm) > 0
+        or position(b.venue_norm in a.venue_norm) > 0 then 1::real
+      else greatest(
+        extensions.similarity(a.venue_norm, b.venue_norm),
+        extensions.word_similarity(a.venue_norm, b.venue_norm),
+        extensions.word_similarity(b.venue_norm, a.venue_norm)
+      )
+    end as venue_sim
+  from base a
+  join base b
+    on b.organization_slug = a.organization_slug
+   and b.city_key = a.city_key
+   and b.country_key = a.country_key
+   and a.id::text < b.id::text
+   and a.event_date <= b.end_date
+   and b.event_date <= a.end_date
+),
+duplicate_pairs as (
+  select *
+  from candidate_pairs p
+  where
+    (
+      p.a_title_key <> ''
+      and p.a_title_key = p.b_title_key
+      and (
+        p.a_title_key = any(array[
+          'liszt',
+          'budapest marathon spar',
+          'all saints day',
+          'boxing day',
+          'nicholas saint day',
+          'celebrations eve new years'
+        ])
+        or (p.a_source <> '' and p.a_source = p.b_source)
+        or p.venue_sim >= 0.45
+        or (
+          p.a_start = p.b_start
+          and p.a_end = p.b_end
+          and p.a_category = any(array['holiday','sport','sports'])
         )
-        and (
-          public.demand_event_quality_score(k.source, k.confidence, k.title, k.url)
-            > public.demand_event_quality_score(d.source, d.confidence, d.title, d.url)
-          or (
-            public.demand_event_quality_score(k.source, k.confidence, k.title, k.url)
-              = public.demand_event_quality_score(d.source, d.confidence, d.title, d.url)
-            and (k.created_at < d.created_at or (k.created_at = d.created_at and k.id::text < d.id::text))
-          )
-        )
+      )
     )
+    or (
+      p.title_sim >= 0.84
+      and (
+        (p.a_source <> '' and p.a_source = p.b_source)
+        or p.venue_sim >= 0.45
+        or p.a_category = p.b_category
+      )
+    )
+    or (
+      p.a_start = p.b_start
+      and p.a_end = p.b_end
+      and p.a_source <> ''
+      and p.a_source = p.b_source
+      and p.venue_sim >= 0.55
+      and p.title_sim >= 0.42
+    )
+    or (
+      p.a_start = p.b_start
+      and p.a_end = p.b_end
+      and p.venue_sim >= 0.78
+      and p.title_sim >= 0.68
+    )
+),
+losers as (
+  select distinct
+    case
+      when a_quality < b_quality then a_id
+      when b_quality < a_quality then b_id
+      when a_created > b_created then a_id
+      when b_created > a_created then b_id
+      when a_id::text > b_id::text then a_id
+      else b_id
+    end as id
+  from duplicate_pairs
 )
 update public.demand_events d
 set approved = false,
     updated_at = now()
-where d.id in (select id from duplicate_losers);
+where d.id in (select id from losers);
 
 do $$
 begin
@@ -349,6 +443,8 @@ begin
     and e.organization_slug = new.organization_slug
     and lower(trim(e.city)) = lower(trim(new.city))
     and lower(trim(e.country)) = lower(trim(new.country))
+    and e.event_date <= coalesce(new.end_date, new.event_date)
+    and new.event_date <= coalesce(e.end_date, e.event_date)
     and public.demand_event_same(
       e.title, e.event_date, e.end_date, e.venue, e.url, e.category,
       new.title, new.event_date, new.end_date, new.venue, new.url, new.category
