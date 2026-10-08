@@ -10,6 +10,7 @@ import {
   percentFeeCents,
   realisedRevenueCents,
   isRevenueModule,
+  normaliseModule,
   trialCoversPeriod,
   type BillingSettings,
 } from "./billing.ts";
@@ -45,20 +46,38 @@ export async function rollupLastMonth(
   const db = admin();
   const { start, end } = lastMonthRange();
   const inTrial = trialCoversPeriod(settings, end);
+  const { data: propertyTrials, error: trialError } = await db
+    .from('billing_module_trials')
+    .select('hotel_id,module,enabled,starts_on,ends_on')
+    .eq('organization_slug', slug)
+    .eq('enabled', true);
+  if (trialError) console.warn('Individual billing trials unavailable',trialError.message);
   const rows: UsageRow[] = [];
 
   for (const hotel of hotels) {
     const { revenueCents, roomNights } = await realisedRevenueCents(hotel.hotel_id, start, end);
     const grossFee = revenueCents > 0 ? percentFeeCents(settings, revenueCents) : 0;
-    const feeCents = inTrial ? 0 : grossFee;
 
     const { data: existing } = await db
       .from("billing_revenue_usage")
-      .select("id, billed_at, stripe_invoice_item_id")
+      .select("id, billed_at, stripe_invoice_item_id, fee_cents")
       .eq("organization_slug", slug)
       .eq("hotel_id", hotel.hotel_id)
       .eq("period_month", start)
       .maybeSingle();
+
+    const revenueSubs = (subs ?? []).filter((s) =>
+      s.hotel_id === hotel.hotel_id && isRevenueModule(String(s.module)) &&
+      ['active','past_due','trialing'].includes(String(s.status)));
+    // A month that overlaps a selected module's free trial is waived in full.
+    // Preserve months already invoiced; no retrospective Stripe refund or credit.
+    const individualTrial = (propertyTrials ?? []).some((trial) =>
+      trial.hotel_id === hotel.hotel_id && trial.enabled &&
+      trial.starts_on < end && trial.ends_on >= start &&
+      (revenueSubs.length === 0 || revenueSubs.some((sub) => normaliseModule(String(sub.module)) === normaliseModule(String(trial.module))))
+    );
+    const trialWaived = (inTrial || individualTrial) && !existing?.billed_at;
+    const feeCents = trialWaived ? 0 : grossFee;
 
     const usageRow = {
       organization_slug: slug,
@@ -79,7 +98,7 @@ export async function rollupLastMonth(
       (s) => s.hotel_id === hotel.hotel_id && isRevenueModule(String(s.module)) && s.stripe_customer_id,
     );
     const chargeable =
-      !inTrial && !invoiced && feeCents > 0 && stripe && sub &&
+      !trialWaived && !invoiced && feeCents > 0 && stripe && sub &&
       ["active", "past_due"].includes(String(sub.status));
 
     if (chargeable) {
@@ -110,8 +129,8 @@ export async function rollupLastMonth(
       revenue_cents: revenueCents,
       room_nights: roomNights,
       fee_cents: feeCents,
-      waived_fee_cents: inTrial ? grossFee : 0,
-      trial_waived: inTrial,
+      waived_fee_cents: trialWaived ? grossFee : 0,
+      trial_waived: trialWaived,
       invoiced,
     });
   }
