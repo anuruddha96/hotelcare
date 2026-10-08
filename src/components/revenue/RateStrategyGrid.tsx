@@ -36,7 +36,7 @@ import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECE
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
-import { buildRevenueEventBands, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
+import { buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import DayChangesSheet from "@/components/revenue/DayChangesSheet";
@@ -2202,27 +2202,14 @@ export default function RateStrategyGrid({
     [dates, eventsByDate],
   );
 
-  /**
-   * Resolve the visible event cards for each date after the five-event cap has
-   * been applied. Rendering is date-local so every column can divide the full
-   * Events height between the events it actually contains: 1 event gets 100%,
-   * 2 get 50% each, 3 get a third each, and so on.
-   *
-   * Stable lane ordering keeps multi-day events in a predictable vertical
-   * order while still allowing sparse dates to reclaim otherwise-empty space.
-   */
-  const visibleEventBandsByDate = useMemo(
-    () => dates.map((_, dateIndex) =>
-      eventBands
-        .filter((band) => band.startIndex <= dateIndex && band.endIndex >= dateIndex)
-        .sort((a, b) => a.lane - b.lane || b.score - a.score || a.event.title.localeCompare(b.event.title))
-    ),
-    [dates, eventBands],
-  );
-  // Five compact event lanes. Real in-flow lane spacers below own the DOM
-  // height so iOS/WebKit cannot collapse the Events section back to one line.
+  // Multi-day events keep one stable lane for their whole visible span so the
+  // calendar reads them as one continuous pill instead of repeating the same
+  // event inside every date cell. Only the lanes actually used by the visible
+  // bands are rendered, up to the existing top-five cap.
   const EVENT_LANE_H = Math.max(19, Math.min(26, Math.round(22 * zoom)));
-  const EVENT_ROW_H = showEventBand ? EVENT_LANE_H * 5 : ROW_H;
+  const EVENT_LANE_COUNT = showEventBand
+    ? Math.max(1, Math.min(5, eventBands.reduce((max, band) => Math.max(max, band.lane + 1), 0)))
+    : 1;
 
   // Navigation is independent of fetched dates: display twelve future month
   // choices without eagerly loading their rate data.
@@ -3372,13 +3359,12 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
-                {/* Events — the row keeps a fixed five-lane height, but each date
-                    dynamically shares that height between only the events visible
-                    on that date. Sparse days therefore become readable instead of
-                    leaving most of the Events area empty. */}
+                {/* Events — long-running events remain one continuous pill across
+                    their full visible date span. Lanes are compacted upward and
+                    only the lanes currently needed are rendered (maximum five). */}
       {eventBands.length > 0 && (
         <div className="shrink-0 border-b-2 border-b-foreground/20 bg-card">
-          {Array.from({ length: showEventBand ? 5 : 1 }, (_, lane) => (
+          {Array.from({ length: EVENT_LANE_COUNT }, (_, lane) => (
             <div
               key={`event-physical-lane-${lane}`}
               className="flex shrink-0 border-b border-border/40 bg-card last:border-b-0"
@@ -3422,94 +3408,65 @@ export default function RateStrategyGrid({
                   ))}
                 </div>
 
-                {/* All event cards are anchored from the first physical lane.
-                    Overflow is intentional: it lets the cards use the complete
-                    five-lane Events block while the rows below remain the visual
-                    grid/background and date click targets. */}
-                {showEventBand && lane === 0 && dates.flatMap((d, dateIndex) => {
-                  const dayBands = visibleEventBandsByDate[dateIndex] ?? [];
-                  const count = dayBands.length;
-                  if (count === 0) return [];
+                {/* Render each real event once across its complete visible date
+                    span. The band builder already keeps no more than five
+                    overlapping events and assigns a stable lane, so long-running
+                    festivals/congresses remain one readable pill while unrelated
+                    events keep their own space. */}
+                {showEventBand && lane === 0 && eventBands.map((band) => {
+                  const impact = String(band.event.impact || "").toLowerCase();
+                  const tone = impact === "high"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    : impact === "medium"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      : "border-border bg-muted/80 text-muted-foreground";
+                  const spanColumns = revenueEventBandColumnSpan(band);
+                  const wide = spanColumns >= 2;
+                  const veryWide = spanColumns >= 3;
+                  const fallbackDate = dates[band.startIndex] ?? band.startDate;
+                  const range = compactEventRange(band.event, fallbackDate);
 
-                  const slotHeight = EVENT_ROW_H / count;
-                  return dayBands.map((band, slot) => {
-                    const impact = String(band.event.impact || "").toLowerCase();
-                    const tone = impact === "high"
-                      ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
-                      : impact === "medium"
-                        ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
-                        : "border-border bg-muted/80 text-muted-foreground";
-                    const roomy = count <= 2;
-                    const mediumRoom = count === 3;
-                    const compactTwoLine = count === 4;
-                    const compactFooter = count === 3 || count === 4;
-                    const titleClass = count === 1
-                      ? "line-clamp-5"
-                      : count === 2
-                        ? "line-clamp-3"
-                        : count <= 4
-                          ? "line-clamp-2"
-                          : "truncate";
-                    const range = compactEventRange(band.event, d);
+                  return (
+                    <button
+                      key={band.key}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const ratio = rect.width > 0
+                          ? Math.min(0.9999, Math.max(0, (e.clientX - rect.left) / rect.width))
+                          : 0;
+                        const offset = Math.min(spanColumns - 1, Math.floor(ratio * spanColumns));
+                        setDemandDay(dates[band.startIndex + offset] ?? fallbackDate);
+                      }}
+                      title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact${band.event.category ? ` · ${band.event.category}` : ""}${band.event.venue ? ` · ${band.event.venue}` : ""}`}
+                      aria-label={`${band.event.title}, ${band.startDate}${band.endDate !== band.startDate ? ` through ${band.endDate}` : ""}, ${impact || "unknown"} impact${band.event.category ? `, ${band.event.category}` : ""}${band.event.venue ? `, ${band.event.venue}` : ""}. Tap for details.`}
+                      className={`absolute z-30 flex min-w-0 items-center gap-1 overflow-hidden rounded-md border px-1.5 text-left font-medium shadow-sm transition-[box-shadow,transform] hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone}`}
+                      style={{
+                        left: band.startIndex * CELL_W + 1,
+                        width: spanColumns * CELL_W - 2,
+                        top: band.lane * EVENT_LANE_H + 1,
+                        height: EVENT_LANE_H - 2,
+                        fontSize: wide ? fz(9) : fz(8),
+                      }}
+                    >
+                      <span className="min-w-0 flex-1 truncate font-semibold leading-none">
+                        {band.event.title}
+                      </span>
 
-                    return (
-                      <button
-                        key={`${d}-${band.key}`}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDemandDay(d);
-                        }}
-                        title={`${band.event.title} · ${band.startDate}${band.endDate !== band.startDate ? ` → ${band.endDate}` : ""} · ${impact || "unknown"} impact${band.event.category ? ` · ${band.event.category}` : ""}${band.event.venue ? ` · ${band.event.venue}` : ""}`}
-                        aria-label={`${band.event.title}, ${d}, ${impact || "unknown"} impact${band.event.category ? `, ${band.event.category}` : ""}${band.event.venue ? `, ${band.event.venue}` : ""}. Tap for details.`}
-                        className={`absolute z-30 flex min-w-0 overflow-hidden border text-left font-medium shadow-sm transition-[box-shadow,transform] hover:ring-1 hover:ring-inset hover:ring-primary/60 ${tone} ${
-                          count <= 4
-                            ? "flex-col items-stretch justify-start rounded-md"
-                            : "items-center justify-start rounded-[4px]"
-                        }`}
-                        style={{
-                          left: dateIndex * CELL_W + 1,
-                          width: CELL_W - 2,
-                          top: slot * slotHeight + 1,
-                          height: Math.max(EVENT_LANE_H - 2, slotHeight - 2),
-                          paddingLeft: roomy ? 5 : compactTwoLine ? 3 : 4,
-                          paddingRight: roomy ? 5 : compactTwoLine ? 3 : 4,
-                          paddingTop: count <= 3 ? 3 : compactTwoLine ? 2 : 1,
-                          paddingBottom: count <= 3 ? 3 : compactTwoLine ? 2 : 1,
-                          fontSize: count === 1 ? fz(10) : count === 5 ? fz(8) : fz(9),
-                        }}
-                      >
-                        <span className={`w-full min-w-0 break-words text-left font-semibold leading-[1.12] ${titleClass}`}>
-                          {band.event.title}
+                      {veryWide && band.event.venue && (
+                        <span className="hidden min-w-0 max-w-[35%] truncate text-[8px] leading-none opacity-70 lg:inline">
+                          {band.event.venue}
                         </span>
+                      )}
 
-                        {roomy && (band.event.category || band.event.venue) && (
-                          <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75">
-                            {band.event.category && <span className="capitalize">{band.event.category}</span>}
-                            {band.event.category && band.event.venue ? <span aria-hidden="true"> · </span> : null}
-                            {band.event.venue}
-                          </span>
-                        )}
-
-                        {roomy && (
-                          <span className="mt-auto w-full min-w-0 truncate text-left text-[8px] font-semibold uppercase tracking-wide opacity-75">
-                            {impact || "event"}{band.endDate !== band.startDate ? ` · ${range}` : ""}
-                          </span>
-                        )}
-
-                        {compactFooter && (
-                          <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-75">
-                            <span className="min-w-0 truncate capitalize">
-                              {band.event.category
-                                ? String(band.event.category).replace(/_/g, " ")
-                                : "event"}
-                            </span>
-                            <span className="shrink-0 font-semibold uppercase">{impact || "event"}</span>
-                          </span>
-                        )}
-                      </button>
-                    );
-                  });
+                      {wide && (
+                        <span className="shrink-0 text-[8px] font-semibold uppercase leading-none opacity-80">
+                          {impact || "event"}{band.endDate !== band.startDate && range ? ` · ${range}` : ""}
+                        </span>
+                      )}
+                    </button>
+                  );
                 })}
               </div>
             </div>

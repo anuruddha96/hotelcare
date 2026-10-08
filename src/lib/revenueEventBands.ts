@@ -22,6 +22,13 @@ export interface RevenueEventBand<T extends RevenueEventBandInput = RevenueEvent
   score: number;
 }
 
+/** Number of visible date columns covered by one continuous event pill. */
+export function revenueEventBandColumnSpan(
+  band: Pick<RevenueEventBand, "startIndex" | "endIndex">,
+): number {
+  return Math.max(1, band.endIndex - band.startIndex + 1);
+}
+
 const IMPACT_WEIGHT: Record<string, number> = {
   high: 300,
   medium: 200,

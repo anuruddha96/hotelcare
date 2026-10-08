@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRevenueEventBands, revenueEventTitleKey, sameRevenueEvent, scoreRevenueEvent, type RevenueEventBandInput } from './revenueEventBands';
+import { buildRevenueEventBands, revenueEventBandColumnSpan, revenueEventTitleKey, sameRevenueEvent, scoreRevenueEvent, type RevenueEventBandInput } from './revenueEventBands';
 
 const dates = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05'];
 
@@ -26,6 +26,7 @@ describe('buildRevenueEventBands', () => {
     const bands = buildRevenueEventBands(dates, events, 5);
     expect(bands).toHaveLength(1);
     expect(bands[0]).toMatchObject({ startIndex: 0, endIndex: 3, startDate: '2026-10-01', endDate: '2026-10-04' });
+    expect(revenueEventBandColumnSpan(bands[0])).toBe(4);
   });
 
   it('keeps the five strongest overlapping events and drops the sixth', () => {
