@@ -1,12 +1,14 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createOpenAI } from "npm:@ai-sdk/openai@4";
 import { streamText } from "npm:ai@7";
+import { logAiUsage } from "../_shared/aiBudget.ts";
+import { MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-const PREMIUM_MODEL = Deno.env.get("OPENAI_PREMIUM_MODEL") || "gpt-5.6-sol";
+const PREMIUM_MODEL = Deno.env.get("OPENAI_PREMIUM_MODEL") || MODEL_BY_PURPOSE.premium;
 const HOTEL_TZ = "Europe/Budapest";
 
 type Scope = "revenue" | "housekeeping" | "maintenance" | "reception";
@@ -955,6 +957,16 @@ Never expose table names, database fields, internal ids, tools, model names, quo
         },
       ] as any,
       abortSignal: req.signal,
+      onFinish: async ({ totalUsage }) => {
+        await logAiUsage(db, {
+          organizationSlug: targetOrgSlug,
+          hotelId: context?.properties?.length === 1 ? context.properties[0].id : null,
+          functionName: "assistant-premium-analysis",
+          model: PREMIUM_MODEL,
+          inputTokens: totalUsage?.inputTokens ?? 0,
+          outputTokens: totalUsage?.outputTokens ?? 0,
+        });
+      },
       providerOptions: {
         openai: { store: false, reasoningEffort: "xhigh", reasoningSummary: "auto" },
       },

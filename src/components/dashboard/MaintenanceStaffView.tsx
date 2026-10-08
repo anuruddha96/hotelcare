@@ -201,9 +201,9 @@ export function MaintenanceStaffView() {
 
   useEffect(() => {
     void refresh();
-    if (!user?.id) return;
+    if (!user?.id || !profile?.organization_slug) return;
     const channel = supabase.channel(`maintenance-staff-${user.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, (event: any) => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `organization_slug=eq.${profile.organization_slug}` }, (event: any) => {
         const record = event.new || event.old;
         if (
           record?.department === 'maintenance'
@@ -214,7 +214,7 @@ export function MaintenanceStaffView() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_attendance', filter: `user_id=eq.${user.id}` }, () => void refresh())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [refresh, user?.id]);
+  }, [refresh, user?.id, profile?.organization_slug]);
 
   const filtered = useMemo(() => {
     if (activeTab === 'approval') return sortMaintenanceTickets(tickets.filter(ticket => ticket.pending_supervisor_approval));

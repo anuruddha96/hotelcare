@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { useAuth } from '@/hooks/useAuth';
 
 export function usePendingApprovals() {
+  const { profile } = useAuth();
   const [roomCount, setRoomCount] = useState(0);
   const [maintenanceTicketCount, setMaintenanceTicketCount] = useState(0);
   const [earlySignoutCount, setEarlySignoutCount] = useState(0);
@@ -138,55 +140,36 @@ export function usePendingApprovals() {
   }, []);
 
   useEffect(() => {
-    fetchPendingCount();
+    void fetchPendingCount();
+    if (!profile?.organization_slug) return;
 
-    // Subscribe to every room-assignment change, then let the hotel-scoped
-    // query above decide whether it belongs in the badge. A Realtime UPDATE is
-    // filtered against the event's old row as well as the new row; filtering
-    // only `status=completed` can therefore miss the exact in_progress ->
-    // completed transition that creates a manager approval. Refetching is cheap
-    // and preserves organization/hotel isolation in the authoritative query.
+    // Scope all five tables at source, then coalesce bursts of room/ticket
+    // changes into one actual count query. The query itself additionally
+    // scopes by hotel, protecting correctness across legacy hotel aliases.
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        if (!disposed) void fetchPendingCount();
+      }, 500);
+    };
+    const filter = `organization_slug=eq.${profile.organization_slug}`;
     const channel = supabase
-      .channel('pending-approvals-count')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'room_assignments',
-        },
-        () => fetchPendingCount()
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tickets'
-        },
-        () => fetchPendingCount()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'early_signout_requests' },
-        () => fetchPendingCount()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'break_requests' },
-        () => fetchPendingCount()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'room_minibar_usage' },
-        () => fetchPendingCount()
-      )
+      .channel(`pending-approvals-count-${profile.organization_slug}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "room_assignments", filter }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tickets", filter }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "early_signout_requests", filter }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "break_requests", filter }, scheduleRefresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "room_minibar_usage", filter }, scheduleRefresh)
       .subscribe();
 
     return () => {
+      disposed = true;
+      if (refreshTimer) clearTimeout(refreshTimer);
       supabase.removeChannel(channel);
     };
-  }, [fetchPendingCount]);
+  }, [fetchPendingCount, profile?.organization_slug]);
 
   const refetch = useCallback(() => {
     fetchPendingCount();

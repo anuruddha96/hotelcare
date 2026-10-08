@@ -29,9 +29,11 @@ describe('unified approval queue', () => {
     const source = readHook();
     expect(source).toContain('roomCount + earlySignoutCount + breakRequestCount');
     expect(source).toContain('pendingCount + maintenanceTicketCount + lateMinibarCount');
-    expect(source).toContain("table: 'early_signout_requests'");
-    expect(source).toContain("table: 'break_requests'");
-    expect(source).toContain("table: 'room_minibar_usage'");
+    expect(source).toMatch(/table: ['"]early_signout_requests['"]/);
+    expect(source).toMatch(/table: ['"]break_requests['"]/);
+    expect(source).toMatch(/table: ['"]room_minibar_usage['"]/);
+    expect(source).toContain('organization_slug=eq.');
+    expect(source).toContain('scheduleRefresh');
   });
 
   it('keeps the translated approval details trigger DOM stable on Android', () => {

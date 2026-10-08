@@ -7,6 +7,7 @@
 // the market signal.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { checkAiBudget } from "../_shared/aiBudget.ts";
 
 const HOTEL_ID = "ottofiori";
 const DEFAULT_DAYS = 60;
@@ -14,7 +15,7 @@ const MAX_DAYS = 60;
 const CHUNK_DAYS = 7;
 const RETRY_CHUNK_DAYS = 4;
 const MODEL = "gpt-4o";
-const SEARCH_CONTEXT = "high" as const;
+const SEARCH_CONTEXT = "medium" as const; // verified URLs still mandatory; avoid high-search surcharge
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -134,6 +135,22 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+  // The scheduled invocation uses a Vault secret validated server-side;
+  // manual runs require an authenticated HotelCare revenue user.
+  const workerSecret = req.headers.get("x-market-scan-worker-secret");
+  let scheduled = false;
+  if (workerSecret) {
+    const { data: verified, error: verifyError } = await admin.rpc("verify_otto_market_worker_secret", { p_secret: workerSecret });
+    if (verifyError || verified !== true) return json({ error: "Unauthorized market scan worker" }, 401);
+    scheduled = true;
+  } else {
+    const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+    const { data: auth, error: authError } = await admin.auth.getUser(token);
+    if (authError || !auth?.user?.id) return json({ error: "Authentication required" }, 401);
+    const { data: revenueAllowed } = await admin.rpc("is_revenue_user", { _uid: auth.user.id });
+    const { data: hotelAllowed } = await admin.rpc("user_can_access_hotel", { _uid: auth.user.id, _hotel_id: HOTEL_ID });
+    if (revenueAllowed !== true || hotelAllowed !== true) return json({ error: "Revenue permission required" }, 403);
+  }
   const apiKey = Deno.env.get("OPENAI_API_KEY");
   if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured" }, 500);
 
@@ -198,6 +215,13 @@ Deno.serve(async (req) => {
 
         try {
           for (let offset = 0; offset < dates.length; offset += CHUNK_DAYS) {
+            // Check actual reported spend on EVERY batch, not just at the
+            // beginning of a potentially long multi-competitor scan.
+            const spendGuard = await checkAiBudget(admin, c.organization_slug, { scheduled });
+            if (!spendGuard.allowed) {
+              error = spendGuard.reason || "AI spending budget reached";
+              break;
+            }
             const window = dates.slice(offset, offset + CHUNK_DAYS);
             let answer;
             try {
@@ -232,6 +256,11 @@ Deno.serve(async (req) => {
             for (let retryOffset = 0; retryOffset < missingDates.length; retryOffset += RETRY_CHUNK_DAYS) {
               const retryWindow = missingDates.slice(retryOffset, retryOffset + RETRY_CHUNK_DAYS);
               if (!retryWindow.length) continue;
+              const retryBudget = await checkAiBudget(admin, c.organization_slug, { scheduled });
+              if (!retryBudget.allowed) {
+                error = retryBudget.reason || "AI spending budget reached";
+                break;
+              }
               try {
                 const retry = await askRates(apiKey, c, retryWindow, true);
                 await admin.from("ai_usage_log").insert({
