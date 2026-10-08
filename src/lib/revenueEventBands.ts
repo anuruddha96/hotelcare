@@ -160,7 +160,6 @@ function sourceKey(value?: string | null): string {
 function venueSimilarity(a?: string | null, b?: string | null): number {
   const aa = normalizedText(a);
   const bb = normalizedText(b);
-  if (!aa && !bb) return 1;
   if (!aa || !bb) return 0;
   if (aa === bb || aa.includes(bb) || bb.includes(aa)) return 1;
   return Math.max(jaccard(new Set(aa.split(" ")), new Set(bb.split(" "))), dice(aa, bb));
