@@ -34,6 +34,7 @@ import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePi
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
+import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
 import { buildRevenueEventBands, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
@@ -2342,7 +2343,6 @@ export default function RateStrategyGrid({
   const paintedCellsRef = useRef(new Set<string>());
   /** Last pointer position seen during a drag; hit-tested once per frame. */
   const pointerPosRef = useRef<{ x: number; y: number } | null>(null);
-  const SEL_CLASSES = ["bg-primary/25", "ring-1", "ring-inset", "ring-primary"];
 
   const paintSelection = useCallback(() => {
     const root = scrollRef.current;
@@ -2363,23 +2363,7 @@ export default function RateStrategyGrid({
         }
       }
     }
-    for (const key of paintedCellsRef.current) {
-      if (next.has(key)) continue;
-      const el = cellElementsRef.current.get(key);
-      if (el) {
-        el.classList.remove(...SEL_CLASSES);
-        el.style.transitionProperty = "";
-      }
-    }
-    for (const key of next) {
-      if (paintedCellsRef.current.has(key)) continue;
-      const el = cellElementsRef.current.get(key);
-      if (!el) continue;
-      // Colour transitions on hundreds of cells is what makes a drag stutter —
-      // the highlight has to appear on the same frame as the finger.
-      el.style.transitionProperty = "none";
-      el.classList.add(...SEL_CLASSES);
-    }
+    syncPriceCellSelection(cellElementsRef.current, paintedCellsRef.current, next);
     paintedCellsRef.current = next;
     const count = next.size;
     const pill = pillRef.current;
@@ -2398,8 +2382,8 @@ export default function RateStrategyGrid({
     if (!p) return;
     pointerPosRef.current = null;
     const under = document.elementFromPoint(p.x, p.y) as HTMLElement | null;
-    const cell = under?.closest?.("[data-cell-row]") as HTMLElement | null;
-    if (!cell) return;
+    const cell = under?.closest?.("[data-cell-row][data-cell-date]") as HTMLButtonElement | null;
+    if (!cell || !scrollRef.current?.contains(cell) || cell.disabled) return;
     const row = Number(cell.dataset.cellRow);
     const date = Number(cell.dataset.cellDate);
     if (!Number.isFinite(row) || !Number.isFinite(date)) return;
@@ -2487,6 +2471,8 @@ export default function RateStrategyGrid({
    * same tick so nothing is highlighted twice.
    */
   const commitSelection = useCallback(() => {
+    // Include the last pointer event even when it beats the animation frame.
+    resolveFocusFromPointer();
     const a = anchorRef.current;
     const f = focusRef.current;
     unpaintSelection();
@@ -2494,17 +2480,30 @@ export default function RateStrategyGrid({
     setRangeAnchor(a);
     setRangeFocus(f);
     return true;
-  }, [unpaintSelection]);
+  }, [unpaintSelection, resolveFocusFromPointer]);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
-      if (!cellDraggingRef.current) return;
+      if (!cellDraggingRef.current) {
+        const pending = pendingCell.current;
+        if (!pending || pending.touch || (e.buttons & 1) === 0) return;
+        // Fast drags can skip pointerenter on the adjacent price buttons.
+        const target = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+        const cell = target?.closest?.("[data-cell-row][data-cell-date]") as HTMLButtonElement | null;
+        if (!cell || !scrollRef.current?.contains(cell) || cell.disabled) return;
+        const row = Number(cell.dataset.cellRow);
+        const date = Number(cell.dataset.cellDate);
+        if (!Number.isFinite(row) || !Number.isFinite(date) ||
+            (row === pending.row && date === pending.date)) return;
+        beginCellDrag(pending.row, pending.date);
+      }
       e.preventDefault();
       pointerPosRef.current = { x: e.clientX, y: e.clientY };
       schedulePaint();
     };
 
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
+      if (cellDraggingRef.current) pointerPosRef.current = { x: e.clientX, y: e.clientY };
       if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
       pendingCell.current = null;
       if (!cellDraggingRef.current) return;
@@ -2515,15 +2514,23 @@ export default function RateStrategyGrid({
       // Selection finished → go straight to the pricing tool.
       if (commitSelection()) setRangeToolOpen(true);
     };
+    const onCancel = () => {
+      if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+      pendingCell.current = null;
+      if (!cellDraggingRef.current) return;
+      cellDraggingRef.current = false;
+      setCellDragging(false);
+      unpaintSelection();
+    };
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("pointercancel", onCancel);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("pointercancel", onCancel);
     };
-  }, [schedulePaint, commitSelection]);
+  }, [schedulePaint, commitSelection, beginCellDrag, unpaintSelection]);
 
   /**
    * Touch equivalent of the mouse drag above. Pointer events stop firing on a
@@ -2553,7 +2560,9 @@ export default function RateStrategyGrid({
     };
 
 
-    const onTouchEnd = () => {
+    const onTouchEnd = (e: TouchEvent) => {
+      const last = e.changedTouches[0];
+      if (last && cellDraggingRef.current) pointerPosRef.current = { x: last.clientX, y: last.clientY };
       if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
       pendingCell.current = null;
       if (!cellDraggingRef.current) return;
@@ -3733,8 +3742,11 @@ export default function RateStrategyGrid({
                         type="button"
                         ref={(el) => {
                           const key = `${rowIdx}:${i}`;
-                          if (el) cellElementsRef.current.set(key, el);
-                          else cellElementsRef.current.delete(key);
+                          if (el) {
+                            cellElementsRef.current.set(key, el);
+                            // Keep highlighted cells visible even if React re-attaches.
+                            if (paintedCellsRef.current.has(key)) setPriceCellPainted(el, true);
+                          } else cellElementsRef.current.delete(key);
                         }}
                         data-cell-row={rowIdx}
                         data-cell-date={i}
@@ -3832,9 +3844,10 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if (isMobile || cellDragging) return cellButton;
+                    // A drag must not replace HoverCardTrigger buttons mid-paint.
+                    if (isMobile) return cellButton;
                     return (
-                      <HoverCard key={d} openDelay={2000} closeDelay={60}>
+                      <HoverCard key={d} openDelay={cellDragging ? 60_000 : 2000} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
                         <HoverCardContent
                           side="right"
