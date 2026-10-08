@@ -336,7 +336,7 @@ export default function Billing() {
                               <button
                                 key={module}
                                 type="button"
-                                disabled={!available || Boolean(hotel.billing_bypass) || Boolean(independentTrial) || (!custom && pricing.pricing_mode !== 'percent' && pricing.price_cents <= 0)}
+                                disabled={!available || Boolean(hotel.billing_bypass) || active || Boolean(independentTrial) || (!custom && pricing.pricing_mode !== 'percent' && pricing.price_cents <= 0)}
                                 onClick={() => custom ? setQuoteFor(hotel.hotel_name) : toggle(hotel.hotel_id, module)}
                                 className={`rounded-lg border p-2.5 text-left transition-colors disabled:opacity-60 ${on ? 'border-primary bg-primary/10' : 'hover:border-primary/50 hover:bg-muted/50'}`}
                               >
