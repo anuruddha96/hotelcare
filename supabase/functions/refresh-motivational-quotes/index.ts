@@ -10,6 +10,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { checkAiBudget, logAiUsage } from "../_shared/aiBudget.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,6 +96,12 @@ serve(async (req) => {
     return json({ ok: false, error: "OPENAI_API_KEY is not configured" }, 200);
   }
 
+  const budget = await checkAiBudget(admin, "hotelcare", { scheduled: !force });
+  if (!budget.allowed) {
+    await admin.from("motivational_quote_state").update({ status: "idle", lease_until: null, updated_at: new Date().toISOString() }).eq("id", true);
+    return json({ ok: true, skipped: "AI spending budget reached", reason: budget.reason });
+  }
+
   try {
     const { data: existing } = await admin
       .from("motivational_quotes").select("quote").eq("is_active", true).limit(200);
@@ -107,7 +114,7 @@ serve(async (req) => {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         temperature: 0.8,
         response_format: { type: "json_object" },
         messages: [
@@ -144,6 +151,12 @@ serve(async (req) => {
     }
 
     const payload = await res.json();
+    await logAiUsage(admin, {
+      organizationSlug: "hotelcare", functionName: "monthly-motivational-quotes",
+      model: "gpt-4o-mini",
+      inputTokens: Number(payload?.usage?.prompt_tokens ?? 0),
+      outputTokens: Number(payload?.usage?.completion_tokens ?? 0),
+    });
     const parsed = JSON.parse(payload?.choices?.[0]?.message?.content ?? "{}");
     const rows = (Array.isArray(parsed?.quotes) ? parsed.quotes : [])
       .map((q: { quote?: string; author?: string }) => ({
