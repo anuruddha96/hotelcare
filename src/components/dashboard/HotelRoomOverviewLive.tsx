@@ -557,17 +557,6 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const dedupeRoomsByNumber = (roomList: RoomData[], assignmentRoomIds: Set<string>) => {
     const byNumber = new Map<string, RoomData>();
-    const score = (room: RoomData) => {
-      let value = 0;
-      if (assignmentRoomIds.has(room.id)) value += 1000;
-      if (room.hotel === hotelName) value += 500;
-      if (room.pms_metadata?.roomId) value += 120;
-      if (room.pms_metadata?.scheduledDepartureToday === true || room.pms_metadata?.checkedOutToday === true) value += 80;
-      if (room.is_checkout_room) value += 40;
-      if (room.updated_at) value += Math.min(30, Math.max(0, (Date.now() - new Date(room.updated_at).getTime()) / -3_600_000 + 30));
-      return value;
-    };
-
     for (const room of roomList) {
       const key = String(room.room_number || '').trim();
       const current = byNumber.get(key);
