@@ -571,7 +571,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     for (const room of roomList) {
       const key = String(room.room_number || '').trim();
       const current = byNumber.get(key);
-      if (!current || score(room) > score(current)) byNumber.set(key, room);
+      if (!current || compareRoomAuthority(room, current, hotelName, todayBudapest(), assignmentRoomIds) > 0) byNumber.set(key, room);
     }
 
     return Array.from(byNumber.values()).sort((a, b) =>
