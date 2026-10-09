@@ -607,9 +607,11 @@ async function pollOneHotel(
             checkedOutAt: stampedAt,
           },
         };
-        // Only mark dirty when the room actually transitions to checkout.
-        // A previously cleaned, already confirmed checkout stays clean.
-        if (!hasActiveAssignment && !wasCheckout && localRoom.status !== "dirty") {
+        // This branch only runs for a *new* physical checkout (or incomplete
+        // confirmation), so preserve the original dirty-room transition.
+        // Already-confirmed rooms are skipped entirely above, even after HK
+        // has finished cleaning them.
+        if (!hasActiveAssignment && localRoom.status !== "dirty") {
           updateData.status = "dirty";
         }
 
