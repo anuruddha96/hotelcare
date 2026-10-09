@@ -46,7 +46,7 @@ BEGIN
       a.id AS account_id, 5 AS sort_order, a.label AS sort_name
     FROM public.pms_accounts a
     JOIN public.organizations o ON o.slug=a.organization_slug AND o.is_active=true
-    WHERE a.is_active=true AND a.sync_paused=false AND a.pms_type='previo'
+    WHERE a.organization_slug='slnt' AND a.is_active=true AND a.sync_paused=false AND a.pms_type='previo'
   ), ranked AS (
     SELECT targets.*,
       (row_number() OVER (ORDER BY sort_order, sort_name, target_key)-1)::integer AS slot
