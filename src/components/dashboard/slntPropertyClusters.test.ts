@@ -18,43 +18,45 @@ const declarationsFor = (suffix: string) => {
   return properties;
 };
 
-describe('SLNT Memories-inspired flat room-chip board', () => {
-  it('limits all CSS and the new live presentation to SLNT Team View', () => {
+describe('SLNT Gozsdu-style individual room board', () => {
+  it('limits the presentation to authenticated SLNT Team View', () => {
     let count = 0;
     root.walkRules(rule => {
       count++;
       rule.selector.split(',').forEach(selector => expect(selector.trim()).toContain(scope));
     });
-    expect(count).toBeGreaterThan(10);
+    expect(count).toBeGreaterThan(8);
     expect(board).toContain("const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes");
     expect(board).toContain('if (isSlntTenant) {');
-    expect(board).toContain("'slnt-flat-board flex flex-wrap items-start gap-2 min-w-0'");
+    expect(board).toContain("'slnt-location-board space-y-1.5 min-w-0'");
     expect(board).toContain("'divide-y divide-border/60 rounded-md border border-border/50'");
   });
 
-  it('makes one-unit properties one real chip with their full name, not a card labelled Unit', () => {
-    expect(board).toContain("group.rooms.length === 1 && group.key !== '__none__'");
-    expect(board).toContain('slntSingleRoomLabel(room.room_number, group.name)');
-    expect(board).toContain('renderRoomChip(room, fullLabel, true)');
-    expect(board).toContain('slnt-single-unit animate-fade-in min-w-0 max-w-full');
-    expect(board).toContain('slnt-solo-chip text-left whitespace-normal break-words');
-    expect(declarationsFor('.slnt-single-unit .slnt-solo-chip').get('overflow-wrap')).toBe('anywhere');
-    expect(declarationsFor('.slnt-single-unit .slnt-solo-chip').get('max-width')).toBe('min(18rem, 100%)');
+  it('renders one physical venue/department row with one independent chip per room', () => {
+    expect(board).toContain('slnt-location-row flex items-start gap-2 min-w-0');
+    expect(board).toContain('slnt-location-label mt-0.5 w-[88px] max-w-[88px]');
+    expect(board).toContain('slnt-location-chips flex min-w-0 flex-wrap gap-1.5');
+    expect(board).toContain('group.rooms.map(room => (');
+    expect(board).toContain('{renderRoomChip(room)}');
+    expect(board).not.toContain('slnt-room-cluster inline-flex');
+    expect(board).not.toContain('slnt-single-unit animate-fade-in');
+    expect(board).not.toContain('slntSingleRoomLabel(room.room_number, group.name)');
+    expect(declarationsFor('.slnt-location-row').get('display')).toBe('flex');
+    expect(declarationsFor('.slnt-location-chips').get('flex-wrap')).toBe('wrap');
   });
 
-  it('keeps multiroom venues adjacent with one compact selectable and draggable label', () => {
-    expect(board).toContain('slnt-room-cluster inline-flex flex-wrap items-center gap-1.5 min-w-0 max-w-full');
-    expect(board).toContain('slnt-cluster-label inline-flex max-w-full items-center');
-    expect(board).toContain('slnt-cluster-chips flex min-w-0 flex-wrap items-center gap-1');
-    expect(board).toContain('renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))');
-    expect(board).toContain('{...dragProps}');
-    expect(board).toContain('onClick={onPillClick}');
-    expect(board).toContain('toggleUnitGroupSelection');
-    expect(declarationsFor('.slnt-room-cluster').get('flex-wrap')).toBe('wrap');
-    expect(css).not.toContain('display: contents');
+  it('keeps group bulk controls out of the SLNT branch while preserving room-level behavior', () => {
+    const slntStart = board.indexOf('if (isSlntTenant) {', board.indexOf('const renderTodayVenueRows'));
+    const slntEnd = board.indexOf('\n            }\n\n            return (', slntStart) + '\n            }'.length;
+    const slntBranch = board.slice(slntStart, slntEnd);
+    expect(slntBranch).not.toContain('{...dragProps}');
+    expect(slntBranch).not.toContain('onClick={onPillClick}');
+    expect(slntBranch).not.toContain('bulk: group.rooms.map');
+    expect(slntBranch).toContain('renderRoomChip(room');
+    expect(board).toContain('data-slnt-unassigned={isSlntTenant && slntIsUnassigned(room)');
   });
 
-  it('preserves original section counts and historical snapshots when managers filter Today', () => {
+  it('preserves original section counts, filters and historical snapshots', () => {
     expect(board).toContain('slntFilterIsActive ? roomList.filter(slntMatchesRoomFilter) : roomList');
     expect(board).toContain('const slntUnassignedCount = rooms.filter(slntIsUnassigned).length');
     expect(board).toContain('toggleUnitGroupSelection(todayRooms.map(');
@@ -67,9 +69,9 @@ describe('SLNT Memories-inspired flat room-chip board', () => {
     expect(board).toContain('roomList.length}</Badge>');
   });
 
-  it('retains the complete optional legend, section actions and a release-verification marker', () => {
+  it('retains legend/actions and exposes the new release marker', () => {
     expect(board).toContain('const [showLegend, setShowLegend] = useState(!isSlntTenant)');
-    expect(board).toContain("data-slnt-board-version={isSlntTenant ? '2026-09-23-v4' : undefined}");
+    expect(board).toContain("data-slnt-board-version={isSlntTenant ? '2026-10-09-v5' : undefined}");
     expect(declarationsFor('> div:first-child > div[class~="grid-cols-4"]').get('display')).toBe('none');
     expect(declarationsFor('[data-training="room-legend"]').get('overflow-x')).toBe('auto');
     expect(board).toContain('team.noRooms');

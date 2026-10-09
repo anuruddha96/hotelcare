@@ -118,8 +118,10 @@ describe('SLNT flat-room stylesheet safety', () => {
 
   it('keeps the legend readable and scopes chip spacing inside SLNT property groups', () => {
     expect(css).toContain('[data-training="room-legend"]');
-    expect(css).toContain('.slnt-single-unit .slnt-solo-chip');
-    expect(css).toContain('.slnt-room-cluster');
+    expect(css).toContain('.slnt-location-row');
+    expect(css).toContain('.slnt-location-label');
+    expect(css).toContain('.slnt-location-chips');
+    expect(css).not.toContain('.slnt-room-cluster');
     expect(css).not.toContain('columns-1');
   });
 
