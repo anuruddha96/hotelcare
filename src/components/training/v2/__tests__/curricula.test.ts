@@ -53,13 +53,6 @@ describe('training v2 curricula shape', () => {
           const gated = DATA_GATED_PATTERNS.some((re) => re.test(s.selector!));
           if (!gated) continue;
 
-          const intentionalCoreAction =
-            cur.slug === 'v2_housekeeper_first_day' && s.key === 'my_tasks';
-          if (intentionalCoreAction) {
-            expect(s.optional).toBe(false);
-            continue;
-          }
-
           expect(
             s.optional,
             `${cur.slug}::${s.key} targets data-gated "${s.selector}" but is not optional`,
@@ -84,7 +77,9 @@ describe('housekeeper first-shift curriculum', () => {
       'welcome',
       'signin',
       'breaks',
+      'open_my_tasks',
       'wait_for_assignment',
+      'room_overview',
       'my_tasks',
       'special_instructions',
       'room_photos',
@@ -102,8 +97,8 @@ describe('housekeeper first-shift curriculum', () => {
 
   it('has a complete but still mobile-manageable first-shift journey', () => {
     const n = hk?.steps.length ?? 0;
-    expect(n).toBeGreaterThanOrEqual(14);
-    expect(n).toBeLessThanOrEqual(16);
+    expect(n).toBeGreaterThanOrEqual(16);
+    expect(n).toBeLessThanOrEqual(19);
   });
 
   it('has no duplicate or malformed selectors', () => {
@@ -121,29 +116,38 @@ describe('housekeeper first-shift curriculum', () => {
     );
   });
 
-  it('waits visibly for a first assignment instead of silently skipping the room journey', () => {
+  it('uses the actual My Tasks tab, then waits visibly for an assignment', () => {
+    const openTasks = hk?.steps.find((s) => s.key === 'open_my_tasks');
+    expect(openTasks?.selector).toBe('[data-training="housekeeping-tab"]');
+    expect(openTasks?.advanceOnClick).toBe(true);
+    const roomOverview = hk?.steps.find((s) => s.key === 'room_overview');
+    expect(roomOverview?.selector).toBe('[data-training="assigned-room-card"]');
+    expect(roomOverview?.optional).toBe(true);
     const wait = hk?.steps.find((s) => s.key === 'wait_for_assignment');
     expect(wait).toBeTruthy();
+    expect(wait?.tab).toBe('housekeeping');
     expect(wait?.precondition).toBe('is_signed_in');
     expect(wait?.waitFor).toBe('has_any_assignment_today');
     expect(wait?.selector).toBeUndefined();
     expect(wait?.optional).not.toBe(true);
 
     const myTasks = hk?.steps.find((s) => s.key === 'my_tasks');
-    expect(myTasks?.optional).toBe(false);
+    expect(myTasks?.optional).toBe(true);
     expect(myTasks?.precondition).toBe('has_any_assignment_today');
+    expect(myTasks?.skipWhen).toBe('has_in_progress_cleaning');
+    expect(myTasks?.tab).toBe('housekeeping');
   });
 
   it('teaches every important in-room housekeeping function contextually', () => {
     const expectedSelectors: Record<string, string> = {
-      room_photos: '[data-training="room-photos-button"]',
-      dnd_photo: '[data-training="dnd-button"]',
-      dirty_linen: '[data-training="dirty-linen-button"]',
-      minibar: '[data-training="room-work-tools"]',
-      lost_found: '[data-training="lost-found-button"]',
-      maintenance: '[data-training="maintenance-button"]',
-      notes: '[data-training="notes-button"]',
-      messages: '[data-training="room-messages"]',
+      room_photos: '[data-training="active-assigned-room"] [data-training="room-photos-button"]',
+      dnd_photo: '[data-training="active-assigned-room"] [data-training="dnd-button"]',
+      dirty_linen: '[data-training="active-assigned-room"] [data-training="dirty-linen-button"]',
+      minibar: '[data-training="active-assigned-room"] [data-training="room-work-tools"]',
+      lost_found: '[data-training="active-assigned-room"] [data-training="lost-found-button"]',
+      maintenance: '[data-training="active-assigned-room"] [data-training="maintenance-button"]',
+      notes: '[data-training="active-assigned-room"] [data-training="notes-button"]',
+      messages: '[data-training="active-assigned-room"] [data-training="room-messages"]',
     };
 
     for (const [key, selector] of Object.entries(expectedSelectors)) {
@@ -182,8 +186,11 @@ describe('housekeeper first-shift curriculum', () => {
     }
   });
 
-  it('requires real check-in, assignment arrival, room start and room completion actions', () => {
+  it('recognizes actions already completed before the training starts', () => {
     expect(hk?.steps.find((s) => s.key === 'signin')?.waitFor).toBe('is_signed_in');
+    expect(hk?.steps.find((s) => s.key === 'signin')?.skipWhen).toBe('is_signed_in');
+    expect(hk?.steps.find((s) => s.key === 'breaks')?.selector).toBe('[data-training="break-button"]');
+    expect(hk?.steps.find((s) => s.key === 'signout')?.selector).toBe('[data-training="sign-out-button"]');
     expect(hk?.steps.find((s) => s.key === 'wait_for_assignment')?.waitFor).toBe(
       'has_any_assignment_today',
     );
@@ -200,10 +207,38 @@ describe('housekeeper first-shift curriculum', () => {
   });
 
   it('only leaves situational or safely deferrable action gates optional', () => {
-    const requiredActionSteps = new Set(['signin', 'wait_for_assignment', 'my_tasks']);
+    const requiredActionSteps = new Set(['signin', 'wait_for_assignment']);
     for (const s of hk?.steps ?? []) {
       if (!s.waitFor || requiredActionSteps.has(s.key)) continue;
       expect(s.optional, `${s.key} is action-gated but not optional`).toBe(true);
     }
+  });
+});
+
+describe('housekeeper training interaction safety', () => {
+  it('keeps the guide escapable with a skip for every step and no keyboard trap', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const overlay = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingOverlayV2.tsx'), 'utf8');
+    const engine = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingV2Provider.tsx'), 'utf8');
+    expect(overlay).toContain('isHousekeeperTour && (');
+    expect(overlay).toContain('onClick={skipForNow}');
+    expect(overlay).toContain('onClick={isHousekeeperTour ? pause : () => setConfirmExit(true)}');
+    expect(overlay).not.toContain("if (e.key === 'Tab'");
+    expect(engine).toContain('if (step.skipWhen && await evaluateGuard(step.skipWhen, guardCtx))');
+    expect(engine).toContain("if (active.slug === 'v2_housekeeper_first_day')");
+  });
+
+  it('anchors housekeeper training to currently active room cards in both layouts', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    for (const file of ['HousekeepingStaffView.tsx', 'MobileHousekeepingView.tsx']) {
+      const source = readFileSync(resolve(process.cwd(), 'src/components/dashboard', file), 'utf8');
+      expect(source).toContain('data-training="assigned-room-card"');
+      expect(source).toContain("assignment.status === 'in_progress' ? 'active-assigned-room'");
+    }
+    expect(hk?.steps.find((s) => s.key === 'complete_room')?.selector).toBe(
+      '[data-training="active-assigned-room"] [data-training="complete-room-button"]',
+    );
   });
 });
