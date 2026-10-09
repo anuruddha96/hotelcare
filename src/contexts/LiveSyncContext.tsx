@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 import { aggregatePmsQueueJobs, type PmsQueuedJob } from "@/lib/pmsQueueClient";
+import { PMS_QUEUE_CLIENT_ENABLED, enqueueFullPmsRefresh } from "@/lib/pmsQueueApi";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { startOfBudapestDayUtc, todayBudapest } from "@/lib/budapestTime";
@@ -19,7 +20,6 @@ import {
 } from "@/lib/notificationAudience";
 
 // Explicit opt-in prevents UI cutover before the server queue and cron are verified.
-const QUEUE_CLIENT_ENABLED = import.meta.env.VITE_PMS_REFRESH_QUEUE_ENABLED === "true";
 export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
 export interface TaskState {
@@ -170,21 +170,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     lastRunRef.current.pms = now;
     setTasks((p) => ({ ...p, pms: { ...p.pms, status: "syncing" } }));
     try {
-      if (QUEUE_CLIENT_ENABLED) {
-        const { data: state, error: stateError } = await supabase.functions.invoke(
-          "hotelcare-pms-refresh-queue", { body: { mode:"state" } },
-        );
-        if (stateError || state?.enabled !== true) {
-          throw new Error("PMS queue is unavailable. Refresh not started to prevent overlapping Previo syncs.");
-        }
-        const { data: queued, error: queueError } = await supabase.functions.invoke(
-          "hotelcare-pms-refresh-queue", { body: { mode:"enqueue", hotel_id:hotelId } },
-        );
-        if (queueError || queued?.ok !== true || !queued?.queued || !Array.isArray(queued?.jobs)) {
-          throw new Error(queued?.error || queueError?.message || "Failed to queue PMS refresh");
-        }
-        const ids = queued.jobs.map((job:any) => String(job.id)).filter(Boolean);
-        if (!ids.length) throw new Error("PMS queue returned no job identifiers");
+      if (PMS_QUEUE_CLIENT_ENABLED) {
+        const ids = await enqueueFullPmsRefresh(hotelId);
         activeQueueIdsRef.current = ids;
         const description = "Another PMS refresh may be running. Your request is queued and will run next.";
         setTasks((prev) => ({
@@ -212,7 +199,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   // A queued refresh is NOT a completed refresh. Rehydrate pending requests
   // across reloads and report completion only after every SLNT account finishes.
   useEffect(() => {
-    if (!QUEUE_CLIENT_ENABLED || !enabled || !hotelId) return;
+    if (!PMS_QUEUE_CLIENT_ENABLED || !enabled || !hotelId) return;
     activeQueueIdsRef.current = [];
     let cancelled = false;
     let inFlight = false;
