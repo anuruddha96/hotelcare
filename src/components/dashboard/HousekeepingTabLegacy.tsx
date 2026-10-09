@@ -283,6 +283,25 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   // aren't signed in yet, jump them to 'assignments' the moment they sign in.
   const postSigninJumpFiredRef = useRef(false);
 
+  // The outer dashboard tab and the manager's inner Team View are separate.
+  // Guided navigation has to select both even if Approvals was open before.
+  useEffect(() => {
+    const onTrainingNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ tab?: string; mainTab?: string; subTab?: string }>).detail;
+      if ((detail?.tab || detail?.mainTab) !== 'housekeeping') return;
+      if (!detail?.subTab || !['manage', 'supervisor', 'staff-management', 'staff-schedule', 'performance', 'attendance'].includes(detail.subTab)) return;
+      if (!initialManagerAccess) return;
+      setActiveTab(detail.subTab);
+      onActiveSubTabChange?.(detail.subTab);
+    };
+    window.addEventListener('tour:navigate', onTrainingNavigate);
+    window.addEventListener('training-navigate', onTrainingNavigate);
+    return () => {
+      window.removeEventListener('tour:navigate', onTrainingNavigate);
+      window.removeEventListener('training-navigate', onTrainingNavigate);
+    };
+  }, [initialManagerAccess, onActiveSubTabChange]);
+
   // Set the default active tab.
   //   Cleaners (housekeeping / hybrid) not signed in → Attendance.
   //   Pure managers → pending approvals (if any) else Team View.
@@ -446,6 +465,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         <TabsTrigger 
           key={tabId}
           value={tabId} 
+          data-training="manager-approvals-tab"
           className="group flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
         >
           <HelpTooltip hint={UI_HINTS[config.hintKey || '']}>
@@ -474,7 +494,8 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     return (
       <TabsTrigger 
         key={tabId}
-        value={tabId} 
+        value={tabId}
+        data-training={tabId === 'manage' ? 'manager-team-tab' : tabId === 'staff-management' ? 'manager-staff-tab' : undefined}
         className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
       >
         <HelpTooltip hint={UI_HINTS[config.hintKey || '']}>
