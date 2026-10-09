@@ -138,7 +138,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase
         .from("pms_sync_history")
         .select("created_at, sync_status, data")
-        .eq("sync_type","rooms_refresh")
+        .eq("sync_type", "rooms_refresh") // Full PMS refresh only; checkout polls are not full snapshots.
         .in("hotel_id", keys.length ? keys : [hotelId])
         .order("created_at", { ascending: false })
         .limit(1)
@@ -284,7 +284,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase
         .from("pms_sync_history")
         .select("created_at, sync_status")
-        .eq("sync_type","rooms_refresh")
+        .eq("sync_type", "rooms_refresh") // Do not suppress the morning warning for lightweight checkout polls.
         .in("hotel_id", keys.length ? keys : [hotelId])
         .gte("created_at", startOfBudapestDayUtc(today))
         .in("sync_status", ["success", "partial"])
