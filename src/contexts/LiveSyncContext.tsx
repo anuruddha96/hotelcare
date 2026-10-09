@@ -9,6 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
+import { aggregatePmsQueueJobs, type PmsQueuedJob } from "@/lib/pmsQueueClient";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { startOfBudapestDayUtc, todayBudapest } from "@/lib/budapestTime";
@@ -17,10 +18,12 @@ import {
   isExecutiveRole,
 } from "@/lib/notificationAudience";
 
+// Explicit opt-in prevents UI cutover before the server queue and cron are verified.
+const QUEUE_CLIENT_ENABLED = import.meta.env.VITE_PMS_REFRESH_QUEUE_ENABLED === "true";
 export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
 export interface TaskState {
-  status: PmsSyncStatus | "syncing";
+  status: PmsSyncStatus | "syncing" | "queued";
   lastAt: Date | null;
   message?: string;
   meta?: Record<string, any>;
@@ -28,7 +31,7 @@ export interface TaskState {
 
 export interface RefreshOutcome {
   ran: boolean;
-  status: PmsSyncStatus | "syncing" | "skipped" | "error";
+  status: PmsSyncStatus | "syncing" | "queued" | "skipped" | "error";
   message?: string;
   meta?: Record<string, any>;
 }
@@ -81,6 +84,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [businessDate, setBusinessDate] = useState(() => todayBudapest());
   const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0, checkouts: 0, pms_changes: 0 });
+  const activeQueueIdsRef = useRef<string[]>([]);
+
 
   // An open mobile/desktop tab must detect a new Budapest business day,
   // not wait until logout, login or a full page reload.
@@ -165,6 +170,29 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     lastRunRef.current.pms = now;
     setTasks((p) => ({ ...p, pms: { ...p.pms, status: "syncing" } }));
     try {
+      if (QUEUE_CLIENT_ENABLED) {
+        const { data: state, error: stateError } = await supabase.functions.invoke(
+          "hotelcare-pms-refresh-queue", { body: { mode:"state" } },
+        );
+        if (stateError || state?.enabled !== true) {
+          throw new Error("PMS queue is unavailable. Refresh not started to prevent overlapping Previo syncs.");
+        }
+        const { data: queued, error: queueError } = await supabase.functions.invoke(
+          "hotelcare-pms-refresh-queue", { body: { mode:"enqueue", hotel_id:hotelId } },
+        );
+        if (queueError || queued?.ok !== true || !queued?.queued || !Array.isArray(queued?.jobs)) {
+          throw new Error(queued?.error || queueError?.message || "Failed to queue PMS refresh");
+        }
+        const ids = queued.jobs.map((job:any) => String(job.id)).filter(Boolean);
+        if (!ids.length) throw new Error("PMS queue returned no job identifiers");
+        activeQueueIdsRef.current = ids;
+        const description = "Another PMS refresh may be running. Your request is queued and will run next.";
+        setTasks((prev) => ({
+          ...prev, pms: { status:"queued", lastAt:prev.pms.lastAt,
+            message:description, meta:{ queueIds:ids } },
+        }));
+        return { ran:true, status:"queued", message:description, meta:{queueIds:ids} };
+      }
       const r = await runPmsRefresh(hotelId);
       setTasks((p) => ({
         ...p,
@@ -180,6 +208,64 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       return { ran: true, status: "error", message };
     }
   }, [enabled, hotelId]);
+
+  // A queued refresh is NOT a completed refresh. Rehydrate pending requests
+  // across reloads and report completion only after every SLNT account finishes.
+  useEffect(() => {
+    if (!QUEUE_CLIENT_ENABLED || !enabled || !hotelId) return;
+    activeQueueIdsRef.current = [];
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          "hotelcare-pms-refresh-queue", { body: { mode:"status" } },
+        );
+        if (cancelled || error || data?.enabled !== true) return;
+        const jobs = ((data.jobs || []) as PmsQueuedJob[]).filter(
+          j => j.hotel_id === hotelId,
+        );
+        if (!activeQueueIdsRef.current.length) {
+          const pending = jobs.filter(j => j.status === "pending" || j.status === "running");
+          if (pending.length) activeQueueIdsRef.current = pending.map(j => j.id);
+        }
+        const ids = activeQueueIdsRef.current;
+        if (!ids.length) return;
+        const selected = ids.map(id => jobs.find(j => j.id === id)).filter(Boolean) as PmsQueuedJob[];
+        // The API may be eventually consistent: retain queue state rather than
+        // claiming failure during the first incomplete poll.
+        if (selected.length !== ids.length) return;
+        const progress = aggregatePmsQueueJobs(selected);
+        if (!progress.complete) {
+          setTasks(p => ({
+            ...p,pms:{...p.pms,status:"queued",
+              message:progress.message,meta:{...p.pms.meta,queueIds:ids,
+                pending:progress.remaining,running:progress.running}},
+          }));
+          return;
+        }
+        activeQueueIdsRef.current = [];
+        setTasks(p => ({...p,pms:{
+          status:progress.status,lastAt:new Date(),message:progress.message,
+          meta:{queueIds:ids,updated:selected.length},
+        }}));
+        const { toast } = await import("sonner");
+        if (progress.status === "error") toast.error("PMS refresh failed",{description:progress.message});
+        else if (progress.status === "partial") toast.warning("PMS refresh incomplete",{description:progress.message});
+        else {
+          toast.success("Full PMS refresh completed");
+          try { window.dispatchEvent(new CustomEvent("pms-sync-completed")); } catch { /* no-op */ }
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => { void poll(); }, 4000);
+    return () => { cancelled=true;window.clearInterval(timer); };
+  }, [enabled,hotelId]);
 
   const runRevenue = useCallback(async (_force = false): Promise<RefreshOutcome> => ({
     ran: false,
@@ -253,7 +339,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         const r = await runPms(true);
         // After a manual PMS sync, immediately poll checkouts so RTC updates
         // land without waiting for the next interval tick.
-        void runCheckouts(true);
+        if (r.status !== "queued") void runCheckouts(true);
         return r;
       }
       else if (task === "revenue") await runRevenue(true);
