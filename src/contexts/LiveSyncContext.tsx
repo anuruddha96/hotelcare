@@ -158,6 +158,72 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [enabled, hotelId]);
 
+  // Follow manual queue jobs after the initial request returns, including
+  // when a user reopens the page before all SLNT accounts have completed.
+  useEffect(() => {
+    if (!enabled || !hotelId || !user?.id) return;
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (cancelled || inFlight || document.hidden) return;
+      inFlight = true;
+      try {
+        const { data, error } = await (supabase as any).from("pms_refresh_queue")
+          .select("id,hotel_id,request_group_id,target_key,status,requested_at,finished_at,result,error_message")
+          .eq("hotel_id",hotelId).eq("request_kind","manual")
+          .eq("requested_by",user.id)
+          .gte("requested_at",startOfBudapestDayUtc(businessDate))
+          .order("requested_at",{ascending:false}).limit(60);
+        if (error || cancelled) return;
+        const group = selectActivePmsQueueGroup((data || []) as PmsQueueRow[],hotelId);
+        if (!group.length) return;
+        const groupId = group[0].request_group_id || group[0].id;
+        const summary = summarizeQueuedPmsJobs(group);
+        if (summary.status === "queued") {
+          observedQueueGroupRef.current = groupId;
+          setTasks(prev => {
+            if (prev.pms.status === "queued" &&
+                prev.pms.meta?.queueGroupId === groupId) return prev;
+            return {...prev,pms:{...prev.pms,status:"queued",
+              message:summary.managerMessage,
+              meta:{...prev.pms.meta,queueGroupId:groupId,jobIds:group.map(j=>j.id)}}};
+          });
+          return;
+        }
+        if (observedQueueGroupRef.current !== groupId ||
+            announcedQueueGroupRef.current === groupId) return;
+        announcedQueueGroupRef.current = groupId;
+        const dates = group.map(j=>Date.parse(j.finished_at || "")).filter(Number.isFinite);
+        const finishedAt = dates.length ? new Date(Math.max(...dates)) : new Date();
+        setTasks(prev => ({...prev,pms:{
+          status:summary.status,lastAt:finishedAt,
+          message:summary.managerMessage || summary.errors?.[0],
+          meta:{...summary,queueGroupId:groupId},
+        }}));
+        const { toast } = await import("sonner");
+        if (cancelled) return;
+        if (summary.status === "error") toast.error("PMS refresh failed",{
+          description:summary.errors?.[0] || "Please review PMS Sync History",
+        });
+        else if (summary.status === "partial") toast.warning("PMS refresh incomplete",{
+          description:"Review PMS Sync History before assigning rooms",
+        });
+        else {
+          toast.success("Full PMS refresh completed");
+          window.dispatchEvent(new CustomEvent("pms-sync-completed"));
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => { void poll(); }, 8000);
+    const visible = () => { if (!document.hidden) void poll(); };
+    document.addEventListener("visibilitychange",visible);
+    return () => { cancelled = true;window.clearInterval(timer);
+      document.removeEventListener("visibilitychange",visible); };
+  }, [enabled,hotelId,user?.id,businessDate]);
+
   const runPms = useCallback(async (force = false): Promise<RefreshOutcome> => {
     if (!enabled || !hotelId) {
       return { ran: false, status: "skipped", message: hotelId ? "PMS integration not configured for this hotel" : "No hotel context" };
