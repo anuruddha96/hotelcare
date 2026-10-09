@@ -3,6 +3,7 @@
 // Existing independent checkout polling, revenue and release preflights stay intact.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "../_shared/previoHousekeepingNote.ts";
+import { findPmsRoomBucketDrift } from "../_shared/pmsRoomBucketPostcondition.ts";
 
 const RD_ORDER = ["memories-budapest", "mika-downtown", "ottofiori", "gozsdu-court"];
 const ADMIN_ALERT_EMAIL = "anuruddha.dharmasena@gmail.com";
@@ -458,6 +459,26 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       if(result.error||!result.data)throw new Error(`${hotelId}: concurrent note reconciliation failed for room ${key}`);
       managerNotesProtected++;
     }else if(noteCompare.changed)notesSynced++;
+  }
+  // Re-read after rich Previo enrichment. Earlier checkout/daily counters
+  // are not proof that subsequent metadata triggers kept those classifications.
+  // A divergent board must never be logged as a successful full refresh.
+  if (ottofiori) {
+    const { data: afterEnrichment, error: verifyError } = await admin.from("rooms")
+      .select("id,is_checkout_room,pms_metadata").in("id",[...usedRoomIds]);
+    if (verifyError || !afterEnrichment ||
+        afterEnrichment.length !== usedRoomIds.size) {
+      throw new Error("ottofiori: final room bucket verification is incomplete");
+    }
+    const drift = findPmsRoomBucketDrift(
+      updatedRoomRows,afterEnrichment,syncedAt,
+    );
+    if (drift.length) {
+      console.error("[PMS room drift] authoritative checkout states changed after enrichment",{
+        hotelId, businessDate:date, rooms:drift,
+      });
+      throw new Error("ottofiori: room checkout/daily classification changed after verified PMS reconciliation; full refresh not confirmed");
+    }
   }
   const unmatchedSnapshots = snapshots.length - usedSnapshots.size;
   const status = unmatchedSnapshots || skippedUnknown ? "partial" : "success";
