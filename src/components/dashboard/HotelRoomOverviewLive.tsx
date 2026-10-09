@@ -2597,6 +2597,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           )}
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
+          {overviewDataError && (
+            <div role="alert" className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+              Unable to verify the latest PMS room overview. Displayed room information may be outdated. Please retry the refresh.
+            </div>
+          )}
           {/* Signed-in housekeeper tray — drag a person onto a room to assign. */}
           {canDragAssign && signedInHousekeepers.length > 0 && (
             <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
