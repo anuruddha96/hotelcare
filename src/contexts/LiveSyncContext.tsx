@@ -147,7 +147,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         .limit(1)
         .maybeSingle();
       if (!data) return;
-      setTasks((prev) => ({
+      setTasks((prev) => prev.pms.status === "queued" ? prev : ({
         ...prev,
         pms: {
           status: ((data as any).sync_status as PmsSyncStatus) || "success",
