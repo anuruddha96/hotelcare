@@ -53,6 +53,10 @@ export interface TrainingStepV2 {
   tab?: string;
   precondition?: GuardKey;
   waitFor?: GuardKey;
+  /** Already completed? Move on without asking for the same real-world action twice. */
+  skipWhen?: GuardKey;
+  /** For safe navigation controls, clicking the highlighted element moves the tour on. */
+  advanceOnClick?: boolean;
   optional?: boolean;
   ctaLabel?: I18nText;
   /** Optional event name emitted to analytics when the step is shown. */

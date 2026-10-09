@@ -393,6 +393,17 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     if (!active || !step || !user) return;
 
     let cancelled = false;
+    let advanced = false;
+    let detachTargetClick: (() => void) | null = null;
+    const advanceOnce = () => {
+      if (cancelled || advanced) return;
+      advanced = true;
+      if (stepIndex < active.steps.length - 1) {
+        setStepIndex((current) => current === stepIndex ? current + 1 : current);
+      } else {
+        finishInternal();
+      }
+    };
     setRect(null);
     setWaiting(false);
     // Hide overlay until this step has resolved.
@@ -427,6 +438,18 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     };
 
     const run = async () => {
+      // Check actual work state BEFORE navigating or looking for a hidden control.
+      // A checked-in housekeeper must never be asked to check in twice.
+      if (step.skipWhen && await evaluateGuard(step.skipWhen, guardCtx)) {
+        advanceOnce();
+        return;
+      }
+      // Waiting milestones also need to detect an already assigned room on resume.
+      if (!step.selector && step.waitFor && await evaluateGuard(step.waitFor, guardCtx)) {
+        advanceOnce();
+        return;
+      }
+      if (cancelled) return;
       const targetRoute = resolveRoute(step.route);
       if (targetRoute && location.pathname !== targetRoute) {
         navigate(targetRoute);
@@ -455,14 +478,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
             // Silently defer + advance. Overlay stays hidden the whole time.
             await deferCurrent();
             if (!cancelled) {
-              setTimeout(() => {
-                if (cancelled) return;
-                if (stepIndex < active.steps.length - 1) {
-                  setStepIndex(stepIndex + 1);
-                } else {
-                  finishInternal();
-                }
-              }, 30);
+              setTimeout(advanceOnce, 30);
             }
             return;
           }
@@ -479,9 +495,16 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
         const startedAt = Date.now();
         const tryLocate = () => {
           if (cancelled) return;
-          const el = document.querySelector(step.selector!) as HTMLElement | null;
+          const el = Array.from(document.querySelectorAll<HTMLElement>(step.selector!))
+            .find((candidate) => candidate.getClientRects().length > 0 &&
+              window.getComputedStyle(candidate).visibility !== 'hidden');
           if (el) {
             setWaiting(false);
+            if (step.advanceOnClick) {
+              const onTargetClick = () => window.setTimeout(advanceOnce, 80);
+              el.addEventListener('click', onTargetClick, { once: true });
+              detachTargetClick = () => el.removeEventListener('click', onTargetClick);
+            }
             try {
               el.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
             } catch {}
@@ -497,9 +520,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           } else if (step.optional) {
             // Element never appeared → silently defer + advance.
             deferCurrent().then(() => {
-              if (cancelled) return;
-              if (stepIndex < active.steps.length - 1) setStepIndex(stepIndex + 1);
-              else finishInternal();
+              advanceOnce();
             });
           } else if (!cancelled) {
             setWaiting(true);
@@ -525,14 +546,14 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
         const ok = await evaluateGuard(step.waitFor!, guardCtx);
         if (ok && !cancelled) {
           if (waitInterval) clearInterval(waitInterval);
-          if (stepIndex < active.steps.length - 1) setStepIndex(stepIndex + 1);
-          else finishInternal();
+          advanceOnce();
         }
       }, 3000);
     }
 
     return () => {
       cancelled = true;
+      detachTargetClick?.();
       if (waitInterval) clearInterval(waitInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -653,6 +674,12 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   // Skip this step for now → push to deferred queue, advance once. Silent.
   const skipForNow = useCallback(async () => {
     if (!active || !step) return;
+    // Housekeeper step-skips are a user choice, not missing work that should
+    // generate an unsolicited resume prompt later in the middle of a shift.
+    if (active.slug === 'v2_housekeeper_first_day') {
+      next();
+      return;
+    }
     const entry: DeferredStep = {
       slug: active.slug,
       stepKey: step.key,

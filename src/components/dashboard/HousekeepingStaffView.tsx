@@ -593,8 +593,9 @@ export function HousekeepingStaffView() {
           <div className="space-y-3">
             {visibleAssignments
               .map((assignment) => (
+                <div key={assignment.id} data-training="assigned-room-card" data-training-room-status={assignment.status}>
+                <div data-training={assignment.status === 'in_progress' ? 'active-assigned-room' : undefined}>
                 <ErrorBoundary
-                  key={assignment.id}
                   context={`AssignedRoomCard:${assignment.id}`}
                   fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
                   fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
@@ -604,6 +605,8 @@ export function HousekeepingStaffView() {
                     onStatusUpdate={handleStatusUpdate}
                   />
                 </ErrorBoundary>
+                </div>
+                </div>
               ))}
           </div>
         )}
