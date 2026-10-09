@@ -65,11 +65,11 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
     if (!canChange) return;
     try {
       const keys = await resolveHotelKeys(hotelName);
+      const hotelKeys = keys.length ? keys : [hotelName];
       const { data, error } = await supabase.from('rooms')
         .select('id,hotel,room_number,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
         .in('hotel', hotelKeys);
       if (error) throw error;
-      const hotelKeys = keys.length ? keys : [hotelName];
       const latest: DisplayNotice[] = [];
       const isPrevioClient = await hotelUsesPrevio(hotelKeys);
       const isSlnt = hotelKeys.some(key =>

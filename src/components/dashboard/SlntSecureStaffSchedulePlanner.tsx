@@ -61,10 +61,10 @@ type RosterDayDraft = {
   notes: string;
 };
 
-const localDate = (day: string) => new Date(\`\${day}T12:00:00\`);
+const localDate = (day: string) => new Date(`${day}T12:00:00`);
 const iso = (date: Date) => format(date, 'yyyy-MM-dd');
 const monday = (day: string) => iso(startOfWeek(localDate(day), { weekStartsOn: 1 }));
-const key = (user: string, date: string) => \`\${user}|\${date}\`;
+const key = (user: string, date: string) => `${user}|${date}`;
 const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const defaultRosterDays = (): RosterDayDraft[] =>
   weekdayNames.map((_, index) => ({
@@ -114,7 +114,7 @@ export function SlntSecureStaffSchedulePlanner() {
   // Team View's "Open Staff schedule" CTA preserves the chosen working day.
   useEffect(() => {
     if (!profile?.assigned_hotel || !['slnt', 'slnt-group'].includes(org ?? '')) return;
-    const storageKey = \`slnt-roster-target:\${profile.assigned_hotel}\`;
+    const storageKey = `slnt-roster-target:${profile.assigned_hotel}`;
     let target: string | null = null;
     try {
       target = window.sessionStorage.getItem(storageKey);
@@ -356,7 +356,7 @@ export function SlntSecureStaffSchedulePlanner() {
     if (busy || !hotel || !drafts.length || org !== 'slnt') return;
     if (
       !window.confirm(
-        \`Publish \${drafts.length} drafts for this week? Only their assigned employees will see the shifts.\`,
+        `Publish ${drafts.length} drafts for this week? Only their assigned employees will see the shifts.`,
       )
     ) {
       return;
@@ -372,7 +372,7 @@ export function SlntSecureStaffSchedulePlanner() {
         },
       );
       if (publishError) throw new Error(publishError.message);
-      toast.success(\`\${data} shifts published\`);
+      toast.success(`${data} shifts published`);
       await load();
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'Could not publish');
@@ -399,7 +399,7 @@ export function SlntSecureStaffSchedulePlanner() {
       if (copyError) throw new Error(copyError.message);
       const result = data as { copied?: number; skipped?: number } | null;
       toast.info(
-        \`Copied \${result?.copied ?? 0} shifts as drafts; skipped \${result?.skipped ?? 0}.\`,
+        `Copied ${result?.copied ?? 0} shifts as drafts; skipped ${result?.skipped ?? 0}.`,
       );
       await load();
     } catch (cause) {
@@ -420,7 +420,7 @@ export function SlntSecureStaffSchedulePlanner() {
           .filter(Boolean)
           .join(' ');
         const haystack =
-          \`\${person.full_name} \${person.nickname ?? ''} \${employeeVenueNames}\`.toLowerCase();
+          `${person.full_name} ${person.nickname ?? ''} ${employeeVenueNames}`.toLowerCase();
         if (!haystack.includes(search.trim().toLowerCase())) return false;
         if (
           filterVenue !== 'all' &&
@@ -548,7 +548,7 @@ export function SlntSecureStaffSchedulePlanner() {
     setSelectionAnchor(null);
     setSelectionMode(true);
     toast.success(
-      \`Copied \${cells.filter((item) => item.shift).length} shift\${cells.filter((item) => item.shift).length === 1 ? '' : 's'}. Select the target cells and paste.\`,
+      `Copied ${cells.filter((item) => item.shift).length} shift${cells.filter((item) => item.shift).length === 1 ? '' : 's'}. Select the target cells and paste.`,
     );
   }, [selectedCells, shown, days, shiftMap]);
 
@@ -579,7 +579,7 @@ export function SlntSecureStaffSchedulePlanner() {
     const minRow = Math.min(...targets.map((item) => item.row));
     const minCol = Math.min(...targets.map((item) => item.col));
     const sourceByPosition = new Map(
-      clipboard.cells.map((item) => [\`\${item.rowOffset}|\${item.colOffset}\`, item.shift]),
+      clipboard.cells.map((item) => [`${item.rowOffset}|${item.colOffset}`, item.shift]),
     );
 
     const items: Array<{
@@ -597,7 +597,7 @@ export function SlntSecureStaffSchedulePlanner() {
     for (const target of targets) {
       const sourceRow = (target.row - minRow) % clipboard.height;
       const sourceCol = (target.col - minCol) % clipboard.width;
-      const source = sourceByPosition.get(\`\${sourceRow}|\${sourceCol}\`);
+      const source = sourceByPosition.get(`${sourceRow}|${sourceCol}`);
       if (!source) continue;
 
       const targetPerson = shown[target.row];
@@ -636,7 +636,7 @@ export function SlntSecureStaffSchedulePlanner() {
     let overwritePublished = false;
     if (publishedTargets > 0) {
       overwritePublished = window.confirm(
-        \`\${publishedTargets} selected target\${publishedTargets === 1 ? '' : 's'} already contain a published shift.\n\nOK = replace those published shifts as drafts.\nCancel = keep published shifts and paste into the other selected cells only.\`,
+        `${publishedTargets} selected target${publishedTargets === 1 ? '' : 's'} already contain a published shift.\n\nOK = replace those published shifts as drafts.\nCancel = keep published shifts and paste into the other selected cells only.`,
       );
     }
 
@@ -653,11 +653,11 @@ export function SlntSecureStaffSchedulePlanner() {
       if (pasteError) throw new Error(pasteError.message);
       const result = data as { applied?: number; skipped_published?: number } | null;
       const details = [
-        \`\${result?.applied ?? 0} shift\${(result?.applied ?? 0) === 1 ? '' : 's'} pasted as drafts\`,
+        `${result?.applied ?? 0} shift${(result?.applied ?? 0) === 1 ? '' : 's'} pasted as drafts`,
         (result?.skipped_published ?? 0) > 0
-          ? \`\${result?.skipped_published} published kept\`
+          ? `${result?.skipped_published} published kept`
           : '',
-        skippedVenueMismatch > 0 ? \`\${skippedVenueMismatch} venue mismatch skipped\` : '',
+        skippedVenueMismatch > 0 ? `${skippedVenueMismatch} venue mismatch skipped` : '',
       ]
         .filter(Boolean)
         .join(' · ');
@@ -793,7 +793,7 @@ export function SlntSecureStaffSchedulePlanner() {
 
       toast.success(
         applyRosterForward
-          ? \`Default roster saved · \${generated} future drafts created · \${skipped} existing dates kept\`
+          ? `Default roster saved · ${generated} future drafts created · ${skipped} existing dates kept`
           : 'Default roster saved',
       );
       setRosterPerson(null);
@@ -822,7 +822,7 @@ export function SlntSecureStaffSchedulePlanner() {
         ? 'Restricted venue'
         : shift.status === 'off'
           ? 'Day off'
-          : \`\${shift.shift_start.slice(0, 5)}–\${shift.shift_end.slice(0, 5)}\`;
+          : `${shift.shift_start.slice(0, 5)}–${shift.shift_end.slice(0, 5)}`;
     const locationNames =
       shift && !restricted
         ? shift.staff_schedule_venues
@@ -832,7 +832,7 @@ export function SlntSecureStaffSchedulePlanner() {
     const location =
       locationNames.length <= 2
         ? locationNames.join(', ')
-        : \`\${locationNames.length} venues · \${locationNames.slice(0, 2).join(', ')}…\`;
+        : `${locationNames.length} venues · ${locationNames.slice(0, 2).join(', ')}…`;
 
     return (
       <button
@@ -853,7 +853,7 @@ export function SlntSecureStaffSchedulePlanner() {
         onDoubleClick={() => {
           if (!restricted && !busy) open(person, date);
         }}
-        aria-label={\`\${person.full_name}, \${date}, \${title}\`}
+        aria-label={`${person.full_name}, ${date}, ${title}`}
         aria-pressed={selected}
         className={[
           'w-full min-h-20 rounded-lg border p-2.5 text-left transition',
@@ -866,7 +866,7 @@ export function SlntSecureStaffSchedulePlanner() {
           'disabled:opacity-60',
         ].join(' ')}
       >
-        <span className={\`text-xs font-semibold \${!shift ? 'text-muted-foreground' : ''}\`}>
+        <span className={`text-xs font-semibold ${!shift ? 'text-muted-foreground' : ''}`}>
           {title}
         </span>
         {shift?.status !== 'off' && shift && !restricted && (
@@ -1110,7 +1110,7 @@ export function SlntSecureStaffSchedulePlanner() {
             )}
             <span className="text-xs text-muted-foreground">
               {selectedCells.size
-                ? \`\${selectedCells.size} cell\${selectedCells.size === 1 ? '' : 's'} selected\`
+                ? `${selectedCells.size} cell${selectedCells.size === 1 ? '' : 's'} selected`
                 : clipboard
                   ? 'Copied pattern ready. Select target cells, then paste.'
                   : 'Tip: Select cells, then Shift-click to select a range. Cmd/Ctrl+C and Cmd/Ctrl+V also work.'}
@@ -1167,7 +1167,7 @@ export function SlntSecureStaffSchedulePlanner() {
                             <div className={isToday ? 'font-bold text-primary' : 'font-semibold'}>
                               {format(localDate(day), 'EEE')}
                             </div>
-                            <div className={\`text-xs \${isToday ? 'font-semibold text-primary' : 'text-muted-foreground'}\`}>
+                            <div className={`text-xs ${isToday ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>
                               {format(localDate(day), 'MMM d')}
                             </div>
                             <div className="mt-0.5 text-[10px] text-muted-foreground">
@@ -1268,7 +1268,7 @@ export function SlntSecureStaffSchedulePlanner() {
                 {shown.map((person) => (
                   <div
                     key={person.id}
-                    className={\`rounded-lg border p-3 \${highlightedPerson === person.id ? 'border-primary/50 bg-primary/5' : ''}\`}
+                    className={`rounded-lg border p-3 ${highlightedPerson === person.id ? 'border-primary/50 bg-primary/5' : ''}`}
                   >
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <button
@@ -1461,7 +1461,7 @@ export function SlntSecureStaffSchedulePlanner() {
         <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              Default roster{rosterPerson ? \` · \${rosterPerson.full_name}\` : ''}
+              Default roster{rosterPerson ? ` · ${rosterPerson.full_name}` : ''}
             </DialogTitle>
           </DialogHeader>
 
@@ -1536,7 +1536,7 @@ export function SlntSecureStaffSchedulePlanner() {
                       {day.is_working ? 'Working' : 'Off'}
                     </label>
                     <Input
-                      aria-label={\`\${weekdayNames[day.iso_weekday - 1]} start\`}
+                      aria-label={`${weekdayNames[day.iso_weekday - 1]} start`}
                       type="time"
                       className="h-8"
                       disabled={!day.is_working}
@@ -1552,7 +1552,7 @@ export function SlntSecureStaffSchedulePlanner() {
                       }
                     />
                     <Input
-                      aria-label={\`\${weekdayNames[day.iso_weekday - 1]} end\`}
+                      aria-label={`${weekdayNames[day.iso_weekday - 1]} end`}
                       type="time"
                       className="h-8"
                       disabled={!day.is_working}

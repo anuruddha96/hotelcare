@@ -28,6 +28,7 @@ import {
   loadActiveSlntTeamScope,
   summarizeTeamWorkload,
   slntTeamBPropertyKey,
+  type TeamWorkloadRoom,
 } from '@/lib/slntTeamHousekeepingScope';
 import {
   isMissingTeamBOptionalSchemaError,
@@ -308,7 +309,7 @@ export function SlntSelectedDateAssignmentPlanner({ open, onOpenChange, selected
 
       const mappedRooms = filterRoomsToMappedTeam(roomResult.data || [], teamScope.roomIds);
       if (mappedRooms.length !== teamScope.roomIds.length) throw new Error(`Team B room registry is incomplete: ${mappedRooms.length}/${teamScope.roomIds.length} mapped rooms are available.`);
-      const scopedSnapshot = filterSnapshotRowsToMappedRooms((snapshotResult.data || []) as DailyOverviewWorkRow[], mappedRooms);
+      const scopedSnapshot = filterSnapshotRowsToMappedRooms((snapshotResult.data || []) as DailyOverviewWorkRow[], mappedRooms as unknown as Array<Pick<TeamWorkloadRoom, 'pms_metadata' | 'room_number'>>);
       const workload = buildSelectedDateHousekeepingWorkload(mappedRooms, scopedSnapshot, selectedDate);
       const savedOwners = new Map<string, string>(tasks.flatMap(task =>
         task.status !== 'cancelled' && task.planned_candidate_user_id && selected.has(task.planned_candidate_user_id)

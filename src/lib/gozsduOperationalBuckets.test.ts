@@ -4,7 +4,7 @@ import { resolveGozsduOperationalBucket, selectGozsduOperationalRooms } from './
 describe('Gozsdu shared operational bucket authority', () => {
   const room = (id: string, hotel = 'gozsdu-court', currentNight = 2, totalNights = 5) => ({
     id, hotel, room_number: id, is_checkout_room: false, guest_nights_stayed: null,
-    pms_metadata: { currentNight, totalNights, pmsSyncDate: '2026-09-28', isNoShow: false },
+    pms_metadata: { currentNight, totalNights, pmsSyncDate: '2026-09-28', isNoShow: false } as Record<string, unknown>,
   });
 
   it('prefers the room row that owns today assignment before canonical hotel alias', () => {

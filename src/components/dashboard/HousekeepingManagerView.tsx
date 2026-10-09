@@ -438,7 +438,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     let assignmentRefreshTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleAssignmentRefresh = () => {
       if (assignmentRefreshTimer) window.clearTimeout(assignmentRefreshTimer);
-      assignmentRefreshTimer = window.setTimeout(() => {
+      assignmentRefreshTimer = setTimeout(() => {
         assignmentRefreshTimer = null;
         console.log('Assignment changes settled, refreshing manager data');
         void Promise.all([fetchTeamAssignments(), fetchRoomAssignments()]);

@@ -106,7 +106,7 @@ export function GozsduLinenManagement() {
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleRefresh = () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => {
+      refreshTimer = setTimeout(() => {
         refreshTimer = null;
         void load();
       }, 650);

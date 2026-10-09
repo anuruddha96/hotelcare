@@ -209,7 +209,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     const scheduleRefresh = () => {
       if (cancelled) return;
       if (debounceTimer) window.clearTimeout(debounceTimer);
-      debounceTimer = window.setTimeout(() => {
+      debounceTimer = setTimeout(() => {
         debounceTimer = null;
         void runRefresh();
       }, 650);
