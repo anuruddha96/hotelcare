@@ -386,7 +386,7 @@ Deno.serve(async req => {
         const { data:acc, error:accError } = await admin.from("pms_accounts")
           .select("id,hotel_id,organization_slug,pms_type,is_active,sync_paused")
           .eq("id",job.account_id).maybeSingle();
-        if (accError || !acc || acc.id !== job.target_key.slice(8)
+        if (accError || !acc || acc.organization_slug !== "slnt" || acc.id !== job.target_key.slice(8)
             || acc.hotel_id !== job.hotel_id
             || acc.organization_slug !== job.organization_slug
             || acc.pms_type !== "previo" || !acc.is_active || acc.sync_paused) {
