@@ -198,10 +198,10 @@ export function GozsduLaundrynerTasksV2() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!eligible) return;
-    let refreshTimer: ReturnType<typeof window.setTimeout> | null = null;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleRefresh = () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => {
+      refreshTimer = setTimeout(() => {
         refreshTimer = null;
         void load(true);
       }, 650);

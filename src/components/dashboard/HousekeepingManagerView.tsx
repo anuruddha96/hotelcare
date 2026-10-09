@@ -435,10 +435,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   // reconciliation may mutate dozens of assignments in one burst. Refresh the
   // manager summaries once per burst instead of twice for every changed row.
   useEffect(() => {
-    let assignmentRefreshTimer: ReturnType<typeof window.setTimeout> | null = null;
+    let assignmentRefreshTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleAssignmentRefresh = () => {
       if (assignmentRefreshTimer) window.clearTimeout(assignmentRefreshTimer);
-      assignmentRefreshTimer = window.setTimeout(() => {
+      assignmentRefreshTimer = setTimeout(() => {
         assignmentRefreshTimer = null;
         console.log('Assignment changes settled, refreshing manager data');
         void Promise.all([fetchTeamAssignments(), fetchRoomAssignments()]);
