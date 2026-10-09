@@ -222,7 +222,7 @@ describe('housekeeper training interaction safety', () => {
     const { resolve } = await import('node:path');
     const overlay = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingOverlayV2.tsx'), 'utf8');
     const engine = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingV2Provider.tsx'), 'utf8');
-    expect(overlay).toContain('isHousekeeperTour && (');
+    expect(overlay).toContain('isGuidedTour && (');
     expect(overlay).toContain('onClick={skipForNow}');
     expect(overlay).toContain('onClick={isGuidedTour ? pause : () => setConfirmExit(true)}');
     expect(overlay).not.toContain("if (e.key === 'Tab'");
