@@ -92,7 +92,7 @@ async function callEdge(url: string, serviceKey: string, name: string, payload: 
 // The existing server room preflight refreshes Previo's physical room statuses.
 // The manual PMS button also refreshes checkout/daily classification; do this
 // only after a fresh authoritative date-specific reservation snapshot passes.
-async function syncStandardHotel(admin: any, url: string, service: string, secret: string, hotelId: string, date: string) {
+async function syncStandardHotel(admin: any, url: string, service: string, secret: string, hotelId: string, date: string, trigger = "portfolio_morning_10min") {
   const ottofiori = hotelId === "ottofiori";
   const nextDate = new Date(Date.parse(`${date}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
   await callEdge(url, service, "housekeeping-pms-preflight-worker", { mode: "sync_hotel", hotel_id: hotelId }, secret);
@@ -324,13 +324,52 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     }).eq("id", pair.id);
     if (updateError) throw new Error(`${hotelId}: mapped room update failed: ${updateError.message}`);
   }
+  // The screen reads room_assignments as well as rooms. A full PMS refresh
+  // must reconcile untouched assignments to the same authoritative date so
+  // stale checkout work never survives a correct server-side room update.
+  const { data: todayAssignments, error: assignmentError } = await admin.from("room_assignments")
+    .select("id,room_id,assignment_type,status,ready_to_clean")
+    .eq("assignment_date",date).in("room_id", [...usedRoomIds])
+    .in("status",["assigned","dnd_pending_retry","in_progress"]);
+  if (assignmentError) throw new Error(`${hotelId}: could not load today's assignments: ${assignmentError.message}`);
+  const { data: updatedRoomRows, error: roomStateError } = await admin.from("rooms")
+    .select("id,is_checkout_room,pms_metadata").in("id",[...usedRoomIds]);
+  if (roomStateError || !updatedRoomRows || updatedRoomRows.length !== usedRoomIds.size) {
+    throw new Error(`${hotelId}: could not verify updated room states for assignments`);
+  }
+  const syncedRoomById = new Map(updatedRoomRows.map((r: any)=>[String(r.id),r]));
+  let assignmentsCorrected = 0;
+  for (const assignment of todayAssignments || []) {
+    const r:any = syncedRoomById.get(String(assignment.room_id));
+    if (!r) continue;
+    const isCheckout = r.is_checkout_room === true;
+    const desiredType = isCheckout ? "checkout_cleaning" : "daily_cleaning";
+    const meta = r.pms_metadata || {};
+    const checkoutReleased = meta.checkedOutToday === true
+      || (meta.manualReadyToCleanAt && String(meta.manualReadyToCleanAt).slice(0,10)===date)
+      || (meta.readyToClean === true && String(meta.readyToCleanDate||meta.checkedOutAt||"").slice(0,10)===date);
+    const desiredRTC = isCheckout ? Boolean(checkoutReleased) : true;
+    const maySwitchType = assignment.status !== "in_progress" ||
+      (assignment.assignment_type==="checkout_cleaning" && !isCheckout);
+    if (!maySwitchType) continue;
+    const hasTypeMismatch = assignment.assignment_type!==desiredType;
+    const hasRtcMismatch = Boolean(assignment.ready_to_clean)!==desiredRTC;
+    if(!hasTypeMismatch && !hasRtcMismatch)continue;
+    // Do not modify completed work, staff ownership, managers' notes or user
+    // status. Only reconcile an active task's PMS-derived type/readiness.
+    const { error: fixError } = await admin.from("room_assignments").update({
+      assignment_type:desiredType, ready_to_clean:desiredRTC,updated_at:new Date().toISOString()
+    }).eq("id", assignment.id).in("status",["assigned","dnd_pending_retry","in_progress"]);
+    if (fixError) throw new Error(`${hotelId}: assignment ${assignment.id} reconciliation failed: ${fixError.message}`);
+    assignmentsCorrected++;
+  }
   const unmatchedSnapshots = snapshots.length - usedSnapshots.size;
   const status = unmatchedSnapshots || skippedUnknown ? "partial" : "success";
   const { error: historyError } = await admin.from("pms_sync_history").insert({
     hotel_id: hotelId, sync_type: "rooms_refresh", direction: "from_previo", sync_status: status,
     error_message: unmatchedSnapshots ? `${unmatchedSnapshots} Previo reservation room(s) lack an active mapped physical room`
       : skippedUnknown ? `${skippedUnknown} room(s) have no authoritative stay; classification preserved` : null,
-    data: { trigger: "portfolio_morning_10min", business_date: date,
+    data: { trigger, business_date: date, assignments_corrected: assignmentsCorrected,
       rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
       manager_overrides_preserved: overridden, unmapped_reservation_rooms: unmatchedSnapshots,
       expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
@@ -340,7 +379,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
   });
   if (historyError) throw new Error(`${hotelId}: PMS history write failed: ${historyError.message}`);
   return { rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
-    unmapped_reservation_rooms: unmatchedSnapshots,
+    unmapped_reservation_rooms: unmatchedSnapshots, assignments_corrected: assignmentsCorrected,
     expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
     rehydrated_rooms: rehydratedGozsduRooms, rehydrated_no_show_rooms: rehydratedNoShowRooms,
     no_show_rooms: noShows, unresolved_rooms: 0, status,
@@ -417,7 +456,8 @@ Deno.serve(async req => {
   }
   try {
     const result = target.type === "hotel"
-      ? await syncStandardHotel(admin, url, service, String(expected.data), target.hotel_id, businessDate)
+      ? await syncStandardHotel(admin, url, service, String(expected.data), target.hotel_id, businessDate,
+          queued ? `global_pms_queue_${body.request_kind}` : "portfolio_morning_10min")
       : await callEdge(url, service, "slnt-pms-morning-sync", {
           mode: "sync_account", account_id: target.account_id
         }, String(expected.data));
