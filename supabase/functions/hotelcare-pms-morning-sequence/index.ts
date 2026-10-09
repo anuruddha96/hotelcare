@@ -2,6 +2,7 @@
 // invokes this endpoint once per ten minutes; no browser session is needed.
 // Existing independent checkout polling, revenue and release preflights stay intact.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "../_shared/previoHousekeepingNote.ts";
 
 const RD_ORDER = ["memories-budapest", "mika-downtown", "ottofiori", "gozsdu-court"];
 const ADMIN_ALERT_EMAIL = "anuruddha.dharmasena@gmail.com";
@@ -101,6 +102,22 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
   });
   if (overview.supported !== true || overview.rowsInserted <= 0) {
     throw new Error(`${hotelId}: authoritative Previo reservations were not refreshed`);
+  }
+  // The old one-click refresh also fetched reservation-level housekeeping
+  // notes, same-guest continuity and no-show detail. The queue uses that same
+  // Previo reader server-side (with service key + Vault worker secret), never
+  // just the thin daily-overview projection.
+  const rich = await callEdge(url, service, "previo-pms-sync", {
+    hotelId, dryRun: true,
+  }, secret);
+  if (rich.reservationDataAuthoritative !== true || rich.businessDate !== date || !Array.isArray(rich.rows)) {
+    throw new Error(`${hotelId}: reservation details are not authoritative for ${date}; full refresh withheld`);
+  }
+  const richByLabel = new Map<string, any>();
+  for (const entry of rich.rows) {
+    const label = String(entry.Room || "").trim().toLowerCase();
+    if (label && richByLabel.has(label)) throw new Error(`${hotelId}: duplicate physical room in Previo reservation details`);
+    if (label) richByLabel.set(label, entry);
   }
   const { data: configurations, error: configError } = await admin.from("pms_configurations")
     .select("id").eq("hotel_id", hotelId).eq("is_active", true).eq("sync_enabled", true).eq("pms_type", "previo");
@@ -363,6 +380,85 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     if (fixError) throw new Error(`${hotelId}: assignment ${assignment.id} reconciliation failed: ${fixError.message}`);
     assignmentsCorrected++;
   }
+  // Complete the same operational note and confirmed stay lifecycle updates
+  // as the browser refresh. Compare-and-swap on room notes protects managers'
+  // contemporaneous edits. Never copy raw OTA/payment notes to the room card.
+  const enrichmentRoomIds = pairs.map(p=>p.id);
+  const {data: enrichedRooms, error: readError} = await admin.from("rooms")
+    .select("id,notes,pms_metadata,is_checkout_room,towel_change_required,linen_change_required")
+    .in("id",enrichmentRoomIds);
+  if(readError || enrichedRooms?.length !== pairs.length) throw new Error(`${hotelId}: cannot verify fresh room notes`);
+  const enrichedById = new Map((enrichedRooms||[]).map((r:any)=>[String(r.id),r]));
+  let notesSynced = 0, managerNotesProtected = 0, extensionsLinked = 0, noteRowsMissing = 0;
+  for(const mapping of mappings) {
+    const roomId = String(mapping.hotelcare_room_id||"");
+    const key = String(mapping.pms_room_name||"").trim().toLowerCase();
+    const richRow = richByLabel.get(key);
+    const room:any = enrichedById.get(roomId);
+    if(!room)continue;
+    if(!richRow) {noteRowsMissing++;continue;}
+    const old = (room.pms_metadata && typeof room.pms_metadata==="object") ? room.pms_metadata : {};
+    const next:any = {...old,
+      pmsProvider:"previo",
+      reservationId: richRow.ReservationId ?? old.reservationId ?? null,
+      guestFingerprint: richRow.GuestFingerprint ?? old.guestFingerprint ?? null,
+      guestIdentityStrength: richRow.GuestIdentityStrength ?? old.guestIdentityStrength ?? "none",
+      reservationStatusId: richRow.RawReservationStatusId ?? null,
+      currentNight: Number(richRow.CurrentNight||0)||null,
+      totalNights: Number(richRow.TotalNights||0)||null,
+      scheduledDepartureTomorrow: richRow.DepartureTomorrow===true,
+      arrivalDate: richRow.ArrivalDate ?? old.arrivalDate ?? null,
+      departureDate: richRow.DepartureDate ?? old.departureDate ?? null,
+    };
+    const operationalNote = pickPrevioHousekeepingNote(richRow);
+    const noteCompare = reconcileSlntPrevioRoomNote(
+      room.notes, old.noteInternal ?? null, operationalNote,
+    );
+    next.noteInternal = operationalNote;
+    if(noteCompare.managerNotePreserved)managerNotesProtected++;
+    if (richRow.ExtensionLinked===true && richRow.ContinuousStayConfidence==="strong"
+      && Array.isArray(richRow.ContinuousStayReservationIds)
+      && richRow.ContinuousStayReservationIds.length>1) {
+      next.continuousStay = {
+        originalArrivalDate:richRow.ContinuousStayOriginalArrival,
+        finalDepartureDate:richRow.ContinuousStayFinalDeparture,
+        currentNight:richRow.ContinuousStayCurrentNight,
+        totalNights:richRow.ContinuousStayTotalNights,
+        reservationIds:richRow.ContinuousStayReservationIds,
+        segments:richRow.ContinuousStaySegments??[],
+        guestFingerprint:richRow.GuestFingerprint??null,
+        guestIdentityStrength:richRow.GuestIdentityStrength??"strong",
+        linkedBy:"previo_chain",confidence:"strong",updatedAt:new Date().toISOString(),
+      };
+      extensionsLinked++;
+    }
+    const isNewUnarrivedGuest = richRow.NotArrived===true
+      || richRow.IsCancelled===true || richRow.IsNoShow===true;
+    const additional:any={pms_metadata:next,updated_at:new Date().toISOString()};
+    if(isNewUnarrivedGuest){
+      additional.towel_change_required=false;
+      additional.linen_change_required=false;
+    }
+    if(richRow.CheckedOut===true && room.is_checkout_room===true){
+      next.checkedOutToday=true;
+      next.checkedOutAt=next.checkedOutAt||new Date().toISOString();
+      next.readyToClean=true;next.readyToCleanDate=date;
+    }
+    // Compare against last synchronized PMS note, not a manager's arbitrary
+    // plain text. Only a PMS-owned field may be replaced.
+    if(noteCompare.changed)additional.notes=noteCompare.notes;
+    let query=admin.from("rooms").update(additional).eq("id",roomId);
+    if(noteCompare.changed)query=room.notes==null?query.is("notes",null):query.eq("notes",room.notes);
+    let result=await query.select("id").maybeSingle();
+    if(result.error)throw new Error(`${hotelId}: failed to reconcile room ${key}: ${result.error.message}`);
+    if(noteCompare.changed && !result.data){
+      delete additional.notes;
+      // Concurrent manager notes win. Keep only confirmed PMS metadata.
+      result=await admin.from("rooms").update(additional).eq("id",roomId).select("id").maybeSingle();
+      if(result.error||!result.data)throw new Error(`${hotelId}: concurrent note reconciliation failed for room ${key}`);
+      managerNotesProtected++;
+    }else if(noteCompare.changed)notesSynced++;
+  }
   const unmatchedSnapshots = snapshots.length - usedSnapshots.size;
   const status = unmatchedSnapshots || skippedUnknown ? "partial" : "success";
   const { error: historyError } = await admin.from("pms_sync_history").insert({
@@ -370,6 +466,8 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     error_message: unmatchedSnapshots ? `${unmatchedSnapshots} Previo reservation room(s) lack an active mapped physical room`
       : skippedUnknown ? `${skippedUnknown} room(s) have no authoritative stay; classification preserved` : null,
     data: { trigger, business_date: date, assignments_corrected: assignmentsCorrected,
+      enriched_notes: notesSynced,manager_notes_protected:managerNotesProtected,
+      strong_extensions_linked:extensionsLinked,rich_roster_unmatched:noteRowsMissing,
       rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
       manager_overrides_preserved: overridden, unmapped_reservation_rooms: unmatchedSnapshots,
       expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
@@ -381,6 +479,8 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
   return { rooms_updated: pairs.length - skippedUnknown, checkout_rooms: checkout, daily_rooms: daily,
     unmapped_reservation_rooms: unmatchedSnapshots, assignments_corrected: assignmentsCorrected,
     expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
+    enriched_notes:notesSynced,manager_notes_protected:managerNotesProtected,
+    strong_extensions_linked:extensionsLinked,rich_roster_unmatched:noteRowsMissing,
     rehydrated_rooms: rehydratedGozsduRooms, rehydrated_no_show_rooms: rehydratedNoShowRooms,
     no_show_rooms: noShows, unresolved_rooms: 0, status,
     ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) };
