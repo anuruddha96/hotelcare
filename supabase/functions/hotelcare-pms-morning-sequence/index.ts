@@ -460,6 +460,26 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       managerNotesProtected++;
     }else if(noteCompare.changed)notesSynced++;
   }
+  // Re-read after rich Previo enrichment. Earlier checkout/daily counters
+  // are not proof that subsequent metadata triggers kept those classifications.
+  // A divergent board must never be logged as a successful full refresh.
+  if (ottofiori) {
+    const { data: afterEnrichment, error: verifyError } = await admin.from("rooms")
+      .select("id,is_checkout_room,pms_metadata").in("id",[...usedRoomIds]);
+    if (verifyError || !afterEnrichment ||
+        afterEnrichment.length !== usedRoomIds.size) {
+      throw new Error("ottofiori: final room bucket verification is incomplete");
+    }
+    const drift = findPmsRoomBucketDrift(
+      updatedRoomRows,afterEnrichment,syncedAt,
+    );
+    if (drift.length) {
+      console.error("[PMS room drift] authoritative checkout states changed after enrichment",{
+        hotelId, businessDate:date, rooms:drift,
+      });
+      throw new Error("ottofiori: room checkout/daily classification changed after verified PMS reconciliation; full refresh not confirmed");
+    }
+  }
   const unmatchedSnapshots = snapshots.length - usedSnapshots.size;
   const status = unmatchedSnapshots || skippedUnknown ? "partial" : "success";
   const { error: historyError } = await admin.from("pms_sync_history").insert({
