@@ -1,0 +1,48 @@
+name: PMS queue single running constraint
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/*pms_queue_single_running_guarantee.sql'
+      - 'supabase/tests/pms_queue_single_running_*'
+      - '.github/workflows/pms-queue-single-running-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pms_queue_invariant_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: pms_queue_invariant_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Assert one full PMS job at a time
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/pms_queue_single_running_fixture.sql \
+            -f supabase/migrations/20261009094000_pms_queue_single_running_guarantee.sql \
+            -f supabase/tests/pms_queue_single_running_integration.sql
