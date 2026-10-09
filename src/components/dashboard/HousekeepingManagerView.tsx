@@ -885,7 +885,8 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       const sub = detail.subTab;
-      if (sub === 'team' || sub === 'early-signout') setInnerTab(sub);
+      if (sub === 'manage' || sub === 'team') setInnerTab('team');
+      else if (sub === 'early-signout') setInnerTab(sub);
     };
     window.addEventListener('tour:navigate', handler);
     window.addEventListener('training-navigate', handler);
