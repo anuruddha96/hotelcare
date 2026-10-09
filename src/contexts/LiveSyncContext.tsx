@@ -8,7 +8,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
+import type { PmsSyncStatus } from "@/lib/pmsRefresh";
+import { runQueuedPmsRefresh } from "@/lib/pmsRefreshQueue";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { startOfBudapestDayUtc, todayBudapest } from "@/lib/budapestTime";
@@ -20,7 +21,7 @@ import {
 export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
 export interface TaskState {
-  status: PmsSyncStatus | "syncing";
+  status: PmsSyncStatus | "syncing" | "queued";
   lastAt: Date | null;
   message?: string;
   meta?: Record<string, any>;
@@ -28,7 +29,7 @@ export interface TaskState {
 
 export interface RefreshOutcome {
   ran: boolean;
-  status: PmsSyncStatus | "syncing" | "skipped" | "error";
+  status: PmsSyncStatus | "syncing" | "skipped" | "error" | "queued";
   message?: string;
   meta?: Record<string, any>;
 }
@@ -137,6 +138,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase
         .from("pms_sync_history")
         .select("created_at, sync_status, data")
+        .eq("sync_type","rooms_refresh")
         .in("hotel_id", keys.length ? keys : [hotelId])
         .order("created_at", { ascending: false })
         .limit(1)
@@ -164,7 +166,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     lastRunRef.current.pms = now;
     setTasks((p) => ({ ...p, pms: { ...p.pms, status: "syncing" } }));
     try {
-      const r = await runPmsRefresh(hotelId);
+      const r = await runQueuedPmsRefresh(hotelId);
       setTasks((p) => ({
         ...p,
         pms: { status: r.status, lastAt: new Date(), meta: r },
@@ -282,6 +284,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase
         .from("pms_sync_history")
         .select("created_at, sync_status")
+        .eq("sync_type","rooms_refresh")
         .in("hotel_id", keys.length ? keys : [hotelId])
         .gte("created_at", startOfBudapestDayUtc(today))
         .in("sync_status", ["success", "partial"])
