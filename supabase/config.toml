@@ -277,3 +277,6 @@ verify_jwt = false
 # Set HOTELCARE_APP_URL to the canonical signed-in app origin used in ticket links.
 [functions.maintenance-sla-escalation]
 verify_jwt = false
+
+[functions.pms-refresh-queue-worker]
+verify_jwt = false

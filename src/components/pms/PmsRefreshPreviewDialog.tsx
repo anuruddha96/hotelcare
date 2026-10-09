@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { runPmsRefresh, type ProposedRoomChange } from "@/lib/pmsRefresh";
+import { runQueuedPmsRefresh } from "@/lib/pmsRefreshQueue";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -87,9 +88,12 @@ export function PmsRefreshPreviewDialog({ hotelId, open, onOpenChange, onApplied
   const apply = async () => {
     setApplying(true);
     try {
-      const res = await runPmsRefresh(hotelId, { dryRun: false });
-      toast.success(`PMS refresh complete — ${res.updated} updated, ${res.checkouts} checkouts, ${res.notFound} unmapped`);
-      onApplied?.();
+      const res = await runQueuedPmsRefresh(hotelId);
+      if (res.status === "error") throw new Error(res.errors.join(" | ") || "PMS refresh failed");
+      if (res.status === "queued") toast.message("PMS refresh queued", { description: res.managerMessage });
+      else if (res.status === "partial") toast.warning("PMS refresh partial", { description: res.managerMessage });
+      else toast.success(`PMS refresh complete — ${res.updated} rooms updated · ${res.checkouts} checkouts`);
+      if (res.status !== "queued") onApplied?.();
       onOpenChange(false);
     } catch (e: any) {
       toast.error(`PMS refresh failed: ${e?.message ?? e}`);

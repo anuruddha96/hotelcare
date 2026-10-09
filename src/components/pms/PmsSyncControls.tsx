@@ -9,7 +9,7 @@ import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck, CheckCircle2 } from "lucide-react";
 import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
 import { useAuth } from "@/hooks/useAuth";
-import { runPmsRefresh } from "@/lib/pmsRefresh";
+import { runQueuedPmsRefresh } from "@/lib/pmsRefreshQueue";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -91,19 +91,25 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const doSync = async () => {
     setSyncing(true);
     try {
-      const result = await runPmsRefresh(cfg.hotel_id);
-      if (result.status === "partial") {
-        toast.warning("PMS data incomplete", {
-          description: result.managerMessage || `${result.updated} rooms updated, but checkout/daily data was not complete.`,
+      const result = await runQueuedPmsRefresh(cfg.hotel_id);
+      if (result.status === "queued") {
+        toast.message("PMS refresh queued", {
+          description: result.managerMessage || "Your refresh will run when the active PMS refresh finishes.",
         });
+      } else if (result.status === "error") {
+        toast.error("PMS refresh failed", { description: result.errors.join(" | ") || result.managerMessage });
+      } else if (result.status === "partial") {
+        toast.warning("PMS data incomplete", { description: result.managerMessage || "Review PMS Sync History." });
       } else {
         toast.success("✨ PMS sync completed", {
           description: `${result.updated} rooms updated · ${result.checkouts} checkout rooms`,
         });
       }
-      setSuccessPulse(true);
-      try { window.dispatchEvent(new CustomEvent('pms-sync-completed')); } catch { /* noop */ }
-      setTimeout(() => setSuccessPulse(false), 1400);
+      if (result.status === "success" || result.status === "partial") {
+        setSuccessPulse(true);
+        try { window.dispatchEvent(new CustomEvent('pms-sync-completed')); } catch { /* noop */ }
+        setTimeout(() => setSuccessPulse(false), 1400);
+      }
       await loadCfg();
       await loadPending(cfg.hotel_id);
     } catch (e) {
