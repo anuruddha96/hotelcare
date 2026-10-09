@@ -531,6 +531,31 @@ Deno.serve(async req => {
   const target = queued ? targets.find(t => t.key === body.target_key) : targets[slot];
   if (!target) return json({ ok: false, error: "The requested PMS target is not active" }, 400);
   const businessDate = clock.date;
+  // The Vault secret alone is not sufficient to start work: every queued
+  // execution must own a currently running, unexpired database claim for the
+  // exact job, target and attempt. This rejects replayed/late worker calls.
+  if (queued) {
+    if (typeof body.job_id !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.job_id) ||
+        !Number.isInteger(body.attempt) || body.attempt < 1) {
+      return json({ ok:false,error:"Missing queued PMS job claim" },400);
+    }
+    const { data:runningJob, error:jobError } = await admin.from("pms_refresh_queue")
+      .select("id,target_key,hotel_id,business_date,request_kind,status,attempt,lease_expires_at")
+      .eq("id",body.job_id).maybeSingle();
+    if (jobError || !runningJob ||
+        runningJob.status !== "running" ||
+        runningJob.target_key !== target.key ||
+        runningJob.hotel_id !== target.hotel_id ||
+        runningJob.business_date !== businessDate ||
+        runningJob.business_date !== body.business_date ||
+        runningJob.request_kind !== body.request_kind ||
+        runningJob.attempt !== body.attempt ||
+        !runningJob.lease_expires_at ||
+        new Date(runningJob.lease_expires_at).getTime() <= Date.now()) {
+      return json({ ok:false,error:"PMS job claim is no longer active" },409);
+    }
+  }
   // Queue worker has already claimed the global mutex and owns its execution
   // audit; never create conflicting daily unique constraints for manual runs.
   const keepMorningAudit = !queued || body.request_kind === "automatic";
