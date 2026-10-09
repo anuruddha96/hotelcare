@@ -57,6 +57,31 @@ const waitForAssignmentStep: TrainingStepV2 = {
   waitFor: 'has_any_assignment_today',
 };
 
+
+const openMyTasksStep: TrainingStepV2 = {
+  key: 'open_my_tasks',
+  phase: t6('2 · Start your room', '2 · Szoba indítása', '2 · Empieza tu habitación', '2 · Bắt đầu phòng', '2 · Өрөөгөө эхлүүлэх', '2 · Початок роботи в номері'),
+  title: t6('Open My Tasks', 'Nyisd meg a Saját feladatok oldalt', 'Abre Mis tareas', 'Mở Công việc của tôi', 'Миний даалгавар хэсгийг нээнэ үү', 'Відкрийте Мої завдання'),
+  body: t6('Tap My Tasks to see your rooms. We will follow along on the actual screen.', 'Koppints a Saját feladatok fülre a szobák megtekintéséhez. A valódi képernyőn vezetünk.', 'Toca Mis tareas para ver tus habitaciones. Te guiaremos en la pantalla real.', 'Nhấn Công việc của tôi để xem các phòng. Hướng dẫn theo màn hình thật.', 'Өрөөнүүдээ харахын тулд Миний даалгавар дээр дарна уу. Бодит дэлгэц дээр чиглүүлнэ.', 'Натисніть Мої завдання, щоб побачити номери. Ми підкажемо прямо на екрані.'),
+  purpose: t6('Your daily work begins here.', 'Itt kezdődik a napi munkád.', 'Aquí comienza tu trabajo diario.', 'Công việc mỗi ngày bắt đầu tại đây.', 'Өдөр тутмын ажил эндээс эхэлнэ.', 'Тут починається щоденна робота.'),
+  route: '/:org',
+  selector: '[data-training="housekeeping-tab"]',
+  advanceOnClick: true,
+};
+
+const roomOverviewStep: TrainingStepV2 = {
+  key: 'room_overview',
+  phase: t6('2 · Start your room', '2 · Szoba indítása', '2 · Empieza tu habitación', '2 · Bắt đầu phòng', '2 · Өрөөгөө эхлүүлэх', '2 · Початок роботи в номері'),
+  title: t6('Find your assigned room', 'Keresd meg a kijelölt szobádat', 'Encuentra tu habitación asignada', 'Tìm phòng được giao', 'Оноосон өрөөгөө олно уу', 'Знайдіть призначений номер'),
+  body: t6('This card shows the room number, status and instructions. Check that it is the correct room. You can continue or skip this tip without changing anything.', 'Ez a kártya a szobaszámot, az állapotot és az utasításokat mutatja. Ellenőrizd, hogy ez a megfelelő szoba. Továbbléphetsz vagy kihagyhatod a tippet, módosítás nélkül.', 'Esta tarjeta muestra el número, el estado y las instrucciones. Confirma que sea la habitación correcta. Puedes continuar u omitir el consejo sin cambiar nada.', 'Thẻ này hiển thị số phòng, trạng thái và hướng dẫn. Kiểm tra đúng phòng trước khi làm. Có thể tiếp tục hoặc bỏ qua mà không thay đổi gì.', 'Энэ карт өрөөний дугаар, төлөв, зааврыг харуулна. Зөв өрөө эсэхийг шалга. Юу ч өөрчлөхгүйгээр үргэлжлүүлж эсвэл алгасаж болно.', 'Ця картка показує номер, стан та інструкції. Перевірте правильність номера. Можна продовжити або пропустити пораду без змін.'),
+  purpose: t6('Review room details before starting work.', 'Munka előtt ellenőrizd a szoba adatait.', 'Revisa los datos antes de comenzar.', 'Xem thông tin trước khi bắt đầu.', 'Ажил эхлэхээс өмнө мэдээллийг шалгана уу.', 'Перевірте деталі перед початком роботи.'),
+  route: '/:org',
+  tab: 'housekeeping',
+  selector: '[data-training="assigned-room-card"]',
+  precondition: 'has_any_assignment_today',
+  optional: true,
+};
+
 /**
  * Small housekeeper curriculum corrections layered on top of the translated
  * base curriculum. Keeping them here avoids rewriting the large curriculum
@@ -72,15 +97,29 @@ export function applyHousekeeperUiFixes(curriculum: TrainingCurriculum): Trainin
         // housekeeper can see exactly what must be used and the target rect is
         // small enough to remain clear of the mobile coaching sheet.
         selector: '[data-training="check-in-button"] [data-training="swipe-action-track"]',
+        skipWhen: 'is_signed_in' as const,
       };
     }
 
     if (step.key === 'my_tasks') {
       return {
         ...step,
-        // Starting the first assigned room is a core part of first-shift
-        // training. Once an assignment exists, do not silently skip it.
-        optional: false,
+        // Do not make a real room start mandatory just to complete training.
+        // When a room is already underway, continue directly to its tools.
+        skipWhen: 'has_in_progress_cleaning' as const,
+        optional: true,
+      };
+    }
+
+    if (step.key === 'breaks') {
+      return { ...step, selector: '[data-training="break-button"]' };
+    }
+
+    if (step.key === 'signout') {
+      return {
+        ...step,
+        selector: '[data-training="sign-out-button"]',
+        precondition: 'has_finished_housekeeping_work_today' as const,
       };
     }
 
@@ -94,30 +133,28 @@ export function applyHousekeeperUiFixes(curriculum: TrainingCurriculum): Trainin
       };
     }
 
-    if (step.key === 'signout') {
-      return {
-        ...step,
-        // Zero assignments after check-in means "waiting for work", not
-        // "finished work". End Shift should only be taught after the user had
-        // housekeeping work today and no active/pending rooms remain.
-        precondition: 'has_finished_housekeeping_work_today' as const,
-      };
+    // Always highlight controls inside the housekeeper's active room.
+    // Otherwise the first matching button might belong to another room.
+    if (step.precondition === 'has_in_progress_cleaning' && step.selector) {
+      const selector = step.key === 'special_instructions'
+        ? '[data-training="room-special-instructions"]'
+        : step.selector;
+      return { ...step, selector: `[data-training="active-assigned-room"] ${selector}` };
     }
 
     return step;
   });
 
   const myTasksIndex = correctedSteps.findIndex((step) => step.key === 'my_tasks');
-  const alreadyInserted = correctedSteps.some((step) => step.key === waitForAssignmentStep.key);
-  if (myTasksIndex < 0 || alreadyInserted) {
-    return { ...curriculum, steps: correctedSteps };
-  }
+  if (myTasksIndex < 0) return { ...curriculum, steps: correctedSteps };
 
   return {
     ...curriculum,
     steps: [
       ...correctedSteps.slice(0, myTasksIndex),
+      openMyTasksStep,
       waitForAssignmentStep,
+      roomOverviewStep,
       ...correctedSteps.slice(myTasksIndex),
     ],
   };
