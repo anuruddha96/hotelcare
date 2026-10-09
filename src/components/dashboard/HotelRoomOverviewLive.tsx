@@ -47,7 +47,7 @@ import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 import { shortUnitLabel } from '@/lib/venueUnitLabel';
-import { matchesSlntBoardFilter, slntSingleRoomLabel } from '@/lib/slntFlatRoomBoard';
+import { matchesSlntBoardFilter } from '@/lib/slntFlatRoomBoard';
 import { isDndForBusinessDate, isNoShowForBusinessDate } from '@/lib/currentRoomTransientFlags';
 import { canAssignSlntRoom, getSlntRoomChipMode } from '@/lib/slntRoomChipBehavior';
 
@@ -2055,7 +2055,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       }
       return (
         <div className={isSlntTenant
-          ? 'slnt-flat-board flex flex-wrap items-start gap-2 min-w-0'
+          ? 'slnt-location-board space-y-1.5 min-w-0'
           : 'divide-y divide-border/60 rounded-md border border-border/50'}>
           {groups.map(group => {
             const color = venueColor(group.key === '__none__' ? null : group.key);
@@ -2100,47 +2100,24 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             } : undefined;
 
             if (isSlntTenant) {
-              // A one-unit property IS the actionable chip: remove the repeated
-              // venue header, counter and generic "Unit" label.
-              if (group.rooms.length === 1 && group.key !== '__none__') {
-                const room = group.rooms[0];
-                const fullLabel = slntSingleRoomLabel(room.room_number, group.name);
-                return (
-                  <div
-                    key={group.key}
-                    className="slnt-single-unit animate-fade-in min-w-0 max-w-full"
-                    data-slnt-venue={group.name}
-                    data-slnt-unassigned={slntIsUnassigned(room) ? 'true' : undefined}
-                  >
-                    {renderRoomChip(room, fullLabel, true)}
-                  </div>
-                );
-              }
-
-              // Multi-unit addresses keep a small named cluster, rather than a
-              // full-width property card; all original room handlers survive.
+              // Match Gozsdu's proven visual structure: one physical venue /
+              // department label on the left, then one independent actionable
+              // chip per room. Never collapse several SLNT rooms into a single
+              // draggable/selectable group.
               return (
                 <div
                   key={group.key}
-                  className="slnt-room-cluster inline-flex flex-wrap items-center gap-1.5 min-w-0 max-w-full"
+                  className="slnt-location-row flex items-start gap-2 min-w-0"
                   data-slnt-venue={group.name}
                 >
-                  <button
-                    type="button"
-                    {...dragProps}
-                    onClick={onPillClick}
-                    title={canDragAssign
-                      ? `${group.name} — select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} or drag the group`
-                      : group.name}
-                    className="slnt-cluster-label inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-1 text-left font-semibold text-xs hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                    style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
+                  <Badge
+                    variant="outline"
+                    className="slnt-location-label mt-0.5 w-[88px] max-w-[88px] shrink-0 whitespace-normal break-words text-center text-[10px] leading-tight sm:w-[110px] sm:max-w-[110px]"
+                    title={group.name}
                   >
-                    <span className="h-4 w-1 shrink-0 rounded-full" style={color ? { backgroundColor: color } : undefined} />
-                    <span className="min-w-0 whitespace-normal break-words">{group.name}</span>
-                    <span className="shrink-0 rounded bg-background px-1 text-[10px] text-muted-foreground">{group.rooms.length}</span>
-                    {selectionEnabled && <span className="text-primary text-[10px]">{allSelected ? '−' : '+'}</span>}
-                  </button>
-                  <div className="slnt-cluster-chips flex min-w-0 flex-wrap items-center gap-1">
+                    {group.name}
+                  </Badge>
+                  <div className="slnt-location-chips flex min-w-0 flex-wrap gap-1.5">
                     {group.rooms.map(room => (
                       <div key={room.id} className="animate-fade-in">
                         {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))}
@@ -2440,7 +2417,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   return (
     <>
-      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-09-23-v4' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
+      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-10-09-v5' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
         <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
           {/* Row 1: Title + actions */}
           <div className="flex items-center justify-between gap-2">
