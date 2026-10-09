@@ -262,10 +262,13 @@ export function SlntSecureStaffSchedulePlanner() {
     };
   }, [load]);
 
-  const eligibleVenues = (person: Person) => {
-    const employeeScopes = scopes.get(person.id) ?? [];
-    return venues.filter((v) => !employeeScopes.length || employeeScopes.includes(v.id));
-  };
+  const eligibleVenues = useCallback(
+    (person: Person) => {
+      const employeeScopes = scopes.get(person.id) ?? [];
+      return venues.filter((v) => !employeeScopes.length || employeeScopes.includes(v.id));
+    },
+    [scopes, venues],
+  );
 
   const editable = (shift: Shift | null | undefined) =>
     !shift ||
@@ -675,8 +678,7 @@ export function SlntSecureStaffSchedulePlanner() {
     shown,
     days,
     shiftMap,
-    scopes,
-    venues,
+    eligibleVenues,
     load,
   ]);
 
@@ -697,9 +699,10 @@ export function SlntSecureStaffSchedulePlanner() {
       if (rosterError) throw new Error(rosterError.message);
 
       const defaults = defaultRosterDays();
-      const templateByDay = new Map<number, any>(
-        (data ?? []).map((row: any) => [Number(row.iso_weekday), row]),
-      );
+      const templateByDay = new Map<number, any>();
+      for (const row of data ?? []) {
+        templateByDay.set(Number((row as any).iso_weekday), row);
+      }
       setRosterDays(
         defaults.map((day) => {
           const saved = templateByDay.get(day.iso_weekday);
