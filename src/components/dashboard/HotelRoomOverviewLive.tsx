@@ -31,6 +31,7 @@ import { HotelFloorMap } from './HotelFloorMap';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { compareRoomAuthority, createOverviewLoadGuard } from '@/lib/roomOverviewAuthority';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import {
@@ -204,6 +205,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const { venues } = useVenues();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
+  const loadGuardRef = useRef(createOverviewLoadGuard());
+  const currentOverviewScope = `${hotelName}|${selectedDate}`;
+  const currentOverviewScopeRef = useRef(currentOverviewScope);
+  currentOverviewScopeRef.current = currentOverviewScope;
+  const [overviewDataError, setOverviewDataError] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
   const [publicAreaTasks, setPublicAreaTasks] = useState<PublicAreaTask[]>([]);
   const [loading, setLoading] = useState(true);
