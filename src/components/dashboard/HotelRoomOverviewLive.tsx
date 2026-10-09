@@ -395,6 +395,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .not('completed_at', 'is', null)
       ]);
 
+      if (!latest()) return;
+      if (roomsRes.error || assignmentsRes.error || !roomsRes.data?.length) {
+        throw new Error(roomsRes.error?.message || assignmentsRes.error?.message ||
+          'Room data incomplete; keeping the previous overview');
+      }
       const assignmentRoomIds = new Set((assignmentsRes.data || []).map((a: any) => a.room_id));
       const dedupedRooms = dedupeRoomsByNumber(roomsRes.data || [], assignmentRoomIds);
       setRooms(dedupedRooms);
