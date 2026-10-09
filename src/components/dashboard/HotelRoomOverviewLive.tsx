@@ -472,8 +472,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       }
     } catch (error) {
       console.error('Error fetching room overview:', error);
+      if (latest()) setOverviewDataError((error as Error)?.message || 'Could not update the room board');
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && latest()) setLoading(false);
     }
   };
 
