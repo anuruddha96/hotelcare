@@ -46,6 +46,9 @@ export async function runQueuedPmsRefresh(hotelId:string):Promise<QueuedPmsRefre
  const requests = (data||[]) as Array<{job_id:string,request_group_id:string,target_key:string}>;
  if(!requests.length) throw new Error("No active Previo accounts for this property.");
  const ids=requests.map(r=>r.job_id);
+ try { window.dispatchEvent(new CustomEvent('pms-manual-refresh-queued', {
+   detail:{groupId:requests[0].request_group_id,jobIds:ids},
+ })); } catch { /* no browser during unit tests */ }
  // Return immediately: a queue request is NOT a completed refresh. Managers
  // receive an instant queued message while LiveSync watches durable job status.
  return {...summarizeQueuedPmsJobs(requests.map(r=>({
