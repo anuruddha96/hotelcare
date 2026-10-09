@@ -83,9 +83,9 @@ function uniqueCandidates<T extends PrevioStayCandidate>(candidates: T[]): T[] {
 }
 
 function keySets(candidate: PrevioStayCandidate) {
-  const strong = new Set(candidate.guestKeys.filter((key) => key.startsWith('strong:')));
-  const name = new Set(candidate.guestKeys.filter((key) => key.startsWith('name:')));
-  return { strong, name };
+  // Only stable PMS guest identifiers can link separate reservations.
+  // Names can coincide, and OTA/group bookings may have similar name strings.
+  return new Set(candidate.guestKeys.filter((key) => key.startsWith('strong:')));
 }
 
 function intersects(a: Set<string>, b: Set<string>): boolean {
@@ -94,8 +94,10 @@ function intersects(a: Set<string>, b: Set<string>): boolean {
 }
 
 /**
- * Strong identifiers are authoritative when both reservations have them.
- * Name matching is a fallback only when at least one segment lacks a strong id.
+ * Two *different* reservations are one verified continuous stay only when
+ * Previo supplies matching stable guest identifiers on both bookings.
+ * Identical names and adjacent dates are never enough for automatic linking:
+ * use the explicit manager Checkout -> Daily action to bridge such cases.
  */
 export function previoGuestRelationship(
   a: PrevioStayCandidate,
@@ -103,10 +105,9 @@ export function previoGuestRelationship(
 ): 'same' | 'different' | 'unknown' {
   const left = keySets(a);
   const right = keySets(b);
-  if (left.strong.size && right.strong.size) {
-    return intersects(left.strong, right.strong) ? 'same' : 'different';
+  if (left.size && right.size) {
+    return intersects(left, right) ? 'same' : 'different';
   }
-  if (left.name.size && right.name.size && intersects(left.name, right.name)) return 'same';
   return 'unknown';
 }
 

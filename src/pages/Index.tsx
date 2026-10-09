@@ -5,8 +5,6 @@ import { Header } from '@/components/layout/Header';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { MasterStaffSchedulePlanner } from '@/components/dashboard/MasterStaffSchedulePlanner';
 import { MaintenanceIssueDeepLink } from '@/components/dashboard/MaintenanceIssueDeepLink';
-import { StayExtensionReviewQueue } from '@/components/dashboard/StayExtensionReviewQueue';
-import { StayServicePolicySettings } from '@/components/dashboard/StayServicePolicySettings';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
 import { isReceptionRole } from '@/lib/roleAccess';
 
@@ -156,18 +154,7 @@ const Index = () => {
         </main>
       ) : (
         <>
-          {profile && MANAGER_ROLES.includes(profile.role) && (
-            <>
-              <StayExtensionReviewQueue
-                hotel={profile.assigned_hotel}
-                organizationSlug={profile.organization_slug || organizationSlug}
-              />
-              <StayServicePolicySettings
-                hotel={profile.assigned_hotel}
-                organizationSlug={profile.organization_slug || organizationSlug}
-              />
-            </>
-          )}
+          {/* Stayover and early-checkout changes are handled in room workflows, not speculative manager-wide review panels. */}
           <Dashboard />
           <MaintenanceIssueDeepLink />
         </>
