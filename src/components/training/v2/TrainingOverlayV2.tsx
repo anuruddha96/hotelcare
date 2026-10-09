@@ -531,7 +531,7 @@ export function TrainingOverlayV2() {
                   <Button
                     size="sm"
                     onClick={next}
-                    disabled={!isGuidedTour && (waiting || requiresAction)}
+                    disabled={!isManagerTour && (waiting || requiresAction)}
                     className="min-h-11 flex-1"
                     aria-label={txt(LABELS.next, lang)}
                   >
