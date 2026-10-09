@@ -92,10 +92,10 @@ BEGIN
   END IF;
 
   SELECT ARRAY(
-    SELECT DISTINCT venue_id
-    FROM unnest(coalesce(_venues, ARRAY[]::uuid[])) AS venue_id
-    WHERE venue_id IS NOT NULL
-    ORDER BY venue_id
+    SELECT DISTINCT item.venue_id
+    FROM unnest(coalesce(_venues, ARRAY[]::uuid[])) AS item(venue_id)
+    WHERE item.venue_id IS NOT NULL
+    ORDER BY item.venue_id
   ) INTO _clean_venues;
 
   SELECT EXISTS (
@@ -301,9 +301,9 @@ BEGIN
     _notes := coalesce(_item->>'notes', '');
 
     SELECT ARRAY(
-      SELECT DISTINCT value::uuid
-      FROM jsonb_array_elements_text(coalesce(_item->'venues', '[]'::jsonb)) AS value
-      ORDER BY value::uuid
+      SELECT DISTINCT venue.value::uuid
+      FROM jsonb_array_elements_text(coalesce(_item->'venues', '[]'::jsonb)) AS venue(value)
+      ORDER BY venue.value::uuid
     ) INTO _venues;
 
     IF _status NOT IN ('draft', 'off') THEN
