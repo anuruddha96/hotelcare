@@ -37,7 +37,7 @@ describe('SLNT Gozsdu-style individual room board', () => {
     expect(board).toContain('slnt-location-label mt-0.5 w-[88px] max-w-[88px]');
     expect(board).toContain('slnt-location-chips flex min-w-0 flex-wrap gap-1.5');
     expect(board).toContain('group.rooms.map(room => (');
-    expect(board).toContain('renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))');
+    expect(board).toContain('{renderRoomChip(room)}');
     expect(board).not.toContain('slnt-room-cluster inline-flex');
     expect(board).not.toContain('slnt-single-unit animate-fade-in');
     expect(board).not.toContain('slntSingleRoomLabel(room.room_number, group.name)');
