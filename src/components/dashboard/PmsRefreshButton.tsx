@@ -60,12 +60,23 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   if (!isManager) return null;
 
   const t = tasks.pms;
-  const busy = t.status === 'syncing';
+  const queued = t.status === 'queued';
+  const busy = t.status === 'syncing' || queued;
   const ageMs = t.lastAt ? Date.now() - t.lastAt.getTime() : null;
   // Fresh = updated within the last 60s -> stronger live feel.
   const isFresh = ageMs !== null && ageMs < 60_000;
 
   const statusMeta = (() => {
+    if (queued) {
+      return {
+        label: 'Queued',
+        Icon: Clock,
+        iconClass: 'text-amber-600',
+        wrapClass: 'border-amber-400/50 bg-amber-50/60 dark:bg-amber-900/10',
+        dotClass: 'bg-amber-500',
+        ringClass: 'bg-amber-400',
+      };
+    }
     if (busy) {
       return {
         label: 'Syncing…',
@@ -168,6 +179,13 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         duration: 6000,
       });
       return;
+    }
+    if (result.status === 'queued') {
+      toast.message('PMS refresh queued', {
+        description: result.message || 'Another refresh is in progress. Your request is next.',
+        duration: 6000,
+      });
+      return; // No success toast or completed broadcast until server jobs finish.
     }
     const meta = result.meta || {};
     const updatedCount = meta.updated ?? meta.upserted ?? 0;
@@ -350,7 +368,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         )}
         <span className="relative z-10 inline-flex items-center gap-1.5">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justSuccess ? <Sparkles className="h-3.5 w-3.5 text-emerald-500" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          <span>{busy ? 'Refreshing' : justSuccess ? 'Synced!' : 'PMS Refresh'}</span>
+          <span>{queued ? 'Queued' : busy ? 'Refreshing' : justSuccess ? 'Synced!' : 'PMS Refresh'}</span>
         </span>
       </Button>
 
