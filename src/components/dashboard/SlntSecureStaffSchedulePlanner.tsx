@@ -64,7 +64,7 @@ type RosterDayDraft = {
 const localDate = (day: string) => new Date(`${day}T12:00:00`);
 const iso = (date: Date) => format(date, 'yyyy-MM-dd');
 const monday = (day: string) => iso(startOfWeek(localDate(day), { weekStartsOn: 1 }));
-const key = (user: string, date: string) => \`\${user}|\${date}\`;
+const key = (user: string, date: string) => `${user}|${date}`;
 const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const defaultRosterDays = (): RosterDayDraft[] =>
   weekdayNames.map((_, index) => ({
