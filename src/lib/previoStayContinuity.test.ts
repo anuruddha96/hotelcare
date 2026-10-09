@@ -79,11 +79,37 @@ describe('Previo continuous stay resolver', () => {
     expect(result.reservationIds).toEqual(['A']);
   });
 
-  it('links a three-reservation extension chain', () => {
+  it('keeps back-to-back room 406 reservations with different guests as a checkout and arrival', () => {
+    const oldStay = candidate({
+      objId: 406, roomName: 'QRP-406', reservationId: 'old-booking',
+      arrivalDate: '2026-10-07', departureDate: '2026-10-08', statusId: 6,
+      guestKeys: ['strong:guest:old'], guestIdentityStrength: 'strong',
+      guestFingerprint: opaquePrevioFingerprint('strong:guest:old'),
+    });
+    const newStay = candidate({
+      objId: 406, roomName: 'QRP-406', reservationId: 'new-booking',
+      arrivalDate: '2026-10-08', departureDate: '2026-10-11', statusId: 3,
+      guestKeys: ['strong:guest:new'], guestIdentityStrength: 'strong',
+      guestFingerprint: opaquePrevioFingerprint('strong:guest:new'),
+    });
+    const result = resolvePrevioContinuousStay([oldStay, newStay], '2026-10-08');
+    expect(result.effective?.reservationId).toBe('old-booking');
+    expect(result.extensionLinked).toBe(false);
+    expect(result.sameDayTurnover).toBe(true);
+    expect(result.turnoverConfidence).toBe('strong');
+    expect(result.reservationIds).toEqual(['old-booking']);
+  });
+
+  it('links a three-reservation extension chain with a verified shared guest identity', () => {
+    const sharedGuest = {
+      guestKeys: ['strong:guest:123'],
+      guestFingerprint: opaquePrevioFingerprint('strong:guest:123'),
+      guestIdentityStrength: 'strong' as const,
+    };
     const rows = [
-      candidate({ reservationId:'A', arrivalDate:'2026-09-30', departureDate:'2026-10-03', statusId:6 }),
-      candidate({ reservationId:'B', arrivalDate:'2026-10-03', departureDate:'2026-10-07', statusId:6 }),
-      candidate({ reservationId:'C', arrivalDate:'2026-10-07', departureDate:'2026-10-09', statusId:3 }),
+      candidate({ ...sharedGuest, reservationId:'A', arrivalDate:'2026-09-30', departureDate:'2026-10-03', statusId:6 }),
+      candidate({ ...sharedGuest, reservationId:'B', arrivalDate:'2026-10-03', departureDate:'2026-10-07', statusId:6 }),
+      candidate({ ...sharedGuest, reservationId:'C', arrivalDate:'2026-10-07', departureDate:'2026-10-09', statusId:3 }),
     ];
     const result = resolvePrevioContinuousStay(rows, '2026-10-07');
     expect(result.reservationIds).toEqual(['A','B','C']);
@@ -125,13 +151,15 @@ describe('Previo continuous stay resolver', () => {
     expect(result.competingArrival?.reservationId).toBe('B');
   });
 
-  it('uses name matching only when strong identity is unavailable', () => {
+  it('does not link bookings merely because names match across a same-day turnover', () => {
     const result = resolvePrevioContinuousStay([
       candidate({ reservationId:'A', arrivalDate:'2026-10-02', departureDate:'2026-10-07', statusId:6 }),
       candidate({ reservationId:'B', arrivalDate:'2026-10-07', departureDate:'2026-10-10', statusId:1 }),
     ], '2026-10-07');
-    expect(result.extensionLinked).toBe(true);
-    expect(result.confidence).toBe('probable');
+    expect(result.extensionLinked).toBe(false);
+    expect(result.reservationIds).toEqual(['A']);
+    expect(result.sameDayTurnover).toBe(true);
+    expect(result.turnoverConfidence).toBe('ambiguous');
   });
 
   it('ignores cancelled and no-show segments', () => {
