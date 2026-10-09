@@ -277,3 +277,9 @@ verify_jwt = false
 # Set HOTELCARE_APP_URL to the canonical signed-in app origin used in ticket links.
 [functions.maintenance-sla-escalation]
 verify_jwt = false
+
+# Queue controller authenticates user JWTs for enqueue/status and the existing
+# Vault-backed housekeeping worker secret for scheduler ticks. No anonymous
+# action is permitted; this worker is dormant until explicit cutover.
+[functions.hotelcare-pms-refresh-queue]
+verify_jwt = false
