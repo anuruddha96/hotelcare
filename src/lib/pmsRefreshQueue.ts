@@ -38,8 +38,6 @@ export function summarizeQueuedPmsJobs(jobs: Array<{
  };
 }
 
-const wait=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
-
 export async function runQueuedPmsRefresh(hotelId:string):Promise<QueuedPmsRefresh> {
  const {data:session}=await supabase.auth.getSession();
  if(!session.session?.access_token)throw new Error("Sign in again to refresh the PMS.");
@@ -48,17 +46,12 @@ export async function runQueuedPmsRefresh(hotelId:string):Promise<QueuedPmsRefre
  const requests = (data||[]) as Array<{job_id:string,request_group_id:string,target_key:string}>;
  if(!requests.length) throw new Error("No active Previo accounts for this property.");
  const ids=requests.map(r=>r.job_id);
- // Poll for a short period so most users see the real result. The queue is
- // durable: if they close the page, the server continues the refresh.
- const deadline=Date.now()+90_000;
- let jobs:any[]=requests.map(r=>({...r,status:"queued"}));
- do {
-   const {data:rows,error:readError}=await (supabase as any).from("pms_refresh_queue")
-      .select("id,target_key,status,result,error_message").in("id",ids);
-   if(!readError && Array.isArray(rows) && rows.length===ids.length)jobs=rows;
-   const summary=summarizeQueuedPmsJobs(jobs);
-   if(summary.status!=="queued")return {...summary,jobIds:ids};
-   if(Date.now()>=deadline)return {...summary,jobIds:ids};
-   await wait(2500);
- } while(true);
+ try { window.dispatchEvent(new CustomEvent('pms-manual-refresh-queued', {
+   detail:{groupId:requests[0].request_group_id,jobIds:ids},
+ })); } catch { /* no browser during unit tests */ }
+ // Return immediately: a queue request is NOT a completed refresh. Managers
+ // receive an instant queued message while LiveSync watches durable job status.
+ return {...summarizeQueuedPmsJobs(requests.map(r=>({
+  target_key:r.target_key,status:"queued",
+ }))),jobIds:ids};
 }
