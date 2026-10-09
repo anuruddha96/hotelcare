@@ -76,6 +76,9 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         ringClass: 'bg-primary/60',
       };
     }
+    if (t.status === 'queued') {
+      return {label: 'Queued', Icon: Clock, iconClass: 'text-amber-600', wrapClass: 'border-amber-500/30 bg-amber-500/5', dotClass: 'bg-amber-500', ringClass: 'bg-amber-500/60'};
+    }
     if (!t.lastAt) {
       return {
         label: 'Live · ready',
@@ -159,6 +162,13 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
       toast.message('PMS sync skipped', {
         description: result?.message || 'Nothing to sync right now.',
         duration: 4000,
+      });
+      return;
+    }
+    if (result.status === 'queued') {
+      toast.message('PMS refresh queued', {
+        description: result.message || 'Another PMS refresh is in progress. Your request will run after it finishes, ahead of remaining scheduled jobs.',
+        duration: 7000,
       });
       return;
     }
