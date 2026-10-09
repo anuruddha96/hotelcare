@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useLiveSync } from '@/contexts/LiveSyncContext';
 import { formatDistanceToNowStrict, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { todayBudapest } from '@/lib/budapestTime';
 import { toast } from 'sonner';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -87,6 +88,13 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         wrapClass: 'border-border bg-muted/30',
         dotClass: 'bg-muted-foreground/50',
         ringClass: 'bg-muted-foreground/30',
+      };
+    }
+    if (t.lastAt && todayBudapest(t.lastAt) !== todayBudapest()) {
+      return {
+        label: 'Needs morning refresh', Icon: Clock,
+        iconClass: 'text-amber-600', wrapClass: 'border-amber-500/30 bg-amber-500/5',
+        dotClass: 'bg-amber-500', ringClass: 'bg-amber-500/60',
       };
     }
     if (t.status === 'error') {
