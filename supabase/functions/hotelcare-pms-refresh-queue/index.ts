@@ -74,6 +74,9 @@ async function authorizedTargets(
   let displayName: string | null = null;
   const targets: JobTarget[] = [];
   if (accounts?.length) {
+    if (hotelId !== "slnt-group" || accounts.some(a => a.organization_slug !== "slnt")) {
+      throw new Error("This multi-account PMS is not supported by the current server reconciler");
+    }
     const orgs = [...new Set(accounts.map(a => String(a.organization_slug)))];
     if (orgs.length !== 1) throw new Error("PMS account organizations are ambiguous");
     org = orgs[0];
