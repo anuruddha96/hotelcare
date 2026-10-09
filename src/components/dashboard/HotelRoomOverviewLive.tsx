@@ -2120,7 +2120,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   <div className="slnt-location-chips flex min-w-0 flex-wrap gap-1.5">
                     {group.rooms.map(room => (
                       <div key={room.id} className="animate-fade-in">
-                        {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))}
+                        {renderRoomChip(room)}
                       </div>
                     ))}
                   </div>
