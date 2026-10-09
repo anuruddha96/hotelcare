@@ -9,7 +9,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import type { PmsSyncStatus } from "@/lib/pmsRefresh";
-import { runQueuedPmsRefresh } from "@/lib/pmsRefreshQueue";
+import { runQueuedPmsRefresh, summarizeQueuedPmsJobs } from "@/lib/pmsRefreshQueue";
+import { selectActivePmsQueueGroup, type PmsQueueRow } from "@/lib/pmsQueueMonitor";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { startOfBudapestDayUtc, todayBudapest } from "@/lib/budapestTime";
@@ -82,6 +83,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [businessDate, setBusinessDate] = useState(() => todayBudapest());
   const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0, checkouts: 0, pms_changes: 0 });
+  const observedQueueGroupRef = useRef<string | null>(null);
+  const announcedQueueGroupRef = useRef<string | null>(null);
 
   // An open mobile/desktop tab must detect a new Budapest business day,
   // not wait until logout, login or a full page reload.
