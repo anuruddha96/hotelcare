@@ -184,7 +184,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     // into hundreds of identical rooms/assignment requests. Collapse bursts
     // into one refresh and never allow overlapping full-board loads.
     let cancelled = false;
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let debounceTimer: ReturnType<typeof window.setTimeout> | null = null;
     let refreshInFlight = false;
     let refreshQueued = false;
 

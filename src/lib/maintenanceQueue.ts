@@ -1,9 +1,9 @@
 export type MaintenanceQueueRow = {
-  status: 'open' | 'in_progress' | 'completed';
+  status: string;
   on_hold?: boolean | null;
   pending_supervisor_approval?: boolean | null;
   sla_due_date?: string | null;
-  priority?: 'low' | 'medium' | 'high' | 'urgent' | null;
+  priority?: string | null;
   created_at?: string | null;
 };
 

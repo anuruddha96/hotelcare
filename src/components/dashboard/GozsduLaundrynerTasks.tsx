@@ -99,7 +99,7 @@ export function GozsduLaundrynerTasks() {
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!eligible) return;
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let refreshTimer: ReturnType<typeof window.setTimeout> | null = null;
     const scheduleRefresh = () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {

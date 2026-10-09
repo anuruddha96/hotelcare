@@ -49,8 +49,10 @@ export async function loadActiveSlntTeamScope(
     .eq('is_active', true);
   if (mappingError) throw mappingError;
 
-  const roomIds = Array.from(new Set(
-    (mappings || []).map((row: any) => String(row.room_id || '')).filter(Boolean),
+  const roomIds: string[] = Array.from(new Set<string>(
+    ((mappings || []) as Array<{ room_id?: string | null }>)
+      .map(row => String(row.room_id || ''))
+      .filter(Boolean),
   ));
   if (roomIds.length === 0) throw new Error(`SLNT housekeeping team ${teamCode} has no active room mapping.`);
   return { teamId: String(team.id), roomIds };
