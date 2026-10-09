@@ -26,8 +26,8 @@ export function aggregatePmsQueueJobs(jobs: PmsQueuedJob[]): PmsQueueProgress {
   if (remaining > 0) return {
     status: "queued", complete: false, remaining, running,
     message: running > 0
-      ? \`PMS refresh running — \${remaining} account(s) remaining\`
-      : \`PMS refresh queued — \${remaining} account(s) waiting\`,
+      ? `PMS refresh running — ${remaining} account(s) remaining`
+      : `PMS refresh queued — ${remaining} account(s) waiting`,
   };
   const failed = jobs.filter(j => j.status === "failed" || j.status === "cancelled");
   if (failed.length) return {
