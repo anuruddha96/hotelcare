@@ -16,6 +16,7 @@ import {
 import { useTrainingV2, txt } from './TrainingV2Provider';
 
 const LABELS = {
+  managerTrainingMode: { en: 'GUIDED TRAINING · Real controls are live — explore carefully', hu: 'VEZETETT TRÉNING · A valódi vezérlők aktívak — körültekintően használd', es: 'FORMACIÓN GUIADA · Los controles reales siguen activos', vi: 'HƯỚNG DẪN · Các nút thật vẫn hoạt động', mn: 'СУРГАЛТ · Бодит товчнууд ажилласаар байна', uk: 'НАВЧАННЯ · Справжні дії залишаються активними' },
   trainingMode: { en: 'GUIDED TRAINING · Your normal work still counts', hu: 'VEZETETT TRÉNING · A valódi munkád továbbra is számít', es: 'FORMACIÓN GUIADA · Las acciones reales siguen contando', vi: 'HƯỚNG DẪN · Thao tác thực vẫn có hiệu lực', mn: 'СУРГАЛТЫН ЗААВАР · Бодит үйлдэл хэвээр үйлчилнэ', uk: 'НАВЧАННЯ · Реальні дії залишаються чинними' },
   skipStep: { en: 'Skip this tip', hu: 'Tipp kihagyása', es: 'Omitir este consejo', vi: 'Bỏ qua mẹo này', mn: 'Энэ зөвлөгөөг алгасах', uk: 'Пропустити підказку' },
   exitTraining: { en: 'Exit training', hu: 'Kilépés a tréningből', es: 'Salir de la formación', vi: 'Thoát hướng dẫn', mn: 'Сургалтаас гарах', uk: 'Вийти з навчання' },
@@ -191,6 +192,8 @@ export function TrainingOverlayV2() {
 
   if (!active || !step) return null;
   const isHousekeeperTour = active.slug === 'v2_housekeeper_first_day';
+  const isManagerTour = active.roles.some((role) => role !== 'housekeeping');
+  const isGuidedTour = isHousekeeperTour || isManagerTour;
   const isLast = stepIndex === totalSteps - 1;
   const progress = Math.round(((stepIndex + 1) / totalSteps) * 100);
   const requiresAction = Boolean(step.waitFor);
@@ -358,9 +361,9 @@ export function TrainingOverlayV2() {
             <X className="h-5 w-5" />
           </button>
 
-          {isHousekeeperTour && (
+          {isGuidedTour && (
             <div className="mb-2 pr-10 text-[11px] font-semibold tracking-wide text-primary" role="status">
-              {txt(LABELS.trainingMode, lang)}
+              {txt(isManagerTour ? LABELS.managerTrainingMode : LABELS.trainingMode, lang)}
             </div>
           )}
           <div className="mb-3 pr-10">
@@ -411,7 +414,7 @@ export function TrainingOverlayV2() {
                 <p className="mt-2 text-xs font-medium text-primary">{txt(LABELS.clickToContinue, lang)}</p>
               )}
 
-              {step.purpose && (!isHousekeeperTour || !isMobile) && (
+              {step.purpose && (!isGuidedTour || !isMobile) && (
                 <div className="mt-3 flex items-start gap-2.5 rounded-lg border bg-muted/45 px-3 py-2.5">
                   <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
                   <div className="min-w-0">
@@ -438,7 +441,7 @@ export function TrainingOverlayV2() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold">{txt(LABELS.tryIt, lang)}</p>
                     <p className="mt-0.5 leading-relaxed text-primary/90">{txt(LABELS.autoContinue, lang)}</p>
-                    {step.optional && !isHousekeeperTour && (
+                    {step.optional && !isGuidedTour && (
                       <button
                         type="button"
                         onClick={skipForNow}
@@ -463,7 +466,7 @@ export function TrainingOverlayV2() {
                   <Clock3 className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${reducedMotion ? '' : 'animate-pulse'}`} aria-hidden="true" />
                   <div className="flex-1">
                     <p className="leading-relaxed">{txt(LABELS.waiting, lang)}</p>
-                    {!isHousekeeperTour && <button
+                    {!isGuidedTour && <button
                       type="button"
                       onClick={skipForNow}
                       className="mt-1.5 underline underline-offset-2 hover:no-underline text-primary font-semibold"
@@ -500,14 +503,14 @@ export function TrainingOverlayV2() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={isHousekeeperTour ? pause : () => setConfirmExit(true)}
+                onClick={isGuidedTour ? pause : () => setConfirmExit(true)}
                 className="text-muted-foreground min-h-11"
-                aria-label={txt(isHousekeeperTour ? LABELS.exitTraining : LABELS.endTraining, lang)}
+                aria-label={txt(isGuidedTour ? LABELS.exitTraining : LABELS.endTraining, lang)}
               >
-                {txt(isHousekeeperTour ? LABELS.exitTraining : LABELS.endTraining, lang)}
+                {txt(isGuidedTour ? LABELS.exitTraining : LABELS.endTraining, lang)}
               </Button>
               <div className="flex gap-2">
-                {isHousekeeperTour && (
+                {isGuidedTour && (
                   <Button variant="outline" size="sm" onClick={skipForNow} className="min-h-11 flex-1">
                     {txt(LABELS.skipStep, lang)}
                   </Button>
@@ -528,7 +531,7 @@ export function TrainingOverlayV2() {
                   <Button
                     size="sm"
                     onClick={next}
-                    disabled={waiting || requiresAction}
+                    disabled={!isManagerTour && (waiting || requiresAction)}
                     className="min-h-11 flex-1"
                     aria-label={txt(LABELS.next, lang)}
                   >

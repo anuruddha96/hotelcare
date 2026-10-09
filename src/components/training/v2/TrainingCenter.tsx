@@ -23,11 +23,11 @@ const TXT = {
   },
   fullTitle: { en: 'Full guided tour', hu: 'Teljes bemutató', es: 'Recorrido completo', vi: 'Toàn bộ hướng dẫn', mn: 'Бүрэн танилцуулга' },
   fullBody: {
-    en: 'One continuous flow through every manager module. Pause anytime.',
-    hu: 'Egyetlen folyamatos bemutató minden modulon át.',
-    es: 'Un flujo continuo por cada módulo.',
-    vi: 'Luồng liên tục qua mọi mô-đun.',
-    mn: 'Модуль бүрээр тасралтгүй.',
+    en: 'Learn each manager module one at a time. You choose when to continue.',
+    hu: 'Minden vezetői modult külön tanulhatsz meg. Te döntöd el, mikor folytatod.',
+    es: 'Un módulo a la vez. Tú decides cuándo continuar.',
+    vi: 'Học từng mô-đun. Bạn quyết định khi nào tiếp tục.',
+    mn: 'Модуль бүрээр тус тусад нь сур. Хэзээ үргэлжлүүлэхээ өөрөө шийд.',
   },
   start: { en: 'Start', hu: 'Indítás', es: 'Iniciar', vi: 'Bắt đầu', mn: 'Эхлэх' },
   resume: { en: 'Resume', hu: 'Folytatás', es: 'Continuar', vi: 'Tiếp tục', mn: 'Үргэлжлүүлэх' },
@@ -165,6 +165,9 @@ export function TrainingCenter() {
 
       {!q && featured.map((c) => {
         const { st, isDone, isResume } = renderStatus(c);
+        const eligibleUnits = (c.chain || []).filter((slug) => availableCurricula.some((unit) => unit.slug === slug));
+        const doneUnits = eligibleUnits.filter((slug) => statuses[slug]?.status === 'done').length;
+        const guidedProgress = eligibleUnits.length > 0 ? `${doneUnits}/${eligibleUnits.length}` : `${st.currentStep}/${st.totalSteps}`;
         return (
           <Card key={c.slug} className="border-primary/40 bg-primary/5">
             <CardHeader className="space-y-2">
@@ -177,7 +180,7 @@ export function TrainingCenter() {
                   </div>
                 </div>
                 <Badge variant={isDone ? 'default' : isResume ? 'secondary' : 'outline'} className="shrink-0">
-                  {isDone ? txt(TXT.done, lang) : isResume ? `${st.currentStep}/${st.totalSteps}` : txt(TXT.notStarted, lang)}
+                  {isDone ? txt(TXT.done, lang) : eligibleUnits.length > 0 ? `${guidedProgress} ${lang === 'hu' ? 'modul' : 'modules'}` : isResume ? guidedProgress : txt(TXT.notStarted, lang)}
                 </Badge>
               </div>
             </CardHeader>

@@ -885,7 +885,8 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       const sub = detail.subTab;
-      if (sub === 'team' || sub === 'early-signout') setInnerTab(sub);
+      if (sub === 'manage' || sub === 'team') setInnerTab('team');
+      else if (sub === 'early-signout') setInnerTab(sub);
     };
     window.addEventListener('tour:navigate', handler);
     window.addEventListener('training-navigate', handler);
@@ -944,6 +945,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           </div>}
           <input
             type="date"
+            data-training="manager-team-date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
             className="px-3 py-2 border rounded-md"
@@ -1100,6 +1102,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           return (
             <Card
               key={staff.id}
+              data-training="manager-team-card"
               className={`transition-all duration-200 ${
                 isDropTarget
                   ? 'ring-2 ring-primary shadow-lg scale-[1.02] bg-primary/5'
@@ -1354,7 +1357,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       </div>
 
       {/* Quick Stats */}
-      <Card>
+      <Card data-training="manager-team-summary">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />

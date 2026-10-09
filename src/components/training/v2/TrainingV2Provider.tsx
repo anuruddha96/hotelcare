@@ -20,6 +20,7 @@ import { evaluateGuard } from './guards';
 import { ALL_CURRICULA, curriculaForRole, findCurriculum } from './curricula';
 import { TrainingOverlayV2 } from './TrainingOverlayV2';
 import { TrainingFirstLoginPrompt } from './TrainingFirstLoginPrompt';
+import { TrainingNextModulePrompt } from './TrainingNextModulePrompt';
 
 
 type CompletionStatus = 'done' | 'in_progress' | 'available';
@@ -130,7 +131,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     (raw?: string): string | undefined => {
       if (!raw) return raw;
       const seg = location.pathname.split('/').filter(Boolean);
-      const orgSlug = seg[0] || (profile as any)?.organization_slug || 'rdhotels';
+      const firstSegment = seg[0];
+      const orgSlug = firstSegment && !['training', 'auth', 'index'].includes(firstSegment)
+        ? firstSegment
+        : (profile as any)?.organization_slug || 'rdhotels';
       return raw.replace(/:orgSlug/g, orgSlug).replace(/:org\b/g, orgSlug);
     },
     [location.pathname, profile],
@@ -150,6 +154,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const [switchingHotel, setSwitchingHotel] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [pendingAutoStart, setPendingAutoStart] = useState<TrainingCurriculum | null>(null);
+  const [pendingNextModule, setPendingNextModule] = useState<TrainingCurriculum | null>(null);
   const autoStartedRef = useRef(false);
   const dataReadyRef = useRef<Set<string>>(new Set());
   const launcherRef = useRef<HTMLElement | null>(null);
@@ -409,6 +414,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     // Hide overlay until this step has resolved.
     setStepReady(false);
 
+    const managerTraining = MANAGER_ROLES.includes(guardRole);
     const guardCtx = {
       userId: user.id,
       role: guardRole,
@@ -460,22 +466,37 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       if (step.tab) {
         window.dispatchEvent(
           new CustomEvent('tour:navigate', {
-            detail: { tab: step.tab, subTab: (step as any).subTab, tourKey: active.slug },
+            detail: { tab: step.tab, subTab: step.subTab, tourKey: active.slug },
           }),
         );
         window.dispatchEvent(
           new CustomEvent('training-navigate', {
-            detail: { mainTab: step.tab, subTab: (step as any).subTab },
+            detail: { mainTab: step.tab, subTab: step.subTab },
           }),
         );
         await new Promise((r) => requestAnimationFrame(() => r(null)));
+        // The Housekeeping manager sub-tab mounts after the outer dashboard
+        // tab. Re-emit once after that mount so switching Team/Approvals works
+        // even when the whole module was not rendered at dispatch time.
+        if (step.tab === 'housekeeping' && step.subTab) {
+          await new Promise((resolve) => setTimeout(resolve, 180));
+          if (cancelled) return;
+          window.dispatchEvent(new CustomEvent('tour:navigate', {
+            detail: { tab: step.tab, subTab: step.subTab, tourKey: active.slug },
+          }));
+        }
       }
 
       if (step.precondition) {
         const ok = await evaluateGuard(step.precondition, guardCtx);
         if (!ok) {
           if (step.optional) {
-            // Silently defer + advance. Overlay stays hidden the whole time.
+            if (managerTraining) {
+              // Explain an unavailable feature instead of silently skipping the module.
+              if (!cancelled) { setWaiting(true); setStepReady(true); }
+              return;
+            }
+            // Housekeeper's situational features can still be deferred.
             await deferCurrent();
             if (!cancelled) {
               setTimeout(advanceOnce, 30);
@@ -515,13 +536,17 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
             }, 250);
             return;
           }
-          if (Date.now() - startedAt < SELECTOR_TIMEOUT_MS) {
+          if (Date.now() - startedAt < (managerTraining ? 2500 : SELECTOR_TIMEOUT_MS)) {
             setTimeout(tryLocate, 250);
           } else if (step.optional) {
-            // Element never appeared → silently defer + advance.
-            deferCurrent().then(() => {
-              advanceOnce();
-            });
+            if (managerTraining) {
+              // Managers need to understand why a control was unavailable and
+              // decide to continue; never rush invisibly through a lesson.
+              setWaiting(true);
+              setStepReady(true);
+            } else {
+              deferCurrent().then(advanceOnce);
+            }
           } else if (!cancelled) {
             setWaiting(true);
             setStepReady(true);
@@ -585,36 +610,52 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   // one finishes. Populated when `start()` opens a curriculum that declares
   // `chain: [...]`. When empty, finish behaves normally.
   const chainQueueRef = useRef<string[]>([]);
+  const chainRootRef = useRef(false);
+  const MANAGER_PATH_SLUG = 'v2_manager_complete_walkthrough';
 
   const finishInternal = useCallback(() => {
-    const finishedSlug = active?.slug;
-    if (active) {
-      persist(active.slug, active.steps.length, 'completed', step?.key);
-      setCompletion((m) => ({ ...m, [active.slug]: 'done' }));
-    }
-
-    // If a chain is queued, auto-advance to the next child curriculum
-    // instead of closing the overlay.
     const nextSlug = chainQueueRef.current.shift();
-    if (nextSlug) {
-      const nextCur = findCurriculum(nextSlug);
-      if (nextCur) {
-        setActive(nextCur);
-        setStepIndex(0);
-        setRect(null);
-        setWaiting(false);
-        setStepReady(false);
-        return;
-      }
+    const nextCur = nextSlug ? findCurriculum(nextSlug) : undefined;
+    const isRoot = active?.slug === MANAGER_PATH_SLUG;
+
+    if (active) {
+      // The full path only becomes complete when its role-appropriate
+      // individual modules have also been completed, not after its welcome.
+      const status = isRoot && nextCur ? 'in_progress' : 'completed';
+      void persist(active.slug, active.steps.length, status, step?.key);
+      setCompletion((m) => ({ ...m, [active.slug]: status === 'completed' ? 'done' : 'in_progress' }));
+      setStatuses((m) => ({ ...m, [active.slug]: {
+        slug: active.slug,
+        status: status === 'completed' ? 'done' : 'in_progress',
+        currentStep: active.steps.length,
+        totalSteps: active.steps.length,
+      } }));
     }
 
     setActive(null);
     setStepIndex(0);
     setRect(null);
     setWaiting(false);
-    setTimeout(() => {
-      launcherRef.current?.focus();
-    }, 50);
+    setStepReady(false);
+
+    if (nextCur) {
+      // Pause BETWEEN modules. The manager, not the tour, decides when
+      // to open the next part. No unauthorized module is in the queue.
+      setPendingNextModule(nextCur);
+      return;
+    }
+
+    if (chainRootRef.current && !isRoot) {
+      const root = findCurriculum(MANAGER_PATH_SLUG);
+      if (root) void persist(MANAGER_PATH_SLUG, root.steps.length, 'completed');
+      setCompletion((m) => ({ ...m, [MANAGER_PATH_SLUG]: 'done' }));
+      if (root) setStatuses((m) => ({ ...m, [MANAGER_PATH_SLUG]: {
+        slug: MANAGER_PATH_SLUG, status: 'done',
+        currentStep: root.steps.length, totalSteps: root.steps.length,
+      } }));
+    }
+    chainRootRef.current = false;
+    setTimeout(() => launcherRef.current?.focus(), 50);
   }, [active, persist, step?.key]);
 
   const finish = finishInternal;
@@ -624,6 +665,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   // can resume from the same place later from Training Center.
   const pause = useCallback(() => {
     chainQueueRef.current = [];
+    chainRootRef.current = false;
+    setPendingNextModule(null);
     setActive(null);
     setStepIndex(0);
     setRect(null);
@@ -676,7 +719,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     if (!active || !step) return;
     // Housekeeper step-skips are a user choice, not missing work that should
     // generate an unsolicited resume prompt later in the middle of a shift.
-    if (active.slug === 'v2_housekeeper_first_day') {
+    if (active.slug === 'v2_housekeeper_first_day' || MANAGER_ROLES.includes(role || '')) {
       next();
       return;
     }
@@ -694,12 +737,13 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     deferredRef.current = queue;
     await persistDeferred(queue);
     next();
-  }, [active, step, persistDeferred, next]);
+  }, [active, step, persistDeferred, next, role]);
 
   const start = useCallback(
     async (slug: string, opts?: { restart?: boolean; manual?: boolean; startAtKey?: string }) => {
       const c = findCurriculum(slug);
-      if (!c) return;
+      if (!c || !c.roles.includes(role as any)) return;
+      setPendingNextModule(null);
       let resumeIdx = 0;
       if (user && !opts?.restart) {
         const { data } = await supabase
@@ -732,12 +776,29 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       // Seed the chain queue from the curriculum definition. Manual restart
       // or explicit start replaces any prior in-flight chain.
       const rawChain = Array.isArray(c.chain) ? c.chain : [];
-      chainQueueRef.current = [...rawChain];
+      chainQueueRef.current = rawChain.filter((linkedSlug) => {
+        const linked = findCurriculum(linkedSlug);
+        return !!linked && linked.roles.includes(role as any) &&
+          (opts?.restart || statuses[linkedSlug]?.status !== 'done');
+      });
+      chainRootRef.current = slug === MANAGER_PATH_SLUG && chainQueueRef.current.length > 0;
 
+      // A manager who finished the introduction earlier resumes at the next
+      // uncompleted module, not at the last introductory card again.
+      if (slug === MANAGER_PATH_SLUG && !opts?.restart && resumeIdx >= c.steps.length - 1 &&
+          statuses[slug]?.status === 'in_progress' && chainQueueRef.current.length > 0) {
+        const nextSlug = chainQueueRef.current.shift();
+        const nextCur = nextSlug ? findCurriculum(nextSlug) : undefined;
+        if (nextCur) {
+          setActive(null);
+          setPendingNextModule(nextCur);
+          return;
+        }
+      }
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
     },
-    [user, isPropertyOrg],
+    [user, role, statuses],
   );
 
 
@@ -906,15 +967,41 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   }, [role]);
 
 
+  // Continue only after the manager explicitly chooses the next module.
+  const continueNextModule = useCallback(async () => {
+    const cur = pendingNextModule;
+    if (!cur || !cur.roles.includes(role as any)) return;
+    let idx = 0;
+    if (user) {
+      const { data } = await supabase.from('user_tour_progress')
+        .select('current_step, status').eq('user_id', user.id)
+        .eq('tour_key', cur.slug).maybeSingle();
+      if (data && data.status !== 'completed') idx = data.current_step || 0;
+    }
+    setPendingNextModule(null);
+    setActive(cur);
+    setStepIndex(Math.min(idx, cur.steps.length - 1));
+  }, [pendingNextModule, role, user]);
+
+  const laterNextModule = useCallback(() => {
+    setPendingNextModule(null);
+    chainQueueRef.current = [];
+    chainRootRef.current = false;
+  }, []);
+
   // First-login prompt actions
   const acceptAutoStart = useCallback(() => {
     const target = pendingAutoStart;
     if (!target) return;
-    chainQueueRef.current = Array.isArray(target.chain) ? [...target.chain] : [];
+    chainQueueRef.current = (target.chain || []).filter((linkedSlug) => {
+      const linked = findCurriculum(linkedSlug);
+      return !!linked && linked.roles.includes(role as any) && statuses[linkedSlug]?.status !== 'done';
+    });
+    chainRootRef.current = target.slug === MANAGER_PATH_SLUG && chainQueueRef.current.length > 0;
     setPendingAutoStart(null);
     setActive(target);
     setStepIndex(pendingResumeIdxRef.current || 0);
-  }, [pendingAutoStart]);
+  }, [pendingAutoStart, role, statuses]);
 
   const snoozeAutoStart = useCallback(async () => {
     setPendingAutoStart(null);
@@ -993,7 +1080,15 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     <TrainingV2Context.Provider value={value}>
       {children}
       {active && step && stepReady && <TrainingOverlayV2 />}
-      {pendingAutoStart && !active && <TrainingFirstLoginPrompt />}
+      {pendingAutoStart && !active && !pendingNextModule && <TrainingFirstLoginPrompt />}
+      {pendingNextModule && !active && (
+        <TrainingNextModulePrompt
+          curriculum={pendingNextModule}
+          lang={lang}
+          onContinue={continueNextModule}
+          onLater={laterNextModule}
+        />
+      )}
     </TrainingV2Context.Provider>
   );
 }
