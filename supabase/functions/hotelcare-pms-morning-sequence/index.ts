@@ -3,6 +3,7 @@
 // Existing independent checkout polling, revenue and release preflights stay intact.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "../_shared/previoHousekeepingNote.ts";
+import { findPmsRoomBucketDrift } from "../_shared/pmsRoomBucketPostcondition.ts";
 
 const RD_ORDER = ["memories-budapest", "mika-downtown", "ottofiori", "gozsdu-court"];
 const ADMIN_ALERT_EMAIL = "anuruddha.dharmasena@gmail.com";
