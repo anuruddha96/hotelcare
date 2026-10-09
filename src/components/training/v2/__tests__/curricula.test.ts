@@ -224,7 +224,7 @@ describe('housekeeper training interaction safety', () => {
     const engine = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingV2Provider.tsx'), 'utf8');
     expect(overlay).toContain('isHousekeeperTour && (');
     expect(overlay).toContain('onClick={skipForNow}');
-    expect(overlay).toContain('onClick={isHousekeeperTour ? pause : () => setConfirmExit(true)}');
+    expect(overlay).toContain('onClick={isGuidedTour ? pause : () => setConfirmExit(true)}');
     expect(overlay).not.toContain("if (e.key === 'Tab'");
     expect(engine).toContain('if (step.skipWhen && await evaluateGuard(step.skipWhen, guardCtx))');
     expect(engine).toContain("if (active.slug === 'v2_housekeeper_first_day')");
@@ -241,5 +241,89 @@ describe('housekeeper training interaction safety', () => {
     expect(hk?.steps.find((s) => s.key === 'complete_room')?.selector).toBe(
       '[data-training="active-assigned-room"] [data-training="complete-room-button"]',
     );
+  });
+});
+
+describe('contextual manager learning path', () => {
+  const full = ALL_CURRICULA.find((c) => c.slug === 'v2_manager_complete_walkthrough');
+  const team = ALL_CURRICULA.find((c) => c.slug === 'v2_manager_team_and_assignments');
+
+  it('offers Team View first and separates later topics into independent modules', () => {
+    expect(full?.chain?.[0]).toBe('v2_manager_team_and_assignments');
+    expect(full?.chain?.length).toBeGreaterThan(3);
+    expect(team?.category).toBe('feature_promo');
+    for (const slug of full?.chain || []) {
+      expect(ALL_CURRICULA.some((c) => c.slug === slug)).toBe(true);
+    }
+  });
+
+  it('opens real Team View first, then follows its safe operational controls', () => {
+    const steps = team?.steps || [];
+    expect(steps.map((s) => s.key)).toEqual([
+      'open_team_view', 'team_view', 'work_date', 'room_board',
+      'legend', 'staff_cards', 'pms_refresh', 'auto_assign',
+      'manual_assignment', 'team_summary', 'open_approvals', 'approval_queue',
+    ]);
+    expect(steps[0].selector).toBe('[data-training="manager-team-tab"]');
+    expect(steps[0].advanceOnClick).toBe(true);
+    expect(steps[0].tab).toBe('housekeeping');
+    expect(steps[1].subTab).toBe('manage');
+    expect(steps.at(-1)?.subTab).toBe('supervisor');
+    expect(steps.at(-1)?.selector).toBe('#pending-approvals-list');
+    expect(steps.every((s) => s.optional)).toBe(true);
+    expect(steps.every((s) => !s.waitFor)).toBe(true);
+  });
+
+  it('never forces PMS refresh, room assignments or approvals during a guide', () => {
+    for (const step of team?.steps || []) {
+      expect(step.waitFor).toBeUndefined();
+      expect(step.optional).toBe(true);
+    }
+    const refresh = team?.steps.find((s) => s.key === 'pms_refresh');
+    const distribute = team?.steps.find((s) => s.key === 'auto_assign');
+    expect(refresh?.selector).toBe('[data-training-id="pms-refresh-btn"]');
+    expect(distribute?.selector).toBe('[data-training="auto-assign-btn"]');
+    expect(refresh?.advanceOnClick).toBeUndefined();
+    expect(distribute?.advanceOnClick).toBeUndefined();
+  });
+
+  it('has content in the six supported languages for new manager steps', () => {
+    for (const step of team?.steps || []) {
+      for (const lang of SUPPORTED_LANGS) {
+        expect(step.title[lang], `${step.key} title.${lang}`).toBeTruthy();
+        expect(step.body[lang], `${step.key} body.${lang}`).toBeTruthy();
+      }
+    }
+  });
+});
+
+describe('manager tour progression and real UI anchoring', () => {
+  it('recognizes nested manager tabs in Housekeeping and anchors real Team View', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const tab = readFileSync(resolve(process.cwd(), 'src/components/dashboard/HousekeepingTabLegacy.tsx'), 'utf8');
+    const team = readFileSync(resolve(process.cwd(), 'src/components/dashboard/HousekeepingManagerView.tsx'), 'utf8');
+    expect(tab).toContain("window.addEventListener('tour:navigate', onTrainingNavigate)");
+    expect(tab).toContain("'manager-team-tab'");
+    expect(tab).toContain('data-training="manager-approvals-tab"');
+    expect(team).toContain('data-training="manager-team-card"');
+    expect(team).toContain('data-training="manager-team-summary"');
+    expect(team).toContain('data-training="manager-team-date"');
+  });
+
+  it('filters future topics by role and asks before starting each module', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const provider = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingV2Provider.tsx'), 'utf8');
+    const transition = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingNextModulePrompt.tsx'), 'utf8');
+    const overlay = readFileSync(resolve(process.cwd(), 'src/components/training/v2/TrainingOverlayV2.tsx'), 'utf8');
+    expect(provider).toContain('linked.roles.includes(role as any)');
+    expect(provider).toContain('setPendingNextModule(nextCur)');
+    expect(provider).toContain('<TrainingNextModulePrompt');
+    expect(provider).toContain('chainRootRef.current');
+    expect(transition).toContain('onContinue');
+    expect(transition).toContain('onLater');
+    expect(overlay).toContain('isManagerTour');
+    expect(overlay).toContain('onClick={isGuidedTour ? pause : () => setConfirmExit(true)}');
   });
 });
