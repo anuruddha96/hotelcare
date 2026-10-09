@@ -145,6 +145,11 @@ export async function runPmsRefresh(
   hotelId: string,
   options: { dryRun?: boolean; trigger?: "manual" | "auto" } = {},
 ): Promise<PmsSyncResult> {
+  // No browser-origin full writes when the durable server queue is enabled.
+  // Preview remains read-only; all apply paths must go through enqueueFullPmsRefresh.
+  if (import.meta.env.VITE_PMS_REFRESH_QUEUE_ENABLED === "true" && options.dryRun !== true) {
+    throw new Error("Use the queued PMS Refresh control. Direct full refreshes are disabled.");
+  }
   await ensureFreshSupabaseSession();
   const dryRun = options.dryRun === true;
 
