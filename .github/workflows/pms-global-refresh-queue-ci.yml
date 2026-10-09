@@ -22,13 +22,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npm test -- src/lib/pmsRefreshQueue.test.ts
-      - run: npm run build
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run test src/lib/pmsRefreshQueue.test.ts
+      - run: bun run build
   edge:
     runs-on: ubuntu-latest
     timeout-minutes: 15
