@@ -216,6 +216,7 @@ describe('housekeeper first-shift curriculum', () => {
 });
 
 describe('housekeeper training interaction safety', () => {
+  const hk = ALL_CURRICULA.find((c) => c.slug === 'v2_housekeeper_first_day');
   it('keeps the guide escapable with a skip for every step and no keyboard trap', async () => {
     const { readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
