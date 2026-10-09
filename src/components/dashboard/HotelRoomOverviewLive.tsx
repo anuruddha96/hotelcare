@@ -407,6 +407,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const roomIds = new Set(dedupedRooms.map(r => r.id));
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
+      setOverviewDataError(null);
 
       // Load a READ-ONLY snapshot of the previous working day so admins can
       // compare where things stopped yesterday vs where things stand today.
@@ -452,8 +453,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         }
       } catch (e) {
         console.error('Error fetching previous-day snapshot:', e);
-        setPreviousDayDate(null);
-        setPreviousAssignments(new Map());
+        if (latest()) { setPreviousDayDate(null); setPreviousAssignments(new Map()); }
       }
 
 
