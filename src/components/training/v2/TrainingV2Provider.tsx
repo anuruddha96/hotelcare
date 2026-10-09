@@ -472,6 +472,16 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           }),
         );
         await new Promise((r) => requestAnimationFrame(() => r(null)));
+        // The Housekeeping manager sub-tab mounts after the outer dashboard
+        // tab. Re-emit once after that mount so switching Team/Approvals works
+        // even when the whole module was not rendered at dispatch time.
+        if (step.tab === 'housekeeping' && step.subTab) {
+          await new Promise((resolve) => setTimeout(resolve, 180));
+          if (cancelled) return;
+          window.dispatchEvent(new CustomEvent('tour:navigate', {
+            detail: { tab: step.tab, subTab: step.subTab, tourKey: active.slug },
+          }));
+        }
       }
 
       if (step.precondition) {
@@ -611,6 +621,12 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       const status = isRoot && nextCur ? 'in_progress' : 'completed';
       void persist(active.slug, active.steps.length, status, step?.key);
       setCompletion((m) => ({ ...m, [active.slug]: status === 'completed' ? 'done' : 'in_progress' }));
+      setStatuses((m) => ({ ...m, [active.slug]: {
+        slug: active.slug,
+        status: status === 'completed' ? 'done' : 'in_progress',
+        currentStep: active.steps.length,
+        totalSteps: active.steps.length,
+      } }));
     }
 
     setActive(null);
@@ -630,6 +646,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       const root = findCurriculum(MANAGER_PATH_SLUG);
       if (root) void persist(MANAGER_PATH_SLUG, root.steps.length, 'completed');
       setCompletion((m) => ({ ...m, [MANAGER_PATH_SLUG]: 'done' }));
+      if (root) setStatuses((m) => ({ ...m, [MANAGER_PATH_SLUG]: {
+        slug: MANAGER_PATH_SLUG, status: 'done',
+        currentStep: root.steps.length, totalSteps: root.steps.length,
+      } }));
     }
     chainRootRef.current = false;
     setTimeout(() => launcherRef.current?.focus(), 50);
