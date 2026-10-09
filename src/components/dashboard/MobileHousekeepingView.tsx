@@ -656,8 +656,10 @@ export function MobileHousekeepingView() {
               <div
                 key={assignment.id}
                 id={`housekeeping-assignment-${assignment.id}`}
+                data-training="assigned-room-card"
                 className="scroll-mt-4"
               >
+                <div data-training={assignment.status === 'in_progress' ? 'active-assigned-room' : undefined}>
                 <ErrorBoundary
                   context={`AssignedRoomCard:${assignment.id}`}
                   fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
@@ -668,6 +670,7 @@ export function MobileHousekeepingView() {
                     onStatusUpdate={handleStatusUpdate}
                   />
                 </ErrorBoundary>
+                </div>
               </div>
             ))}
           </div>
