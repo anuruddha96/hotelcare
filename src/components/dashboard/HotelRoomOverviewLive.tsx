@@ -31,6 +31,7 @@ import { HotelFloorMap } from './HotelFloorMap';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { compareRoomAuthority, createOverviewLoadGuard } from '@/lib/roomOverviewAuthority';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import {
@@ -204,6 +205,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const { venues } = useVenues();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
+  const loadGuardRef = useRef(createOverviewLoadGuard());
+  const currentOverviewScope = `${hotelName}|${selectedDate}`;
+  const currentOverviewScopeRef = useRef(currentOverviewScope);
+  currentOverviewScopeRef.current = currentOverviewScope;
+  const [overviewDataError, setOverviewDataError] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
   const [publicAreaTasks, setPublicAreaTasks] = useState<PublicAreaTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -289,7 +295,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     setRefreshing(false);
   };
 
+  const displayedScopeRef = useRef(currentOverviewScope);
   useEffect(() => {
+    if (displayedScopeRef.current !== currentOverviewScope) {
+      displayedScopeRef.current = currentOverviewScope;
+      loadGuardRef.current.invalidate();
+      setRooms([]); setAssignments([]); setPublicAreaTasks([]);
+      setPreviousAssignments(new Map()); setOverviewDataError(null);
+    }
     fetchData();
   }, [selectedDate, hotelName, refreshKey]);
 
@@ -359,6 +372,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   }, [selectedDate, hotelName]);
 
   const fetchData = async (silent: boolean = false) => {
+    const token = loadGuardRef.current.start(currentOverviewScope);
+    const latest = () => loadGuardRef.current.isCurrent(token, currentOverviewScopeRef.current);
     if (!silent) setLoading(true);
     try {
       const hotelKeys = await resolveHotelKeys(hotelName);
@@ -387,6 +402,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .not('completed_at', 'is', null)
       ]);
 
+      if (!latest()) return;
+      if (roomsRes.error || assignmentsRes.error || !roomsRes.data?.length) {
+        throw new Error(roomsRes.error?.message || assignmentsRes.error?.message ||
+          'Room data incomplete; keeping the previous overview');
+      }
       const assignmentRoomIds = new Set((assignmentsRes.data || []).map((a: any) => a.room_id));
       const dedupedRooms = dedupeRoomsByNumber(roomsRes.data || [], assignmentRoomIds);
       setRooms(dedupedRooms);
@@ -394,6 +414,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const roomIds = new Set(dedupedRooms.map(r => r.id));
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
+      setOverviewDataError(null);
 
       // Load a READ-ONLY snapshot of the previous working day so admins can
       // compare where things stopped yesterday vs where things stand today.
@@ -412,6 +433,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             .limit(1)
             .maybeSingle();
           const prevDate = (prevDateRow as any)?.assignment_date || null;
+          if (!latest()) return;
           setPreviousDayDate(prevDate);
           if (prevDate) {
             const { data: prevAssignRows } = await supabase
@@ -427,9 +449,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               const rank = (s: string) => s === 'completed' ? 3 : s === 'in_progress' ? 2 : 1;
               if (!existing || rank(a.status) >= rank(existing.status)) map.set(a.room_id, a);
             }
+            if (!latest()) return;
             setPreviousAssignments(map);
           } else {
-            setPreviousAssignments(new Map());
+            if (latest()) setPreviousAssignments(new Map());
           }
         } else {
           setPreviousDayDate(null);
@@ -437,12 +460,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         }
       } catch (e) {
         console.error('Error fetching previous-day snapshot:', e);
-        setPreviousDayDate(null);
-        setPreviousAssignments(new Map());
+        if (latest()) { setPreviousDayDate(null); setPreviousAssignments(new Map()); }
       }
 
 
       // Calculate ACT from completed assignments for this hotel's rooms
+      if (!latest()) return;
       const completedForHotel = (completedRes.data || []).filter(a => roomIds.has(a.room_id));
       if (completedForHotel.length > 0) {
         const totalMinutes = completedForHotel.reduce((sum, a) => {
@@ -456,8 +479,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       }
     } catch (error) {
       console.error('Error fetching room overview:', error);
+      if (latest()) setOverviewDataError((error as Error)?.message || 'Could not update the room board');
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && latest()) setLoading(false);
     }
   };
 
@@ -540,21 +564,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const dedupeRoomsByNumber = (roomList: RoomData[], assignmentRoomIds: Set<string>) => {
     const byNumber = new Map<string, RoomData>();
-    const score = (room: RoomData) => {
-      let value = 0;
-      if (assignmentRoomIds.has(room.id)) value += 1000;
-      if (room.hotel === hotelName) value += 500;
-      if (room.pms_metadata?.roomId) value += 120;
-      if (room.pms_metadata?.scheduledDepartureToday === true || room.pms_metadata?.checkedOutToday === true) value += 80;
-      if (room.is_checkout_room) value += 40;
-      if (room.updated_at) value += Math.min(30, Math.max(0, (Date.now() - new Date(room.updated_at).getTime()) / -3_600_000 + 30));
-      return value;
-    };
-
     for (const room of roomList) {
       const key = String(room.room_number || '').trim();
       const current = byNumber.get(key);
-      if (!current || score(room) > score(current)) byNumber.set(key, room);
+      if (!current || compareRoomAuthority(room, current, hotelName, todayBudapest(), assignmentRoomIds) > 0) byNumber.set(key, room);
     }
 
     return Array.from(byNumber.values()).sort((a, b) =>
@@ -2584,6 +2597,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           )}
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
+          {overviewDataError && (
+            <div role="alert" className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+              Unable to verify the latest PMS room overview. Displayed room information may be outdated. Please retry the refresh.
+            </div>
+          )}
           {/* Signed-in housekeeper tray — drag a person onto a room to assign. */}
           {canDragAssign && signedInHousekeepers.length > 0 && (
             <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
