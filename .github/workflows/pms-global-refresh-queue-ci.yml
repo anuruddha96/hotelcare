@@ -9,6 +9,7 @@ on:
       - 'src/components/dashboard/PmsRefreshButton.tsx'
       - 'src/components/pms/Pms*'
       - 'supabase/functions/hotelcare-pms-morning-sequence/**'
+      - 'supabase/functions/previo-pms-sync/**'
       - 'supabase/functions/pms-refresh-queue-worker/**'
       - 'supabase/migrations/*global_pms_refresh_queue.sql'
       - '.github/workflows/pms-global-refresh-queue-ci.yml'
@@ -37,4 +38,5 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/hotelcare-pms-morning-sequence/index.ts
+      - run: deno check supabase/functions/previo-pms-sync/core.ts
       - run: deno check supabase/functions/pms-refresh-queue-worker/index.ts
