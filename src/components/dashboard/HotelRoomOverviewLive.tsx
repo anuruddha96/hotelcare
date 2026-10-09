@@ -365,6 +365,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   }, [selectedDate, hotelName]);
 
   const fetchData = async (silent: boolean = false) => {
+    const token = loadGuardRef.current.start(currentOverviewScope);
+    const latest = () => loadGuardRef.current.isCurrent(token, currentOverviewScopeRef.current);
     if (!silent) setLoading(true);
     try {
       const hotelKeys = await resolveHotelKeys(hotelName);
