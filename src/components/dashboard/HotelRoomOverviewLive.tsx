@@ -425,6 +425,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             .limit(1)
             .maybeSingle();
           const prevDate = (prevDateRow as any)?.assignment_date || null;
+          if (!latest()) return;
           setPreviousDayDate(prevDate);
           if (prevDate) {
             const { data: prevAssignRows } = await supabase
@@ -440,9 +441,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               const rank = (s: string) => s === 'completed' ? 3 : s === 'in_progress' ? 2 : 1;
               if (!existing || rank(a.status) >= rank(existing.status)) map.set(a.room_id, a);
             }
+            if (!latest()) return;
             setPreviousAssignments(map);
           } else {
-            setPreviousAssignments(new Map());
+            if (latest()) setPreviousAssignments(new Map());
           }
         } else {
           setPreviousDayDate(null);
@@ -456,6 +458,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
       // Calculate ACT from completed assignments for this hotel's rooms
+      if (!latest()) return;
       const completedForHotel = (completedRes.data || []).filter(a => roomIds.has(a.room_id));
       if (completedForHotel.length > 0) {
         const totalMinutes = completedForHotel.reduce((sum, a) => {
