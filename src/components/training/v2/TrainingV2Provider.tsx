@@ -780,6 +780,18 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       });
       chainRootRef.current = slug === MANAGER_PATH_SLUG && chainQueueRef.current.length > 0;
 
+      // A manager who finished the introduction earlier resumes at the next
+      // uncompleted module, not at the last introductory card again.
+      if (slug === MANAGER_PATH_SLUG && !opts?.restart && resumeIdx >= c.steps.length - 1 &&
+          statuses[slug]?.status === 'in_progress' && chainQueueRef.current.length > 0) {
+        const nextSlug = chainQueueRef.current.shift();
+        const nextCur = nextSlug ? findCurriculum(nextSlug) : undefined;
+        if (nextCur) {
+          setActive(null);
+          setPendingNextModule(nextCur);
+          return;
+        }
+      }
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
     },
