@@ -218,10 +218,17 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     };
     void poll();
     const timer = window.setInterval(() => { void poll(); }, 8000);
+    const queued = (event: Event) => {
+      const groupId = (event as CustomEvent).detail?.groupId;
+      if (typeof groupId === "string" && groupId) observedQueueGroupRef.current = groupId;
+      void poll();
+    };
+    window.addEventListener("pms-manual-refresh-queued",queued);
     const visible = () => { if (!document.hidden) void poll(); };
     document.addEventListener("visibilitychange",visible);
     return () => { cancelled = true;window.clearInterval(timer);
-      document.removeEventListener("visibilitychange",visible); };
+      document.removeEventListener("visibilitychange",visible);
+      window.removeEventListener("pms-manual-refresh-queued",queued); };
   }, [enabled,hotelId,user?.id,businessDate]);
 
   const runPms = useCallback(async (force = false): Promise<RefreshOutcome> => {
