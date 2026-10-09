@@ -62,10 +62,9 @@ begin
        and a.pms_type='previo' and a.is_active=true and a.sync_paused=false
      order by a.label,a.id
    loop
-     insert into public.pms_refresh_queue(business_date,hotel_id,target_key,request_kind,request_group_id,requested_by)
+     insert into public.pms_refresh_queue AS q (business_date,hotel_id,target_key,request_kind,request_group_id,requested_by)
      values ((now() at time zone 'Europe/Budapest')::date,v_hotel,v_target.key,'manual',v_group,auth.uid())
-     returning id,public.pms_refresh_queue.request_group_id,public.pms_refresh_queue.target_key,
-       public.pms_refresh_queue.status into job_id,request_group_id,target_key,status;
+     returning q.id,q.request_group_id,q.target_key,q.status into job_id,request_group_id,target_key,status;
      return next;
    end loop;
  elsif v_org = 'rdhotels' then
@@ -82,10 +81,9 @@ begin
    if not exists(select 1 from public.pms_configurations c where c.hotel_id=v_hotel and
        c.pms_type='previo' and c.is_active and c.sync_enabled)
    then raise exception 'Previo is not active for this hotel'; end if;
-   insert into public.pms_refresh_queue(business_date,hotel_id,target_key,request_kind,request_group_id,requested_by)
+   insert into public.pms_refresh_queue AS q (business_date,hotel_id,target_key,request_kind,request_group_id,requested_by)
    values ((now() at time zone 'Europe/Budapest')::date,v_hotel,'hotel:'||v_hotel,'manual',v_group,auth.uid())
-   returning id,public.pms_refresh_queue.request_group_id,public.pms_refresh_queue.target_key,
-       public.pms_refresh_queue.status into job_id,request_group_id,target_key,status;
+   returning q.id,q.request_group_id,q.target_key,q.status into job_id,request_group_id,target_key,status;
    return next;
  else
    raise exception 'Not a supported Previo portfolio';
@@ -110,6 +108,11 @@ begin
  if exists(select 1 from public.pms_refresh_queue where status='running') then return; end if;
  select q.id into v_id from public.pms_refresh_queue q
  where q.status='queued' and q.available_at<=now()
+   and (q.request_kind='manual' or not exists (
+     select 1 from public.pms_refresh_queue p
+     where p.request_kind='automatic'
+       and p.started_at > now() - interval '10 minutes'
+   ))
  order by case when q.request_kind='manual' then 0 else 1 end,
           q.available_at,q.requested_at,q.id limit 1 for update skip locked;
  if v_id is null then return; end if;
