@@ -51,6 +51,8 @@ export interface TrainingStepV2 {
   selector?: string;
   route?: string;
   tab?: string;
+  /** Nested tab within the selected module (e.g. housekeeping/manage). */
+  subTab?: string;
   precondition?: GuardKey;
   waitFor?: GuardKey;
   /** Already completed? Move on without asking for the same real-world action twice. */
