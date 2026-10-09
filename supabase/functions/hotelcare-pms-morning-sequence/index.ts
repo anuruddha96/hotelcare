@@ -357,6 +357,64 @@ Deno.serve(async req => {
     return json({ error: "Unauthorized" }, 401);
   }
   const clock = localClock();
+  const payload = await req.json().catch(() => ({}));
+  // Both scheduled and manually requested queued runs reach the SAME
+  // authoritative server refresh implementation. The queue exclusively
+  // selects a running job; no user may choose an arbitrary account here.
+  const { data: queueSettings, error: queueSettingsError } = await admin
+    .from("pms_refresh_queue_settings").select("enabled").eq("id",true).maybeSingle();
+  const queueEnabled = !queueSettingsError && queueSettings?.enabled === true;
+  if (payload.mode === "queue_execute") {
+    if (!queueEnabled) return json({ error:"PMS queue is not enabled" },409);
+    if (!/^[0-9a-f-]{36}$/i.test(String(payload.job_id || ""))) {
+      return json({ error:"Invalid queue job identifier" },400);
+    }
+    const { data:job, error: jobError } = await admin.from("pms_refresh_jobs")
+      .select("id,target_key,account_id,hotel_id,organization_slug,status,attempts,business_date,lease_expires_at")
+      .eq("id",payload.job_id).maybeSingle();
+    if (jobError || !job || job.status !== "running"
+        || job.target_key !== payload.target_key
+        || job.business_date !== clock.date
+        || job.business_date !== payload.business_date
+        || Number(job.attempts) !== Number(payload.attempt)
+        || new Date(job.lease_expires_at).getTime() <= Date.now()) {
+      return json({ error:"PMS queue job is not active for this business date" },409);
+    }
+    try {
+      let result: any;
+      if (job.account_id) {
+        const { data:acc, error:accError } = await admin.from("pms_accounts")
+          .select("id,hotel_id,organization_slug,pms_type,is_active,sync_paused")
+          .eq("id",job.account_id).maybeSingle();
+        if (accError || !acc || acc.id !== job.target_key.slice(8)
+            || acc.hotel_id !== job.hotel_id
+            || acc.organization_slug !== job.organization_slug
+            || acc.pms_type !== "previo" || !acc.is_active || acc.sync_paused) {
+          throw new Error("Queued PMS account no longer matches active configuration");
+        }
+        result = await callEdge(url,service,"slnt-pms-morning-sync",
+          { mode:"sync_account",account_id:acc.id },String(expected.data));
+      } else {
+        if (job.target_key !== "hotel:" + job.hotel_id) {
+          throw new Error("Queued PMS hotel key does not match target");
+        }
+        const { data:config, error:configError } = await admin.from("pms_configurations")
+          .select("hotel_id").eq("hotel_id",job.hotel_id).eq("pms_type","previo")
+          .eq("is_active",true).eq("sync_enabled",true);
+        if (configError || config?.length !== 1) {
+          throw new Error("Queued PMS hotel is no longer active");
+        }
+        result = await syncStandardHotel(admin,url,service,String(expected.data),
+          job.hotel_id,clock.date);
+      }
+      return json({ ok:true, status:result?.status === "partial" ? "partial":"success",result });
+    } catch (error) {
+      return json({ok:false,error:message(error)},500);
+    }
+  }
+  // A single explicit cutover disables this legacy tick, preventing two
+  // independent daily schedulers after queue activation.
+  if (queueEnabled) return json({ ok:true,skipped:true,reason:"queue_controls_morning_sequence" });
   if (clock.hour < 6 || clock.hour > 8 || clock.minute % 10 !== 0) {
     return json({ ok: true, skipped: true, reason: "outside_Budapest_10min_window" });
   }
