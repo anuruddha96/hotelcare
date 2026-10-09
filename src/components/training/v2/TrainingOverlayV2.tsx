@@ -16,6 +16,10 @@ import {
 import { useTrainingV2, txt } from './TrainingV2Provider';
 
 const LABELS = {
+  trainingMode: { en: 'GUIDED TRAINING · Your normal work still counts', hu: 'VEZETETT TRÉNING · A valódi munkád továbbra is számít', es: 'FORMACIÓN GUIADA · Las acciones reales siguen contando', vi: 'HƯỚNG DẪN · Thao tác thực vẫn có hiệu lực', mn: 'СУРГАЛТЫН ЗААВАР · Бодит үйлдэл хэвээр үйлчилнэ', uk: 'НАВЧАННЯ · Реальні дії залишаються чинними' },
+  skipStep: { en: 'Skip this tip', hu: 'Tipp kihagyása', es: 'Omitir este consejo', vi: 'Bỏ qua mẹo này', mn: 'Энэ зөвлөгөөг алгасах', uk: 'Пропустити підказку' },
+  exitTraining: { en: 'Exit training', hu: 'Kilépés a tréningből', es: 'Salir de la formación', vi: 'Thoát hướng dẫn', mn: 'Сургалтаас гарах', uk: 'Вийти з навчання' },
+  clickToContinue: { en: 'Tap the highlighted tab to continue, or skip this tip.', hu: 'A folytatáshoz koppints a kiemelt fülre, vagy hagyd ki ezt a tippet.', es: 'Toca la pestaña resaltada para continuar o sáltate este consejo.', vi: 'Nhấn thẻ được đánh dấu để tiếp tục hoặc bỏ qua.', mn: 'Үргэлжлүүлэхийн тулд тодруулсан хэсгийг дарна уу эсвэл алгас.', uk: 'Натисніть виділену вкладку або пропустіть підказку.' },
   next: { en: 'Next', hu: 'Tovább', es: 'Siguiente', vi: 'Tiếp', mn: 'Дараах', uk: 'Далі' },
   back: { en: 'Back', hu: 'Vissza', es: 'Atrás', vi: 'Lùi', mn: 'Буцах', uk: 'Назад' },
   endTraining: {
@@ -173,21 +177,8 @@ export function TrainingOverlayV2() {
         pause();
         return;
       }
-      if (e.key === 'Tab' && cardRef.current) {
-        const focusables = cardRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, [tabindex]:not([tabindex="-1"])',
-        );
-        if (!focusables.length) return;
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      // No focus trap: the housekeeper must also be able to use the real UI
+      // and keyboard-accessible highlighted control while the guide is open.
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -199,6 +190,7 @@ export function TrainingOverlayV2() {
   }, [active, pause]);
 
   if (!active || !step) return null;
+  const isHousekeeperTour = active.slug === 'v2_housekeeper_first_day';
   const isLast = stepIndex === totalSteps - 1;
   const progress = Math.round(((stepIndex + 1) / totalSteps) * 100);
   const requiresAction = Boolean(step.waitFor);
@@ -366,6 +358,11 @@ export function TrainingOverlayV2() {
             <X className="h-5 w-5" />
           </button>
 
+          {isHousekeeperTour && (
+            <div className="mb-2 pr-10 text-[11px] font-semibold tracking-wide text-primary" role="status">
+              {txt(LABELS.trainingMode, lang)}
+            </div>
+          )}
           <div className="mb-3 pr-10">
             <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground mb-2">
               <div className="min-w-0 flex items-center gap-2">
@@ -410,7 +407,11 @@ export function TrainingOverlayV2() {
                 {txt(step.body, lang)}
               </p>
 
-              {step.purpose && (
+              {step.advanceOnClick && isHousekeeperTour && (
+                <p className="mt-2 text-xs font-medium text-primary">{txt(LABELS.clickToContinue, lang)}</p>
+              )}
+
+              {step.purpose && (!isHousekeeperTour || !isMobile) && (
                 <div className="mt-3 flex items-start gap-2.5 rounded-lg border bg-muted/45 px-3 py-2.5">
                   <ShieldCheck className="h-4 w-4 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
                   <div className="min-w-0">
@@ -437,7 +438,7 @@ export function TrainingOverlayV2() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold">{txt(LABELS.tryIt, lang)}</p>
                     <p className="mt-0.5 leading-relaxed text-primary/90">{txt(LABELS.autoContinue, lang)}</p>
-                    {step.optional && (
+                    {step.optional && !isHousekeeperTour && (
                       <button
                         type="button"
                         onClick={skipForNow}
@@ -462,13 +463,13 @@ export function TrainingOverlayV2() {
                   <Clock3 className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${reducedMotion ? '' : 'animate-pulse'}`} aria-hidden="true" />
                   <div className="flex-1">
                     <p className="leading-relaxed">{txt(LABELS.waiting, lang)}</p>
-                    <button
+                    {!isHousekeeperTour && <button
                       type="button"
                       onClick={skipForNow}
                       className="mt-1.5 underline underline-offset-2 hover:no-underline text-primary font-semibold"
                     >
                       {txt(LABELS.skipForNow, lang)}
-                    </button>
+                    </button>}
                   </div>
                 </div>
               )}
@@ -499,13 +500,18 @@ export function TrainingOverlayV2() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setConfirmExit(true)}
+                onClick={isHousekeeperTour ? pause : () => setConfirmExit(true)}
                 className="text-muted-foreground min-h-11"
-                aria-label={txt(LABELS.endTraining, lang)}
+                aria-label={txt(isHousekeeperTour ? LABELS.exitTraining : LABELS.endTraining, lang)}
               >
-                {txt(LABELS.endTraining, lang)}
+                {txt(isHousekeeperTour ? LABELS.exitTraining : LABELS.endTraining, lang)}
               </Button>
               <div className="flex gap-2">
+                {isHousekeeperTour && (
+                  <Button variant="outline" size="sm" onClick={skipForNow} className="min-h-11 flex-1">
+                    {txt(LABELS.skipStep, lang)}
+                  </Button>
+                )}
                 {stepIndex > 0 && (
                   <Button
                     variant="outline"
