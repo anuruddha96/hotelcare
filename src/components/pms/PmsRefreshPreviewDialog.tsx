@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { runPmsRefresh, type ProposedRoomChange } from "@/lib/pmsRefresh";
+import { PMS_QUEUE_CLIENT_ENABLED, enqueueFullPmsRefresh } from "@/lib/pmsQueueApi";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -87,6 +88,14 @@ export function PmsRefreshPreviewDialog({ hotelId, open, onOpenChange, onApplied
   const apply = async () => {
     setApplying(true);
     try {
+      if (PMS_QUEUE_CLIENT_ENABLED) {
+        await enqueueFullPmsRefresh(hotelId);
+        toast.message("Full PMS refresh queued", {
+          description:"This request runs after the active job. The preview was read-only; changes have not yet been applied.",
+        });
+        onOpenChange(false);
+        return;
+      }
       const res = await runPmsRefresh(hotelId, { dryRun: false });
       toast.success(`PMS refresh complete — ${res.updated} updated, ${res.checkouts} checkouts, ${res.notFound} unmapped`);
       onApplied?.();
