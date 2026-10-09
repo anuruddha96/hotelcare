@@ -131,7 +131,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     (raw?: string): string | undefined => {
       if (!raw) return raw;
       const seg = location.pathname.split('/').filter(Boolean);
-      const orgSlug = seg[0] || (profile as any)?.organization_slug || 'rdhotels';
+      const firstSegment = seg[0];
+      const orgSlug = firstSegment && !['training', 'auth', 'index'].includes(firstSegment)
+        ? firstSegment
+        : (profile as any)?.organization_slug || 'rdhotels';
       return raw.replace(/:orgSlug/g, orgSlug).replace(/:org\b/g, orgSlug);
     },
     [location.pathname, profile],
