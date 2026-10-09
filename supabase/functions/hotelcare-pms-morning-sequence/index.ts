@@ -382,6 +382,19 @@ Deno.serve(async req => {
   const slot = (clock.hour - 6) * 6 + Math.floor(clock.minute / 10);
   const target = targets[slot];
   if (!target) return json({ ok: true, skipped: true, reason: "no_active_target_for_slot", slot });
+  // Fail closed if another automatic full refresh is already in progress.
+  // This is an interim guard; the durable manual-priority queue is tracked in #568.
+  const { data: activeRuns, error: activeError } = await admin
+    .from("pms_morning_sync_runs")
+    .select("target_key,started_at")
+    .eq("status", "running")
+    .gte("started_at", new Date(Date.now() - 15 * 60_000).toISOString())
+    .limit(1);
+  if (activeError) return json({ ok: false, error: "Unable to verify active PMS refreshes" }, 503);
+  if ((activeRuns || []).length > 0) {
+    return json({ ok: true, skipped: true, reason: "another_auto_refresh_running",
+      blocked_by: activeRuns![0].target_key, target: target.label });
+  }
   const startedAt = new Date().toISOString();
   const claimed = await admin.from("pms_morning_sync_runs").insert({
     business_date: clock.date, target_key: target.key, slot, status: "running", started_at: startedAt,
