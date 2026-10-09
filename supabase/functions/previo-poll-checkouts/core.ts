@@ -23,6 +23,7 @@ import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";
 import { verifiedGozsduCheckouts } from "../_shared/previoExplicitCheckoutEvidence.ts";
 import { verifiedGozsduRestCheckouts } from "../_shared/previoRestCheckoutEvidence.ts";
 import { shouldHealSlntCheckoutRtc } from "../_shared/slntRtcInvariant.ts";
+import { needsCheckoutRoomWrite, checkoutAssignmentsNeedingRelease } from "../_shared/checkoutPollIdempotency.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -551,7 +552,7 @@ async function pollOneHotel(
         const { data } = await mut(
           service
             .from("rooms")
-            .select("id, status, is_checkout_room, room_number, pms_metadata")
+            .select("id, status, is_checkout_room, checkout_time, room_number, pms_metadata")
             .in("hotel", hotelKeys),
         ).maybeSingle();
         return (data as any) || null;
@@ -575,7 +576,7 @@ async function pollOneHotel(
       // in-progress housekeeper cleaning from having its status stomped.
       const { data: existingAsg } = await service
         .from("room_assignments")
-        .select("id, status, assignment_type, assigned_to, pms_hold")
+        .select("id, status, assignment_type, assigned_to, ready_to_clean, pms_hold, pms_hold_reason, pms_hold_event_id")
         .eq("room_id", localRoom.id)
         .eq("assignment_date", today)
         .in("status", ["assigned", "in_progress"]);
@@ -589,28 +590,37 @@ async function pollOneHotel(
         continue;
       }
 
-      const updateData: Record<string, any> = {
-        is_checkout_room: true,
-        checkout_time: nowIso(),
-        updated_at: nowIso(),
-        pms_metadata: {
-          ...existingMeta,
-          checkedOutToday: true,
-          readyToClean: true,
-          checkedOutAt: nowIso(),
-        },
-      };
-      // Only touch status when no housekeeper is actively working the room.
-      // Otherwise the assignment/pms_hold flow governs the transition.
-      if (!hasActiveAssignment && localRoom.status !== "dirty") {
-        updateData.status = "dirty";
-      }
+      // A repeated Previo checkout is not a NEW room state change.
+      // Skipping the no-op write prevents unnecessary triggers, WAL and
+      // Realtime broadcasts while preserving the first confirmed checkout,
+      // overnight carryover and new same-day reservation turnovers.
+      if (needsCheckoutRoomWrite(localRoom, today, reservationId)) {
+        const stampedAt = nowIso();
+        const updateData: Record<string, any> = {
+          is_checkout_room: true,
+          checkout_time: stampedAt,
+          updated_at: stampedAt,
+          pms_metadata: {
+            ...existingMeta,
+            checkedOutToday: true,
+            readyToClean: true,
+            checkedOutAt: stampedAt,
+          },
+        };
+        // This branch only runs for a *new* physical checkout (or incomplete
+        // confirmation), so preserve the original dirty-room transition.
+        // Already-confirmed rooms are skipped entirely above, even after HK
+        // has finished cleaning them.
+        if (!hasActiveAssignment && localRoom.status !== "dirty") {
+          updateData.status = "dirty";
+        }
 
-      const { error: updErr } = await service
-        .from("rooms")
-        .update(updateData)
-        .eq("id", localRoom.id);
-      if (updErr) throw updErr;
+        const { error: updErr } = await service
+          .from("rooms")
+          .update(updateData)
+          .eq("id", localRoom.id);
+        if (updErr) throw updErr;
+      }
 
 
       // A confirmed physical checkout is authoritative for today's active
@@ -677,23 +687,28 @@ async function pollOneHotel(
         result.events++;
       }
 
-      // Auto-release every checkout-cleaning assignment (including one just
-      // reconciled above); the confirmed guest departure makes it safe to start.
-      const { data: released } = await service
-        .from("room_assignments")
-        .update({
-          ready_to_clean: true,
-          pms_hold: false,
-          pms_hold_reason: null,
-          pms_hold_event_id: null,
-          updated_at: nowIso(),
-        })
-        .select("id")
-        .eq("room_id", localRoom.id)
-        .eq("assignment_date", today)
-        .eq("assignment_type", "checkout_cleaning")
-        .in("status", ["assigned", "in_progress"]);
-      result.marked += released?.length ?? 0;
+      // Reconcile only assignments still held or missing RTC. The stale
+      // daily assignments were already released in the block above.
+      // The result count still represents all active checkout assignments,
+      // not the number of database UPDATE statements.
+      const pendingReleaseIds = checkoutAssignmentsNeedingRelease(existingAsg ?? []);
+      if (pendingReleaseIds.length) {
+        const { error: releaseErr } = await service
+          .from("room_assignments")
+          .update({
+            ready_to_clean: true,
+            pms_hold: false,
+            pms_hold_reason: null,
+            pms_hold_event_id: null,
+            updated_at: nowIso(),
+          })
+          .in("id", pendingReleaseIds)
+          .eq("assignment_date", today)
+          .eq("assignment_type", "checkout_cleaning")
+          .in("status", ["assigned", "in_progress"]);
+        if (releaseErr) throw releaseErr;
+      }
+      result.marked += (existingAsg ?? []).length;
     } catch (e: any) {
       result.errors.push(`${r.name}: ${e?.message || e}`);
     }
