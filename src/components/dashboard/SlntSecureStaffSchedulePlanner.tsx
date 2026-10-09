@@ -61,7 +61,7 @@ type RosterDayDraft = {
   notes: string;
 };
 
-const localDate = (day: string) => new Date(\`\${day}T12:00:00\`);
+const localDate = (day: string) => new Date(`${day}T12:00:00`);
 const iso = (date: Date) => format(date, 'yyyy-MM-dd');
 const monday = (day: string) => iso(startOfWeek(localDate(day), { weekStartsOn: 1 }));
 const key = (user: string, date: string) => \`\${user}|\${date}\`;
