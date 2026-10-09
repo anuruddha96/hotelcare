@@ -1,0 +1,52 @@
+name: PMS refresh queue CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/hotelcare-pms-refresh-queue/**'
+      - 'supabase/functions/hotelcare-pms-morning-sequence/**'
+      - 'supabase/migrations/*pms_queue*'
+      - 'supabase/config.toml'
+      - 'src/lib/pmsQueueClient*'
+      - 'src/lib/pmsQueueApi.ts'
+      - 'src/contexts/LiveSyncContext.tsx'
+      - 'src/components/dashboard/PmsRefreshButton.tsx'
+      - '.github/workflows/pms-queue-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  edge-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check queue and executor
+        run: |
+          deno check supabase/functions/hotelcare-pms-refresh-queue/index.ts
+          deno check supabase/functions/hotelcare-pms-morning-sequence/index.ts
+      - name: Fail-closed cutover invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          q=Path('supabase/functions/hotelcare-pms-refresh-queue/index.ts').read_text()
+          m=Path('supabase/migrations/20261009071500_pms_queue_execution_and_schedule.sql').read_text()
+          r=Path('supabase/functions/hotelcare-pms-morning-sequence/index.ts').read_text()
+          config=Path('supabase/config.toml').read_text()
+          assert 'pms_refresh_queue_settings' in q and 'queue_not_activated' in q
+          assert 'get_housekeeping_release_worker_secret' in q
+          assert 'hc_claim_next_pms_refresh_job' in q
+          assert 'hc_finish_pms_refresh_job' in q
+          assert "'manual' OR NOT EXISTS" in m
+          assert "AT TIME ZONE 'Europe/Budapest'" in m
+          assert "enabled boolean NOT NULL DEFAULT false" in m
+          assert 'queue_controls_morning_sequence' in r
+          assert '[functions.hotelcare-pms-refresh-queue]\nverify_jwt = false' in config
+          print('PASS: dark cutover, manual-priority queue and authenticated worker invariants')
+          PY
