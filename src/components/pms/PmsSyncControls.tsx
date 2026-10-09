@@ -10,6 +10,7 @@ import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck, CheckCircle
 import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh } from "@/lib/pmsRefresh";
+import { PMS_QUEUE_CLIENT_ENABLED, enqueueFullPmsRefresh } from "@/lib/pmsQueueApi";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -91,6 +92,13 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const doSync = async () => {
     setSyncing(true);
     try {
+      if (PMS_QUEUE_CLIENT_ENABLED) {
+        await enqueueFullPmsRefresh(cfg.hotel_id);
+        toast.message("Full PMS refresh queued", {
+          description:"Your manual refresh will run after the current refresh and before waiting automatic jobs.",
+        });
+        return;
+      }
       const result = await runPmsRefresh(cfg.hotel_id);
       if (result.status === "partial") {
         toast.warning("PMS data incomplete", {
