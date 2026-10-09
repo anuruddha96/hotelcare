@@ -157,16 +157,37 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const service = createClient(SUPABASE_URL, SERVICE);
+    const bearer = authHeader.replace("Bearer ", "");
+    // Service-to-service reads support the *same* authoritative reservation
+    // enrichment used by the browser. A service-role key alone is not enough:
+    // the existing Vault-backed worker secret must also match.
+    const serviceInvocation = bearer === SERVICE;
+    if (serviceInvocation) {
+      const expected = await service.rpc("get_housekeeping_release_worker_secret");
+      const given = req.headers.get("x-worker-secret") || "";
+      const secret = String(expected.data || "");
+      let equal = given.length === secret.length && given.length > 0;
+      if (equal) {
+        let diff = 0;
+        for (let i = 0; i < given.length; i++) diff |= given.charCodeAt(i) ^ secret.charCodeAt(i);
+        equal = diff === 0;
+      }
+      if (expected.error || !equal) {
+        return new Response(JSON.stringify({error:"Unauthorized"}), {
+          status: 401, headers: {...corsHeaders,"Content-Type":"application/json"}
+        });
+      }
+    }
     const anon = createClient(SUPABASE_URL, ANON);
-    const { data: userRes } = await anon.auth.getUser(authHeader.replace("Bearer ", ""));
-    if (!userRes?.user) {
+    const userRes = serviceInvocation ? null
+      : (await anon.auth.getUser(bearer)).data;
+    if (!serviceInvocation && !userRes?.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const service = createClient(SUPABASE_URL, SERVICE);
 
     const body = await req.json().catch(() => ({} as any));
     // Optional: sync one specific PMS account (portfolios such as SLNT carry
@@ -201,10 +222,10 @@ serve(async (req) => {
     // Authorization: admin/top_management OR manager assigned to the hotel.
     // `profiles.assigned_hotel` may store the display name ("Hotel Ottofiori")
     // while the request targets the slug ("ottofiori") — accept either alias.
-    const { data: profile } = await service
+    const { data: profile } = serviceInvocation ? {data: {role:"admin", assigned_hotel:targetHotel}} : await service
       .from("profiles")
       .select("role, assigned_hotel")
-      .eq("id", userRes.user.id)
+      .eq("id", userRes!.user!.id)
       .maybeSingle();
     const isAdmin = profile?.role === "admin" || profile?.role === "top_management" || profile?.role === "top_management_manager";
     if (!isAdmin) {
