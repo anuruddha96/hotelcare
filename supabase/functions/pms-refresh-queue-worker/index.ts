@@ -71,7 +71,8 @@ async function tick(admin:any,url:string,service:string,secret:string) {
    method:"POST",headers:{"Content-Type":"application/json","apikey":service,
    "Authorization":`Bearer ${service}`,"x-worker-secret":secret},
    body:JSON.stringify({mode:"queued",target_key:job.target_key,
-    business_date:job.business_date,request_kind:job.request_kind,job_id:job.id}),
+    business_date:job.business_date,request_kind:job.request_kind,
+    job_id:job.id,attempt:job.attempt}),
    signal:AbortSignal.timeout(180000),
   });
   outcome=await response.json().catch(()=>({}));
@@ -81,8 +82,10 @@ async function tick(admin:any,url:string,service:string,secret:string) {
   failure=error instanceof Error?error.message:String(error);
   console.error("[Global PMS refresh]",{job_id:job.id,target:job.target_key,error:failure});
  }
- const {data:finished,error:finishError}=await admin.rpc("finish_pms_refresh",{
-  p_job_id:job.id,p_status:status,p_result:outcome,p_error:failure,
+ // A delayed worker must not complete a newer claim after its own lease expires.
+ const {data:finished,error:finishError}=await admin.rpc("finish_pms_refresh_fenced",{
+  p_job_id:job.id,p_attempt:job.attempt,p_status:status,
+  p_result:outcome,p_error:failure,
  });
  if(finishError||finished!==true)throw new Error(`PMS queue completion audit failed: ${finishError?.message||"stale job state"}`);
  return {ok:status!=="failed",job_id:job.id,target:job.target_key,status,error:failure,schedule};
