@@ -291,6 +291,9 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
       if ((detail?.tab || detail?.mainTab) !== 'housekeeping') return;
       if (!detail?.subTab || !['manage', 'supervisor', 'staff-management', 'staff-schedule', 'performance', 'attendance'].includes(detail.subTab)) return;
       if (!initialManagerAccess) return;
+      // Training's explicit navigation must not be overridden by a late
+      // attendance/approvals-based initial tab decision.
+      initialTabAppliedRef.current = true;
       setActiveTab(detail.subTab);
       onActiveSubTabChange?.(detail.subTab);
     };
