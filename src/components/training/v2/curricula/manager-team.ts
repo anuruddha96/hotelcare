@@ -18,7 +18,7 @@ export const managerTeamCurriculum: TrainingCurriculum = {
   slug: 'v2_manager_team_and_assignments',
   name: t('Team View & Room Assignments', 'Csapatnézet és szobakiosztás', 'Equipo y habitaciones', 'Nhóm và phân phòng', 'Баг ба өрөө хуваарилалт', 'Команда та розподіл номерів'),
   description: t('Learn the real Team View, PMS refresh, room status, assignments and approvals — without changing any live work.', 'Ismerd meg a Csapatnézetet, a PMS-frissítést, a szobák állapotát, a kiosztást és a jóváhagyásokat élő módosítás nélkül.', 'Conoce el equipo, PMS, estados y aprobaciones sin modificar trabajo real.', 'Xem nhóm, PMS, phòng và duyệt mà không sửa dữ liệu thật.', 'Бодит ажлыг өөрчлөхгүйгээр баг, PMS, өрөө, зөвшөөрлийг сур.', 'Ознайомтеся з командою, PMS, номерами й погодженнями без змін робочих даних.'),
-  roles: ['manager', 'housekeeping_manager', 'admin', 'top_management_manager'],
+  roles: ['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager'],
   category: 'feature_promo',
   priority: 20,
   moduleKey: 'housekeeping',
