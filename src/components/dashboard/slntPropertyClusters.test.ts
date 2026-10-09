@@ -47,7 +47,7 @@ describe('SLNT Gozsdu-style individual room board', () => {
 
   it('keeps group bulk controls out of the SLNT branch while preserving room-level behavior', () => {
     const slntStart = board.indexOf('if (isSlntTenant) {', board.indexOf('const renderTodayVenueRows'));
-    const slntEnd = board.indexOf('\n            return (', slntStart);
+    const slntEnd = board.indexOf('\n            }\n\n            return (', slntStart) + '\n            }'.length;
     const slntBranch = board.slice(slntStart, slntEnd);
     expect(slntBranch).not.toContain('{...dragProps}');
     expect(slntBranch).not.toContain('onClick={onPillClick}');
