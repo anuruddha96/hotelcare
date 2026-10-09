@@ -20,6 +20,7 @@ import {
   filterSnapshotRowsToMappedRooms,
   loadActiveSlntTeamScope,
   summarizeTeamWorkload,
+  type TeamWorkloadRoom,
 } from '@/lib/slntTeamHousekeepingScope';
 import {
   isMissingTeamBOptionalSchemaError,
@@ -108,7 +109,7 @@ export function Slnt14DayHousekeepingPlannerV2() {
     const portfolioSnapshotRows = (snapshotResult.data || []) as Array<DailyOverviewWorkRow & { business_date: string }>;
     if (portfolioSnapshotRows.length === 0) throw new Error('Previo returned no future reservation snapshot. The planner will not guess Team B workload.');
 
-    const scopedSnapshotRows = filterSnapshotRowsToMappedRooms(portfolioSnapshotRows, rooms);
+    const scopedSnapshotRows = filterSnapshotRowsToMappedRooms(portfolioSnapshotRows, rooms as unknown as Array<Pick<TeamWorkloadRoom, 'pms_metadata' | 'room_number'>>);
     const snapshotsByDate = groupRowsByBusinessDate(scopedSnapshotRows, planningWindow.dates);
     const tasksByDate = groupRowsByBusinessDate(
       ((taskResult.data || []) as Array<{ service_date: string; status: string }>).map(row => ({ ...row, business_date: row.service_date })), planningWindow.dates,
