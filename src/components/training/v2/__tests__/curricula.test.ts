@@ -227,7 +227,7 @@ describe('housekeeper training interaction safety', () => {
     expect(overlay).toContain('onClick={isGuidedTour ? pause : () => setConfirmExit(true)}');
     expect(overlay).not.toContain("if (e.key === 'Tab'");
     expect(engine).toContain('if (step.skipWhen && await evaluateGuard(step.skipWhen, guardCtx))');
-    expect(engine).toContain("if (active.slug === 'v2_housekeeper_first_day')");
+    expect(engine).toContain("active.slug === 'v2_housekeeper_first_day' || MANAGER_ROLES.includes(role || '')");
   });
 
   it('anchors housekeeper training to currently active room cards in both layouts', async () => {
