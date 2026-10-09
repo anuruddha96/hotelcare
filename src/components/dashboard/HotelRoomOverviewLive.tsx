@@ -295,7 +295,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     setRefreshing(false);
   };
 
+  const displayedScopeRef = useRef(currentOverviewScope);
   useEffect(() => {
+    if (displayedScopeRef.current !== currentOverviewScope) {
+      displayedScopeRef.current = currentOverviewScope;
+      loadGuardRef.current.invalidate();
+      setRooms([]); setAssignments([]); setPublicAreaTasks([]);
+      setPreviousAssignments(new Map()); setOverviewDataError(null);
+    }
     fetchData();
   }, [selectedDate, hotelName, refreshKey]);
 
