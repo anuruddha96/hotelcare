@@ -52,7 +52,7 @@ const waitForAssignmentStep: TrainingStepV2 = {
     'Якщо потрібно користуватися екраном, натисніть X, щоб призупинити навчання. Продовжіть пізніше з Центру навчання. Не завершуйте зміну лише тому, що номерів ще не видно.',
   ),
   route: '/:org',
-  tab: 'my-tasks',
+  tab: 'housekeeping',
   precondition: 'is_signed_in',
   waitFor: 'has_any_assignment_today',
 };
@@ -104,6 +104,7 @@ export function applyHousekeeperUiFixes(curriculum: TrainingCurriculum): Trainin
     if (step.key === 'my_tasks') {
       return {
         ...step,
+        tab: 'housekeeping',
         // Do not make a real room start mandatory just to complete training.
         // When a room is already underway, continue directly to its tools.
         skipWhen: 'has_in_progress_cleaning' as const,
@@ -113,6 +114,10 @@ export function applyHousekeeperUiFixes(curriculum: TrainingCurriculum): Trainin
 
     if (step.key === 'breaks') {
       return { ...step, selector: '[data-training="break-button"]' };
+    }
+
+    if (step.key === 'complete_room') {
+      return { ...step, tab: 'housekeeping', selector: '[data-training="active-assigned-room"] [data-training="complete-room-button"]' };
     }
 
     if (step.key === 'signout') {
@@ -129,7 +134,7 @@ export function applyHousekeeperUiFixes(curriculum: TrainingCurriculum): Trainin
         // AssignedRoomCard only renders this block when there is a real towel,
         // linen, bed, manager-note or other room-specific instruction. The
         // step is optional, so it is deferred when the room has none.
-        selector: '[data-training="room-special-instructions"]',
+        selector: '[data-training="active-assigned-room"] [data-training="room-special-instructions"]',
       };
     }
 
