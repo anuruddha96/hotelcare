@@ -36,6 +36,7 @@ create index if not exists pms_refresh_running_lease
 alter table public.pms_refresh_queue enable row level security;
 revoke all on public.pms_refresh_queue from anon, authenticated;
 grant select on public.pms_refresh_queue to authenticated;
+drop policy if exists pms_refresh_own_request_read on public.pms_refresh_queue;
 create policy pms_refresh_own_request_read on public.pms_refresh_queue
  for select to authenticated using (requested_by = auth.uid());
 -- Authenticated callers never insert jobs directly; this SECURITY DEFINER
