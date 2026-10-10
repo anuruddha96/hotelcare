@@ -21,13 +21,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
+          bun-version: latest
       - name: Install locked dependencies
-        run: npm ci --no-audit --no-fund
+        run: bun install --frozen-lockfile
       - name: Booking movement and cancellation tests
-        run: npx vitest run src/lib/bookingMovementPresentation.test.ts src/lib/pickupMovementAccuracy.test.ts
+        run: bunx vitest run src/lib/bookingMovementPresentation.test.ts src/lib/pickupMovementAccuracy.test.ts
       - name: Production UI build
-        run: npm run build
+        run: bun run build
