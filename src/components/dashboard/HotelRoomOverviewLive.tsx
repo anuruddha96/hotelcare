@@ -2107,17 +2107,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               return (
                 <div
                   key={group.key}
-                  className="slnt-location-row flex items-start gap-2 min-w-0"
+                  className="slnt-location-row"
                   data-slnt-venue={group.name}
                 >
                   <Badge
                     variant="outline"
-                    className="slnt-location-label mt-0.5 w-[88px] max-w-[88px] shrink-0 whitespace-normal break-words text-center text-[10px] leading-tight sm:w-[110px] sm:max-w-[110px]"
+                    className="slnt-location-label"
                     title={group.name}
                   >
-                    {group.name}
+                    <span
+                      className="slnt-location-accent"
+                      aria-hidden="true"
+                      style={color ? { backgroundColor: color } : undefined}
+                    />
+                    <span className="slnt-location-name">{group.name}</span>
                   </Badge>
-                  <div className="slnt-location-chips flex min-w-0 flex-wrap gap-1.5">
+                  <div className="slnt-location-chips">
                     {group.rooms.map(room => (
                       <div key={room.id} className="animate-fade-in">
                         {renderRoomChip(room)}
@@ -2417,7 +2422,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   return (
     <>
-      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-10-09-v5' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
+      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-10-10-v6' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
         <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
           {/* Row 1: Title + actions */}
           <div className="flex items-center justify-between gap-2">
