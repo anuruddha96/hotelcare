@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, AlertCircle, BarChart3, CalendarDays, ChevronDown, ChevronUp, Clock3, Info, Loader2, RefreshCw, TrendingUp } from "lucide-react";
+import { AlertCircle, BarChart3, ChevronDown, ChevronUp, Info, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,7 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 import {
   bookingChangePct, fmtPct, observedCohortIncidence, scheduledLosCoverage, validNumber,
-  type BookingInsights, type BookingInsightSummary, type InsightChannel, type InsightDistribution,
+  type BookingInsights, type BookingInsightSummary, type InsightChannel,
 } from "@/lib/bookingInsights";
 
 type SectionKey = "overview" | "cancellations" | "stays" | "channels";
@@ -44,7 +44,7 @@ function Stat({ label, value, detail, change, explanation, accent = "" }: {
       <div className={"mt-1 text-xl font-bold tracking-tight tabular-nums sm:text-2xl " + accent}>{value}</div>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
         {typeof change === "number" && Number.isFinite(change) && (
-          <span className={change >= 0 ? "font-medium text-emerald-700 dark:text-emerald-400" : "font-medium text-orange-700 dark:text-orange-300"}>
+          <span className={(label === "Cancellation events" ? change <= 0 : change >= 0) ? "font-medium text-emerald-700 dark:text-emerald-400" : "font-medium text-orange-700 dark:text-orange-300"}>
             {(change > 0 ? "+" : "") + change + "%"}
           </span>
         )}
@@ -68,7 +68,10 @@ function CategoricalChart({ rows, valueKey, labelKey = "bucket", format = "integ
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={rows} margin={{ top: 8, right: 6, bottom: 7, left: -13 }}>
         <CartesianGrid vertical={false} strokeDasharray="3 3" opacity={0.2} />
-        <XAxis dataKey={labelKey} tick={xyStyle} interval={0} angle={rows.length > 5 ? -23 : 0} textAnchor={rows.length > 5 ? "end" : "middle"} height={rows.length > 5 ? 46 : 30} />
+        <XAxis dataKey={labelKey} tick={xyStyle} interval={rows.length > 14 ? "preserveStartEnd" : 0}
+          minTickGap={10} angle={rows.length > 5 && rows.length <= 14 ? -23 : 0}
+          textAnchor={rows.length > 5 && rows.length <= 14 ? "end" : "middle"}
+          height={rows.length > 5 && rows.length <= 14 ? 46 : 30} />
         <YAxis tick={xyStyle} width={45} tickFormatter={(value: number) => format === "money" ? String(Math.round(value / 1000)) + "k" : String(value)} allowDecimals={false} />
         <Tooltip formatter={(value: unknown) => format === "money" ? formatMoney(n(value), currencyCode) : n(value)} />
         <Bar dataKey={valueKey} fill={color} maxBarSize={36} radius={[3,3,0,0]} />
@@ -203,6 +206,12 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
         </p>}
         {error && <p role="alert" className="rounded-md border border-destructive/30 p-3 text-xs text-destructive">{error}</p>}
         {data && !loading && !error && <>
+          {lastSyncAt && Date.now() - Date.parse(lastSyncAt) > 90 * 60 * 1000 && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 p-2.5 text-xs text-muted-foreground" role="status">
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+              Latest published PMS revenue sync is more than 90 minutes old. Recent bookings or cancellations may not yet be included.
+            </div>
+          )}
           {missingCancellationHistory && (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-muted-foreground" role="status">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -268,9 +277,13 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
               <p className="mt-1 text-[11px] text-muted-foreground"><span className="font-semibold text-emerald-600">■</span> Booked{"  "}
                 <span className="font-semibold text-orange-500">■</span> Cancelled</p>
             </Panel>
-            <Panel title="Booking activity by weekday" description="Number of reservation events booked on each weekday, in Budapest time.">
+            <Panel title="Average bookings by weekday" description="Average reservation events per occurrence of each weekday within the selected period (Budapest time).">
               <CategoricalChart labelKey="label" valueKey="bookings" rows={["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((label,i) => ({
-                label,bookings:n(data.weekdays.find((row) => n(row.weekday)===i+1)?.bookings),
+                label,bookings: (() => {
+                  const dates = daily.filter((r) => ((new Date(r.day + "T00:00:00Z").getUTCDay()+6)%7) === i).length;
+                  const booked = n(data.weekdays.find((row) => n(row.weekday)===i+1)?.bookings);
+                  return dates ? Math.round((booked / dates) * 10) / 10 : 0;
+                })(),
               }))} />
             </Panel>
             <Panel title="Period comparison" description="Previous equal-length period immediately before the selected one; booking creation and cancellation activity are counted separately.">
