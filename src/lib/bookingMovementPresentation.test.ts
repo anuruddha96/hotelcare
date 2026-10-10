@@ -17,7 +17,8 @@ describe("unified booking movement display", () => {
     expect(isDirectChannel("770 Booking.com XML")).toBe(false);
     expect(isDirectChannel("Expedia")).toBe(false);
     expect(isDirectChannel("1 RESERVATION+")).toBe(true);
-    expect(isDirectChannel(null)).toBe(true);
+    expect(isDirectChannel(null)).toBe(false);
+    expect(isDirectChannel("Direct / unknown")).toBe(false);
   });
   it("detects bookings below their explicit property target", () => {
     expect(movementGoalDelta(127, 130)).toBe(-3);
