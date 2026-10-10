@@ -1228,6 +1228,7 @@ export default function RevenueHotelDetail() {
             rates={live.rates}
             canEdit={revAdmin}
             onRatesUpdated={live.reload}
+            lastSyncAt={live.lastSyncAt}
           />
 
           <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
