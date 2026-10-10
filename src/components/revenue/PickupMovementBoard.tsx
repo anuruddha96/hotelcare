@@ -14,7 +14,7 @@ import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjust
 import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
 import { supabase } from "@/integrations/supabase/client";
 import BookingMovementAnalytics from "./BookingMovementAnalytics";
-import { isDirectChannel, movementAdr, movementRoomNights } from "@/lib/bookingMovementPresentation";
+import { isDirectChannel, movementChannelKind, movementAdr, movementRoomNights } from "@/lib/bookingMovementPresentation";
 
 type StatusFilter = "all" | "booked" | "cancelled" | "below" | "above" | "direct" | "ota";
 type SortKey = "created" | "arrival" | "value" | "adr_asc" | "adr_desc";
@@ -195,7 +195,7 @@ export default function PickupMovementBoard({
                 const changedOriginal = row.from !== row.originalFrom || row.checkout !== row.originalCheckout;
                 return (
                   <div key={row.key} className={fresh ? "bg-primary/5" : undefined}>
-                    <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2.5 md:grid-cols-[minmax(150px,1.2fr)_minmax(180px,1.4fr)_70px_70px_90px_100px_38px] md:items-center">
+                    <div className="relative grid grid-cols-1 gap-2 py-2.5 pl-3 pr-12 md:grid-cols-[minmax(150px,1.2fr)_minmax(180px,1.4fr)_70px_70px_90px_100px_38px] md:items-center md:pr-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Badge variant={row.kind === "booked" ? "default" : "secondary"} className="px-1.5 py-0 text-[10px]">
@@ -225,15 +225,15 @@ export default function PickupMovementBoard({
                       <span className="hidden text-xs tabular-nums md:block">{row.rooms.length}</span>
                       <span className="hidden text-xs tabular-nums md:block">{row.guests}</span>
                       <span className="hidden text-right text-xs font-semibold tabular-nums md:block"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setOpen(expanded ? null : row.key)} aria-label={`${expanded ? "Hide" : "Show"} reservation details`}>
+                      <Button size="icon" variant="ghost" className="absolute right-2 top-2 h-8 w-8 md:static" onClick={() => setOpen(expanded ? null : row.key)} aria-label={`${expanded ? "Hide" : "Show"} reservation details`}>
                         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </Button>
-                      <div className="col-span-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground md:hidden">
+                      <div className="min-w-0 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground md:hidden">
                         <span>{movementRoomNights(row)} room-nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span>
                         <span className="font-medium text-foreground"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
                       </div>
-                      <div className="col-span-2 flex flex-wrap items-center gap-1 md:col-span-7">
-                        <Badge variant="outline" className="text-[10px] font-normal">{isDirectChannel(row.channel) ? "Direct" : "OTA"}</Badge>
+                      <div className="min-w-0 flex flex-wrap items-center gap-1 md:col-span-7">
+                        <Badge variant="outline" className="text-[10px] font-normal">{movementChannelKind(row.channel) === "unknown" ? "Unknown source" : isDirectChannel(row.channel) ? "Direct" : "OTA"}</Badge>
                         {row.kind === "booked" && movementAdr(row) !== null && (
                           <Badge variant="secondary" className="text-[10px] font-semibold">{eur(movementAdr(row)!)} ADR</Badge>
                         )}
