@@ -17,6 +17,7 @@ export interface InsightArrivalMonth { month: string; bookings: number; room_sta
 export interface InsightWeekday { weekday: number; bookings: number; booked_value: number; }
 export interface BookingInsights {
   period_days: number;
+  currency_code?: string | null;
   summary: BookingInsightSummary;
   previous: InsightPrevious;
   cohort: InsightCohort;
