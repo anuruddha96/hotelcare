@@ -122,7 +122,7 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.25} />
                       <XAxis dataKey="day" tickFormatter={(d: string) => d.slice(5)} tick={{ fontSize: 10 }} minTickGap={15} />
                       <YAxis tick={{ fontSize: 10 }} width={42} />
-                      <Tooltip formatter={(v: number, name: string) => [eur(numeric(v)), name === "booked_value" ? "Booked" : "Cancelled"]} />
+                      <Tooltip formatter={(v: unknown, name: unknown) => [eur(numeric(v)), name === "booked_value" ? "Booked" : "Cancelled"]} />
                       <Bar name="booked_value" dataKey="booked_value" fill="#10b981" maxBarSize={14} radius={[2,2,0,0]} />
                       <Bar name="cancelled_value" dataKey="cancelled_value" fill="#f59e0b" maxBarSize={14} radius={[2,2,0,0]} />
                     </BarChart>
