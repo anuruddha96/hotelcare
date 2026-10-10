@@ -14,15 +14,11 @@ import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjust
 import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
 import { supabase } from "@/integrations/supabase/client";
 import BookingMovementAnalytics from "./BookingMovementAnalytics";
+import { isDirectChannel, movementAdr, movementRoomNights } from "@/lib/bookingMovementPresentation";
 
 type StatusFilter = "all" | "booked" | "cancelled" | "below" | "above" | "direct" | "ota";
 type SortKey = "created" | "arrival" | "value" | "adr_asc" | "adr_desc";
 
-const OTA_CHANNELS = ["booking", "expedia", "agoda", "airbnb", "hotelbeds", "hrs", "trivago", "ota", "hostelworld", "despegar", "tripadvisor"];
-const isDirect = (source: string) => !OTA_CHANNELS.some((token) => source.toLowerCase().includes(token));
-const roomNights = (row: { rooms: { nights: number }[] }) => row.rooms.reduce((s, room) => s + room.nights, 0);
-const rowAdr = (row: { rooms: { nights: number }[]; value: number }) =>
-  roomNights(row) && row.value > 0 ? row.value / roomNights(row) : null;
 
 // Stay dates are date-only values. Formatting in UTC avoids moving them one
 // calendar day backwards for managers in a different device time zone.
@@ -108,9 +104,9 @@ export default function PickupMovementBoard({
         if (status === "all") return true;
         if (status === "booked" || status === "cancelled") return row.kind === status;
         if (row.kind !== "booked") return false;
-        if (status === "direct") return isDirect(row.channel);
-        if (status === "ota") return !isDirect(row.channel);
-        const adr = rowAdr(row);
+        if (status === "direct") return isDirectChannel(row.channel);
+        if (status === "ota") return !isDirectChannel(row.channel);
+        const adr = movementAdr(row);
         if (targetAdr === null || adr === null) return false;
         return status === "below" ? adr < targetAdr : adr >= targetAdr;
       })
@@ -119,8 +115,8 @@ export default function PickupMovementBoard({
         || row.rooms.some((room) => room.roomType.toLowerCase().includes(query)))
       .sort((a, b) => sort === "arrival" ? a.from.localeCompare(b.from)
         : sort === "value" ? b.value - a.value
-        : sort === "adr_asc" ? (rowAdr(a) ?? Infinity) - (rowAdr(b) ?? Infinity)
-        : sort === "adr_desc" ? (rowAdr(b) ?? -Infinity) - (rowAdr(a) ?? -Infinity)
+        : sort === "adr_asc" ? (movementAdr(a) ?? Infinity) - (movementAdr(b) ?? Infinity)
+        : sort === "adr_desc" ? (movementAdr(b) ?? -Infinity) - (movementAdr(a) ?? -Infinity)
         : b.at.localeCompare(a.at));
   }, [reservations, status, search, sort, targetAdr]);
 
@@ -233,18 +229,18 @@ export default function PickupMovementBoard({
                         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </Button>
                       <div className="col-span-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground md:hidden">
-                        <span>{roomNights(row)} room-nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span>
+                        <span>{movementRoomNights(row)} room-nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span>
                         <span className="font-medium text-foreground"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
                       </div>
                       <div className="col-span-2 flex flex-wrap items-center gap-1 md:col-span-7">
-                        <Badge variant="outline" className="text-[10px] font-normal">{isDirect(row.channel) ? "Direct" : "OTA"}</Badge>
-                        {row.kind === "booked" && rowAdr(row) !== null && (
-                          <Badge variant="secondary" className="text-[10px] font-semibold">{eur(rowAdr(row)!)} ADR</Badge>
+                        <Badge variant="outline" className="text-[10px] font-normal">{isDirectChannel(row.channel) ? "Direct" : "OTA"}</Badge>
+                        {row.kind === "booked" && movementAdr(row) !== null && (
+                          <Badge variant="secondary" className="text-[10px] font-semibold">{eur(movementAdr(row)!)} ADR</Badge>
                         )}
-                        {row.kind === "booked" && targetAdr !== null && rowAdr(row) !== null && (
-                          <Badge variant={rowAdr(row)! < targetAdr ? "destructive" : "secondary"} className="text-[10px] font-normal">
-                            {rowAdr(row)! < targetAdr
-                              ? eur(targetAdr - rowAdr(row)!) + " below goal"
+                        {row.kind === "booked" && targetAdr !== null && movementAdr(row) !== null && (
+                          <Badge variant={movementAdr(row)! < targetAdr ? "destructive" : "secondary"} className="text-[10px] font-normal">
+                            {movementAdr(row)! < targetAdr
+                              ? eur(targetAdr - movementAdr(row)!) + " below goal"
                               : "At or above goal"}
                           </Badge>
                         )}
