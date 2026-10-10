@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 
 import {
-  bookingChangePct, fmtPct, observedCohortIncidence, scheduledLosCoverage, validNumber,
+  bookingChangePct, fmtPct, observedCohortIncidence, scheduledLosCoverage, validNumber, formatBookingMoney as formatMoney,
   type BookingInsights, type BookingInsightSummary, type InsightChannel,
 } from "@/lib/bookingInsights";
 
@@ -19,9 +19,6 @@ const sections: { key: SectionKey; label: string }[] = [
   { key: "channels", label: "Channels & rooms" },
 ];
 const n = validNumber;
-const formatMoney = (v: number | null | undefined, code: string | null | undefined): string =>
-  code ? new Intl.NumberFormat("en-GB", { style: "currency", currency: code, maximumFractionDigits: 0 }).format(n(v))
-       : n(v).toLocaleString("en-GB") + " (currency unavailable)";
 const dayLabel = (iso: string) => iso ? iso.slice(5) : "";
 const emptySummary: BookingInsightSummary = {
   bookings: 0, cancellations: 0, booked_room_items: 0, known_los_items: 0,
