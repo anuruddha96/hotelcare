@@ -161,6 +161,10 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
   const firstCancellation = data?.first_cancellation_recorded_at?.slice(0,10) ?? null;
   const windowStart = data?.daily[0]?.day ?? null;
   const missingCancellationHistory = Boolean(firstCancellation && windowStart && firstCancellation > windowStart);
+  const priorStart = windowStart
+    ? new Date(Date.parse(windowStart + "T00:00:00Z") - days * 86400000).toISOString().slice(0,10)
+    : null;
+  const missingPriorCancellationHistory = Boolean(firstCancellation && priorStart && firstCancellation > priorStart);
   const daily = useMemo(() => (data?.daily ?? []).map((row) => ({
     ...row, day_label: dayLabel(row.day),
     booked_value: n(row.booked_value), cancelled_value: n(row.cancelled_value),
@@ -209,11 +213,12 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
               Latest published PMS revenue sync is more than 90 minutes old. Recent bookings or cancellations may not yet be included.
             </div>
           )}
-          {missingCancellationHistory && (
+          {(missingCancellationHistory || missingPriorCancellationHistory) && (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-muted-foreground" role="status">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-              Cancellation events are only available from {firstCancellation}. Earlier days in this range are incomplete;
-              avoid using them to evaluate cancellation trends.
+              Cancellation events are only retained from {firstCancellation}.
+              {missingCancellationHistory ? " Some selected days are incomplete." : " The previous comparison period is incomplete."}
+              {" "}Do not interpret incomplete periods as having zero cancellations.
             </div>
           )}
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -223,7 +228,7 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
               explanation="Distinct Previo reservation IDs and booking timestamps. Multi-room bookings count once." />
             <Stat label="Cancellation events" value={String(s.cancellations)}
               detail="Recorded in selected period"
-              change={prior ? bookingChangePct(n(s.cancellations),n(prior.cancellations)) : null}
+              change={prior && !missingPriorCancellationHistory ? bookingChangePct(n(s.cancellations),n(prior.cancellations)) : null}
               explanation="Distinct reservation/timestamp cancellation events, including partial room-night cancellations. Not the reservation cancellation rate."
               accent="text-orange-700 dark:text-orange-300" />
             <Stat label={"Gross bookings (" + (moneyCode ?? "currency pending") + ")"} value={currency(booked)}
@@ -287,9 +292,9 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
               <div className="grid grid-cols-2 gap-3 text-xs">
                 {[
                   ["New bookings",s.bookings,prior?.bookings],
-                  ["Cancellation events",s.cancellations,prior?.cancellations],
+                  ["Cancellation events",s.cancellations,missingPriorCancellationHistory ? "Incomplete" : prior?.cancellations],
                   ["Gross booked value",currency(booked),currency(prior?.booked_value)],
-                  ["Cancelled room value",currency(lost),currency(prior?.cancelled_value)],
+                  ["Cancelled room value",currency(lost),missingPriorCancellationHistory ? "Incomplete" : currency(prior?.cancelled_value)],
                 ].map(([title,current,previous]) => (
                   <div className="rounded-lg bg-muted/40 p-3" key={String(title)}>
                     <p className="text-[11px] text-muted-foreground">{title}</p>
