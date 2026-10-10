@@ -51,3 +51,10 @@ export function scheduledLosCoverage(summary: BookingInsightSummary): number | n
   return summary.booked_room_items > 0 ? 100 * summary.known_los_items / summary.booked_room_items : null;
 }
 export const fmtPct = (value: number | null, digits = 0): string => value === null ? "—" : value.toFixed(digits) + "%";
+
+export function formatBookingMoney(amount: number | null | undefined, code: string | null | undefined): string {
+  const value = validNumber(amount);
+  return code && /^[A-Z]{3}$/.test(code)
+    ? new Intl.NumberFormat("en-GB",{style:"currency",currency:code,maximumFractionDigits:0}).format(value)
+    : value.toLocaleString("en-GB") + " (currency unavailable)";
+}
