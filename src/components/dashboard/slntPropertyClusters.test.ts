@@ -44,7 +44,7 @@ describe('SLNT Gozsdu-style individual room board', () => {
     expect(board).not.toContain('slnt-single-unit animate-fade-in');
     expect(board).not.toContain('slntSingleRoomLabel(room.room_number, group.name)');
     expect(declarationsFor('.slnt-location-row').get('display')).toBe('grid');
-    expect(declarationsFor('.slnt-location-row').get('grid-template-columns')).toContain('9rem');
+    expect(css).toContain('grid-template-columns: minmax(9rem, 10rem) minmax(0, 1fr);');
     expect(declarationsFor('.slnt-location-label').get('word-break')).toBe('normal');
     expect(declarationsFor('.slnt-location-label').get('overflow-wrap')).toBe('normal');
     expect(declarationsFor('.slnt-location-chips').get('flex-wrap')).toBe('wrap');
