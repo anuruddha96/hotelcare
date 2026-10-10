@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale, Search, SlidersHorizontal, Sparkles } from "lucide-react";
 import {
-  eur, addDays, budapestToday, pickupWindowLabel, pickupWindowStartMs,
+  addDays, budapestToday, pickupWindowLabel, pickupWindowStartMs,
   type DayMetrics, type BookingNight, type CancelledNight, type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
 import { buildReservationMovementRows, sumReservationMovementRows } from "@/lib/pickupMovementAccuracy";
@@ -15,6 +15,7 @@ import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
 import { supabase } from "@/integrations/supabase/client";
 import BookingMovementAnalytics from "./BookingMovementAnalytics";
 import { isDirectChannel, movementChannelKind, movementAdr, movementRoomNights } from "@/lib/bookingMovementPresentation";
+import { formatBookingMoney } from "@/lib/bookingInsights";
 
 type StatusFilter = "all" | "booked" | "cancelled" | "below" | "above" | "direct" | "ota";
 type SortKey = "created" | "arrival" | "value" | "adr_asc" | "adr_desc";
@@ -35,11 +36,11 @@ function fmtStamp(iso: string) {
 }
 
 /** Previo puts some group booking totals on one room and other rooms at zero. */
-function Value({ amount, grouped }: { amount: number; grouped?: boolean }) {
-  if (amount > 0) return <>{eur(amount)}</>;
+function Value({ amount, grouped, currencyCode }: { amount: number; grouped?: boolean; currencyCode: string | null }) {
+  if (amount > 0) return <>{formatBookingMoney(amount, currencyCode)}</>;
   return (
     <span className="text-muted-foreground">
-      {eur(0)}
+      {formatBookingMoney(0, currencyCode)}
       <span className="ml-1 text-[10px] font-normal">
         {grouped ? "· priced on the group booking" : "· no rate"}
       </span>
@@ -68,13 +69,17 @@ export default function PickupMovementBoard({
   const [open, setOpen] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
   const [targetAdr, setTargetAdr] = useState<number | null>(null);
+  const [currencyCode, setCurrencyCode] = useState<string | null>(null);
   useEffect(() => {
-    if (!hotelId) { setTargetAdr(null); return; }
+    if (!hotelId) { setTargetAdr(null); setCurrencyCode(null); return; }
     let alive = true;
     void (async () => {
       const { data, error } = await supabase.from("hotel_revenue_settings")
-        .select("target_adr").eq("hotel_id", hotelId).maybeSingle();
-      if (alive) setTargetAdr(!error && Number(data?.target_adr) > 0 ? Number(data.target_adr) : null);
+        .select("target_adr, base_currency").eq("hotel_id", hotelId).maybeSingle();
+      if (alive) {
+        setTargetAdr(!error && Number(data?.target_adr) > 0 ? Number(data.target_adr) : null);
+        setCurrencyCode(!error && data?.base_currency ? String(data.base_currency).toUpperCase() : null);
+      }
     })();
     return () => { alive = false; };
   }, [hotelId, lastSyncAt]);
@@ -142,15 +147,15 @@ export default function PickupMovementBoard({
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-3 gap-2">
-          <Summary label="Gained room-nights" rooms={totals.gained} money={totals.gainedValue} tone="text-emerald-600 dark:text-emerald-400" icon={<ArrowUpRight className="h-3.5 w-3.5" />} />
-          <Summary label="Lost room-nights" rooms={-totals.lost} money={-totals.lostValue} tone="text-sky-600 dark:text-sky-400" icon={<ArrowDownRight className="h-3.5 w-3.5" />} />
-          <Summary label="Net room-nights" rooms={totals.gained - totals.lost} money={totals.gainedValue - totals.lostValue} tone={totals.gained < totals.lost ? "text-destructive" : "text-foreground"} icon={<Scale className="h-3.5 w-3.5" />} />
+          <Summary currencyCode={currencyCode} label="Gained room-nights" rooms={totals.gained} money={totals.gainedValue} tone="text-emerald-600 dark:text-emerald-400" icon={<ArrowUpRight className="h-3.5 w-3.5" />} />
+          <Summary currencyCode={currencyCode} label="Lost room-nights" rooms={-totals.lost} money={-totals.lostValue} tone="text-sky-600 dark:text-sky-400" icon={<ArrowDownRight className="h-3.5 w-3.5" />} />
+          <Summary currencyCode={currencyCode} label="Net room-nights" rooms={totals.gained - totals.lost} money={totals.gainedValue - totals.lostValue} tone={totals.gained < totals.lost ? "text-destructive" : "text-foreground"} icon={<Scale className="h-3.5 w-3.5" />} />
         </div>
 
         <p className="text-xs text-muted-foreground">
           <strong className="text-foreground">{reservations.filter((row) => row.kind === "booked").length}</strong> booking events
           {" · "}<strong className="text-foreground">{reservations.filter((row) => row.kind === "cancelled").length}</strong> cancellation events
-          {" · "}Goal ADR: <strong className="text-foreground">{targetAdr === null ? "Not set" : eur(targetAdr)}</strong>
+          {" · "}Goal ADR: <strong className="text-foreground">{targetAdr === null ? "Not set" : formatBookingMoney(targetAdr, currencyCode)}</strong>
         </p>
         <div className="flex flex-wrap gap-2">
           <div className="relative min-w-[190px] flex-1">
@@ -224,23 +229,23 @@ export default function PickupMovementBoard({
                       <span className="hidden text-xs tabular-nums md:block">{row.nights}</span>
                       <span className="hidden text-xs tabular-nums md:block">{row.rooms.length}</span>
                       <span className="hidden text-xs tabular-nums md:block">{row.guests}</span>
-                      <span className="hidden text-right text-xs font-semibold tabular-nums md:block"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
+                      <span className="hidden text-right text-xs font-semibold tabular-nums md:block"><Value amount={row.value} grouped={row.rooms.length > 1} currencyCode={currencyCode} /></span>
                       <Button size="icon" variant="ghost" className="absolute right-2 top-2 h-8 w-8 md:static" onClick={() => setOpen(expanded ? null : row.key)} aria-label={`${expanded ? "Hide" : "Show"} reservation details`}>
                         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </Button>
                       <div className="min-w-0 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground md:hidden">
                         <span>{movementRoomNights(row)} room-nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span>
-                        <span className="font-medium text-foreground"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
+                        <span className="font-medium text-foreground"><Value amount={row.value} grouped={row.rooms.length > 1} currencyCode={currencyCode} /></span>
                       </div>
                       <div className="min-w-0 flex flex-wrap items-center gap-1 md:col-span-7">
                         <Badge variant="outline" className="text-[10px] font-normal">{movementChannelKind(row.channel) === "unknown" ? "Unknown source" : isDirectChannel(row.channel) ? "Direct" : "OTA"}</Badge>
                         {row.kind === "booked" && movementAdr(row) !== null && (
-                          <Badge variant="secondary" className="text-[10px] font-semibold">{eur(movementAdr(row)!)} ADR</Badge>
+                          <Badge variant="secondary" className="text-[10px] font-semibold">{formatBookingMoney(movementAdr(row)!, currencyCode)} ADR</Badge>
                         )}
                         {row.kind === "booked" && targetAdr !== null && movementAdr(row) !== null && (
                           <Badge variant={movementAdr(row)! < targetAdr ? "destructive" : "secondary"} className="text-[10px] font-normal">
                             {movementAdr(row)! < targetAdr
-                              ? eur(targetAdr - movementAdr(row)!) + " below goal"
+                              ? formatBookingMoney(targetAdr - movementAdr(row)!, currencyCode) + " below goal"
                               : "At or above goal"}
                           </Badge>
                         )}
@@ -259,7 +264,7 @@ export default function PickupMovementBoard({
                           {row.rooms.map((room) => (
                             <div key={room.key} className="flex flex-wrap items-center justify-between gap-2 text-xs">
                               <span>{room.roomType} · {room.nights} night{room.nights === 1 ? "" : "s"}</span>
-                              <span className="font-medium tabular-nums"><Value amount={room.value} grouped={row.rooms.length > 1 || row.value > 0} /></span>
+                              <span className="font-medium tabular-nums"><Value amount={room.value} grouped={row.rooms.length > 1 || row.value > 0} currencyCode={currencyCode} /></span>
                             </div>
                           ))}
                         </div>
@@ -300,8 +305,8 @@ export default function PickupMovementBoard({
   );
 }
 
-function Summary({ label, rooms, money, tone, icon }: {
-  label: string; rooms: number; money: number; tone: string; icon: React.ReactNode;
+function Summary({ label, rooms, money, tone, icon, currencyCode }: {
+  label: string; rooms: number; money: number; tone: string; icon: React.ReactNode; currencyCode: string | null;
 }) {
   return (
     <div className="rounded-md border p-2.5">
@@ -309,7 +314,7 @@ function Summary({ label, rooms, money, tone, icon }: {
       <span className={`block text-xl font-semibold tabular-nums ${tone}`}>
         {rooms > 0 ? "+" : rooms < 0 ? "−" : ""}{Math.abs(rooms)}
       </span>
-      <span className="text-[11px] text-muted-foreground">{money === 0 ? "—" : eur(Math.abs(money))}</span>
+      <span className="text-[11px] text-muted-foreground">{money === 0 ? "—" : formatBookingMoney(Math.abs(money), currencyCode)}</span>
     </div>
   );
 }
