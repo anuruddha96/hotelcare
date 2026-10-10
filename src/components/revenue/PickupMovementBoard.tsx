@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,17 @@ import {
 import { buildReservationMovementRows, sumReservationMovementRows } from "@/lib/pickupMovementAccuracy";
 import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjustDialog";
 import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
+import { supabase } from "@/integrations/supabase/client";
+import BookingMovementAnalytics from "./BookingMovementAnalytics";
 
-type StatusFilter = "all" | "booked" | "cancelled";
-type SortKey = "created" | "arrival" | "value";
+type StatusFilter = "all" | "booked" | "cancelled" | "below" | "above" | "direct" | "ota";
+type SortKey = "created" | "arrival" | "value" | "adr_asc" | "adr_desc";
+
+const OTA_CHANNELS = ["booking", "expedia", "agoda", "airbnb", "hotelbeds", "hrs", "trivago", "ota", "hostelworld", "despegar", "tripadvisor"];
+const isDirect = (source: string) => !OTA_CHANNELS.some((token) => source.toLowerCase().includes(token));
+const roomNights = (row: { rooms: { nights: number }[] }) => row.rooms.reduce((s, room) => s + room.nights, 0);
+const rowAdr = (row: { rooms: { nights: number }[]; value: number }) =>
+  roomNights(row) && row.value > 0 ? row.value / roomNights(row) : null;
 
 // Stay dates are date-only values. Formatting in UTC avoids moving them one
 // calendar day backwards for managers in a different device time zone.
@@ -45,7 +53,7 @@ function Value({ amount, grouped }: { amount: number; grouped?: boolean }) {
 
 export default function PickupMovementBoard({
   metrics: _metrics, windowDays, nights = [], cancellations = [],
-  hotelId = null, organizationSlug = null, rates = [], canEdit = false, onRatesUpdated,
+  hotelId = null, organizationSlug = null, rates = [], canEdit = false, onRatesUpdated, lastSyncAt,
 }: {
   metrics: DayMetrics[];
   windowDays: number;
@@ -56,12 +64,24 @@ export default function PickupMovementBoard({
   rates?: RoomTypeRate[];
   canEdit?: boolean;
   onRatesUpdated?: () => void;
+  lastSyncAt?: string | null;
 }) {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("created");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
+  const [targetAdr, setTargetAdr] = useState<number | null>(null);
+  useEffect(() => {
+    if (!hotelId) { setTargetAdr(null); return; }
+    let alive = true;
+    void (async () => {
+      const { data, error } = await supabase.from("hotel_revenue_settings")
+        .select("target_adr").eq("hotel_id", hotelId).maybeSingle();
+      if (alive) setTargetAdr(!error && Number(data?.target_adr) > 0 ? Number(data.target_adr) : null);
+    })();
+    return () => { alive = false; };
+  }, [hotelId, lastSyncAt]);
   const seenSince = usePickupSeenSince(hotelId);
   const isNew = useIsNewSince(seenSince);
   const windowStartMs = useMemo(() => pickupWindowStartMs(windowDays), [windowDays]);
@@ -84,16 +104,25 @@ export default function PickupMovementBoard({
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return reservations
-      .filter((row) => status === "all" || row.kind === status)
+      .filter((row) => {
+        if (status === "all") return true;
+        if (status === "booked" || status === "cancelled") return row.kind === status;
+        if (row.kind !== "booked") return false;
+        if (status === "direct") return isDirect(row.channel);
+        if (status === "ota") return !isDirect(row.channel);
+        const adr = rowAdr(row);
+        if (targetAdr === null || adr === null) return false;
+        return status === "below" ? adr < targetAdr : adr >= targetAdr;
+      })
       .filter((row) => !query || row.resId.toLowerCase().includes(query)
         || row.channel.toLowerCase().includes(query)
         || row.rooms.some((room) => room.roomType.toLowerCase().includes(query)))
-      .sort((a, b) => sort === "arrival"
-        ? a.from.localeCompare(b.from)
-        : sort === "value"
-          ? b.value - a.value
-          : b.at.localeCompare(a.at));
-  }, [reservations, status, search, sort]);
+      .sort((a, b) => sort === "arrival" ? a.from.localeCompare(b.from)
+        : sort === "value" ? b.value - a.value
+        : sort === "adr_asc" ? (rowAdr(a) ?? Infinity) - (rowAdr(b) ?? Infinity)
+        : sort === "adr_desc" ? (rowAdr(b) ?? -Infinity) - (rowAdr(a) ?? -Infinity)
+        : b.at.localeCompare(a.at));
+  }, [reservations, status, search, sort, targetAdr]);
 
   const newCount = useMemo(() => visible.filter((row) => isNew(row.at)).length, [visible, isNew]);
 
@@ -111,8 +140,8 @@ export default function PickupMovementBoard({
           <Badge variant="outline" className="font-normal">Budapest time</Badge>
         </CardTitle>
         <p className="text-[11px] font-normal text-muted-foreground">
-          Future room-nights only · Actual booked/cancelled nightly values · Checkout date is not a charged night.
-          Totals cover the stay dates loaded for this hotel.
+          New bookings and cancellations over the selected movement window · Budapest time.
+          The total is based on loaded future stay dates; checkout is not a charged night.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -122,6 +151,11 @@ export default function PickupMovementBoard({
           <Summary label="Net room-nights" rooms={totals.gained - totals.lost} money={totals.gainedValue - totals.lostValue} tone={totals.gained < totals.lost ? "text-destructive" : "text-foreground"} icon={<Scale className="h-3.5 w-3.5" />} />
         </div>
 
+        <p className="text-xs text-muted-foreground">
+          <strong className="text-foreground">{reservations.filter((row) => row.kind === "booked").length}</strong> booking events
+          {" · "}<strong className="text-foreground">{reservations.filter((row) => row.kind === "cancelled").length}</strong> cancellation events
+          {" · "}Goal ADR: <strong className="text-foreground">{targetAdr === null ? "Not set" : eur(targetAdr)}</strong>
+        </p>
         <div className="flex flex-wrap gap-2">
           <div className="relative min-w-[190px] flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -133,6 +167,10 @@ export default function PickupMovementBoard({
               <SelectItem value="all">All movement</SelectItem>
               <SelectItem value="booked">Bookings</SelectItem>
               <SelectItem value="cancelled">Cancellations</SelectItem>
+              <SelectItem value="direct">Direct bookings</SelectItem>
+              <SelectItem value="ota">OTA bookings</SelectItem>
+              {targetAdr !== null && <SelectItem value="below">Below ADR goal</SelectItem>}
+              {targetAdr !== null && <SelectItem value="above">At / above ADR goal</SelectItem>}
             </SelectContent>
           </Select>
           <Select value={sort} onValueChange={(value) => setSort(value as SortKey)}>
@@ -141,6 +179,8 @@ export default function PickupMovementBoard({
               <SelectItem value="created">Newest first</SelectItem>
               <SelectItem value="arrival">Arrival date</SelectItem>
               <SelectItem value="value">Highest value</SelectItem>
+              <SelectItem value="adr_desc">Highest ADR</SelectItem>
+              <SelectItem value="adr_asc">Lowest ADR</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -161,21 +201,29 @@ export default function PickupMovementBoard({
                   <div key={row.key} className={fresh ? "bg-primary/5" : undefined}>
                     <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2.5 md:grid-cols-[minmax(150px,1.2fr)_minmax(180px,1.4fr)_70px_70px_90px_100px_38px] md:items-center">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <Badge variant={row.kind === "booked" ? "default" : "secondary"} className="px-1.5 py-0 text-[10px]">
                             {row.kind === "booked" ? "Booked" : "Cancelled"}
                           </Badge>
                           {fresh && (
                             <Badge variant="outline" className="border-primary px-1.5 py-0 text-[10px] font-semibold text-primary">New</Badge>
                           )}
-                          <span className="truncate text-xs font-medium">{fmtStamp(row.at)}</span>
+                          <span className="text-xs font-medium">{fmtStamp(row.at)}</span>
                         </div>
-                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">#{row.resId} · {row.channel}</p>
+                        <p className="mt-0.5 break-words text-[10px] text-muted-foreground">#{row.resId} · {row.channel}</p>
                       </div>
                       <div className="min-w-0 text-xs md:block" title="Affected stay nights; end date is the exclusive checkout">
                         <span className="font-medium">{fmtDay(row.from)}</span>
                         <span className="text-muted-foreground"> – {fmtDay(row.checkout)}</span>
                         <span className="ml-1 text-[10px] text-muted-foreground">checkout</span>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {row.rooms.slice(0, 2).map((room) => (
+                            <Badge key={room.key} variant="secondary" className="h-auto max-w-full whitespace-normal break-words text-[10px] font-normal">
+                              {room.roomType}
+                            </Badge>
+                          ))}
+                          {row.rooms.length > 2 && <Badge variant="outline" className="text-[10px]">+{row.rooms.length - 2} rooms</Badge>}
+                        </div>
                       </div>
                       <span className="hidden text-xs tabular-nums md:block">{row.nights}</span>
                       <span className="hidden text-xs tabular-nums md:block">{row.rooms.length}</span>
@@ -184,8 +232,23 @@ export default function PickupMovementBoard({
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setOpen(expanded ? null : row.key)} aria-label={`${expanded ? "Hide" : "Show"} reservation details`}>
                         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </Button>
-                      <div className="col-span-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground md:hidden">
-                        <span>{row.nights} nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span><span className="font-medium text-foreground"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
+                      <div className="col-span-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground md:hidden">
+                        <span>{roomNights(row)} room-nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span>
+                        <span className="font-medium text-foreground"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
+                      </div>
+                      <div className="col-span-2 flex flex-wrap items-center gap-1 md:col-span-7">
+                        <Badge variant="outline" className="text-[10px] font-normal">{isDirect(row.channel) ? "Direct" : "OTA"}</Badge>
+                        {row.kind === "booked" && rowAdr(row) !== null && (
+                          <Badge variant="secondary" className="text-[10px] font-semibold">{eur(rowAdr(row)!)} ADR</Badge>
+                        )}
+                        {row.kind === "booked" && targetAdr !== null && rowAdr(row) !== null && (
+                          <Badge variant={rowAdr(row)! < targetAdr ? "destructive" : "secondary"} className="text-[10px] font-normal">
+                            {rowAdr(row)! < targetAdr
+                              ? eur(targetAdr - rowAdr(row)!) + " below goal"
+                              : "At or above goal"}
+                          </Badge>
+                        )}
+                        {row.kind === "cancelled" && <span className="text-[10px] text-muted-foreground">Value removed from the books</span>}
                       </div>
                     </div>
                     {expanded && (
@@ -226,6 +289,7 @@ export default function PickupMovementBoard({
           </div>
         )}
 
+        <BookingMovementAnalytics hotelId={hotelId} lastSyncAt={lastSyncAt} />
         <QuickRateAdjustDialog
           target={adjust}
           hotelId={hotelId}
