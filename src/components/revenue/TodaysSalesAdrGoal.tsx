@@ -82,8 +82,6 @@ const DEFAULT_GOALS: SalesGoals = {
 
 type PresetKey = "today" | "yesterday" | "last7" | "month" | "custom";
 type CompareKey = "goal" | "yesterday" | "lastweek" | "lastmonth" | "lastyear" | "custom";
-type BookingFilter = "all" | "below" | "above" | "direct" | "ota";
-type SortKey = "created" | "adr_asc" | "adr_desc" | "value" | "arrival";
 
 const OTA_HINTS = ["booking", "expedia", "agoda", "airbnb", "hotelbeds", "hrs", "trivago", "ota", "hostelworld", "despegar", "tripadvisor"];
 
@@ -188,8 +186,6 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [compareCustomFrom, setCompareCustomFrom] = useState(addDays(today, -7));
   const [compareCustomTo, setCompareCustomTo] = useState(addDays(today, -7));
   const [chartMetric, setChartMetric] = useState<SalesPerformanceMetric>("value");
-  const [filter, setFilter] = useState<BookingFilter>("all");
-  const [sort, setSort] = useState<SortKey>("created");
   const [futureNights, setFutureNights] = useState(3);
 
   const [bookedFrom, bookedTo] = useMemo<[string, string]>(() => {
@@ -815,23 +811,6 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       setAiLoading(false);
     }
   }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings]);
-
-  /* -------------------------------------------------------- booking list */
-  const listed = useMemo(() => {
-    let list = periodBookings.slice();
-    if (filter === "below") list = list.filter((b) => (b.adr ?? 0) < goals.targetAdr);
-    if (filter === "above") list = list.filter((b) => (b.adr ?? 0) >= goals.targetAdr);
-    if (filter === "direct") list = list.filter((b) => b.direct);
-    if (filter === "ota") list = list.filter((b) => !b.direct);
-    list.sort((a, b) => {
-      if (sort === "adr_asc") return (a.adr ?? 0) - (b.adr ?? 0);
-      if (sort === "adr_desc") return (b.adr ?? 0) - (a.adr ?? 0);
-      if (sort === "value") return b.revenue - a.revenue;
-      if (sort === "arrival") return a.stayFrom.localeCompare(b.stayFrom);
-      return (b.created ?? "").localeCompare(a.created ?? "");
-    });
-    return list;
-  }, [periodBookings, filter, sort, goals.targetAdr]);
 
   /* ------------------------------------------------------------ headline */
   const periodWord = preset === "today" ? "Today" : preset === "yesterday" ? "Yesterday" : "In this period";
@@ -1497,66 +1476,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               </p>
             </Section>
 
-            {/* ------------------------------------------ booking list */}
-            <Section title={`Bookings created ${preset === "today" ? "today" : "in this period"}`} defaultOpen>
-              <div className="flex flex-wrap items-center gap-2 pb-2">
-                <Select value={filter} onValueChange={(v) => setFilter(v as BookingFilter)}>
-                  <SelectTrigger className="h-9 w-[170px] text-xs" aria-label="Filter bookings"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All bookings</SelectItem>
-                    <SelectItem value="below">Below ADR goal</SelectItem>
-                    <SelectItem value="above">Above ADR goal</SelectItem>
-                    <SelectItem value="direct">Direct only</SelectItem>
-                    <SelectItem value="ota">OTA only</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-                  <SelectTrigger className="h-9 w-[160px] text-xs" aria-label="Sort bookings"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="created">Newest first</SelectItem>
-                    <SelectItem value="adr_asc">Lowest ADR</SelectItem>
-                    <SelectItem value="adr_desc">Highest ADR</SelectItem>
-                    <SelectItem value="value">Highest value</SelectItem>
-                    <SelectItem value="arrival">Arrival date</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
 
-              {listed.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{preset === "today" ? "No bookings have been created today yet." : "No bookings were created in the selected period."}</p>
-              ) : (
-                <ul className="divide-y rounded-md border">
-                  {listed.map((b) => {
-                    const below = goals.targetAdr > 0 && (b.adr ?? 0) < goals.targetAdr;
-                    return (
-                      <li key={b.key} className={`p-2 space-y-1 ${b.cancelled ? "opacity-60" : ""}`}>
-                        <div className="flex items-center justify-between gap-2 text-xs">
-                          <span className="text-muted-foreground">{fmtTime(b.created)}</span>
-                          <span className={`font-semibold ${!goals.targetAdr ? "text-foreground" : below ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                            {eur(Math.round(b.adr ?? 0))} ADR
-                          </span>
-                        </div>
-                        <div className={`text-sm ${b.cancelled ? "line-through" : ""}`}>
-                          {fmtDay(b.stayFrom)} → {fmtDay(b.stayTo)} · {b.roomNights} night{b.roomNights === 1 ? "" : "s"}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                          <Badge variant="secondary" className="font-normal">{b.roomType}</Badge>
-                          <Badge variant="outline" className="font-normal">{b.channel}</Badge>
-                          <Badge variant="outline" className="font-normal">{b.direct ? "Direct" : "OTA"}</Badge>
-                          <Badge variant="secondary" className="font-normal">{eur(Math.round(b.revenue))}</Badge>
-                          {b.cancelled && <Badge variant="destructive" className="font-normal">Cancelled</Badge>}
-                          {goals.targetAdr > 0 && (
-                            <Badge variant={below ? "destructive" : "secondary"} className="font-normal">
-                              {below ? `${eur(Math.round(goals.targetAdr - (b.adr ?? 0)))} below goal` : "At or above goal"}
-                            </Badge>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </Section>
           </>
         )}
       </CardContent>

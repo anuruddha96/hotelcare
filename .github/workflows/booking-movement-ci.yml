@@ -1,0 +1,32 @@
+name: Unified booking movement checks
+
+on:
+  pull_request:
+    paths:
+      - 'src/components/revenue/BookingMovementAnalytics.tsx'
+      - 'src/components/revenue/PickupMovementBoard.tsx'
+      - 'src/components/revenue/TodaysSalesAdrGoal.tsx'
+      - 'src/lib/bookingMovementPresentation*'
+      - 'src/pages/RevenueHotelDetail.tsx'
+      - 'supabase/migrations/20261010182*.sql'
+      - '.github/workflows/booking-movement-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  booking-movement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Booking movement and cancellation tests
+        run: bunx vitest run src/lib/bookingMovementPresentation.test.ts src/lib/pickupMovementAccuracy.test.ts
+      - name: Production UI build
+        run: bun run build
