@@ -152,7 +152,6 @@ BEGIN
   )
   SELECT jsonb_build_object(
     'period_days',p_days,
-    'currency_code',COALESCE((SELECT UPPER(base_currency) FROM public.hotel_revenue_settings WHERE hotel_id=p_hotel_id LIMIT 1),'EUR'),
     'summary',(SELECT TO_JSONB(x) FROM summary x),
     'previous',(SELECT TO_JSONB(x) FROM previous_summary x),
     'cohort',(SELECT TO_JSONB(x) FROM cohort_summary x),
