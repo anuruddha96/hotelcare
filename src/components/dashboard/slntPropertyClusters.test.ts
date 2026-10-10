@@ -33,16 +33,29 @@ describe('SLNT Gozsdu-style individual room board', () => {
   });
 
   it('renders one physical venue/department row with one independent chip per room', () => {
-    expect(board).toContain('slnt-location-row flex items-start gap-2 min-w-0');
-    expect(board).toContain('slnt-location-label mt-0.5 w-[88px] max-w-[88px]');
-    expect(board).toContain('slnt-location-chips flex min-w-0 flex-wrap gap-1.5');
+    expect(board).toContain('className="slnt-location-row"');
+    expect(board).toContain('className="slnt-location-label"');
+    expect(board).toContain('className="slnt-location-chips"');
+    expect(board).toContain('className="slnt-location-accent"');
+    expect(board).toContain('className="slnt-location-name"');
     expect(board).toContain('group.rooms.map(room => (');
     expect(board).toContain('{renderRoomChip(room)}');
     expect(board).not.toContain('slnt-room-cluster inline-flex');
     expect(board).not.toContain('slnt-single-unit animate-fade-in');
     expect(board).not.toContain('slntSingleRoomLabel(room.room_number, group.name)');
-    expect(declarationsFor('.slnt-location-row').get('display')).toBe('flex');
+    expect(declarationsFor('.slnt-location-row').get('display')).toBe('grid');
+    expect(declarationsFor('.slnt-location-row').get('grid-template-columns')).toContain('9rem');
+    expect(declarationsFor('.slnt-location-label').get('word-break')).toBe('normal');
+    expect(declarationsFor('.slnt-location-label').get('overflow-wrap')).toBe('normal');
     expect(declarationsFor('.slnt-location-chips').get('flex-wrap')).toBe('wrap');
+  });
+
+  it('stacks long property names above room chips on phone-sized containers', () => {
+    expect(css).toContain('@container (max-width: 38rem)');
+    expect(css).toContain('grid-template-columns: minmax(0, 1fr)');
+    expect(css).toContain('width: fit-content');
+    expect(css).toContain('border-left: 2px solid');
+    expect(css).not.toContain('overflow-wrap: anywhere');
   });
 
   it('keeps group bulk controls out of the SLNT branch while preserving room-level behavior', () => {
@@ -71,7 +84,7 @@ describe('SLNT Gozsdu-style individual room board', () => {
 
   it('retains legend/actions and exposes the new release marker', () => {
     expect(board).toContain('const [showLegend, setShowLegend] = useState(!isSlntTenant)');
-    expect(board).toContain("data-slnt-board-version={isSlntTenant ? '2026-10-09-v5' : undefined}");
+    expect(board).toContain("data-slnt-board-version={isSlntTenant ? '2026-10-10-v6' : undefined}");
     expect(declarationsFor('> div:first-child > div[class~="grid-cols-4"]').get('display')).toBe('none');
     expect(declarationsFor('[data-training="room-legend"]').get('overflow-x')).toBe('auto');
     expect(board).toContain('team.noRooms');
