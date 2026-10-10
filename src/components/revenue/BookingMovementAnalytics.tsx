@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
-import { eur } from "@/lib/revenueAnalytics";
+
 import {
   bookingChangePct, fmtPct, observedCohortIncidence, scheduledLosCoverage, validNumber,
   type BookingInsights, type BookingInsightSummary, type InsightChannel, type InsightDistribution,
@@ -19,7 +19,9 @@ const sections: { key: SectionKey; label: string }[] = [
   { key: "channels", label: "Channels & rooms" },
 ];
 const n = validNumber;
-const currency = (v: number | null | undefined) => eur(n(v));
+const formatMoney = (v: number | null | undefined, code: string | null | undefined): string =>
+  code ? new Intl.NumberFormat("en-GB", { style: "currency", currency: code, maximumFractionDigits: 0 }).format(n(v))
+       : n(v).toLocaleString("en-GB") + " (currency unavailable)";
 const dayLabel = (iso: string) => iso ? iso.slice(5) : "";
 const emptySummary: BookingInsightSummary = {
   bookings: 0, cancellations: 0, booked_room_items: 0, known_los_items: 0,
@@ -27,10 +29,7 @@ const emptySummary: BookingInsightSummary = {
   avg_los: null, avg_booking_lead: null, avg_cancel_lead: null,
   cancellations_after_arrival: 0, bookings_after_arrival: 0, unknown_channels: 0,
 };
-const tooltipText = (value: unknown, key: unknown) => [
-  currency(n(value)),
-  key === "booked_value" ? "Newly booked" : "Cancelled value",
-];
+
 
 function Stat({ label, value, detail, change, explanation, accent = "" }: {
   label: string; value: string; detail?: string; change?: number | null;
@@ -62,8 +61,8 @@ function Panel({ title, description, children }: { title: string; description: s
   </section>;
 }
 const xyStyle = { fontSize: 10 };
-function CategoricalChart({ rows, valueKey, labelKey = "bucket", format = "integer", color = "#438dc9" }: {
-  rows: Record<string, unknown>[]; valueKey: string; labelKey?: string; format?: "integer" | "money"; color?: string;
+function CategoricalChart({ rows, valueKey, labelKey = "bucket", format = "integer", color = "#438dc9", currencyCode }: {
+  rows: object[]; valueKey: string; labelKey?: string; format?: "integer" | "money"; color?: string; currencyCode?: string | null;
 }) {
   return rows.length ? <div className="h-[218px] w-full min-w-0" role="img" aria-label="Distribution chart">
     <ResponsiveContainer width="100%" height="100%">
@@ -71,13 +70,13 @@ function CategoricalChart({ rows, valueKey, labelKey = "bucket", format = "integ
         <CartesianGrid vertical={false} strokeDasharray="3 3" opacity={0.2} />
         <XAxis dataKey={labelKey} tick={xyStyle} interval={0} angle={rows.length > 5 ? -23 : 0} textAnchor={rows.length > 5 ? "end" : "middle"} height={rows.length > 5 ? 46 : 30} />
         <YAxis tick={xyStyle} width={45} tickFormatter={(value: number) => format === "money" ? String(Math.round(value / 1000)) + "k" : String(value)} allowDecimals={false} />
-        <Tooltip formatter={(value: unknown) => format === "money" ? currency(n(value)) : n(value)} />
+        <Tooltip formatter={(value: unknown) => format === "money" ? formatMoney(n(value), currencyCode) : n(value)} />
         <Bar dataKey={valueKey} fill={color} maxBarSize={36} radius={[3,3,0,0]} />
       </BarChart>
     </ResponsiveContainer>
   </div> : <p className="py-9 text-center text-xs text-muted-foreground">No verified records in this period.</p>;
 }
-function RankList({ rows, heading, subtitle }: { rows: InsightChannel[]; heading: string; subtitle: string }) {
+function RankList({ rows, heading, subtitle, currencyCode }: { rows: InsightChannel[]; heading: string; subtitle: string; currencyCode: string | null }) {
   const max = Math.max(1, ...rows.map((r) => n(r.value_eur)));
   return <Panel title={heading} description={subtitle}>
     {rows.length === 0 ? <p className="py-8 text-center text-xs text-muted-foreground">No data recorded for this period.</p>
@@ -86,14 +85,14 @@ function RankList({ rows, heading, subtitle }: { rows: InsightChannel[]; heading
           <div key={row.name} className="min-w-0">
             <div className="flex items-start justify-between gap-3 text-xs">
               <span className="min-w-0 break-words font-medium">{row.name}</span>
-              <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">{currency(row.value_eur)}</span>
+              <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">{formatMoney(row.value_eur, currencyCode)}</span>
             </div>
             <div className="my-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-primary/70" style={{width: String(Math.max(0,Math.min(100,(n(row.value_eur)/max)*100))) + "%"}} />
             </div>
             <p className="text-[11px] text-muted-foreground">
               {row.bookings} bookings · {row.room_stays} room-stays · {row.room_nights} observed room-nights
-              {" · "}ADR {row.adr === null ? "—" : currency(row.adr)}
+              {" · "}ADR {row.adr === null ? "—" : formatMoney(row.adr, currencyCode)}
             </p>
           </div>
         ))}
@@ -114,8 +113,19 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
   const [data, setData] = useState<BookingInsights | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [baseCurrency, setBaseCurrency] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
 
+  useEffect(() => {
+    let current = true;
+    setBaseCurrency(null);
+    if (hotelId) void (async () => {
+      const { data: setting, error: settingError } = await supabase
+        .from("hotel_revenue_settings").select("base_currency").eq("hotel_id",hotelId).maybeSingle();
+      if (current) setBaseCurrency(!settingError && setting?.base_currency ? String(setting.base_currency).toUpperCase() : null);
+    })();
+    return () => { current = false; };
+  }, [hotelId]);
   useEffect(() => {
     setData(null);
     setError(null);
@@ -139,6 +149,8 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
     return () => { active = false; };
   }, [hotelId, days, expanded, lastSyncAt, refresh]);
 
+  const moneyCode = baseCurrency ?? data?.currency_code ?? null;
+  const currency = (v: number | null | undefined) => formatMoney(v, moneyCode);
   const s = data?.summary ?? emptySummary;
   const prior = data?.previous;
   const booked = n(s.booked_value);
@@ -208,7 +220,7 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
               change={prior ? bookingChangePct(n(s.cancellations),n(prior.cancellations)) : null}
               explanation="Distinct reservation/timestamp cancellation events, including partial room-night cancellations. Not the reservation cancellation rate."
               accent="text-orange-700 dark:text-orange-300" />
-            <Stat label="Gross bookings" value={currency(booked)}
+            <Stat label={"Gross bookings (" + (moneyCode ?? "currency pending") + ")"} value={currency(booked)}
               detail="Value booked during period"
               change={prior ? bookingChangePct(booked,n(prior.booked_value)) : null} />
             <Stat label="Cancelled room value" value={currency(lost)}
@@ -240,14 +252,14 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
             ))}
           </nav>
           {section === "overview" && <div className="grid gap-3 xl:grid-cols-2">
-            <Panel title="Booking value movement" description="Each day shows newly booked and cancelled room value in EUR. These are events, not stay-date revenue.">
+            <Panel title="Booking value movement" description="Each day shows newly booked and cancelled room value in the property base currency. These are events, not stay-date revenue.">
               {daily.length ? <div className="h-[248px] min-w-0" role="img" aria-label="Daily booking value and cancelled room value">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={daily} margin={{top:8,right:4,left:-11,bottom:4}}>
                     <CartesianGrid vertical={false} strokeDasharray="3 3" opacity={0.2} />
                     <XAxis dataKey="day_label" tick={xyStyle} minTickGap={15} />
                     <YAxis tick={xyStyle} tickFormatter={(value:number) => String(Math.round(value/1000)) + "k"} width={47} />
-                    <Tooltip formatter={tooltipText} />
+                    <Tooltip formatter={(v: unknown, key: unknown) => [currency(n(v)), key === "booked_value" ? "Newly booked" : "Cancelled value"]} />
                     <Bar dataKey="booked_value" name="booked_value" fill="#10b981" radius={[2,2,0,0]} maxBarSize={18} />
                     <Bar dataKey="cancelled_value" name="cancelled_value" fill="#ef9a35" radius={[2,2,0,0]} maxBarSize={18} />
                   </BarChart>
@@ -336,7 +348,7 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
             </Panel>
             <Panel title="Arrival months of bookings made" description="When the guests who booked in this selected period are scheduled to arrive. This is not the full occupancy forecast.">
               <CategoricalChart rows={data.arrival_months.map((r) => ({label:r.month,amount:n(r.booked_value)}))}
-                labelKey="label" valueKey="amount" format="money" />
+                labelKey="label" valueKey="amount" format="money" currencyCode={moneyCode} />
             </Panel>
             <Panel title="Booking window vs. pricing" description="Useful when deciding whether to protect rates or offer last-minute discounts.">
               <p className="text-xs leading-5 text-muted-foreground">
@@ -347,9 +359,9 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
             </Panel>
           </div>}
           {section === "channels" && <div className="grid gap-3 xl:grid-cols-2">
-            <RankList rows={data.channels} heading="Top booking sources"
+            <RankList rows={data.channels} currencyCode={moneyCode} heading="Top booking sources"
               subtitle="Previo's original source names; sorted by recorded booked value. Group reservations may contain multiple room-stays." />
-            <RankList rows={data.room_types} heading="Room-type demand and ADR"
+            <RankList rows={data.room_types} currencyCode={moneyCode} heading="Room-type demand and ADR"
               subtitle="Booked accommodation value, distinct booking events, room-stays and observed room-nights by mapped room type." />
           </div>}
           <div className="flex items-start gap-2 border-t pt-3 text-[11px] leading-relaxed text-muted-foreground">
@@ -357,7 +369,7 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
             <div>
               Historical events are saved from Previo; stay dates for LOS and lead time are preserved separately.
               Earlier deleted PMS records cannot be recovered and full scheduled terms may be unavailable for some historical events.
-              Guest identities are not included. Events and financial values are per hotel in EUR; for SLNT, figures cover the SLNT Group dataset.
+              Guest identities are not included. Financial amounts use the property base currency ({moneyCode ?? "pending"}); for SLNT, figures cover the SLNT Group dataset.
               {data.first_archive_capture_at && <span> Archive capture started {data.first_archive_capture_at.slice(0,10)}.</span>}
             </div>
           </div>
