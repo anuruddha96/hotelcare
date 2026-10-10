@@ -1,7 +1,10 @@
 /** Presentation-only booking classification; financial facts always come from Previo. */
 const OTA_CHANNELS = ["booking", "expedia", "agoda", "airbnb", "hotelbeds", "hrs", "trivago", "ota", "hostelworld", "despegar", "tripadvisor"];
-export const isDirectChannel = (source: string | null | undefined) =>
-  !OTA_CHANNELS.some((token) => (source ?? "").toLowerCase().includes(token));
+export function movementChannelKind(source: string | null | undefined): "ota" | "direct" | "unknown" {
+  if (!source || /unknown/i.test(source)) return "unknown";
+  return OTA_CHANNELS.some((token) => source.toLowerCase().includes(token)) ? "ota" : "direct";
+}
+export const isDirectChannel = (source: string | null | undefined) => movementChannelKind(source) === "direct";
 
 export function movementRoomNights(row: { rooms: { nights: number }[] }): number {
   return row.rooms.reduce((sum, room) => sum + room.nights, 0);
