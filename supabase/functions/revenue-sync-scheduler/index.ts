@@ -25,6 +25,23 @@ serve(async (req) => {
   const started = Date.now();
   let hotelId: string | null = null;
 
+  // Best-effort complimentary upgrade review. Its own Edge Function enforces
+  // service-role authentication, dedupes reservations and emails ADMIN ONLY.
+  // This must never interrupt or invalidate the normal PMS revenue sync.
+  const checkUpgradeAlerts = async () => {
+    try {
+      const result = await fetch(`${SUPABASE_URL}/functions/v1/room-sale-upgrade-monitor`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
+        body: "{}",
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!result.ok) console.warn("upgrade monitor responded", result.status);
+    } catch (error) {
+      console.warn("upgrade monitor unavailable", error instanceof Error ? error.message : String(error));
+    }
+  };
+
   try {
     // Global single-flight claim — returns nothing when another property is
     // already refreshing, or when everything is fresh.
@@ -35,6 +52,7 @@ serve(async (req) => {
     hotelId = row?.out_hotel_id ?? row?.hotel_id ?? null;
 
     if (!hotelId) {
+      await checkUpgradeAlerts();
       return new Response(JSON.stringify({ ok: true, skipped: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -60,6 +78,7 @@ serve(async (req) => {
       call("translate-room-types", { hotelId }),
       call("revenue-rate-alerts", { hotelId }),
     ]);
+    await checkUpgradeAlerts();
 
     return new Response(
       JSON.stringify({ ok: true, hotel_id: hotelId, ms: Date.now() - started }),
@@ -78,6 +97,7 @@ serve(async (req) => {
         });
       } catch { /* lease expiry is the safety net */ }
     }
+    await checkUpgradeAlerts();
     console.error("revenue-sync-scheduler failed", message);
     return new Response(JSON.stringify({ ok: false, hotel_id: hotelId, error: message }), {
       status: 500,
