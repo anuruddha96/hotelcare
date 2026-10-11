@@ -43,6 +43,11 @@ serve(async (req) => {
   };
 
   try {
+    // Run the overnight shared-room safety check immediately, before a potentially
+    // long full-property revenue refresh. This is a best-effort post-booking
+    // check, not an atomic OTA oversell guarantee.
+    await checkUpgradeAlerts();
+
     // Global single-flight claim — returns nothing when another property is
     // already refreshing, or when everything is fresh.
     const { data: claim, error: claimErr } = await service.rpc("claim_next_revenue_sync", {});
@@ -52,7 +57,6 @@ serve(async (req) => {
     hotelId = row?.out_hotel_id ?? row?.hotel_id ?? null;
 
     if (!hotelId) {
-      await checkUpgradeAlerts();
       return new Response(JSON.stringify({ ok: true, skipped: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -78,7 +82,6 @@ serve(async (req) => {
       call("translate-room-types", { hotelId }),
       call("revenue-rate-alerts", { hotelId }),
     ]);
-    await checkUpgradeAlerts();
 
     return new Response(
       JSON.stringify({ ok: true, hotel_id: hotelId, ms: Date.now() - started }),
@@ -97,7 +100,6 @@ serve(async (req) => {
         });
       } catch { /* lease expiry is the safety net */ }
     }
-    await checkUpgradeAlerts();
     console.error("revenue-sync-scheduler failed", message);
     return new Response(JSON.stringify({ ok: false, hotel_id: hotelId, error: message }), {
       status: 500,
