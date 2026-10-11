@@ -371,8 +371,9 @@ Deno.serve(async (req) => {
                 }
               }
               if (allOk) {
-
-              pmsHotelId: resolved.account.hotId,
+                const before = await readPrevioAvailability({
+                  creds: resolved.account.creds,
+                  pmsHotelId: resolved.account.hotId,
               date: item.date,
               obkId: resolved.obkId,
             });
@@ -440,6 +441,18 @@ Deno.serve(async (req) => {
                 if (checked.value !== transferred.before) {
                   lastMessage += " URGENT: source rollback not confirmed. Review Previo immediately.";
                 }
+              }
+              if (allOk && transferred && orgSlug) {
+                const newSource = transferred.before - (rooms - (previousAvailability ?? 0));
+                await admin.from("revenue_room_type_availability").upsert({
+                  hotel_id: hotelId, organization_slug: orgSlug,
+                  pms_hotel_id: transferred.account.hotId,
+                  stay_date: item.date,
+                  obk_id: upgrade!.scopedObkId,
+                  availability: Math.max(0, newSource),
+                  source: "hotelcare_upgrade_transfer",
+                  captured_at: new Date().toISOString(),
+                }, { onConflict: "hotel_id,pms_hotel_id,stay_date,obk_id" });
               }
               if (transferRuleId) {
                 await admin.from("room_sale_upgrade_rules").update({
