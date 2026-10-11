@@ -34,7 +34,7 @@ serve(async (req) => {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE}` },
         body: "{}",
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(75_000),
       });
       if (!result.ok) console.warn("upgrade monitor responded", result.status);
     } catch (error) {
