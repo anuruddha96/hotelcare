@@ -99,6 +99,76 @@ interface Item {
   upgradeMode?: "exclusive_transfer" | "shared_pool";
 }
 
+/**
+ * Prevent independent positive room-type edits from inventing sellable rooms.
+ * Requires a fresh inventory snapshot for every real product and a booking
+ * count. If Previo hasn't synced, fail closed rather than guess.
+ */
+async function checkUnlinkedInventoryIncrease(
+  admin: any,
+  hotelId: string,
+  stayDate: string,
+  targetObkId: string,
+  currentTarget: number,
+  newTarget: number,
+): Promise<string | null> {
+  const [{ data: roomTypes, error: roomError }, { data: availability, error: availabilityError },
+    { count: booked, error: bookedError }] = await Promise.all([
+    admin.from("room_types")
+      .select("pms_room_id,num_rooms").eq("hotel_id", hotelId)
+      .eq("is_sellable", true).eq("counts_toward_inventory", true),
+    admin.from("revenue_room_type_availability")
+      .select("obk_id,availability,captured_at").eq("hotel_id", hotelId)
+      .eq("stay_date", stayDate),
+    admin.from("revenue_booking_nights")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId).eq("stay_date", stayDate).eq("status_id", 3),
+  ]);
+  if (roomError || availabilityError || bookedError || !roomTypes?.length || booked === null) {
+    return "Unable to confirm property-wide room availability. Refresh Previo before increasing rooms for sale.";
+  }
+  const uniqueTypes = new Map<string, number>();
+  for (const type of roomTypes) {
+    const id = String(type.pms_room_id ?? "").trim();
+    const units = Number(type.num_rooms);
+    if (!id || !Number.isInteger(units) || units <= 0) continue;
+    // Multiple mapping records may represent the same physical product.
+    if (!uniqueTypes.has(id)) uniqueTypes.set(id, units);
+  }
+  if (!uniqueTypes.has(targetObkId)) {
+    return "Room type cannot be verified against physical inventory.";
+  }
+  const physical = [...uniqueTypes.values()].reduce((a, b) => a + b, 0);
+  if (!physical || booked > physical) {
+    return "The property's physical inventory does not match reservations. Review Previo before editing.";
+  }
+  const byType = new Map<string, { availability: number; captured_at: string }>();
+  for (const row of availability ?? []) {
+    byType.set(String(row.obk_id), {
+      availability: Number(row.availability),
+      captured_at: String(row.captured_at ?? ""),
+    });
+  }
+  let currentForSale = 0;
+  for (const id of uniqueTypes.keys()) {
+    const row = byType.get(id);
+    if (!row || !Number.isInteger(row.availability) || row.availability < 0 ||
+        !Number.isFinite(Date.parse(row.captured_at)) ||
+        Date.now() - Date.parse(row.captured_at) > 90 * 60_000) {
+      return "Room availability is not up to date. Refresh Previo before increasing rooms for sale.";
+    }
+    currentForSale += row.availability;
+  }
+  // Avoid an inaccurate cached mirror approving a different Previo value.
+  if (byType.get(targetObkId)?.availability !== currentTarget) {
+    return "Availability has changed in Previo. Refresh the room grid and try again.";
+  }
+  if (currentForSale - currentTarget + newTarget > physical - booked) {
+    return "This would exceed the hotel's remaining physical rooms. Choose a source room type for a free upgrade or close another room type first.";
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -394,7 +464,15 @@ Deno.serve(async (req) => {
               obkId: resolved.obkId,
             });
             previousAvailability = before.value;
-            if (before.value === null) {
+            const unlinkedIncreaseError = !upgrade && before.value !== null && rooms > before.value
+              ? await checkUnlinkedInventoryIncrease(
+                  admin, hotelId, item.date, resolved.scopedObkId, before.value, rooms,
+                )
+              : null;
+            if (unlinkedIncreaseError) {
+              allOk = false;
+              lastMessage = unlinkedIncreaseError;
+            } else if (before.value === null) {
               allOk = false;
               lastMessage = before.error ?? "Could not verify the current Previo availability.";
             } else if (before.value === rooms) {
