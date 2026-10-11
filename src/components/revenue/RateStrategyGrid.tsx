@@ -1319,16 +1319,33 @@ export default function RateStrategyGrid({
     if (!hotelId) { setUpgradeClosures(new Set()); return; }
     let cancelled = false;
     void (async () => {
-      const { data } = await (supabase as any).from("room_sale_upgrade_rules")
-        .select("source_room_type_name,stay_date,status")
-        .eq("hotel_id", hotelId).gte("stay_date", today)
-        .in("status", ["active", "needs_review"]).limit(500);
-      if (!cancelled) setUpgradeClosures(new Set(
-        (data ?? []).map((r: any) => `${r.source_room_type_name}|${r.stay_date}`),
+      const [{ data: rules }, { data: overnight }] = await Promise.all([
+        (supabase as any).from("room_sale_upgrade_rules")
+          .select("source_room_type_name,stay_date,status")
+          .eq("hotel_id", hotelId).gte("stay_date", today)
+          .in("status", ["active", "needs_review"]).limit(500),
+        (supabase as any).from("room_sale_overnight_watches")
+          .select("stay_date,first_obk_id,second_obk_id,triggered_reservation,status")
+          .eq("hotel_id", hotelId).gte("stay_date", today)
+          .eq("status", "closed").limit(500),
+      ]);
+      const closed = new Set<string>((rules ?? []).map(
+        (r: any) => `${r.source_room_type_name}|${r.stay_date}`,
       ));
+      const nameByObk = new Map(roomTypes.map((room) => [room.pms_room_id, room.name]));
+      for (const item of overnight ?? []) {
+        // Show the real last-sale price only on the category that actually
+        // received the booking. The alternative is closed to avoid a double sale.
+        const booked = String(item.triggered_reservation ?? "").split(":").pop();
+        const other = booked === item.first_obk_id ? item.second_obk_id
+          : booked === item.second_obk_id ? item.first_obk_id : null;
+        const name = other ? nameByObk.get(other) : null;
+        if (name) closed.add(`${name}|${item.stay_date}`);
+      }
+      if (!cancelled) setUpgradeClosures(closed);
     })();
     return () => { cancelled = true; };
-  }, [hotelId, today, leftByTypeDate]);
+  }, [hotelId, today, leftByTypeDate, roomTypes]);
 
   const [upgradePrompt, setUpgradePrompt] = useState<{
     date: string; rawName: string; obkId: string | null;
