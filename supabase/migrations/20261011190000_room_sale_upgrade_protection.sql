@@ -42,13 +42,14 @@ create table if not exists public.room_sale_upgrade_events (
   booked_room_type_name text not null,
   upgrade_room_type_name text not null,
   event_kind text not null check (event_kind in ('upgrade_review','shared_inventory_closed','inventory_warning')),
-  delivery_state text not null default 'pending' check (delivery_state in ('pending','sent','failed','suppressed')),
+  delivery_state text not null default 'pending' check (delivery_state in ('pending','sending','sent','failed','suppressed')),
   email_to text,
   sent_at timestamptz,
   attempts integer not null default 0,
   last_error text,
   created_at timestamptz not null default now(),
-  unique (rule_id, reservation_id, room_key, event_kind)
+  unique (rule_id, reservation_id, room_key, event_kind),
+  unique (hotel_id, reservation_id, room_key, event_kind)
 );
 create index if not exists room_sale_upgrade_events_pending_idx
   on public.room_sale_upgrade_events(delivery_state,created_at)
