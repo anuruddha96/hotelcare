@@ -18,6 +18,7 @@ const db = supabase as any;
 
 const ROLE_GROUPS: { label: string; roles: string[] }[] = [
   { label: 'Everyone', roles: [] },
+  { label: 'Top managers', roles: ['top_management_manager', 'top_management'] },
   { label: 'Leadership', roles: ['admin', 'top_management', 'top_management_manager'] },
   {
     label: 'Managers',
@@ -40,6 +41,7 @@ interface Draft {
   title: string;
   body: string;
   tone: 'info' | 'warning' | 'critical';
+  compact: boolean;
   target_org_slugs: string[];
   target_roles: string[];
   starts_at: string;
@@ -51,6 +53,7 @@ const BLANK: Draft = {
   title: '',
   body: '',
   tone: 'info',
+  compact: false,
   target_org_slugs: [],
   target_roles: [],
   starts_at: new Date().toISOString().slice(0, 16),
@@ -98,6 +101,7 @@ export default function AnnouncementsPanel() {
       title: draft.title.trim(),
       body: draft.body.trim(),
       tone: draft.tone,
+      compact: draft.compact,
       target_org_slugs: draft.target_org_slugs,
       target_roles: draft.target_roles,
       starts_at: new Date(draft.starts_at).toISOString(),
@@ -139,6 +143,7 @@ export default function AnnouncementsPanel() {
       title: row.title,
       body: row.body,
       tone: row.tone,
+      compact: !!row.compact,
       target_org_slugs: row.target_org_slugs ?? [],
       target_roles: row.target_roles ?? [],
       starts_at: (row.starts_at ?? new Date().toISOString()).slice(0, 16),
@@ -206,6 +211,14 @@ export default function AnnouncementsPanel() {
               placeholder="The system may be briefly unavailable between 23:00 and 23:30."
             />
           </div>
+
+          <label className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer">
+            <Switch checked={draft.compact} onCheckedChange={(v) => setDraft((d) => ({ ...d, compact: v }))} />
+            <span className="text-sm">
+              <span className="block font-medium">Short title with “How it works”</span>
+              <span className="block text-xs text-muted-foreground">The full message appears only when someone taps to learn more.</span>
+            </span>
+          </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
