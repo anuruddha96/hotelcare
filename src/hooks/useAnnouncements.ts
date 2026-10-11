@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { isAnnouncementVisible } from '@/lib/announcementVisibility';
 
 export type AnnouncementTone = 'info' | 'warning' | 'critical';
 
@@ -55,14 +56,7 @@ export function useAnnouncements() {
     const now = Date.now();
     setItems(
       ((rows ?? []) as Announcement[])
-        .filter((a) =>
-          a.published &&
-          Date.parse(a.starts_at) <= now &&
-          (!a.ends_at || Date.parse(a.ends_at) > now) &&
-          !!profile &&
-          (!(a.target_org_slugs?.length) || a.target_org_slugs.includes(profile.organization_slug ?? '')) &&
-          (!(a.target_roles?.length) || a.target_roles.includes(String(profile.role)))
-        )
+        .filter((a) => isAnnouncementVisible(a, profile, now))
         .map((a) => ({
           ...a,
           seen: Boolean(byId.get(a.id)?.seen_at),
