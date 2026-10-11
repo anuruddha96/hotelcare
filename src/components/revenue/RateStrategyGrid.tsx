@@ -1313,6 +1313,22 @@ export default function RateStrategyGrid({
   } | null>(null);
   // A positive inventory override must explain which existing physical room
   // it borrows. Never present a 22nd sellable room as a new physical unit.
+  const [upgradeClosures, setUpgradeClosures] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!hotelId) { setUpgradeClosures(new Set()); return; }
+    let cancelled = false;
+    void (async () => {
+      const { data } = await (supabase as any).from("room_sale_upgrade_rules")
+        .select("source_room_type_name,stay_date,status")
+        .eq("hotel_id", hotelId).gte("stay_date", today)
+        .in("status", ["active", "needs_review"]).limit(500);
+      if (!cancelled) setUpgradeClosures(new Set(
+        (data ?? []).map((r: any) => `${r.source_room_type_name}|${r.stay_date}`),
+      ));
+    })();
+    return () => { cancelled = true; };
+  }, [hotelId, today, leftByTypeDate]);
+
   const [upgradePrompt, setUpgradePrompt] = useState<{
     date: string; rawName: string; obkId: string | null;
     label: string; requested: number; current: number;
@@ -3688,7 +3704,8 @@ export default function RateStrategyGrid({
                       // The closing price is frozen when the room type first
                       // sold out, so later bulk / manual / automation changes
                       // never rewrite what the date actually sold for.
-                      const frozen = left === 0 ? soldOutByTypeDate.get(`${row.rawName}|${d}`) : undefined;
+                      const frozen = left === 0 && !upgradeClosures.has(`${row.rawName}|${d}`)
+                        ? soldOutByTypeDate.get(`${row.rawName}|${d}`) : undefined;
                       const closedAt = frozen?.price ?? null;
                       const soldOcc = frozen?.occupancy ?? null;
                       const byOccType = row.obkOfType ? priceMap.get(row.obkOfType) : undefined;
@@ -4180,6 +4197,8 @@ export default function RateStrategyGrid({
                 <SelectContent>
                   {houseInventoryTypes.filter((room) =>
                     room.pms_room_id && room.pms_room_id !== upgradePrompt.obkId &&
+                    Math.max(0, ...(room.guest_levels ?? [])) >=
+                      Math.max(0, ...(houseInventoryTypes.find((t) => t.pms_room_id === upgradePrompt.obkId)?.guest_levels ?? [])) &&
                     (leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0) >= (upgradePrompt.requested - upgradePrompt.current)
                   ).map((room) => (
                     <SelectItem key={room.id} value={room.pms_room_id!}>
