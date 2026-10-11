@@ -16,6 +16,8 @@ export interface Announcement {
   published: boolean;
   pinned: boolean;
   created_at: string;
+  /** Show just the headline, opening the full explanation on click. */
+  compact?: boolean;
 }
 
 export interface AnnouncementWithState extends Announcement {
@@ -30,7 +32,7 @@ const db = supabase as any;
  * organization and role) plus this user's own seen/dismissed state.
  */
 export function useAnnouncements() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [items, setItems] = useState<AnnouncementWithState[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -47,19 +49,46 @@ export function useAnnouncements() {
     const byId = new Map<string, { seen_at: string | null; dismissed_at: string | null }>(
       (receipts ?? []).map((r: any) => [r.announcement_id, r]),
     );
+    // The admin RLS management policy can read all announcements. Always
+    // apply the same role, organization and date limits in the end-user UI.
+    // It also protects long-open browser tabs from showing expired notices.
+    const now = Date.now();
     setItems(
-      ((rows ?? []) as Announcement[]).map((a) => ({
-        ...a,
-        seen: Boolean(byId.get(a.id)?.seen_at),
-        dismissed: Boolean(byId.get(a.id)?.dismissed_at),
-      })),
+      ((rows ?? []) as Announcement[])
+        .filter((a) =>
+          a.published &&
+          Date.parse(a.starts_at) <= now &&
+          (!a.ends_at || Date.parse(a.ends_at) > now) &&
+          !!profile &&
+          (!(a.target_org_slugs?.length) || a.target_org_slugs.includes(profile.organization_slug ?? '')) &&
+          (!(a.target_roles?.length) || a.target_roles.includes(String(profile.role)))
+        )
+        .map((a) => ({
+          ...a,
+          seen: Boolean(byId.get(a.id)?.seen_at),
+          dismissed: Boolean(byId.get(a.id)?.dismissed_at),
+        })),
     );
     setLoading(false);
-  }, [user?.id]);
+  }, [user?.id, profile?.role, profile?.organization_slug]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // The notice disappears at its exact expiry time, even when the dashboard
+  // has stayed open for two days without a reload.
+  useEffect(() => {
+    const upcoming = items
+      .map((a) => a.ends_at ? Date.parse(a.ends_at) : Number.NaN)
+      .filter((time) => Number.isFinite(time) && time > Date.now());
+    if (!upcoming.length) return;
+    const soonest = Math.min(...upcoming);
+    const timeout = setTimeout(() => {
+      setItems((previous) => previous.filter((a) => !a.ends_at || Date.parse(a.ends_at) > Date.now()));
+    }, Math.max(0, soonest - Date.now() + 50));
+    return () => clearTimeout(timeout);
+  }, [items]);
 
   const mark = useCallback(
     async (announcementId: string, patch: { seen?: boolean; dismissed?: boolean }) => {
