@@ -76,7 +76,7 @@ Deno.serve(async req=>{
       );
       const old=new Set<string>(watch.baseline_refs ?? []);
       const newLinked=live.filter(r=>
-        !old.has(keyFor(r)) && (r.obkId===watch.first_obk_id || r.obkId===watch.second_obk_id) &&
+        !old.has(keyFor(r)) && !old.has(r.resId) && (r.obkId===watch.first_obk_id || r.obkId===watch.second_obk_id) &&
         (!r.createdAtIso || (Date.parse(r.createdAtIso)>=Date.parse(watch.starts_at)-60000 &&
           Date.parse(r.createdAtIso)<=deadline))
       );
