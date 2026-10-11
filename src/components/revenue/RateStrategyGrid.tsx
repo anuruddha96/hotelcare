@@ -1311,6 +1311,13 @@ export default function RateStrategyGrid({
     current: number;
     value: number;
   } | null>(null);
+  // A positive inventory override must explain which existing physical room
+  // it borrows. Never present a 22nd sellable room as a new physical unit.
+  const [upgradePrompt, setUpgradePrompt] = useState<{
+    date: string; rawName: string; obkId: string | null;
+    label: string; requested: number; current: number;
+    sourceObkId: string; mode: "exclusive_transfer" | "shared_pool";
+  } | null>(null);
 
   useEffect(() => {
     if (invOverride.size === 0 || !leftByTypeDate) return;
@@ -1379,6 +1386,9 @@ export default function RateStrategyGrid({
     roomsToSell?: number;
     obkId?: string | null;
     roomTypeName?: string | null;
+    upgradeFromObkId?: string | null;
+    upgradeFromRoomTypeName?: string | null;
+    upgradeMode?: "exclusive_transfer" | "shared_pool";
   }) => {
     if (!hotelId) return;
     setRestrictionBusy(opts.key);
@@ -1392,6 +1402,9 @@ export default function RateStrategyGrid({
             roomsToSell: opts.roomsToSell ?? null,
             obkId: opts.obkId ?? null,
             roomTypeName: opts.roomTypeName ?? null,
+            upgradeFromObkId: opts.upgradeFromObkId ?? null,
+            upgradeFromRoomTypeName: opts.upgradeFromRoomTypeName ?? null,
+            upgradeMode: opts.upgradeMode ?? null,
           }],
         },
       });
@@ -1525,6 +1538,16 @@ export default function RateStrategyGrid({
     const cellKey = `${rawName}|${date}`;
     const current = leftByTypeDate?.get(cellKey);
     if (current === rooms) return;
+    if (rooms > (current ?? 0)) {
+      // A complimentary upgrade is an allocation from an existing room type,
+      // not extra property capacity. Explain the source before writing to PMS.
+      setUpgradePrompt({
+        date, rawName, obkId, label,
+        requested: rooms, current: current ?? 0,
+        sourceObkId: "", mode: "exclusive_transfer",
+      });
+      return;
+    }
     setInvOverride((prev) => new Map(prev).set(cellKey, rooms));
     void sendRestriction({ key: `inv|${cellKey}`, date, roomsToSell: rooms, obkId, roomTypeName: label });
   };
@@ -4133,6 +4156,70 @@ export default function RateStrategyGrid({
                 >
                   Save to Previo
                 </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm a physical room-type upgrade before increasing inventory. */}
+      <Dialog open={!!upgradePrompt} onOpenChange={(open) => { if (!open) setUpgradePrompt(null); }}>
+        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-sm rounded-2xl p-5">
+          <DialogHeader>
+            <DialogTitle className="text-base">Offer a free room upgrade?</DialogTitle>
+          </DialogHeader>
+          {upgradePrompt && (
+            <div className="space-y-4 text-sm">
+              <p>
+                Add <strong>{upgradePrompt.requested - upgradePrompt.current}</strong> room
+                {upgradePrompt.requested - upgradePrompt.current === 1 ? "" : "s"} to <strong>{upgradePrompt.label}</strong>.
+                Which available room type will reception use for the complimentary upgrade?
+              </p>
+              <Select value={upgradePrompt.sourceObkId} onValueChange={(v) => setUpgradePrompt((prev) => prev ? { ...prev, sourceObkId: v } : prev)}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Choose the original room type" /></SelectTrigger>
+                <SelectContent>
+                  {houseInventoryTypes.filter((room) =>
+                    room.pms_room_id && room.pms_room_id !== upgradePrompt.obkId &&
+                    (leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0) >= (upgradePrompt.requested - upgradePrompt.current)
+                  ).map((room) => (
+                    <SelectItem key={room.id} value={room.pms_room_id!}>
+                      {room.name} · {leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`)} left
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="space-y-2 rounded-lg border p-3">
+                <label className="flex cursor-pointer gap-2">
+                  <input type="radio" name="upgrade-mode" checked={upgradePrompt.mode === "exclusive_transfer"}
+                    onChange={() => setUpgradePrompt((prev) => prev ? { ...prev, mode: "exclusive_transfer" } : prev)} />
+                  <span><strong>Sell as {upgradePrompt.label} instead</strong>
+                    <span className="block text-xs text-muted-foreground">Close the same quantity in the original category first. No additional physical rooms.</span>
+                  </span>
+                </label>
+                <label className="flex gap-2 opacity-60">
+                  <input type="radio" name="upgrade-mode" disabled checked={upgradePrompt.mode === "shared_pool"} readOnly />
+                  <span><strong>Keep both room types open</strong>
+                    <span className="block text-xs text-muted-foreground">Requires verified linked PMS and channel inventory before activation.</span>
+                  </span>
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">If a guest books the lower category, reception can allocate the higher-category room. Upgrade alerts will initially go only to the administrator.</p>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setUpgradePrompt(null)}>Cancel</Button>
+                <Button type="button" disabled={!upgradePrompt.sourceObkId || !!restrictionBusy}
+                  onClick={() => {
+                    const source = houseInventoryTypes.find((r) => r.pms_room_id === upgradePrompt.sourceObkId);
+                    const key = `${upgradePrompt.rawName}|${upgradePrompt.date}`;
+                    void sendRestriction({
+                      key: `inv|${key}`, date: upgradePrompt.date,
+                      roomsToSell: upgradePrompt.requested,
+                      obkId: upgradePrompt.obkId, roomTypeName: upgradePrompt.label,
+                      upgradeFromObkId: upgradePrompt.sourceObkId,
+                      upgradeFromRoomTypeName: source?.name ?? null,
+                      upgradeMode: upgradePrompt.mode,
+                    });
+                    setUpgradePrompt(null);
+                  }}>Save safe upgrade</Button>
               </DialogFooter>
             </div>
           )}
