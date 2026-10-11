@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
         method: "POST",
         headers: {"Content-Type":"application/json", Authorization:"Bearer "+secret},
         body: "{}",
-        signal: AbortSignal.timeout(18000),
+        signal: AbortSignal.timeout(65000),
       });
       if (!protect.ok) console.warn("overnight room watch failed HTTP", protect.status);
     } catch (e) {
