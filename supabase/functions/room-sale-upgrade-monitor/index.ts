@@ -19,6 +19,20 @@ Deno.serve(async (req) => {
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, secret);
   const report = { rules: 0, events: 0, sent: 0, failed: 0 };
   try {
+    // First protect any temporary shared availability. Unlike the normal
+    // email workflow, this also covers last-night dates after midnight.
+    try {
+      const protect = await fetch(Deno.env.get("SUPABASE_URL")! + "/functions/v1/room-sale-overnight-watch", {
+        method: "POST",
+        headers: {"Content-Type":"application/json", Authorization:"Bearer "+secret},
+        body: "{}",
+        signal: AbortSignal.timeout(18000),
+      });
+      if (!protect.ok) console.warn("overnight room watch failed HTTP", protect.status);
+    } catch (e) {
+      console.warn("overnight room watch unavailable", e instanceof Error ? e.message : "unavailable");
+    }
+
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
     const { data: rules, error } = await admin.from("room_sale_upgrade_rules")
       .select("id,hotel_id,organization_slug,stay_date,source_obk_id,target_obk_id,source_room_type_name,target_room_type_name,notify_mode,activated_at")
