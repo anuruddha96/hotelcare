@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUiPreference } from "@/hooks/useUiPreference";
+import { canOfferComplimentaryUpgrade, showOwnLastSoldPrice } from "@/lib/revenue/roomSaleUpgradeEligibility";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
@@ -3704,7 +3705,7 @@ export default function RateStrategyGrid({
                       // The closing price is frozen when the room type first
                       // sold out, so later bulk / manual / automation changes
                       // never rewrite what the date actually sold for.
-                      const frozen = left === 0 && !upgradeClosures.has(`${row.rawName}|${d}`)
+                      const frozen = left !== undefined && showOwnLastSoldPrice(left, upgradeClosures.has(`${row.rawName}|${d}`))
                         ? soldOutByTypeDate.get(`${row.rawName}|${d}`) : undefined;
                       const closedAt = frozen?.price ?? null;
                       const soldOcc = frozen?.occupancy ?? null;
@@ -4195,12 +4196,14 @@ export default function RateStrategyGrid({
               <Select value={upgradePrompt.sourceObkId} onValueChange={(v) => setUpgradePrompt((prev) => prev ? { ...prev, sourceObkId: v } : prev)}>
                 <SelectTrigger className="h-10"><SelectValue placeholder="Choose the original room type" /></SelectTrigger>
                 <SelectContent>
-                  {houseInventoryTypes.filter((room) =>
-                    room.pms_room_id && room.pms_room_id !== upgradePrompt.obkId &&
-                    Math.max(0, ...(room.guest_levels ?? [])) >=
-                      Math.max(0, ...(houseInventoryTypes.find((t) => t.pms_room_id === upgradePrompt.obkId)?.guest_levels ?? [])) &&
-                    (leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0) >= (upgradePrompt.requested - upgradePrompt.current)
-                  ).map((room) => (
+                  {houseInventoryTypes.filter((room) => {
+                    const target = houseInventoryTypes.find((t) => t.pms_room_id === upgradePrompt.obkId);
+                    return !!target && canOfferComplimentaryUpgrade(
+                      target, room,
+                      leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0,
+                      upgradePrompt.requested - upgradePrompt.current,
+                    );
+                  }).map((room) => (
                     <SelectItem key={room.id} value={room.pms_room_id!}>
                       {room.name} · {leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`)} left
                     </SelectItem>
