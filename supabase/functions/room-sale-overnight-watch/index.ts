@@ -51,6 +51,7 @@ Deno.serve(async req=>{
   for(const watch of watches ?? []){
     report.checked++;
     let lockOwner:string|null=null;
+    let triggered=watch.status!=="active";
     try {
       const now=Date.now(), deadline=Date.parse(watch.expires_at);
       if(watch.status==="active" && now>deadline+15*60000){
@@ -91,6 +92,7 @@ Deno.serve(async req=>{
           triggered_at:new Date().toISOString(),triggered_reservation:chosen.resId+":"+chosen.obkId,
           last_checked_at:new Date().toISOString(),last_error:null}).eq("id",watch.id);
         report.triggered++;
+        triggered=true;
       }
       // Work through a property/date lock. Ordinary manager adjustments use
       // the same lock and cannot overlap this closure.
@@ -146,7 +148,7 @@ Deno.serve(async req=>{
     }catch(error){
       report.failures++;
       await db.from("room_sale_overnight_watches")
-        .update({status:watch.status==="active"?"active":"needs_review",
+        .update({status:triggered?"needs_review":"active",
           last_error:error instanceof Error?error.message.slice(0,400):"Watch failed",
           last_checked_at:new Date().toISOString()}).eq("id",watch.id);
       console.error("Shared watch failed",watch.hotel_id,watch.stay_date,error instanceof Error?error.message:"Unknown");
