@@ -297,7 +297,23 @@ Deno.serve(async (req) => {
                 });
                 previousAvailability = beforeTarget.value;
                 const additional = beforeTarget.value === null ? 0 : rooms - beforeTarget.value;
-                if (sourceType.error || !sourceType.data ||
+                // A complimentary upgrade must accommodate every guest
+                // permitted in the booked category. Never infer capacity from
+                // a translated room-type name.
+                const [{ data: sourceRate }, { data: targetRate }] = await Promise.all([
+                  admin.from("revenue_room_type_rates").select("occupancy")
+                    .eq("hotel_id", hotelId).eq("obk_id", upgrade.scopedObkId)
+                    .order("occupancy", { ascending: false }).limit(1).maybeSingle(),
+                  admin.from("revenue_room_type_rates").select("occupancy")
+                    .eq("hotel_id", hotelId).eq("obk_id", resolved.scopedObkId)
+                    .order("occupancy", { ascending: false }).limit(1).maybeSingle(),
+                ]);
+                const sourceMaxGuests = Number(sourceRate?.occupancy ?? 0);
+                const targetMaxGuests = Number(targetRate?.occupancy ?? 0);
+                if (sourceMaxGuests < 1 || targetMaxGuests < 1 || sourceMaxGuests < targetMaxGuests) {
+                  allOk = false;
+                  lastMessage = "Upgrade not saved: guest capacity could not be verified or the replacement room is too small.";
+                } else if (sourceType.error || !sourceType.data ||
                     sourceType.data.is_sellable === false || sourceType.data.counts_toward_inventory === false ||
                     beforeSource.value === null || beforeTarget.value === null ||
                     additional < 1 || beforeSource.value < additional || additional > 20) {
