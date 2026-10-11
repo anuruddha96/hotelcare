@@ -443,20 +443,10 @@ Deno.serve(async (req) => {
             }
 
               }
-              // A target failure must attempt to put the source back. If Previo
-              // cannot confirm the rollback, keep a needs_review audit row.
+              // Do not raise source availability automatically after a partial write.
+              // External bookings might have arrived in the meantime.
               if (!allOk && transferred) {
-                const rollback = await writePrevioInventory({
-                  creds: transferred.account.creds, pmsHotelId: transferred.account.hotId,
-                  target: { obkId: transferred.obkId, from: item.date, to: item.date, roomsToSell: transferred.before },
-                });
-                const checked = rollback.ok ? await readPrevioAvailability({
-                  creds: transferred.account.creds, pmsHotelId: transferred.account.hotId,
-                  date: item.date, obkId: transferred.obkId,
-                }) : { value: null };
-                if (checked.value !== transferred.before) {
-                  lastMessage += " URGENT: source rollback not confirmed. Review Previo immediately.";
-                }
+                lastMessage += " Original room type remains reduced for safety. Manager review required.";
               }
               if (allOk && transferred && orgSlug) {
                 const newSource = transferred.before - (rooms - (previousAvailability ?? 0));
