@@ -152,6 +152,21 @@ Deno.serve(async req=>{
           last_error:error instanceof Error?error.message.slice(0,400):"Watch failed",
           last_checked_at:new Date().toISOString()}).eq("id",watch.id);
       console.error("Shared watch failed",watch.hotel_id,watch.stay_date,error instanceof Error?error.message:"Unknown");
+      // A booking was detected but its duplicate channel availability is not
+      // yet confirmed closed. Escalate to the admin once; keep retrying.
+      if(triggered && !watch.failure_alert_sent_at){
+        try{
+          const msg="URGENT — HotelCare detected a booking of shared inventory at "+
+            watch.hotel_id+" for "+watch.stay_date+
+            ", but could not verify both room types closed in Previo. "+
+            "Please check the linked Queen/Quadruple inventory and stop sales manually if needed.";
+          const sent=await sendEmail({admin:db,organizationSlug:watch.organization_slug,
+            to:[ADMIN_EMAIL],kind:"transactional",subject:"URGENT: Shared room inventory needs review",
+            text:msg,html:"<p>"+ESC(msg)+"</p>"});
+          if(sent.ok) await db.from("room_sale_overnight_watches")
+            .update({failure_alert_sent_at:new Date().toISOString()}).eq("id",watch.id);
+        }catch(mailError){console.warn("Failed to escalate inventory watch",mailError);}
+      }
     }finally{
       if(lockOwner) await db.rpc("release_room_sale_upgrade_lock",{
         p_hotel_id:watch.hotel_id,p_stay_date:watch.stay_date,p_owner:lockOwner});
