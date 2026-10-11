@@ -93,6 +93,10 @@ interface Item {
   obkId?: string | null;
   /** Room type label, for the response and audit text. */
   roomTypeName?: string | null;
+  /** Optional, audited, capacity-neutral physical upgrade from another category. */
+  upgradeFromObkId?: string | null;
+  upgradeFromRoomTypeName?: string | null;
+  upgradeMode?: "exclusive_transfer" | "shared_pool";
 }
 
 Deno.serve(async (req) => {
@@ -249,8 +253,125 @@ Deno.serve(async (req) => {
               ? `Rooms to sell cannot exceed the ${physicalRooms} physical room${physicalRooms === 1 ? "" : "s"} in this room type.`
               : "Hotel Care could not verify the physical inventory for this room type.";
           } else {
-            const before = await readPrevioAvailability({
-              creds: resolved.account.creds,
+            // An upgrade moves an existing physical unit; it must not invent a room.
+            // Sharing the *same* unit simultaneously between independent OTA room
+            // types is not safe until channel-side atomic pooling is certified.
+            const upgrade = item.upgradeFromObkId ? resolveInventory(item.upgradeFromObkId) : null;
+            if (item.upgradeFromObkId && (
+              !upgrade || upgrade.scopedObkId === resolved.scopedObkId ||
+              upgrade.account.hotId !== resolved.account.hotId
+            )) {
+              allOk = false;
+              lastMessage = "Choose another valid room type at the same Previo property for the free upgrade.";
+            }
+            if (item.upgradeFromObkId && item.upgradeMode !== "exclusive_transfer") {
+              allOk = false;
+              lastMessage = "Keeping both listings open requires verified linked-channel inventory. Choose the safe transfer option for now.";
+            }
+            let transferred: { before: number; obkId: string; account: Account } | null = null;
+            let transferRuleId: string | null = null;
+            let leaseOwner: string | null = null;
+            if (allOk && upgrade) {
+              // Avoid concurrent manager transfers for the same property/date.
+              leaseOwner = crypto.randomUUID();
+              const lock = await admin.rpc("claim_room_sale_upgrade_lock", {
+                p_hotel_id: hotelId, p_stay_date: item.date, p_owner: leaseOwner,
+              });
+              if (lock.error || lock.data !== true) {
+                allOk = false;
+                lastMessage = "Another inventory change is in progress for this date. Please try again.";
+              }
+            }
+            try {
+              if (allOk && upgrade) {
+                const sourceType = await admin.from("room_types")
+                  .select("name,is_sellable,counts_toward_inventory,num_rooms")
+                  .eq("hotel_id", hotelId).eq("pms_room_id", upgrade.scopedObkId).maybeSingle();
+                const beforeSource = await readPrevioAvailability({
+                  creds: upgrade.account.creds,
+                  pmsHotelId: upgrade.account.hotId, date: item.date, obkId: upgrade.obkId,
+                });
+                const beforeTarget = await readPrevioAvailability({
+                  creds: resolved.account.creds,
+                  pmsHotelId: resolved.account.hotId, date: item.date, obkId: resolved.obkId,
+                });
+                previousAvailability = beforeTarget.value;
+                const additional = beforeTarget.value === null ? 0 : rooms - beforeTarget.value;
+                if (sourceType.error || !sourceType.data ||
+                    sourceType.data.is_sellable === false || sourceType.data.counts_toward_inventory === false ||
+                    beforeSource.value === null || beforeTarget.value === null ||
+                    additional < 1 || beforeSource.value < additional || additional > 20) {
+                  allOk = false;
+                  lastMessage = "Upgrade not saved: the source room is no longer available or the counts changed. Refresh and try again.";
+                } else {
+                  const { data: physicalRows } = await admin.from("room_types")
+                    .select("num_rooms").eq("hotel_id", hotelId)
+                    .eq("is_sellable", true).eq("counts_toward_inventory", true);
+                  const physicalCapacity = (physicalRows ?? []).reduce((sum: number, r: any) => sum + (Number(r.num_rooms) || 0), 0);
+                  if (physicalCapacity < 1 || physicalCapacity > 10000) {
+                    allOk = false;
+                    lastMessage = "Could not verify the property's physical-room capacity.";
+                  } else {
+                    const { count: booked, error: bookedError } = await admin.from("revenue_booking_nights")
+                      .select("id", { count: "exact", head: true })
+                      .eq("hotel_id", hotelId).eq("stay_date", item.date).eq("status_id", 3);
+                    if (bookedError || (booked ?? 0) > physicalCapacity) {
+                      allOk = false;
+                      lastMessage = "The booked-room count could not be safely reconciled. Nothing was changed.";
+                    } else {
+                      const { data: rule, error: ruleError } = await admin.from("room_sale_upgrade_rules")
+                        .upsert({
+                          hotel_id: hotelId, organization_slug: orgSlug,
+                          stay_date: item.date,
+                          source_obk_id: upgrade.scopedObkId,
+                          target_obk_id: resolved.scopedObkId,
+                          source_room_type_name: sourceType.data.name,
+                          target_room_type_name: item.roomTypeName ?? resolved.scopedObkId,
+                          unit_count: additional,
+                          sell_mode: "exclusive_transfer",
+                          close_trigger: "linked_booking",
+                          status: "pending",
+                          actual_source_before: beforeSource.value,
+                          actual_target_before: beforeTarget.value,
+                          physical_capacity: physicalCapacity,
+                          booked_at_creation: booked ?? 0,
+                          notify_mode: "admin_test",
+                          created_by: user.id,
+                          updated_at: new Date().toISOString(),
+                        }, { onConflict: "hotel_id,stay_date,source_obk_id,target_obk_id" })
+                        .select("id").single();
+                      if (ruleError || !rule?.id) {
+                        allOk = false;
+                        lastMessage = "Could not record a safe upgrade allocation. No inventory was changed.";
+                      } else {
+                        transferRuleId = rule.id;
+                        // The original room category is reduced FIRST, protecting
+                        // against total property inventory increasing mid-transfer.
+                        const sourceNew = beforeSource.value - additional;
+                        const sourceWrite = await writePrevioInventory({
+                          creds: upgrade.account.creds, pmsHotelId: upgrade.account.hotId,
+                          target: { obkId: upgrade.obkId, from: item.date, to: item.date, roomsToSell: sourceNew },
+                        });
+                        const sourceRead = sourceWrite.ok ? await readPrevioAvailability({
+                          creds: upgrade.account.creds, pmsHotelId: upgrade.account.hotId,
+                          date: item.date, obkId: upgrade.obkId,
+                        }) : { value: null };
+                        if (!sourceWrite.ok || sourceRead.value !== sourceNew) {
+                          allOk = false;
+                          lastMessage = "Previo did not confirm the source category's closure. Target inventory remains unchanged.";
+                          await admin.from("room_sale_upgrade_rules").update({
+                            status: "needs_review", last_error: lastMessage,
+                          }).eq("id", transferRuleId);
+                        } else {
+                          transferred = { before: beforeSource.value, obkId: upgrade.obkId, account: upgrade.account };
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              if (allOk) {
+
               pmsHotelId: resolved.account.hotId,
               date: item.date,
               obkId: resolved.obkId,
@@ -304,6 +425,35 @@ Deno.serve(async (req) => {
               }
             }
 
+              }
+              // A target failure must attempt to put the source back. If Previo
+              // cannot confirm the rollback, keep a needs_review audit row.
+              if (!allOk && transferred) {
+                const rollback = await writePrevioInventory({
+                  creds: transferred.account.creds, pmsHotelId: transferred.account.hotId,
+                  target: { obkId: transferred.obkId, from: item.date, to: item.date, roomsToSell: transferred.before },
+                });
+                const checked = rollback.ok ? await readPrevioAvailability({
+                  creds: transferred.account.creds, pmsHotelId: transferred.account.hotId,
+                  date: item.date, obkId: transferred.obkId,
+                }) : { value: null };
+                if (checked.value !== transferred.before) {
+                  lastMessage += " URGENT: source rollback not confirmed. Review Previo immediately.";
+                }
+              }
+              if (transferRuleId) {
+                await admin.from("room_sale_upgrade_rules").update({
+                  status: allOk ? "active" : "needs_review",
+                  activated_at: allOk ? new Date().toISOString() : null,
+                  last_error: allOk ? null : lastMessage,
+                  last_checked_at: new Date().toISOString(),
+                }).eq("id", transferRuleId);
+              }
+            } finally {
+              if (leaseOwner) await admin.rpc("release_room_sale_upgrade_lock", {
+                p_hotel_id: hotelId, p_stay_date: item.date, p_owner: leaseOwner,
+              });
+            }
             if (allOk && orgSlug && actualAvailability !== null) {
               await admin.from("revenue_room_type_availability").upsert({
                 hotel_id: hotelId,
