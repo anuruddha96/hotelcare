@@ -97,6 +97,7 @@ using (exists (
  where p.id=auth.uid() and p.deleted_at is null
  and (p.is_super_admin = true or (
    p.organization_slug = room_sale_upgrade_rules.organization_slug
+   and public.user_can_access_hotel(auth.uid(), room_sale_upgrade_rules.hotel_id)
    and p.role::text in ('admin','top_management','top_management_manager','manager','reception_manager')
  ))
 ));
@@ -107,6 +108,7 @@ using (exists (
  where p.id=auth.uid() and p.deleted_at is null
  and (p.is_super_admin = true or (
    p.organization_slug=room_sale_upgrade_events.organization_slug
+   and public.user_can_access_hotel(auth.uid(), room_sale_upgrade_events.hotel_id)
    and p.role::text in ('admin','top_management','top_management_manager','manager','reception_manager')
  ))
 ));
