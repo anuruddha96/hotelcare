@@ -62,6 +62,11 @@ Deno.serve(async (req) => {
       .in("delivery_state", ["pending", "failed"]).lt("attempts", 3)
       .eq("event_kind", "upgrade_review").order("created_at").limit(40);
     for (const event of pending ?? []) {
+      // One worker may claim a pending event; duplicates never send twice.
+      const { data: claimed, error: claimError } = await admin.from("room_sale_upgrade_events")
+        .update({ delivery_state: "sending" }).eq("id", event.id)
+        .in("delivery_state", ["pending", "failed"]).select("id").maybeSingle();
+      if (claimError || !claimed?.id) continue;
       const subject = `[HotelCare TEST] Complimentary room upgrade to review — ${event.hotel_id}`;
       const plain = `HotelCare · Complimentary upgrade for reception review\n\nHotel: ${event.hotel_id}\nStay date: ${event.stay_date}\nReservation: ${event.reservation_id}\nBooked as: ${event.booked_room_type_name}\nPossible free upgrade: ${event.upgrade_room_type_name}\n\nReception: verify the assignment in Previo before arrival. The guest keeps the booked rate; no guest message is sent by HotelCare.\n\nPilot notification — admin only.`;
       const html = `<div style="font:14px/1.5 Arial,sans-serif;max-width:560px"><h2>Complimentary room upgrade to review</h2><p><strong>Hotel:</strong> ${esc(event.hotel_id)}<br><strong>Stay:</strong> ${esc(event.stay_date)}<br><strong>Reservation:</strong> ${esc(event.reservation_id)}</p><p>Booked: <strong>${esc(event.booked_room_type_name)}</strong><br>Possible free upgrade: <strong>${esc(event.upgrade_room_type_name)}</strong></p><p>Reception should check the room assignment in Previo. The guest keeps the booked rate.</p><p style="color:#64748b;font-size:12px">HotelCare pilot — sent only to the administrator. No guest message.</p></div>`;
