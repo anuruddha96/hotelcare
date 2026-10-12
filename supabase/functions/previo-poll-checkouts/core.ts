@@ -1048,7 +1048,18 @@ serve(async (req) => {
         .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
         .eq("pms_type", "previo")
         .eq("is_active", true);
-      targets = (cfgs ?? []).filter((c: any) => !c.settings?.disable_checkout_poll) as any;
+      // SLNT keeps its two Previo accounts in pms_accounts, not
+      // pms_configurations. Include both in the SAME authenticated/scheduled
+      // fan-out, rather than creating a targeted anonymous cron request.
+      const { data: slntAccounts, error: accountsError } = await service
+        .from("pms_accounts")
+        .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
+        .eq("hotel_id", "slnt-group")
+        .eq("pms_type", "previo")
+        .eq("is_active", true);
+      if (accountsError) throw accountsError;
+      targets = [...(cfgs ?? []), ...(slntAccounts ?? [])]
+        .filter((c: any) => !c.settings?.disable_checkout_poll) as any;
     }
 
     const perHotel: PollResult[] = [];
