@@ -30,3 +30,14 @@ export function matchesSlntBoardFilter(
   const query = searchTerm.trim().toLocaleLowerCase();
   return !query || `${venueName} ${roomNumber}`.toLocaleLowerCase().includes(query);
 }
+
+/**
+ * Hide archived venues from the SLNT live room board, not from PMS history.
+ * The enabled venue IDs come from useVenues (which filters is_active=true).
+ */
+export function filterSlntRoomsToActiveVenues<T extends { venue_id?: string | null }>(
+  rooms: T[], activeVenueIds: readonly string[],
+): T[] {
+  const active = new Set(activeVenueIds);
+  return rooms.filter(room => !!room.venue_id && active.has(room.venue_id));
+}
