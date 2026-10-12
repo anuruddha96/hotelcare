@@ -179,7 +179,20 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     const key = String(mapping.pms_room_name || "").trim().toLowerCase();
     const snapshot = byName.get(key);
     if (!roomId || usedRoomIds.has(roomId) || (snapshot && usedSnapshots.has(String(snapshot.id)))) {
-      throw new Error(`${hotelId}: incomplete or ambiguous mapping; no checkout/daily classifications changed`);
+      const reason = !live ? "no_physical_roster_row"
+        : !physicalRoomMatch ? "physical_room_id_mismatch"
+        : [
+            "occupied=" + String(live.Occupied),
+            "checkedOut=" + String(live.CheckedOut),
+            "arrival=" + String(Boolean(live.Arrival)),
+            "notArrived=" + String(live.NotArrived),
+            "cancelled=" + String(live.IsCancelled),
+            "noShow=" + String(live.IsNoShow),
+            "arrivalDate=" + liveArrival,
+            "departureDate=" + liveDeparture,
+            "nextArrivalDate=" + liveNextArrival,
+          ].join(";");
+      throw new Error(`${hotelId}: unverified vacancy for room ${String(mapping.pms_room_name)} (${reason}); classifications unchanged`);
     }
     let rehydratedArrival = false;
     let rehydratedNoShow = false;
