@@ -92,9 +92,14 @@ Deno.serve(async req=>{
       if(watch.status==="active"){
         const chosen=newLinked[0] ?? live.find(r => !old.has(keyFor(r)) && !old.has(r.resId));
         if(!chosen) continue;
-        await db.from("room_sale_overnight_watches").update({status:"triggered",
+        // Only one concurrent watcher may claim this booking. The closing
+        // worker subsequently claims the hotel/date inventory lock.
+        const {data:claim,error:claimError}=await db.from("room_sale_overnight_watches").update({status:"triggered",
           triggered_at:new Date().toISOString(),triggered_reservation:chosen.resId+":"+chosen.obkId,
-          last_checked_at:new Date().toISOString(),last_error:null}).eq("id",watch.id);
+          last_checked_at:new Date().toISOString(),last_error:null})
+          .eq("id",watch.id).eq("status","active").select("id").maybeSingle();
+        if(claimError)throw Error("Could not claim the last room sale");
+        if(!claim?.id)continue;
         report.triggered++;
         triggered=true;
       }
