@@ -348,6 +348,26 @@ async function pollOneHotel(
       for (const block of blocks) {
         const departure = cleanDate(grab(block, "to"));
         const statusId = grab(block, "statusId");
+        // Positive, live in-house evidence helps identify false RTC states,
+        // but diagnostic only until these XML signals are validated across tenants.
+        if (departure === today && isExplicitlyInHouseStatus(statusId)) {
+          const matchId = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>/);
+          const physicalId = matchId ? Number(matchId[1]) : 0;
+          const matchedLocal = localScheduledByObjId.get(physicalId);
+          if (matchedLocal && (pendingCheckoutRoomIds.has(matchedLocal.id)
+            || matchedLocal.pms_metadata?.checkedOutToday === true)) {
+            result.diagnostics.push({
+              source: "xml-confirmed-inhouse-pending-departure",
+              localRoom: matchedLocal.room_number,
+              roomId: physicalId,
+              statusId,
+              scheduledDepartureToday: matchedLocal.pms_metadata?.scheduledDepartureToday === true,
+              storedCheckoutToday: matchedLocal.pms_metadata?.checkedOutToday === true,
+              accepted: false,
+              readOnly: true,
+            });
+          }
+        }
         if (departure !== today || !isCheckedOutStatus(statusId)) continue;
         const objMatch = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/);
         const reservationId = grab(block, "resId") || grab(block, "reservationId") || grab(block, "id");
@@ -578,6 +598,21 @@ async function pollOneHotel(
           roomId: previoRoomId || null,
           accepted: false,
           reason: "Previo checkout has no exact physical-room ID mapping; RTC not changed",
+        });
+        continue;
+      }
+      // Portfolio workbook exclusions are NOT operational housekeeping rooms.
+      // Previo may still return departures from inactive WR Pension units;
+      // never reintroduce them into the HotelCare checkout/RTC workflow.
+      if (hotelId === "slnt-group"
+          && (localRoom.pms_metadata?.excludedFromHousekeeping === true
+              || localRoom.pms_metadata?.workbookActive === false)) {
+        result.diagnostics.push({
+          source: "inactive-unit-checkout-ignored",
+          room: localRoom.room_number,
+          roomId: previoRoomId || null,
+          accepted: false,
+          reason: "excluded SLNT unit retained in Previo but not available for housekeeping",
         });
         continue;
       }
