@@ -1592,7 +1592,7 @@ export default function RateStrategyGrid({
         date, rawName, obkId, label,
         requested: rooms, current: current ?? 0,
         sourceObkId: existingTransfers.get(`${obkId}|${date}`) ?? "",
-        mode: "shared_pool",
+        mode: rooms - (current ?? 0) === 1 ? "shared_pool" : "exclusive_transfer",
       });
       return;
     }
