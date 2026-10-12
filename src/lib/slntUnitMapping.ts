@@ -147,6 +147,9 @@ export function deriveSuggestion(name: string): {
   if (/^Elisabeth Downtown/i.test(n)) {
     return { unit: n, venue: 'Elisabeth Downtown', confidence: 0.9 };
   }
+  if ((m = n.match(/^WR Pension\s+10([1-6])$/i))) {
+    return { unit: `WR19 Room ${m[1]}`, venue: 'WR19', confidence: 0.95 };
+  }
   if (/^WR Pension\s+\d+$/i.test(n)) {
     return { unit: n, venue: 'WR Pension', confidence: 0.95 };
   }
@@ -197,9 +200,9 @@ export const STATUS_LABELS: Record<MappingStatus, string> = {
 };
 
 
-/** Workbook-authoritative SLNT operating inventory guard. The supplied workbook
- * contains 60 active units across both Previo accounts; Sobi is the single
- * mapped/live PMS row intentionally excluded from operations. */
+/** Workbook-authoritative SLNT operating inventory guard. The Sept 30 list
+ * contains 59 active units across both Previo accounts, including WR19 Rooms
+ * 1-6 (previously WR Pension 101-106). Sobi and Downtown Terrace are inactive. */
 export const SLNT_WORKBOOK_INACTIVE_UNITS = [
   'Sobi Apartment Budapest',
   'Downtown Terrace Passion',
@@ -215,11 +218,15 @@ export function isSlntInactiveOperationalUnit(roomNumber: string): boolean {
   // confirmed inactive units never appear as missing/unmapped warnings.
   if (inactiveSingles.some(name => name === normalized || name === core)) return true;
 
-  // User-confirmed inactive inventory: every WR Pension room and every
-  // Technikai/technical room. Keep the records mapped for audit/PMS identity,
-  // but never expose them as operational housekeeping inventory.
-  return normalized.startsWith('wr pension ') || normalized === 'wr pension'
-    || core.startsWith('wr pension ') || core === 'wr pension'
+  // WR Pension 101-106 are actively cleaned under their new WR19 Room 1-6
+  // names. Unknown pension units and all technical rooms remain excluded.
+  const legacyPension = [normalized, core].some(
+    name => name.startsWith('wr pension ') || name === 'wr pension',
+  );
+  const approvedWr19Alias = [normalized, core].some(
+    name => /^wr pension 10[1-6]$/.test(name),
+  );
+  return (legacyPension && !approvedWr19Alias)
     || normalized.startsWith('technikai ') || normalized === 'technikai'
     || core.startsWith('technikai ') || core === 'technikai';
 }
