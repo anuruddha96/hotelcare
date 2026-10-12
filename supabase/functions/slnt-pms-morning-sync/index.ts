@@ -43,12 +43,17 @@ function normalize(v: unknown) {
   return String(v ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 function isWorkbookActiveRoom(room:any) {
+  const label = normalize(room?.room_number);
+  // WR Pension 101-106 are the physical units SLNT calls WR19 Rooms 1-6.
+  // Keep rejecting unknown former pension rooms, not the six approved aliases.
+  const unknownPensionRoom =
+    (label.startsWith("wr pension ") || label === "wr pension") &&
+    !/^wr pension 10[1-6]$/.test(label);
   return String(room?.status || "").toLowerCase() !== "out_of_order"
-    && !WORKBOOK_INACTIVE_ROOM_NAMES.has(normalize(room?.room_number))
-    && !normalize(room?.room_number).startsWith("wr pension ")
-    && normalize(room?.room_number) !== "wr pension"
-    && !normalize(room?.room_number).startsWith("technikai ")
-    && normalize(room?.room_number) !== "technikai";
+    && !WORKBOOK_INACTIVE_ROOM_NAMES.has(label)
+    && !unknownPensionRoom
+    && !label.startsWith("technikai ")
+    && label !== "technikai";
 }
 function coreKey(v: unknown) {
   const raw = String(v ?? "").trim();
