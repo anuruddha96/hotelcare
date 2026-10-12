@@ -13,8 +13,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, Eye, MessageSquare, PauseCircle, Play, RefreshCw, User, Wrench } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, DoorOpen, Eye, LockKeyhole, MessageSquare, PauseCircle, Play, RefreshCw, ShieldCheck, User, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 
 type Ticket = {
@@ -22,9 +22,15 @@ type Ticket = {
   priority: 'low' | 'medium' | 'high' | 'urgent'; status: 'open' | 'in_progress' | 'completed';
   created_at: string; updated_at: string; sla_due_date: string | null; attachment_urls: string[] | null; completion_photos: string[] | null;
   pending_supervisor_approval: boolean | null; on_hold: boolean | null; hold_reason: string | null; resolution_text: string | null;
-  assigned_to: string | null;
+  assigned_to: string | null; source_room_id: string | null;
   created_by_profile?: { full_name: string; role?: string } | null;
   assigned_to_profile?: { full_name: string } | null;
+};
+type MaintenanceRoomAccess = {
+  applies: boolean; room_id: string | null; room_number: string | null; room_type: string | null;
+  stay_kind: 'checkout' | 'stayover' | 'vacant' | null; checkout_date: string | null;
+  expected_checkout_time: string | null; checked_out: boolean; checked_out_at: string | null;
+  access_state: 'waiting_for_checkout' | 'consent_required' | 'ready_to_fix' | 'room_unlinked' | 'status_unverified' | 'not_applicable';
 };
 type Copy = Record<string, string>;
 const EN: Copy = {
@@ -37,6 +43,11 @@ const EN: Copy = {
   resolutionPlaceholder: 'Describe the repair and what was done…', photoOptional: 'Completion photo (optional).', takePhoto: 'Take / choose photo', skipPhoto: 'Skip photo', photoSkipSelected: 'No photo will be attached. You can still submit the completed work.', photoChoice: 'Choose a photo or skip it if you do not have one.', photoInvalid: 'Choose an image file.', photoSkipped: 'Photo could not be uploaded. The work will be submitted without it.', submitApproval: 'Submit for supervisor approval',
   approvalHint: 'Submitted. No further action is needed unless a supervisor returns the repair for correction.',
   assignedTo: 'Assigned to', unassigned: 'Unassigned', sharedTicket: 'Shared property ticket',
+  roomAccess: 'Room access', checkoutRoom: 'Checkout room', stayoverRoom: 'Stayover room', vacantRoom: 'Vacant room',
+  guestInside: 'Guest may be in-house', waitingCheckout: 'Checkout pending · Confirm access', checkoutExpected: 'Expected checkout', readyToFix: 'RTF · Ready to Fix',
+  accessRequired: 'Guest in-house · Confirm access before entry', guestPermission: 'Guest gave permission', guestOut: 'Guest is out / room accessible',
+  confirmAccessTitle: 'Confirm room access', confirmAccessText: 'A guest may still be in-house or PMS information may be outdated. Confirm permission or room accessibility before entering.',
+  roomUnlinked: 'Room could not be matched safely. Check with reception.', statusUnverified: 'Room status not verified — check before entry', accessChecking: 'Checking room access…',
   workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', refresh: 'Refresh', retry: 'Retry', loadFailed: 'Maintenance tasks could not be loaded. Your last visible list has been kept.',
 };
 const HU: Copy = {
@@ -49,6 +60,11 @@ const HU: Copy = {
   resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoOptional: 'Befejezési fotó (opcionális).', takePhoto: 'Fotó készítése / kiválasztása', skipPhoto: 'Fotó kihagyása', photoSkipSelected: 'Nem lesz fotó csatolva. A befejezett munka így is beküldhető.', photoChoice: 'Válasszon fotót, vagy hagyja ki, ha nincs fotó.', photoInvalid: 'Válasszon képfájlt.', photoSkipped: 'A fotót nem sikerült feltölteni. A munka fotó nélkül kerül beküldésre.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
   approvalHint: 'Beküldve. Nincs további teendő, kivéve ha a felügyelő javításra visszaküldi.',
   assignedTo: 'Hozzárendelve', unassigned: 'Nincs hozzárendelve', sharedTicket: 'Közös hotelfeladat',
+  roomAccess: 'Szobahozzáférés', checkoutRoom: 'Kijelentkező szoba', stayoverRoom: 'Bent maradó vendég', vacantRoom: 'Üres szoba',
+  guestInside: 'A vendég még a hotelben lehet', waitingCheckout: 'Kijelentkezésre vár · Ellenőrizze a belépést', checkoutExpected: 'Várható kijelentkezés', readyToFix: 'RTF · Javításra kész',
+  accessRequired: 'Bennlakó vendég · Belépés előtt egyeztetés szükséges', guestPermission: 'A vendég engedélyt adott', guestOut: 'A vendég nincs bent / a szoba hozzáférhető',
+  confirmAccessTitle: 'Szobahozzáférés megerősítése', confirmAccessText: 'A vendég még itt tartózkodhat, vagy a PMS-adatok elavultak. Belépés előtt ellenőrizze az engedélyt vagy a hozzáférést.',
+  roomUnlinked: 'A szoba nem azonosítható biztosan. Egyeztessen a recepcióval.', statusUnverified: 'A szoba állapota nem ellenőrzött – belépés előtt egyeztessen', accessChecking: 'Szobahozzáférés ellenőrzése…',
   workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', refresh: 'Frissítés', retry: 'Újra', loadFailed: 'A karbantartási feladatok betöltése sikertelen. Az előző lista megmaradt.',
 };
 const translations: Record<string, Copy> = {
@@ -81,6 +97,9 @@ export function MaintenanceStaffView() {
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string[]>>({});
   const [completionPhotoUrls, setCompletionPhotoUrls] = useState<Record<string, string[]>>({});
   const [historyRevision, setHistoryRevision] = useState<Record<string, number>>({});
+  const [roomAccess, setRoomAccess] = useState<Record<string, MaintenanceRoomAccess>>({});
+  const [accessLoading, setAccessLoading] = useState<Record<string, boolean>>({});
+  const [accessTicket, setAccessTicket] = useState<Ticket | null>(null);
   const [busyTicketId, setBusyTicketId] = useState<string | null>(null);
   const previouslyAwaiting = useRef<Set<string>>(new Set());
   const hotelScopeRef = useRef<Set<string>>(new Set());
@@ -139,7 +158,7 @@ export function MaintenanceStaffView() {
       const today = todayBudapest();
       const ticketSelect = `
         id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at, sla_due_date,
-        attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text, assigned_to,
+        attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text, assigned_to, source_room_id,
         created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
       `;
       const [
@@ -224,6 +243,43 @@ export function MaintenanceStaffView() {
 
   useEffect(() => { void loadVisiblePhotoUrls(filtered); }, [filtered, loadVisiblePhotoUrls]);
 
+  const loadRoomAccess = useCallback(async (rows: Ticket[]) => {
+    const roomTickets = rows.filter(ticket => !!ticket.source_room_id || (
+      !!ticket.room_number && !['N/A', 'NA', '-'].includes(ticket.room_number.trim().toUpperCase())
+    ));
+    if (!roomTickets.length) return;
+    setAccessLoading(prev => ({ ...prev, ...Object.fromEntries(roomTickets.map(ticket => [ticket.id, true])) }));
+    const results = await Promise.all(roomTickets.map(async ticket => {
+      const { data, error } = await (supabase as any).rpc('get_maintenance_room_access', { p_ticket_id: ticket.id });
+      if (error) { console.error('Room access lookup failed:', error); return [ticket.id, null] as const; }
+      return [ticket.id, Array.isArray(data) ? data[0] || null : data] as const;
+    }));
+    setRoomAccess(prev => {
+      const next = { ...prev };
+      for (const [id, access] of results) {
+        if (access) next[id] = access as MaintenanceRoomAccess;
+        else delete next[id]; // Never keep a stale reassuring state after failed refresh.
+      }
+      return next;
+    });
+    setAccessLoading(prev => {
+      const next = { ...prev };
+      for (const ticket of roomTickets) next[ticket.id] = false;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => { void loadRoomAccess([...tickets, ...completed]); }, [tickets, completed, loadRoomAccess]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase.channel(`maintenance-room-access-${user.id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms' }, () => void loadRoomAccess([...tickets, ...completed]))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => void loadRoomAccess([...tickets, ...completed]))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id, tickets, completed, loadRoomAccess]);
+
   const addComment = async (ticketId: string, content: string) => {
     if (!user?.id || !content.trim()) return;
     const { error } = await supabase.from('comments').insert({ ticket_id: ticketId, user_id: user.id, content: content.trim() });
@@ -250,15 +306,31 @@ export function MaintenanceStaffView() {
     setHistoryRevision(prev => ({ ...prev, [ticket.id]: (prev[ticket.id] || 0) + 1 }));
   };
 
-  const startWork = async (ticket: Ticket) => {
+  const startWork = async (ticket: Ticket, accessConfirmation?: 'guest_permission' | 'guest_out') => {
     if (!signedIn) { toast.error(c.notSignedIn); return; }
     if (busyTicketId) return;
+    const isRoomTicket = !!ticket.source_room_id || (!!ticket.room_number && !['N/A', 'NA', '-'].includes(ticket.room_number.trim().toUpperCase()));
+    const access = roomAccess[ticket.id];
+    if (isRoomTicket && (!access || access.access_state !== 'ready_to_fix') && !accessConfirmation) {
+      setAccessTicket(ticket);
+      return;
+    }
     setBusyTicketId(ticket.id);
     try {
-      await runTeamAction(ticket, 'start');
+      // Always let the server validate live PMS evidence before changing the ticket.
+      const { error } = await (supabase as any).rpc('start_maintenance_ticket_with_access', {
+        p_ticket_id: ticket.id,
+        p_expected_updated_at: ticket.updated_at,
+        p_access_confirmation: accessConfirmation || null,
+      });
+      if (error) throw error;
+      setAccessTicket(null);
       toast.success(c.workStarted); void refresh();
-    } catch { toast.error(c.failed); }
-    finally { setBusyTicketId(null); }
+    } catch (error: any) {
+      console.error('Maintenance start failed:', error);
+      toast.error(error?.message || c.failed);
+      void loadRoomAccess([ticket]);
+    } finally { setBusyTicketId(null); }
   };
 
   const openDialog = (ticket: Ticket, next: 'note' | 'hold' | 'complete') => {
@@ -422,6 +494,38 @@ export function MaintenanceStaffView() {
                 </div>
               </div>
             </div>
+            {!!(ticket.source_room_id || (ticket.room_number && !['N/A', 'NA', '-'].includes(ticket.room_number.trim().toUpperCase()))) && (() => {
+              const access = roomAccess[ticket.id];
+              if (accessLoading[ticket.id] && !access) return <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">{c.accessChecking}</div>;
+              if (!access) return <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{c.statusUnverified}</div>;
+              if (!access.applies) return null;
+              const waiting = access.access_state === 'waiting_for_checkout';
+              const consent = access.access_state === 'consent_required';
+              const ready = access.access_state === 'ready_to_fix';
+              const unlinked = access.access_state === 'room_unlinked';
+              const unverified = access.access_state === 'status_unverified';
+              return <div className={`rounded-xl border p-3 ${waiting || unlinked || unverified || consent ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
+                <div className="flex items-start gap-2">
+                  {waiting || unlinked || unverified ? <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /> : ready ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-green-700" /> : <DoorOpen className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <strong className="text-sm">{c.roomAccess}</strong>
+                      {access.stay_kind && <Badge variant="outline" className="bg-white/70 text-[10px]">{access.stay_kind === 'checkout' ? c.checkoutRoom : access.stay_kind === 'stayover' ? c.stayoverRoom : c.vacantRoom}</Badge>}
+                      {access.room_type && <Badge variant="outline" className="bg-white/70 text-[10px]">{access.room_type}</Badge>}
+                    </div>
+                    <div className={`mt-1 text-sm font-semibold ${waiting || unlinked || unverified || consent ? 'text-amber-800' : 'text-green-800'}`}>
+                      {unlinked ? c.roomUnlinked : unverified ? c.statusUnverified : waiting ? c.waitingCheckout : consent ? c.accessRequired : c.readyToFix}
+                    </div>
+                    {access.checkout_date && <div className="mt-1 text-xs text-muted-foreground">
+                      {c.checkoutExpected}: {access.checkout_date}{access.expected_checkout_time ? ` · ${access.expected_checkout_time}` : ''}
+                    </div>}
+                    {access.checked_out && access.checked_out_at && <div className="mt-1 text-xs text-green-800">
+                      {c.readyToFix} · {new Date(access.checked_out_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>}
+                  </div>
+                </div>
+              </div>;
+            })()}
             <MaintenanceTicketLanguagePanel ticket={ticket} language={language} reporterFallback={ticket.created_by_profile?.full_name} revision={historyRevision[ticket.id] || 0} />
             {ticket.on_hold && ticket.hold_reason && <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800"><PauseCircle className="h-4 w-4 shrink-0" />{c[HOLD_REASONS.find(([value]) => value === ticket.hold_reason)?.[1] || 'other']}</div>}
 
@@ -429,7 +533,7 @@ export function MaintenanceStaffView() {
             {!!completionPhotoUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.completionPhotos} ({completionPhotoUrls[ticket.id].length})</div><div className="flex flex-wrap gap-2">{completionPhotoUrls[ticket.id].map((url, idx) => <Dialog key={`${ticket.id}-completion-${idx}`}><DialogTrigger asChild><Button type="button" size="sm" variant="outline" aria-label={`${c.completionPhotos} ${idx + 1}`}><Camera className="mr-1 h-3.5 w-3.5" />{idx + 1}</Button></DialogTrigger><DialogContent className="w-[calc(100vw-1rem)] max-w-4xl"><img src={url} alt={`${c.completionPhotos} ${idx + 1}`} loading="lazy" className="mx-auto max-h-[80dvh] w-auto rounded" /></DialogContent></Dialog>)}</div></div>}
 
             {activeTab !== 'done' && <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button onClick={() => void startWork(ticket)} disabled={!signedIn || busy} className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.start}</Button>}
+              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button onClick={() => void startWork(ticket)} disabled={!signedIn || busy || accessLoading[ticket.id] } className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.start}</Button>}
               {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => openDialog(ticket, 'hold')} disabled={!signedIn || busy} className="min-h-11"><PauseCircle className="mr-1 h-4 w-4" />{c.hold}</Button>}
               {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn || busy} className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.resume}</Button>}
               {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => openDialog(ticket, 'note')} disabled={busy} className="min-h-11"><MessageSquare className="mr-1 h-4 w-4" />{c.note}</Button>}
@@ -440,6 +544,16 @@ export function MaintenanceStaffView() {
         </Card>;
       })}</div>}
 
+      <Dialog open={!!accessTicket} onOpenChange={open => { if (!open && !busyTicketId) setAccessTicket(null); }}>
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-md">
+          <DialogHeader><DialogTitle>{c.confirmAccessTitle}</DialogTitle><DialogDescription>{c.confirmAccessText}</DialogDescription></DialogHeader>
+          <div className="grid gap-2">
+            <Button className="min-h-12 justify-start whitespace-normal" disabled={!!busyTicketId} onClick={() => accessTicket && void startWork(accessTicket, 'guest_permission')}><ShieldCheck className="mr-2 h-4 w-4 shrink-0" />{c.guestPermission}</Button>
+            <Button variant="outline" className="min-h-12 justify-start whitespace-normal" disabled={!!busyTicketId} onClick={() => accessTicket && void startWork(accessTicket, 'guest_out')}><DoorOpen className="mr-2 h-4 w-4 shrink-0" />{c.guestOut}</Button>
+            <Button variant="ghost" disabled={!!busyTicketId} onClick={() => setAccessTicket(null)}>{c.cancel}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={dialog === 'note'} onOpenChange={open => !open && closeDialog()}><DialogContent className="w-[calc(100vw-1rem)] max-w-lg"><DialogHeader><DialogTitle>{c.note}</DialogTitle></DialogHeader><Textarea value={note} onChange={event => setNote(event.target.value)} placeholder={c.notePlaceholder} rows={4} disabled={!!busyTicketId} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={closeDialog} disabled={!!busyTicketId}>{c.cancel}</Button><Button onClick={() => void saveNote()} disabled={!note.trim() || !!busyTicketId}>{c.saveNote}</Button></div></DialogContent></Dialog>
       <Dialog open={dialog === 'hold'} onOpenChange={open => !open && closeDialog()}><DialogContent className="w-[calc(100vw-1rem)] max-w-lg"><DialogHeader><DialogTitle>{c.holdReason}</DialogTitle></DialogHeader><Select value={holdReason} onValueChange={setHoldReason} disabled={!!busyTicketId}><SelectTrigger><SelectValue placeholder={c.holdReason} /></SelectTrigger><SelectContent>{HOLD_REASONS.map(([value, key]) => <SelectItem key={value} value={value}>{c[key]}</SelectItem>)}</SelectContent></Select><Textarea value={holdDetails} onChange={event => setHoldDetails(event.target.value)} placeholder={c.pendingDetails} rows={3} disabled={!!busyTicketId} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={closeDialog} disabled={!!busyTicketId}>{c.cancel}</Button><Button onClick={() => void saveHold()} disabled={!holdReason || !!busyTicketId}>{c.saveHold}</Button></div></DialogContent></Dialog>
       <Dialog open={dialog === 'complete'} onOpenChange={next => { if (!next) closeDialog(); }}>
