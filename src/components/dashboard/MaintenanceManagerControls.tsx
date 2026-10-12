@@ -19,9 +19,8 @@ export function canManageMaintenance(role: string | null | undefined): boolean {
   return !!role && (MAINTENANCE_MANAGER_ROLES as readonly string[]).includes(role);
 }
 
-/** This flag stays off until the review_maintenance_completion migration is
- * separately approved and deployed. A GitHub merge alone cannot enable it. */
-export const MAINTENANCE_REVIEW_ENABLED = import.meta.env.VITE_MAINTENANCE_REVIEW_V2 === 'true';
+/** The secured review RPC is deployed in the 2026-10-12 portfolio migration. */
+export const MAINTENANCE_REVIEW_ENABLED = true;
 
 export function maintenanceManagerActions(
   ticket: { status: 'open' | 'in_progress' | 'completed'; pending_supervisor_approval: boolean | null; on_hold: boolean | null },
