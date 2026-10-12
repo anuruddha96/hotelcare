@@ -258,7 +258,9 @@ async function syncAccount(admin:any, account:any, source="manual") {
     const cancelled = res.statusId===7; const no_show = res.statusId===8 && !(res.arrivalDate<today && res.departureDate>today);
     const inHouse = res.statusId===3 || res.statusId===5 || (res.arrivalDate<today && res.departureDate>today);
     const depToday = !cancelled && !no_show && res.departureDate===today;
-    const checkedOut = depToday && (res.statusId===6 || res.statusId===9);
+    // Previo status 6 is WAITING LIST, never evidence of physical checkout.
+    // Only reservation status 9 confirms a departure and unlocks RTC.
+    const checkedOut = depToday && res.statusId===9;
     const notArrived = !cancelled && !no_show && res.arrivalDate===today && !inHouse && !depToday;
     const occupied = !cancelled && !no_show && !notArrived && res.arrivalDate<=today && res.departureDate>today;
     const stayThrough = occupied && res.departureDate>today;
@@ -283,6 +285,14 @@ async function syncAccount(admin:any, account:any, source="manual") {
       pms_account_id:account.id, pms_hotel_id:String(account.pms_hotel_id), roomId:ext||res.objId||oldMeta.roomId,
       pmsSyncDate:today,lastPmsRefreshDate:today,RawReservationStatusId:res.statusId,reservationStatusId:res.statusId,
       scheduledDepartureToday:depToday,scheduledDepartureTomorrow:depTomorrow,checkedOutToday:checkedOut,
+      // Do not carry yesterday's RTC/checkout timestamp into today's booked room.
+      // Same-day Previo status 9 is the only automatically confirmed RTC.
+      checkedOutAt:checkedOut
+        ? (oldMeta.checkedOutToday===true && oldMeta.checkedOutAt
+           && Number.isFinite(Date.parse(String(oldMeta.checkedOutAt)))
+           && budapestParts(new Date(String(oldMeta.checkedOutAt))).date===today
+           ? oldMeta.checkedOutAt : new Date().toISOString()) : null,
+      readyToClean:checkedOut,readyToCleanDate:checkedOut?today:null,
       occupiedToday:occupied||depToday,notArrived,stayThroughToday:stayThrough,isNoShow:no_show,noShowSource:no_show?"previo_status_8":null,
       arrivalDate:res.arrivalDate,departureDate:res.departureDate,departureTime:depToday?(res.departureTime||"10:00"):null,
       currentNight,totalNights,guestCount:no_show||notArrived?0:res.guests,
