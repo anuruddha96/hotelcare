@@ -192,13 +192,20 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     const liveDeparture = String(live?.DepartureDate || live?.ReservationDepartureDate || "");
     const liveArrival = String(live?.ArrivalDate || live?.ReservationArrivalDate || "");
     const liveNextArrival = String(live?.NextArrivalArrivalDate || "");
+    // A future reservation (for example arrival tomorrow) is not occupancy
+    // on today's business date. Yesterday's departed guest is not either.
+    // Reject malformed half-dated reservations instead of guessing vacancy.
+    const hasNoStayToday = (!liveArrival && !liveDeparture)
+      || (!!liveArrival && !!liveDeparture
+        && /^\\d{4}-\\d{2}-\\d{2}$/.test(liveArrival)
+        && /^\\d{4}-\\d{2}-\\d{2}$/.test(liveDeparture)
+        && liveArrival < liveDeparture
+        && (liveDeparture < date || liveArrival > date));
     const verifiedUnsold = !snapshot && physicalRoomMatch
       && live.Occupied === "No" && !live.Departure && !live.Arrival
       && live.IsCheckoutRoom !== true && live.CheckedOut !== true
       && live.NotArrived !== true && live.IsNoShow !== true
-      && live.IsCancelled !== true
-      && (!liveDeparture || liveDeparture < date)
-      && (!liveArrival || liveArrival < date)
+      && live.IsCancelled !== true && hasNoStayToday
       && liveNextArrival !== date;
     if (!snapshot && gozsdu) {
       const current: any = gozsduRoomById.get(roomId);
