@@ -1315,13 +1315,14 @@ export default function RateStrategyGrid({
   // A positive inventory override must explain which existing physical room
   // it borrows. Never present a 22nd sellable room as a new physical unit.
   const [upgradeClosures, setUpgradeClosures] = useState<Set<string>>(new Set());
+  const [existingTransfers, setExistingTransfers] = useState<Map<string, string>>(new Map());
   useEffect(() => {
-    if (!hotelId) { setUpgradeClosures(new Set()); return; }
+    if (!hotelId) { setUpgradeClosures(new Set()); setExistingTransfers(new Map()); return; }
     let cancelled = false;
     void (async () => {
       const [{ data: rules }, { data: overnight }] = await Promise.all([
         (supabase as any).from("room_sale_upgrade_rules")
-          .select("source_room_type_name,stay_date,status")
+          .select("source_room_type_name,source_obk_id,target_obk_id,stay_date,status")
           .eq("hotel_id", hotelId).gte("stay_date", today)
           .in("status", ["active", "needs_review"]).limit(500),
         (supabase as any).from("room_sale_overnight_watches")
@@ -1332,6 +1333,9 @@ export default function RateStrategyGrid({
       const closed = new Set<string>((rules ?? []).map(
         (r: any) => `${r.source_room_type_name}|${r.stay_date}`,
       ));
+      if (!cancelled) setExistingTransfers(new Map((rules ?? [])
+        .filter((r: any) => r.status === "active")
+        .map((r: any) => [`${r.target_obk_id}|${r.stay_date}`, r.source_obk_id])));
       const nameByObk = new Map(roomTypes.map((room) => [room.pms_room_id, room.name]));
       for (const item of overnight ?? []) {
         // Show the real last-sale price only on the category that actually
@@ -1427,28 +1431,37 @@ export default function RateStrategyGrid({
     if (!hotelId) return;
     setRestrictionBusy(opts.key);
     try {
-      const { data, error } = await supabase.functions.invoke("previo-push-restrictions", {
-        body: {
-          hotelId,
-          items: [{
-            date: opts.date,
-            minStay: opts.minStay ?? null,
-            roomsToSell: opts.roomsToSell ?? null,
-            obkId: opts.obkId ?? null,
-            roomTypeName: opts.roomTypeName ?? null,
-            upgradeFromObkId: opts.upgradeFromObkId ?? null,
-            upgradeFromRoomTypeName: opts.upgradeFromRoomTypeName ?? null,
-            upgradeMode: opts.upgradeMode ?? null,
-          }],
+      const isShared = opts.upgradeMode === "shared_pool";
+      const { data, error } = await supabase.functions.invoke(
+        isShared ? "room-sale-shared-activate" : "previo-push-restrictions",
+        {
+          body: isShared ? {
+            hotelId, date: opts.date, units: 1,
+            targetObkId: opts.obkId,
+            sourceObkId: opts.upgradeFromObkId,
+          } : {
+            hotelId,
+            items: [{
+              date: opts.date,
+              minStay: opts.minStay ?? null,
+              roomsToSell: opts.roomsToSell ?? null,
+              obkId: opts.obkId ?? null,
+              roomTypeName: opts.roomTypeName ?? null,
+              upgradeFromObkId: opts.upgradeFromObkId ?? null,
+              upgradeFromRoomTypeName: opts.upgradeFromRoomTypeName ?? null,
+              upgradeMode: opts.upgradeMode ?? null,
+            }],
+          },
         },
-      });
+      );
       if (error) throw error;
       if (!data?.ok) {
         const detail = data?.results?.[0]?.message ?? data?.error ?? "Previo did not accept the change.";
         throw new Error(detail);
       }
       toast.success(
-        opts.minStay !== undefined
+        isShared ? "Both room types are now offered for the same last physical room. Booking checks are active."
+          : opts.minStay !== undefined
           ? `Minimum stay for ${opts.date} set to ${opts.minStay} night${opts.minStay === 1 ? "" : "s"} in Previo`
           : `${opts.roomTypeName ?? "Room type"} on ${opts.date}: ${opts.roomsToSell} to sell in Previo`,
       );
@@ -1578,7 +1591,8 @@ export default function RateStrategyGrid({
       setUpgradePrompt({
         date, rawName, obkId, label,
         requested: rooms, current: current ?? 0,
-        sourceObkId: "", mode: "exclusive_transfer",
+        sourceObkId: existingTransfers.get(`${obkId}|${date}`) ?? "",
+        mode: "shared_pool",
       });
       return;
     }
@@ -4215,9 +4229,11 @@ export default function RateStrategyGrid({
                 <SelectContent>
                   {houseInventoryTypes.filter((room) => {
                     const target = houseInventoryTypes.find((t) => t.pms_room_id === upgradePrompt.obkId);
+                    const available = leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0;
+                    const previouslyTransferred = room.pms_room_id === existingTransfers.get(`${upgradePrompt.obkId}|${upgradePrompt.date}`);
                     return !!target && canOfferComplimentaryUpgrade(
                       target, room,
-                      leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0,
+                      previouslyTransferred ? Math.max(available, 1) : available,
                       upgradePrompt.requested - upgradePrompt.current,
                     );
                   }).map((room) => (
@@ -4235,17 +4251,27 @@ export default function RateStrategyGrid({
                     <span className="block text-xs text-muted-foreground">Close the same quantity in the original category first. No additional physical rooms.</span>
                   </span>
                 </label>
-                <label className="flex gap-2 opacity-60">
-                  <input type="radio" name="upgrade-mode" disabled checked={upgradePrompt.mode === "shared_pool"} readOnly />
-                  <span><strong>Keep both room types open</strong>
-                    <span className="block text-xs text-muted-foreground">Requires verified linked PMS and channel inventory before activation.</span>
+                <label className="flex cursor-pointer gap-2">
+                  <input type="radio" name="upgrade-mode"
+                    disabled={upgradePrompt.requested - upgradePrompt.current !== 1}
+                    checked={upgradePrompt.mode === "shared_pool"}
+                    onChange={() => setUpgradePrompt((prev) => prev ? { ...prev, mode: "shared_pool" } : prev)} />
+                  <span><strong>Offer both room types until the last room sells</strong>
+                    <span className="block text-xs text-muted-foreground">
+                      Only for one verified remaining physical room. HotelCare checks for new bookings and closes both.
+                      Two simultaneous online bookings are still possible before the other listing closes.
+                    </span>
                   </span>
                 </label>
               </div>
-              <p className="text-xs text-muted-foreground">If a guest books the lower category, reception can allocate the higher-category room. Upgrade alerts will initially go only to the administrator.</p>
+              <p className="text-xs text-muted-foreground">
+                If the Queen room sells, reception can assign the larger room as a complimentary upgrade.
+                The booking check runs periodically, not instantly at the booking website.
+              </p>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setUpgradePrompt(null)}>Cancel</Button>
-                <Button type="button" disabled={!upgradePrompt.sourceObkId || !!restrictionBusy}
+                <Button type="button" disabled={!upgradePrompt.sourceObkId || !!restrictionBusy ||
+                  (upgradePrompt.mode === "shared_pool" && upgradePrompt.requested - upgradePrompt.current !== 1)}
                   onClick={() => {
                     const source = houseInventoryTypes.find((r) => r.pms_room_id === upgradePrompt.sourceObkId);
                     const key = `${upgradePrompt.rawName}|${upgradePrompt.date}`;
@@ -4258,7 +4284,7 @@ export default function RateStrategyGrid({
                       upgradeMode: upgradePrompt.mode,
                     });
                     setUpgradePrompt(null);
-                  }}>Save safe upgrade</Button>
+                  }}>{upgradePrompt.mode === "shared_pool" ? "Offer both room types" : "Save room transfer"}</Button>
               </DialogFooter>
             </div>
           )}
