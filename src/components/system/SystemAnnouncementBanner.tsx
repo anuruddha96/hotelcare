@@ -16,7 +16,7 @@ const TONE: Record<AnnouncementTone, { wrap: string; icon: typeof Info }> = {
  * Existing full-body announcements keep their current presentation.
  */
 export function SystemAnnouncementBanner() {
-  const { banner, dismiss, markSeen } = useAnnouncements();
+  const { banner, dismiss } = useAnnouncements();
   const [details, setDetails] = useState<AnnouncementWithState | null>(null);
   if (!banner.length) return null;
 
@@ -42,10 +42,7 @@ export function SystemAnnouncementBanner() {
                       variant="link"
                       size="sm"
                       className="h-auto min-h-7 px-0 py-0 text-xs font-semibold underline underline-offset-2"
-                      onClick={() => {
-                        setDetails(a);
-                        void markSeen(a.id);
-                      }}
+                      onClick={() => setDetails(a)}
                     >
                       How it works
                     </Button>
@@ -85,7 +82,18 @@ export function SystemAnnouncementBanner() {
               {details.body.split(/\n\s*\n/).filter(Boolean).map((paragraph, i) => (
                 <p key={i} className="whitespace-pre-line text-foreground/90">{paragraph}</p>
               ))}
-              <Button type="button" className="w-full sm:w-auto" onClick={() => setDetails(null)}>
+              <Button
+                type="button"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  if (!details) return;
+                  const announcementId = details.id;
+                  setDetails(null);
+                  // Acknowledgement is per user: mark read and hide the banner
+                  // (and its unread badge) using the persisted receipt state.
+                  void dismiss(announcementId);
+                }}
+              >
                 Got it
               </Button>
             </div>
