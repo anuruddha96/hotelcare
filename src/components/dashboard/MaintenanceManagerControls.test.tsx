@@ -71,4 +71,39 @@ describe('maintenance manager workflow', () => {
     fireEvent.change(screen.getByLabelText(/Reason for missed SLA/), { target: { value: 'Replacement part arrived late' } });
     expect((screen.getByRole('button', { name: 'Save update' }) as HTMLButtonElement).disabled).toBe(false);
   });
+  it('approves a submitted maintenance repair via the secured review RPC', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    const onUpdated = vi.fn();
+    render(<MaintenanceManagerControls
+      ticket={{ ...ticket, status: 'in_progress', pending_supervisor_approval: true,
+        resolution_text: 'Repair completed', sla_due_date: '2020-01-01T00:00:00Z' }}
+      language="en" onUpdated={onUpdated} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Approve repair' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save update' }));
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('review_maintenance_completion', {
+      p_ticket_id: ticket.id, p_decision: 'approve', p_note: '',
+      p_expected_updated_at: ticket.updated_at,
+    }));
+    expect(onUpdated).toHaveBeenCalledOnce();
+  });
+
+  it('requires an explanation before rejecting a submitted repair', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    render(<MaintenanceManagerControls
+      ticket={{ ...ticket, status: 'in_progress', pending_supervisor_approval: true }}
+      language="en" onUpdated={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Request correction' }));
+    const save = screen.getByRole('button', { name: 'Save update' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Explain what happened/), {
+      target: { value: 'Repair not completed correctly' },
+    });
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('review_maintenance_completion', {
+      p_ticket_id: ticket.id, p_decision: 'reject',
+      p_note: 'Repair not completed correctly', p_expected_updated_at: ticket.updated_at,
+    }));
+  });
+
 });
