@@ -178,11 +178,11 @@ async function syncAccount(admin:any, account:any, source="manual") {
   ];
   let xmlSuccess=0, parsed=0, lastXmlError="", authoritativeOverlapSuccess=false;
   for (const [attemptIndex,extra] of attempts.entries()) { try { const xml=await xmlSearch(creds,String(account.pms_hotel_id),extra); xmlSuccess++; if(attemptIndex===0) authoritativeOverlapSuccess=true; const rows=parseReservations(xml); parsed+=rows.length; rows.forEach(index); } catch(e){ lastXmlError=errText(e); } }
-  if (xmlSuccess===0 || reservationMap.size===0) throw new Error(`Authoritative Previo reservation sync unavailable for ${account.label}${lastXmlError?`: ${lastXmlError}`:""}`);
+  if (xmlSuccess===0 || !authoritativeOverlapSuccess) throw new Error(`Authoritative Previo overlap reservation search unavailable for ${account.label}${lastXmlError?`: ${lastXmlError}`:""}`);
 
   const inProgressRes = await admin.from("room_assignments").select("room_id,assignment_type,status").in("room_id",roomIds).eq("assignment_date",today).eq("status","in_progress");
   const inProgress = new Set((inProgressRes.data||[]).map((x:any)=>String(x.room_id)));
-  let updated=0, checkout=0, daily=0, noShow=0, arrivals=0, unmatched=0, assignmentCorrections=0, syncedNotes=0, protectedManagerNotes=0;
+  let updated=0, checkout=0, daily=0, noShow=0, arrivals=0, unmatched=0, assignmentCorrections=0, syncedNotes=0, protectedManagerNotes=0; const verifiedUnsoldRooms:string[]=[];
 
   // Prevent a Previo refresh from overwriting a concurrent manager note edit.
   const saveSyncedRoom = async (room:any, patch:Record<string,unknown>) => {
@@ -221,13 +221,23 @@ async function syncAccount(admin:any, account:any, source="manual") {
     const manualCheckoutToday = sameDayTimestamp(oldMeta.manual_checkout_changed_at || oldMeta.manualCheckoutChangedAt,today) && oldMeta.manual_checkout === true;
     const manualDailyToday = sameDayTimestamp(oldMeta.manual_daily_changed_at || oldMeta.manualDailyChangedAt || oldMeta.manual_checkout_changed_at,today) && (oldMeta.manual_daily === true || oldMeta.manual_checkout === false);
 
-    if (!res) {
+    // A successful full overlap search plus the mapped physical-room roster
+    // distinguish vacant inventory from a failed/partial PMS reservation read.
+    const noCurrentReservation = !res || res.statusId===7 || res.departureDate < today || res.arrivalDate > today;
+    if (noCurrentReservation) {
+      if (!authoritativeOverlapSuccess || !restRoom || String(restRoom.roomId) !== ext) {
+        throw new Error(`Unverified unsold room ${room.room_number}: complete Previo overlap search and matching physical room roster required`);
+      }
       unmatched++;
-      // A mapped room without a live reservation is not a no-show. Reset stale stay metadata but preserve housekeeping work/status.
-      const metadata = { ...oldMeta, pms_account_id:account.id, pms_hotel_id:String(account.pms_hotel_id), pmsSyncDate:today, lastPmsRefreshDate:today, occupiedToday:false, scheduledDepartureToday:false, scheduledDepartureTomorrow:false, checkedOutToday:false, notArrived:false, stayThroughToday:false, isNoShow:false, noShowSource:null, currentNight:null, totalNights:null };
+      verifiedUnsoldRooms.push(String(room.room_number));
+      // Empty inventory is distinct from no-show, stayover and today's
+      // checkout. Preserve dirty/clean status, notes and assigned cleaning.
+      const syncedAt=new Date().toISOString();
+      const metadata = { ...oldMeta, pms_account_id:account.id, pms_hotel_id:String(account.pms_hotel_id), pmsSyncDate:today, lastPmsRefreshDate:today, occupiedToday:false, scheduledDepartureToday:false, scheduledDepartureTomorrow:false, checkedOutToday:false, checkedOutAt:null, readyToClean:false, readyToCleanDate:null, arrivalToday:false, arrivalDate:null, departureDate:null, reservationId:null, reservationStatusId:null, notArrived:false, stayThroughToday:false, isNoShow:false, noShowSource:null, currentNight:null, totalNights:null, pmsOccupancyStatus:"unsold", pmsVacancyVerifiedAt:syncedAt, pmsVacancyEvidence:"previo_overlap_reservation_search_and_physical_room_roster" };
       if (lastRefresh && lastRefresh < today) { metadata.manual_checkout=false; metadata.manual_daily=false; }
+      const keepManualCheckout = manualCheckoutToday && !manualDailyToday;
+      const patch:any={is_checkout_room:keepManualCheckout,checkout_time:null,pms_metadata:metadata,guest_count:0,guest_nights_stayed:0,updated_at:syncedAt};
       // Do not clear old notes on a partial reservation snapshot.
-      const patch:any={pms_metadata:metadata,guest_count:0,guest_nights_stayed:0,updated_at:new Date().toISOString()};
       if(authoritativeOverlapSuccess){
         const note=reconcileSlntPrevioRoomNote(room.notes,oldMeta.slntPrevioHousekeepingNote,null);
         metadata.slntPrevioHousekeepingNote=null;
@@ -236,7 +246,7 @@ async function syncAccount(admin:any, account:any, source="manual") {
         if(note.changed) patch.notes=note.notes;
         if(note.managerNotePreserved) protectedManagerNotes++;
       }
-      await saveSyncedRoom(room,patch); updated++; continue;
+      await saveSyncedRoom(room,patch); updated++; if(keepManualCheckout) checkout++; continue;
     }
 
     const cancelled = res.statusId===7; const no_show = res.statusId===8 && !(res.arrivalDate<today && res.departureDate>today);
@@ -270,6 +280,8 @@ async function syncAccount(admin:any, account:any, source="manual") {
       occupiedToday:occupied||depToday,notArrived,stayThroughToday:stayThrough,isNoShow:no_show,noShowSource:no_show?"previo_status_8":null,
       arrivalDate:res.arrivalDate,departureDate:res.departureDate,departureTime:depToday?(res.departureTime||"10:00"):null,
       currentNight,totalNights,guestCount:no_show||notArrived?0:res.guests,
+      pmsOccupancyStatus:depToday?"departing":occupied?"stayover":notArrived?"arrival_pending":no_show?"no_show":"unverified",
+      pmsVacancyVerifiedAt:null,pmsVacancyEvidence:null,
       lastServerMorningSyncAt:new Date().toISOString(),lastServerMorningSyncSource:source,
     };
     if (lastRefresh && lastRefresh < today) { metadata.manual_checkout=false; metadata.manual_daily=false; }
@@ -345,8 +357,8 @@ async function syncAccount(admin:any, account:any, source="manual") {
 
   const finishedAt = new Date().toISOString();
   await admin.from("pms_accounts").update({ last_sync_at:finishedAt,last_sync_success_at:finishedAt,last_sync_status:"success",last_sync_error:null,consecutive_failures:0,updated_at:finishedAt }).eq("id",account.id);
-  await admin.from("pms_sync_history").insert({ sync_type:"rooms_refresh",direction:"from_previo",hotel_id:HOTEL,sync_status:"success",synced_by_name:"System — SLNT 07:00 PMS sync",data:{ trigger:"slnt_server_morning_sync",source,account_id:account.id,account_label:account.label,pms_hotel_id:account.pms_hotel_id,started_at:startedAt,finished_at:finishedAt,mapped_rooms:mappings.length,rooms_updated:updated,checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed,previo_notes_written:syncedNotes,manager_notes_preserved:protectedManagerNotes } });
-  return { ok:true, account_id:account.id, account_label:account.label, mapped_rooms:mappings.length, rooms_updated:updated, checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed };
+  await admin.from("pms_sync_history").insert({ sync_type:"rooms_refresh",direction:"from_previo",hotel_id:HOTEL,sync_status:"success",synced_by_name:"System — SLNT 07:00 PMS sync",data:{ trigger:"slnt_server_morning_sync",source,account_id:account.id,account_label:account.label,pms_hotel_id:account.pms_hotel_id,started_at:startedAt,finished_at:finishedAt,mapped_rooms:mappings.length,rooms_updated:updated,checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,unsold_rooms:verifiedUnsoldRooms.length,verified_unsold_room_labels:verifiedUnsoldRooms,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed,previo_notes_written:syncedNotes,manager_notes_preserved:protectedManagerNotes } });
+  return { ok:true, account_id:account.id, account_label:account.label, mapped_rooms:mappings.length, rooms_updated:updated, checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,unsold_rooms:verifiedUnsoldRooms.length,verified_unsold_room_labels:verifiedUnsoldRooms,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed };
 }
 
 

@@ -32,7 +32,7 @@ export function summarizeQueuedPmsJobs(jobs: Array<{
  return {
    status:pending?"queued":failures.length?"error":partial?"partial":"success",
    updated,total:totals,checkouts,errors,
-   managerMessage:pending?"PMS refresh queued. It will start automatically after the current refresh finishes; other scheduled properties remain in the queue."
+   managerMessage:pending?"Refresh requested. It starts immediately if the PMS worker is idle; otherwise it waits for the running refresh to finish."
      :failures.length?"One or more PMS accounts could not be refreshed. See PMS Sync History."
      :undefined,
  };

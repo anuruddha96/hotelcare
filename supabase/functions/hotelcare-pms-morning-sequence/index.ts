@@ -124,7 +124,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     .select("id").eq("hotel_id", hotelId).eq("is_active", true).eq("sync_enabled", true).eq("pms_type", "previo");
   if (configError || configurations?.length !== 1) throw new Error(`${hotelId}: PMS configuration is missing or ambiguous`);
   const [mappingResponse, snapshotsResponse, tomorrowResponse] = await Promise.all([
-    admin.from("pms_room_mappings").select("hotelcare_room_id,pms_room_name")
+    admin.from("pms_room_mappings").select("hotelcare_room_id,pms_room_name,pms_room_id")
       .eq("pms_config_id", configurations[0].id).eq("is_active", true),
     admin.from("daily_overview_snapshots")
       .select("id,room_label,status,arrival_date,departure_date,pax,captured_at")
@@ -167,11 +167,13 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       nextArrivals.set(key, row);
     }
   }
-  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null; rehydratedArrival?: boolean; rehydratedNoShow?: boolean }> = [];
+  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null; rehydratedArrival?: boolean; rehydratedNoShow?: boolean; verifiedUnsold?: boolean }> = [];
   const usedRoomIds = new Set<string>();
   const usedSnapshots = new Set<string>();
   const rehydratedGozsduRooms: string[] = [];
   const rehydratedNoShowRooms: string[] = [];
+  const verifiedUnsoldIds = new Set<string>();
+  const verifiedUnsoldRooms: string[] = [];
   for (const mapping of mappings) {
     const roomId = String(mapping.hotelcare_room_id || "");
     const key = String(mapping.pms_room_name || "").trim().toLowerCase();
@@ -181,6 +183,23 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     }
     let rehydratedArrival = false;
     let rehydratedNoShow = false;
+    // Vacant rooms are absent from Previo's occupied-night manifest. Require a
+    // second, current-day physical-room roster and matching immutable PMS ID.
+    // No reservation row alone is NEVER sufficient proof of vacancy.
+    const live = richByLabel.get(key);
+    const physicalRoomMatch = !!live && !!mapping.pms_room_id
+      && String(live.RoomId) === String(mapping.pms_room_id);
+    const liveDeparture = String(live?.DepartureDate || live?.ReservationDepartureDate || "");
+    const liveArrival = String(live?.ArrivalDate || live?.ReservationArrivalDate || "");
+    const liveNextArrival = String(live?.NextArrivalArrivalDate || "");
+    const verifiedUnsold = !snapshot && physicalRoomMatch
+      && live.Occupied === "No" && !live.Departure && !live.Arrival
+      && live.IsCheckoutRoom !== true && live.CheckedOut !== true
+      && live.NotArrived !== true && live.IsNoShow !== true
+      && live.IsCancelled !== true
+      && (!liveDeparture || liveDeparture < date)
+      && (!liveArrival || liveArrival < date)
+      && liveNextArrival !== date;
     if (!snapshot && gozsdu) {
       const current: any = gozsduRoomById.get(roomId);
       const meta = current?.pms_metadata && typeof current.pms_metadata === "object" ? current.pms_metadata : {};
@@ -209,7 +228,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       if (rehydratedArrival) rehydratedGozsduRooms.push(String(mapping.pms_room_name || roomId));
       if (rehydratedNoShow) rehydratedNoShowRooms.push(String(mapping.pms_room_name || roomId));
     }
-    if (!snapshot && !ottofiori && !rehydratedArrival && !rehydratedNoShow) {
+    if (!snapshot && !verifiedUnsold && !ottofiori && !rehydratedArrival && !rehydratedNoShow) {
       throw new Error(`${hotelId}: incomplete or ambiguous mapping; no checkout/daily classifications changed`);
     }
     if (snapshot && snapshot.status !== "departing" && snapshot.status !== "ongoing") {
@@ -217,7 +236,11 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     }
     usedRoomIds.add(roomId);
     if (snapshot) usedSnapshots.add(String(snapshot.id));
-    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival, rehydratedNoShow });
+    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival, rehydratedNoShow, verifiedUnsold });
+    if (verifiedUnsold) {
+      verifiedUnsoldIds.add(roomId);
+      verifiedUnsoldRooms.push(String(mapping.pms_room_name));
+    }
   }
   const { data: rooms, error: roomsError } = await admin.from("rooms")
     .select("id,pms_metadata,is_checkout_room,guest_count,guest_nights_stayed")
@@ -225,7 +248,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
   if (roomsError || rooms?.length !== pairs.length) throw new Error(`${hotelId}: mapped HotelCare inventory does not match Previo`);
   const roomById = new Map(rooms.map((r: any) => [String(r.id), r]));
   const syncedAt = new Date().toISOString();
-  let checkout = 0, daily = 0, overridden = 0, reconciledArrivals = 0, skippedUnknown = 0, noShows = 0;
+  let checkout = 0, daily = 0, overridden = 0, reconciledArrivals = 0, skippedUnknown = 0, noShows = 0, unsold = 0;
   for (const pair of pairs) {
     const room: any = roomById.get(pair.id);
     const s = pair.snapshot;
@@ -240,7 +263,42 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     metadata.pmsSyncDate = date;
     metadata.lastPmsRefreshDate = date;
     metadata.lastServerMorningSyncAt = syncedAt;
-    metadata.lastServerMorningSyncSource = "portfolio_morning_10min";
+    metadata.lastServerMorningSyncSource = trigger;
+
+    if (pair.verifiedUnsold) {
+      // Keep physical cleanliness, work assignments and manager notes intact.
+      // A previous-day checkout must not become today's checkout.
+      metadata.pmsOccupancyStatus = "unsold";
+      metadata.pmsVacancyVerifiedAt = syncedAt;
+      metadata.pmsVacancyEvidence = "current_previo_reservation_snapshot_and_physical_room_roster";
+      metadata.scheduledDepartureToday = false;
+      metadata.scheduledDepartureTomorrow = false;
+      metadata.checkedOutToday = false;
+      metadata.checkedOutAt = null;
+      metadata.readyToClean = false;
+      metadata.readyToCleanDate = null;
+      metadata.arrivalToday = false;
+      metadata.occupiedToday = false;
+      metadata.stayThroughToday = false;
+      metadata.notArrived = false;
+      metadata.isNoShow = false;
+      metadata.arrivalDate = null;
+      metadata.departureDate = null;
+      metadata.reservationId = null;
+      metadata.reservationStatusId = null;
+      metadata.currentNight = null;
+      metadata.totalNights = null;
+      const keepManualCheckout = manual && old.manual_checkout === true && old.manual_daily !== true;
+      const { error: vacancyError } = await admin.from("rooms").update({
+        is_checkout_room: keepManualCheckout,
+        guest_count: 0, guest_nights_stayed: 0,
+        pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (vacancyError) throw new Error(`${hotelId}: verified unsold room update failed: ${vacancyError.message}`);
+      unsold++;
+      if (keepManualCheckout) { checkout++; overridden++; }
+      continue;
+    }
 
     if (gozsdu && pair.rehydratedNoShow && !s) {
       metadata.scheduledDepartureToday = false;
@@ -324,6 +382,9 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       : departing && !unarrivedPriorStay && !noShowPriorStay;
     if (manual) overridden++;
     if (effectiveCheckout) checkout++; else daily++;
+    metadata.pmsOccupancyStatus = departing ? "departing" : "stayover";
+    metadata.pmsVacancyVerifiedAt = null;
+    metadata.pmsVacancyEvidence = null;
     metadata.scheduledDepartureToday = ottofiori ? effectiveCheckout : departing;
     metadata.scheduledDepartureTomorrow = s.departure_date > date && s.departure_date <= nextDate;
     metadata.arrivalDate = s.arrival_date;
@@ -396,7 +457,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     const key = String(mapping.pms_room_name||"").trim().toLowerCase();
     const richRow = richByLabel.get(key);
     const room:any = enrichedById.get(roomId);
-    if(!room)continue;
+    if(!room || verifiedUnsoldIds.has(roomId))continue;
     if(!richRow) {noteRowsMissing++;continue;}
     const old = (room.pms_metadata && typeof room.pms_metadata==="object") ? room.pms_metadata : {};
     const next:any = {...old,
@@ -493,7 +554,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       manager_overrides_preserved: overridden, unmapped_reservation_rooms: unmatchedSnapshots,
       expected_mapped_rooms: mappings.length, snapshot_rooms: snapshots.length,
       rehydrated_rooms: rehydratedGozsduRooms, rehydrated_no_show_rooms: rehydratedNoShowRooms,
-      no_show_rooms: noShows, unresolved_rooms: 0,
+      no_show_rooms: noShows, unsold_rooms: unsold, verified_unsold_room_labels: verifiedUnsoldRooms, unresolved_rooms: 0,
       ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) },
   });
   if (historyError) throw new Error(`${hotelId}: PMS history write failed: ${historyError.message}`);
@@ -503,7 +564,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     enriched_notes:notesSynced,manager_notes_protected:managerNotesProtected,
     strong_extensions_linked:extensionsLinked,rich_roster_unmatched:noteRowsMissing,
     rehydrated_rooms: rehydratedGozsduRooms, rehydrated_no_show_rooms: rehydratedNoShowRooms,
-    no_show_rooms: noShows, unresolved_rooms: 0, status,
+    no_show_rooms: noShows, unsold_rooms: unsold, verified_unsold_room_labels: verifiedUnsoldRooms, unresolved_rooms: 0, status,
     ...(ottofiori ? { ottofiori_no_show_arrivals_reconciled: reconciledArrivals, unknown_rooms_preserved: skippedUnknown } : {}) };
 }
 

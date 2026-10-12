@@ -174,8 +174,8 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
       return;
     }
     if (result.status === 'queued') {
-      toast.message('PMS refresh queued', {
-        description: result.message || 'Another PMS refresh is in progress. Your request will run after it finishes, ahead of remaining scheduled jobs.',
+      toast.message('PMS refresh requested', {
+        description: result.message || 'Starting now if no PMS refresh is running. Otherwise your request will run as soon as the current refresh finishes.',
         duration: 7000,
       });
       return;
