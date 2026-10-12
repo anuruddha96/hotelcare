@@ -17,6 +17,7 @@ export function isSlntTeamBRoomNumber(roomNumber?: string | null): boolean {
   const value = (roomNumber || '').trim();
   if (!value) return false;
   if (TEAM_B_EXACT_ROOMS.has(value)) return true;
+  if (/^WR19 Room [1-6]$/i.test(value)) return true;
   if (/^WR Pension 10[1-6]$/.test(value)) return true;
   if (/^St King 11\s*[–-]\s*Room [1-9]$/.test(value)) return true;
   if (/^K4\s*[–-]\s*Room [1-7]$/.test(value)) return true;
