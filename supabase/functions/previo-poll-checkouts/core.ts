@@ -605,6 +605,7 @@ async function pollOneHotel(
             checkedOutToday: true,
             readyToClean: true,
             checkedOutAt: stampedAt,
+            readyToCleanDate: today,
           },
         };
         // This branch only runs for a *new* physical checkout (or incomplete
@@ -620,6 +621,15 @@ async function pollOneHotel(
           .update(updateData)
           .eq("id", localRoom.id);
         if (updErr) throw updErr;
+      } else if (existingMeta.readyToCleanDate !== today) {
+        // Same verified checkout, but an old/missing readiness date.
+        // Repair metadata only: never mark an already-cleaned room dirty or
+        // alter an active/completed housekeeping task on an idempotent poll.
+        const { error: dateErr } = await service.from("rooms").update({
+          pms_metadata: { ...existingMeta, readyToCleanDate: today },
+          updated_at: nowIso(),
+        }).eq("id", localRoom.id);
+        if (dateErr) throw dateErr;
       }
 
 
