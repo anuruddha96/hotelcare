@@ -117,6 +117,14 @@ Deno.serve(async(req)=>{
     ]);
     if(sourceLeft>1||targetLeft>1)
       throw Error("This shared-last-room option supports one room only.");
+    // Do not borrow the physical last room if another unrelated room kind
+    // is independently still selling it. This is one-room, two-category
+    // sharing only; three listings for the same last room are not allowed.
+    const otherKinds=kinds.filter((k:any)=>k.pms_room_id!==source&&k.pms_room_id!==target);
+    const otherAvailability=await Promise.all(otherKinds.map((k:any)=>
+      readAvailability(creds,previoHotelId,date,String(k.pms_room_id))));
+    if(otherAvailability.some(v=>v>0))
+      throw Error("Another room category is still offering the final room. Close that offer first.");
     // A prior exclusive transfer may have closed the source (Quad).
     // It is safe to restore one only if that allocation is already recorded.
     const {data:exclusive}=await admin.from("room_sale_upgrade_rules")
