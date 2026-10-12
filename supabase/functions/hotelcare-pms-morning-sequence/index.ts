@@ -197,8 +197,11 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       && live.IsCheckoutRoom !== true && live.CheckedOut !== true
       && live.NotArrived !== true && live.IsNoShow !== true
       && live.IsCancelled !== true
-      && (!liveDeparture || liveDeparture < date)
-      && (!liveArrival || liveArrival < date)
+      // A booking starting tomorrow or later does NOT occupy this room today.
+      // Do not confuse future reservations with today's checkouts/stayovers.
+      && ((!liveArrival && !liveDeparture)
+        || (!!liveArrival && liveArrival > date)
+        || (!!liveDeparture && liveDeparture < date))
       && liveNextArrival !== date;
     if (!snapshot && gozsdu) {
       const current: any = gozsduRoomById.get(roomId);
