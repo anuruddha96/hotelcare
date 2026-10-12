@@ -84,7 +84,7 @@ Deno.serve(async req=>{
       // the two virtual offers must also close, even if neither was booked.
       // Here one remaining physical room was verified at watch activation.
       const lastPhysicalSold = live.length > Number(watch.baseline_confirmed ?? 0);
-      if(watch.status==="active" && !newLinked.length && !lastPhysicalSold){
+      if(watch.status==="active" && !lastPhysicalSold){
         await db.from("room_sale_overnight_watches").update({last_checked_at:new Date().toISOString(),last_error:null})
           .eq("id",watch.id);
         continue; // No confirmed new booking in either monitored room type.
