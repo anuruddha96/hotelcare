@@ -704,9 +704,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   // sticky room notes, because notes can legitimately remain after midnight.
   const isNoShow = (room: RoomData) => isPmsNoShow(room);
 
+  const isVerifiedUnsold = (room: RoomData) => (
+    (room.pms_metadata as any)?.pmsOccupancyStatus === 'unsold'
+    && (room.pms_metadata as any)?.pmsSyncDate === selectedDate
+    && !isCheckoutBucket(room)
+  );
+  const unsoldRooms = rooms.filter(isVerifiedUnsold);
   const arrivalRooms = rooms.filter(r => isArrivalOnly(r) && !isNoShow(r));
   const dailyRooms = rooms.filter(r => {
     if (isCheckoutBucket(r)) return false;
+    // Verified unsold inventory is not an occupied daily/stayover room.
+    if (isVerifiedUnsold(r)) return false;
     // No-show rooms surface in their own section below.
     if (isNoShow(r)) return false;
     // Arrivals get their own section (vacant room, guest expected today).
@@ -1237,6 +1245,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
           {displayLabel ?? room.room_number}
+          {isVerifiedUnsold(room) && (
+            <span
+              className="ml-1 rounded bg-slate-600 px-1 py-0.5 text-[8px] font-extrabold text-white"
+              title="Verified unsold in Previo today; cleaning condition remains separate"
+            >Unsold</span>
+          )}
           {isSlntTenant && room.status === 'out_of_order' && (
             <span
               className="ml-1 rounded bg-red-700 px-1 py-0.5 text-[8px] font-extrabold text-white"
@@ -2019,7 +2033,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     );
   };
 
-  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
+  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow' | 'arrival', hidePrevious = false) => {
     // The SLNT search/unassigned filter applies only to the current Today
     // board. Retain original section totals and yesterday's saved snapshot.
     const todayRooms = slntFilterIsActive ? roomList.filter(slntMatchesRoomFilter) : roomList;
@@ -2028,7 +2042,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     // this same section (checkout vs daily) — sourced from previousAssignments,
     // NOT from today's live room list.
     const previousEntries: Array<{ room: RoomData; prev: AssignmentData & { completed_at: string | null } }> = [];
-    previousAssignments.forEach((prev, roomId) => {
+    if (!hidePrevious) previousAssignments.forEach((prev, roomId) => {
       const room = roomsById.get(roomId);
       if (!room) return;
       const wasCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
@@ -2633,6 +2647,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                {renderSection(terms.isProperty ? terms.checkoutSection : t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
                <div className="border-t border-border/50" />
                {renderSection(terms.isProperty ? terms.dailySection : t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {unsoldRooms.length > 0 && (
+                 <>
+                   <div className="border-t border-border/50" />
+                   {renderSection('Unsold / Vacant', unsoldRooms, <BedDouble className="h-3.5 w-3.5 text-slate-600" />, 'daily', true)}
+                 </>
+               )}
                {arrivalRooms.length > 0 && (
                  <>
                    <div className="border-t border-border/50" />
