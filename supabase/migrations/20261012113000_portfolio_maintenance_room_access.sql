@@ -95,7 +95,92 @@ BEGIN
   v_arrival := v_meta->>'arrivalToday' = 'true';
 
   v_departure := v_meta->>'departureDate';
-  IF v_departure ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN
+  IF v_departure ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
+    BEGIN checkout_date := v_departure::date;
+    EXCEPTION WHEN others THEN checkout_date := NULL;
+    END;
+  END IF;
+  IF checkout_date IS NULL AND v_meta->>'scheduledDepartureToday' = 'true' THEN
+    checkout_date := v_today;
+  END IF;
+  IF (v_meta->>'departureTime') ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' THEN
+    expected_checkout_time := v_meta->>'departureTime';
+  END IF;
+  BEGIN
+    v_out_at := nullif(v_meta->>'checkedOutAt','')::timestamptz;
+  EXCEPTION WHEN others THEN v_out_at := NULL;
+  END;
+  IF v_out_at IS NULL THEN v_out_at := v_room.checkout_time; END IF;
+  checked_out := v_sync_ok AND v_meta->>'checkedOutToday' = 'true'
+    AND v_out_at IS NOT NULL
+    AND (v_out_at AT TIME ZONE 'Europe/Budapest')::date = v_today;
+  checked_out_at := CASE WHEN checked_out THEN v_out_at ELSE NULL END;
+
+  IF checkout_date = v_today OR v_room.is_checkout_room THEN
+    stay_kind := 'checkout';
+  ELSIF v_occupied OR v_meta->>'pmsOccupancyStatus' = 'stayover' THEN
+    stay_kind := 'stayover';
+  ELSIF v_meta->>'occupiedToday' = 'false' THEN
+    stay_kind := 'vacant';
+  END IF;
+
+  IF NOT v_sync_ok OR v_arrival THEN
+    -- A same-day arrival or old PMS snapshot can invalidate access evidence.
+    access_state := 'status_unverified';
+  ELSIF checked_out THEN
+    access_state := 'ready_to_fix';
+  ELSIF stay_kind = 'checkout' THEN
+    access_state := 'waiting_for_checkout';
+  ELSIF stay_kind = 'stayover' THEN
+    access_state := 'consent_required';
+  ELSIF stay_kind = 'vacant' THEN
+    access_state := 'ready_to_fix';
+  ELSE
+    access_state := 'status_unverified';
+  END IF;
+  RETURN NEXT;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.get_maintenance_room_access(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_maintenance_room_access(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.start_maintenance_ticket_with_access(
+  p_ticket_id uuid, p_expected_updated_at timestamptz,
+  p_access_confirmation text DEFAULT NULL
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $function$
+DECLARE
+  v_access record;
+  v_confirmation text := pg_catalog.lower(pg_catalog.btrim(coalesce(p_access_confirmation,'')));
+  v_tenant text;
+BEGIN
+  -- Lock before evaluating the access guard and updating the ticket.
+  PERFORM 1 FROM public.tickets WHERE id = p_ticket_id FOR UPDATE;
+  SELECT * INTO v_access FROM public.get_maintenance_room_access(p_ticket_id);
+  IF v_access.access_state IN ('waiting_for_checkout','consent_required',
+       'status_unverified','room_unlinked')
+     AND v_confirmation NOT IN ('guest_permission','guest_out') THEN
+    RAISE EXCEPTION 'Guest or PMS room status requires an access check. Confirm permission or that the room is accessible.'
+      USING ERRCODE = '22023';
+  END IF;
+  PERFORM public.work_maintenance_ticket(
+    p_ticket_id,'start',NULL,p_expected_updated_at,NULL,NULL);
+  IF v_access.applies THEN
+    SELECT organization_slug INTO v_tenant FROM public.tickets WHERE id=p_ticket_id;
+    INSERT INTO public.comments(ticket_id,user_id,organization_slug,content)
+    VALUES(p_ticket_id,auth.uid(),v_tenant,
+      '[Maintenance access] ' ||
+      CASE WHEN v_access.access_state='ready_to_fix'
+          THEN 'PMS room status checked: ready to fix (physical presence not independently verified).'
+        WHEN v_confirmation='guest_permission' THEN 'Technician confirmed guest permission before entry.'
+        ELSE 'Technician confirmed room accessible before entry.' END);
+  END IF;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.start_maintenance_ticket_with_access(uuid,timestamptz,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.start_maintenance_ticket_with_access(uuid,timestamptz,text) TO authenticated;
+ THEN
     BEGIN checkout_date := v_departure::date;
     EXCEPTION WHEN others THEN checkout_date := NULL;
     END;
