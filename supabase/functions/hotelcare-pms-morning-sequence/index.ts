@@ -97,6 +97,15 @@ async function callEdge(url: string, serviceKey: string, name: string, payload: 
 async function syncStandardHotel(admin: any, url: string, service: string, secret: string, hotelId: string, date: string, trigger = "portfolio_morning_10min") {
   const ottofiori = hotelId === "ottofiori";
   const nextDate = new Date(Date.parse(`${date}T12:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  // Compare physical checkout timestamps in the hotel's business timezone.
+  // Old checkout flags must never leak into a new guest/service day.
+  const localStamp = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const isCheckoutTimestampToday = (raw: unknown): boolean => {
+    const epoch = Date.parse(String(raw || ""));
+    return Number.isFinite(epoch) && localStamp.format(new Date(epoch)) === date;
+  };
   await callEdge(url, service, "housekeeping-pms-preflight-worker", { mode: "sync_hotel", hotel_id: hotelId }, secret);
   const overview = await callEdge(url, service, "previo-sync-daily-overview", {
     hotelId, fromDate: date, days: 2,
@@ -377,6 +386,9 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       // an arrival, never yesterday's checkout/daily cleaning task.
       metadata.scheduledDepartureToday = false;
       metadata.checkedOutToday = false;
+      metadata.checkedOutAt = null;
+      metadata.readyToClean = false;
+      metadata.readyToCleanDate = null;
       metadata.arrivalToday = true;
       metadata.notArrived = old.notArrived === true;
       metadata.occupiedToday = old.occupiedToday === true;
@@ -407,6 +419,9 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       metadata.scheduledDepartureTomorrow = incoming?.departure_date === nextDate;
       metadata.stayThroughToday = !!incoming;
       metadata.checkedOutToday = false;
+      metadata.checkedOutAt = null;
+      metadata.readyToClean = false;
+      metadata.readyToCleanDate = null;
       if (incoming) {
         metadata.arrivalDate = incoming.arrival_date;
         metadata.departureDate = incoming.departure_date;
@@ -447,6 +462,25 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     metadata.departureDate = s.departure_date;
     metadata.occupiedToday = ottofiori ? old.occupiedToday === true : true;
     metadata.stayThroughToday = ottofiori ? !effectiveCheckout : !departing;
+    // Fresh PMS classification is authoritative. A 09-Oct checkout cannot
+    // make a 12-Oct stayover RTC, even when a prior refresh copied metadata.
+    // Preserve physical departures confirmed by today's Previo status 9,
+    // same-day checkout timestamps, and manager-issued RTC on this date.
+    const physicalName = String(mappings.find((m: any) =>
+      String(m.hotelcare_room_id || "") === pair.id)?.pms_room_name || "").trim().toLowerCase();
+    const freshReservation = richByLabel.get(physicalName);
+    const previoCheckedOut = freshReservation?.CheckedOut === true
+      && freshReservation?.DepartureDate === date;
+    const checkoutStampedToday = old.checkedOutToday === true
+      && isCheckoutTimestampToday(old.checkedOutAt);
+    const validPhysicalCheckout = effectiveCheckout
+      && (previoCheckedOut || checkoutStampedToday);
+    const manualRtcToday = isCheckoutTimestampToday(old.manualReadyToCleanAt);
+    metadata.checkedOutToday = validPhysicalCheckout;
+    metadata.checkedOutAt = validPhysicalCheckout
+      ? (checkoutStampedToday ? old.checkedOutAt : syncedAt) : null;
+    metadata.readyToClean = effectiveCheckout && (validPhysicalCheckout || manualRtcToday);
+    metadata.readyToCleanDate = metadata.readyToClean ? date : null;
     if (ottofiori && s.arrival_date !== old.arrivalDate && old.manual_no_show !== true) {
       metadata.isNoShow = false;
       metadata.notArrived = s.arrival_date === date && old.occupiedToday !== true;
