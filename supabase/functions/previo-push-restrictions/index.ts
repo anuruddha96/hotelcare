@@ -122,7 +122,7 @@ async function checkUnlinkedInventoryIncrease(
       .eq("stay_date", stayDate),
     admin.from("revenue_booking_nights")
       .select("id", { count: "exact", head: true })
-      .eq("hotel_id", hotelId).eq("stay_date", stayDate).eq("status_id", 3),
+      .eq("hotel_id", hotelId).eq("stay_date", stayDate).in("status_id", [2, 3]),
   ]);
   if (roomError || availabilityError || bookedError || !roomTypes?.length || booked === null) {
     return "Unable to confirm property-wide room availability. Refresh Previo before increasing rooms for sale.";
@@ -400,7 +400,7 @@ Deno.serve(async (req) => {
                   } else {
                     const { count: booked, error: bookedError } = await admin.from("revenue_booking_nights")
                       .select("id", { count: "exact", head: true })
-                      .eq("hotel_id", hotelId).eq("stay_date", item.date).eq("status_id", 3);
+                      .eq("hotel_id", hotelId).eq("stay_date", item.date).in("status_id", [2, 3]);
                     if (bookedError || (booked ?? 0) > physicalCapacity) {
                       allOk = false;
                       lastMessage = "The booked-room count could not be safely reconciled. Nothing was changed.";

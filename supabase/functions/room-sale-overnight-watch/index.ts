@@ -72,7 +72,7 @@ Deno.serve(async req=>{
       if(!rows.length) throw Error("Previo returned no usable reservations; closure not attempted");
       const live=rows.filter(r=>
         r.arrivalDate<=watch.stay_date && r.departureDate>watch.stay_date &&
-        r.statusId!==7 && r.statusId!==8 && r.statusId>0
+        (r.statusId===2 || r.statusId===3)
       );
       const old=new Set<string>(watch.baseline_refs ?? []);
       const newLinked=live.filter(r=>
@@ -80,17 +80,26 @@ Deno.serve(async req=>{
         (!r.createdAtIso || (Date.parse(r.createdAtIso)>=Date.parse(watch.starts_at)-60000 &&
           Date.parse(r.createdAtIso)<=deadline))
       );
-      if(watch.status==="active" && !newLinked.length){
+      // If a different room category consumes the hotel's last physical room,
+      // the two virtual offers must also close, even if neither was booked.
+      // Here one remaining physical room was verified at watch activation.
+      const lastPhysicalSold = live.length > Number(watch.baseline_confirmed ?? 0);
+      if(watch.status==="active" && !lastPhysicalSold){
         await db.from("room_sale_overnight_watches").update({last_checked_at:new Date().toISOString(),last_error:null})
           .eq("id",watch.id);
         continue; // No confirmed new booking in either monitored room type.
       }
       if(watch.status==="active"){
-        const chosen=newLinked[0];
+        const chosen=newLinked[0] ?? live.find(r => !old.has(keyFor(r)) && !old.has(r.resId));
         if(!chosen) continue;
-        await db.from("room_sale_overnight_watches").update({status:"triggered",
+        // Only one concurrent watcher may claim this booking. The closing
+        // worker subsequently claims the hotel/date inventory lock.
+        const {data:claim,error:claimError}=await db.from("room_sale_overnight_watches").update({status:"triggered",
           triggered_at:new Date().toISOString(),triggered_reservation:chosen.resId+":"+chosen.obkId,
-          last_checked_at:new Date().toISOString(),last_error:null}).eq("id",watch.id);
+          last_checked_at:new Date().toISOString(),last_error:null})
+          .eq("id",watch.id).eq("status","active").select("id").maybeSingle();
+        if(claimError)throw Error("Could not claim the last room sale");
+        if(!claim?.id)continue;
         report.triggered++;
         triggered=true;
       }
