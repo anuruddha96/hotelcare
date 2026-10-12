@@ -6,7 +6,7 @@ describe("portfolio PMS refresh queue results", () => {
  it("does not call an enqueued manual refresh completed", () => {
   const result = summarizeQueuedPmsJobs([{target_key:"hotel:ottofiori",status:"running"}]);
   expect(result.status).toBe("queued");
-  expect(result.managerMessage).toContain("queued");
+  expect(result.managerMessage).toContain("immediately");
  });
  it("reports a fully reconciled morning hotel", () => {
   const result = summarizeQueuedPmsJobs([{
