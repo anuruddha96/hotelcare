@@ -197,8 +197,8 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     // Reject malformed half-dated reservations instead of guessing vacancy.
     const hasNoStayToday = (!liveArrival && !liveDeparture)
       || (!!liveArrival && !!liveDeparture
-        && /^\\d{4}-\\d{2}-\\d{2}$/.test(liveArrival)
-        && /^\\d{4}-\\d{2}-\\d{2}$/.test(liveDeparture)
+        && /^\d{4}-\d{2}-\d{2}$/.test(liveArrival)
+        && /^\d{4}-\d{2}-\d{2}$/.test(liveDeparture)
         && liveArrival < liveDeparture
         && (liveDeparture < date || liveArrival > date));
     const verifiedUnsold = !snapshot && physicalRoomMatch
