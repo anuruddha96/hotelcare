@@ -4222,7 +4222,7 @@ export default function RateStrategyGrid({
                     );
                   }).map((room) => (
                     <SelectItem key={room.id} value={room.pms_room_id!}>
-                      {room.name} · {leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`)} left
+                      {localizedRoomTypeName(room.name, room.name_translations, language)} · {leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`)} left
                     </SelectItem>
                   ))}
                 </SelectContent>
