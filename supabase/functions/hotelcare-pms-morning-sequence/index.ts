@@ -167,7 +167,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       nextArrivals.set(key, row);
     }
   }
-  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null; rehydratedArrival?: boolean; rehydratedNoShow?: boolean; verifiedUnsold?: boolean }> = [];
+  const pairs: Array<{ id: string; snapshot: any | null; incoming: any | null; rehydratedArrival?: boolean; rehydratedNoShow?: boolean; verifiedUnsold?: boolean; verifiedArrival?: boolean; verifiedNoShow?: boolean }> = [];
   const usedRoomIds = new Set<string>();
   const usedSnapshots = new Set<string>();
   const rehydratedGozsduRooms: string[] = [];
@@ -203,6 +203,16 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
         || (!!liveArrival && liveArrival > date)
         || (!!liveDeparture && liveDeparture < date))
       && liveNextArrival !== date;
+    // A reservation starting today can be absent from the occupied-night
+    // manifest while its guest has not checked in. It is not an unsold room.
+    const verifiedArrival = !snapshot && physicalRoomMatch
+      && live.Arrival && live.NotArrived === true && live.Occupied === "No"
+      && liveArrival === date && liveDeparture > date
+      && live.IsNoShow !== true && live.IsCancelled !== true
+      && live.CheckedOut !== true && live.IsCheckoutRoom !== true;
+    const verifiedNoShow = !snapshot && physicalRoomMatch
+      && live.IsNoShow === true && live.Occupied === "No"
+      && live.CheckedOut !== true && live.IsCheckoutRoom !== true;
     if (!snapshot && gozsdu) {
       const current: any = gozsduRoomById.get(roomId);
       const meta = current?.pms_metadata && typeof current.pms_metadata === "object" ? current.pms_metadata : {};
@@ -231,7 +241,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       if (rehydratedArrival) rehydratedGozsduRooms.push(String(mapping.pms_room_name || roomId));
       if (rehydratedNoShow) rehydratedNoShowRooms.push(String(mapping.pms_room_name || roomId));
     }
-    if (!snapshot && !verifiedUnsold && !ottofiori && !rehydratedArrival && !rehydratedNoShow) {
+    if (!snapshot && !verifiedUnsold && !verifiedArrival && !verifiedNoShow && !ottofiori && !rehydratedArrival && !rehydratedNoShow) {
       const reason = !live ? "no_physical_roster_row"
         : !physicalRoomMatch ? "physical_room_id_mismatch"
         : [
@@ -252,7 +262,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     }
     usedRoomIds.add(roomId);
     if (snapshot) usedSnapshots.add(String(snapshot.id));
-    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival, rehydratedNoShow, verifiedUnsold });
+    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival, rehydratedNoShow, verifiedUnsold, verifiedArrival, verifiedNoShow });
     if (verifiedUnsold) {
       verifiedUnsoldIds.add(roomId);
       verifiedUnsoldRooms.push(String(mapping.pms_room_name));
@@ -313,6 +323,36 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       if (vacancyError) throw new Error(`${hotelId}: verified unsold room update failed: ${vacancyError.message}`);
       unsold++;
       if (keepManualCheckout) { checkout++; overridden++; }
+      continue;
+    }
+
+    if (pair.verifiedArrival || pair.verifiedNoShow) {
+      const live = richByLabel.get(
+        String(mappings.find((mapping: any) => String(mapping.hotelcare_room_id || "") === pair.id)?.pms_room_name || "").trim().toLowerCase()
+      );
+      const isNoShow = pair.verifiedNoShow === true;
+      metadata.pmsOccupancyStatus = isNoShow ? "no_show" : "arrival_pending";
+      metadata.pmsVacancyVerifiedAt = null;
+      metadata.pmsVacancyEvidence = null;
+      metadata.scheduledDepartureToday = false;
+      metadata.checkedOutToday = false;
+      metadata.checkedOutAt = null;
+      metadata.readyToClean = false;
+      metadata.readyToCleanDate = null;
+      metadata.arrivalToday = !isNoShow;
+      metadata.notArrived = true;
+      metadata.occupiedToday = false;
+      metadata.stayThroughToday = false;
+      metadata.isNoShow = isNoShow;
+      metadata.arrivalDate = live?.ArrivalDate || null;
+      metadata.departureDate = live?.DepartureDate || null;
+      metadata.reservationId = live?.ReservationId || null;
+      const { error: arrivalError } = await admin.from("rooms").update({
+        is_checkout_room: false, guest_count: 0, guest_nights_stayed: 0,
+        pms_metadata: metadata, updated_at: syncedAt,
+      }).eq("id", pair.id);
+      if (arrivalError) throw new Error(`${hotelId}: verified pending arrival/no-show update failed: ${arrivalError.message}`);
+      if (isNoShow) noShows++; else daily++;
       continue;
     }
 
