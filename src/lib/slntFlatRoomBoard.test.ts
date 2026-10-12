@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { matchesSlntBoardFilter, slntSingleRoomLabel } from './slntFlatRoomBoard';
+import { filterSlntRoomsToActiveVenues, matchesSlntBoardFilter, slntSingleRoomLabel } from './slntFlatRoomBoard';
 
 describe('SLNT flat room board label and display-only filters', () => {
+  it('shows only rooms belonging to active SLNT venues', () => {
+    const rooms = [
+      { id: 'wr19-1', venue_id: 'wr19' },
+      { id: 'silver-1', venue_id: 'silver' },
+      { id: 'sobi-1', venue_id: 'sobi' },
+      { id: 'unmapped', venue_id: null },
+    ];
+    expect(filterSlntRoomsToActiveVenues(rooms, ['wr19', 'silver']))
+      .toEqual([rooms[0], rooms[1]]);
+    expect(filterSlntRoomsToActiveVenues(rooms, [])).toEqual([]);
+  });
   it('uses the complete apartment name in a single chip without duplicating Unit', () => {
     expect(slntSingleRoomLabel('CityNest', 'CityNest')).toBe('CityNest');
     expect(slntSingleRoomLabel('Downtown Terrace Passion', 'Downtown Terrace Passion')).toBe('Downtown Terrace Passion');
