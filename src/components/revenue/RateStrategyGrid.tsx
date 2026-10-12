@@ -14,6 +14,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUiPreference } from "@/hooks/useUiPreference";
 import { canOfferComplimentaryUpgrade, showOwnLastSoldPrice } from "@/lib/revenue/roomSaleUpgradeEligibility";
+import { activeTransferLookups } from "@/lib/revenue/sharedLastRoom";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
@@ -1316,8 +1317,16 @@ export default function RateStrategyGrid({
   // it borrows. Never present a 22nd sellable room as a new physical unit.
   const [upgradeClosures, setUpgradeClosures] = useState<Set<string>>(new Set());
   const [existingTransfers, setExistingTransfers] = useState<Map<string, string>>(new Map());
+  // A previously moved Quadruple should be restorable without pretending
+  // that the smaller Queen is a new source for a higher-category upgrade.
+  const [originalTransferTargets, setOriginalTransferTargets] = useState<Map<string, string>>(new Map());
   useEffect(() => {
-    if (!hotelId) { setUpgradeClosures(new Set()); setExistingTransfers(new Map()); return; }
+    if (!hotelId) {
+      setUpgradeClosures(new Set());
+      setExistingTransfers(new Map());
+      setOriginalTransferTargets(new Map());
+      return;
+    }
     let cancelled = false;
     void (async () => {
       const [{ data: rules }, { data: overnight }] = await Promise.all([
@@ -1333,9 +1342,12 @@ export default function RateStrategyGrid({
       const closed = new Set<string>((rules ?? []).map(
         (r: any) => `${r.source_room_type_name}|${r.stay_date}`,
       ));
-      if (!cancelled) setExistingTransfers(new Map((rules ?? [])
-        .filter((r: any) => r.status === "active")
-        .map((r: any) => [`${r.target_obk_id}|${r.stay_date}`, r.source_obk_id])));
+      if (!cancelled) {
+        const activeRules = (rules ?? []).filter((r: any) => r.status === "active");
+        const { originalByPromoted, promotedByOriginal } = activeTransferLookups(activeRules);
+        setExistingTransfers(originalByPromoted);
+        setOriginalTransferTargets(promotedByOriginal);
+      }
       const nameByObk = new Map(roomTypes.map((room) => [room.pms_room_id, room.name]));
       for (const item of overnight ?? []) {
         // Show the real last-sale price only on the category that actually
@@ -1355,6 +1367,8 @@ export default function RateStrategyGrid({
     date: string; rawName: string; obkId: string | null;
     label: string; requested: number; current: number;
     sourceObkId: string; mode: "exclusive_transfer" | "shared_pool";
+    /** Original physical source and promoted listing from an earlier transfer. */
+    restorePreviousPair?: { originalObkId: string; promotedObkId: string };
   } | null>(null);
 
   useEffect(() => {
@@ -1427,6 +1441,8 @@ export default function RateStrategyGrid({
     upgradeFromObkId?: string | null;
     upgradeFromRoomTypeName?: string | null;
     upgradeMode?: "exclusive_transfer" | "shared_pool";
+    /** Both room-type rows should display the verified result after restoring a pair. */
+    linkedDisplayKey?: string;
   }) => {
     if (!hotelId) return;
     setRestrictionBusy(opts.key);
@@ -1470,10 +1486,14 @@ export default function RateStrategyGrid({
         // it to revenue_room_type_availability. Keep the verified value on
         // screen until the live availability prop catches up; otherwise the
         // cell briefly falls back to stale inventory (the exact 2 -> 1 bug).
-        setInvOverride((prev) => new Map(prev).set(
-          opts.key.replace(/^inv\|/, ""),
-          Math.max(0, Math.trunc(opts.roomsToSell!)),
-        ));
+        setInvOverride((prev) => {
+          const next = new Map(prev).set(
+            opts.key.replace(/^inv\|/, ""),
+            Math.max(0, Math.trunc(opts.roomsToSell!)),
+          );
+          if (isShared && opts.linkedDisplayKey) next.set(opts.linkedDisplayKey, 1);
+          return next;
+        });
         await onAvailabilityUpdated?.();
       }
     } catch (e) {
@@ -1588,11 +1608,15 @@ export default function RateStrategyGrid({
     if (rooms > (current ?? 0)) {
       // A complimentary upgrade is an allocation from an existing room type,
       // not extra property capacity. Explain the source before writing to PMS.
+      const promotedObkId = obkId ? originalTransferTargets.get(`${obkId}|${date}`) : undefined;
+      const restorePreviousPair = promotedObkId && rooms - (current ?? 0) === 1 && obkId
+        ? { originalObkId: obkId, promotedObkId } : undefined;
       setUpgradePrompt({
         date, rawName, obkId, label,
         requested: rooms, current: current ?? 0,
-        sourceObkId: existingTransfers.get(`${obkId}|${date}`) ?? "",
+        sourceObkId: restorePreviousPair ? obkId! : existingTransfers.get(`${obkId}|${date}`) ?? "",
         mode: rooms - (current ?? 0) === 1 ? "shared_pool" : "exclusive_transfer",
+        restorePreviousPair,
       });
       return;
     }
@@ -4219,72 +4243,99 @@ export default function RateStrategyGrid({
           </DialogHeader>
           {upgradePrompt && (
             <div className="space-y-4 text-sm">
-              <p>
-                Add <strong>{upgradePrompt.requested - upgradePrompt.current}</strong> room
-                {upgradePrompt.requested - upgradePrompt.current === 1 ? "" : "s"} to <strong>{upgradePrompt.label}</strong>.
-                Which available room type will reception use for the complimentary upgrade?
-              </p>
-              <Select value={upgradePrompt.sourceObkId} onValueChange={(v) => setUpgradePrompt((prev) => prev ? { ...prev, sourceObkId: v } : prev)}>
-                <SelectTrigger className="h-10"><SelectValue placeholder="Choose the original room type" /></SelectTrigger>
-                <SelectContent>
-                  {houseInventoryTypes.filter((room) => {
-                    const target = houseInventoryTypes.find((t) => t.pms_room_id === upgradePrompt.obkId);
-                    const available = leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0;
-                    const previouslyTransferred = room.pms_room_id === existingTransfers.get(`${upgradePrompt.obkId}|${upgradePrompt.date}`);
-                    return !!target && canOfferComplimentaryUpgrade(
-                      target, room,
-                      previouslyTransferred ? Math.max(available, 1) : available,
-                      upgradePrompt.requested - upgradePrompt.current,
-                    );
-                  }).map((room) => (
-                    <SelectItem key={room.id} value={room.pms_room_id!}>
-                      {localizedRoomTypeName(room.name, room.name_translations, language)} · {leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`)} left
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="space-y-2 rounded-lg border p-3">
-                <label className="flex cursor-pointer gap-2">
-                  <input type="radio" name="upgrade-mode" checked={upgradePrompt.mode === "exclusive_transfer"}
-                    onChange={() => setUpgradePrompt((prev) => prev ? { ...prev, mode: "exclusive_transfer" } : prev)} />
-                  <span><strong>Sell as {upgradePrompt.label} instead</strong>
-                    <span className="block text-xs text-muted-foreground">Close the same quantity in the original category first. No additional physical rooms.</span>
-                  </span>
-                </label>
-                <label className="flex cursor-pointer gap-2">
-                  <input type="radio" name="upgrade-mode"
-                    disabled={upgradePrompt.requested - upgradePrompt.current !== 1}
-                    checked={upgradePrompt.mode === "shared_pool"}
-                    onChange={() => setUpgradePrompt((prev) => prev ? { ...prev, mode: "shared_pool" } : prev)} />
-                  <span><strong>Offer both room types until the last room sells</strong>
-                    <span className="block text-xs text-muted-foreground">
-                      Only for one verified remaining physical room. HotelCare checks for new bookings and closes both.
-                      Two simultaneous online bookings are still possible before the other listing closes.
-                    </span>
-                  </span>
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                If the Queen room sells, reception can assign the larger room as a complimentary upgrade.
-                The booking check runs periodically, not instantly at the booking website.
-              </p>
+              {upgradePrompt.restorePreviousPair ? (
+                <div className="space-y-3">
+                  <p className="font-medium">
+                    Restore the room previously moved from {upgradePrompt.label}?
+                  </p>
+                  <p>
+                    This room was offered under a different category. You can make
+                    <strong> both original and promoted room types available</strong> while
+                    the last physical room remains unsold.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    HotelCare first verifies the remaining room and checks Previo.
+                    After a final booking, it checks for new reservations and closes both listings.
+                    These checks are periodic; two simultaneous online bookings can still occur.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p>
+                    Add <strong>{upgradePrompt.requested - upgradePrompt.current}</strong> room
+                    {upgradePrompt.requested - upgradePrompt.current === 1 ? "" : "s"} to <strong>{upgradePrompt.label}</strong>.
+                    Which available room type will reception use for the complimentary upgrade?
+                  </p>
+                  <Select value={upgradePrompt.sourceObkId} onValueChange={(v) => setUpgradePrompt((prev) => prev ? { ...prev, sourceObkId: v } : prev)}>
+                    <SelectTrigger className="h-10"><SelectValue placeholder="Choose the original room type" /></SelectTrigger>
+                    <SelectContent>
+                      {houseInventoryTypes.filter((room) => {
+                        const target = houseInventoryTypes.find((t) => t.pms_room_id === upgradePrompt.obkId);
+                        const available = leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0;
+                        const previouslyTransferred = room.pms_room_id === existingTransfers.get(`${upgradePrompt.obkId}|${upgradePrompt.date}`);
+                        return !!target && canOfferComplimentaryUpgrade(
+                          target, room,
+                          previouslyTransferred ? Math.max(available, 1) : available,
+                          upgradePrompt.requested - upgradePrompt.current,
+                        );
+                      }).map((room) => (
+                        <SelectItem key={room.id} value={room.pms_room_id!}>
+                          {localizedRoomTypeName(room.name, room.name_translations, language)} · {leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`)} left
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <label className="flex cursor-pointer gap-2">
+                      <input type="radio" name="upgrade-mode" checked={upgradePrompt.mode === "exclusive_transfer"}
+                        onChange={() => setUpgradePrompt((prev) => prev ? { ...prev, mode: "exclusive_transfer" } : prev)} />
+                      <span><strong>Sell as {upgradePrompt.label} instead</strong>
+                        <span className="block text-xs text-muted-foreground">Close the same quantity in the original category first. No additional physical rooms.</span>
+                      </span>
+                    </label>
+                    <label className="flex cursor-pointer gap-2">
+                      <input type="radio" name="upgrade-mode"
+                        disabled={upgradePrompt.requested - upgradePrompt.current !== 1}
+                        checked={upgradePrompt.mode === "shared_pool"}
+                        onChange={() => setUpgradePrompt((prev) => prev ? { ...prev, mode: "shared_pool" } : prev)} />
+                      <span><strong>Offer both room types until the last room sells</strong>
+                        <span className="block text-xs text-muted-foreground">
+                          Only for one verified remaining physical room. HotelCare checks for new bookings and closes both.
+                          Two simultaneous online bookings are still possible before the other listing closes.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    If the Queen room sells, reception can assign the larger room as a complimentary upgrade.
+                    The booking check runs periodically, not instantly at the booking website.
+                  </p>
+                </>
+              )}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setUpgradePrompt(null)}>Cancel</Button>
                 <Button type="button" disabled={!upgradePrompt.sourceObkId || !!restrictionBusy ||
                   (upgradePrompt.mode === "shared_pool" && upgradePrompt.requested - upgradePrompt.current !== 1)}
                   onClick={() => {
-                    const source = houseInventoryTypes.find((r) => r.pms_room_id === upgradePrompt.sourceObkId);
-                    const key = `${upgradePrompt.rawName}|${upgradePrompt.date}`;
+                    const prior = upgradePrompt.restorePreviousPair;
+                    const originalObkId = prior?.originalObkId ?? upgradePrompt.sourceObkId;
+                    const listedObkId = prior?.promotedObkId ?? upgradePrompt.obkId;
+                    const source = houseInventoryTypes.find((r) => r.pms_room_id === originalObkId);
+                    const promoted = houseInventoryTypes.find((r) => r.pms_room_id === listedObkId);
+                    const displayedName = prior ? promoted?.name ?? upgradePrompt.rawName : upgradePrompt.rawName;
+                    const key = `${displayedName}|${upgradePrompt.date}`;
                     void sendRestriction({
                       key: `inv|${key}`, date: upgradePrompt.date,
-                      roomsToSell: upgradePrompt.requested,
-                      obkId: upgradePrompt.obkId, roomTypeName: upgradePrompt.label,
-                      upgradeFromObkId: upgradePrompt.sourceObkId,
+                      roomsToSell: prior ? 1 : upgradePrompt.requested,
+                      obkId: listedObkId, roomTypeName: promoted?.name ?? upgradePrompt.label,
+                      upgradeFromObkId: originalObkId,
                       upgradeFromRoomTypeName: source?.name ?? null,
-                      upgradeMode: upgradePrompt.mode,
+                      upgradeMode: prior ? "shared_pool" : upgradePrompt.mode,
+                      linkedDisplayKey: prior ? `${upgradePrompt.rawName}|${upgradePrompt.date}` : undefined,
                     });
                     setUpgradePrompt(null);
-                  }}>{upgradePrompt.mode === "shared_pool" ? "Offer both room types" : "Save room transfer"}</Button>
+                  }}>{upgradePrompt.restorePreviousPair ? "Restore both room types" :
+                      upgradePrompt.mode === "shared_pool" ? "Offer both room types" : "Save room transfer"}</Button>
               </DialogFooter>
             </div>
           )}
