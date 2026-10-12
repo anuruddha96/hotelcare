@@ -10,7 +10,7 @@ function expectedTeamBRooms(): string[] {
     'Be Local Budapest Apartment',
     'Dorothilux Apartment',
     'Giselle Apartment',
-    ...Array.from({ length: 6 }, (_, index) => `WR Pension ${101 + index}`),
+    ...Array.from({ length: 6 }, (_, index) => `WR19 Room ${index + 1}`),
     ...Array.from({ length: 9 }, (_, index) => `St King 11 – Room ${index + 1}`),
     ...Array.from({ length: 7 }, (_, index) => `K4 – Room ${index + 1}`),
     ...Array.from({ length: 21 }, (_, index) => `Silver Rooms ${index + 1}`),
@@ -22,6 +22,12 @@ describe('SLNT Team B room mapping', () => {
     const rooms = expectedTeamBRooms();
     expect(rooms).toHaveLength(SLNT_TEAM_B_EXPECTED_ROOM_COUNT);
     expect(rooms.every(isSlntTeamBRoomNumber)).toBe(true);
+  });
+
+  it('still recognizes the old Previo room labels during migration', () => {
+    for (let n = 101; n <= 106; n++) {
+      expect(isSlntTeamBRoomNumber(`WR Pension ${n}`)).toBe(true);
+    }
   });
 
   it('does not absorb Team A / unrelated SLNT units', () => {
