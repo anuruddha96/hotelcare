@@ -47,7 +47,7 @@ import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 import { shortUnitLabel } from '@/lib/venueUnitLabel';
-import { matchesSlntBoardFilter } from '@/lib/slntFlatRoomBoard';
+import { filterSlntRoomsToActiveVenues, matchesSlntBoardFilter } from '@/lib/slntFlatRoomBoard';
 import { isDndForBusinessDate, isNoShowForBusinessDate } from '@/lib/currentRoomTransientFlags';
 import { canAssignSlntRoom, getSlntRoomChipMode } from '@/lib/slntRoomChipBehavior';
 
@@ -204,7 +204,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes(orgSlug?.toLowerCase() ?? '');
   const { venues } = useVenues();
   const isMobile = useIsMobile();
-  const [rooms, setRooms] = useState<RoomData[]>([]);
+  const [loadedRooms, setRooms] = useState<RoomData[]>([]);
+  // SLNT's active venue list is authoritative for the operational room board.
+  // Keep inactive records in storage/history but never show them as "No venue set"
+  // when a venue is disabled. Other tenants continue using their full room list.
+  const rooms = React.useMemo(
+    () => isSlntTenant
+      ? filterSlntRoomsToActiveVenues(loadedRooms, venues.map(venue => venue.id))
+      : loadedRooms,
+    [loadedRooms, venues, isSlntTenant],
+  );
   const loadGuardRef = useRef(createOverviewLoadGuard());
   const currentOverviewScope = `${hotelName}|${selectedDate}`;
   const currentOverviewScopeRef = useRef(currentOverviewScope);
