@@ -162,6 +162,7 @@ export function SupervisorApprovalView({
   }, []);
   const [pendingAssignments, setPendingAssignments] = useState<PendingAssignment[]>([]);
   const [pendingMaintenanceTickets, setPendingMaintenanceTickets] = useState<any[]>([]);
+  const [approvingMaintenanceTicketId, setApprovingMaintenanceTicketId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -481,31 +482,36 @@ export function SupervisorApprovalView({
   };
 
   const handleApproveTicket = async (ticketId: string) => {
-    setPendingMaintenanceTickets(prev => prev.filter(t => t.id !== ticketId));
+    if (approvingMaintenanceTicketId) return;
+    const ticket = pendingMaintenanceTickets.find(item => item.id === ticketId);
+    if (!ticket?.updated_at) {
+      toast.error('Ticket details are out of date. Refresh and try again.');
+      void fetchPendingMaintenanceTickets();
+      return;
+    }
+    setApprovingMaintenanceTicketId(ticketId);
     try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          status: 'completed',
-          pending_supervisor_approval: false,
-          supervisor_approved: true,
-          supervisor_approved_at: new Date().toISOString(),
-          supervisor_approved_by: (await supabase.auth.getUser()).data.user?.id,
-          closed_at: new Date().toISOString(),
-          closed_by: (await supabase.auth.getUser()).data.user?.id
-        })
-        .eq('id', ticketId)
-        .eq('department', 'maintenance')
-        .eq('pending_supervisor_approval', true);
-
+      // The server validates tenant, property, reviewer, pending state and
+      // optimistic concurrency, then closes the ticket and writes an audit entry.
+      // A direct UPDATE cannot safely handle overdue SLA rules across hotels.
+      const { error } = await (supabase as any).rpc('review_maintenance_completion', {
+        p_ticket_id: ticketId,
+        p_decision: 'approve',
+        p_note: '',
+        p_expected_updated_at: ticket.updated_at,
+      });
       if (error) throw error;
-
+      setPendingMaintenanceTickets(prev => prev.filter(item => item.id !== ticketId));
       toast.success('Maintenance ticket approved');
-      fetchPendingMaintenanceTickets();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error approving ticket:', error);
-      toast.error('Failed to approve ticket');
-      fetchPendingMaintenanceTickets();
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(message.includes('updated by another user')
+        ? 'This ticket has changed. Refresh and try again.'
+        : `Failed to approve ticket: ${message}`);
+    } finally {
+      setApprovingMaintenanceTicketId(null);
+      void fetchPendingMaintenanceTickets();
     }
   };
 
@@ -1902,12 +1908,13 @@ export function SupervisorApprovalView({
 
                           <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border">
                             <Button
-                              onClick={() => handleApproveTicket(ticket.id)}
+                              onClick={() => void handleApproveTicket(ticket.id)}
+                              disabled={approvingMaintenanceTicketId !== null}
                               className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
                               size="sm"
                             >
                               <CheckCircle className="h-4 w-4 mr-2" />
-                              Approve
+                              {approvingMaintenanceTicketId === ticket.id ? 'Approving…' : 'Approve'}
                             </Button>
                             
                             <Select onValueChange={(value) => handleReassignTicket(ticket.id, value)}>
