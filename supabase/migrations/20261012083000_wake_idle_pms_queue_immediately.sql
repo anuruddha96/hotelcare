@@ -22,7 +22,7 @@ BEGIN
       'x-worker-secret',public.get_housekeeping_release_worker_secret()
     ),
     body := jsonb_build_object('trigger','manual_immediate','queued_job_id',NEW.id,'requested_at',now()),
-    timeout_milliseconds := 30000
+    timeout_milliseconds := 210000
   );
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
