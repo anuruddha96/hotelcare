@@ -125,8 +125,8 @@ Deno.serve(async(req)=>{
       .eq("sell_mode","exclusive_transfer").eq("status","active").maybeSingle();
     if(sourceLeft===0&&!exclusive)
       throw Error("The larger room is closed, with no verified previous allocation to restore.");
-    if(targetLeft===1&&sourceLeft===1)
-      throw Error("Both categories are already available. Refresh before creating a new rule.");
+    // When both were already manually made available, simply attach the
+    // reservation watch without changing Previo availability.
 
     // Snapshot all confirmed reservation room items BEFORE exposing both
     // categories. The monitor uses the same stable sourceRef signature.
