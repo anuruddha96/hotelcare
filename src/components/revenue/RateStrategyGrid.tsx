@@ -14,6 +14,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUiPreference } from "@/hooks/useUiPreference";
 import { canOfferComplimentaryUpgrade, showOwnLastSoldPrice } from "@/lib/revenue/roomSaleUpgradeEligibility";
+import { activeTransferLookups } from "@/lib/revenue/sharedLastRoom";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
@@ -1343,12 +1344,9 @@ export default function RateStrategyGrid({
       ));
       if (!cancelled) {
         const activeRules = (rules ?? []).filter((r: any) => r.status === "active");
-        setExistingTransfers(new Map(activeRules.map(
-          (r: any) => [`${r.target_obk_id}|${r.stay_date}`, r.source_obk_id],
-        )));
-        setOriginalTransferTargets(new Map(activeRules.map(
-          (r: any) => [`${r.source_obk_id}|${r.stay_date}`, r.target_obk_id],
-        )));
+        const { originalByPromoted, promotedByOriginal } = activeTransferLookups(activeRules);
+        setExistingTransfers(originalByPromoted);
+        setOriginalTransferTargets(promotedByOriginal);
       }
       const nameByObk = new Map(roomTypes.map((room) => [room.pms_room_id, room.name]));
       for (const item of overnight ?? []) {
