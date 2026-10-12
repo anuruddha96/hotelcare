@@ -557,15 +557,28 @@ async function pollOneHotel(
         ).maybeSingle();
         return (data as any) || null;
       };
-      let localRoom = await tryQ((q: any) => q.eq("room_number", rawName));
-      if (!localRoom && rawName) localRoom = await tryQ((q: any) => q.ilike("room_number", rawName));
-      if (!localRoom && numToken && numToken !== rawName)
-        localRoom = await tryQ((q: any) => q.eq("room_number", numToken));
-      if (!localRoom && previoRoomId)
-        localRoom = await tryQ((q: any) => q.filter("pms_metadata->>roomId", "eq", previoRoomId));
+      // A physical Previo room ID is authoritative. Do not try a room-name or
+      // first-numeric-token fallback when a valid ID is present but unmapped:
+      // apartment labels can share numeric fragments across different rooms.
+      // In that case fail closed and surface the missing mapping for review.
+      let localRoom: any = null;
+      if (previoRoomId && Number(previoRoomId) > 0) {
+        localRoom = await tryQ((q: any) =>
+          q.filter("pms_metadata->>roomId", "eq", previoRoomId));
+      } else if (rawName) {
+        // Only identity-less feeds may use an EXACT full-label lookup.
+        localRoom = await tryQ((q: any) => q.eq("room_number", rawName));
+      }
 
       if (!localRoom) {
         result.unmatched.push(rawName || previoRoomId);
+        result.diagnostics.push({
+          source: "checkout-unmapped-physical-room",
+          room: rawName || null,
+          roomId: previoRoomId || null,
+          accepted: false,
+          reason: "Previo checkout has no exact physical-room ID mapping; RTC not changed",
+        });
         continue;
       }
       trueCheckoutRoomIds.add(localRoom.id);
@@ -581,6 +594,30 @@ async function pollOneHotel(
         .eq("assignment_date", today)
         .in("status", ["assigned", "in_progress"]);
       const hasActiveAssignment = (existingAsg ?? []).length > 0;
+
+      // A verified departure can be RTC-ready even before a cleaner is assigned.
+      // Surface that coverage gap, but never invent a housekeeper or rewrite
+      // finished work as a side effect of PMS synchronization.
+      if (!hasActiveAssignment && localRoom.pms_metadata?.excludedFromHousekeeping !== true) {
+        const { data: anyTodayAsg, error: assignmentCheckError } = await service
+          .from("room_assignments")
+          .select("id,status")
+          .eq("room_id", localRoom.id)
+          .eq("assignment_date", today)
+          .limit(1);
+        if (assignmentCheckError) {
+          result.errors.push(`assignment verification ${localRoom.room_number}: ${assignmentCheckError.message}`);
+        } else if (!(anyTodayAsg ?? []).length) {
+          result.diagnostics.push({
+            source: "confirmed-checkout-without-housekeeping-task",
+            room: localRoom.room_number,
+            roomId: previoRoomId || null,
+            accepted: true,
+            actionRequired: "assign-housekeeper",
+            reason: "Previo physical checkout confirmed; room RTC is synchronized but no cleaning assignment exists",
+          });
+        }
+      }
 
       const existingMeta = (localRoom.pms_metadata && typeof localRoom.pms_metadata === "object")
         ? localRoom.pms_metadata : {};
