@@ -14,7 +14,7 @@ describe('manual PMS queue feedback',()=>{
   const r=await runQueuedPmsRefresh('ottofiori');
   expect(r.status).toBe('queued');
   expect(r.jobIds).toEqual(['job-one']);
-  expect(r.managerMessage).toContain('immediately');
+  expect(r.managerMessage).toContain('Waiting for the PMS worker');
   expect(supabase.rpc).toHaveBeenCalledTimes(1);
  });
 });
