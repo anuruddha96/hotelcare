@@ -279,7 +279,7 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
               <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">Bed configuration</p>
-                <p className="text-sm font-semibold">{displayHousekeepingBedSetup(String(bedConfig)) || String(bedConfig)}</p>
+                <p className="text-sm font-semibold">{displayHousekeepingBedSetup(String(bedConfig), room.hotel) || String(bedConfig)}</p>
               </div>
             </div>
           </div>

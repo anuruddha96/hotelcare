@@ -116,7 +116,7 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
   const room = displayAssignment.rooms;
   const meta = originalRoom?.pms_metadata;
   // Display-only: manager setup wins over stale PMS inference. Keep Gozsdu work overrides.
-  const manualBedInstruction = displayHousekeepingBedSetup(room?.bed_configuration);
+  const manualBedInstruction = displayHousekeepingBedSetup(room?.bed_configuration, room?.hotel);
   const bedConfiguredRoom = room && manualBedInstruction ? {
     ...room,
     bed_configuration: manualBedInstruction,
@@ -222,7 +222,7 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
       <Button type="button" variant="outline" size="sm" className="w-full justify-start border-blue-300 text-blue-900 dark:text-blue-200" aria-expanded={bedSetupOpen} onClick={() => setBedSetupOpen((value) => !value)}>
         <BedDouble className="mr-2 h-4 w-4" />{bedSetupOpen ? 'Hide bed setup' : 'Edit bed setup'}
       </Button>
-      {bedSetupOpen && <div className="mt-2"><RoomCommunicationPanel assignmentId={props.assignment.id} roomId={props.assignment.room_id} roomNumber={room.room_number} /></div>}
+      {bedSetupOpen && <div className="mt-2"><RoomCommunicationPanel assignmentId={props.assignment.id} roomId={props.assignment.room_id} roomNumber={room.room_number} hotelName={room.hotel} /></div>}
     </div>}
     {lateCheckoutTime && <div role="status" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
       <Clock3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

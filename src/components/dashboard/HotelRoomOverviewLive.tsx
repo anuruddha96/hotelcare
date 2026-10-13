@@ -1663,8 +1663,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     <option value="Single Bed">{t('gozsdu.singleBeds')} (SB)</option>
                     <option value="Sofa Bed">{t('gozsdu.sofaBed')}</option>
                     <option value="Extra Bed">{t('gozsdu.extraBed')}</option>
-                    <option value="Baby Bed">{t('gozsdu.babyBed')}</option>
-                    <option value="Remove Baby Bed">{t('gozsdu.removeBabyBed')}</option>
+                    <option value="Baby Bed">{room.hotel?.trim().toLowerCase() === 'hotel memories budapest' ? 'Put baby bed' : t('gozsdu.babyBed')}</option>
+                    <option value="Remove Baby Bed">{room.hotel?.trim().toLowerCase() === 'hotel memories budapest' ? 'Out baby bed' : t('gozsdu.removeBabyBed')}</option>
                     <option value="Extra Cot Added">{t('roomOverview.bedExtraCot')}</option>
                   </select>
                 </div>
@@ -1815,6 +1815,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     assignmentId={assignment.id}
                     roomId={room.id}
                     roomNumber={room.room_number}
+                    hotelName={room.hotel}
                     dateLabel={selectedDate}
                     readOnly={selectedDate !== todayBudapest()}
                   />
@@ -2955,6 +2956,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       assignmentId={assignment.id}
                       roomId={selectedRoom.id}
                       roomNumber={selectedRoom.room_number}
+                      hotelName={selectedRoom.hotel}
                       dateLabel={selectedDate}
                       readOnly={selectedDate !== todayBudapest()}
                     />

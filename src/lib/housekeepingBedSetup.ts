@@ -3,7 +3,8 @@
  * Keep the historic database values intact; presentation codes must never be
  * inferred from a hotel's room category or overwrite a manager selection.
  */
-export function displayHousekeepingBedSetup(value: string | null | undefined): string | null {
+export function displayHousekeepingBedSetup(value: string | null | undefined, hotelName?: string | null): string | null {
+  const memories = hotelName?.trim().toLowerCase() === 'hotel memories budapest';
   const original = value?.trim();
   if (!original) return null;
 
@@ -20,11 +21,11 @@ export function displayHousekeepingBedSetup(value: string | null | undefined): s
     case 'separated beds':
       return 'SB · Single beds';
     case 'baby bed':
-      return 'Baby bed';
+      return memories ? 'Put baby bed' : 'Baby bed';
     case 'baby bed out':
     case 'out baby bed':
     case 'remove baby bed':
-      return 'Remove baby bed';
+      return memories ? 'Out baby bed' : 'Remove baby bed';
     case 'sofa bed':
       return 'Sofa bed';
     case 'extra bed':

@@ -18,6 +18,10 @@ describe('displayHousekeepingBedSetup', () => {
     expect(displayHousekeepingBedSetup('Baby Bed')).toBe('Baby bed');
     expect(displayHousekeepingBedSetup('Remove Baby Bed')).toBe('Remove baby bed');
     expect(displayHousekeepingBedSetup('Baby Bed Out')).toBe('Remove baby bed');
+    expect(displayHousekeepingBedSetup('Baby Bed', 'Hotel Memories Budapest')).toBe('Put baby bed');
+    expect(displayHousekeepingBedSetup('Remove Baby Bed', 'Hotel Memories Budapest')).toBe('Out baby bed');
+    expect(displayHousekeepingBedSetup('Baby Bed Out', 'Hotel Memories Budapest')).toBe('Out baby bed');
+    expect(displayHousekeepingBedSetup('Baby Bed', 'Hotel Ottofiori')).toBe('Baby bed');
   });
 
   it('preserves unrelated custom setup instructions and empty values', () => {

@@ -7,6 +7,7 @@ interface RoomCommunicationPanelProps {
   assignmentId: string;
   roomId: string;
   roomNumber: string;
+  hotelName?: string;
   dateLabel?: string;
   readOnly?: boolean;
   hideWhenEmpty?: boolean;
@@ -49,16 +50,26 @@ function isEquivalentBedSetup(current: string | null, option: string): boolean {
   return normalized === option.toLowerCase();
 }
 
-function instructionLabel(value: string): string {
+function optionLabel(option: BedSetupOption, hotelName?: string): string {
+  if (hotelName?.trim().toLowerCase() === 'hotel memories budapest') {
+    if (option.value === 'Baby Bed') return 'Put baby bed';
+    if (option.value === 'Remove Baby Bed') return 'Out baby bed';
+  }
+  return option.label;
+}
+
+function instructionLabel(value: string, hotelName?: string): string {
   const option = BED_SETUP_OPTIONS.find((item) => isEquivalentBedSetup(value, item.value));
   if (!option) return value;
-  return option.code ? `${option.code} · ${option.label}` : option.label;
+  const label = optionLabel(option, hotelName);
+  return option.code ? `${option.code} · ${label}` : label;
 }
 
 /** Shared room setup component: no hotel or organization-specific feature gate. */
 export function RoomCommunicationPanel({
   roomId,
   roomNumber,
+  hotelName,
   readOnly = false,
 }: RoomCommunicationPanelProps) {
   const [bedConfiguration, setBedConfiguration] = useState<string | null>(null);
@@ -111,7 +122,7 @@ export function RoomCommunicationPanel({
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
 
       if (nextValue) {
-        toast.success(`Room ${roomNumber}: ${instructionLabel(nextValue)} instruction sent to housekeeping`);
+        toast.success(`Room ${roomNumber}: ${instructionLabel(nextValue, hotelName)} instruction sent to housekeeping`);
       } else {
         toast.success(`Room ${roomNumber}: bed setup instruction cleared`);
       }
@@ -146,6 +157,7 @@ export function RoomCommunicationPanel({
 
       <div className="flex flex-wrap gap-1.5">
         {BED_SETUP_OPTIONS.map((option) => {
+          const label = optionLabel(option, hotelName);
           const active = isEquivalentBedSetup(bedConfiguration, option.value);
           const saving = savingValue === option.value;
 
@@ -164,10 +176,10 @@ export function RoomCommunicationPanel({
                   : 'border-border bg-background text-foreground hover:bg-muted'
               }`}
               aria-pressed={active}
-              aria-label={`${option.label}${option.code ? ` (${option.code})` : ''}${active ? ', selected; tap to remove' : ''}`}
+              aria-label={`${label}${option.code ? ` (${option.code})` : ''}${active ? ', selected; tap to remove' : ''}`}
             >
               <span aria-hidden="true">{option.icon}</span>
-              <span>{option.label}</span>
+              <span>{label}</span>
               {option.code && <span className="rounded bg-current/10 px-1 font-bold">{option.code}</span>}
               {saving && <Loader2 className="h-3 w-3 animate-spin" />}
             </button>
@@ -193,7 +205,7 @@ export function RoomCommunicationPanel({
 
       {bedConfiguration && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[10px] text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-          Current instruction: <span className="font-semibold">{instructionLabel(bedConfiguration)}</span>
+          Current instruction: <span className="font-semibold">{instructionLabel(bedConfiguration, hotelName)}</span>
         </div>
       )}
 
