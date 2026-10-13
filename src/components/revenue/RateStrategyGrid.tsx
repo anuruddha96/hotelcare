@@ -4350,8 +4350,9 @@ export default function RateStrategyGrid({
                      upgradePrompt.requested - upgradePrompt.current > 20))}
                   onClick={() => {
                     const prior = upgradePrompt.restorePreviousPair;
-                    const originalObkId = prior?.originalObkId ?? upgradePrompt.sourceObkId;
-                    const listedObkId = prior?.promotedObkId ?? upgradePrompt.obkId;
+                    const activePair = existingSharedWatches.get(`${upgradePrompt.obkId}|${upgradePrompt.date}`);
+                    const originalObkId = activePair?.second_obk_id ?? prior?.originalObkId ?? upgradePrompt.sourceObkId;
+                    const listedObkId = activePair?.first_obk_id ?? prior?.promotedObkId ?? upgradePrompt.obkId;
                     const source = houseInventoryTypes.find((r) => r.pms_room_id === originalObkId);
                     const promoted = houseInventoryTypes.find((r) => r.pms_room_id === listedObkId);
                     const displayedName = prior ? promoted?.name ?? upgradePrompt.rawName : upgradePrompt.rawName;
