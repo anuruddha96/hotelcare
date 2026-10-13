@@ -89,7 +89,29 @@ Deno.serve(async req=>{
       const planned=permittedSharedAvailability(initialUnits,physicalCapacity,live.length);
       if(planned===null)throw Error("Shared-room physical inventory configuration is invalid");
       const desired = watch.status==="active" ? planned : 0;
-      if(watch.status==="active" && desired===initialUnits){
+      const repairDue=watch.status==="active" && !!watch.reconcile_requested_at &&
+        (!watch.reconciled_at ||
+          Date.parse(watch.reconciled_at)<Date.parse(watch.reconcile_requested_at));
+      if(repairDue){
+        // Never reopen the virtual Queen following an unprocessed new booking.
+        // The original reservation identities must still be present.
+        const baseline=new Set<string>(watch.baseline_refs??[]);
+        const stillTheSame=live.length===Number(watch.baseline_confirmed) &&
+          live.every(r=>baseline.has(keyFor(r))||baseline.has(r.resId));
+        if(!stillTheSame || desired!==initialUnits)
+          throw Error("A booking changed after activation: cannot safely restore the linked availability");
+        const {data:otherKinds,error:otherError}=await db.from("room_types")
+          .select("pms_room_id").eq("hotel_id",watch.hotel_id)
+          .eq("is_sellable",true).eq("counts_toward_inventory",true);
+        if(otherError||!otherKinds?.length)throw Error("Physical room-type mapping unavailable");
+        for(const kind of otherKinds){
+          const other=String(kind.pms_room_id??"");
+          if(!other||other===watch.first_obk_id||other===watch.second_obk_id)continue;
+          if(await currentAvailability(creds,hot,watch.stay_date,other)>0)
+            throw Error("Another independent category is still offering the same remaining physical rooms");
+        }
+      }
+      if(watch.status==="active" && desired===initialUnits && !repairDue){
         await db.from("room_sale_overnight_watches").update({
           last_checked_at:new Date().toISOString(),last_error:null,
           last_confirmed_remaining:desired,
@@ -118,7 +140,9 @@ Deno.serve(async req=>{
       if(lockError || locked!==true) throw Error("Another inventory update is running; retry next check");
       for(const obkId of [watch.first_obk_id,watch.second_obk_id]){
         const available=await currentAvailability(creds,hot,watch.stay_date,obkId);
-        if(available<=desired) continue;
+        if(repairDue ? available===desired : available<=desired) continue;
+        if(repairDue && available>desired)
+          throw Error("Previo has more rooms for sale than the linked allocation");
         const push=await writePrevioInventory({creds,pmsHotelId:hot,
           target:{obkId,from:watch.stay_date,to:watch.stay_date,roomsToSell:desired}});
         if(!push.ok) throw Error("Previo did not accept category closure for "+obkId);
@@ -126,7 +150,8 @@ Deno.serve(async req=>{
         let confirmed=false;
         for(const delay of delays){
           if(delay) await new Promise(resolve=>setTimeout(resolve,delay));
-          if(await currentAvailability(creds,hot,watch.stay_date,obkId)<=desired){confirmed=true;break;}
+          const verified=await currentAvailability(creds,hot,watch.stay_date,obkId);
+          if(repairDue ? verified===desired : verified<=desired){confirmed=true;break;}
         }
         if(!confirmed) throw Error("Closure not verified for category "+obkId);
       }
@@ -136,7 +161,8 @@ Deno.serve(async req=>{
         currentAvailability(creds,hot,watch.stay_date,watch.first_obk_id),
         currentAvailability(creds,hot,watch.stay_date,watch.second_obk_id),
       ]);
-      if(results.some(v=>v>desired)) throw Error("One shared category exceeds physical remaining inventory");
+      if(results.some(v=>repairDue ? v!==desired : v>desired))
+        throw Error("Shared category availability did not match verified physical inventory");
       for(const [index,obkId] of [watch.first_obk_id,watch.second_obk_id].entries()){
         const {error:mirrorError}=await db.from("revenue_room_type_availability").upsert({
           hotel_id:watch.hotel_id,organization_slug:watch.organization_slug,
@@ -149,6 +175,7 @@ Deno.serve(async req=>{
         status:desired===0?"closed":"active",
         closed_at:desired===0?new Date().toISOString():null,
         last_confirmed_remaining:desired,
+        reconciled_at:repairDue?new Date().toISOString():watch.reconciled_at,
         last_checked_at:new Date().toISOString(),last_error:null,
       }).eq("id",watch.id);
       if(desired===0)report.closed++;
