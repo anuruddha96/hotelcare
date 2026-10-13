@@ -39,8 +39,8 @@ statement_deltas AS (
     AND s.calls >= prior.calls
     AND s.total_exec_time >= prior.total_exec_time
     AND (s.calls - prior.calls) > 0
-    AND pg_catalog.extract(EPOCH FROM (pg_catalog.now() - prior.captured_at)) BETWEEN 30 AND 1800
-    AND pg_catalog.abs(pg_catalog.extract(EPOCH FROM (prior.captured_at - m.captured_at))) <= 60
+    AND EXTRACT(EPOCH FROM (pg_catalog.now() - prior.captured_at)) BETWEEN 30 AND 1800
+    AND pg_catalog.abs(EXTRACT(EPOCH FROM (prior.captured_at - m.captured_at))) <= 60
 ),
 largest AS (
   SELECT queryid, role_name, delta_calls, category
@@ -50,7 +50,7 @@ largest AS (
 )
 SELECT pg_catalog.jsonb_build_object(
   'diagnostic_window_seconds', (
-    SELECT pg_catalog.round(pg_catalog.extract(EPOCH FROM (pg_catalog.now() - captured_at))::numeric, 1)
+    SELECT pg_catalog.round(EXTRACT(EPOCH FROM (pg_catalog.now() - captured_at))::numeric, 1)
     FROM monitor_snapshot
   ),
   'authenticated_request_setup_calls', COALESCE((
