@@ -1342,7 +1342,17 @@ export default function RateStrategyGrid({
           .select("stay_date,first_obk_id,second_obk_id,triggered_reservation,status")
           .eq("hotel_id", hotelId).gte("stay_date", today)
           .eq("status", "closed").limit(500),
+        (supabase as any).from("room_sale_overnight_watches")
+          .select("stay_date,first_obk_id,second_obk_id,shared_units,status")
+          .eq("hotel_id", hotelId).gte("stay_date", today)
+          .in("status", ["active", "triggered", "needs_review"]).limit(500),
       ]);
+      if (!cancelled) setExistingSharedWatches(new Map(
+        (ongoing ?? []).flatMap((watch: any) => [
+          [`${watch.first_obk_id}|${watch.stay_date}`, watch],
+          [`${watch.second_obk_id}|${watch.stay_date}`, watch],
+        ]),
+      ));
       const closed = new Set<string>((rules ?? []).map(
         (r: any) => `${r.source_room_type_name}|${r.stay_date}`,
       ));
