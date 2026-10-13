@@ -61,15 +61,17 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   if (!isManager) return null;
 
   const t = tasks.pms;
-  const busy = t.status === 'syncing';
+  const syncing = t.status === 'syncing';
+  const queued = t.status === 'queued';
+  const busy = syncing || queued;
   const ageMs = t.lastAt ? Date.now() - t.lastAt.getTime() : null;
   // Fresh = updated within the last 60s -> stronger live feel.
   const isFresh = ageMs !== null && ageMs < 60_000;
 
   const statusMeta = (() => {
-    if (busy) {
+    if (syncing) {
       return {
-        label: 'Syncing…',
+        label: 'Running…',
         Icon: Loader2,
         iconClass: 'animate-spin text-primary',
         wrapClass: 'border-primary/40 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]',
@@ -90,7 +92,8 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         ringClass: 'bg-muted-foreground/30',
       };
     }
-    if (t.lastAt && todayBudapest(t.lastAt) !== todayBudapest()) {
+    if (t.lastAt && todayBudapest(t.lastAt) !== todayBudapest() &&
+        t.status !== 'error' && t.status !== 'partial') {
       return {
         label: 'Needs morning refresh', Icon: Clock,
         iconClass: 'text-amber-600', wrapClass: 'border-amber-500/30 bg-amber-500/5',
@@ -143,8 +146,10 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
   const unmatchedRooms: string[] = Array.isArray(meta.unmatchedRooms) ? meta.unmatchedRooms : [];
   const excludedRooms: string[] = Array.isArray(meta.excludedRooms) ? meta.excludedRooms : [];
   const coverageIssueCount = missingRooms.length + unmatchedRooms.length;
-  const relTime = busy
+  const relTime = syncing
     ? 'syncing now'
+    : queued
+      ? 'waiting to start'
     : t.lastAt
       ? ageMs !== null && ageMs < 5_000
         ? 'just now'
@@ -153,6 +158,8 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
 
   // Heartbeat ping cadence: fast when syncing, slow when fresh, none when stale.
   const showPing = busy || isFresh || t.status === 'error';
+  const queueJobs = Number(meta.jobCount || 0);
+  const doneJobs = Number(meta.completedJobs || 0);
 
   const doRefresh = async () => {
     if (!enabled) {
@@ -334,6 +341,20 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
               </>
             )}
           </div>
+          {busy && queueJobs > 0 && (
+            <p className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">
+              {syncing ? 'Previo synchronization in progress' : 'Waiting in the PMS queue'}
+              {' · '}{doneJobs}/{queueJobs} jobs complete
+              {meta.startedAt && syncing && (
+                <span> · started {new Date(meta.startedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>
+              )}
+            </p>
+          )}
+          {!busy && (t.status === 'partial' || t.status === 'error') && t.message && (
+            <p className="mt-1 max-w-lg text-xs text-amber-700 dark:text-amber-400" role="status">
+              {t.message}
+            </p>
+          )}
         </div>
       </div>
 
@@ -368,7 +389,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
         )}
         <span className="relative z-10 inline-flex items-center gap-1.5">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justSuccess ? <Sparkles className="h-3.5 w-3.5 text-emerald-500" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          <span>{busy ? 'Refreshing' : justSuccess ? 'Synced!' : 'PMS Refresh'}</span>
+          <span>{syncing ? 'Running…' : queued ? 'Queued…' : justSuccess ? 'Synced!' : 'PMS Refresh'}</span>
         </span>
       </Button>
 
