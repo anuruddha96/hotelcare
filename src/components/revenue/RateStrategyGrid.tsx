@@ -4355,7 +4355,7 @@ export default function RateStrategyGrid({
                     const listedObkId = activePair?.first_obk_id ?? prior?.promotedObkId ?? upgradePrompt.obkId;
                     const source = houseInventoryTypes.find((r) => r.pms_room_id === originalObkId);
                     const promoted = houseInventoryTypes.find((r) => r.pms_room_id === listedObkId);
-                    const displayedName = prior ? promoted?.name ?? upgradePrompt.rawName : upgradePrompt.rawName;
+                    const displayedName = (prior || activePair) ? promoted?.name ?? upgradePrompt.rawName : upgradePrompt.rawName;
                     const key = `${displayedName}|${upgradePrompt.date}`;
                     void sendRestriction({
                       key: `inv|${key}`, date: upgradePrompt.date,
