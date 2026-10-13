@@ -1316,6 +1316,9 @@ export default function RateStrategyGrid({
   // A positive inventory override must explain which existing physical room
   // it borrows. Never present a 22nd sellable room as a new physical unit.
   const [upgradeClosures, setUpgradeClosures] = useState<Set<string>>(new Set());
+  const [existingSharedWatches, setExistingSharedWatches] = useState<Map<string, {
+    first_obk_id: string; second_obk_id: string; shared_units: number; status: string;
+  }>>(new Map());
   const [existingTransfers, setExistingTransfers] = useState<Map<string, string>>(new Map());
   // A previously moved Quadruple should be restorable without pretending
   // that the smaller Queen is a new source for a higher-category upgrade.
