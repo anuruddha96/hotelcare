@@ -1455,6 +1455,7 @@ export default function RateStrategyGrid({
     upgradeFromObkId?: string | null;
     upgradeFromRoomTypeName?: string | null;
     upgradeMode?: "exclusive_transfer" | "shared_pool";
+    sharedUnits?: number;
     /** Both room-type rows should display the verified result after restoring a pair. */
     linkedDisplayKey?: string;
   }) => {
@@ -1466,7 +1467,7 @@ export default function RateStrategyGrid({
         isShared ? "room-sale-shared-activate" : "previo-push-restrictions",
         {
           body: isShared ? {
-            hotelId, date: opts.date, units: 1,
+            hotelId, date: opts.date, units: opts.sharedUnits ?? 1,
             targetObkId: opts.obkId,
             sourceObkId: opts.upgradeFromObkId,
           } : {
@@ -1505,7 +1506,7 @@ export default function RateStrategyGrid({
             opts.key.replace(/^inv\|/, ""),
             Math.max(0, Math.trunc(opts.roomsToSell!)),
           );
-          if (isShared && opts.linkedDisplayKey) next.set(opts.linkedDisplayKey, 1);
+          if (isShared && opts.linkedDisplayKey) next.set(opts.linkedDisplayKey, opts.sharedUnits ?? 1);
           return next;
         });
         await onAvailabilityUpdated?.();
