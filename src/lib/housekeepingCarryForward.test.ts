@@ -20,7 +20,8 @@ describe('portfolio housekeeping carry-forward', () => {
     expect(isCarryForwardDisplayHotel('Hotel Memories Budapest')).toBe(true);
     expect(isCarryForwardDisplayHotel('memories-budapest')).toBe(true);
     expect(isCarryForwardDisplayHotel('Hotel Ottofiori')).toBe(true);
-    expect(isCarryForwardDisplayHotel('slnt-group')).toBe(false);
+    expect(isCarryForwardDisplayHotel('slnt-group')).toBe(true);
+    expect(isPortfolioCarryForwardHotel('slnt-group')).toBe(true);
   });
 
   it('parses repeated carried service context with lineage', () => {
