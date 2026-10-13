@@ -4,24 +4,36 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export type QueuedPmsRefresh = {
- status: "success" | "partial" | "error" | "queued";
+ status: "success" | "partial" | "error" | "queued" | "syncing";
  updated: number;
  total: number;
  checkouts: number;
  errors: string[];
  managerMessage?: string;
  jobIds?: string[];
+ jobCount?: number;
+ completedJobs?: number;
+ runningJobs?: number;
+ queuedJobs?: number;
+ startedAt?: string | null;
+ finishedAt?: string | null;
+ partialReasons?: string[];
 };
 
 export function summarizeQueuedPmsJobs(jobs: Array<{
  status: string;
  target_key: string;
+ started_at?: string | null;
+ finished_at?: string | null;
  result?: any;
  error_message?: string | null;
 }>): QueuedPmsRefresh {
  if (!jobs.length) return {status:"error",updated:0,total:0,checkouts:0,
   errors:["No PMS jobs were created"]};
- const pending=jobs.some(job=>job.status==="queued"||job.status==="running");
+ const runningJobs=jobs.filter(job=>job.status==="running").length;
+ const queuedJobs=jobs.filter(job=>job.status==="queued").length;
+ const pending=runningJobs>0||queuedJobs>0;
+ const completedJobs=jobs.length-runningJobs-queuedJobs;
  const failures=jobs.filter(job=>job.status==="failed");
  const partial=jobs.some(job=>job.status==="partial");
  const results=jobs.map(job=>job.result?.result||{});
@@ -29,12 +41,28 @@ export function summarizeQueuedPmsJobs(jobs: Array<{
  const totals=results.reduce((sum:number,r:any)=>sum+Number(r.expected_mapped_rooms??r.mapped_rooms??r.rooms_updated??0),0);
  const checkouts=results.reduce((sum:number,r:any)=>sum+Number(r.checkout_rooms||0),0);
  const errors=failures.map(job=>`${job.target_key}: ${job.error_message||"Refresh failed"}`);
+ const partialReasons=jobs.flatMap(job=>{
+   const detail=job.result?.result ?? job.result ?? {};
+   const rooms=Array.isArray(detail.unverified_vacancy_rooms) ? detail.unverified_vacancy_rooms : [];
+   return rooms.length
+     ? [`Unable to verify vacancy for: ${rooms.join(", ")}`]
+     : job.status==="partial" ? [`${detail.account_label || job.target_key}: PMS data incomplete`] : [];
+ });
+ const started=jobs.map(job=>job.started_at).filter((x):x is string=>!!x).sort();
+ const finished=jobs.map(job=>job.finished_at).filter((x):x is string=>!!x).sort();
+ const managerMessage=runningJobs
+   ? `Synchronizing with Previo — ${completedJobs}/${jobs.length} finished; ${runningJobs} running.`
+   : queuedJobs ? `Waiting for the PMS worker — ${completedJobs}/${jobs.length} finished.`
+   : failures.length ? `One or more PMS accounts failed: ${errors[0]}`
+   : partial ? `PMS refresh completed with a warning: ${partialReasons.join(" | ") || "review PMS Sync History"}`
+   : `PMS synchronization completed: ${completedJobs}/${jobs.length} jobs.`;
  return {
-   status:pending?"queued":failures.length?"error":partial?"partial":"success",
-   updated,total:totals,checkouts,errors,
-   managerMessage:pending?"Refresh requested. It starts immediately if the PMS worker is idle; otherwise it waits for the running refresh to finish."
-     :failures.length?"One or more PMS accounts could not be refreshed. See PMS Sync History."
-     :undefined,
+   status:runningJobs?"syncing":queuedJobs?"queued":failures.length?"error":partial?"partial":"success",
+   updated,total:totals,checkouts,errors,managerMessage,
+   jobCount:jobs.length,completedJobs,runningJobs,queuedJobs,
+   startedAt:started[0]||null,
+   finishedAt:pending?null:(finished[finished.length-1]||null),
+   partialReasons,
  };
 }
 

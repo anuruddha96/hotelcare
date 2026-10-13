@@ -9,6 +9,7 @@ import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { RefreshCw, Upload, Eye, ShieldOff, Loader2, ClipboardCheck, CheckCircle2 } from "lucide-react";
 import { PmsRefreshPreviewDialog } from "@/components/pms/PmsRefreshPreviewDialog";
 import { useAuth } from "@/hooks/useAuth";
+import { useLiveSync } from "@/contexts/LiveSyncContext";
 import { runQueuedPmsRefresh } from "@/lib/pmsRefreshQueue";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import {
@@ -39,8 +40,12 @@ interface Cfg {
 
 export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const { profile } = useAuth();
+  const { tasks,hotelId: activePmsHotelId } = useLiveSync();
   const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
   const [cfg, setCfg] = useState<Cfg | null>(null);
+  const queueTask = activePmsHotelId === (cfg?.hotel_id ?? hotelId) ? tasks.pms : null;
+  const queueBusy = queueTask?.status === "queued" || queueTask?.status === "syncing";
+  const queueMeta = queueTask?.meta || {};
   const [pendingRisky, setPendingRisky] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -81,6 +86,11 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
 
   useEffect(() => { void loadCfg(); }, [hotelId]);
   useEffect(() => { if (cfg?.hotel_id) void loadPending(cfg.hotel_id); }, [cfg?.hotel_id]);
+  useEffect(() => {
+    const completed = () => { void loadCfg(); if (cfg?.hotel_id) void loadPending(cfg.hotel_id); };
+    window.addEventListener("pms-sync-completed", completed);
+    return () => window.removeEventListener("pms-sync-completed", completed);
+  }, [hotelId, cfg?.hotel_id]);
 
   // If no PMS config exists for this hotel, render nothing (no disruption).
   if (!cfg) return null;
@@ -156,6 +166,7 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
 
   const healthDot =
     cfg.last_sync_status === "error" ? "bg-destructive" :
+    cfg.last_sync_status === "partial" ? "bg-amber-500" :
     pendingRisky > 0                  ? "bg-amber-500" :
     "bg-emerald-500";
 
@@ -182,19 +193,40 @@ export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
             {cfg.connection_mode && <> · Mode: {cfg.connection_mode}</>}
           </div>
 
+          {queueTask?.meta?.queueGroupId && (
+            <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm" role="status" aria-live="polite">
+              <div className="font-medium">
+                {queueTask.status === "syncing" ? "PMS synchronization running"
+                  : queueTask.status === "queued" ? "PMS synchronization queued"
+                  : queueTask.status === "partial" ? "PMS synchronization finished with warnings"
+                  : queueTask.status === "error" ? "PMS synchronization failed"
+                  : "PMS synchronization completed"}
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {queueTask.message || "Checking job status…"}
+                {Number(queueMeta.jobCount || 0) > 0 && ` · ${Number(queueMeta.completedJobs || 0)}/${queueMeta.jobCount} jobs finished`}
+              </p>
+              {queueMeta.startedAt && (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Started at {new Date(queueMeta.startedAt).toLocaleTimeString()} 
+                  {queueMeta.finishedAt && ` · finished at ${new Date(queueMeta.finishedAt).toLocaleTimeString()}`}
+                </p>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             <div className="relative">
               <Button
                 size="sm"
                 variant="default"
                 onClick={runSync}
-                disabled={!canSyncFromPms || syncing}
+                disabled={!canSyncFromPms || syncing || queueBusy}
                 title={canSyncFromPms ? "Pull the latest daily overview from Previo" : "Enable Snapshot read in the admin activation checklist first"}
                 data-training-id="pms-sync-btn"
                 className={successPulse ? "ring-2 ring-emerald-400 ring-offset-2 transition-shadow" : undefined}
               >
                 {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-                PMS Refresh
+                {queueTask?.status === "syncing" ? "PMS running…" : queueTask?.status === "queued" ? "PMS queued…" : "PMS Refresh"}
               </Button>
               {successPulse && (
                 <span className="pointer-events-none absolute -top-2 -right-2 animate-scale-in">
