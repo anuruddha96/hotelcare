@@ -279,7 +279,9 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         roomSizeSqm: room.room_size_sqm || null,
         floorNumber: room.floor_number ?? null,
         bedConfiguration: room.bed_configuration || null,
-        isCheckout: assignment?.assignment_type === 'checkout_cleaning' || !!room.is_checkout_room,
+        isCheckout: !!room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true || (
+          room.pms_metadata?.pmsSyncDate !== selectedDate && assignment?.assignment_type === 'checkout_cleaning'
+        ),
         towelChangeRequired: !!room.towel_change_required,
         linenChangeRequired: !!room.linen_change_required,
         roomCleaning: !!flags.roomCleaning,
