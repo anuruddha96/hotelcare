@@ -107,6 +107,15 @@ Deno.serve(async (req) => {
   }
   if (!authorized) return json({ error: "Unauthorized" }, 401);
 
+  // Capture per-role/query counter deltas before detection replaces its five-minute snapshots.
+  // Rollbacks are transaction outcomes, NOT a count of failed writes or lost records.
+  const { data: evidence, error: evidenceError } = await admin.rpc("get_recent_rollback_evidence");
+  if (evidenceError) console.warn("rollback diagnostics unavailable", evidenceError.message);
+  const rollbackEvidence: Record<string, unknown> =
+    !evidenceError && evidence && typeof evidence === "object" && !Array.isArray(evidence)
+      ? evidence as Record<string, unknown>
+      : {};
+
   const { data: detection, error: detectionError } = await admin.rpc("detect_system_anomalies");
   if (detectionError) {
     console.error("system anomaly detection failed", detectionError.message);
@@ -138,7 +147,26 @@ Deno.serve(async (req) => {
   let failed = 0;
 
   for (const raw of claimed || []) {
-    const alert = raw as Alert;
+    const claimedAlert = raw as Alert;
+    const alert: Alert = claimedAlert.kind === "rollback_storm"
+      ? {
+          ...claimedAlert,
+          title: "Unusually high PostgreSQL rollback rate (cause unconfirmed)",
+          details: {
+            ...(claimedAlert.details || {}),
+            ...rollbackEvidence,
+            interpretation: "Rollback counters include intentional transaction aborts. This alert does not confirm SQL errors, failed writes or data loss.",
+          },
+        }
+      : claimedAlert;
+    if (alert !== claimedAlert) {
+      const { error: enrichmentError } = await admin
+        .from("system_anomaly_alerts")
+        .update({ title: alert.title, details: alert.details })
+        .eq("id", alert.id)
+        .eq("status", "sending");
+      if (enrichmentError) console.error("could not store rollback diagnostics", enrichmentError.message);
+    }
     const message = messageFor(alert);
     const result = await sendEmail({
       admin: admin as never,
