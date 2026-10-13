@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { permittedSharedAvailability, sharedPoolRequiresClosing } from "../../../supabase/functions/_shared/sharedInventoryPlan";
+import { permittedSharedAvailability, sharedPoolRequiresClosing, unchangedReservationIds } from "../../../supabase/functions/_shared/sharedInventoryPlan";
 describe("shared physical room selling",()=>{
  it("keeps the final room visible under both types until booked",()=>{
   expect(permittedSharedAvailability(1,21,20)).toBe(1);
@@ -16,5 +16,13 @@ describe("shared physical room selling",()=>{
   expect(permittedSharedAvailability(2,21,22)).toBe(0);
   expect(permittedSharedAvailability(0,21,20)).toBeNull();
   expect(permittedSharedAvailability(2,21,Number.NaN)).toBeNull();
+ });
+ it("accepts a changed physical room assignment with identical booked room IDs",()=>{
+  expect(unchangedReservationIds(["A|101|queen","B|202|quad"],["A","B"])).toBe(true);
+ });
+ it("rejects an actual additional booking or a different group-room count",()=>{
+  expect(unchangedReservationIds(["A|101|quad","B|202|quad"],["A","B","C"])).toBe(false);
+  expect(unchangedReservationIds(["A|101|quad","B|202|quad"],["A","C"])).toBe(false);
+  expect(unchangedReservationIds(["A|101|quad","A|202|quad"],["A","B"])).toBe(false);
  });
 });

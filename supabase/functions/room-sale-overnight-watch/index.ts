@@ -8,7 +8,7 @@ import { callPrevioXml, loadPrevioCredentials, hasPrevioCredentials } from "../_
 import { parsePrevioReservations, addDays } from "../_shared/previoReservations.ts";
 import { writePrevioInventory } from "../_shared/previoRateWrite.ts";
 import { sendEmail } from "../_shared/emailSender.ts";
-import { permittedSharedAvailability } from "../_shared/sharedInventoryPlan.ts";
+import { permittedSharedAvailability, unchangedReservationIds } from "../_shared/sharedInventoryPlan.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const reply = (v: unknown, status=200) => new Response(JSON.stringify(v), {status,headers:JSON_HEADERS});
@@ -95,9 +95,8 @@ Deno.serve(async req=>{
       if(repairDue){
         // Never reopen the virtual Queen following an unprocessed new booking.
         // The original reservation identities must still be present.
-        const baseline=new Set<string>(watch.baseline_refs??[]);
         const stillTheSame=live.length===Number(watch.baseline_confirmed) &&
-          live.every(r=>baseline.has(keyFor(r))||baseline.has(r.resId));
+          unchangedReservationIds(watch.baseline_refs??[], live.map(r=>r.resId));
         if(!stillTheSame || desired!==initialUnits)
           throw Error("A booking changed after activation: cannot safely restore the linked availability");
         const {data:otherKinds,error:otherError}=await db.from("room_types")
