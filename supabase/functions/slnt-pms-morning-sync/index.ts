@@ -40,7 +40,15 @@ function diffDays(from: string, to: string) {
   return Math.max(0, Math.round((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86400000));
 }
 function normalize(v: unknown) {
-  return String(v ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  // Previo REST occasionally HTML-escapes room labels (Park&amp;Garden)
+  // while the PMS XLSX and HotelCare mapping use unescaped text. Normalize
+  // those representations identically, but keep physical roomId authoritative.
+  return String(v ?? "")
+    .replace(/&(?:amp|#0*38|#x0*26);/gi, "&")
+    .replace(/&(?:nbsp|#0*160|#x0*a0);/gi, " ")
+    .replace(/&(?:quot|#0*34|#x0*22);/gi, '"')
+    .replace(/&(?:apos|#0*39|#x0*27);/gi, "'")
+    .normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 function isWorkbookActiveRoom(room:any) {
   const label = normalize(room?.room_number);
