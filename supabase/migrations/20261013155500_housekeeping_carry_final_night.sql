@@ -271,70 +271,7 @@ BEGIN
   IF (v_prior_type = v_service_type OR (
        v_final_night_towel_only AND v_prior_type = 'full_clean' AND v_service_type = 'towel_change'
      ))
-     AND coalesce(v_prior_carry ->> 'original_due_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
-    v_original_due_date := (v_prior_carry ->> 'original_due_date')::date;
-    IF coalesce(v_prior_carry ->> 'attempt_count','') ~ '^[0-9]+$' THEN
-      v_attempt_count := greatest(1,(v_prior_carry ->> 'attempt_count')::integer + 1);
-    ELSE
-      v_attempt_count := 2;
-    END IF;
-  ELSE
-    v_original_due_date := v_source_date;
-    v_attempt_count := 1;
-  END IF;
-
-  v_instruction := CASE
-    WHEN v_attempt_count > 1 AND v_service_type = 'full_clean' THEN
-      format(
-        'Full room cleaning remains outstanding. Originally due %s; yesterday (%s) it was not completed because of %s. Please attempt the full cleaning today.',
-        v_original_due_date::text, v_source_date::text,
-        CASE WHEN v_reason = 'dnd' THEN 'DND' ELSE 'No Service' END
-      )
-    WHEN v_attempt_count > 1 THEN
-      format(
-        'Towel change remains outstanding. Originally due %s; yesterday (%s) it was not completed because of %s. Please attempt the towel change today.',
-        v_original_due_date::text, v_source_date::text,
-        CASE WHEN v_reason = 'dnd' THEN 'DND' ELSE 'No Service' END
-      )
-    WHEN v_reason = 'dnd' AND v_service_type = 'full_clean' THEN
-      format(
-        'Yesterday (%s) this room was DND, so the scheduled full room cleaning (Change Room) was not completed. Please attempt the full cleaning today.',
-        v_source_date::text
-      )
-    WHEN v_reason = 'dnd' THEN
-      format(
-        'Yesterday (%s) this room was DND, so the scheduled towel change was not completed. Please attempt the towel change today.',
-        v_source_date::text
-      )
-    WHEN v_service_type = 'full_clean' THEN
-      format(
-        'Yesterday (%s) the guest declined housekeeping (No Service), so the scheduled full room cleaning (Change Room) was not completed. Please attempt the full cleaning today.',
-        v_source_date::text
-      )
-    ELSE
-      format(
-        'Yesterday (%s) the guest declined housekeeping (No Service), so the scheduled towel change was not completed. Please attempt the towel change today.',
-        v_source_date::text
-      )
-  END;
-
-  RETURN v_context || jsonb_build_object(
-    'carry_forward',
-    jsonb_build_object(
-      'version', 2,
-      'active', true,
-      'property_id', 'memories-budapest',
-      'source_business_date', v_source_date::text,
-      'original_due_date', v_original_due_date::text,
-      'service_type', v_service_type,
-      'reason', v_reason,
-      'attempt_count', v_attempt_count,
-      'policy_source', 'memories_service_cycle',
-      'instruction', v_instruction
-    )
-  );
-END;
-$function$ THEN
+     AND coalesce(v_prior_carry ->> 'original_due_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
     v_original_due_date := (v_prior_carry ->> 'original_due_date')::date;
     IF coalesce(v_prior_carry ->> 'attempt_count','') ~ '^[0-9]+$' THEN
       v_attempt_count := greatest(1,(v_prior_carry ->> 'attempt_count')::integer + 1);
@@ -679,64 +616,7 @@ BEGIN
   IF (v_prior_type = v_service_type OR (
        v_final_night_towel_only AND v_prior_type = 'full_clean' AND v_service_type = 'towel_change'
      ))
-     AND coalesce(v_prior_carry ->> 'original_due_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
-    v_original_due_date := (v_prior_carry ->> 'original_due_date')::date;
-    IF coalesce(v_prior_carry ->> 'attempt_count','') ~ '^[0-9]+$' THEN
-      v_attempt_count := greatest(1,(v_prior_carry ->> 'attempt_count')::integer + 1);
-    ELSE
-      v_attempt_count := 2;
-    END IF;
-  ELSE
-    v_original_due_date := v_source_date;
-    v_attempt_count := 1;
-  END IF;
-
-  v_policy_source := CASE v_property
-    WHEN 'gozsdu-court' THEN 'gozsdu_property_cycle'
-    ELSE 'standard_daily_cycle'
-  END;
-  v_service_label := CASE
-    WHEN v_service_type = 'towel_change' THEN 'towel change'
-    WHEN v_property = 'gozsdu-court' THEN 'Complete Textile Change'
-    ELSE 'full room cleaning (Change Room)'
-  END;
-  v_action := CASE
-    WHEN v_service_type = 'towel_change' THEN 'Please attempt the towel change today.'
-    WHEN v_property = 'gozsdu-court' THEN 'Please attempt the Complete Textile Change today.'
-    ELSE 'Please attempt the full cleaning today.'
-  END;
-  v_reason_label := CASE
-    WHEN v_reason = 'dnd' THEN 'this room was DND'
-    ELSE 'the guest declined housekeeping (No Service)'
-  END;
-
-  IF v_attempt_count > 1 THEN
-    v_instruction := format(
-      '%s remains outstanding. Originally due %s; yesterday (%s) %s, so it was not completed. %s',
-      initcap(v_service_label), v_original_due_date::text, v_source_date::text,
-      v_reason_label, v_action
-    );
-  ELSE
-    v_instruction := format(
-      'Yesterday (%s) %s, so the scheduled %s was not completed. %s',
-      v_source_date::text, v_reason_label, v_service_label, v_action
-    );
-  END IF;
-
-  RETURN jsonb_build_object(
-    'version', 1,
-    'active', true,
-    'property_id', v_property,
-    'source_business_date', v_source_date::text,
-    'original_due_date', v_original_due_date::text,
-    'service_type', v_service_type,
-    'reason', v_reason,
-    'attempt_count', v_attempt_count,
-    'policy_source', v_policy_source,
-    'instruction', v_instruction
-  );
-END;
-$function$ THEN
+     AND coalesce(v_prior_carry ->> 'original_due_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
     v_original_due_date := (v_prior_carry ->> 'original_due_date')::date;
     IF coalesce(v_prior_carry ->> 'attempt_count','') ~ '^[0-9]+$' THEN
       v_attempt_count := greatest(1,(v_prior_carry ->> 'attempt_count')::integer + 1);
