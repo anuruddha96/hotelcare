@@ -19,6 +19,7 @@ import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { housekeepingBedShortCode } from '@/lib/housekeepingBedSetup';
+import { frozenPreviousRoomService, type HistoricalRoomSnapshot } from '@/lib/previousDayRoomService';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError, isRoomOutOfServiceError } from '@/lib/hkAssignmentDnd';
@@ -37,8 +38,8 @@ import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import {
   effectiveCarryServiceFlags,
   getCarryForwardManagerCopy,
-  getHousekeepingCarryForward,
-  isPortfolioCarryForwardHotel,
+  getActionableHousekeepingCarryForward,
+  isCarryForwardDisplayHotel,
 } from '@/lib/housekeepingCarryForward';
 import { isCurrentNoServiceOutcome, selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
@@ -247,6 +248,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | 'arrival' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
+  const [previousRoomSnapshots, setPreviousRoomSnapshots] = useState<Map<string, HistoricalRoomSnapshot>>(new Map());
   const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
   const [syncFlash, setSyncFlash] = useState(false);
   const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
@@ -459,17 +461,26 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               if (!existing || rank(a.status) >= rank(existing.status)) map.set(a.room_id, a);
             }
             if (!latest()) return;
+            const { data: frozenRows, error: snapshotsError } = await (supabase as any)
+              .from('hc_housekeeping_room_service_history')
+              .select('room_id, is_checkout_room, towel_change_required, linen_change_required, room_notes, bed_configuration, pms_metadata, final_state')
+              .in('room_id', roomIdList)
+              .eq('business_date', prevDate);
+            if (!latest()) return;
+            if (snapshotsError) console.warn('Previous-day service snapshots unavailable:', snapshotsError);
+            setPreviousRoomSnapshots(new Map((frozenRows || []).map((row: any) => [row.room_id, row as HistoricalRoomSnapshot])));
             setPreviousAssignments(map);
           } else {
-            if (latest()) setPreviousAssignments(new Map());
+            if (latest()) { setPreviousAssignments(new Map()); setPreviousRoomSnapshots(new Map()); }
           }
         } else {
           setPreviousDayDate(null);
           setPreviousAssignments(new Map());
+          setPreviousRoomSnapshots(new Map());
         }
       } catch (e) {
         console.error('Error fetching previous-day snapshot:', e);
-        if (latest()) { setPreviousDayDate(null); setPreviousAssignments(new Map()); }
+        if (latest()) { setPreviousDayDate(null); setPreviousAssignments(new Map()); setPreviousRoomSnapshots(new Map()); }
       }
 
 
@@ -1120,8 +1131,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = isCheckoutBucket(room);
-    const portfolioCarry = !isCheckout && isPortfolioCarryForwardHotel(room.hotel)
-      ? getHousekeepingCarryForward(assignment?.previous_day_context)
+    const portfolioCarry = !isCheckout && isCarryForwardDisplayHotel(room.hotel)
+      ? getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
       : null;
     const portfolioCarryCopy = portfolioCarry
       ? getCarryForwardManagerCopy(portfolioCarry)
@@ -1958,16 +1969,20 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     room: RoomData,
     prev: AssignmentData & { completed_at: string | null },
   ) => {
-    const isCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+    const frozen = frozenPreviousRoomService(previousRoomSnapshots.get(room.id), prev.assignment_type);
+    const isCheckout = frozen.isCheckout;
     const status = prev.status;
     const approved = !!prev.supervisor_approved;
     let statusKey: string;
-    if (status === 'completed' && approved) statusKey = 'clean';
+    const wasMissed = prev.is_dnd || (prev.dnd_attempt_count ?? 0) > 0 || prev.notes?.includes('[NO_SERVICE]');
+    // Approved DND/No Service is administratively closed; it does not prove cleaning.
+    if (wasMissed) statusKey = 'dirty';
+    else if (status === 'completed' && approved) statusKey = 'clean';
     else if (status === 'completed') statusKey = 'pending_approval';
     else if (status === 'in_progress') statusKey = 'in_progress';
     else statusKey = 'dirty';
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
-    const roomFlags = parseRoomFlags(room.notes);
+    const roomFlags = parseRoomFlags(frozen.notes);
     // Yesterday is read-only and must be rendered from yesterday's dated
     // assignment, never from today's mutable room flags.
     const isDND =
@@ -1990,7 +2005,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           title={`Yesterday · ${isCheckout ? 'Checkout' : 'Daily'} · ${status}${approved ? ' (approved)' : ''}`}
         >
           {room.room_number}
-          {room.pms_metadata?.manual_checkout === true && (
+          {frozen.pmsMetadata?.manual_checkout === true && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
               title="Manually moved by a manager (not from PMS)"
@@ -1998,12 +2013,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           )}
           {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
-          {room.towel_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
-          {room.linen_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {frozen.towelChangeRequired && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
+          {frozen.linenChangeRequired && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {prev.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
-          {status === 'completed' && approved && <span className="ml-0.5 text-[9px]">✅</span>}
+          {status === 'completed' && approved && !wasMissed && <span className="ml-0.5 text-[9px]">✅</span>}
           {status === 'completed' && !approved && <span className="ml-0.5 text-[9px]">⏳</span>}
           {status === 'in_progress' && <span className="ml-0.5 text-[9px]">⏱</span>}
           {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
@@ -2012,10 +2027,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
         </div>
         <div className="flex flex-col items-center gap-0">
-          {(room as any).bed_configuration && (
+          {frozen.bedConfiguration && (
             <span className="text-[8px] text-purple-600 dark:text-purple-400 font-semibold truncate max-w-[48px]">
               {(() => {
-                const bc = (room as any).bed_configuration;
+                const bc = frozen.bedConfiguration!;
                 if (bc.includes('Double')) return 'DB';
                 const shortCode = housekeepingBedShortCode(bc);
                 if (shortCode) return shortCode;
@@ -2055,7 +2070,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     if (!hidePrevious) previousAssignments.forEach((prev, roomId) => {
       const room = roomsById.get(roomId);
       if (!room) return;
-      const wasCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+      const wasCheckout = frozenPreviousRoomService(previousRoomSnapshots.get(room.id), prev.assignment_type).isCheckout;
       if (sectionType === 'checkout' && !wasCheckout) return;
       if (sectionType === 'daily' && wasCheckout) return;
       if (sectionType === 'noshow') return; // no yesterday snapshot for no-show
@@ -2709,8 +2724,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
               const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room || isScheduledCheckoutRoom(selectedRoom);
-              const selectedCarry = !isCheckout && isPortfolioCarryForwardHotel(selectedRoom.hotel)
-                ? getHousekeepingCarryForward(assignment?.previous_day_context)
+              const selectedCarry = !isCheckout && isCarryForwardDisplayHotel(selectedRoom.hotel)
+                ? getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
                 : null;
               const selectedCarryCopy = selectedCarry
                 ? getCarryForwardManagerCopy(selectedCarry)

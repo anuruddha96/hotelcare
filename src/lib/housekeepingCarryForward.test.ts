@@ -4,6 +4,8 @@ import {
   getCarryForwardHousekeeperCopy,
   getCarryForwardManagerCopy,
   getHousekeepingCarryForward,
+  getActionableHousekeepingCarryForward,
+  isCarryForwardDisplayHotel,
   isPortfolioCarryForwardHotel,
 } from './housekeepingCarryForward';
 
@@ -15,6 +17,11 @@ describe('portfolio housekeeping carry-forward', () => {
     expect(isPortfolioCarryForwardHotel('gozsdu-court')).toBe(true);
     expect(isPortfolioCarryForwardHotel('Gozsdu Court Budapest')).toBe(true);
     expect(isPortfolioCarryForwardHotel('Hotel Memories Budapest')).toBe(false);
+    expect(isCarryForwardDisplayHotel('Hotel Memories Budapest')).toBe(true);
+    expect(isCarryForwardDisplayHotel('memories-budapest')).toBe(true);
+    expect(isCarryForwardDisplayHotel('Hotel Ottofiori')).toBe(true);
+    expect(isCarryForwardDisplayHotel('slnt-group')).toBe(true);
+    expect(isPortfolioCarryForwardHotel('slnt-group')).toBe(true);
   });
 
   it('parses repeated carried service context with lineage', () => {
@@ -88,6 +95,12 @@ describe('portfolio housekeeping carry-forward', () => {
       carryForward: carry,
       isCheckout: false,
     })).toEqual({ towelChangeRequired: false, linenChangeRequired: true });
+  });
+
+  it('stops showing a completed cleaned task as unresolved', () => {
+    const context = { carry_forward: { active: true, property_id: 'mika-downtown', service_type: 'towel_change', reason: 'dnd', source_business_date: '2026-10-12' } };
+    expect(getActionableHousekeepingCarryForward(context, { service_result: 'cleaned' })).toBeNull();
+    expect(getActionableHousekeepingCarryForward(context, { service_result: 'guest_declined' })?.serviceType).toBe('towel_change');
   });
 
   it('never paints stayover carry requirements on checkout', () => {

@@ -131,7 +131,7 @@ const getWorkClass = (assignment: AssignmentRow): WorkClass => {
   const room = assignment.rooms;
   const flags = parseRoomFlags(room?.notes || null);
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
-  const carryForward = !checkout
+  const carryForward = !checkout && assignment.service_result !== 'cleaned'
     ? getMemoriesCarryForwardService(assignment.previous_day_context)
     : null;
 
@@ -172,7 +172,7 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
   const flags = parseRoomFlags(room.notes || null);
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const declined = isGuestDeclinedService(assignment.service_result, assignment.notes);
-  const carryForward = !checkout
+  const carryForward = !checkout && assignment.service_result !== 'cleaned'
     ? getMemoriesCarryForwardService(assignment.previous_day_context)
     : null;
   const carryForwardCopy = carryForward

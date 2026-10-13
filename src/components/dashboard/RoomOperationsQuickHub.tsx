@@ -26,6 +26,7 @@ import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
+import { effectiveCarryServiceFlags, getActionableHousekeepingCarryForward, getCarryForwardManagerCopy, type HousekeepingCarryForward } from '@/lib/housekeepingCarryForward';
 import {
   buildDirectRoomTypeNotice,
   buildRoomTypeTransition,
@@ -71,6 +72,7 @@ type RoomSelection = {
   pmsHold: boolean;
   assignmentNotes: string | null;
   assignmentServiceResult: string | null;
+  carryForward: HousekeepingCarryForward | null;
   priority: number;
   supervisorApproved: boolean;
   lastCleanedAt: string | null;
@@ -206,6 +208,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       pmsHold: false,
       assignmentNotes: null,
       assignmentServiceResult: null,
+      carryForward: null,
       priority: 1,
       supervisorApproved: false,
       lastCleanedAt: null,
@@ -238,7 +241,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       const [{ data: assignmentRows, error: assignmentError }, { data: minibarRows }] = await Promise.all([
         supabase
           .from('room_assignments')
-          .select('id, assigned_to, status, priority, assignment_type, supervisor_approved, ready_to_clean, pms_hold, notes, service_result')
+          .select('id, assigned_to, status, priority, assignment_type, supervisor_approved, ready_to_clean, pms_hold, notes, service_result, previous_day_context')
           .eq('room_id', room.id)
           .eq('assignment_date', selectedDate)
           .order('created_at', { ascending: false })
@@ -276,7 +279,9 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         roomSizeSqm: room.room_size_sqm || null,
         floorNumber: room.floor_number ?? null,
         bedConfiguration: room.bed_configuration || null,
-        isCheckout: assignment?.assignment_type === 'checkout_cleaning' || !!room.is_checkout_room,
+        isCheckout: !!room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true || (
+          room.pms_metadata?.pmsSyncDate !== selectedDate && assignment?.assignment_type === 'checkout_cleaning'
+        ),
         towelChangeRequired: !!room.towel_change_required,
         linenChangeRequired: !!room.linen_change_required,
         roomCleaning: !!flags.roomCleaning,
@@ -290,6 +295,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         pmsHold: !!assignment?.pms_hold,
         assignmentNotes: assignment?.notes || null,
         assignmentServiceResult: assignment?.service_result || null,
+        carryForward: getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment),
         priority: Number(assignment?.priority) >= 3 ? 3 : Number(assignment?.priority) === 2 ? 2 : 1,
         supervisorApproved: !!assignment?.supervisor_approved,
         lastCleanedAt: room.last_cleaned_at || null,
@@ -1017,15 +1023,26 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const linkedReservationCount = Array.isArray(selection?.pmsMetadata?.continuousStay?.reservationIds)
     ? selection!.pmsMetadata!.continuousStay.reservationIds.length
     : 0;
+  const effectiveRoomService = effectiveCarryServiceFlags({
+    towelChangeRequired: selection?.towelChangeRequired,
+    linenChangeRequired: selection?.linenChangeRequired,
+    carryForward: selection?.carryForward,
+    isCheckout: !!selection?.isCheckout,
+  });
+  const carryCopy = selection?.carryForward ? getCarryForwardManagerCopy(selection.carryForward) : null;
   const currentRequiredService = selection?.isCheckout
     ? 'Checkout'
-    : roomServiceLabel({
-        towelChangeRequired: selection?.towelChangeRequired,
-        linenChangeRequired: selection?.linenChangeRequired,
-      });
+    : roomServiceLabel(effectiveRoomService);
 
   const mainView = !selection ? null : (
     <div className="space-y-4">
+      {carryCopy && !selection.isCheckout && (
+        <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-amber-950" role="status">
+          <p className="text-sm font-bold">↪ Outstanding housekeeping service: {carryCopy.action}</p>
+          <p className="mt-1 text-xs">{carryCopy.summary}{carryCopy.detail ? ` · ${carryCopy.detail}` : ''}</p>
+          <p className="mt-1 text-xs">This missed service is part of today's assignment; it may differ from the normal PMS service cycle below.</p>
+        </div>
+      )}
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className={`rounded-xl border p-3 ${visibleStatusTone}`}>
           <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Status</p>

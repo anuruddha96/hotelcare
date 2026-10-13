@@ -24,10 +24,19 @@ const PORTFOLIO_ALIASES = new Set([
   'hotel ottofiori',
   'gozsdu-court',
   'gozsdu court budapest',
+  'slnt-group',
+  'slnt group',
 ]);
 
 export function isPortfolioCarryForwardHotel(hotel?: string | null): boolean {
   return PORTFOLIO_ALIASES.has(normalized(hotel));
+}
+
+/** All operational room boards share the same carried-service presentation. */
+export function isCarryForwardDisplayHotel(hotel?: string | null): boolean {
+  return isPortfolioCarryForwardHotel(hotel) || [
+    'hotel memories budapest', 'memories budapest', 'memories-budapest',
+  ].includes(normalized(hotel));
 }
 
 /**
@@ -91,6 +100,15 @@ export function getHousekeepingCarryForward(
     policySource,
     instruction,
   };
+}
+
+/** Cleaned work is resolved, even if an old stored carry context lingers. */
+export function getActionableHousekeepingCarryForward(
+  context: unknown,
+  assignment?: { service_result?: string | null } | null,
+): HousekeepingCarryForward | null {
+  if (assignment?.service_result?.trim().toLowerCase() === 'cleaned') return null;
+  return getHousekeepingCarryForward(context);
 }
 
 export function effectiveCarryServiceFlags(input: {
