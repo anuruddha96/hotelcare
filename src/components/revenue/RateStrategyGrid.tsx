@@ -4291,6 +4291,7 @@ export default function RateStrategyGrid({
                     {upgradePrompt.requested - upgradePrompt.current === 1 ? "" : "s"} to <strong>{upgradePrompt.label}</strong>.
                     Which available room type will reception use for the complimentary upgrade?
                   </p>
+                  {!existingSharedWatches.has(`${upgradePrompt.obkId}|${upgradePrompt.date}`) && (
                   <Select value={upgradePrompt.sourceObkId} onValueChange={(v) => setUpgradePrompt((prev) => prev ? { ...prev, sourceObkId: v } : prev)}>
                     <SelectTrigger className="h-10"><SelectValue placeholder="Choose the original room type" /></SelectTrigger>
                     <SelectContent>
@@ -4312,6 +4313,7 @@ export default function RateStrategyGrid({
                       ))}
                     </SelectContent>
                   </Select>
+                  )}
                   <div className="space-y-2 rounded-lg border p-3">
                     <label className="flex cursor-pointer gap-2">
                       <input type="radio" name="upgrade-mode" checked={upgradePrompt.mode === "exclusive_transfer"}
