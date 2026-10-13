@@ -24,6 +24,8 @@ const PORTFOLIO_ALIASES = new Set([
   'hotel ottofiori',
   'gozsdu-court',
   'gozsdu court budapest',
+  'slnt-group',
+  'slnt group',
 ]);
 
 export function isPortfolioCarryForwardHotel(hotel?: string | null): boolean {
