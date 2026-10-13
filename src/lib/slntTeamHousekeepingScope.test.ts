@@ -96,7 +96,7 @@ describe('SLNT Team B physical property grouping', () => {
   it('keeps rooms at the same physical property together', () => {
     expect(slntTeamBPropertyKey('Silver Rooms 4')).toBe('Silver Rooms');
     expect(slntTeamBPropertyKey('Silver Rooms 21')).toBe('Silver Rooms');
-    expect(slntTeamBPropertyKey('WR Pension 101')).toBe('WR19');
+    expect(slntTeamBPropertyKey('WR Pension 101')).toBe('WR Pension');
     expect(slntTeamBPropertyKey('WR19 Room 1')).toBe('WR19');
     expect(slntTeamBPropertyKey('St King 11 – Room 9')).toBe('St King 11');
     expect(slntTeamBPropertyKey('St King 11 - Room 2')).toBe('St King 11');

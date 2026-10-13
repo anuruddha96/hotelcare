@@ -44,14 +44,12 @@ function normalize(v: unknown) {
 }
 function isWorkbookActiveRoom(room:any) {
   const label = normalize(room?.room_number);
-  // WR Pension 101-106 are the physical units SLNT calls WR19 Rooms 1-6.
-  // Keep rejecting unknown former pension rooms, not the six approved aliases.
-  const unknownPensionRoom =
-    (label.startsWith("wr pension ") || label === "wr pension") &&
-    !/^wr pension 10[1-6]$/.test(label);
+  // Old WR Pension entries are different Previo physical-room identities
+  // from WR19, even when they share the same terminal room number.
+  const legacyPensionRoom = label.startsWith("wr pension ") || label === "wr pension";
   return String(room?.status || "").toLowerCase() !== "out_of_order"
     && !WORKBOOK_INACTIVE_ROOM_NAMES.has(label)
-    && !unknownPensionRoom
+    && !legacyPensionRoom
     && !label.startsWith("technikai ")
     && label !== "technikai";
 }
@@ -219,7 +217,11 @@ async function syncAccount(admin:any, account:any, source="manual") {
       continue;
     }
     const ext = String(m.external_room_id || room.pms_metadata?.roomId || "");
-    const res = reservationMap.get(`id:${ext}`) || reservationMap.get(`name:${normalize(m.source_name)}`) || reservationMap.get(`name:${normalize(m.canonical_room_name)}`) || reservationMap.get(`core:${coreKey(m.source_name)}`) || reservationMap.get(`core:${coreKey(m.canonical_room_name)}`) || null;
+    // A populated Previo room ID is authoritative. Never fall back to names
+    // if its reservation is missing: similar/renamed room labels can refer to
+    // different physical room records and produce false occupied/vacant data.
+    const res = ext ? (reservationMap.get(`id:${ext}`) || null)
+      : reservationMap.get(`name:${normalize(m.source_name)}`) || reservationMap.get(`name:${normalize(m.canonical_room_name)}`) || reservationMap.get(`core:${coreKey(m.source_name)}`) || reservationMap.get(`core:${coreKey(m.canonical_room_name)}`) || null;
     const restRoom = ext ? rosterById.get(ext) : null;
     const oldMeta = { ...(room.pms_metadata || {}) };
     const lastRefresh = dateOnly(oldMeta.lastPmsRefreshDate || oldMeta.pmsSyncDate);

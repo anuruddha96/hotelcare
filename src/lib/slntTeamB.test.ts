@@ -24,9 +24,9 @@ describe('SLNT Team B room mapping', () => {
     expect(rooms.every(isSlntTeamBRoomNumber)).toBe(true);
   });
 
-  it('still recognizes the old Previo room labels during migration', () => {
+  it('excludes the separate old Previo WR Pension room identities', () => {
     for (let n = 101; n <= 106; n++) {
-      expect(isSlntTeamBRoomNumber(`WR Pension ${n}`)).toBe(true);
+      expect(isSlntTeamBRoomNumber(`WR Pension ${n}`)).toBe(false);
     }
   });
 

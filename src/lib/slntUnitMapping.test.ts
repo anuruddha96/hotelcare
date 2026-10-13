@@ -23,7 +23,8 @@ describe('slnt unit mapping', () => {
     expect(deriveSuggestion('Grandio 2 - Stylish Jewish Quarter Studio | Balcony & Parking').venue).toBe('Grandio');
     expect(deriveSuggestion('Elisabeth Downtown Studio').venue).toBe('Elisabeth Downtown');
     expect(deriveSuggestion('Dandelion Apartment with free parking').unit).toBe('Dandelion Apartment');
-    expect(deriveSuggestion('WR Pension 102')).toMatchObject({ unit: 'WR19 Room 2', venue: 'WR19' });
+    expect(deriveSuggestion('WR Pension 102')).toMatchObject({ unit: 'WR Pension 102', venue: 'WR Pension' });
+    expect(deriveSuggestion('WR19 Room 2')).toMatchObject({ unit: 'WR19 Room 2', venue: 'WR19' });
   });
 
   it('extracts unique, non technical room names', () => {
@@ -43,7 +44,7 @@ describe('SLNT authoritative two-PMS inventory', () => {
   it('excludes the stale workbook-missing Sobi unit from operations', () => {
     expect(isSlntWorkbookActiveUnit('Sobi Apartment Budapest', 'clean')).toBe(false);
     expect(isSlntWorkbookActiveUnit('Silver Rooms 3', 'dirty')).toBe(true);
-    expect(isSlntWorkbookActiveUnit('WR Pension 102', 'clean')).toBe(true);
+    expect(isSlntWorkbookActiveUnit('WR Pension 102', 'clean')).toBe(false);
     expect(isSlntWorkbookActiveUnit('WR19 Room 2', 'clean')).toBe(true);
     expect(isSlntWorkbookActiveUnit('WR Pension 107', 'clean')).toBe(false);
     expect(isSlntWorkbookActiveUnit('Downtown Terrace Passion', 'clean')).toBe(false);
@@ -54,7 +55,7 @@ describe('SLNT authoritative two-PMS inventory', () => {
   it('ignores confirmed inactive PMS listings even when Previo appends marketing text', () => {
     expect(isSlntInactiveOperationalUnit('Sobi Apartment Budapest - central apartment')).toBe(true);
     expect(isSlntInactiveOperationalUnit('Downtown Terrace Passion with balcony')).toBe(true);
-    expect(isSlntInactiveOperationalUnit('WR Pension 104 - Budapest')).toBe(false);
+    expect(isSlntInactiveOperationalUnit('WR Pension 104 - Budapest')).toBe(true);
     expect(isSlntInactiveOperationalUnit('WR Pension 107 - Budapest')).toBe(true);
     expect(isSlntInactiveOperationalUnit('Technikai 2')).toBe(true);
     expect(isSlntInactiveOperationalUnit('Silver Rooms 14 - Budapest')).toBe(false);

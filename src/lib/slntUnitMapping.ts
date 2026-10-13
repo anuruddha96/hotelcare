@@ -147,7 +147,10 @@ export function deriveSuggestion(name: string): {
   if (/^Elisabeth Downtown/i.test(n)) {
     return { unit: n, venue: 'Elisabeth Downtown', confidence: 0.9 };
   }
-  if ((m = n.match(/^WR Pension\s+10([1-6])$/i))) {
+  // WR Pension 102/103/104/106 and WR19 2/3/4/6 are distinct physical
+  // Previo records, confirmed by the 2026-10-13 export and live REST ids.
+  // Never treat their number suffixes as proof of identity.
+  if ((m = n.match(/^WR19\s+Room\s+([1-6])$/i))) {
     return { unit: `WR19 Room ${m[1]}`, venue: 'WR19', confidence: 0.95 };
   }
   if (/^WR Pension\s+\d+$/i.test(n)) {
@@ -200,9 +203,10 @@ export const STATUS_LABELS: Record<MappingStatus, string> = {
 };
 
 
-/** Workbook-authoritative SLNT operating inventory guard. The Sept 30 list
- * contains 59 active units across both Previo accounts, including WR19 Rooms
- * 1-6 (previously WR Pension 101-106). Sobi and Downtown Terrace are inactive. */
+/** Workbook-authoritative SLNT operating inventory guard. The 2026-10-13
+ * Previo export confirms 59 active units across both accounts. WR19 Room 1-6
+ * are operational; distinct legacy WR Pension room rows, technical rooms,
+ * Sobi and Downtown Terrace are inactive. */
 export const SLNT_WORKBOOK_INACTIVE_UNITS = [
   'Sobi Apartment Budapest',
   'Downtown Terrace Passion',
@@ -218,15 +222,10 @@ export function isSlntInactiveOperationalUnit(roomNumber: string): boolean {
   // confirmed inactive units never appear as missing/unmapped warnings.
   if (inactiveSingles.some(name => name === normalized || name === core)) return true;
 
-  // WR Pension 101-106 are actively cleaned under their new WR19 Room 1-6
-  // names. Unknown pension units and all technical rooms remain excluded.
-  const legacyPension = [normalized, core].some(
-    name => name.startsWith('wr pension ') || name === 'wr pension',
-  );
-  const approvedWr19Alias = [normalized, core].some(
-    name => /^wr pension 10[1-6]$/.test(name),
-  );
-  return (legacyPension && !approvedWr19Alias)
+  // Old WR Pension rows are a different set of physical Previo IDs from
+  // WR19's current live rooms. Only canonical WR19 labels are operational.
+  return normalized.startsWith('wr pension ') || normalized === 'wr pension'
+    || core.startsWith('wr pension ') || core === 'wr pension'
     || normalized.startsWith('technikai ') || normalized === 'technikai'
     || core.startsWith('technikai ') || core === 'technikai';
 }
