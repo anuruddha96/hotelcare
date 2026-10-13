@@ -1261,6 +1261,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             assignmentId={selection.assignmentId || ''}
             roomId={selection.roomId}
             roomNumber={selection.roomNumber}
+            hotelName={hotelName}
             dateLabel={selectedDate}
             readOnly={readOnlyForPast}
           />
