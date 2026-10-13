@@ -4280,6 +4280,12 @@ export default function RateStrategyGrid({
                 </div>
               ) : (
                 <>
+                  {existingSharedWatches.has(`${upgradePrompt.obkId}|${upgradePrompt.date}`) && (
+                    <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-slate-800">
+                      These room types are already linked. Verify and restore availability
+                      in Previo without creating a second rule.
+                    </p>
+                  )}
                   <p>
                     Add <strong>{upgradePrompt.requested - upgradePrompt.current}</strong> room
                     {upgradePrompt.requested - upgradePrompt.current === 1 ? "" : "s"} to <strong>{upgradePrompt.label}</strong>.
@@ -4291,7 +4297,9 @@ export default function RateStrategyGrid({
                       {houseInventoryTypes.filter((room) => {
                         const target = houseInventoryTypes.find((t) => t.pms_room_id === upgradePrompt.obkId);
                         const available = leftByTypeDate?.get(`${room.name}|${upgradePrompt.date}`) ?? 0;
-                        const previouslyTransferred = room.pms_room_id === existingTransfers.get(`${upgradePrompt.obkId}|${upgradePrompt.date}`);
+                        const livePair = existingSharedWatches.get(`${upgradePrompt.obkId}|${upgradePrompt.date}`);
+                        const previouslyTransferred = room.pms_room_id === existingTransfers.get(`${upgradePrompt.obkId}|${upgradePrompt.date}`) ||
+                          (!!livePair && (room.pms_room_id === livePair.first_obk_id || room.pms_room_id === livePair.second_obk_id));
                         return !!target && canOfferComplimentaryUpgrade(
                           target, room,
                           previouslyTransferred ? Math.max(available, 1) : available,
@@ -4314,13 +4322,14 @@ export default function RateStrategyGrid({
                     </label>
                     <label className="flex cursor-pointer gap-2">
                       <input type="radio" name="upgrade-mode"
-                        disabled={upgradePrompt.requested - upgradePrompt.current !== 1}
+                        disabled={upgradePrompt.requested - upgradePrompt.current < 1 ||
+                          upgradePrompt.requested - upgradePrompt.current > 20}
                         checked={upgradePrompt.mode === "shared_pool"}
                         onChange={() => setUpgradePrompt((prev) => prev ? { ...prev, mode: "shared_pool" } : prev)} />
                       <span><strong>Offer both room types until the last room sells</strong>
                         <span className="block text-xs text-muted-foreground">
-                          Only for one verified remaining physical room. HotelCare checks for new bookings and closes both.
-                          Two simultaneous online bookings are still possible before the other listing closes.
+                          HotelCare verifies the physical room count and reduces both offers after each confirmed booking,
+                          closing them at zero. Separate online bookings can still overlap before Previo updates.
                         </span>
                       </span>
                     </label>
@@ -4334,7 +4343,9 @@ export default function RateStrategyGrid({
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setUpgradePrompt(null)}>Cancel</Button>
                 <Button type="button" disabled={!upgradePrompt.sourceObkId || !!restrictionBusy ||
-                  (upgradePrompt.mode === "shared_pool" && upgradePrompt.requested - upgradePrompt.current !== 1)}
+                  (upgradePrompt.mode === "shared_pool" &&
+                    (upgradePrompt.requested - upgradePrompt.current < 1 ||
+                     upgradePrompt.requested - upgradePrompt.current > 20))}
                   onClick={() => {
                     const prior = upgradePrompt.restorePreviousPair;
                     const originalObkId = prior?.originalObkId ?? upgradePrompt.sourceObkId;
@@ -4350,10 +4361,14 @@ export default function RateStrategyGrid({
                       upgradeFromObkId: originalObkId,
                       upgradeFromRoomTypeName: source?.name ?? null,
                       upgradeMode: prior ? "shared_pool" : upgradePrompt.mode,
-                      linkedDisplayKey: prior ? `${upgradePrompt.rawName}|${upgradePrompt.date}` : undefined,
+                      sharedUnits: upgradePrompt.mode === "shared_pool" ? upgradePrompt.requested : undefined,
+                      linkedDisplayKey: prior ? `${upgradePrompt.rawName}|${upgradePrompt.date}` :
+                        source ? `${source.name}|${upgradePrompt.date}` : undefined,
                     });
                     setUpgradePrompt(null);
                   }}>{upgradePrompt.restorePreviousPair ? "Restore both room types" :
+                      existingSharedWatches.has(`${upgradePrompt.obkId}|${upgradePrompt.date}`) ?
+                        "Verify existing linked rooms" :
                       upgradePrompt.mode === "shared_pool" ? "Offer both room types" : "Save room transfer"}</Button>
               </DialogFooter>
             </div>
