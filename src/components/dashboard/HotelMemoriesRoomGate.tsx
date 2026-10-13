@@ -104,7 +104,7 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
 
   const isMemories = isHotelMemoriesBudapest(assignment.rooms?.hotel);
   const isDaily = assignment.assignment_type === 'daily_cleaning' && !isCheckout;
-  const carryForward = isMemories && !isCheckout
+  const carryForward = isMemories && !isCheckout && assignment.service_result !== 'cleaned'
     ? getMemoriesCarryForwardService(assignment.previous_day_context)
     : null;
   const carryForwardCopy = carryForward
