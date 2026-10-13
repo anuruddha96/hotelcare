@@ -37,8 +37,8 @@ import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import {
   effectiveCarryServiceFlags,
   getCarryForwardManagerCopy,
-  getHousekeepingCarryForward,
-  isPortfolioCarryForwardHotel,
+  getActionableHousekeepingCarryForward,
+  isCarryForwardDisplayHotel,
 } from '@/lib/housekeepingCarryForward';
 import { isCurrentNoServiceOutcome, selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
@@ -1120,8 +1120,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = isCheckoutBucket(room);
-    const portfolioCarry = !isCheckout && isPortfolioCarryForwardHotel(room.hotel)
-      ? getHousekeepingCarryForward(assignment?.previous_day_context)
+    const portfolioCarry = !isCheckout && isCarryForwardDisplayHotel(room.hotel)
+      ? getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
       : null;
     const portfolioCarryCopy = portfolioCarry
       ? getCarryForwardManagerCopy(portfolioCarry)
@@ -1962,7 +1962,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const status = prev.status;
     const approved = !!prev.supervisor_approved;
     let statusKey: string;
-    if (status === 'completed' && approved) statusKey = 'clean';
+    const wasMissed = prev.is_dnd || (prev.dnd_attempt_count ?? 0) > 0 || prev.notes?.includes('[NO_SERVICE]');
+    // Approved DND/No Service is administratively closed; it does not prove cleaning.
+    if (wasMissed) statusKey = 'dirty';
+    else if (status === 'completed' && approved) statusKey = 'clean';
     else if (status === 'completed') statusKey = 'pending_approval';
     else if (status === 'in_progress') statusKey = 'in_progress';
     else statusKey = 'dirty';
@@ -2709,8 +2712,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
               const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room || isScheduledCheckoutRoom(selectedRoom);
-              const selectedCarry = !isCheckout && isPortfolioCarryForwardHotel(selectedRoom.hotel)
-                ? getHousekeepingCarryForward(assignment?.previous_day_context)
+              const selectedCarry = !isCheckout && isCarryForwardDisplayHotel(selectedRoom.hotel)
+                ? getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
                 : null;
               const selectedCarryCopy = selectedCarry
                 ? getCarryForwardManagerCopy(selectedCarry)
