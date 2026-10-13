@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, MapPin, Ban, BellOff } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { HotelMemoriesRoomGate } from './HotelMemoriesRoomGate';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MobileHousekeepingView } from './MobileHousekeepingView';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
@@ -600,10 +601,11 @@ export function HousekeepingStaffView() {
                   fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
                   fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
                 >
-                  <AssignedRoomCard
-                    assignment={assignment}
-                    onStatusUpdate={handleStatusUpdate}
-                  />
+                  {isHotelMemoriesBudapest(assignment.rooms?.hotel) ? (
+                    <HotelMemoriesRoomGate assignment={assignment} onStatusUpdate={handleStatusUpdate} />
+                  ) : (
+                    <AssignedRoomCard assignment={assignment} onStatusUpdate={handleStatusUpdate} />
+                  )}
                 </ErrorBoundary>
                 </div>
                 </div>
