@@ -60,8 +60,10 @@ Deno.serve(async(req)=>{
     hotelId=String(body.hotelId??"").trim();
     date=String(body.date??"").trim();
     const source=body.sourceObkId,target=body.targetObkId;
+    const requestedUnits=Number(body.units);
     if(!/^[a-z0-9-]{2,80}$/.test(hotelId)||!/^\d{4}-\d{2}-\d{2}$/.test(date)||
-      !validId(source)||!validId(target)||source===target||body.units!==1)
+      !validId(source)||!validId(target)||source===target||
+      !Number.isInteger(requestedUnits)||requestedUnits<1||requestedUnits>20)
       return response({ok:false,error:"Choose one valid shared room and date"},400);
     if(Date.now()>=Date.parse(expiration(date)))
       return response({ok:false,error:"This date is no longer available for shared selling"},400);
@@ -78,14 +80,21 @@ Deno.serve(async(req)=>{
         .eq("hotel_id",hotelId).eq("pms_type","previo").eq("is_active",true),
       admin.from("room_types").select("pms_room_id,name,num_rooms,is_sellable,counts_toward_inventory,organization_slug")
         .eq("hotel_id",hotelId).eq("is_sellable",true).eq("counts_toward_inventory",true),
-      admin.from("room_sale_overnight_watches").select("status")
+      admin.from("room_sale_overnight_watches").select("*")
         .eq("hotel_id",hotelId).eq("stay_date",date)
         .in("status",["active","triggered","needs_review"]),
     ]);
     if(cfgErr||kindErr||existErr||!cfgs||cfgs.length!==1||
       !hasPrevioCredentials(cfgs[0].credentials_secret_name)||!kinds?.length)
       throw Error("Property mapping or Previo connection could not be verified");
-    if(existing?.length)throw Error("A linked-room rule already exists for this hotel and date");
+    const samePair=(row:any) =>
+      (row.first_obk_id===target&&row.second_obk_id===source) ||
+      (row.first_obk_id===source&&row.second_obk_id===target);
+    if(existing?.length && (existing.length!==1 || !samePair(existing[0])))
+      throw Error("Another room-type pair is linked for this date. Review that rule before creating a second one.");
+    if(existing?.length && existing[0].status!=="active")
+      throw Error("A previous linked booking needs review. Do not reopen rooms until its closure is verified.");
+    const activeWatch=existing?.[0] ?? null;
     const sourceKind=kinds.find((r:any)=>r.pms_room_id===source);
     const targetKind=kinds.find((r:any)=>r.pms_room_id===target);
     if(!sourceKind||!targetKind)throw Error("Both room types must be active physical room categories");
@@ -109,14 +118,29 @@ Deno.serve(async(req)=>{
     const live=parsePrevioReservations(checkReservations.text).filter(r=>
       r.arrivalDate<=date&&r.departureDate>date&&(r.statusId===2||r.statusId===3));
     const unique=new Set(live.map(r=>r.sourceRef));
-    if(unique.size!==physicalCapacity-1)
-      throw Error("This option is only for the last physical room. Refresh Previo bookings; one free room must be verified.");
+    const physicalRemaining=physicalCapacity-unique.size;
+    if(physicalRemaining<1||physicalRemaining>20)
+      throw Error("No verified sellable physical rooms remain for this hotel and date.");
+    if(requestedUnits>physicalRemaining)
+      throw Error(`Only ${physicalRemaining} physical room${physicalRemaining===1?" remains":"s remain"}. Cannot share ${requestedUnits} without overbooking.`);
+    if(activeWatch){
+      // Never reset the reservation baseline on a repeated click: a booking may
+      // have happened before the next scheduled watcher pass.
+      const original=new Set<string>(activeWatch.baseline_refs??[]);
+      const missingOrNew=live.some(r =>
+        !original.has([r.resId,r.objId??"",r.obkId??""].join("|")) &&
+        !original.has(r.resId));
+      if(missingOrNew || unique.size!==Number(activeWatch.baseline_confirmed))
+        throw Error("A reservation changed since the linked offer started. Refresh Previo; availability will be reconciled before reopening.");
+    }else if(physicalRemaining!==requestedUnits){
+      throw Error("Choose only the verified remaining physical rooms for a new shared offer.");
+    }
     const [sourceLeft,targetLeft]=await Promise.all([
       readAvailability(creds,previoHotelId,date,source),
       readAvailability(creds,previoHotelId,date,target),
     ]);
-    if(sourceLeft>1||targetLeft>1)
-      throw Error("This shared-last-room option supports one room only.");
+    if(sourceLeft>requestedUnits||targetLeft>requestedUnits)
+      throw Error("Room availability exceeds the shared quantity requested. Refresh the inventory first.");
     // Do not borrow the physical last room if another unrelated room kind
     // is independently still selling it. This is one-room, two-category
     // sharing only; three listings for the same last room are not allowed.
@@ -131,8 +155,12 @@ Deno.serve(async(req)=>{
       .select("id").eq("hotel_id",hotelId).eq("stay_date",date)
       .eq("source_obk_id",source).eq("target_obk_id",target)
       .eq("sell_mode","exclusive_transfer").eq("status","active").maybeSingle();
-    if(sourceLeft===0&&!exclusive)
+    if(sourceLeft===0&&!exclusive && !activeWatch)
       throw Error("The larger room is closed, with no verified previous allocation to restore.");
+    if(sourceLeft<requestedUnits && sourceLeft!==0 && !activeWatch)
+      throw Error("The original room category does not have enough remaining rooms to share.");
+    if(sourceLeft===0 && !activeWatch && requestedUnits>1)
+      throw Error("Only a previously recorded single-room transfer can be restored automatically.");
     // When both were already manually made available, simply attach the
     // reservation watch without changing Previo availability.
 
@@ -140,46 +168,61 @@ Deno.serve(async(req)=>{
     // categories. The monitor uses the same stable sourceRef signature.
     const baseline=live.map(r=>[r.resId,r.objId??"",r.obkId??""].join("|"));
     const now=new Date().toISOString();
-    const {data:watch,error:watchError}=await admin.from("room_sale_overnight_watches").insert({
-      hotel_id:hotelId,organization_slug:sourceKind.organization_slug,
-      stay_date:date,first_obk_id:target,second_obk_id:source,
-      baseline_confirmed:unique.size,baseline_refs:baseline,
-      starts_at:now,expires_at:expiration(date),status:"active",
-    }).select("id").single();
+    const {data:watch,error:watchError}=activeWatch
+      ? {data:activeWatch,error:null}
+      : await admin.from("room_sale_overnight_watches").insert({
+          hotel_id:hotelId,organization_slug:sourceKind.organization_slug,
+          stay_date:date,first_obk_id:target,second_obk_id:source,
+          baseline_confirmed:unique.size,baseline_refs:baseline,
+          shared_units:requestedUnits,physical_capacity:physicalCapacity,
+          last_confirmed_remaining:requestedUnits,
+          starts_at:now,expires_at:expiration(date),status:"active",
+        }).select("id").single();
     if(watchError||!watch?.id)throw Error("Could not activate booking protection. Inventory unchanged.");
     let status="active";
     try{
-      // Enable Quadruple first so a partial update still has no more than
-      // one independent category being sold.
+      // Read and publish each category with Previo verification. The same
+      // physical rooms are intentionally represented under both categories;
+      // the booking watcher compensates after a confirmed reservation.
       for(const id of [source,target]){
         const availability=await readAvailability(creds,previoHotelId,date,id);
-        if(availability===1)continue;
-        if(availability!==0)throw Error("Unexpected room availability while enabling linked inventory");
+        if(availability===requestedUnits)continue;
+        if(availability>requestedUnits)
+          throw Error("Previo reports more rooms than the shared allocation allows.");
         const write=await writePrevioInventory({creds,pmsHotelId:previoHotelId,
-          target:{obkId:id,from:date,to:date,roomsToSell:1}});
-        if(!write.ok)throw Error("Previo rejected opening "+id);
-        if(await readAvailability(creds,previoHotelId,date,id)!==1)
-          throw Error("Previo did not confirm the room is available under "+id);
+          target:{obkId:id,from:date,to:date,roomsToSell:requestedUnits}});
+        if(!write.ok)throw Error("Previo rejected shared availability for "+id);
+        if(await readAvailability(creds,previoHotelId,date,id)!==requestedUnits)
+          throw Error("Previo could not verify the requested shared availability for "+id);
       }
       const verify=await Promise.all([
         readAvailability(creds,previoHotelId,date,source),
         readAvailability(creds,previoHotelId,date,target),
       ]);
-      if(verify[0]!==1||verify[1]!==1)throw Error("Linked availability verification failed");
+      if(verify[0]!==requestedUnits||verify[1]!==requestedUnits)
+        throw Error("Linked availability verification failed");
       for(const id of [source,target]){
         await admin.from("revenue_room_type_availability").upsert({
           hotel_id:hotelId,organization_slug:sourceKind.organization_slug,
           pms_hotel_id:previoHotelId,stay_date:date,
-          obk_id:id,availability:1,source:"hotelcare_linked_last_room",
+          obk_id:id,availability:requestedUnits,source:"hotelcare_linked_last_room",
           captured_at:new Date().toISOString(),
         },{onConflict:"hotel_id,pms_hotel_id,stay_date,obk_id"});
+      }
+      if(activeWatch){
+        const {error:updateError}=await admin.from("room_sale_overnight_watches").update({
+          shared_units:requestedUnits,physical_capacity:physicalCapacity,
+          last_confirmed_remaining:requestedUnits,last_checked_at:new Date().toISOString(),
+          last_error:null,
+        }).eq("id",activeWatch.id).eq("status","active");
+        if(updateError) throw Error("Previo updated but shared-rule settings could not be saved; review immediately.");
       }
       if(exclusive)await admin.from("room_sale_upgrade_rules").update({
         status:"closed",updated_at:new Date().toISOString(),
         last_error:"Replaced by linked last-room availability",
       }).eq("id",exclusive.id);
     }catch(e){
-      status="expired";
+      status="needs_review";
       await admin.from("room_sale_overnight_watches").update({
         status,last_error:e instanceof Error?e.message:"Activation failed",
       }).eq("id",watch.id);
@@ -188,7 +231,9 @@ Deno.serve(async(req)=>{
     }
     return response({ok:true,
       results:[{ok:true,date,roomTypeName:targetKind.name,
-        message:"Both room types are now visible for the same final room. HotelCare checks bookings and closes both after the first sale."}],
+        message:requestedUnits===1
+          ? "Both room types are available for the same last room. HotelCare checks bookings and closes both after the final sale."
+          : `Both room types share ${requestedUnits} physical rooms. HotelCare will reduce both categories as those rooms sell.` }],
       mode:"shared_last_room",warning:"Closures are reactive; simultaneous OTA bookings are still possible."});
   }catch(e){
     console.error("Shared-last-room activation",e instanceof Error?e.message:"Unknown");
