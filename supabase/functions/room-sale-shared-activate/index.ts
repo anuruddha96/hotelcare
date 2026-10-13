@@ -5,6 +5,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { callPrevioXml,loadPrevioCredentials,hasPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { parsePrevioReservations, addDays } from "../_shared/previoReservations.ts";
 import { writePrevioInventory } from "../_shared/previoRateWrite.ts";
+import { unchangedReservationIds } from "../_shared/sharedInventoryPlan.ts";
 
 const CORS={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, apikey, x-client-info, content-type"};
 const response=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{...CORS,"Content-Type":"application/json"}});
@@ -126,11 +127,8 @@ Deno.serve(async(req)=>{
     if(activeWatch){
       // Never reset the reservation baseline on a repeated click: a booking may
       // have happened before the next scheduled watcher pass.
-      const original=new Set<string>(activeWatch.baseline_refs??[]);
-      const missingOrNew=live.some(r =>
-        !original.has([r.resId,r.objId??"",r.obkId??""].join("|")) &&
-        !original.has(r.resId));
-      if(missingOrNew || unique.size!==Number(activeWatch.baseline_confirmed))
+      const matching=unchangedReservationIds(activeWatch.baseline_refs??[],live.map(r=>r.resId));
+      if(!matching || unique.size!==Number(activeWatch.baseline_confirmed))
         throw Error("A reservation changed since the linked offer started. Refresh Previo; availability will be reconciled before reopening.");
     }else if(physicalRemaining!==requestedUnits){
       throw Error("Choose only the verified remaining physical rooms for a new shared offer.");
