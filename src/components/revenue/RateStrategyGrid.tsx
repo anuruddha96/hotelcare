@@ -1333,7 +1333,7 @@ export default function RateStrategyGrid({
     }
     let cancelled = false;
     void (async () => {
-      const [{ data: rules }, { data: overnight }] = await Promise.all([
+      const [{ data: rules }, { data: overnight }, { data: ongoing }] = await Promise.all([
         (supabase as any).from("room_sale_upgrade_rules")
           .select("source_room_type_name,source_obk_id,target_obk_id,stay_date,status")
           .eq("hotel_id", hotelId).gte("stay_date", today)
