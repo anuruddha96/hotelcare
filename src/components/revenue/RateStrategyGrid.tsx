@@ -1623,14 +1623,18 @@ export default function RateStrategyGrid({
     if (rooms > (current ?? 0)) {
       // A complimentary upgrade is an allocation from an existing room type,
       // not extra property capacity. Explain the source before writing to PMS.
+      const existingPool = obkId ? existingSharedWatches.get(`${obkId}|${date}`) : undefined;
       const promotedObkId = obkId ? originalTransferTargets.get(`${obkId}|${date}`) : undefined;
       const restorePreviousPair = promotedObkId && rooms - (current ?? 0) === 1 && obkId
         ? { originalObkId: obkId, promotedObkId } : undefined;
       setUpgradePrompt({
         date, rawName, obkId, label,
         requested: rooms, current: current ?? 0,
-        sourceObkId: restorePreviousPair ? obkId! : existingTransfers.get(`${obkId}|${date}`) ?? "",
-        mode: rooms - (current ?? 0) === 1 ? "shared_pool" : "exclusive_transfer",
+        sourceObkId: restorePreviousPair ? obkId! :
+          existingPool ? (existingPool.first_obk_id === obkId
+            ? existingPool.second_obk_id : existingPool.first_obk_id) :
+          existingTransfers.get(`${obkId}|${date}`) ?? "",
+        mode: "shared_pool",
         restorePreviousPair,
       });
       return;
