@@ -154,7 +154,7 @@ async function syncAccount(admin:any, account:any, source="manual") {
   const { date: today } = budapestParts(); const tomorrow = addDays(today,1); const end = addDays(today,3); const start = addDays(today,-30);
   const startedAt = new Date().toISOString();
   const creds = loadCredentials(account.credentials_secret_name);
-  const mappingsRes = await admin.from("pms_unit_mappings").select("id,external_room_id,source_name,canonical_room_name,room_id,venue_id,status").eq("organization_slug",ORG).eq("pms_account_id",account.id).eq("status","applied").not("room_id","is",null);
+  const mappingsRes = await admin.from("pms_unit_mappings").select("id,external_room_id,source_name,canonical_room_name,room_id,venue_id,status,metadata").eq("organization_slug",ORG).eq("pms_account_id",account.id).eq("status","applied").not("room_id","is",null);
   if (mappingsRes.error) throw new Error(`Mapping lookup failed: ${mappingsRes.error.message}`);
   const mappings = mappingsRes.data || []; if (!mappings.length) throw new Error(`No applied SLNT mappings for ${account.label}.`);
   const roomIds = mappings.map((m:any)=>m.room_id);
@@ -166,6 +166,45 @@ async function syncAccount(admin:any, account:any, source="manual") {
   // Fetch room cleanliness when REST supports it; reservation truth is independently fetched by XML.
   const roster = await fetchRoster(creds,String(account.pms_hotel_id));
   const rosterById = new Map<string,any>(); for (const r of roster) if (r?.roomId != null) rosterById.set(String(r.roomId),r);
+
+  // Recover a missing physical room ID only from a UNIQUE, EXACT Previo REST
+  // roster name for this specific account. Never infer IDs from apartment
+  // numbers, another account's rooms, marketing-prefix similarity or XML
+  // bookings. WR19 vs legacy WR Pension exposed why name guesses are unsafe.
+  const usedPhysicalIds = new Set(mappings.map((m:any)=>String(m.external_room_id||"")).filter(Boolean));
+  const recoveredPhysicalRooms: Array<{room:string;previoRoomId:string}> = [];
+  const unresolvedPhysicalMappings: Array<{room:string;rosterMatches:number}> = [];
+  for (const m of mappings) {
+    const room:any = roomById.get(String(m.room_id));
+    if (!room || !isWorkbookActiveRoom(room) ||
+        m.external_room_id || room.pms_metadata?.roomId) continue;
+    const expectedName=normalize(m.source_name);
+    const exact=roster.filter((r:any)=>
+      r?.roomId != null && String(r.roomId).trim() !== "" &&
+      expectedName && normalize(r.name ?? r.roomName) === expectedName);
+    const externalRoomId=exact.length===1 ? String(exact[0].roomId) : null;
+    if (!externalRoomId || usedPhysicalIds.has(externalRoomId)) {
+      unresolvedPhysicalMappings.push({room:String(room.room_number),rosterMatches:exact.length});
+      continue;
+    }
+    // Guard against parallel updates: an existing non-null ID must never be
+    // replaced, and inactive mappings are not eligible for auto-recovery.
+    const {data:applied,error:repairError}=await admin.from("pms_unit_mappings")
+      .update({external_room_id:externalRoomId,
+        metadata:{...(m.metadata||{}),pmsIdentityRecovery:"exact_unique_rest_roster_name",
+          pmsIdentityRecoveredAt:new Date().toISOString()}})
+      .eq("id",m.id).eq("organization_slug",ORG)
+      .eq("pms_account_id",account.id).eq("status","applied")
+      .is("external_room_id",null).select("id").maybeSingle();
+    if (repairError) throw new Error(`PMS identity update failed for ${room.room_number}: ${repairError.message}`);
+    if (!applied) {
+      unresolvedPhysicalMappings.push({room:String(room.room_number),rosterMatches:exact.length});
+      continue;
+    }
+    m.external_room_id=externalRoomId;
+    usedPhysicalIds.add(externalRoomId);
+    recoveredPhysicalRooms.push({room:String(room.room_number),previoRoomId:externalRoomId});
+  }
 
   const reservationMap = new Map<string,Reservation>();
   const index = (r:Reservation) => {
@@ -246,7 +285,8 @@ async function syncAccount(admin:any, account:any, source="manual") {
       // Empty inventory is distinct from no-show, stayover and today's
       // checkout. Preserve dirty/clean status, notes and assigned cleaning.
       const syncedAt=new Date().toISOString();
-      const metadata = { ...oldMeta, pms_account_id:account.id, pms_hotel_id:String(account.pms_hotel_id), pmsSyncDate:today, lastPmsRefreshDate:today, occupiedToday:false, scheduledDepartureToday:false, scheduledDepartureTomorrow:false, checkedOutToday:false, checkedOutAt:null, readyToClean:false, readyToCleanDate:null, arrivalToday:false, arrivalDate:null, departureDate:null, reservationId:null, reservationStatusId:null, notArrived:false, stayThroughToday:false, isNoShow:false, noShowSource:null, currentNight:null, totalNights:null, pmsOccupancyStatus:"unsold", pmsVacancyVerifiedAt:syncedAt, pmsVacancyEvidence:"previo_overlap_reservation_search_and_physical_room_roster" };
+      const metadata = { ...oldMeta, pms_account_id:account.id, pms_hotel_id:String(account.pms_hotel_id),
+        roomId:ext, external_room_id:ext, pmsSyncDate:today, lastPmsRefreshDate:today, occupiedToday:false, scheduledDepartureToday:false, scheduledDepartureTomorrow:false, checkedOutToday:false, checkedOutAt:null, readyToClean:false, readyToCleanDate:null, arrivalToday:false, arrivalDate:null, departureDate:null, reservationId:null, reservationStatusId:null, notArrived:false, stayThroughToday:false, isNoShow:false, noShowSource:null, currentNight:null, totalNights:null, pmsOccupancyStatus:"unsold", pmsVacancyVerifiedAt:syncedAt, pmsVacancyEvidence:"previo_overlap_reservation_search_and_physical_room_roster" };
       if (lastRefresh && lastRefresh < today) { metadata.manual_checkout=false; metadata.manual_daily=false; }
       const keepManualCheckout = manualCheckoutToday && !manualDailyToday;
       const patch:any={is_checkout_room:keepManualCheckout,checkout_time:null,pms_metadata:metadata,guest_count:0,guest_nights_stayed:0,updated_at:syncedAt};
@@ -290,6 +330,7 @@ async function syncAccount(admin:any, account:any, source="manual") {
 
     const metadata:any = { ...oldMeta,
       pms_account_id:account.id, pms_hotel_id:String(account.pms_hotel_id), roomId:ext||res.objId||oldMeta.roomId,
+      external_room_id:ext||res.objId||oldMeta.external_room_id,
       pmsSyncDate:today,lastPmsRefreshDate:today,RawReservationStatusId:res.statusId,reservationStatusId:res.statusId,
       scheduledDepartureToday:depToday,scheduledDepartureTomorrow:depTomorrow,checkedOutToday:checkedOut,
       // Do not carry yesterday's RTC/checkout timestamp into today's booked room.
@@ -387,8 +428,12 @@ async function syncAccount(admin:any, account:any, source="manual") {
     last_sync_error:unverifiedVacantRooms.length ? `Unable to verify vacancy for: ${unverifiedVacantRooms.join(", ")}` : null,
     consecutive_failures:0,updated_at:finishedAt,
   }).eq("id",account.id);
-  await admin.from("pms_sync_history").insert({ sync_type:"rooms_refresh",direction:"from_previo",hotel_id:HOTEL,sync_status:syncStatus,synced_by_name:"System — SLNT 07:00 PMS sync",data:{ trigger:"slnt_server_morning_sync",source,account_id:account.id,account_label:account.label,pms_hotel_id:account.pms_hotel_id,started_at:startedAt,finished_at:finishedAt,mapped_rooms:mappings.length,rooms_updated:updated,checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,unsold_rooms:verifiedUnsoldRooms.length,verified_unsold_room_labels:verifiedUnsoldRooms,unverified_vacancy_rooms:unverifiedVacantRooms,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed,previo_notes_written:syncedNotes,manager_notes_preserved:protectedManagerNotes } });
-  return { ok:true, status:syncStatus, account_id:account.id, account_label:account.label, mapped_rooms:mappings.length, rooms_updated:updated, checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,unsold_rooms:verifiedUnsoldRooms.length,verified_unsold_room_labels:verifiedUnsoldRooms,unverified_vacancy_rooms:unverifiedVacantRooms,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed };
+  await admin.from("pms_sync_history").insert({ sync_type:"rooms_refresh",direction:"from_previo",hotel_id:HOTEL,sync_status:syncStatus,synced_by_name:"System — SLNT 07:00 PMS sync",data:{ trigger:"slnt_server_morning_sync",source,account_id:account.id,account_label:account.label,pms_hotel_id:account.pms_hotel_id,started_at:startedAt,finished_at:finishedAt,mapped_rooms:mappings.length,rooms_updated:updated,checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,unsold_rooms:verifiedUnsoldRooms.length,verified_unsold_room_labels:verifiedUnsoldRooms,unverified_vacancy_rooms:unverifiedVacantRooms,
+    recovered_physical_room_ids:recoveredPhysicalRooms,unresolved_physical_mappings:unresolvedPhysicalMappings,
+    assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed,previo_notes_written:syncedNotes,manager_notes_preserved:protectedManagerNotes } });
+  return { ok:true, status:syncStatus, account_id:account.id, account_label:account.label, mapped_rooms:mappings.length, rooms_updated:updated, checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,unsold_rooms:verifiedUnsoldRooms.length,verified_unsold_room_labels:verifiedUnsoldRooms,unverified_vacancy_rooms:unverifiedVacantRooms,
+    recovered_physical_room_ids:recoveredPhysicalRooms,unresolved_physical_mappings:unresolvedPhysicalMappings,
+    assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed };
 }
 
 
