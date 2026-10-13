@@ -25,6 +25,7 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
+import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import {
   buildDirectRoomTypeNotice,
   buildRoomTypeTransition,
@@ -1368,7 +1369,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <div className="border-t p-3 space-y-3">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 text-xs">
               <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Type</p><p className="font-semibold">{selection.roomCategory || selection.roomType || 'Not set'}</p></div>
-              <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Bed</p><p className="font-semibold">{selection.bedConfiguration || 'Not set'}</p></div>
+              <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Bed</p><p className="font-semibold">{displayHousekeepingBedSetup(selection.bedConfiguration, hotelName) || 'Not set'}</p></div>
               <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Floor</p><p className="font-semibold">{selection.floorNumber ?? '—'}</p></div>
               <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Last cleaned</p><p className="font-semibold">{selection.lastCleanedAt ? new Date(selection.lastCleanedAt).toLocaleString() : 'Not recorded'}</p></div>
             </div>
