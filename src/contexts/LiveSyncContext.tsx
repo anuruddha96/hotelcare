@@ -253,7 +253,9 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       return { ran: false, status: "skipped", message: "Throttled" };
     }
     lastRunRef.current.pms = now;
-    setTasks((p) => ({ ...p, pms: { ...p.pms, status: "syncing" } }));
+    // The browser is only submitting an enqueue RPC here, not running Previo.
+    setTasks((p) => ({ ...p, pms: { ...p.pms, status: "queued",
+      message: "Requesting a PMS queue slot…" } }));
     try {
       const r = await runQueuedPmsRefresh(hotelId);
       setTasks((p) => ({
@@ -268,7 +270,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       const message = e?.message || "PMS sync failed";
       setTasks((p) => ({
         ...p,
-        pms: { status: "error", lastAt: new Date(), message },
+        // A rejected enqueue must not be recorded as a completed PMS refresh.
+        pms: { ...p.pms, status: "error", lastAt: p.pms.lastAt, message },
       }));
       return { ran: true, status: "error", message };
     }
