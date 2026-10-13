@@ -1,0 +1,42 @@
+name: Rollback diagnostics SQL CI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261013121000_rollback_diagnostics_before_snapshot.sql'
+      - 'supabase/tests/rollback_diagnostics_*.sql'
+      - '.github/workflows/rollback-diagnostics-sql-ci.yml'
+permissions:
+  contents: read
+jobs:
+  verify-rollback-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_rollback_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_rollback_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Validate restricted diagnostic RPC and counter edge cases
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1             -f supabase/tests/rollback_diagnostics_fixture.sql             -f supabase/migrations/20261013121000_rollback_diagnostics_before_snapshot.sql             -f supabase/tests/rollback_diagnostics_test.sql
