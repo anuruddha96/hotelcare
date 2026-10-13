@@ -41,11 +41,11 @@ interface Cfg {
 export function PmsSyncControls({ hotelId, uploadAnchorId }: Props) {
   const { profile } = useAuth();
   const { tasks,hotelId: activePmsHotelId } = useLiveSync();
-  const queueTask = activePmsHotelId === hotelId ? tasks.pms : null;
-  const queueBusy = queueTask?.status === "queued" || queueTask?.status === "syncing";
-  const queueMeta = queueTask?.meta || {};
   const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
   const [cfg, setCfg] = useState<Cfg | null>(null);
+  const queueTask = activePmsHotelId === (cfg?.hotel_id ?? hotelId) ? tasks.pms : null;
+  const queueBusy = queueTask?.status === "queued" || queueTask?.status === "syncing";
+  const queueMeta = queueTask?.meta || {};
   const [pendingRisky, setPendingRisky] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
