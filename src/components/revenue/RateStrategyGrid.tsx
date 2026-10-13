@@ -1326,6 +1326,7 @@ export default function RateStrategyGrid({
   useEffect(() => {
     if (!hotelId) {
       setUpgradeClosures(new Set());
+      setExistingSharedWatches(new Map());
       setExistingTransfers(new Map());
       setOriginalTransferTargets(new Map());
       return;
