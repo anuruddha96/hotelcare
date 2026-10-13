@@ -9,6 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useHousekeepingPresence } from '@/hooks/useHousekeepingPresence';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
@@ -75,7 +76,7 @@ export function MobileHousekeepingCard({
   const towelChangeRequired = assignment.rooms?.towel_change_required && !isCheckoutClean;
   // Checkout cleans always include full linen — don't repeat it as an instruction.
   const linenChangeRequired = assignment.rooms?.linen_change_required && !isCheckoutClean;
-  const bedConfiguration = assignment.rooms?.bed_configuration;
+  const bedConfiguration = displayHousekeepingBedSetup(assignment.rooms?.bed_configuration, assignment.rooms?.hotel);
   const assignmentNotes = assignment.notes;
   const guestNights = assignment.rooms?.guest_nights_stayed;
 
