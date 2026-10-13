@@ -147,7 +147,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         .limit(1)
         .maybeSingle();
       if (!data) return;
-      setTasks((prev) => prev.pms.status === "queued" ? prev : ({
+      setTasks((prev) => (prev.pms.status === "queued" || prev.pms.status === "syncing") ? prev : ({
         ...prev,
         pms: {
           status: ((data as any).sync_status as PmsSyncStatus) || "success",
@@ -169,7 +169,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       inFlight = true;
       try {
         const { data, error } = await (supabase as any).from("pms_refresh_queue")
-          .select("id,hotel_id,request_group_id,target_key,status,requested_at,finished_at,result,error_message")
+          .select("id,hotel_id,request_group_id,target_key,status,requested_at,started_at,finished_at,result,error_message")
           .eq("hotel_id",hotelId).eq("request_kind","manual")
           .eq("requested_by",user.id)
           .gte("requested_at",startOfBudapestDayUtc(businessDate))
@@ -179,45 +179,58 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         if (!group.length) return;
         const groupId = group[0].request_group_id || group[0].id;
         const summary = summarizeQueuedPmsJobs(group);
-        if (summary.status === "queued") {
-          observedQueueGroupRef.current = groupId;
-          setTasks(prev => {
-            if (prev.pms.status === "queued" &&
-                prev.pms.meta?.queueGroupId === groupId) return prev;
-            return {...prev,pms:{...prev.pms,status:"queued",
-              message:summary.managerMessage,
-              meta:{...prev.pms.meta,queueGroupId:groupId,jobIds:group.map(j=>j.id)}}};
-          });
-          return;
-        }
-        if (observedQueueGroupRef.current !== groupId ||
-            announcedQueueGroupRef.current === groupId) return;
+        const ongoing = summary.status === "queued" || summary.status === "syncing";
+        const finishedAt = summary.finishedAt ? new Date(summary.finishedAt) : null;
+        if (ongoing) observedQueueGroupRef.current = groupId;
+
+        // Durable progress, including an actual running stage, is restored
+        // after reload. No successful timestamp is set until all jobs finish.
+        setTasks(prev => {
+          const previous = prev.pms;
+          if (previous.meta?.queueGroupId === groupId &&
+              previous.status === summary.status &&
+              previous.meta?.completedJobs === summary.completedJobs &&
+              previous.meta?.runningJobs === summary.runningJobs &&
+              previous.meta?.queuedJobs === summary.queuedJobs) return prev;
+          return {...prev,pms:{
+            status:summary.status,
+            lastAt:ongoing ? previous.lastAt : finishedAt,
+            message:summary.managerMessage,
+            meta:{...summary,queueGroupId:groupId,
+              jobIds:group.map(j=>j.id),requestedAt:group[0].requested_at},
+          }};
+        });
+        if (ongoing || cancelled) return;
+
+        // The completion must be reflected in the UI even if it happened
+        // between polls or while the browser was in the background.
+        // Notify once per user/hotel/group to avoid replaying old toasts.
+        const storageKey = `pmsQueue.announced.${user.id}.${hotelId}`;
+        const wasAnnounced = sessionStorage.getItem(storageKey) === groupId;
+        if (announcedQueueGroupRef.current === groupId || wasAnnounced) return;
         announcedQueueGroupRef.current = groupId;
-        const dates = group.map(j=>Date.parse(j.finished_at || "")).filter(Number.isFinite);
-        const finishedAt = dates.length ? new Date(Math.max(...dates)) : new Date();
-        setTasks(prev => ({...prev,pms:{
-          status:summary.status,lastAt:finishedAt,
-          message:summary.managerMessage || summary.errors?.[0],
-          meta:{...summary,queueGroupId:groupId},
-        }}));
+        sessionStorage.setItem(storageKey,groupId);
+        const recent = !!finishedAt && Date.now() - finishedAt.getTime() < 10 * 60_000;
+        if (!recent && observedQueueGroupRef.current !== groupId) return;
         const { toast } = await import("sonner");
         if (cancelled) return;
         if (summary.status === "error") toast.error("PMS refresh failed",{
-          description:summary.errors?.[0] || "Please review PMS Sync History",
+          description:summary.managerMessage || "Please review PMS Sync History",
         });
-        else if (summary.status === "partial") toast.warning("PMS refresh incomplete",{
-          description:"Review PMS Sync History before assigning rooms",
+        else if (summary.status === "partial") toast.warning("PMS refresh completed with warnings",{
+          description:summary.partialReasons?.join(" | ") || "Review PMS Sync History",
+          duration:10000,
         });
-        else {
-          toast.success("Full PMS refresh completed");
-          window.dispatchEvent(new CustomEvent("pms-sync-completed"));
-        }
+        else toast.success("Full PMS refresh completed",{
+          description:summary.managerMessage,
+        });
+        window.dispatchEvent(new CustomEvent("pms-sync-completed"));
       } finally {
         inFlight = false;
       }
     };
     void poll();
-    const timer = window.setInterval(() => { void poll(); }, 8000);
+    const timer = window.setInterval(() => { void poll(); }, 3000);
     const queued = (event: Event) => {
       const groupId = (event as CustomEvent).detail?.groupId;
       if (typeof groupId === "string" && groupId) observedQueueGroupRef.current = groupId;
@@ -245,7 +258,10 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       const r = await runQueuedPmsRefresh(hotelId);
       setTasks((p) => ({
         ...p,
-        pms: { status: r.status, lastAt: new Date(), meta: r },
+        pms: { ...p.pms, status: r.status, message: r.managerMessage,
+          // Enqueuing work is not completion. Only the queue's finished_at
+          // timestamp is allowed to update the last successful sync time.
+          lastAt: p.pms.lastAt, meta: { ...p.pms.meta, ...r } },
       }));
       return { ran: true, status: r.status, meta: r, message: r.managerMessage || r.errors?.[0] };
     } catch (e: any) {
@@ -328,9 +344,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     async (task?: TaskName): Promise<RefreshOutcome | void> => {
       if (task === "pms") {
         const r = await runPms(true);
-        // After a manual PMS sync, immediately poll checkouts so RTC updates
-        // land without waiting for the next interval tick.
-        void runCheckouts(true);
+        // A queue acknowledgement is not a completed PMS refresh: wait
+        // for server-side success/partial before telling the user it's synced.
         return r;
       }
       else if (task === "revenue") await runRevenue(true);
@@ -384,6 +399,11 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
           toast.error("PMS sync failed", { id: toastId, description: r.message });
         } else if (r.status === "partial") {
           toast.warning("PMS data incomplete", { id: toastId, description: r.message });
+        } else if (r.status === "queued" || r.status === "syncing") {
+          toast.message("PMS refresh requested", {
+            id: toastId,
+            description: "Track queued, running and completed stages in the PMS Sync status.",
+          });
         } else {
           const meta = (r.meta || {}) as any;
           toast.success("Today's PMS data is up to date", {
@@ -393,7 +413,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
               : `${meta.updated ?? 0} rooms updated · ${meta.checkouts ?? 0} checkout rooms`,
           });
         }
-        void runCheckouts(true);
+        // The regular checkout poll continues independently of full refresh.
       };
 
       toast.warning("Today's PMS data hasn't been synced yet", {
