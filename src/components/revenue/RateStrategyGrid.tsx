@@ -15,7 +15,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useUiPreference } from "@/hooks/useUiPreference";
 import { canOfferComplimentaryUpgrade, showOwnLastSoldPrice } from "@/lib/revenue/roomSaleUpgradeEligibility";
 import { activeTransferLookups } from "@/lib/revenue/sharedLastRoom";
-import { activePricingRoomTypes } from "@/lib/revenue/roomTypeVisibility";
+import { activePricingRoomTypes, isTechnicalRoomKind } from "@/lib/revenue/roomTypeVisibility";
 import InitializeRoomRatesDialog from "@/components/revenue/InitializeRoomRatesDialog";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
@@ -1192,7 +1192,7 @@ export default function RateStrategyGrid({
 
     const out = new Map<string, number>();
     for (const room of roomTypes) {
-      if (!room.pms_room_id || (room.num_rooms || 0) <= 0) continue;
+      if (!room.pms_room_id || (room.num_rooms || 0) <= 0 || isTechnicalRoomKind(room.name)) continue;
       for (const metric of metrics) {
         const key = `${room.name}|${metric.stay_date}`;
         out.set(key, Math.max(0, (room.num_rooms || 0) - (soldBy.get(key) ?? 0)));
@@ -1232,7 +1232,8 @@ export default function RateStrategyGrid({
       (room) => room.pms_room_id
         && (room.num_rooms || 0) > 0
         && room.is_sellable !== false
-        && room.counts_toward_inventory !== false,
+        && room.counts_toward_inventory !== false
+        && !isTechnicalRoomKind(room.name),
     );
     if (!countedCapacity) return candidates;
 

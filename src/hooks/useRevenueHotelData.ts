@@ -11,6 +11,7 @@ import {
   type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
 import { useRevenueMetrics } from "@/lib/revenueMetricsMemo";
+import { isTechnicalRoomKind } from "@/lib/revenue/roomTypeVisibility";
 import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
 import { retryTransient } from "@/lib/transientRetry";
 import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
@@ -436,7 +437,10 @@ export function useRevenueHotelData(
     const source = catalogRoomTypes?.length
       ? catalogRoomTypes
       : (payload?.roomTypes?.length ? payload.roomTypes : roomMetadata);
-    return roomTypesWithGuestLevels(source, payload?.rates ?? []);
+    // Operational/technical PMS kinds belong in the sync audit, not any
+    // revenue calendar, pricing selector or sellable-room calculation.
+    return roomTypesWithGuestLevels(source, payload?.rates ?? [])
+      .filter((room) => !isTechnicalRoomKind(room.name));
   }, [catalogRoomTypes, payload, roomMetadata]);
   const nights = useMemo(() => (payload?.nights ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const snapshots = useMemo(() => (payload?.snapshots ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
