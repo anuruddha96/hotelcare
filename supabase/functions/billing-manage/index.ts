@@ -191,7 +191,7 @@ Deno.serve(async (req) => {
           period_end: inv.period_end,
           currency: (inv.currency ?? settings.currency).toUpperCase(),
           subtotal_cents: inv.subtotal ?? 0,
-          tax_cents: inv.tax ?? 0,
+          tax_cents: Math.max(0, (inv.total ?? 0) - (inv.subtotal ?? 0)),
           total_cents: inv.total ?? 0,
           status: inv.status,
           hosted_invoice_url: inv.hosted_invoice_url,
@@ -392,10 +392,11 @@ Deno.serve(async (req) => {
           const safeOrigin = req.headers.get("origin") ?? "";
           if (!/^https:\/\//.test(safeOrigin) && !/^http:\/\/localhost(:[0-9]+)?$/.test(safeOrigin))
             throw new Error("A valid checkout origin is required");
-          const paymentItems = lineItems.map((line) => ({
-            ...line,
-            price_data: { ...line.price_data, recurring: undefined },
-          }));
+          const paymentItems: Stripe.Checkout.SessionCreateParams.LineItem[] = lineItems.map((line) => {
+            if (!line.price_data) throw new Error("Unexpected stored-price line");
+            const { recurring: _recurring, ...oneTimePrice } = line.price_data;
+            return { ...line, price_data: oneTimePrice };
+          });
           const sessionData: Stripe.Checkout.SessionCreateParams = {
             mode: "payment", line_items: paymentItems, customer: existingCustomer ?? undefined,
             customer_creation: existingCustomer ? undefined : "always",
