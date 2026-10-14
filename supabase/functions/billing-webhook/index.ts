@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
   const db = admin();
 
   try {
-    const obj = event.data.object as Record<string, unknown>;
+    const obj = event.data.object as unknown as Record<string, unknown>;
     const meta = (obj.metadata ?? {}) as Record<string, string>;
     const orgSlug = meta.organization_slug ?? null;
 
