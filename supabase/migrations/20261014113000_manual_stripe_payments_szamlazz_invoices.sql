@@ -3,6 +3,7 @@
 CREATE TABLE public.manual_billing_contracts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_slug text NOT NULL REFERENCES public.organizations(slug),
+  cancel_at_period_end boolean NOT NULL DEFAULT false,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','past_due','paused','needs_review','cancelled','expired')),
   stripe_checkout_session_id text UNIQUE,
   stripe_customer_id text,
@@ -72,7 +73,7 @@ BEGIN
   IF _limit < 1 OR _limit > 50 THEN RAISE EXCEPTION 'Invalid batch size'; END IF;
   FOR rec IN
     SELECT * FROM public.manual_billing_contracts
-    WHERE status = 'active' AND next_charge_at <= now()
+    WHERE status = 'active' AND cancel_at_period_end = false AND next_charge_at <= now()
       AND stripe_customer_id IS NOT NULL AND stripe_payment_method_id IS NOT NULL
     ORDER BY next_charge_at
     LIMIT _limit FOR UPDATE SKIP LOCKED
