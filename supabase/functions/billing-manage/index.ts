@@ -206,7 +206,24 @@ Deno.serve(async (req) => {
         .select("id,contract_id,period_start,period_end,payment_source,status,currency,net_cents,vat_cents,gross_cents,paid_at,szamlazz_invoice_number,invoiced_at")
         .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
       if (error) throw error;
-      return json({ payments: data ?? [] });
+      const { data: contracts, error: contractError } = await db.from("manual_billing_contracts")
+        .select("id,status,currency,gross_cents,current_period_end,cancel_at_period_end")
+        .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
+      if (contractError) throw contractError;
+      return json({ payments: data ?? [], contracts: contracts ?? [] });
+    }
+
+    if (action === "cancel_manual_renewal") {
+      if (!caller.isSuperAdmin && caller.role !== "admin") return json({ error: "Admin access required" }, 403);
+      const id = String(body.contractId ?? "");
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: "Invalid contract" }, 400);
+      const { data, error } = await db.from("manual_billing_contracts")
+        .update({ cancel_at_period_end: true, updated_at: new Date().toISOString() })
+        .eq("id", id).eq("organization_slug", slug).eq("status", "active")
+        .eq("cancel_at_period_end", false).select("id,current_period_end").maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Contract is not active or is already scheduled to cancel" }, 409);
+      return json({ contract: data });
     }
 
     if (action === "mark_invoiced") {
