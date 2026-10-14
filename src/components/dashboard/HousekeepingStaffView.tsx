@@ -85,43 +85,35 @@ export function HousekeepingStaffView() {
     }
   }, [user?.id, selectedDate, statusFilter]);
 
-  // Real-time subscription for assignment updates
+  // One Postgres Changes filter (instead of two identical UPDATE/INSERT
+  // subscriptions) preserves refreshes and new-assignment notifications while
+  // reducing Realtime subscription-check work.
   useEffect(() => {
     if (!user?.id) return;
 
     const channel = supabase
-      .channel('assignment-updates')
+      .channel(`assignment-updates-${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'room_assignments',
           filter: `assigned_to=eq.${user.id}`
         },
-        () => {
-          fetchAssignments();
-          fetchSummary();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: `assigned_to=eq.${user.id}`
-        },
-        () => {
-          fetchAssignments();
-          fetchSummary();
-          showNotification(t('notifications.newAssignment'), 'info');
+        (payload) => {
+          if (payload.eventType !== 'INSERT' && payload.eventType !== 'UPDATE') return;
+          void fetchAssignments();
+          void fetchSummary();
+          if (payload.eventType === 'INSERT') {
+            void showNotification(t('notifications.newAssignment'), 'info');
+          }
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
   }, [user?.id, selectedDate, showNotification, t]);
 

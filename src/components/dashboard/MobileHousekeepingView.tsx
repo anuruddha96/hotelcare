@@ -89,73 +89,36 @@ export function MobileHousekeepingView() {
   const [pendingScrollAssignmentId, setPendingScrollAssignmentId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user) {
-      fetchAssignments();
-      fetchPublicTasks();
-      
-      // Set up real-time subscription for assignment updates
-      const channel = supabase
-        .channel('mobile-assignments')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'room_assignments',
-            filter: `assigned_to=eq.${user.id}`
-          },
-          () => {
-            fetchAssignments();
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [user, selectedDate, statusFilter]);
-
-  // Real-time subscription for assignment updates - only for new assignments or external changes
-  useEffect(() => {
     if (!user?.id) return;
+    fetchAssignments();
+    fetchPublicTasks();
 
+    // A single listener handles updates, new assignments, and removals.
+    // Previously a second channel duplicated INSERT/DELETE callbacks and
+    // unnecessary Realtime filter checks / database refetches.
     const channel = supabase
-      .channel('assignment_changes')
+      .channel(`mobile-assignments-${user.id}`)
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*',
           schema: 'public',
           table: 'room_assignments',
           filter: `assigned_to=eq.${user.id}`
         },
-        () => {
-          console.log('New assignment received, refetching...');
-          fetchAssignments();
-          fetchSummary();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: `assigned_to=eq.${user.id}`
-        },
-        () => {
-          console.log('Assignment deleted, refetching...');
-          fetchAssignments();
-          fetchSummary();
+        (payload) => {
+          void fetchAssignments();
+          if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
+            void fetchSummary();
+          }
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      void supabase.removeChannel(channel);
     };
-  }, [user?.id]);
+  }, [user?.id, selectedDate, statusFilter]);
 
   const fetchAssignments = async () => {
     if (!user?.id) return;
