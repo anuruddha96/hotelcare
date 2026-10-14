@@ -145,7 +145,8 @@ BEGIN
   END IF;
 
   v_attempt := CASE WHEN v_verified_original AND v_original < v_source
-                    THEN greatest(2,CASE WHEN coalesce(v_carry ->> 'attempt_count','') ~ '^[0-9]{1,6}
+                    THEN greatest(2,CASE WHEN coalesce(v_carry ->> 'attempt_count','') ~ '^[0-9]{1,6}$'
+                         THEN (v_carry ->> 'attempt_count')::integer ELSE 1 END)
                     ELSE 1 END;
   RETURN jsonb_set(v_context,'{carry_forward}',
     v_carry || jsonb_build_object(
