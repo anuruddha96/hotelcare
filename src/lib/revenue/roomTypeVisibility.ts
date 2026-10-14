@@ -1,6 +1,6 @@
 /** Previo technical/service room kinds are not sellable guest accommodations. */
 export function isTechnicalRoomKind(name: string | null | undefined): boolean {
-  return /^(?:technikai(?:\\s+szoba)?|technical\\s+rooms?)$/i.test(String(name ?? "").trim());
+  return /^(?:technikai(?:\s+szoba)?|technical\s+rooms?)$/i.test(String(name ?? "").trim());
 }
 
 /**
