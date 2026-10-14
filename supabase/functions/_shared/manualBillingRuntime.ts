@@ -79,7 +79,7 @@ export async function completeManualCheckout(db: Db, stripe: Stripe, session: St
       postal_code: address.postal_code ?? undefined,
       line1: address.line1 ?? undefined, line2: address.line2 ?? undefined,
       state: address.state ?? undefined,
-    }, invoice_settings: { default_payment_method: methodId } });
+    } });
     await updateAccess(db, updated, "active", end);
   }
 }
