@@ -116,3 +116,25 @@ export async function expireManualCheckout(db: Db, session: Stripe.Checkout.Sess
     if (releaseError) throw releaseError;
   }
 }
+
+/** Replace saved cards through a Stripe Checkout SetupIntent; never create an invoice. */
+export async function updateManualPaymentMethod(db: Db, stripe: Stripe, session: Stripe.Checkout.Session) {
+  if (session.mode !== "setup" || session.metadata?.kind !== "hotelcare_manual_card") return;
+  const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const setupId = typeof session.setup_intent === "string" ? session.setup_intent : session.setup_intent?.id;
+  if (!customerId || !setupId) throw new Error("Missing customer or setup intent");
+  const setup = await stripe.setupIntents.retrieve(setupId);
+  const methodId = typeof setup.payment_method === "string" ? setup.payment_method : setup.payment_method?.id;
+  if (setup.status !== "succeeded" || !methodId || setup.customer !== customerId)
+    throw new Error("Payment method authorization incomplete");
+  const slug = session.metadata.organization_slug;
+  if (!slug) throw new Error("Missing organization");
+  const { data, error } = await db.from("manual_billing_contracts")
+    .update({ stripe_payment_method_id: methodId, updated_at: new Date().toISOString() })
+    .eq("organization_slug", slug).eq("stripe_customer_id", customerId)
+    .in("status", ["active", "past_due", "needs_review"])
+    .select("id");
+  if (error) throw error;
+  if (!data?.length) throw new Error("No payment-only contract for this customer");
+  await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: methodId } });
+}
