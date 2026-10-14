@@ -383,6 +383,7 @@ Deno.serve(async (req) => {
         };
         const { error: draftError } = await db.from("manual_billing_contracts").insert(contract);
         if (draftError) throw draftError;
+        let createdSessionId: string | null = null;
         try {
           const { error: scopeError } = await db.from("manual_billing_scopes")
             .insert(normalized.map((item) => ({ hotel_id: item.hotel_id, module: item.module, contract_id: contractId })));
@@ -418,16 +419,24 @@ Deno.serve(async (req) => {
             ...sessionData,
             automatic_tax: { enabled: true },
           });
+          createdSessionId = paymentSession.id;
           const { error: sessionError } = await db.from("manual_billing_contracts")
             .update({ stripe_checkout_session_id: paymentSession.id })
             .eq("id", contractId).eq("status", "pending");
           if (sessionError) {
-            await stripe.checkout.sessions.expire(paymentSession.id).catch(console.error);
+            await stripe.checkout.sessions.expire(paymentSession.id).catch((error) =>
+              console.error("MANUAL REVIEW: Checkout session could not be expired", paymentSession.id, error));
             throw sessionError;
           }
           return json({ url: paymentSession.url, mode: "payment", invoicing: "szamlazz_manual" });
         } catch (error) {
-          await db.from("manual_billing_contracts").delete().eq("id", contractId).eq("status", "pending");
+          // Never release a reservation when a Stripe session might still accept
+          // payment. An operator must reconcile a potentially orphaned session.
+          if (!createdSessionId) {
+            await db.from("manual_billing_contracts").delete().eq("id", contractId).eq("status", "pending");
+          } else {
+            console.error("MANUAL REVIEW: Stripe Checkout session was created", createdSessionId, error);
+          }
           throw error;
         }
       }
