@@ -880,6 +880,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const recheckMatch = rawAssignmentNote.match(/^\[SUPERVISOR_RECHECK(?::(same|handover))?\]\s*(.*)$/s);
   const isLegacySupervisorRecheck = rawAssignmentNote === 'Reassigned - Previous completion needs review';
   const isSupervisorRecheck = !!recheckMatch || isLegacySupervisorRecheck;
+  // Historic SLNT unsold planning priority was synthetic, not a manager urgency flag.
+  const isProvisionalPlanningPriority = assignment.rooms?.hotel === 'slnt-group'
+    && /^unbooked at planning sync/i.test(rawAssignmentNote)
+    && assignment.priority === 3;
   const recheckScope = recheckMatch?.[1] || 'handover';
   const supervisorRecheckReason = (recheckMatch?.[2] || '').trim().replace(/[.!?]+$/, '');
   const recheckCopy = (() => {
@@ -1012,14 +1016,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </Badge>
             {hasSpecialInstructions && (
               <Badge 
-                variant={isSupervisorRecheck ? 'destructive' : 'secondary'} 
+                variant={assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck ? 'secondary' : 'destructive'} 
                 className="text-xs px-2 py-1 flex-shrink-0 cursor-pointer"
                 onClick={(e) => {
                   e.stopPropagation();
                   setWarningInfoOpen(true);
                 }}
               >
-                {isSupervisorRecheck ? '⚠️' : '📝'} {instructionCount}
+                {assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck ? '📝' : '⚠️'} {instructionCount}
               </Badge>
             )}
           </div>
@@ -1059,7 +1063,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </Badge>
             )}
             
-            {assignment.priority > 1 && assignment.status !== 'in_progress' && (
+            {assignment.priority > 1 && !isProvisionalPlanningPriority && assignment.status !== 'in_progress' && (
               <Badge 
                 variant="outline" 
                 className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center`}
