@@ -8,7 +8,7 @@ import { callPrevioXml, loadPrevioCredentials, hasPrevioCredentials } from "../_
 import { parsePrevioReservations, addDays } from "../_shared/previoReservations.ts";
 import { writePrevioInventory } from "../_shared/previoRateWrite.ts";
 import { sendEmail } from "../_shared/emailSender.ts";
-import { permittedSharedAvailability, unchangedReservationIds } from "../_shared/sharedInventoryPlan.ts";
+import { permittedLinkedPoolAvailability, unchangedReservationIds } from "../_shared/sharedInventoryPlan.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const reply = (v: unknown, status=200) => new Response(JSON.stringify(v), {status,headers:JSON_HEADERS});
@@ -81,12 +81,16 @@ Deno.serve(async req=>{
         (!r.createdAtIso || (Date.parse(r.createdAtIso)>=Date.parse(watch.starts_at)-60000 &&
           Date.parse(r.createdAtIso)<=deadline))
       );
-      // The reservation service is authoritative, not the number of
-      // virtual room-category listings. This reduces BOTH categories after
-      // each confirmed sale for pools of one or more physical rooms.
+      // Count newly booked room-nights in THIS Quad/Queen pool. Another
+      // independently sellable Twin must not consume the shared pool.
+      // The hotel-wide physical vacancy remains an additional safety cap.
       const initialUnits=Number(watch.shared_units ?? 1);
       const physicalCapacity=Number(watch.physical_capacity ?? Number(watch.baseline_confirmed)+initialUnits);
-      const planned=permittedSharedAvailability(initialUnits,physicalCapacity,live.length);
+      const planned=permittedLinkedPoolAvailability(
+        initialUnits,physicalCapacity,watch.baseline_refs??[],
+        live.map(r=>({resId:r.resId,obkId:r.obkId})),
+        watch.first_obk_id,watch.second_obk_id,
+      );
       if(planned===null)throw Error("Shared-room physical inventory configuration is invalid");
       const desired = watch.status==="active" ? planned : 0;
       const repairDue=watch.status==="active" && !!watch.reconcile_requested_at &&
@@ -100,14 +104,16 @@ Deno.serve(async req=>{
         if(!stillTheSame || desired!==initialUnits)
           throw Error("A booking changed after activation: cannot safely restore the linked availability");
         const {data:otherKinds,error:otherError}=await db.from("room_types")
-          .select("pms_room_id").eq("hotel_id",watch.hotel_id)
+          .select("pms_room_id,num_rooms").eq("hotel_id",watch.hotel_id)
           .eq("is_sellable",true).eq("counts_toward_inventory",true);
         if(otherError||!otherKinds?.length)throw Error("Physical room-type mapping unavailable");
         for(const kind of otherKinds){
           const other=String(kind.pms_room_id??"");
           if(!other||other===watch.first_obk_id||other===watch.second_obk_id)continue;
-          if(await currentAvailability(creds,hot,watch.stay_date,other)>0)
-            throw Error("Another independent category is still offering the same remaining physical rooms");
+          const ownBooked=live.filter(r=>r.obkId===other).length;
+          const ownFree=Math.max(0,Number(kind.num_rooms||0)-ownBooked);
+          if(await currentAvailability(creds,hot,watch.stay_date,other)>ownFree)
+            throw Error("An independent category is offering more than its own physical inventory");
         }
       }
       if(watch.status==="active" && desired===initialUnits && !repairDue){
