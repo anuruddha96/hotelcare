@@ -733,7 +733,11 @@ serve(async (req) => {
   // Summing everything triples the denominator and craters occupancy.
   const NON_ROOM = /breakfast|coffee|dessert|reggeli|parking|transfer|ticket|látógat|latogat|spa|massage|extra/i;
   const UNIT_GROUP = /^Room \(cap/i;
-  const isNonRoom = (name: string) => NON_ROOM.test(name);
+  // Previo SLNT uses "Technikai" for operational placeholder room kinds.
+  // They can have physical units but are not guest accommodation and must
+  // never re-enter the saleable revenue catalog on scheduled refresh.
+  const isTechnicalRoomKind = (name: string) => /^(?:technikai(?:\s+szoba)?|technical\s+rooms?)$/i.test(name.trim());
+  const isNonRoom = (name: string) => NON_ROOM.test(name) || isTechnicalRoomKind(name);
   // The auto-seeded "Room (cap N) — X units" rows describe the SAME physical
   // rooms as the hotel's real, named room types. When both exist, the named
   // types are the truth and the unit groups must not be counted again —
