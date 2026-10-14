@@ -381,7 +381,9 @@ export function useRevenueHotelData(
     const current = inFlightRef.current;
     if (current) await current.promise;
     await runLoad();
-    await Promise.all([refreshAvailability(), refreshRoomTypes()]);
+    // Catalog metadata is supplementary; a temporary read failure must not
+    // make an otherwise successful rate/pickup refresh appear to fail.
+    await Promise.all([refreshAvailability(), refreshRoomTypes().catch(() => {})]);
   }, [runLoad, refreshAvailability, refreshRoomTypes]);
 
   // Catalog metadata is small and can be refreshed independently of the
