@@ -174,6 +174,8 @@ export interface RevenueHotelData {
   reload: () => Promise<void>;
   /** Refresh only Previo room-type rooms-for-sale without reloading rates/reservations. */
   refreshAvailability: () => Promise<void>;
+  /** Fetch the physical room-type catalog without re-pulling bookings or rates. */
+  refreshRoomTypes: () => Promise<void>;
 }
 
 /** Loads every Revenue Management input for ONE hotel. */
@@ -199,6 +201,9 @@ export function useRevenueHotelData(
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
   const [availability, setAvailability] = useState<RoomTypeAvailability[]>([]);
+  const [catalogRoomTypes, setCatalogRoomTypes] = useState<RevenueRoomType[] | null>(null);
+  const currentHotelRef = useRef(hotelId);
+  currentHotelRef.current = hotelId;
 
   const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const requestVersionRef = useRef(0);
@@ -247,6 +252,15 @@ export function useRevenueHotelData(
     }
     setAvailability(rows);
   }, [hotelId, today, horizonEnd, roomMetadata]);
+
+  const refreshRoomTypes = useCallback(async () => {
+    if (!hotelId) { setCatalogRoomTypes(null); return; }
+    const { data, error } = await (supabase as any).from("room_types")
+      .select("*").eq("hotel_id", hotelId).order("sort_order").order("created_at");
+    if (error) throw new Error(`Could not read room-type catalog: ${error.message}`);
+    if (currentHotelRef.current !== hotelId) return;
+    setCatalogRoomTypes((data ?? []) as RevenueRoomType[]);
+  }, [hotelId]);
 
   const runLoad = useCallback(async () => {
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
@@ -367,8 +381,15 @@ export function useRevenueHotelData(
     const current = inFlightRef.current;
     if (current) await current.promise;
     await runLoad();
-    await refreshAvailability();
-  }, [runLoad, refreshAvailability]);
+    await Promise.all([refreshAvailability(), refreshRoomTypes()]);
+  }, [runLoad, refreshAvailability, refreshRoomTypes]);
+
+  // Catalog metadata is small and can be refreshed independently of the
+  // published rates/reservations payload (which can be minutes older).
+  useEffect(() => {
+    setCatalogRoomTypes(null);
+    void refreshRoomTypes().catch(() => { /* retain last published room data */ });
+  }, [refreshRoomTypes]);
 
   useEffect(() => {
     requestVersionRef.current += 1;
@@ -409,7 +430,12 @@ export function useRevenueHotelData(
     return () => window.removeEventListener(EXECUTIVE_RESUME_EVENT, onResume);
   }, [hotelId, runLoad]);
 
-  const roomTypes = payload?.roomTypes?.length ? payload.roomTypes : roomMetadata;
+  const roomTypes = useMemo(() => {
+    const source = catalogRoomTypes?.length
+      ? catalogRoomTypes
+      : (payload?.roomTypes?.length ? payload.roomTypes : roomMetadata);
+    return roomTypesWithGuestLevels(source, payload?.rates ?? []);
+  }, [catalogRoomTypes, payload, roomMetadata]);
   const nights = useMemo(() => (payload?.nights ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const snapshots = useMemo(() => (payload?.snapshots ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const rates = useMemo(() => (payload?.rates ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
@@ -456,7 +482,7 @@ export function useRevenueHotelData(
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, cancellations, soldOutPrices, availability, metrics, lastSyncAt, lastSyncBy, thresholds, reload, refreshAvailability,
+    nights, snapshots, rates, cancellations, soldOutPrices, availability, metrics, lastSyncAt, lastSyncBy, thresholds, reload, refreshAvailability, refreshRoomTypes,
     extending,
   };
 }
