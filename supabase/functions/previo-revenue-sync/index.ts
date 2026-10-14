@@ -812,6 +812,49 @@ serve(async (req) => {
     }
   }
 
+  // A category with no rates is omitted by the generic getRates-based
+  // mapping sync. When a single-account hotel's verified physical catalog
+  // contains a new category and ALL existing default mappings agree on one
+  // pricelist, provision its exact roomKindId under that same hotel pricelist.
+  // Nothing is published: an operator must explicitly enter first prices.
+  if (liveAccounts.length === 1 && verifiedCatalogAccounts.has(liveAccounts[0].hotId)) {
+    const { data: mappingRows, error: mappingReadError } = await service
+      .from("previo_rate_plan_mapping")
+      .select("previo_room_type_id,previo_rate_plan_id,is_default")
+      .eq("hotel_id", hotelId);
+    if (mappingReadError) {
+      softNotes.push(`Could not verify rate mappings: ${mappingReadError.message}`);
+    } else {
+      const mapped = new Set(((mappingRows ?? []) as Array<{ previo_room_type_id: string }>)
+        .map((r) => String(r.previo_room_type_id)));
+      const plans = new Set(((mappingRows ?? []) as Array<{ previo_rate_plan_id: string; is_default: boolean }>)
+        .filter((r) => r.is_default && r.previo_rate_plan_id)
+        .map((r) => String(r.previo_rate_plan_id)));
+      if (plans.size === 1) {
+        const [defaultPlan] = [...plans];
+        const { data: physicalRows } = await service.from("room_types")
+          .select("id,pms_room_id,num_rooms,organization_slug")
+          .eq("hotel_id", hotelId);
+        const ownKinds = new Map(roomTypes
+          .filter((rt) => rt.numRooms > 0 && countsForInventory(rt.name))
+          .map((rt) => [rt.obkId, rt]));
+        for (const room of (physicalRows ?? []) as Array<{ id: string; pms_room_id: string | null; num_rooms: number; organization_slug: string }>) {
+          if (!room.pms_room_id || mapped.has(String(room.pms_room_id)) ||
+            !ownKinds.has(String(room.pms_room_id)) || Number(room.num_rooms) <= 0) continue;
+          const { error } = await service.from("previo_rate_plan_mapping").insert({
+            hotel_id: hotelId, organization_slug: orgSlug,
+            room_type_id: room.id, previo_room_type_id: String(room.pms_room_id),
+            previo_rate_plan_id: defaultPlan, is_default: true,
+          });
+          if (error) errors.push(`Rate mapping for ${room.pms_room_id}: ${error.message}`);
+          else mapped.add(String(room.pms_room_id));
+        }
+      } else if (plans.size > 1) {
+        softNotes.push("Multiple default Previo pricelists found; new room types require an explicit rate-plan mapping.");
+      }
+    }
+  }
+
   if (catalogOnly) {
     const summary = {
       hotelId, roomTypes: roomTypes.length,
