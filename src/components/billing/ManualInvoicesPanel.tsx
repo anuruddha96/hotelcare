@@ -14,6 +14,10 @@ type Payment = {
   paid_at: string | null; szamlazz_invoice_number: string | null;
   invoiced_at: string | null;
 };
+type Contract = {
+  id: string; status: string; currency: string; gross_cents: number;
+  current_period_end: string | null; cancel_at_period_end: boolean;
+};
 const amount = (cents: number, currency: string) =>
   new Intl.NumberFormat("en", { style: "currency", currency }).format(cents / 100);
 
@@ -21,6 +25,7 @@ export default function ManualInvoicesPanel({ organizationSlug }: { organization
   const { profile } = useAuth();
   const canRecord = profile?.role === "admin" || Boolean(profile?.is_super_admin);
   const [rows, setRows] = useState<Payment[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [numbers, setNumbers] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -35,6 +40,7 @@ export default function ManualInvoicesPanel({ organizationSlug }: { organization
       toast.error((data as { error?: string } | null)?.error ?? error?.message ?? "Could not load payments");
     } else {
       setRows((data as { payments?: Payment[] })?.payments ?? []);
+      setContracts((data as { contracts?: Contract[] })?.contracts ?? []);
     }
     setLoading(false);
   }, [organizationSlug]);
@@ -57,6 +63,21 @@ export default function ManualInvoicesPanel({ organizationSlug }: { organization
     }
   };
 
+  const cancelRenewal = async (contract: Contract) => {
+    if (!window.confirm("Stop monthly auto-renewal after the current paid period? Access remains until that date.")) return;
+    setSaving(contract.id);
+    const { data, error } = await supabase.functions.invoke("billing-manage", {
+      body: { action: "cancel_manual_renewal", organizationSlug, contractId: contract.id },
+    });
+    setSaving(null);
+    if (error || (data as { error?: string } | null)?.error) {
+      toast.error((data as { error?: string } | null)?.error ?? error?.message ?? "Cancellation failed");
+    } else {
+      toast.success("Auto-renewal will stop at the paid-through date");
+      void reload();
+    }
+  };
+
   const awaiting = rows.filter((row) => row.status === "paid" && !row.szamlazz_invoice_number);
   const other = rows.filter((row) => row.status !== "paid" || row.szamlazz_invoice_number);
   return (
@@ -75,6 +96,23 @@ export default function ManualInvoicesPanel({ organizationSlug }: { organization
         </div>
         {loading && <p className="text-sm text-muted-foreground">Loading payment ledger…</p>}
         {!loading && rows.length === 0 && <p className="text-sm text-muted-foreground">No payment-only transactions yet.</p>}
+        {contracts.filter((contract) => contract.status === "active" || contract.cancel_at_period_end).map((contract) => (
+          <div key={contract.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-semibold">
+                Monthly plan · {amount(contract.gross_cents, contract.currency)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Paid through {contract.current_period_end?.slice(0, 10) ?? "pending"}
+                {contract.cancel_at_period_end ? " · Renewal cancelled" : " · Automatically renews monthly"}
+              </p>
+            </div>
+            {canRecord && contract.status === "active" && !contract.cancel_at_period_end && (
+              <Button variant="outline" size="sm" disabled={saving === contract.id}
+                onClick={() => void cancelRenewal(contract)}>Cancel auto-renewal</Button>
+            )}
+          </div>
+        ))}
         {[...awaiting, ...other].map((payment) => (
           <div key={payment.id} className="space-y-2 rounded-lg border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
