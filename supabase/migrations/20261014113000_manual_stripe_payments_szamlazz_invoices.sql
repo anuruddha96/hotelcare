@@ -14,6 +14,7 @@ CREATE TABLE public.manual_billing_contracts (
   vat_cents bigint NOT NULL DEFAULT 0 CHECK (vat_cents >= 0),
   gross_cents bigint NOT NULL DEFAULT 0 CHECK (gross_cents >= 0),
   billing_fingerprint text,
+  billing_tax_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   vat_percent_snapshot numeric NOT NULL,
   next_charge_at timestamptz,
   current_period_end timestamptz,
