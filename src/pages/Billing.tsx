@@ -251,7 +251,7 @@ export default function Billing() {
           <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="mr-1 h-4 w-4" /> Back</Button>
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold"><CreditCard className="h-6 w-6" /> Payments</h1>
-            <p className="text-sm text-muted-foreground">Choose modules per property. Organization fixed agreements are charged once across all covered properties; {vatPercent}% VAT is added on top.</p>
+            <p className="text-sm text-muted-foreground">Choose modules per property. Organization fixed agreements are charged once across all covered properties. {settings?.manual_invoicing_enabled ? 'Final VAT is calculated at checkout using company billing details.' : `${vatPercent}% VAT is added on top.`}</p>
           </div>
         </div>
 
@@ -382,9 +382,9 @@ export default function Billing() {
       {lines.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 p-3 sm:p-4">
-            <div className="text-sm"><p className="text-xs text-muted-foreground">{lines.length} property module{lines.length > 1 ? 's' : ''} selected · {chargeCount} billing line{chargeCount > 1 ? 's' : ''}</p><p><span className="text-muted-foreground">Net </span><span className="font-medium">{formatMoney(netTotal, currency)}</span><span className="text-muted-foreground"> + VAT {vatPercent}% </span><span className="font-medium">{formatMoney(vatTotal, currency)}</span></p></div>
+            <div className="text-sm"><p className="text-xs text-muted-foreground">{lines.length} property module{lines.length > 1 ? 's' : ''} selected · {chargeCount} billing line{chargeCount > 1 ? 's' : ''}</p><p><span className="text-muted-foreground">Net </span><span className="font-medium">{formatMoney(netTotal, currency)}</span><span className="text-muted-foreground"> + estimated VAT {vatPercent}% </span><span className="font-medium">{formatMoney(vatTotal, currency)}</span></p></div>
             <Separator orientation="vertical" className="hidden h-8 sm:block" />
-            <div><p className="text-xs text-muted-foreground">Total per month</p><p className="text-lg font-bold">{formatMoney(grossTotal, currency)}</p></div>
+            <div><p className="text-xs text-muted-foreground">{settings?.manual_invoicing_enabled ? "Estimated total · Stripe Tax final" : "Total per month"}</p><p className="text-lg font-bold">{formatMoney(grossTotal, currency)}</p></div>
             <Button className="ml-auto" onClick={startCheckout} disabled={busy}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{trialActive ? 'Start free trial — add card' : 'Continue to secure payment'}</Button>
           </div>
         </div>
