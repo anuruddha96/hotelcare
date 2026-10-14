@@ -153,5 +153,5 @@ export async function updateManualPaymentMethod(db: Db, stripe: Stripe, session:
     .select("id");
   if (error) throw error;
   if (!data?.length) throw new Error("No payment-only contract for this customer");
-  await stripe.customers.update(customerId, { invoice_settings: { default_payment_method: methodId } });
+  // The contract stores its explicit payment method; legacy Stripe Billing defaults are untouched.
 }
