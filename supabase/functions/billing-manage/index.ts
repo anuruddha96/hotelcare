@@ -403,6 +403,8 @@ Deno.serve(async (req) => {
             customer_update: existingCustomer ? { name: "auto", address: "auto" } : undefined,
             billing_address_collection: "required", tax_id_collection: { enabled: true },
             payment_method_types: ["card"],
+            custom_text: { submit: { message:
+              "By paying, you authorize automatic monthly card charges for your HotelCare services until cancelled. You can cancel future renewals from HotelCare Billing. Official VAT invoices are issued separately through Számlázz.hu." } },
             payment_intent_data: { setup_future_usage: "off_session",
               metadata: { kind: "hotelcare_manual_initial", organization_slug: slug, manual_contract_id: contractId } },
             invoice_creation: { enabled: false },
