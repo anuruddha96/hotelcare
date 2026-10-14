@@ -27,6 +27,7 @@ export interface BillingSettings {
   stripe_publishable_key: string | null;
   payments_enabled: boolean;
   stripe_secret_configured?: boolean;
+  manual_invoicing_enabled?: boolean;
   /** Analytics-only Revenue tier. */
   revenue_bi_price_cents: number;
   /** Revenue tier including the automated pricing engine. */
