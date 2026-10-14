@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
   const whSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
   if (!secret || !whSecret) return new Response("Not configured", { status: 400 });
 
-  const stripe = new Stripe(secret, { apiVersion: "2025-03-31.basil" });
+  const stripe = new Stripe(secret, { apiVersion: "2025-03-31.basil" as any });
   const signature = req.headers.get("stripe-signature") ?? "";
   const payload = await req.text();
 
