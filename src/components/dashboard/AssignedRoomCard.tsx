@@ -40,6 +40,19 @@ const plannedTypeLabel: Record<string, string> = {
   other: 'Other',
 };
 
+const plannedTypeLabelHu: Record<string, string> = {
+  general: 'Általános',
+  baby_bed: 'Babaágy',
+  extra_bed: 'Pótágy',
+  towels: 'Törölközők',
+  linen: 'Ágynemű',
+  vip: 'VIP',
+  maintenance: 'Karbantartás',
+  cleaning: 'Takarítás',
+  guest_request: 'Vendégkérés',
+  other: 'Egyéb',
+};
+
 async function loadHousekeeperPlannedRoomNotes(roomId: string, date: string): Promise<HousekeeperPlannedNote[]> {
   const { data, error } = await (supabase as any)
     .from('room_planned_notes')
@@ -211,7 +224,7 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
         <div className="min-w-0 flex-1">
           <p className="text-xs font-bold uppercase tracking-wide">{language === 'hu' ? 'Mai tervezett szobautasítás' : 'Planned room instruction for today'}</p>
           <div className="mt-1 space-y-1">
-            {plannedRoomNotes.map((note) => <p key={note.id} className="text-sm font-semibold"><span className="font-normal opacity-75">{plannedTypeLabel[note.instruction_type] || 'General'}:</span> {note.content}</p>)}
+            {plannedRoomNotes.map((note) => <p key={note.id} className="text-sm font-semibold"><span className="font-normal opacity-75">{(language === 'hu' ? plannedTypeLabelHu : plannedTypeLabel)[note.instruction_type] || (language === 'hu' ? 'Általános' : 'General')}:</span> {note.content}</p>)}
           </div>
           <p className="mt-1 text-[10px] opacity-70">{language === 'hu' ? 'A recepció/vezető által előre ütemezve a HotelCare-ben.' : 'Scheduled in advance by reception/management in HotelCare.'}</p>
         </div>
