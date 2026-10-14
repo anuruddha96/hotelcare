@@ -280,3 +280,7 @@ verify_jwt = false
 
 [functions.pms-refresh-queue-worker]
 verify_jwt = false
+
+# Opt-in manual Számlázz invoicing worker. Must validate its private header.
+[functions.manual-billing-worker]
+verify_jwt = false

@@ -2,6 +2,7 @@
 // Signature-verified with STRIPE_WEBHOOK_SECRET; no JWT because Stripe calls it.
 import Stripe from "npm:stripe@18";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { completeManualCheckout, finishManualRenewal, expireManualCheckout, updateManualPaymentMethod } from "../_shared/manualBillingRuntime.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -53,7 +54,7 @@ Deno.serve(async (req) => {
   const whSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
   if (!secret || !whSecret) return new Response("Not configured", { status: 400 });
 
-  const stripe = new Stripe(secret, { apiVersion: "2025-03-31.basil" });
+  const stripe = new Stripe(secret, { apiVersion: "2025-03-31.basil" as any });
   const signature = req.headers.get("stripe-signature") ?? "";
   const payload = await req.text();
 
@@ -68,7 +69,7 @@ Deno.serve(async (req) => {
   const db = admin();
 
   try {
-    const obj = event.data.object as Record<string, unknown>;
+    const obj = event.data.object as unknown as Record<string, unknown>;
     const meta = (obj.metadata ?? {}) as Record<string, string>;
     const orgSlug = meta.organization_slug ?? null;
 
@@ -126,6 +127,14 @@ Deno.serve(async (req) => {
         const session = event.data.object as Stripe.Checkout.Session;
         const sessionMeta = (session.metadata ?? {}) as Record<string, string>;
 
+        if (session.mode === "setup" && sessionMeta.kind === "hotelcare_manual_card") {
+          await updateManualPaymentMethod(db, stripe, session);
+          break;
+        }
+        if (session.mode === "payment" && sessionMeta.kind === "hotelcare_manual_monthly") {
+          await completeManualCheckout(db, stripe, session);
+          break;
+        }
         if (session.mode === "payment" && sessionMeta.kind === "assistant_premium_topup") {
           const pack = PREMIUM_PACKAGES[sessionMeta.package_id ?? ""];
           const userId = String(sessionMeta.user_id ?? "");
@@ -179,6 +188,15 @@ Deno.serve(async (req) => {
         }
         break;
       }
+      case "checkout.session.expired":
+        await expireManualCheckout(db, event.data.object as Stripe.Checkout.Session);
+        break;
+      case "payment_intent.succeeded":
+        await finishManualRenewal(db, event.data.object as Stripe.PaymentIntent, true);
+        break;
+      case "payment_intent.payment_failed":
+        await finishManualRenewal(db, event.data.object as Stripe.PaymentIntent, false);
+        break;
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted":

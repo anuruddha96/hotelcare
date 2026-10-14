@@ -33,7 +33,7 @@ export type UsageRow = {
 export function stripeClient() {
   const key = Deno.env.get("STRIPE_SECRET_KEY");
   if (!key) return null;
-  return new Stripe(key, { apiVersion: "2025-03-31.basil" });
+  return new Stripe(key, { apiVersion: "2025-03-31.basil" as any });
 }
 
 export async function rollupLastMonth(
