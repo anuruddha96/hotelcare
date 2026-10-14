@@ -1669,7 +1669,9 @@ export default function RateStrategyGrid({
       const hasRates = !!rt.pms_room_id && priceMap.has(rt.pms_room_id);
       out.push({ kind: "group", key: `g-${rt.id}`, label, note: hasRates ? `×${rt.num_rooms}` : `×${rt.num_rooms} · No Previo rates`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name, obkOfType: rt.pms_room_id ?? null });
       const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
-      const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [2];
+      // Never fabricate an editable 2-guest rate for a newly discovered room
+      // type whose Previo rate plan has not been configured yet.
+      const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [];
       for (const occ of occs) {
         out.push({
           kind: "rate",
