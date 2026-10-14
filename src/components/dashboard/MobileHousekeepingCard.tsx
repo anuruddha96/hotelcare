@@ -8,6 +8,7 @@ import { Clock, MapPin, User, Camera, PlayCircle, AlertTriangle, Shirt, BedDoubl
 import { useTranslation } from '@/hooks/useTranslation';
 import { useHousekeepingPresence } from '@/hooks/useHousekeepingPresence';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
+import { housekeeperVisibleAssignmentNote } from '@/lib/housekeeperVisibleAssignmentNote';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { format } from 'date-fns';
@@ -77,7 +78,7 @@ export function MobileHousekeepingCard({
   // Checkout cleans always include full linen — don't repeat it as an instruction.
   const linenChangeRequired = assignment.rooms?.linen_change_required && !isCheckoutClean;
   const bedConfiguration = displayHousekeepingBedSetup(assignment.rooms?.bed_configuration, assignment.rooms?.hotel);
-  const assignmentNotes = assignment.notes;
+  const assignmentNotes = housekeeperVisibleAssignmentNote(assignment.notes, assignment.rooms?.hotel);
   const guestNights = assignment.rooms?.guest_nights_stayed;
 
   const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || hasSeparatePrevioNote || assignmentNotes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
@@ -245,9 +246,13 @@ export function MobileHousekeepingCard({
               </div>
             )}
             {assignmentNotes && (
-              <div className="p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm">
+              <div className={assignment.rooms?.hotel === 'slnt-group'
+                ? 'p-3 rounded-lg border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30'
+                : 'p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm'}>
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                  {assignment.rooms?.hotel === 'slnt-group'
+                    ? <Info className="h-4 w-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                    : <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />}
                   <div className="flex-1">
                     <p className="text-[10px] font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide">
                       📝 {t('housekeeping.assignmentNotes')}
