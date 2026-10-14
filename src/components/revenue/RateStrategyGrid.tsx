@@ -15,6 +15,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useUiPreference } from "@/hooks/useUiPreference";
 import { canOfferComplimentaryUpgrade, showOwnLastSoldPrice } from "@/lib/revenue/roomSaleUpgradeEligibility";
 import { activeTransferLookups } from "@/lib/revenue/sharedLastRoom";
+import { activePricingRoomTypes } from "@/lib/revenue/roomTypeVisibility";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
@@ -1653,17 +1654,20 @@ export default function RateStrategyGrid({
   }, [roomTypes]);
 
   const pricedTypes = useMemo(() => {
-    const source = roomTypes.length > 0 ? roomTypes : stickyTypes;
-    const priced = source.filter((rt) => rt.pms_room_id && priceMap.has(rt.pms_room_id));
-    return priced.length ? priced : source;
-  }, [roomTypes, stickyTypes, priceMap]);
+    // Previo physical inventory defines visible categories, not the existence
+    // of a configured rate. Newly added rooms must stay visible without rates.
+    // Sticky types are only a loading placeholder, never a stale catalog fallback.
+    const source = !loading || roomTypes.length > 0 ? roomTypes : stickyTypes;
+    return activePricingRoomTypes(source);
+  }, [roomTypes, stickyTypes, loading]);
 
 
   const allRows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     for (const rt of pricedTypes) {
       const label = localizedRoomTypeName(rt.name, rt.name_translations, language);
-      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name, obkOfType: rt.pms_room_id ?? null });
+      const hasRates = !!rt.pms_room_id && priceMap.has(rt.pms_room_id);
+      out.push({ kind: "group", key: `g-${rt.id}`, label, note: hasRates ? `×${rt.num_rooms}` : `×${rt.num_rooms} · No Previo rates`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name, obkOfType: rt.pms_room_id ?? null });
       const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
       const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [2];
       for (const occ of occs) {
