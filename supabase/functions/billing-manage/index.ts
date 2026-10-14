@@ -371,15 +371,14 @@ Deno.serve(async (req) => {
             success_url: safeOrigin + "/billing?billing=success",
             cancel_url: safeOrigin + "/billing?billing=cancelled",
           };
-          const taxRegistrations = await stripe.tax.registrations.list({ status: "active", limit: 1 })
-            .catch(() => ({ data: [] as unknown[] }));
-          const hasRegistration = (taxRegistrations.data?.length ?? 0) > 0;
-          const taxRate = hasRegistration ? null : await fixedVatRate(stripe, settings);
+          // Stripe Tax validates the buyer's location and tax IDs. Never apply
+          // a blanket 27% to foreign B2B buyers when registration is absent.
+          const taxRegistrations = await stripe.tax.registrations.list({ status: "active", limit: 1 });
+          if (!taxRegistrations.data.length)
+            throw new Error("Configure Stripe Tax registrations before payment-only checkout to validate VAT");
           const paymentSession = await stripe.checkout.sessions.create({
             ...sessionData,
-            automatic_tax: { enabled: hasRegistration },
-            line_items: paymentItems.map((item) => ({ ...item,
-              tax_rates: taxRate ? [taxRate] : undefined })),
+            automatic_tax: { enabled: true },
           });
           const { error: sessionError } = await db.from("manual_billing_contracts")
             .update({ stripe_checkout_session_id: paymentSession.id })
