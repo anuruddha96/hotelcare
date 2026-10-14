@@ -1491,7 +1491,7 @@ export default function RateStrategyGrid({
         throw new Error(detail);
       }
       toast.success(
-        isShared ? "Both room types are now offered for the same last physical room. Booking checks are active."
+        isShared ? (data?.results?.[0]?.message ?? "The existing physical room is now offered under both linked room types. Booking checks are active.")
           : opts.minStay !== undefined
           ? `Minimum stay for ${opts.date} set to ${opts.minStay} night${opts.minStay === 1 ? "" : "s"} in Previo`
           : `${opts.roomTypeName ?? "Room type"} on ${opts.date}: ${opts.roomsToSell} to sell in Previo`,
@@ -4270,11 +4270,11 @@ export default function RateStrategyGrid({
                   <p>
                     This room was offered under a different category. You can make
                     <strong> both original and promoted room types available</strong> while
-                    the last physical room remains unsold.
+                    their linked physical room remains unsold.
                   </p>
                   <p className="text-xs text-muted-foreground">
                     HotelCare first verifies the remaining room and checks Previo.
-                    After a final booking, it checks for new reservations and closes both listings.
+                    After that room books, HotelCare checks for new reservations and closes both linked listings.
                     These checks are periodic; two simultaneous online bookings can still occur.
                   </p>
                 </div>
@@ -4328,10 +4328,10 @@ export default function RateStrategyGrid({
                           upgradePrompt.requested - upgradePrompt.current > 20}
                         checked={upgradePrompt.mode === "shared_pool"}
                         onChange={() => setUpgradePrompt((prev) => prev ? { ...prev, mode: "shared_pool" } : prev)} />
-                      <span><strong>Offer both room types until the last room sells</strong>
+                      <span><strong>Offer both room types until the linked room sells</strong>
                         <span className="block text-xs text-muted-foreground">
-                          HotelCare verifies the physical room count and reduces both offers after each confirmed booking,
-                          closing them at zero. Separate online bookings can still overlap before Previo updates.
+                          HotelCare verifies the room allocated to this pair and reduces both linked offers after each confirmed booking,
+                          closing them at zero. Other independently available rooms stay on sale. Separate online bookings can still overlap before Previo updates.
                         </span>
                       </span>
                     </label>
