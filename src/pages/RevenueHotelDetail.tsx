@@ -307,12 +307,41 @@ export default function RevenueHotelDetail() {
   const [bgFailed, setBgFailed] = useState(false);
   const [freshConfirm, setFreshConfirm] = useState<{ minutes: number } | null>(null);
   const [syncHistoryOpen, setSyncHistoryOpen] = useState(false);
+  const [roomCatalogBusy, setRoomCatalogBusy] = useState(false);
   const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
   const activeHotelRef = useRef(hotelId);
   const loadInFlightRef = useRef<{ hotelId: string; promise: Promise<void> } | null>(null);
   activeHotelRef.current = hotelId;
+
+  /**
+   * Pull just the room-type catalog. No pricing publishes or reservation reads;
+   * the normal revenue scheduler will continue updating rates automatically.
+   */
+  async function refreshRoomCatalog() {
+    if (!hotelId || roomCatalogBusy) return;
+    setRoomCatalogBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-revenue-sync", {
+        body: { hotelId, mode: "room_types_only" },
+      });
+      if (error) throw new Error(error.message);
+      if (!data || data.success === false) {
+        throw new Error(data?.errors?.[0] || "Previo did not confirm room type synchronization");
+      }
+      await live.refreshRoomTypes();
+      if (!data.physicalCatalogVerified) {
+        toast.warning("Room types refreshed, but physical inventory could not be independently verified in Previo.");
+      } else {
+        toast.success(`${data.activeRoomTypes} active room types · ${data.zeroInventoryTypes} empty types hidden from the calendar`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Room type refresh failed");
+    } finally {
+      setRoomCatalogBusy(false);
+    }
+  }
 
   /**
    * Pull fresh Previo revenue + occupancy data.
@@ -1140,6 +1169,14 @@ export default function RevenueHotelDetail() {
               {isTechnicalAdmin && (
                 <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setSyncHistoryOpen(true)}>
                   <HistoryIcon className="h-3.5 w-3.5" /> History
+                </Button>
+              )}
+              {revAdmin && (
+                <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => void refreshRoomCatalog()}
+                  disabled={roomCatalogBusy || syncing || syncWaiting || bgRefreshing || serverRefreshing}
+                  title="Discover new Previo categories and reconcile physical room counts without pulling rates and bookings">
+                  {roomCatalogBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  Refresh room types
                 </Button>
               )}
               <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => void requestSync()}

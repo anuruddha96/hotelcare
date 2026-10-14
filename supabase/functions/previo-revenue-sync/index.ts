@@ -14,6 +14,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
+import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -480,6 +481,8 @@ serve(async (req) => {
   // whole rate universe and the draft reconciliation pass are skipped, which
   // turns a multi-minute full sync into a short reservation refresh.
   const probeOnly: boolean = body.mode === "automation_probe";
+  // Catalog-only refresh is lightweight: no rate writes, reservation pulls or availability deletes.
+  const catalogOnly: boolean = body.mode === "room_types_only";
   // A person pressed "Sync now" / "Pull rates": Previo is the final word for
   // this run. Whatever Previo publishes right now becomes the Hotel Care
   // price, and older Hotel Care requests are closed instead of re-sent.
@@ -626,16 +629,99 @@ serve(async (req) => {
   const scopeObk = (acc: LiveAccount, obkId: string) => (multi ? `${acc.hotId}:${obkId}` : obkId);
 
   // ---------- 1. room types ----------
+  // getObjectKinds describes sellable kinds and rates; /rest/rooms describes
+  // *physical* room inventory. Previo may retain a room kind with zero rooms,
+  // or move physical rooms into a newly created category. XML's embedded
+  // <object> elements alone must not be treated as the live physical count.
+  type PhysicalRoom = {
+    roomId: number; roomKindId: number; roomKindName?: string;
+    capacity?: number; extraCapacity?: number; order?: number;
+    isHourlyBased?: boolean;
+  };
   const roomTypes: RoomTypeInfo[] = [];
+  const verifiedCatalogAccounts = new Set<string>();
   for (const acc of liveAccounts) {
-    const kindsRes = await callPrevioXml({ method: "getObjectKinds", creds: acc.creds as any, pmsHotelId: acc.hotId, extraXml: "" });
+    const kindsRes = await callPrevioXml({
+      method: "getObjectKinds", creds: acc.creds as any,
+      pmsHotelId: acc.hotId, extraXml: "",
+    });
+    const kinds = kindsRes.ok ? parseObjectKinds(kindsRes.text) : [];
     if (!kindsRes.ok) {
-      errors.push(`${acc.label} getObjectKinds: [${kindsRes.status}] ${kindsRes.errorMessage ?? "failed"}`);
+      softNotes.push(`${acc.label}: Previo room kinds XML unavailable; trying physical room catalog.`);
+    }
+
+    let physicalRooms: PhysicalRoom[] | null = null;
+    const configuredSecret = accounts[acc.idx]?.secretName;
+    if (configuredSecret) {
+      try {
+        const { response, source } = await fetchPrevioWithAuth({
+          credentialsSecretName: configuredSecret,
+          path: "/rest/rooms",
+          pmsHotelId: acc.hotId,
+        });
+        const rows = await safePrevioJson<PhysicalRoom[]>(response, { path: "/rest/rooms", source });
+        // Empty or malformed response is NOT proof that a hotel has lost all
+        // rooms. Fail safely, retaining known catalog counts for review.
+        if (!Array.isArray(rows) || !rows.some((r) => Number(r.roomId) > 0 && Number(r.roomKindId) > 0)) {
+          throw new Error("physical room list was empty or invalid");
+        }
+        physicalRooms = [...new Map(rows
+          .filter((r) => Number(r.roomId) > 0 && Number(r.roomKindId) > 0 && !r.isHourlyBased)
+          .map((r) => [String(r.roomId), r])).values()];
+        if (!physicalRooms.length) throw new Error("no usable physical accommodation rooms");
+        // The XML kind IDs and REST roomKindIds must describe the same hotel.
+        // If nothing overlaps, reject the REST result rather than clearing all
+        // older categories or importing rooms from the wrong PMS account.
+        if (kinds.length > 0 && !physicalRooms.some((room) =>
+          kinds.some((kind) => kind.obkId === String(room.roomKindId)))) {
+          throw new Error("REST roomKindIds do not match the XML room kinds");
+        }
+        verifiedCatalogAccounts.add(acc.hotId);
+      } catch (e) {
+        // Even if parsing produced an empty intermediate array, treat the
+        // physical inventory as UNVERIFIED. Never zero all categories on error.
+        physicalRooms = null;
+        softNotes.push(`${acc.label}: physical room inventory could not be verified (${String(e)}); keeping XML counts.`);
+      }
+    }
+
+    if (!physicalRooms && !kindsRes.ok) {
+      errors.push(`${acc.label}: neither physical rooms nor object kinds could be fetched`);
       continue;
     }
-    for (const rt of parseObjectKinds(kindsRes.text)) {
+
+    const byKind = new Map<string, PhysicalRoom[]>();
+    for (const r of physicalRooms ?? []) {
+      const id = String(r.roomKindId);
+      const list = byKind.get(id) ?? [];
+      list.push(r);
+      byKind.set(id, list);
+    }
+    const knownKinds = new Set(kinds.map((r) => r.obkId));
+    const mergedKinds: RoomTypeInfo[] = kinds.map((rt) => ({
+      ...rt,
+      numRooms: physicalRooms ? (byKind.get(rt.obkId)?.length ?? 0) : rt.numRooms,
+    }));
+    // A newly added sellable Previo category may appear in REST before XML
+    // rate plans are configured. Discover it, but never synthesize a price.
+    for (const [id, rooms] of byKind) {
+      if (knownKinds.has(id)) continue;
+      const first = rooms[0];
+      mergedKinds.push({
+        obkId: id,
+        name: first.roomKindName?.trim() || `Previo room type ${id}`,
+        numRooms: rooms.length,
+        maxOccupancy: Math.max(...rooms.map((room) =>
+          (Number(room.capacity) || 0) + (Number(room.extraCapacity) || 0))),
+        order: kinds.length + mergedKinds.length,
+      });
+    }
+    for (const rt of mergedKinds) {
       roomTypes.push({ ...rt, obkId: scopeObk(acc, rt.obkId), order: rt.order + acc.idx * 1000 });
     }
+  }
+  if (!roomTypes.length) {
+    return json({ success: false, errors: [...errors, "Previo returned no valid room type catalog; existing inventory was preserved"] }, 502);
   }
 
   const nameByObk = new Map(roomTypes.map((r) => [r.obkId, r.name]));
@@ -679,11 +765,12 @@ serve(async (req) => {
         .map((r) => [String(r.pms_room_id), r]),
     );
     const hasReference = ((existing ?? []) as Array<{ id: string }>).length > 0;
+    const catalogIds = new Set(roomTypes.map((rt) => rt.obkId));
     for (const rt of roomTypes) {
       const match = byPms.get(rt.obkId);
       if (match) {
         // Keep manual pricing/derivation edits, refresh only PMS-owned facts.
-        await service.from("room_types")
+        const { error } = await service.from("room_types")
           .update({
             name: rt.name,
             num_rooms: rt.numRooms,
@@ -692,8 +779,9 @@ serve(async (req) => {
             counts_toward_inventory: countsForInventory(rt.name),
           })
           .eq("id", match.id);
+        if (error) errors.push(`Room type ${rt.obkId}: ${error.message}`);
       } else {
-        await service.from("room_types").insert({
+        const { error } = await service.from("room_types").insert({
           hotel_id: hotelId,
           organization_slug: orgSlug,
           name: rt.name,
@@ -709,10 +797,39 @@ serve(async (req) => {
           max_price_eur: 500,
           sort_order: rt.order,
         });
+        if (error) errors.push(`New room type ${rt.obkId}: ${error.message}`);
+      }
+    }
+    // When *every* account returned a complete physical room list, old PMS
+    // kinds absent from Previo may be deactivated without erasing historical
+    // rate/reservation records or manually managed room types.
+    if (verifiedCatalogAccounts.size === liveAccounts.length) {
+      for (const stale of (existing ?? []) as Array<{ id: string; pms_room_id: string | null; num_rooms: number }>) {
+        if (!stale.pms_room_id || catalogIds.has(String(stale.pms_room_id)) || stale.num_rooms === 0) continue;
+        const { error } = await service.from("room_types").update({ num_rooms: 0 }).eq("id", stale.id);
+        if (error) errors.push(`Retired room type ${stale.pms_room_id}: ${error.message}`);
       }
     }
   }
 
+  if (catalogOnly) {
+    const summary = {
+      hotelId, roomTypes: roomTypes.length,
+      activeRoomTypes: roomTypes.filter((r) => r.numRooms > 0).length,
+      zeroInventoryTypes: roomTypes.filter((r) => r.numRooms === 0).length,
+      physicalRooms: totalRoomsFromKinds,
+      physicalCatalogVerified: verifiedCatalogAccounts.size === liveAccounts.length,
+      errors, notes: softNotes,
+    };
+    const { error: auditError } = await service.from("pms_sync_history").insert({
+      sync_type: "room_type_catalog", direction: "from_previo", hotel_id: hotelId,
+      sync_status: errors.length ? "partial" : "success",
+      error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
+      data: summary, synced_by_user_id: actorId, synced_by_name: actorName,
+    });
+    if (auditError) errors.push(`Room catalog audit: ${auditError.message}`);
+    return json({ success: errors.length === 0, ...summary });
+  }
 
   // ---------- 1b. native rooms-for-sale availability ----------
   // The reservation book tells us occupancy, but it cannot tell us that a
