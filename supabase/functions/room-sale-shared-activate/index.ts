@@ -1,6 +1,6 @@
-// Opt-in shared sale of the very last PHYSICAL room under two room kinds.
-// This is reactive 5-minute Previo monitoring, NOT atomic channel inventory;
-// guests may still double-book concurrently. Do not generalize beyond one unit.
+// Opt-in shared sale of an existing physical room under two room kinds.
+// This is reactive Previo monitoring, NOT an atomic channel inventory lock;
+// guests may still double-book concurrently.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { callPrevioXml,loadPrevioCredentials,hasPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { parsePrevioReservations, addDays } from "../_shared/previoReservations.ts";
@@ -130,8 +130,6 @@ Deno.serve(async(req)=>{
       const matching=unchangedReservationIds(activeWatch.baseline_refs??[],live.map(r=>r.resId));
       if(!matching || unique.size!==Number(activeWatch.baseline_confirmed))
         throw Error("A reservation changed since the linked offer started. Refresh Previo; availability will be reconciled before reopening.");
-    }else if(physicalRemaining!==requestedUnits){
-      throw Error("Choose only the verified remaining physical rooms for a new shared offer.");
     }
     const [sourceLeft,targetLeft]=await Promise.all([
       readAvailability(creds,previoHotelId,date,source),
@@ -139,20 +137,34 @@ Deno.serve(async(req)=>{
     ]);
     if(sourceLeft>requestedUnits||targetLeft>requestedUnits)
       throw Error("Room availability exceeds the shared quantity requested. Refresh the inventory first.");
-    // Do not borrow the physical last room if another unrelated room kind
-    // is independently still selling it. This is one-room, two-category
-    // sharing only; three listings for the same last room are not allowed.
+    // The linked Quad must be a genuine, unsold physical unit. Other rooms
+    // such as an available Twin are independent and must remain on sale.
+    const bookedByKind=new Map<string,number>();
+    for(const room of live) if(room.obkId)
+      bookedByKind.set(room.obkId,(bookedByKind.get(room.obkId)??0)+1);
+    const physicalSourceLeft=Math.max(0,Number(sourceKind.num_rooms||0)-(bookedByKind.get(source)??0));
+    if(!activeWatch && physicalSourceLeft<requestedUnits)
+      throw Error("The original room type does not have enough verified free physical rooms.");
     const otherKinds=kinds.filter((k:any)=>k.pms_room_id!==source&&k.pms_room_id!==target);
     const otherAvailability=await Promise.all(otherKinds.map((k:any)=>
       readAvailability(creds,previoHotelId,date,String(k.pms_room_id))));
-    if(otherAvailability.some(v=>v>0))
-      throw Error("Another room category is still offering the final room. Close that offer first.");
+    for(let i=0;i<otherKinds.length;i++){
+      const kind=otherKinds[i],id=String(kind.pms_room_id);
+      const ownPhysicalLeft=Math.max(0,Number(kind.num_rooms||0)-(bookedByKind.get(id)??0));
+      if(otherAvailability[i]>ownPhysicalLeft)
+        throw Error("Another category exceeds its own physical inventory. Review Previo before sharing rooms.");
+    }
     // A prior exclusive transfer may have closed the source (Quad).
     // It is safe to restore one only if that allocation is already recorded.
     const {data:exclusive}=await admin.from("room_sale_upgrade_rules")
       .select("id").eq("hotel_id",hotelId).eq("stay_date",date)
       .eq("source_obk_id",source).eq("target_obk_id",target)
       .eq("sell_mode","exclusive_transfer").eq("status","active").maybeSingle();
+    // When a Queen is already for sale without a recorded transfer or linked
+    // rule, we cannot tell which reservation would consume the physical Queen.
+    // Do not overwrite an independently sellable Queen with a virtual offer.
+    if(targetLeft>0 && !exclusive && !activeWatch)
+      throw Error("The Queen category already has availability. Share only when the additional Queen offer starts from zero.");
     if(sourceLeft===0&&!exclusive && !activeWatch)
       throw Error("The larger room is closed, with no verified previous allocation to restore.");
     if(sourceLeft<requestedUnits && sourceLeft!==0 && !activeWatch)
@@ -230,7 +242,7 @@ Deno.serve(async(req)=>{
     return response({ok:true,
       results:[{ok:true,date,roomTypeName:targetKind.name,
         message:requestedUnits===1
-          ? "Both room types are available for the same last room. HotelCare checks bookings and closes both after the final sale."
+          ? "The verified Quad room is also offered as a Queen. HotelCare closes both linked listings after either category books it."
           : `Both room types share ${requestedUnits} physical rooms. HotelCare will reduce both categories as those rooms sell.` }],
       mode:"shared_last_room",warning:"Closures are reactive; simultaneous OTA bookings are still possible."});
   }catch(e){
