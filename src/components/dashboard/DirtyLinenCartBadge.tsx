@@ -8,6 +8,7 @@ import { ShoppingCart, Trash2, Shirt, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { translateLinenItem } from '@/lib/linen-item-i18n';
+import { isValidRealtimeUuid } from '@/lib/realtimeUuidFilter';
 
 interface LinenRecord {
   id: string;
@@ -142,11 +143,14 @@ export function DirtyLinenCartBadge() {
   };
 
   useEffect(() => {
+    // userId is null on the initial render. Subscribing before auth resolves
+    // sends housekeeper_id=eq.null, which PostgreSQL rejects (SQLSTATE 22P02).
+    if (!isValidRealtimeUuid(userId)) return;
     fetchCartData();
 
     // Subscribe to real-time updates
     const channel = supabase
-      .channel('dirty-linen-cart-changes')
+      .channel(`dirty-linen-cart-changes-${userId}`)
       .on(
         'postgres_changes',
         {

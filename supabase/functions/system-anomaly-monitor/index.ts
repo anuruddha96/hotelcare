@@ -116,6 +116,19 @@ Deno.serve(async (req) => {
       ? evidence as Record<string, unknown>
       : {};
 
+  // Capture writes/subscription evidence before alert detection updates its
+  // 5-minute query counters. Evidence consists only of aggregate table names
+  // and counts (no staff, guest, hotel or filter identifiers).
+  const { data: realtimeEvidence, error: realtimeEvidenceError } =
+    await admin.rpc("hc_capture_realtime_table_evidence");
+  if (realtimeEvidenceError) {
+    console.warn("Realtime aggregate evidence unavailable", realtimeEvidenceError.message);
+  }
+  const aggregateRealtimeEvidence: Record<string, unknown> =
+    !realtimeEvidenceError && realtimeEvidence && typeof realtimeEvidence === "object" && !Array.isArray(realtimeEvidence)
+      ? realtimeEvidence as Record<string, unknown>
+      : {};
+
   const { data: detection, error: detectionError } = await admin.rpc("detect_system_anomalies");
   if (detectionError) {
     console.error("system anomaly detection failed", detectionError.message);
@@ -148,24 +161,33 @@ Deno.serve(async (req) => {
 
   for (const raw of claimed || []) {
     const claimedAlert = raw as Alert;
-    const alert: Alert = claimedAlert.kind === "rollback_storm"
-      ? {
-          ...claimedAlert,
-          title: "Unusually high PostgreSQL rollback rate (cause unconfirmed)",
-          details: {
-            ...(claimedAlert.details || {}),
-            ...rollbackEvidence,
-            interpretation: "Rollback counters include intentional transaction aborts. This alert does not confirm SQL errors, failed writes or data loss.",
-          },
-        }
-      : claimedAlert;
+    const isRealtimeHotspot = claimedAlert.kind === "query_cpu_hotspot"
+      && String(claimedAlert.details?.query_sample || "").includes("realtime.list_changes(");
+    const shouldEnrich = claimedAlert.kind === "rollback_storm" || isRealtimeHotspot;
+    const alert: Alert = !shouldEnrich ? claimedAlert : {
+      ...claimedAlert,
+      title: claimedAlert.kind === "rollback_storm"
+        ? "Unusually high PostgreSQL rollback rate (cause unconfirmed)"
+        : claimedAlert.title,
+      details: {
+        ...(claimedAlert.details || {}),
+        ...(claimedAlert.kind === "rollback_storm" ? rollbackEvidence : {}),
+        ...(isRealtimeHotspot ? {
+          realtime_evidence: aggregateRealtimeEvidence,
+          interpretation: "Supabase Realtime list_changes is an internal WAL-change processing query. Cumulative execution time is not downtime, and these counts do not establish which subscriber or table caused the spike.",
+        } : {}),
+        ...(claimedAlert.kind === "rollback_storm" ? {
+          interpretation: "Rollback counters include intentional transaction aborts. This alert does not confirm SQL errors, failed writes or data loss.",
+        } : {}),
+      },
+    };
     if (alert !== claimedAlert) {
       const { error: enrichmentError } = await admin
         .from("system_anomaly_alerts")
         .update({ title: alert.title, details: alert.details })
         .eq("id", alert.id)
         .eq("status", "sending");
-      if (enrichmentError) console.error("could not store rollback diagnostics", enrichmentError.message);
+      if (enrichmentError) console.error("could not store anomaly diagnostics", enrichmentError.message);
     }
     const message = messageFor(alert);
     const result = await sendEmail({

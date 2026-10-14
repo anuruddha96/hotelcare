@@ -16,6 +16,7 @@ import { translateLinenItem } from '@/lib/linen-item-i18n';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { gozsduLinenLabel, loadHotelLinenCatalogue, type LinenCatalogueItem } from '@/lib/gozsduLinenCatalogue';
 import { DirtyLinenReliableQueue, dirtyLinenQueueKey, type LinenQueueSnapshot } from '@/lib/dirtyLinenReliableQueue';
+import { isValidRealtimeUuid } from '@/lib/realtimeUuidFilter';
 
 interface DirtyLinenDialogProps {
   open: boolean;
@@ -181,7 +182,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   }, [open, profile?.assigned_hotel, roomId, fetchMyRecords]);
 
   useEffect(() => {
-    if (!open || !queue || !userId) return;
+    if (!open || !queue || !isValidRealtimeUuid(userId) || !isValidRealtimeUuid(roomId)) return;
     let active = true;
     let refreshing = false;
     let needsRefresh = false;
