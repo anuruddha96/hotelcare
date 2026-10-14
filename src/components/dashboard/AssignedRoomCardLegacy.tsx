@@ -50,6 +50,7 @@ import { PausableTimerComponent } from './PausableTimerComponent';
 import { RoomAssignmentChangeDialog } from './RoomAssignmentChangeDialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
+import { housekeeperVisibleAssignmentNote } from '@/lib/housekeeperVisibleAssignmentNote';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isGozsduNoMinibarRoom, isNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
@@ -793,7 +794,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       if (error) throw error;
       setTranslatedMessages(prev => ({ ...prev, [msgId]: data.translatedText }));
     } catch {
-      toast.error('Translation failed');
+      toast.error(language === 'hu' ? 'A fordítás sikertelen' : 'Translation failed');
     } finally {
       setTranslatingMsgId(null);
     }
@@ -879,6 +880,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const recheckMatch = rawAssignmentNote.match(/^\[SUPERVISOR_RECHECK(?::(same|handover))?\]\s*(.*)$/s);
   const isLegacySupervisorRecheck = rawAssignmentNote === 'Reassigned - Previous completion needs review';
   const isSupervisorRecheck = !!recheckMatch || isLegacySupervisorRecheck;
+  // Historic SLNT unsold planning priority was synthetic, not a manager urgency flag.
+  const isProvisionalPlanningPriority = assignment.rooms?.hotel === 'slnt-group'
+    && /^unbooked at planning sync/i.test(rawAssignmentNote)
+    && assignment.priority === 3;
   const recheckScope = recheckMatch?.[1] || 'handover';
   const supervisorRecheckReason = (recheckMatch?.[2] || '').trim().replace(/[.!?]+$/, '');
   const recheckCopy = (() => {
@@ -928,7 +933,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const recheckIntro = recheckScope === 'same' ? recheckCopy.introSelf : recheckCopy.introHandover;
   const displayAssignmentNote = isSupervisorRecheck
     ? `${recheckIntro}${supervisorRecheckReason ? ` ${recheckCopy.reason}: ${supervisorRecheckReason}.` : ''} ${recheckCopy.action}`
-    : rawAssignmentNote;
+    : housekeeperVisibleAssignmentNote(rawAssignmentNote, assignment.rooms?.hotel);
   // Prefer PMS-inferred bed config, but fall back to the manager-set
   // `bed_configuration` column so manual bed setup instructions still reach
   // the housekeeper when there's no housekeeping note to infer from.
@@ -941,8 +946,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     : null;
   
   // Count special instructions
-  const hasSpecialInstructions = showTowelChange || showLinenChange || !!portfolioCarry || !!bedInstruction || hasManagerNotes || hasSeparatePrevioNote || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [showTowelChange, showLinenChange, !!portfolioCarry, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = showTowelChange || showLinenChange || !!portfolioCarry || !!bedInstruction || hasManagerNotes || hasSeparatePrevioNote || !!displayAssignmentNote || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [showTowelChange, showLinenChange, !!portfolioCarry, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, !!displayAssignmentNote, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
@@ -959,9 +964,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       });
       if (error) throw error;
       setter(data.translatedText);
-      toast.success('Note translated');
+      toast.success(language === 'hu' ? 'Megjegyzés lefordítva' : 'Note translated');
     } catch (err: any) {
-      toast.error('Translation failed');
+      toast.error(language === 'hu' ? 'A fordítás sikertelen' : 'Translation failed');
     } finally {
       setTranslating(false);
     }
@@ -969,9 +974,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
   return (
     <Card className={`${cardClassName}${hasSpecialInstructions ? ' border-l-4 border-l-amber-400' : ''}`}>
-      <CardHeader className="pb-4">
+      <CardHeader className={assignment.rooms?.hotel === 'slnt-group' ? 'pb-2' : 'pb-4'}>
         {/* Checkout Waiting Banner */}
-        {isCheckoutWaiting && (
+        {isCheckoutWaiting && assignment.rooms?.hotel !== 'slnt-group' && (
           <div className="mb-4 p-3 bg-gradient-to-r from-orange-100 to-amber-100 dark:from-orange-900/40 dark:to-amber-900/40 rounded-lg border border-orange-300 dark:border-orange-700">
             <div className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400 animate-pulse" />
@@ -990,7 +995,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
           <div className="flex items-center gap-3 flex-wrap min-w-0 flex-1">
             <CardTitle className="text-xl sm:text-2xl font-bold text-foreground break-words">
-              {t('common.room')} {assignment.rooms?.room_number || 'N/A'}
+              {assignment.rooms?.hotel === 'slnt-group' ? null : `${t('common.room')} `}{assignment.rooms?.room_number || 'N/A'}
             </CardTitle>
             <Badge 
               className={`${getStatusColor(assignment.status)} font-semibold px-3 py-1 text-xs uppercase rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center`}
@@ -1011,14 +1016,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             </Badge>
             {hasSpecialInstructions && (
               <Badge 
-                variant="destructive" 
-                className="text-[10px] px-1.5 py-0.5 animate-pulse flex-shrink-0 cursor-pointer"
+                variant={assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck ? 'secondary' : 'destructive'} 
+                className="text-xs px-2 py-1 flex-shrink-0 cursor-pointer"
                 onClick={(e) => {
                   e.stopPropagation();
                   setWarningInfoOpen(true);
                 }}
               >
-                ⚠️ {instructionCount}
+                {assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck ? '📝' : '⚠️'} {instructionCount}
               </Badge>
             )}
           </div>
@@ -1027,7 +1032,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {isCheckoutWaiting && (
               <Badge 
                 variant="default" 
-                className="bg-orange-500 text-white font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 animate-pulse max-w-full whitespace-normal break-words leading-tight text-center"
+                className="bg-orange-500 text-white font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
                 🚪 {t('housekeeping.assignmentType.checkoutClean') || 'Checkout'}
               </Badge>
@@ -1058,10 +1063,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </Badge>
             )}
             
-            {assignment.priority > 1 && assignment.status !== 'in_progress' && (
+            {assignment.priority > 1 && !isProvisionalPlanningPriority && assignment.status !== 'in_progress' && (
               <Badge 
                 variant="outline" 
-                className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0 animate-pulse max-w-full whitespace-normal break-words leading-tight text-center`}
+                className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center`}
               >
                 ⭐ {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
               </Badge>
@@ -1069,7 +1074,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             {assignment.status === 'in_progress' && (
               <Badge 
                 variant="default"
-                className="bg-primary text-primary-foreground font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 animate-pulse max-w-full whitespace-normal break-words leading-tight text-center"
+                className="bg-primary text-primary-foreground font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
                 🔥 {t('housekeeping.inProgress')}
               </Badge>
@@ -1209,10 +1214,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               )}
             </div>
           )}
-          {assignment.notes && (
-            <div className="p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm">
+          {displayAssignmentNote && (
+            <div className={assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck
+              ? 'p-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-900/30'
+              : 'p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm'}>
               <div className="flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                {assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck
+                  ? <Info className="h-4 w-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                  : <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />}
                 <div className="flex-1">
                   <p className="text-xs font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide">{isSupervisorRecheck ? `⚠️ ${recheckCopy.title}` : `📝 ${t('housekeeping.assignmentNotes')}`}</p>
                   <p className="text-sm text-amber-800 dark:text-amber-200 font-semibold mt-0.5">
@@ -1235,7 +1244,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         </div>
       )}
 
-      <CardContent className="space-y-4">
+      <CardContent className={assignment.rooms?.hotel === 'slnt-group' ? 'space-y-3' : 'space-y-4'}>
         {/* Compact Room Info Line */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
@@ -1993,10 +2002,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   <span>Previo: {translatedPrevioNote || slntPrevioNote}</span>
                 </li>
               )}
-              {assignment.notes && (
+              {displayAssignmentNote && (
                 <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
                   <span>📋</span>
-                  <span>{translatedAssignmentNote || (shouldTranslateContent(language) ? translateText(assignment.notes, language) : assignment.notes)}</span>
+                  <span>{translatedAssignmentNote || (shouldTranslateContent(language) ? translateText(displayAssignmentNote, language) : displayAssignmentNote)}</span>
                 </li>
               )}
             </ul>
