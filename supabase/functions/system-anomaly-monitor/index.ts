@@ -177,7 +177,12 @@ Deno.serve(async (req) => {
           interpretation: "Supabase Realtime list_changes is an internal WAL-change processing query. Cumulative execution time is not downtime, and these counts do not establish which subscriber or table caused the spike.",
         } : {}),
         ...(claimedAlert.kind === "rollback_storm" ? {
+          // The monitor has already captured this before anomaly detection advanced
+          // its snapshots; include it for rollback spikes as well as WAL hotspots.
+          // These samples are contextual only and cannot attribute a rollback.
+          realtime_evidence: aggregateRealtimeEvidence,
           interpretation: "Rollback counters include intentional transaction aborts. This alert does not confirm SQL errors, failed writes or data loss.",
+          investigation_hint: "Compare the PostgreSQL-wide rollback delta with sampled PostgREST request-setup calls and nearby HTTP/SQL error logs. A mismatch does not prove which internal service caused the spike. Realtime table-change evidence is sampled and does not establish causality.",
         } : {}),
       },
     };
