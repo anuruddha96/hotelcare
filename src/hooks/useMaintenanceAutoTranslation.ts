@@ -22,6 +22,25 @@ type TranslationState = MaintenanceTranslatedFields & {
 
 const translationCache = new Map<string, MaintenanceTranslatedFields>();
 const inflightTranslations = new Map<string, Promise<MaintenanceTranslatedFields>>();
+const MAX_PARALLEL_TRANSLATIONS = 2;
+const MAX_CACHED_TRANSLATIONS = 100;
+const translationSlots: Array<() => void> = [];
+let activeTranslations = 0;
+
+/** A shared queue ensures a large ticket list cannot flood the translation endpoint. */
+async function withTranslationSlot<T>(operation: () => Promise<T>): Promise<T> {
+  await new Promise<void>(resolve => {
+    const start = () => { activeTranslations += 1; resolve(); };
+    if (activeTranslations < MAX_PARALLEL_TRANSLATIONS) start();
+    else translationSlots.push(start);
+  });
+  try {
+    return await operation();
+  } finally {
+    activeTranslations -= 1;
+    translationSlots.shift()?.();
+  }
+}
 
 function normalizeFields(fields: MaintenanceTranslationFields): MaintenanceTranslatedFields {
   return {
@@ -38,9 +57,9 @@ function cacheKey(language: string, fields: MaintenanceTranslatedFields): string
 
 async function translateSingle(text: string, targetLanguage: string): Promise<string> {
   if (!text.trim()) return text;
-  const { data, error } = await supabase.functions.invoke('translate-note', {
+  const { data, error } = await withTranslationSlot(() => supabase.functions.invoke('translate-note', {
     body: { text: text.slice(0, 6000), targetLanguage },
-  });
+  }));
   if (error || !data?.translatedText) throw error || new Error('Translation unavailable');
   return String(data.translatedText);
 }
@@ -68,9 +87,9 @@ export async function translateMaintenanceFields(
     // One batched Edge Function request keeps automatic ticket translation cheap
     // and avoids firing 3-4 OpenAI requests for every card in the maintenance queue.
     if (totalLength <= 6000 && values.every(value => value.length <= 4000)) {
-      const { data, error } = await supabase.functions.invoke('translate-note', {
+      const { data, error } = await withTranslationSlot(() => supabase.functions.invoke('translate-note', {
         body: { texts: values, targetLanguage: language },
-      });
+      }));
       const translatedTexts = data?.translatedTexts;
       if (error || !Array.isArray(translatedTexts) || translatedTexts.length !== values.length) {
         throw error || new Error('Batch translation unavailable');
@@ -89,6 +108,7 @@ export async function translateMaintenanceFields(
     }
 
     translationCache.set(key, translated);
+    if (translationCache.size > MAX_CACHED_TRANSLATIONS) translationCache.delete(translationCache.keys().next().value!);
     return translated;
   })().finally(() => {
     inflightTranslations.delete(key);
@@ -108,6 +128,7 @@ export function useMaintenanceAutoTranslation(
   fields: MaintenanceTranslationFields,
   targetLanguage: string,
   enabled = true,
+  retryToken = 0,
 ): TranslationState {
   const source = useMemo(
     () => normalizeFields(fields),
@@ -131,7 +152,7 @@ export function useMaintenanceAutoTranslation(
       });
 
     return () => { active = false; };
-  }, [enabled, source, targetLanguage]);
+  }, [enabled, source, targetLanguage, retryToken]);
 
   return state;
 }

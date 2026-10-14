@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,6 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
  * authorizes each ticket with the worker's own JWT and database RLS. */
 export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallback, revision = 0 }: Props) {
   const { user } = useAuth();
-  const host = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const [response, setResponse] = useState<MaintenanceTranslationResponse | null>(null);
@@ -34,17 +33,6 @@ export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallb
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
   const key = `${user?.id || 'signed-out'}:${maintenanceTranslationCacheKey(ticket.id, `${ticket.updated_at}:${revision}`, language)}`;
-
-  useEffect(() => {
-    const target = host.current;
-    if (!target) return;
-    if (typeof IntersectionObserver === 'undefined') { setVisible(true); return; }
-    const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) setVisible(true);
-    }, { rootMargin: '350px' });
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +88,7 @@ export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallb
   };
 
   return (
-    <div ref={host} className="space-y-2">
+    <div className="space-y-2">
       <div className="rounded-lg bg-muted/50 p-2 text-xs">
         <div className="text-muted-foreground flex items-center gap-1"><User className="h-3 w-3" />{label.reporter}</div>
         <div className="font-semibold break-words">{context?.reporter || reporterFallback || '—'}</div>
@@ -109,11 +97,14 @@ export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallb
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs text-muted-foreground font-semibold flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{label.issue}</span>
           <div className="flex gap-1">
+            {!visible && <Button type="button" variant="outline" size="sm" className="h-9 text-xs" onClick={() => setVisible(true)}>
+              <Languages className="mr-1 h-3.5 w-3.5" />{language === 'hu' ? 'Fordítás és előzmények' : 'Translate & view history'}
+            </Button>}
             {context && Object.keys(context.translations || {}).length > 0 &&
               <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setShowOriginal(!showOriginal)}>
                 <Languages className="mr-1 h-3.5 w-3.5" />{showOriginal ? label.translated : label.original}
               </Button>}
-            {(!context || context.translationUnavailable) && !loading &&
+            {visible && (!context || context.translationUnavailable) && !loading &&
               <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setReload(n => n + 1)}>
                 <RotateCw className="mr-1 h-3.5 w-3.5" />{label.retry}
               </Button>}
