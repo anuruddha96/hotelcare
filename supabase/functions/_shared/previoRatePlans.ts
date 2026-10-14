@@ -129,7 +129,7 @@ export async function syncPrevioRatePlanMappings(
 
   const { data: types } = await service
     .from("room_types")
-    .select("id, pms_room_id, organization_slug, name")
+    .select("id, pms_room_id, organization_slug, name, num_rooms, is_sellable")
     .eq("hotel_id", hotelId);
   const byPms = new Map(
     ((types ?? []) as any[]).filter((t) => t.pms_room_id).map((t) => [String(t.pms_room_id), t]),
@@ -167,6 +167,35 @@ export async function syncPrevioRatePlanMappings(
       "Previo returned pricelists, but none of them match a saved room type. Run a revenue sync first so the room types carry their Previo ids.",
     );
     return { ok: false, mapped: 0, notes };
+  }
+
+  // New Previo room kinds can have PHYSICAL inventory but no configured
+  // nightly prices yet. getRates cannot re-discover them until the first
+  // occupancy ladder is published. Do not erase their already verified
+  // exact mapping on every rate-plan refresh; keep it only if the room kind
+  // still exists at this hotel AND its rate plan remains live on siblings.
+  const { data: previousMaps, error: previousError } = await service
+    .from("previo_rate_plan_mapping")
+    .select("room_type_id,previo_room_type_id,previo_rate_plan_id")
+    .eq("hotel_id", hotelId);
+  if (previousError) {
+    return { ok: false, mapped: 0, notes: [...notes, `Could not preserve existing mappings: ${previousError.message}`] };
+  }
+  const covered = new Set(rows.map((r) => String(r.room_type_id)));
+  for (const previous of (previousMaps ?? []) as any[]) {
+    const kind = byPms.get(String(previous.previo_room_type_id ?? ""));
+    if (!kind || covered.has(String(kind.id)) ||
+        String(previous.room_type_id) !== String(kind.id) ||
+        Number(kind.num_rooms) <= 0 || kind.is_sellable === false ||
+        !planUse.has(String(previous.previo_rate_plan_id))) continue;
+    rows.push({
+      hotel_id: hotelId, organization_slug: orgSlug,
+      room_type_id: kind.id,
+      previo_room_type_id: String(previous.previo_room_type_id),
+      previo_rate_plan_id: String(previous.previo_rate_plan_id),
+      is_default: String(previous.previo_rate_plan_id) === defaultPlan,
+    });
+    covered.add(String(kind.id));
   }
 
   await service.from("previo_rate_plan_mapping").delete().eq("hotel_id", hotelId);
