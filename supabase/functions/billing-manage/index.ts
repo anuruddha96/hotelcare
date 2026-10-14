@@ -142,6 +142,27 @@ Deno.serve(async (req) => {
     const stripe = stripeClient();
     if (!stripe) return json({ error: "Stripe is not configured yet" }, 400);
 
+    if (action === "portal" && Deno.env.get("HOTELCARE_MANUAL_BILLING_ENABLED") === "true") {
+      const { data: manual } = await db.from("manual_billing_contracts")
+        .select("stripe_customer_id").eq("organization_slug", slug)
+        .in("status", ["active", "past_due", "needs_review"])
+        .not("stripe_customer_id", "is", null).limit(1).maybeSingle();
+      if (manual?.stripe_customer_id) {
+        const safeOrigin = req.headers.get("origin") ?? "";
+        if (!/^https:\/\//.test(safeOrigin) && !/^http:\/\/localhost(:[0-9]+)?$/.test(safeOrigin))
+          return json({ error: "Invalid origin" }, 400);
+        const session = await stripe.checkout.sessions.create({
+          mode: "setup", customer: manual.stripe_customer_id,
+          payment_method_types: ["card"],
+          metadata: { kind: "hotelcare_manual_card", organization_slug: slug },
+          setup_intent_data: { metadata: { kind: "hotelcare_manual_card", organization_slug: slug } },
+          success_url: safeOrigin + "/billing?card=updated",
+          cancel_url: safeOrigin + "/billing?card=cancelled",
+        });
+        return json({ url: session.url });
+      }
+    }
+
     if (action === "portal") {
       const customerId = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
       if (!customerId) {
