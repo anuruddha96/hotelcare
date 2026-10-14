@@ -7,7 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
+type BillingDetails = {
+  name?: string | null; email?: string | null;
+  address?: { line1?: string | null; line2?: string | null; city?: string | null;
+    postal_code?: string | null; country?: string | null } | null;
+  tax_ids?: Array<{ type?: string; value?: string }>;
+};
 type Payment = {
+  billing_details?: BillingDetails | null;
   id: string; contract_id: string; period_start: string; period_end: string;
   payment_source: string; status: string; currency: string;
   net_cents: number; vat_cents: number; gross_cents: number;
@@ -16,6 +23,8 @@ type Payment = {
 };
 type Contract = {
   id: string; status: string; currency: string; gross_cents: number;
+  items?: Array<{ hotel_id: string; module: string }>;
+  billing_details?: BillingDetails | null;
   current_period_end: string | null; cancel_at_period_end: boolean;
 };
 const amount = (cents: number, currency: string) =>
@@ -102,6 +111,9 @@ export default function ManualInvoicesPanel({ organizationSlug }: { organization
               <p className="text-sm font-semibold">
                 Monthly plan · {amount(contract.gross_cents, contract.currency)}
               </p>
+              {contract.items?.length ? <p className="text-xs text-muted-foreground">
+                {contract.items.map((item) => item.module + " / " + item.hotel_id).join(" · ")}
+              </p> : null}
               <p className="text-xs text-muted-foreground">
                 Paid through {contract.current_period_end?.slice(0, 10) ?? "pending"}
                 {contract.cancel_at_period_end ? " · Renewal cancelled" : " · Automatically renews monthly"}
@@ -127,6 +139,20 @@ export default function ManualInvoicesPanel({ organizationSlug }: { organization
                 {payment.szamlazz_invoice_number ? "Invoiced" : payment.status === "paid" ? "Awaiting invoice" : payment.status}
               </Badge>
             </div>
+            {payment.billing_details && (
+              <div className="text-xs text-muted-foreground">
+                <p><strong>Bill to:</strong> {payment.billing_details.name ?? "Review customer name"}
+                  {payment.billing_details.email ? " · " + payment.billing_details.email : ""}</p>
+                <p>{[
+                  payment.billing_details.address?.line1, payment.billing_details.address?.line2,
+                  payment.billing_details.address?.postal_code, payment.billing_details.address?.city,
+                  payment.billing_details.address?.country,
+                ].filter(Boolean).join(", ")}</p>
+                {(payment.billing_details.tax_ids ?? []).map((taxId, index) => (
+                  <p key={index}>Tax ID: {taxId.type} {taxId.value}</p>
+                ))}
+              </div>
+            )}
             {payment.szamlazz_invoice_number ? (
               <p className="text-sm">Számlázz invoice: <strong>{payment.szamlazz_invoice_number}</strong></p>
             ) : payment.status === "paid" && canRecord ? (
