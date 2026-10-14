@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
         customer_update: existingCustomer ? { name: "auto", address: "auto" } : undefined,
         billing_address_collection: "required",
         tax_id_collection: { enabled: true },
-        invoice_creation: { enabled: true, invoice_data: { metadata } },
+        invoice_creation: { enabled: false }, // No Stripe VAT invoice; issue in Számlázz.hu.
         custom_fields: [
           {
             key: "company_name",
