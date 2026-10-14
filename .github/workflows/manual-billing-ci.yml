@@ -24,6 +24,10 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
       - name: Deno type check without payment requests
         run: |
           deno check supabase/functions/_shared/manualBillingPolicy.ts
