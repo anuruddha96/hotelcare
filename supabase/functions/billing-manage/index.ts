@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
       }
 
       return json({
-        settings: { ...settings, stripe_secret_configured: Boolean(Deno.env.get("STRIPE_SECRET_KEY")) },
+        settings: { ...settings, stripe_secret_configured: Boolean(Deno.env.get("STRIPE_SECRET_KEY")), manual_invoicing_enabled: Deno.env.get("HOTELCARE_MANUAL_BILLING_ENABLED") === "true" },
         hotels: resolvedHotels,
         subscriptions: subs ?? [],
         trial_ends_at: trialEndsAt(settings),
