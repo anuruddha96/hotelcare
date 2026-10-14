@@ -62,13 +62,14 @@ export async function completeManualCheckout(db: Db, stripe: Stripe, session: St
     contract_id: id, organization_slug: contract.organization_slug,
     period_start: start, period_end: end, payment_source: "checkout",
     stripe_payment_intent_id: intentId, status: "paid", currency: contract.currency,
-    ...amount, paid_at: new Date().toISOString(),
+    ...amount, billing_details: session.customer_details ?? {}, paid_at: new Date().toISOString(),
   }, { onConflict: "contract_id,period_start", ignoreDuplicates: true });
   if (paymentError) throw paymentError;
 
   const { data: updated, error } = await db.from("manual_billing_contracts")
     .update({ status: "active", stripe_customer_id: customerId, stripe_payment_method_id: methodId,
-      ...amount, billing_fingerprint: billingFingerprint(address), billing_tax_ids: taxIds, paid_at: new Date().toISOString(),
+      ...amount, billing_fingerprint: billingFingerprint(address), billing_tax_ids: taxIds,
+      billing_details: session.customer_details ?? {}, paid_at: new Date().toISOString(),
       next_charge_at: end, current_period_end: end, updated_at: new Date().toISOString() })
     .eq("id", id).eq("status", "pending").select("*").maybeSingle();
   if (error) throw error;
