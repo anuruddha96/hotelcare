@@ -32,7 +32,14 @@ export async function completeManualCheckout(db: Db, stripe: Stripe, session: St
   const { data: contract, error: findError } = await db.from("manual_billing_contracts")
     .select("*").eq("id", id).maybeSingle();
   if (findError) throw findError;
-  if (!contract || contract.status !== "pending" || contract.stripe_checkout_session_id !== session.id) return;
+  if (!contract || contract.stripe_checkout_session_id !== session.id) return;
+  if (contract.status === "active") {
+    // Repair an earlier webhook attempt that settled Stripe/DB but failed
+    // before the module entitlements were written.
+    await updateAccess(db, contract, "active", contract.current_period_end);
+    return;
+  }
+  if (contract.status !== "pending") return;
   const intentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
   if (!intentId) throw new Error("Checkout missing payment intent");
   const intent = await stripe.paymentIntents.retrieve(intentId);
@@ -47,6 +54,8 @@ export async function completeManualCheckout(db: Db, stripe: Stripe, session: St
     Number(session.total_details?.amount_tax ?? -1),
     Number(session.amount_total ?? -1));
   if (amount.net_cents !== Number(contract.net_cents)) throw new Error("Net amount mismatch");
+  const taxIds = (session.customer_details?.tax_ids ?? [])
+    .map((item) => String(item.type) + ":" + String(item.value)).sort();
   const start = new Date(session.created * 1000).toISOString();
   const end = addCalendarMonth(start);
   const { error: paymentError } = await db.from("manual_billing_payments").upsert({
@@ -59,7 +68,7 @@ export async function completeManualCheckout(db: Db, stripe: Stripe, session: St
 
   const { data: updated, error } = await db.from("manual_billing_contracts")
     .update({ status: "active", stripe_customer_id: customerId, stripe_payment_method_id: methodId,
-      ...amount, billing_fingerprint: billingFingerprint(address), paid_at: new Date().toISOString(),
+      ...amount, billing_fingerprint: billingFingerprint(address), billing_tax_ids: taxIds, paid_at: new Date().toISOString(),
       next_charge_at: end, current_period_end: end, updated_at: new Date().toISOString() })
     .eq("id", id).eq("status", "pending").select("*").maybeSingle();
   if (error) throw error;
@@ -82,7 +91,14 @@ export async function finishManualRenewal(db: Db, intent: Stripe.PaymentIntent, 
   const { data: payment, error } = await db.from("manual_billing_payments")
     .select("*").eq("id", paymentId).eq("contract_id", contractId).maybeSingle();
   if (error) throw error;
-  if (!payment || payment.status !== "processing") return;
+  if (!payment) return;
+  if (succeeded && payment.status === "paid") {
+    const { data: contract } = await db.from("manual_billing_contracts")
+      .select("*").eq("id", contractId).maybeSingle();
+    if (contract?.status === "active") await updateAccess(db, contract, "active", contract.current_period_end);
+    return;
+  }
+  if (payment.status !== "processing") return;
   const status = succeeded ? "paid" :
     intent.status === "requires_action" ? "requires_action" : "failed";
   const { error: paymentError } = await db.from("manual_billing_payments")
