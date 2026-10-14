@@ -16,6 +16,7 @@ import { useUiPreference } from "@/hooks/useUiPreference";
 import { canOfferComplimentaryUpgrade, showOwnLastSoldPrice } from "@/lib/revenue/roomSaleUpgradeEligibility";
 import { activeTransferLookups } from "@/lib/revenue/sharedLastRoom";
 import { activePricingRoomTypes } from "@/lib/revenue/roomTypeVisibility";
+import InitializeRoomRatesDialog from "@/components/revenue/InitializeRoomRatesDialog";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
@@ -1200,17 +1201,26 @@ export default function RateStrategyGrid({
     return out;
   }, [nights, roomTypes, metrics]);
 
+  // A rate-less new category can report zero PMS sellable inventory before its
+  // Alap rate plan is initialized. That is NOT evidence of a manual adjustment
+  // or a sale; do not paint misleading -6 alerts in every date.
+  const pricedRoomNames = useMemo(() => new Set(roomTypes
+    .filter((room) => room.pms_room_id && rates.some((rate) => rate.obk_id === room.pms_room_id))
+    .map((room) => room.name)), [roomTypes, rates]);
+
   const manualAdjustmentByTypeDate = useMemo(() => {
     const out = new Map<string, number>();
     if (!leftByTypeDate) return out;
     for (const [key, finalValue] of leftByTypeDate) {
+      const roomName = key.substring(0, key.lastIndexOf("|"));
+      if (!pricedRoomNames.has(roomName)) continue;
       const automatic = calculatedLeftByTypeDate.get(key);
       if (automatic === undefined) continue;
       const delta = Math.trunc(finalValue) - automatic;
       if (delta !== 0) out.set(key, delta);
     }
     return out;
-  }, [leftByTypeDate, calculatedLeftByTypeDate]);
+  }, [leftByTypeDate, calculatedLeftByTypeDate, pricedRoomNames]);
 
   // A room type belongs in hotel occupancy/inventory only when the current
   // revenue snapshot actually counts it. Previo can expose non-room products
@@ -1653,6 +1663,7 @@ export default function RateStrategyGrid({
     if (roomTypes.length > 0) setStickyTypes(roomTypes);
   }, [roomTypes]);
 
+  const [initialRatesRoom, setInitialRatesRoom] = useState<RevenueRoomType | null>(null);
   const pricedTypes = useMemo(() => {
     // Previo physical inventory defines visible categories, not the existence
     // of a configured rate. Newly added rooms must stay visible without rates.
@@ -3000,6 +3011,12 @@ export default function RateStrategyGrid({
             </button>
           </div>
         )}
+        {canEditRates && pricedTypes.filter((rt) => rt.pms_room_id && !priceMap.has(rt.pms_room_id)).map((rt) => (
+          <div key={rt.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-xs">
+            <span><strong>{rt.name}</strong> · {rt.num_rooms} rooms · no Previo guest prices. Occupancy and rooms-for-sale are separate.</span>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setInitialRatesRoom(rt)}>Set first prices</Button>
+          </div>
+        ))}
         {canEditRates && failedCount > 0 && (
           <Button size="sm" variant="destructive" className="self-start h-7 text-xs" onClick={() => setPushOpen(true)}>
             <AlertTriangle className="mr-1 h-3.5 w-3.5" />
@@ -3776,7 +3793,8 @@ export default function RateStrategyGrid({
                       const override = invOverride.get(cell);
                       const left = override ?? leftByTypeDate?.get(cell);
                       const calculated = calculatedLeftByTypeDate.get(cell);
-                      const manual = left !== undefined && calculated !== undefined ? Math.trunc(left) - calculated : 0;
+                      const unpricedKind = !row.obkOfType || !priceMap.has(row.obkOfType);
+                      const manual = !unpricedKind && left !== undefined && calculated !== undefined ? Math.trunc(left) - calculated : 0;
                       const key = `inv|${cell}`;
                       // Rooms for sale is a room-type level Previo value. Revenue
                       // admins edit it with the +/- stepper opened from the cell;
@@ -3798,9 +3816,9 @@ export default function RateStrategyGrid({
                         <button
                           key={d}
                           type="button"
-                          disabled={!canEditRates || busy || left === undefined}
+                          disabled={!canEditRates || busy || left === undefined || unpricedKind}
                           onClick={() => {
-                            if (!canEditRates || busy || left === undefined) return;
+                            if (!canEditRates || busy || left === undefined || unpricedKind) return;
                             setInventoryEditor({
                               date: d,
                               rawName: row.rawName,
@@ -3812,13 +3830,17 @@ export default function RateStrategyGrid({
                               value: left,
                             });
                           }}
-                          title={left === undefined
+                          title={unpricedKind
+                            ? `${row.typeName} · ${left ?? 0} Previo rooms to sell; no rates have been configured. Set guest prices before opening inventory.`
+                            : left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : `${row.typeName} · ${left === 0 ? "sold out" : `${left} of ${units} left`} on ${d}${calculated !== undefined ? ` · automatic ${calculated}` : ""}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}${left === 0 && closedAt != null ? ` · last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
                           className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
-                          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
+                          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : unpricedKind ? (
+                            <><span className="text-amber-700 dark:text-amber-300">Not priced</span><span className="text-[9px] font-normal opacity-80">{left ?? 0} to sell in Previo</span></>
+                          ) : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
                             <>
                               <span>Sold out</span>
                               {closedAt != null && (
@@ -4596,6 +4618,10 @@ export default function RateStrategyGrid({
       </Sheet>
 
 
+
+      <InitializeRoomRatesDialog room={initialRatesRoom} hotelId={hotelId ?? null}
+        organizationSlug={organizationSlug ?? null} today={today}
+        onClose={() => setInitialRatesRoom(null)} onPublished={() => { scheduleRatesReload(); }} />
 
       <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <DialogContent className="sm:max-w-sm">
