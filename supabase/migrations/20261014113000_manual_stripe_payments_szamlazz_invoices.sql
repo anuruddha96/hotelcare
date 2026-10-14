@@ -16,6 +16,7 @@ CREATE TABLE public.manual_billing_contracts (
   gross_cents bigint NOT NULL DEFAULT 0 CHECK (gross_cents >= 0),
   billing_fingerprint text,
   billing_tax_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  billing_details jsonb NOT NULL DEFAULT '{}'::jsonb,
   vat_percent_snapshot numeric NOT NULL,
   next_charge_at timestamptz,
   current_period_end timestamptz,
@@ -47,6 +48,7 @@ CREATE TABLE public.manual_billing_payments (
   vat_cents bigint NOT NULL,
   gross_cents bigint NOT NULL,
   paid_at timestamptz,
+  billing_details jsonb NOT NULL DEFAULT '{}'::jsonb,
   szamlazz_invoice_number text,
   invoiced_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -81,11 +83,11 @@ BEGIN
     -- A failed or ambiguous payment must be reviewed, not charged a second time.
     INSERT INTO public.manual_billing_payments(
       contract_id,organization_slug,period_start,period_end,payment_source,status,
-      currency,net_cents,vat_cents,gross_cents
+      currency,net_cents,vat_cents,gross_cents,billing_details
     ) VALUES (
       rec.id,rec.organization_slug,rec.next_charge_at,
       rec.next_charge_at + interval '1 month','renewal','processing',
-      rec.currency,rec.net_cents,rec.vat_cents,rec.gross_cents
+      rec.currency,rec.net_cents,rec.vat_cents,rec.gross_cents,rec.billing_details
     ) ON CONFLICT (contract_id,period_start) DO NOTHING RETURNING * INTO claimed;
     IF FOUND THEN
       UPDATE public.manual_billing_contracts SET status='paused',updated_at=now() WHERE id=rec.id;
