@@ -58,6 +58,13 @@ Deno.serve(async (req) => {
         await failClosed("Billing address changed; VAT classification requires review");
         continue;
       }
+      const taxIds = await stripe.customers.listTaxIds(contract.stripe_customer_id, { limit: 100 });
+      const normalizedIds = taxIds.data.map((item) => String(item.type) + ":" + String(item.value)).sort();
+      const storedIds = (contract.billing_tax_ids ?? []).slice().sort();
+      if (JSON.stringify(normalizedIds) !== JSON.stringify(storedIds)) {
+        await failClosed("Customer tax IDs changed; review VAT before the next collection");
+        continue;
+      }
       if (!Number.isSafeInteger(Number(payment.gross_cents)) || Number(payment.gross_cents) <= 0) {
         await failClosed("Invalid gross amount");
         continue;
