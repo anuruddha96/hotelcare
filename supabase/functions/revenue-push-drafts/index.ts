@@ -630,6 +630,13 @@ Deno.serve(async (req) => {
      *  Previo's own maths, and re-sending those was the source of decimal
      *  prices appearing in the pricelist. */
     const ladderFor = (g: Group): Array<{ occupancy: number; price: number }> => {
+      // The explicit first-price form passes old_price=null. If a later Previo
+      // refresh has already published this kind/date, do not silently turn an
+      // initialization into an overwrite of newly configured prices.
+      const current = storedLevels.get(`${g.stay_date}|${g.obkId}`);
+      if (g.drafts.some((d: any) => d.old_price == null) && current && current.size > 0) {
+        throw new Error("Existing Previo prices were found since this first-price request. Sync rates and edit the published cells instead.");
+      }
       const wanted = new Map<number, number>();
       for (const [occupancy, price] of storedLevels.get(`${g.stay_date}|${g.obkId}`) ?? []) {
         wanted.set(occupancy, Math.round(Number(price)));
