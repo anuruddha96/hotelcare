@@ -85,7 +85,7 @@ BEGIN
   -- but its original date MUST independently prove that service was due.
   -- For a full clean downgraded on the final night, original full-clean proof
   -- remains valid even though today's action is towel-only.
-  IF coalesce(v_previous_due,'') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
+  IF coalesce(v_previous_due,'') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
     BEGIN v_due_date := v_previous_due::date;
     EXCEPTION WHEN OTHERS THEN v_due_date := NULL; END;
   END IF;
