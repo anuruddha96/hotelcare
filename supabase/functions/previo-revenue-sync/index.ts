@@ -669,6 +669,13 @@ serve(async (req) => {
           .filter((r) => Number(r.roomId) > 0 && Number(r.roomKindId) > 0 && !r.isHourlyBased)
           .map((r) => [String(r.roomId), r])).values()];
         if (!physicalRooms.length) throw new Error("no usable physical accommodation rooms");
+        // The XML kind IDs and REST roomKindIds must describe the same hotel.
+        // If nothing overlaps, reject the REST result rather than clearing all
+        // older categories or importing rooms from the wrong PMS account.
+        if (kinds.length > 0 && !physicalRooms.some((room) =>
+          kinds.some((kind) => kind.obkId === String(room.roomKindId)))) {
+          throw new Error("REST roomKindIds do not match the XML room kinds");
+        }
         verifiedCatalogAccounts.add(acc.hotId);
       } catch (e) {
         // Even if parsing produced an empty intermediate array, treat the
