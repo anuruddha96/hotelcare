@@ -203,11 +203,11 @@ Deno.serve(async (req) => {
     // Payment ledger is the source for manually issued Számlázz.hu invoices.
     if (action === "manual_payments") {
       const { data, error } = await db.from("manual_billing_payments")
-        .select("id,contract_id,period_start,period_end,payment_source,status,currency,net_cents,vat_cents,gross_cents,paid_at,szamlazz_invoice_number,invoiced_at")
+        .select("id,contract_id,period_start,period_end,payment_source,status,currency,net_cents,vat_cents,gross_cents,paid_at,billing_details,szamlazz_invoice_number,invoiced_at")
         .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
       if (error) throw error;
       const { data: contracts, error: contractError } = await db.from("manual_billing_contracts")
-        .select("id,status,currency,gross_cents,current_period_end,cancel_at_period_end")
+        .select("id,status,currency,gross_cents,current_period_end,cancel_at_period_end,items,billing_details")
         .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
       if (contractError) throw contractError;
       return json({ payments: data ?? [], contracts: contracts ?? [] });
