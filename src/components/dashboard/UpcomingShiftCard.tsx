@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { addDays, format } from 'date-fns';
+import { hu } from 'date-fns/locale';
 import { CalendarDays, Clock, MapPin, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import { useTranslation } from '@/hooks/useTranslation';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +22,7 @@ const dateOf = (date: string) => new Date(`${date}T12:00:00`);
 /** Read-only self view; staff never query or receive colleagues' shifts or draft plans. */
 export function UpcomingShiftCard() {
   const { user, profile } = useAuth();
+  const { language } = useTranslation();
   const { venuesEnabled, orgSlug } = useTenantFeatures();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(false);
@@ -63,23 +66,72 @@ export function UpcomingShiftCard() {
     {shifts.length === 0 ? <p className="text-sm text-muted-foreground">No published shifts in the next two weeks.</p> : shifts.slice(0, 5).map((shift) => <div key={shift.id} className="rounded-md border p-2.5"><div className="flex items-center justify-between gap-2"><strong className="text-sm">{format(dateOf(shift.work_date), 'EEE, MMM d')}</strong><Badge variant="outline" className="gap-1"><Clock className="h-3 w-3" />{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</Badge></div><div className="mt-1 flex items-start gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /><span>{shift.staff_schedule_venues?.map((v) => v.venues?.name).filter(Boolean).join(', ') || 'Venue to be confirmed'}</span></div>{shift.notes && <p className="mt-1 text-xs">{shift.notes}</p>}</div>)}
   </CardContent></Card>;
 
+  const isHungarian = language === 'hu';
+  const copy = isHungarian ? {
+    title: 'Munkaidő-beosztásom',
+    refresh: 'Frissítés',
+    summary: 'Közzétett műszakok · budapesti idő · következő 14 nap',
+    loading: 'Beosztás betöltése…',
+    error: 'Nem sikerült betölteni a beosztást. Próbáld újra.',
+    today: 'Ma',
+    locationPending: 'Helyszín egyeztetés alatt',
+    noShift: 'Nincs közzétett műszak',
+    expand: 'Mind a 14 nap megtekintése',
+    collapse: 'Csak a következő 3 nap',
+    help: 'Itt csak a közzétett beosztásod látható. A szobafeladatokat a Takarítás menüben találod.',
+  } : {
+    title: 'My work schedule',
+    refresh: 'Refresh',
+    summary: 'Published shifts · Budapest time · next 14 days',
+    loading: 'Loading your schedule…',
+    error: 'Unable to load your schedule. Please try again.',
+    today: 'Today',
+    locationPending: 'Venue to be confirmed',
+    noShift: 'No published shift',
+    expand: 'Show all 14 days',
+    collapse: 'Show next 3 days',
+    help: 'Only published shifts appear here. Room assignments are available in Housekeeping.',
+  };
   const shiftByDay = new Map(shifts.map((shift) => [shift.work_date, shift]));
   const days = Array.from({ length: 14 }, (_, i) => format(addDays(dateOf(from), i), 'yyyy-MM-dd'));
-  return <Card className="w-full"><CardHeader className="pb-2"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base flex items-center gap-2"><CalendarDays className="h-4 w-4" />My work schedule</CardTitle><Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}><RefreshCw className="mr-1 h-3.5 w-3.5" />Refresh</Button></div><p className="text-xs text-muted-foreground">Only your own published shifts · Budapest local time · next 14 days</p></CardHeader>
+  return <Card className="w-full">
+    <CardHeader className="pb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="h-4 w-4" />{copy.title}</CardTitle>
+        <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
+          <RefreshCw className="mr-1 h-3.5 w-3.5" />{copy.refresh}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{copy.summary}</p>
+    </CardHeader>
     <CardContent className="space-y-2">
-      {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
-      {loading ? <p role="status" className="text-sm text-muted-foreground">Loading your schedule…</p>
+      {error && <p className="text-sm text-destructive" role="alert">{copy.error}</p>}
+      {loading ? <p role="status" className="text-sm text-muted-foreground">{copy.loading}</p>
         : days.slice(0, expanded ? days.length : 3).map((day) => {
           const shift = shiftByDay.get(day);
-          return <div key={day} className={`flex flex-wrap items-start justify-between gap-2 rounded-lg border p-3 ${day === from ? 'border-primary/40 bg-primary/5' : ''}`}>
-            <div className="min-w-28"><div className="text-sm font-semibold">{format(dateOf(day), 'EEE, MMM d')}{day === from ? ' · Today' : ''}</div>
-              {shift ? <div className="mt-1 text-xs text-muted-foreground flex items-start gap-1"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /><span>{shift.staff_schedule_venues?.map((link) => link.venues?.name).filter(Boolean).join(', ') || 'Venue to be confirmed'}</span></div> : <span className="text-xs text-muted-foreground">No published shift</span>}
-              {shift?.notes && <p className="mt-1 text-xs">{shift.notes}</p>}
-            </div>{shift && <Badge className="gap-1"><Clock className="h-3 w-3" />{shift.shift_start.slice(0, 5)}–{shift.shift_end.slice(0, 5)}</Badge>}
+          return <div key={day} className={`rounded-lg border px-3 py-2.5 ${day === from ? 'border-sky-300 bg-sky-50/60 dark:bg-sky-950/20' : 'border-border'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <div className="text-sm font-semibold capitalize">
+                {isHungarian
+                  ? format(dateOf(day), 'MMM d., EEEE', { locale: hu })
+                  : format(dateOf(day), 'EEE, MMM d')}
+                {day === from ? ` · ${copy.today}` : ''}
+              </div>
+              {shift && <Badge className="gap-1"><Clock className="h-3 w-3" />{shift.shift_start.slice(0, 5)}–{shift.shift_end.slice(0, 5)}</Badge>}
+            </div>
+            {shift ? <>
+              <div className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 break-words">{shift.staff_schedule_venues?.map((link) => link.venues?.name).filter(Boolean).join(', ') || copy.locationPending}</span>
+              </div>
+              {shift.notes && <p className="mt-1 text-xs">{shift.notes}</p>}
+            </> : <p className="mt-1 text-xs text-muted-foreground">{copy.noShift}</p>}
           </div>;
         })}
-      {!loading && <Button type="button" size="sm" variant="ghost" className="w-full" onClick={() => setExpanded(old => !old)}>{expanded ? 'Show next 3 days' : 'Show all 14 days'}</Button>}
-      <p className="text-xs text-muted-foreground">If a day is blank, your manager has not published a shift for that day. Room assignments appear separately in Housekeeping.</p>
+      {!loading && <Button type="button" size="sm" variant="ghost" className="w-full" onClick={() => setExpanded((old) => !old)}>
+        {expanded ? copy.collapse : copy.expand}
+      </Button>}
+      <p className="text-xs leading-relaxed text-muted-foreground">{copy.help}</p>
     </CardContent>
   </Card>;
 }
