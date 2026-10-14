@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
 import { fetchPrevioWithAuth, safePrevioJson } from '../_shared/previoAuth.ts';
+import { isUnchangedPrevioRoom } from '../_shared/previoRoomSyncDelta.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -395,6 +396,7 @@ serve(async (req) => {
     const syncResults = {
       total: roomsData.length,
       updated: 0,
+      skippedUnchanged: 0,
       created: 0,
       errors: [] as string[]
     };
@@ -426,7 +428,7 @@ serve(async (req) => {
         // Check if room exists in Hotel Care using the HotelCare hotel_id
         const { data: existingRoom } = await supabase
           .from('rooms')
-          .select('id, pms_metadata')
+          .select('id, status, room_type, pms_metadata')
           .eq('room_number', roomNumber)
           .eq('hotel', hotelCareHotelId)
           .single();
@@ -451,7 +453,16 @@ serve(async (req) => {
           updated_at: new Date().toISOString(),
         };
 
-        // Update existing room
+        // Don't perform an UPDATE for an unchanged Previo room. Each update
+        // otherwise fires room triggers and broadcasts into Supabase Realtime.
+        // The snapshot comparison is limited to the PMS-owned status/type
+        // and five imported metadata fields; local housekeeping information
+        // is still preserved in the metadata merge above.
+        if (isUnchangedPrevioRoom(existingRoom as any, roomDataToSave)) {
+          syncResults.skippedUnchanged++;
+          continue;
+        }
+
         const { error } = await supabase
           .from('rooms')
           .update(roomDataToSave)
@@ -475,6 +486,7 @@ serve(async (req) => {
       data: {
         total: syncResults.total,
         updated: syncResults.updated,
+        skippedUnchanged: syncResults.skippedUnchanged,
         created: syncResults.created,
         errors: syncResults.errors,
         previo_hotel_id: previoNumericId
