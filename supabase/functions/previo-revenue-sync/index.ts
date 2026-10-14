@@ -671,6 +671,9 @@ serve(async (req) => {
         if (!physicalRooms.length) throw new Error("no usable physical accommodation rooms");
         verifiedCatalogAccounts.add(acc.hotId);
       } catch (e) {
+        // Even if parsing produced an empty intermediate array, treat the
+        // physical inventory as UNVERIFIED. Never zero all categories on error.
+        physicalRooms = null;
         softNotes.push(`${acc.label}: physical room inventory could not be verified (${String(e)}); keeping XML counts.`);
       }
     }
