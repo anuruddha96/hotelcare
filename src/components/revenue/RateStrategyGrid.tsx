@@ -3347,7 +3347,7 @@ export default function RateStrategyGrid({
                         Occupancy
                         <MetricInfo
                           title="Occupancy"
-                          body="Rooms sold ÷ sellable rooms for that night. Rooms sold come from Previo; the sellable-room count comes from your room types (non-sellable products excluded)."
+                          body="Booked room-nights from Previo reservations ÷ physical accommodation rooms. Previo rooms-for-sale is a separate figure: a closed or unpriced category can have zero rooms available to book without being 100% occupied."
                         />
                       </>
                     )}
@@ -3387,6 +3387,7 @@ export default function RateStrategyGrid({
                     const units = m?.roomsAvailable ?? 0;
                     const left = houseLeftByDate.get(d) ?? m?.roomsLeft ?? 0;
                     const manual = houseManualAdjustmentByDate.get(d) ?? 0;
+                    const closedNotFull = units > 0 && left === 0 && (m?.roomsSold ?? 0) < units;
                     const manualDetails = houseManualAdjustmentDetailsByDate.get(d) ?? [];
                     const manualDetailLabel = manualDetails
                       .map(({ roomType, delta }) => `${roomType} ${signedInventoryDelta(delta)}`)
@@ -3394,11 +3395,11 @@ export default function RateStrategyGrid({
                     return (
                       <div
                         key={d}
-                        title={`${left} of ${units} rooms left to sell on ${d}${manualDetailLabel ? ` · Previo manual inventory: ${manualDetailLabel}` : ""}`}
+                        title={`${left} of ${units} rooms available for booking on ${d}. ${m?.roomsSold ?? 0} booked; ${closedNotFull ? "some physical rooms are closed/not priced rather than occupied" : "physical occupancy is counted separately"}${manualDetailLabel ? ` · Previo inventory adjustment: ${manualDetailLabel}` : ""}`}
                         className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
-                        <span className="leading-none">{units ? (left === 0 ? "Sold out" : left) : "—"}</span>
+                        <span className="leading-none">{units ? (closedNotFull ? "Closed" : left === 0 ? "Sold out" : left) : "—"}</span>
                         {manual !== 0 && (
                           <span
                             className="absolute right-1 top-0.5 font-semibold text-destructive"
