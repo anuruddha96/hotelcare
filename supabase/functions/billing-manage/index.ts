@@ -179,6 +179,31 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Payment ledger is the source for manually issued Számlázz.hu invoices.
+    if (action === "manual_payments") {
+      const { data, error } = await db.from("manual_billing_payments")
+        .select("id,contract_id,period_start,period_end,payment_source,status,currency,net_cents,vat_cents,gross_cents,paid_at,szamlazz_invoice_number,invoiced_at")
+        .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
+      if (error) throw error;
+      return json({ payments: data ?? [] });
+    }
+
+    if (action === "mark_invoiced") {
+      if (!caller.isSuperAdmin && caller.role !== "admin") return json({ error: "Admin access required" }, 403);
+      const paymentId = String(body.paymentId ?? "");
+      const number = String(body.invoiceNumber ?? "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(paymentId) || !number || number.length > 128)
+        return json({ error: "Valid payment ID and Számlázz invoice number are required" }, 400);
+      const { data, error } = await db.from("manual_billing_payments")
+        .update({ szamlazz_invoice_number: number, invoiced_at: new Date().toISOString() })
+        .eq("id", paymentId).eq("organization_slug", slug).eq("status", "paid")
+        .is("szamlazz_invoice_number", null)
+        .select("id,szamlazz_invoice_number").maybeSingle();
+      if (error) throw error;
+      if (!data) return json({ error: "Payment is unpaid, missing, or already invoiced" }, 409);
+      return json({ payment: data });
+    }
+
     if (action === "checkout") {
       const selections: { hotel_id: string; module: ModuleKey }[] = Array.isArray(body.selections)
         ? body.selections
@@ -293,6 +318,82 @@ Deno.serve(async (req) => {
 
       const existingCustomer = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
       const origin = String(body.returnUrl ?? req.headers.get("origin") ?? "");
+
+      if (Deno.env.get("HOTELCARE_MANUAL_BILLING_ENABLED") === "true") {
+        if (!settings.payments_enabled) return json({ error: "Payments are disabled for this organization" }, 403);
+        const trialUntil = trialEndsAt(settings);
+        if (trialUntil && new Date(trialUntil).getTime() > Date.now())
+          return json({ error: "Wait until the free trial ends before starting paid monthly collection" }, 400);
+        if (lineItems.some((line) => (line.price_data?.unit_amount ?? 0) <= 0) || netCents <= 0)
+          return json({ error: "Percentage/zero-value plans require an agreed fixed amount before payment-only checkout" }, 400);
+        const normalized = picked.map((pair, index) => {
+          const [hotel_id, module] = pair.split(":");
+          const itemIndex = pickedItemIndexes[index];
+          const line = lineItems[itemIndex];
+          return {
+            hotel_id, module,
+            quantity: pickedItemIndexes.indexOf(itemIndex) === index ? Number(line.quantity ?? 0) : 0,
+            unit_amount_cents: Number(line.price_data?.unit_amount ?? 0),
+          };
+        });
+        // The checkout session is a payment, not a Stripe subscription/invoice.
+        const contractId = crypto.randomUUID();
+        const contract = {
+          id: contractId, organization_slug: slug, selections: picked, items: normalized,
+          currency: settings.currency.toUpperCase(), net_cents: netCents,
+          vat_percent_snapshot: Number(settings.vat_percent ?? 0), status: "pending",
+        };
+        const { error: draftError } = await db.from("manual_billing_contracts").insert(contract);
+        if (draftError) throw draftError;
+        try {
+          const { error: scopeError } = await db.from("manual_billing_scopes")
+            .insert(normalized.map((item) => ({ hotel_id: item.hotel_id, module: item.module, contract_id: contractId })));
+          if (scopeError) throw new Error("These modules already have a pending/active payment contract: " + scopeError.message);
+
+          const safeOrigin = req.headers.get("origin") ?? "";
+          if (!/^https:\/\//.test(safeOrigin) && !/^http:\/\/localhost(:[0-9]+)?$/.test(safeOrigin))
+            throw new Error("A valid checkout origin is required");
+          const paymentItems = lineItems.map((line) => ({
+            ...line,
+            price_data: { ...line.price_data, recurring: undefined },
+          }));
+          const sessionData: Stripe.Checkout.SessionCreateParams = {
+            mode: "payment", line_items: paymentItems, customer: existingCustomer ?? undefined,
+            customer_creation: existingCustomer ? undefined : "always",
+            customer_update: existingCustomer ? { name: "auto", address: "auto" } : undefined,
+            billing_address_collection: "required", tax_id_collection: { enabled: true },
+            payment_method_types: ["card"],
+            payment_intent_data: { setup_future_usage: "off_session",
+              metadata: { kind: "hotelcare_manual_initial", organization_slug: slug, manual_contract_id: contractId } },
+            invoice_creation: { enabled: false },
+            client_reference_id: contractId,
+            metadata: { kind: "hotelcare_manual_monthly", organization_slug: slug, manual_contract_id: contractId },
+            success_url: safeOrigin + "/billing?billing=success",
+            cancel_url: safeOrigin + "/billing?billing=cancelled",
+          };
+          const taxRegistrations = await stripe.tax.registrations.list({ status: "active", limit: 1 })
+            .catch(() => ({ data: [] as unknown[] }));
+          const hasRegistration = (taxRegistrations.data?.length ?? 0) > 0;
+          const taxRate = hasRegistration ? null : await fixedVatRate(stripe, settings);
+          const paymentSession = await stripe.checkout.sessions.create({
+            ...sessionData,
+            automatic_tax: { enabled: hasRegistration },
+            line_items: paymentItems.map((item) => ({ ...item,
+              tax_rates: taxRate ? [taxRate] : undefined })),
+          });
+          const { error: sessionError } = await db.from("manual_billing_contracts")
+            .update({ stripe_checkout_session_id: paymentSession.id })
+            .eq("id", contractId).eq("status", "pending");
+          if (sessionError) {
+            await stripe.checkout.sessions.expire(paymentSession.id).catch(console.error);
+            throw sessionError;
+          }
+          return json({ url: paymentSession.url, mode: "payment", invoicing: "szamlazz_manual" });
+        } catch (error) {
+          await db.from("manual_billing_contracts").delete().eq("id", contractId).eq("status", "pending");
+          throw error;
+        }
+      }
 
       const trialEnd = trialEndsAt(settings);
       const graceDays = Math.max(0, Number(settings.grace_days ?? 0));
