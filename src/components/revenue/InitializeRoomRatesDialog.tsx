@@ -45,6 +45,17 @@ export default function InitializeRoomRatesDialog({ room, hotelId, organizationS
     }
     setSaving(true);
     try {
+      // This compact first-price form currently accepts whole EUR amounts only.
+      // Refuse other base currencies rather than accidentally interpreting
+      // a displayed EUR number as an unrelated local-currency amount.
+      const { data: hotelSettings, error: settingsError } = await (supabase as any)
+        .from("hotel_revenue_settings").select("base_currency")
+        .eq("hotel_id", hotelId).maybeSingle();
+      if (settingsError) throw new Error(settingsError.message);
+      if (String(hotelSettings?.base_currency ?? "EUR").toUpperCase() !== "EUR") {
+        throw new Error("This first-price form currently supports EUR hotels only. Please initialize rates directly in Previo for other base currencies.");
+      }
+
       // A new kind has no original price to edit. Don't substitute a sibling
       // kind's Previo ID or rate plan; an EXACT mapping is required.
       const { data: mappings, error: mappingError } = await (supabase as any)
