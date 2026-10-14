@@ -39,23 +39,23 @@ BEGIN
   ),
   deltas AS (
     SELECT s.table_name,
-      pg_catalog.round(pg_catalog.extract(epoch FROM (v_at-p.captured_at))::numeric, 1) AS window_seconds,
+      pg_catalog.round(EXTRACT(EPOCH FROM (v_at-p.captured_at))::numeric, 1) AS window_seconds,
       CASE
-        WHEN pg_catalog.extract(epoch FROM (v_at-p.captured_at)) BETWEEN 60 AND 1800
+        WHEN EXTRACT(EPOCH FROM (v_at-p.captured_at)) BETWEEN 60 AND 1800
           AND s.n_tup_ins >= p.n_tup_ins
           AND s.n_tup_upd >= p.n_tup_upd
           AND s.n_tup_del >= p.n_tup_del
         THEN s.n_tup_ins - p.n_tup_ins
       END AS inserted,
       CASE
-        WHEN pg_catalog.extract(epoch FROM (v_at-p.captured_at)) BETWEEN 60 AND 1800
+        WHEN EXTRACT(EPOCH FROM (v_at-p.captured_at)) BETWEEN 60 AND 1800
           AND s.n_tup_ins >= p.n_tup_ins
           AND s.n_tup_upd >= p.n_tup_upd
           AND s.n_tup_del >= p.n_tup_del
         THEN s.n_tup_upd - p.n_tup_upd
       END AS updated,
       CASE
-        WHEN pg_catalog.extract(epoch FROM (v_at-p.captured_at)) BETWEEN 60 AND 1800
+        WHEN EXTRACT(EPOCH FROM (v_at-p.captured_at)) BETWEEN 60 AND 1800
           AND s.n_tup_ins >= p.n_tup_ins
           AND s.n_tup_upd >= p.n_tup_upd
           AND s.n_tup_del >= p.n_tup_del
