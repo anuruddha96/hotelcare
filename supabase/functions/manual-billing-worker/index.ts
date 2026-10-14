@@ -22,6 +22,29 @@ Deno.serve(async (req) => {
   const stripe = new Stripe(key, { apiVersion: "2025-03-31.basil" });
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false } });
+  // Cancellation is effective after the final paid period, not immediately.
+  const { data: expired, error: expiryError } = await db.from("manual_billing_contracts")
+    .select("id,organization_slug,items").eq("status", "active")
+    .eq("cancel_at_period_end", true).lte("current_period_end", new Date().toISOString());
+  if (expiryError) return reply({ error: expiryError.message }, 500);
+  for (const contract of expired ?? []) {
+    for (const item of contract.items ?? []) {
+      const { error } = await db.from("module_subscriptions")
+        .update({ status: "canceled", cancel_at_period_end: false })
+        .eq("organization_slug", contract.organization_slug)
+        .eq("hotel_id", item.hotel_id).eq("module", item.module)
+        .is("stripe_subscription_id", null);
+      if (error) return reply({ error: "Could not close expired module access" }, 500);
+    }
+    const { error: scopeError } = await db.from("manual_billing_scopes")
+      .delete().eq("contract_id", contract.id);
+    if (scopeError) return reply({ error: scopeError.message }, 500);
+    const { error: finishError } = await db.from("manual_billing_contracts")
+      .update({ status: "cancelled" }).eq("id", contract.id)
+      .eq("cancel_at_period_end", true).eq("status", "active");
+    if (finishError) return reply({ error: finishError.message }, 500);
+  }
+
   const { data: payments, error: claimError } = await db.rpc("manual_billing_claim_due", { _limit: 10 });
   if (claimError) return reply({ error: claimError.message }, 500);
   const outcomes: { id: string; result: string }[] = [];
