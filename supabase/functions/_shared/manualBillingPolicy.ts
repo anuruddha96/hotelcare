@@ -36,6 +36,7 @@ export function hasLegacySubscription(
   rows: { hotel_id: string; module: string; stripe_subscription_id?: string | null; status: string }[],
 ): boolean {
   return selections.some((selection) => rows.some((row) =>
-    row.hotel_id === selection.hotel_id && row.module === selection.module &&
+    row.hotel_id === selection.hotel_id &&
+    (row.module === selection.module || (row.module === "revenue" && selection.module === "revenue_automation")) &&
     Boolean(row.stripe_subscription_id) && ["active", "past_due", "trialing", "incomplete"].includes(row.status)));
 }
