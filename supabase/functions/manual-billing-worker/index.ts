@@ -19,7 +19,7 @@ Deno.serve(async (req) => {
   const key = Deno.env.get("STRIPE_SECRET_KEY");
   if (!key) return reply({ error: "Stripe is not configured" }, 503);
 
-  const stripe = new Stripe(key, { apiVersion: "2025-03-31.basil" });
+  const stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     { auth: { persistSession: false } });
   // Cancellation is effective after the final paid period, not immediately.
