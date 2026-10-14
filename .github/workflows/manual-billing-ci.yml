@@ -28,6 +28,8 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
+      - name: Configure Deno local npm module resolution
+        run: echo '{"nodeModulesDir":"auto"}' > deno.json
       - name: Deno type check without payment requests
         run: |
           deno check supabase/functions/_shared/manualBillingPolicy.ts
