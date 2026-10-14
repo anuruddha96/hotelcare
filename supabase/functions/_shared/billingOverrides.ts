@@ -71,8 +71,11 @@ export async function loadBillingOverrides(organizationSlug: string) {
   };
 }
 
-function usableOverride(row: ModuleOverrideRow | undefined) {
-  return row && row.pricing_mode !== 'inherit' && Number(row.price_cents) > 0 ? row : null;
+function usableOverride(row: ModuleOverrideRow | undefined):
+  (ModuleOverrideRow & { pricing_mode: 'per_room' | 'fixed_monthly' }) | null {
+  return row && row.pricing_mode !== 'inherit' && Number(row.price_cents) > 0
+    ? row as ModuleOverrideRow & { pricing_mode: 'per_room' | 'fixed_monthly' }
+    : null;
 }
 
 export function resolveModulePricing(
