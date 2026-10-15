@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
+import { addRecheckPhotos, canSubmitRecheck, RECHECK_PHOTO_BUCKET, recheckEvidencePath } from '@/lib/recheckEvidence';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getGuestDeclinedServiceComment, isGuestDeclinedService } from '@/lib/hotel-memories-housekeeping';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,7 +42,9 @@ import {
   DoorClosed,
   Globe,
   Loader2 as LucideLoader,
-  MessageSquare
+  MessageSquare,
+  ImagePlus,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -171,6 +174,24 @@ export function SupervisorApprovalView({
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null);
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
   const [reassignmentReason, setReassignmentReason] = useState('');
+  const [recheckFiles, setRecheckFiles] = useState<File[]>([]);
+  const [recheckPreviews, setRecheckPreviews] = useState<string[]>([]);
+  const [reassigning, setReassigning] = useState(false);
+  const [recheckUploadProgress, setRecheckUploadProgress] = useState('');
+
+  useEffect(() => {
+    const urls = recheckFiles.map(file => URL.createObjectURL(file));
+    setRecheckPreviews(urls);
+    return () => urls.forEach(url => URL.revokeObjectURL(url));
+  }, [recheckFiles]);
+
+  const resetReassign = () => {
+    setSelectedAssignment(null);
+    setSelectedHousekeeper('');
+    setReassignmentReason('');
+    setRecheckFiles([]);
+    setRecheckUploadProgress('');
+  };
   const [earlySignoutRequests, setEarlySignoutRequests] = useState<any[]>([]);
   const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
   const [completionPhotoUrls, setCompletionPhotoUrls] = useState<{ [assignmentId: string]: string[] }>({});
@@ -1012,17 +1033,20 @@ export function SupervisorApprovalView({
   };
 
   const handleReassignment = async () => {
-    if (!selectedAssignment || !selectedHousekeeper) return;
-
-    const reason = reassignmentReason.trim();
-    if (!reason) {
-      toast.error('Please add a short reason for the recheck');
+    if (!selectedAssignment || !canSubmitRecheck(selectedHousekeeper, reassignmentReason, recheckFiles) || reassigning) {
+      toast.error('Select a housekeeper and add a photo or short reason.');
       return;
     }
 
+    const reason = reassignmentReason.trim() || 'Please correct the issues shown in the manager photos';
+    let uploadedPaths: string[] = [];
+    let newAssignmentCreated = false;
+    setReassigning(true);
+    setRecheckUploadProgress('');
+
     try {
       const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
-      if (!assignment) return;
+      if (!assignment) throw new Error('The completed assignment is no longer in the approval queue.');
 
       const { data: existingAssignments, error: checkError } = await supabase
         .from('room_assignments')
@@ -1031,10 +1055,28 @@ export function SupervisorApprovalView({
         .eq('assignment_date', assignment.assignment_date)
         .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
         .neq('id', selectedAssignment);
-
       if (checkError) throw checkError;
 
       const currentUserId = (await supabase.auth.getUser()).data.user?.id;
+      if (!currentUserId) throw new Error('Please sign in again to submit your findings.');
+
+      const newAssignmentId = crypto.randomUUID();
+      // Upload first: if an attachment fails, the manager can retry without
+      // closing anyone's existing task or creating an evidence-less recheck.
+      for (let offset = 0; offset < recheckFiles.length; offset += 3) {
+        const batch = recheckFiles.slice(offset, offset + 3);
+        const paths = await Promise.all(batch.map(async (file, index) => {
+          const path = recheckEvidencePath(currentUserId, newAssignmentId, file, offset + index);
+          const { error } = await supabase.storage
+            .from(RECHECK_PHOTO_BUCKET)
+            .upload(path, file, { upsert: false, contentType: file.type, cacheControl: '3600' });
+          if (error) throw error;
+          uploadedPaths.push(path);
+          setRecheckUploadProgress(`Uploaded ${uploadedPaths.length} of ${recheckFiles.length} photos…`);
+          return path;
+        }));
+        if (paths.length !== batch.length) throw new Error('Photo upload incomplete.');
+      }
 
       if (existingAssignments && existingAssignments.length > 0) {
         const { error: updateError } = await supabase
@@ -1047,13 +1089,13 @@ export function SupervisorApprovalView({
             notes: 'Reassigned to another housekeeper'
           })
           .in('id', existingAssignments.map(a => a.id));
-
         if (updateError) throw updateError;
       }
 
       const { error } = await supabase
         .from('room_assignments')
         .insert({
+          id: newAssignmentId,
           room_id: assignment.room_id,
           assigned_to: selectedHousekeeper,
           assigned_by: currentUserId,
@@ -1062,12 +1104,13 @@ export function SupervisorApprovalView({
           estimated_duration: assignment.estimated_duration,
           priority: assignment.priority,
           organization_slug: assignment.organization_slug,
+          recheck_photos: uploadedPaths,
           notes: `[SUPERVISOR_RECHECK:${selectedHousekeeper === assignment.assigned_to ? 'same' : 'handover'}] ${reason}`
-        });
-
+        } as any);
       if (error) throw error;
+      newAssignmentCreated = true;
 
-      await supabase
+      const { error: approvalError } = await supabase
         .from('room_assignments')
         .update({
           supervisor_approved: true,
@@ -1075,16 +1118,29 @@ export function SupervisorApprovalView({
           supervisor_approved_at: new Date().toISOString()
         })
         .eq('id', selectedAssignment);
+      if (approvalError) throw approvalError;
 
-      toast.success('Room reassigned successfully');
+      toast.success(recheckFiles.length ? 'Room returned with manager photos' : 'Room returned for recheck');
       fetchPendingAssignments();
       setReassignDialogOpen(false);
-      setSelectedAssignment(null);
-      setSelectedHousekeeper('');
-      setReassignmentReason('');
+      resetReassign();
     } catch (error: any) {
+      if (uploadedPaths.length && !newAssignmentCreated) {
+        // Private paths are scoped to this manager. Cleanup is best effort.
+        await supabase.storage.from(RECHECK_PHOTO_BUCKET).remove(uploadedPaths);
+      }
       console.error('Error reassigning room:', error);
-      toast.error(error?.message ? `Failed to reassign room: ${error.message}` : 'Failed to reassign room');
+      toast.error(error?.message ? `Failed to return room: ${error.message}` : 'Failed to return room for recheck');
+      if (newAssignmentCreated) {
+        // Keep evidence linked to the new assignment; do not encourage a
+        // second submission after a partial approval-history write.
+        setReassignDialogOpen(false);
+        resetReassign();
+        fetchPendingAssignments();
+      }
+    } finally {
+      setReassigning(false);
+      setRecheckUploadProgress('');
     }
   };
 
@@ -1185,6 +1241,7 @@ export function SupervisorApprovalView({
                 variant="outline"
                 onClick={() => {
                   setSelectedAssignment(assignment.id);
+                  setSelectedHousekeeper(assignment.assigned_to);
                   setReassignDialogOpen(true);
                 }}
                 className="h-7 px-2 text-xs"
@@ -1345,15 +1402,12 @@ export function SupervisorApprovalView({
     <Dialog 
       open={reassignDialogOpen} 
       onOpenChange={(open) => {
+        if (!open && reassigning) return;
         setReassignDialogOpen(open);
-        if (!open) {
-          setSelectedAssignment(null);
-          setSelectedHousekeeper('');
-          setReassignmentReason('');
-        }
+        if (!open) resetReassign();
       }}
     >
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {t('supervisor.reassignRoomTitle')} {pendingAssignments.find(a => a.id === selectedAssignment)?.rooms?.room_number}
@@ -1379,7 +1433,7 @@ export function SupervisorApprovalView({
           </div>
           <div>
             <label className="text-sm font-medium text-foreground mb-2 block">
-              Why was the previous completion not approved? <span className="text-destructive">*</span>
+              What needs to be corrected? <span className="text-muted-foreground">(optional with photos)</span>
             </label>
             <Textarea
               value={reassignmentReason}
@@ -1389,26 +1443,65 @@ export function SupervisorApprovalView({
               maxLength={240}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              This reason will be shown directly to the housekeeper so they know what to check again.
+              Add a short note or attach photos showing exactly what needs correcting. The housekeeper will see both.
             </p>
           </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-foreground">Manager photos · {recheckFiles.length}/10</label>
+            <input
+              id="manager-recheck-photo-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              multiple
+              className="sr-only"
+              disabled={reassigning}
+              onChange={event => {
+                const result = addRecheckPhotos(recheckFiles, Array.from(event.target.files || []));
+                setRecheckFiles(result.accepted);
+                if (result.error) toast.error(result.error);
+                event.target.value = '';
+              }}
+            />
+            <label htmlFor="manager-recheck-photo-input"
+              className={`flex min-h-14 cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/40 p-3 text-sm font-medium text-primary hover:bg-primary/5 ${reassigning ? 'pointer-events-none opacity-50' : ''}`}>
+              <ImagePlus className="h-5 w-5" />
+              Add photos / use camera
+            </label>
+            {recheckPreviews.length > 0 && (
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2" aria-label="Selected manager photos">
+                {recheckPreviews.map((url, index) => (
+                  <div key={url} className="relative aspect-square overflow-hidden rounded-md border">
+                    <img src={url} alt={`Finding ${index + 1}`} className="h-full w-full object-cover" />
+                    <button type="button" aria-label={`Remove photo ${index + 1}`}
+                      disabled={reassigning}
+                      onClick={() => setRecheckFiles(current => current.filter((_, i) => i !== index))}
+                      className="absolute top-0.5 right-0.5 rounded-full bg-background/90 p-1 shadow">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">Up to 10 photos, 8 MB each. Images are shown privately to the assigned housekeeper.</p>
+          </div>
+          {recheckUploadProgress && <p role="status" className="text-xs text-primary">{recheckUploadProgress}</p>}
           <div className="flex justify-end gap-3">
             <Button 
               variant="outline" 
               onClick={() => {
+                if (reassigning) return;
                 setReassignDialogOpen(false);
-                setSelectedAssignment(null);
-                setSelectedHousekeeper('');
-                setReassignmentReason('');
+                resetReassign();
               }}
+              disabled={reassigning}
             >
               {t('common.cancel')}
             </Button>
             <Button 
               onClick={handleReassignment}
-              disabled={!selectedHousekeeper || !reassignmentReason.trim()}
+              disabled={!canSubmitRecheck(selectedHousekeeper, reassignmentReason, recheckFiles) || reassigning}
             >
-              {t('supervisor.confirmReassign')}
+              {reassigning ? 'Submitting…' : t('supervisor.confirmReassign')}
             </Button>
           </div>
         </div>
