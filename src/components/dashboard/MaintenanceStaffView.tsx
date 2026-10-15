@@ -34,7 +34,7 @@ type MaintenanceRoomAccess = {
 };
 type Copy = Record<string, string>;
 const EN: Copy = {
-  title: 'Maintenance Team Tasks', subtitle: 'All maintenance tickets for this hotel are shared with the property maintenance team. Assignment shows the owner, but teammates can assist and update the same ticket.', signedIn: 'Attendance checked in', notSignedIn: 'Check in under Work Status before starting maintenance work',
+  title: 'Maintenance Team Tasks', subtitle: 'Property team tickets and Hotel Ottofiori repairs specifically assigned to you. Only your own cross-property assignments appear.', signedIn: 'Attendance checked in', notSignedIn: 'Check in under Work Status before starting maintenance work',
   active: 'Active', approval: 'Awaiting approval', done: 'Done', noTasks: 'No maintenance tasks in this section.', room: 'Room', hotel: 'Hotel',
   attachments: 'Issue photos', completionPhotos: 'Completion photos', start: 'Start work', note: 'Add note', hold: 'Pending / hold', resume: 'Resume work', complete: 'Complete work',
   statusOpen: 'Open', statusProgress: 'In progress', statusHold: 'Pending', statusApproval: 'Awaiting approval', statusDone: 'Done',
@@ -51,7 +51,7 @@ const EN: Copy = {
   workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', refresh: 'Refresh', retry: 'Retry', loadFailed: 'Maintenance tasks could not be loaded. Your last visible list has been kept.',
 };
 const HU: Copy = {
-  ...EN, title: 'Karbantartási csapat feladatai', subtitle: 'A hotel összes karbantartási jegye közös a helyszíni karbantartó csapat számára. A hozzárendelés mutatja a felelőst, de a csapattársak is segíthetnek és frissíthetik ugyanazt a jegyet.', signedIn: 'Munkaidő: bejelentkezve', notSignedIn: 'Karbantartási munka indítása előtt jelentkezzen be a Munkaidő menüben',
+  ...EN, title: 'Karbantartási csapat feladatai', subtitle: 'A saját hotel feladatai és az Önnek külön kiosztott Hotel Ottofiori javítások.', signedIn: 'Munkaidő: bejelentkezve', notSignedIn: 'Karbantartási munka indítása előtt jelentkezzen be a Munkaidő menüben',
   active: 'Aktív', approval: 'Jóváhagyásra vár', done: 'Kész', noTasks: 'Ebben a részben nincs karbantartási feladat.', room: 'Szoba',
   attachments: 'Hibafotók', completionPhotos: 'Befejezési fotók', start: 'Munka indítása', note: 'Jegyzet', hold: 'Függőben', resume: 'Munka folytatása', complete: 'Munka befejezése',
   statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusHold: 'Függőben', statusApproval: 'Jóváhagyásra vár', statusDone: 'Kész',
@@ -166,6 +166,8 @@ export function MaintenanceStaffView() {
         { data: activeData, error: activeError },
         { data: completedData, error: completedError },
         { data: teamData, error: teamError },
+        { data: foreignActive, error: foreignActiveError },
+        { data: foreignCompleted, error: foreignCompletedError },
       ] = await Promise.all([
         supabase.from('staff_attendance').select('id').eq('user_id', user.id).eq('work_date', today).eq('status', 'checked_in').limit(1),
         (supabase as any).from('tickets').select(ticketSelect)
@@ -184,8 +186,20 @@ export function MaintenanceStaffView() {
           .order('closed_at', { ascending: false })
           .limit(30),
         (supabase as any).rpc('get_maintenance_property_teammates'),
+        // Only explicit Hotel Ottofiori assignments to the signed-in worker.
+        (supabase as any).from('tickets').select(ticketSelect)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('department', 'maintenance').eq('assigned_to', user.id)
+          .in('hotel', ['ottofiori', 'Hotel Ottofiori']).neq('status', 'completed')
+          .order('created_at', { ascending: false }).limit(100),
+        (supabase as any).from('tickets').select(ticketSelect)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('department', 'maintenance').eq('assigned_to', user.id)
+          .in('hotel', ['ottofiori', 'Hotel Ottofiori']).eq('status', 'completed')
+          .order('closed_at', { ascending: false }).limit(30),
       ]);
-      if (activeError || completedError || teamError) throw activeError || completedError || teamError;
+      if (activeError || completedError || teamError || foreignActiveError || foreignCompletedError)
+        throw activeError || completedError || teamError || foreignActiveError || foreignCompletedError;
       setSignedIn(!!attendance?.length);
       const teamById = new Map<string, string>(
         ((teamData || []) as Array<{ id: string; full_name: string }>).map(member => [member.id, member.full_name]),
@@ -196,8 +210,14 @@ export function MaintenanceStaffView() {
           ? { full_name: teamById.get(ticket.assigned_to)! }
           : null,
       }));
-      const activeRows = sortMaintenanceTickets(attachAssignee(activeData || []) as Ticket[]);
-      const completedRows = attachAssignee(completedData || []) as Ticket[];
+      const mergedActive = [...new Map([...(activeData || []), ...(foreignActive || [])].map((row: Ticket) => [row.id, row])).values()];
+      const mergedCompleted = [...new Map([...(completedData || []), ...(foreignCompleted || [])].map((row: Ticket) => [row.id, row])).values()];
+      const activeRows = sortMaintenanceTickets(attachAssignee(mergedActive) as Ticket[]);
+      const completedRows = attachAssignee(mergedCompleted) as Ticket[];
+      for (const ticket of [...activeRows, ...completedRows]) {
+        if (ticket.assigned_to === user.id && !ticket.assigned_to_profile)
+          ticket.assigned_to_profile = { full_name: profile.full_name || 'You' };
+      }
       for (const ticket of activeRows) {
         if (previouslyAwaiting.current.has(ticket.id) && !ticket.pending_supervisor_approval && ticket.status === 'in_progress') {
           toast.info(language === 'hu' ? `Javítás visszaküldve: ${ticket.ticket_number}. Nézze meg az előzményeket.` : `Repair returned for correction: ${ticket.ticket_number}. Check ticket history.`);
@@ -227,7 +247,9 @@ export function MaintenanceStaffView() {
         if (
           record?.department === 'maintenance'
           && record?.organization_slug === profile?.organization_slug
-          && (!record?.hotel || hotelScopeRef.current.has(record.hotel))
+          && (!record?.hotel || hotelScopeRef.current.has(record.hotel)
+            || ((record.hotel === 'Hotel Ottofiori' || record.hotel === 'ottofiori')
+              && record.assigned_to === user.id))
         ) void refresh();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_attendance', filter: `user_id=eq.${user.id}` }, () => void refresh())
@@ -477,7 +499,16 @@ export function MaintenanceStaffView() {
         <Card><CardContent className="py-12 text-center"><CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-muted-foreground" /><p className="text-muted-foreground">{c.noTasks}</p></CardContent></Card>
       ) : <div className="space-y-3">{filtered.map(ticket => {
         const busy = busyTicketId === ticket.id || isSubmittingCompletion && selected?.id === ticket.id;
-        return <Card key={ticket.id} className={`overflow-hidden border-l-4 ${ticket.priority === 'urgent' ? 'border-l-red-500' : ticket.priority === 'high' ? 'border-l-orange-500' : 'border-l-primary/60'}`}>
+        const visitingOttofiori = (ticket.hotel === 'Hotel Ottofiori' || ticket.hotel === 'ottofiori')
+          && !hotelScopeRef.current.has(ticket.hotel);
+        return <Card key={ticket.id} className={`overflow-hidden border-l-4 ${visitingOttofiori ? 'border-l-sky-700 ring-2 ring-sky-200' : ticket.priority === 'urgent' ? 'border-l-red-500' : ticket.priority === 'high' ? 'border-l-orange-500' : 'border-l-primary/60'}`}>
+          {visitingOttofiori && <div className="flex flex-wrap items-center gap-2 border-b border-sky-200 bg-sky-50 px-3 py-3" role="note">
+            <Badge className="bg-sky-800 text-white text-xs">HOTEL OTTOFIORI</Badge>
+            <span className="text-sm font-semibold text-sky-950">
+              {language === 'hu' ? 'Külső hotelben végzendő feladat · Menjen a Hotel Ottofioriba'
+                : 'Other property assignment · Go to Hotel Ottofiori'}
+            </span>
+          </div>}
           <CardHeader className="p-3 pb-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0"><CardTitle className="flex flex-wrap items-center gap-2 text-base sm:text-lg"><span>{c.room} {ticket.room_number}</span><Badge className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge><Badge variant="outline" className={statusClass(ticket)}>{status(ticket)}</Badge></CardTitle><div className="mt-1 text-xs text-muted-foreground">{ticket.ticket_number}</div></div>
