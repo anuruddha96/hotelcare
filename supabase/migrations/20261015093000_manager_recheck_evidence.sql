@@ -25,7 +25,7 @@ WITH CHECK (
   AND split_part(name, '/', 1) = (SELECT auth.uid())::text
   AND EXISTS (
     SELECT 1 FROM public.profiles p
-    WHERE p.user_id = (SELECT auth.uid())
+    WHERE p.id = (SELECT auth.uid())
       AND p.role IN ('admin', 'top_management', 'top_management_manager',
                      'manager', 'housekeeping_manager', 'supervisor')
       AND p.organization_slug IS NOT NULL
@@ -43,7 +43,7 @@ USING (
     split_part(name, '/', 1) = (SELECT auth.uid())::text
     OR EXISTS (
       SELECT 1 FROM public.room_assignments a
-      JOIN public.profiles p ON p.user_id = (SELECT auth.uid())
+      JOIN public.profiles p ON p.id = (SELECT auth.uid())
       WHERE a.id::text = split_part(name, '/', 2)
         AND a.organization_slug = p.organization_slug
         AND (
@@ -62,7 +62,7 @@ USING (
   AND split_part(name, '/', 1) = (SELECT auth.uid())::text
   AND EXISTS (
     SELECT 1 FROM public.profiles p
-    WHERE p.user_id = (SELECT auth.uid())
+    WHERE p.id = (SELECT auth.uid())
       AND p.role IN ('admin', 'top_management', 'top_management_manager',
                      'manager', 'housekeeping_manager', 'supervisor')
   )
