@@ -4,6 +4,7 @@ import { TicketCard } from './TicketCard';
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), onClick: vi.fn() }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { functions: { invoke: mocks.invoke } } }));
+vi.mock('@/lib/storageUrls', () => ({ getSignedPhotoUrls: vi.fn(async (paths: string[]) => paths.map(path => `https://images.example/${path}`)) }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ profile: { role: 'manager' } }) }));
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => ({ language: 'en', t: (key: string) => key }),
@@ -53,4 +54,18 @@ describe('maintenance queue cards', () => {
     expect(screen.getByText('Source title 300')).toBeTruthy();
     expect(mocks.invoke).toHaveBeenCalledTimes(1);
   });
+  it('shows every original and repair photo preview without opening the ticket', async () => {
+    render(<TicketCard ticket={{
+      ...ticket(401),
+      attachment_urls: ['401/issue-one.jpg', '401/issue-two.jpg'],
+      completion_photos: ['401/repair.jpg'],
+    }} onClick={mocks.onClick} />);
+    expect(screen.getByText('Photos (3)')).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /Original issue photos/ })).toHaveLength(2));
+    expect(screen.getAllByRole('button', { name: /After-repair photos/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Original issue photos 1' }));
+    expect(mocks.onClick).not.toHaveBeenCalled();
+    expect(screen.getAllByAltText('Original issue photos 1').length).toBeGreaterThan(1);
+  });
+
 });

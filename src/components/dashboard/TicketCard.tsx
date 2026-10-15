@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useMaintenanceAutoTranslation } from '@/hooks/useMaintenanceAutoTranslation';
 import { canManageMaintenance, MaintenanceManagerControls } from './MaintenanceManagerControls';
+import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
 import { maintenanceLocation, maintenanceQueueBucket } from '@/lib/maintenanceQueue';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Calendar, User, MapPin, AlertCircle, PauseCircle, CheckCircle2, Languages, Loader2 } from 'lucide-react';
@@ -30,6 +31,8 @@ interface Ticket {
   hotel?: string;
   created_by?: { full_name: string; role: string };
   assigned_to?: { full_name: string };
+  attachment_urls?: string[] | null;
+  completion_photos?: string[] | null;
 }
 
 interface TicketCardProps {
@@ -131,6 +134,9 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
       </CardHeader>
       <CardContent className="pt-0 space-y-2">
         <p className="text-sm text-muted-foreground line-clamp-2">{display.description || ticket.description}</p>
+        {ticket.department === 'maintenance' && !!((ticket.attachment_urls?.length || 0) + (ticket.completion_photos?.length || 0)) && (
+          <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} compact />
+        )}
         {ticket.on_hold && ticket.status !== 'completed' && !ticket.pending_supervisor_approval && (
           <div className="flex items-start gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 py-1.5 text-xs text-orange-900" role="note">
             <PauseCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
