@@ -51,6 +51,7 @@ import { RoomAssignmentChangeDialog } from './RoomAssignmentChangeDialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { housekeeperVisibleAssignmentNote } from '@/lib/housekeeperVisibleAssignmentNote';
+import { ManagerRecheckEvidence } from './ManagerRecheckEvidence';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
 import { todayBudapest } from '@/lib/budapestTime';
@@ -74,6 +75,7 @@ interface AssignedRoomCardProps {
     started_at?: string | null;
     completed_at?: string | null;
     completion_photos?: string[] | null;
+    recheck_photos?: string[] | null;
     is_dnd?: boolean;
     dnd_marked_at?: string | null;
     dnd_marked_by?: string | null;
@@ -955,8 +957,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     : null;
   
   // Count special instructions
-  const hasSpecialInstructions = showTowelChange || showLinenChange || !!portfolioCarry || !!bedInstruction || hasManagerNotes || hasSeparatePrevioNote || !!displayAssignmentNote || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [!!fullCleanInstruction, !fullCleanInstruction && showTowelChange, !fullCleanInstruction && showLinenChange, !!portfolioCarry, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, !!displayAssignmentNote, roomFlags.collectExtraTowels, !fullCleanInstruction && roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = showTowelChange || showLinenChange || !!portfolioCarry || !!bedInstruction || hasManagerNotes || hasSeparatePrevioNote || !!displayAssignmentNote || Boolean(assignment.recheck_photos?.length) || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [!!fullCleanInstruction, !fullCleanInstruction && showTowelChange, !fullCleanInstruction && showLinenChange, !!portfolioCarry, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, !!displayAssignmentNote, Boolean(assignment.recheck_photos?.length), roomFlags.collectExtraTowels, !fullCleanInstruction && roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
@@ -1256,6 +1258,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
             </div>
           )}
+          <ManagerRecheckEvidence photos={assignment.recheck_photos} />
         </div>
       )}
 
