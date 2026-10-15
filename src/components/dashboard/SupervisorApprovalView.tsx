@@ -1065,7 +1065,7 @@ export function SupervisorApprovalView({
       // closing anyone's existing task or creating an evidence-less recheck.
       for (let offset = 0; offset < recheckFiles.length; offset += 3) {
         const batch = recheckFiles.slice(offset, offset + 3);
-        const paths = await Promise.all(batch.map(async (file, index) => {
+        const outcomes = await Promise.allSettled(batch.map(async (file, index) => {
           const path = recheckEvidencePath(currentUserId, newAssignmentId, file, offset + index);
           const { error } = await supabase.storage
             .from(RECHECK_PHOTO_BUCKET)
@@ -1073,9 +1073,11 @@ export function SupervisorApprovalView({
           if (error) throw error;
           uploadedPaths.push(path);
           setRecheckUploadProgress(`Uploaded ${uploadedPaths.length} of ${recheckFiles.length} photos…`);
-          return path;
         }));
-        if (paths.length !== batch.length) throw new Error('Photo upload incomplete.');
+        // Wait for the whole batch before cleanup; otherwise another upload
+        // might finish after rollback and leave an orphaned private object.
+        const failed = outcomes.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (failed) throw failed.reason;
       }
 
       if (existingAssignments && existingAssignments.length > 0) {
