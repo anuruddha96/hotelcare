@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useHousekeepingLiveRefresh } from '@/hooks/useHousekeepingLiveRefresh';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -88,6 +89,13 @@ export function MobileHousekeepingView() {
   const [imageCaptureDialogOpen, setImageCaptureDialogOpen] = useState(false);
   const [pendingScrollAssignmentId, setPendingScrollAssignmentId] = useState<string | null>(null);
 
+  // Realtime is the fast path. While the phone stays open, reconcile missed
+  // readiness/room-state updates at most 20 seconds apart and on foregrounding.
+  useHousekeepingLiveRefresh(
+    () => Promise.all([fetchAssignments(), fetchSummary()]),
+    !!user?.id,
+  );
+
   useEffect(() => {
     if (!user?.id) return;
     fetchAssignments();
@@ -113,7 +121,13 @@ export function MobileHousekeepingView() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          // Recover changes that happened during a lost/re-established socket.
+          void fetchAssignments();
+          void fetchSummary();
+        }
+      });
 
     return () => {
       void supabase.removeChannel(channel);
