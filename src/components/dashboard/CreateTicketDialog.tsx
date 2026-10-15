@@ -142,10 +142,23 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
       savedTicket = data;
       if (attachmentRef.current?.hasAttachments()) {
         try {
+          const expectedPhotos = attachmentRef.current.getAttachments().length;
           const uploadedPaths = await attachmentRef.current.uploadWithTicketId(data.id);
           if (uploadedPaths.length) {
-            const { error: attachError } = await supabase.from('tickets').update({ attachment_urls: uploadedPaths }).eq('id', data.id).eq('organization_slug', profile.organization_slug).eq('hotel', selectedHotel.hotel_name);
+            // A ticket creator is not necessarily allowed to UPDATE tickets. A narrowly
+            // scoped RPC verifies ticket ownership and that each file already exists.
+            const { data: linkedPaths, error: attachError } = await (supabase as any).rpc(
+              'link_ticket_attachments', { p_ticket_id: data.id, p_paths: uploadedPaths },
+            );
             if (attachError) throw attachError;
+            if (!Array.isArray(linkedPaths) || !uploadedPaths.every(path => linkedPaths.includes(path))) {
+              throw new Error('Ticket photos were uploaded but could not be linked. Please contact a manager.');
+            }
+          }
+          if (uploadedPaths.length !== expectedPhotos) {
+            toast({ title: c.uploadWarning, description: language === 'hu'
+              ? 'Néhány fájl nem töltődött fel. Kérjük, ellenőrizze a jegy fotóit.'
+              : 'Some files did not upload. Please review the ticket photos.', variant: 'destructive' });
           }
         } catch (attachmentError) {
           console.error('Ticket saved but attachment upload failed:', attachmentError);
