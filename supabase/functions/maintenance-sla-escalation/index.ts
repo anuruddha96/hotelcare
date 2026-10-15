@@ -12,8 +12,8 @@ type EscalationSetting = {
   l1_emails: string[] | null;
   l2_emails: string[] | null;
   creation_emails: string[] | null;
+  creation_recipient_ids: string[] | null;
   notify_on_creation: boolean;
-  notify_property_staff: boolean;
 };
 
 type MaintenanceTicket = {
@@ -55,7 +55,10 @@ function clean(value: unknown): string {
 }
 
 function normalizeEmailList(values: string[] | null | undefined): string[] {
-  return [...new Set((values || []).map(v => String(v).trim().toLowerCase()).filter(v => /^\S+@\S+\.\S+$/.test(v)))];
+  // Placeholder logins aren't valid mail recipients. Never broadcast to internal
+  // non-deliverable identities such as @rdhotels.local.
+  return [...new Set((values || []).map(v => String(v).trim().toLowerCase())
+    .filter(v => /^\S+@\S+\.\S+$/.test(v) && !/\.(?:local|invalid|test|example)$/i.test(v.split('@')[1] || '')))];
 }
 
 function configuredSlaHours(setting: EscalationSetting, priority: MaintenanceTicket['priority']): number {
@@ -283,19 +286,27 @@ Deno.serve(async (req) => {
     }
     const ticket = ticketData as unknown as MaintenanceTicket;
     const setting = settingFor(ticket,(settings||[]) as EscalationSetting[],(hotels||[]) as Array<{hotel_id:string;hotel_name:string}>);
-    const enabled = (!setting || setting.email_enabled !== false) && (!setting || setting.notify_on_creation !== false);
+    // Fail closed: an unconfigured hotel has zero creation-email recipients.
+    // Only explicitly selected staff accounts and entered addresses are notified.
+    // Managers/reception are NEVER auto-enrolled merely because of their role.
+    const enabled = !!setting && setting.email_enabled !== false && setting.notify_on_creation !== false;
     let recipients = normalizeEmailList(setting?.creation_emails);
-    if (enabled && (!setting || setting.notify_property_staff !== false)) {
+    const selectedIds = [...new Set((setting?.creation_recipient_ids || [])
+      .filter((id: string) => /^[0-9a-f-]{36}$/i.test(id)))];
+    if (enabled && selectedIds.length) {
       const {data:staff,error:staffError} = await admin.from('profiles')
-        .select('email,assigned_hotel')
-        .eq('organization_slug',ticket.organization_slug).is('deleted_at',null)
-        .in('role',['manager','reception','reception_manager']);
-      if (staffError) {console.error('Staff lookup failed for initial email',staffError.message);continue;}
-      const key = ticket.hotel.toLowerCase().trim();
+        .select('id,email,role,assigned_hotel,organization_slug')
+        .eq('organization_slug',ticket.organization_slug)
+        .is('deleted_at',null)
+        .in('id',selectedIds)
+        .in('role',['manager','reception','reception_manager','maintenance_manager','top_management_manager','top_management']);
+      if (staffError) {console.error('Selected recipients lookup failed',staffError.message);continue;}
+      const key = String(ticket.hotel || '').toLowerCase().trim();
       const alias = (hotels||[]).find(h => h.hotel_id?.toLowerCase()===key || h.hotel_name?.toLowerCase()===key);
       const keys = new Set([key,alias?.hotel_id?.toLowerCase(),alias?.hotel_name?.toLowerCase()].filter(Boolean));
       recipients = normalizeEmailList([...recipients,...(staff||[])
-        .filter(person=>keys.has(String(person.assigned_hotel||'').toLowerCase().trim()))
+        .filter(person => person.role === 'top_management'
+          || keys.has(String(person.assigned_hotel||'').toLowerCase().trim()))
         .map(person=>person.email)]);
     }
     const {data:claimId,error:claimError}=await admin.rpc('claim_maintenance_escalation_event',{
