@@ -256,7 +256,7 @@ Deno.serve(async (req) => {
   const now = new Date();
 
   const [{ data: settings, error: settingsError }, { data: hotels, error: hotelsError }] = await Promise.all([
-    admin.from('maintenance_escalation_settings').select('*').eq('email_enabled', true),
+    admin.from('maintenance_escalation_settings').select('*'),
     admin.from('hotel_configurations').select('hotel_id,hotel_name'),
   ]);
   if (settingsError) return json({ error: 'Unable to load maintenance escalation settings' }, 500);
@@ -349,7 +349,7 @@ Deno.serve(async (req) => {
 
     for (const ticket of rows) {
       const setting = settingFor(ticket, (settings || []) as EscalationSetting[], (hotels || []) as Array<{ hotel_id: string; hotel_name: string }>);
-      if (!setting) continue;
+      if (!setting || !setting.email_enabled) continue;
       const l1At = new Date(ticket.sla_due_date);
       if (!Number.isFinite(l1At.getTime())) continue;
       // L2 always uses the ticket's original SLA interval. Changing settings later
