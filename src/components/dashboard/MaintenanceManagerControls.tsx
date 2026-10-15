@@ -58,7 +58,7 @@ const words = {
     noteHint: 'Record who handled the repair and what was done. This is saved in the ticket history.',
     rejectHint: 'Describe exactly what needs correcting. The worker will see this in ticket history.',
     approveHint: 'Confirm you inspected the repair. An optional note is saved in the audit trail.',
-    sla: 'Reason for missed SLA', slaHint: 'The deadline has passed. Explain the delay before closing.',
+    sla: 'Reason for missed repair deadline', slaHint: 'The deadline has passed. Explain the delay before closing.',
     cancel: 'Cancel', confirm: 'Save update', saving: 'Saving…', saved: 'Maintenance ticket updated',
     stale: 'The ticket may have changed. Refresh the page and try again.',
     historyEmpty: 'No manager updates recorded yet.',

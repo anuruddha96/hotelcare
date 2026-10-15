@@ -271,8 +271,8 @@ verify_jwt = false
 [functions.welcome-quote-refill]
 verify_jwt = false
 
-# Recurring maintenance SLA worker. Deploy with --no-verify-jwt and invoke from
-# a trusted scheduler every 5-15 minutes using MAINTENANCE_ESCALATION_WORKER_SECRET
+# Maintenance creation and repair-deadline worker. Triggered immediately via pg_net
+# and backed up every minute using MAINTENANCE_ESCALATION_WORKER_SECRET
 # in the x-worker-secret header. Never place the service-role key in a scheduler.
 # Set HOTELCARE_APP_URL to the canonical signed-in app origin used in ticket links.
 [functions.maintenance-sla-escalation]
@@ -284,3 +284,7 @@ verify_jwt = false
 # Opt-in manual Számlázz invoicing worker. Must validate its private header.
 [functions.manual-billing-worker]
 verify_jwt = false
+
+# Manual manager emails use signed-in top-management JWTs and check hotel scope.
+[functions.maintenance-notify-manager]
+verify_jwt = true

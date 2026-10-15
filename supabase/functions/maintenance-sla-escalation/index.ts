@@ -11,6 +11,9 @@ type EscalationSetting = {
   low_sla_hours: number;
   l1_emails: string[] | null;
   l2_emails: string[] | null;
+  creation_emails: string[] | null;
+  notify_on_creation: boolean;
+  notify_property_staff: boolean;
 };
 
 type MaintenanceTicket = {
@@ -148,7 +151,7 @@ async function evidenceLinks(admin: ReturnType<typeof createClient>, values: str
   return links;
 }
 
-async function emailBody(admin: ReturnType<typeof createClient>, ticket: MaintenanceTicket, level: 1 | 2, threshold: Date, hoursPast: number) {
+async function emailBody(admin: ReturnType<typeof createClient>, ticket: MaintenanceTicket, level: 0 | 1 | 2, threshold: Date, hoursPast: number) {
   const url = ticketUrl(ticket);
   const room = ticket.room_number && ticket.room_number.toUpperCase() !== 'N/A' ? ticket.room_number : 'Common area';
   const assigned = ticket.assigned_to_profile?.full_name || 'Unassigned';
@@ -164,13 +167,19 @@ async function emailBody(admin: ReturnType<typeof createClient>, ticket: Mainten
   const evidenceText = evidence.length ? evidence.map(item => `${item.label}: ${item.url}`).join('\\n') : 'No attachments';
   const evidenceHtml = evidence.length ? `<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:7px">Attachments (${evidence.length})</div><div>${evidence.map(item => `<a href="${clean(item.url)}" style="display:inline-block;margin:0 6px 6px 0;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;color:#0369a1;text-decoration:none;font-size:12px">${clean(item.label)}</a>`).join('')}</div></div>` : '';
   const hotel = ticket.hotel;
-  const overdue = hoursPast < 48 ? `${Math.max(1, Math.round(hoursPast))}h overdue` : `${Math.max(2, Math.round(hoursPast / 24))} days overdue`;
-  const reason = level === 1
-    ? 'This maintenance issue passed its response deadline and still needs attention.'
-    : 'This maintenance issue is still unresolved after the first escalation and now needs top-management attention.';
-  const subject = `Action needed: Maintenance overdue · ${room} · ${hotel}`;
+  const overdue = level === 0 ? 'Newly reported' : hoursPast < 48
+    ? `${Math.max(1, Math.round(hoursPast))}h past repair deadline`
+    : `${Math.max(2, Math.round(hoursPast / 24))} days past repair deadline`;
+  const reason = level === 0
+    ? 'A maintenance issue has been reported. Please coordinate its repair and keep the team informed.'
+    : level === 1
+    ? 'This maintenance issue passed its repair deadline and still needs attention.'
+    : 'This maintenance issue is still unresolved after the first reminder and now needs top-management attention.';
+  const subject = level === 0
+    ? `New maintenance issue · ${room} · ${hotel}`
+    : `Action needed: Repair overdue · ${room} · ${hotel}`;
   const text = [
-    'HotelCare — Maintenance issue needs attention',
+    level === 0 ? 'HotelCare — New maintenance issue' : 'HotelCare — Maintenance issue needs attention',
     reason,
     '',
     `${hotel} · ${room}`,
@@ -194,8 +203,8 @@ async function emailBody(admin: ReturnType<typeof createClient>, ticket: Mainten
           <div style="font-size:20px;font-weight:800;color:#0f172a"><span style="color:#16b9d4">✦</span> HotelCare</div>
         </div>
         <div style="padding:24px">
-          <div style="display:inline-block;background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700;margin-bottom:12px">Action needed</div>
-          <h2 style="font-size:22px;line-height:1.25;margin:0 0 8px">Maintenance issue needs attention</h2>
+          <div style="display:inline-block;background:#f0f9ff;color:#075985;border:1px solid #bae6fd;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700;margin-bottom:12px">${level === 0 ? 'New issue' : 'Repair overdue'}</div>
+          <h2 style="font-size:22px;line-height:1.25;margin:0 0 8px">${level === 0 ? 'New maintenance issue' : 'Maintenance issue needs attention'}</h2>
           <p style="margin:0 0 20px;color:#64748b;font-size:14px;line-height:1.5">${clean(reason)}</p>
           <div style="background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:18px">
             <div style="font-size:15px;font-weight:700;margin-bottom:10px">${clean(hotel)} · ${clean(room)}</div>
@@ -211,7 +220,7 @@ async function emailBody(admin: ReturnType<typeof createClient>, ticket: Mainten
             ${evidenceHtml}
           </div>
           <a href="${clean(url)}" style="display:inline-block;background:#16a9d5;color:#fff;text-decoration:none;padding:11px 16px;border-radius:8px;font-size:14px;font-weight:700">Review maintenance ticket</a>
-          <p style="font-size:11px;color:#94a3b8;margin:18px 0 0">Reference: ${clean(ticket.ticket_number)} · Automatic HotelCare maintenance alert</p>
+          <p style="font-size:11px;color:#94a3b8;margin:18px 0 0">Reference: ${clean(ticket.ticket_number)} · HotelCare maintenance notification</p>
         </div>
       </div>
     </div>`;
@@ -247,11 +256,79 @@ Deno.serve(async (req) => {
   const now = new Date();
 
   const [{ data: settings, error: settingsError }, { data: hotels, error: hotelsError }] = await Promise.all([
-    admin.from('maintenance_escalation_settings').select('*').eq('email_enabled', true),
+    admin.from('maintenance_escalation_settings').select('*'),
     admin.from('hotel_configurations').select('hotel_id,hotel_name'),
   ]);
   if (settingsError) return json({ error: 'Unable to load maintenance escalation settings' }, 500);
   if (hotelsError) console.warn('Hotel aliases unavailable; exact maintenance hotel keys will still work');
+
+  // Creation events are committed by the database trigger and woken immediately
+  // through pg_net. pg_cron retries pending/failed jobs every minute.
+  const { data: creationJobs, error: creationJobError } = await admin.from('maintenance_escalation_events')
+    .select('id,ticket_id,status,threshold_at')
+    .eq('escalation_level',0).in('status',['pending','failed','claimed'])
+    .order('created_at',{ascending:true}).limit(250);
+  if (creationJobError) return json({ error: 'Unable to read new-issue notifications' }, 500);
+  let newIssuesSent = 0;
+  let creationFailures = 0;
+  let creationSkipped = 0;
+  for (const job of creationJobs || []) {
+    const { data: ticketData, error: ticketError } = await admin.from('tickets')
+      .select('id,ticket_number,organization_slug,hotel,room_number,title,description,priority,status,created_at,updated_at,sla_due_date,assigned_to,created_by,forwarded_at,assignment_method,attachment_urls,completion_photos,hold_reason,assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name),created_by_profile:profiles!tickets_created_by_fkey(full_name)')
+      .eq('id',job.ticket_id).eq('department','maintenance').maybeSingle();
+    if (ticketError) { console.error('Creation notification lookup failed',job.ticket_id,ticketError.message); continue; }
+    if (!ticketData) {
+      await admin.from('maintenance_escalation_events').update({status:'skipped',error_message:'Issue no longer exists'}).eq('id',job.id).eq('status','pending');
+      continue;
+    }
+    const ticket = ticketData as unknown as MaintenanceTicket;
+    const setting = settingFor(ticket,(settings||[]) as EscalationSetting[],(hotels||[]) as Array<{hotel_id:string;hotel_name:string}>);
+    const enabled = (!setting || setting.email_enabled !== false) && (!setting || setting.notify_on_creation !== false);
+    let recipients = normalizeEmailList(setting?.creation_emails);
+    if (enabled && (!setting || setting.notify_property_staff !== false)) {
+      const {data:staff,error:staffError} = await admin.from('profiles')
+        .select('email,assigned_hotel')
+        .eq('organization_slug',ticket.organization_slug).is('deleted_at',null)
+        .in('role',['manager','reception','reception_manager']);
+      if (staffError) {console.error('Staff lookup failed for initial email',staffError.message);continue;}
+      const key = ticket.hotel.toLowerCase().trim();
+      const alias = (hotels||[]).find(h => h.hotel_id?.toLowerCase()===key || h.hotel_name?.toLowerCase()===key);
+      const keys = new Set([key,alias?.hotel_id?.toLowerCase(),alias?.hotel_name?.toLowerCase()].filter(Boolean));
+      recipients = normalizeEmailList([...recipients,...(staff||[])
+        .filter(person=>keys.has(String(person.assigned_hotel||'').toLowerCase().trim()))
+        .map(person=>person.email)]);
+    }
+    const {data:claimId,error:claimError}=await admin.rpc('claim_maintenance_escalation_event',{
+      p_ticket_id:ticket.id,p_organization_slug:ticket.organization_slug,p_hotel:ticket.hotel,
+      p_escalation_level:0,p_threshold_at:job.threshold_at,p_recipient_emails:recipients,
+    });
+    if(claimError){console.error('Creation notification claim error',claimError.message);continue;}
+    if(!claimId) continue; // Concurrent worker claimed it already.
+    if(!enabled||recipients.length===0) {
+      await admin.from('maintenance_escalation_events').update({
+        status:'skipped',error_message:enabled?'No recipients configured':'Creation emails disabled'
+      }).eq('id',claimId).eq('status','claimed');
+      creationSkipped++;
+      continue;
+    }
+    try {
+      const message=await emailBody(admin,ticket,0,new Date(job.threshold_at),0);
+      const result=await sendEmail({admin:admin as never,organizationSlug:ticket.organization_slug,
+        to:recipients,subject:message.subject,html:message.html,text:message.text,kind:'transactional'});
+      await admin.from('maintenance_escalation_events').update({
+        status:result.ok?'sent':result.skipped?'skipped':'failed',
+        provider_message_id:result.id||null,
+        error_message:result.ok?null:String(result.error||'Email delivery failed').slice(0,1000),
+        sent_at:result.ok?new Date().toISOString():null,
+      }).eq('id',claimId).eq('status','claimed');
+      if(result.ok)newIssuesSent++;else if(!result.skipped)creationFailures++;
+    } catch(error) {
+      creationFailures++;
+      await admin.from('maintenance_escalation_events').update({
+        status:'failed',error_message:String(error).slice(0,1000)
+      }).eq('id',claimId).eq('status','claimed');
+    }
+  }
 
   let scanned = 0;
   let claimed = 0;
@@ -272,7 +349,7 @@ Deno.serve(async (req) => {
 
     for (const ticket of rows) {
       const setting = settingFor(ticket, (settings || []) as EscalationSetting[], (hotels || []) as Array<{ hotel_id: string; hotel_name: string }>);
-      if (!setting) continue;
+      if (!setting || !setting.email_enabled) continue;
       const l1At = new Date(ticket.sla_due_date);
       if (!Number.isFinite(l1At.getTime())) continue;
       // L2 always uses the ticket's original SLA interval. Changing settings later
@@ -327,5 +404,5 @@ Deno.serve(async (req) => {
     if (offset >= 19_500) return json({ error: 'More than 20,000 overdue tickets; narrow or archive the maintenance queue' }, 500);
   }
 
-  return json({ scanned, claimed, sent, failed, checked_at: now.toISOString() });
+  return json({ scanned, claimed, sent, failed, newIssuesSent, creationFailures, creationSkipped, checked_at: now.toISOString() });
 });
