@@ -17,7 +17,7 @@ export const isOttofiori = (hotel?: string | null) =>
 export function OttofioriMaintenanceAssignment({
   ticket, onUpdated,
 }: {
-  ticket: { id: string; hotel?: string | null; updated_at: string; assigned_to?: { id?: string; full_name: string } };
+  ticket: { id: string; hotel?: string | null; title: string; room_number: string; priority: string; updated_at: string; assigned_to?: { id?: string; full_name: string } };
   onUpdated: () => void;
 }) {
   const { profile } = useAuth();
@@ -63,7 +63,7 @@ export function OttofioriMaintenanceAssignment({
         await supabase.functions.invoke('send-work-assignment-notification', {
           body: {
             staff_id: person.id, assignment_type: 'ticket',
-            assignment_details: { id: ticket.id, title: 'Maintenance issue', priority: 'medium' },
+            assignment_details: { id: ticket.id, title: ticket.title, room_number: ticket.room_number, priority: ticket.priority },
             hotel_name: 'Hotel Ottofiori',
           },
         });
