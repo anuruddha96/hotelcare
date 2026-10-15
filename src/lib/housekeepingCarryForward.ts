@@ -28,6 +28,16 @@ const PORTFOLIO_ALIASES = new Set([
   'slnt group',
 ]);
 
+/** RD Hotels only. Keep SLNT's housekeeping UX and business rules unchanged. */
+export function isRdCarryForwardHotel(hotel?: string | null): boolean {
+  return [
+    'mika-downtown', 'hotel mika downtown', 'mika downtown',
+    'ottofiori', 'hotel ottofiori',
+    'gozsdu-court', 'gozsdu court budapest',
+    'hotel memories budapest', 'memories budapest', 'memories-budapest',
+  ].includes(normalized(hotel));
+}
+
 export function isPortfolioCarryForwardHotel(hotel?: string | null): boolean {
   return PORTFOLIO_ALIASES.has(normalized(hotel));
 }
