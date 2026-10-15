@@ -18,6 +18,8 @@ import {
   Brush
 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
+import { parseRoomFlags } from '@/lib/room-service-flags';
 import { MobileOptimizedCard } from './MobileOptimizedCard';
 import { format } from 'date-fns';
 
@@ -84,7 +86,15 @@ interface EnhancedRoomCardV2Props {
 }
 
 export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const fullCleanInstruction = getRdFullCleanInstruction({
+    hotel: room.hotel,
+    isCheckout: room.is_checkout_room === true,
+    linenChangeRequired: room.linen_change_required,
+    fullRoomCleaningRequired: parseRoomFlags(room.notes ?? null).roomCleaning,
+    currentNight: room.guest_nights_stayed,
+    language,
+  });
   const getStatusColor = (status: string) => {
     const colors = {
       clean: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800',
@@ -255,7 +265,7 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
         <div className="flex flex-wrap gap-1.5 pt-2">
             {/* Towel Change Required Badge — hidden for checkout rooms where a
                 full towel/linen change is always part of the clean. */}
-            {room.towel_change_required && !room.is_checkout_room && (
+            {room.towel_change_required && !room.is_checkout_room && !fullCleanInstruction && (
               <div className="w-full p-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg animate-pulse">
                 <div className="flex items-center gap-2">
                   <div className="text-lg">🏺</div>
@@ -267,16 +277,16 @@ export function EnhancedRoomCardV2({ room, onClick }: EnhancedRoomCardV2Props) {
               </div>
             )}
 
-            {/* Linen Change Required Badge - Mobile Optimized */}
-            {room.linen_change_required && !room.is_checkout_room && (
-              <div className="w-full p-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg animate-pulse">
-                <div className="flex items-center gap-2">
-                  <div className="text-lg">🛏️</div>
-                  <div className="font-bold">BED LINEN CHANGE REQUIRED</div>
-                </div>
-                <p className="text-xs opacity-90 mt-1">
-                  Guest stayed {room.guest_nights_stayed} nights
-                </p>
+            {/* A full stayover clean always includes both bed linen and towels. */}
+            {fullCleanInstruction && (
+              <div role="status" className="w-full rounded-lg border border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-100">
+                <p className="font-bold">🛏️🧺 {fullCleanInstruction.title}</p>
+                <p className="mt-1 text-sm font-medium">{fullCleanInstruction.message}</p>
+              </div>
+            )}
+            {!fullCleanInstruction && room.linen_change_required && !room.is_checkout_room && (
+              <div className="w-full rounded-lg border border-purple-300 bg-purple-50 p-3 text-purple-900">
+                <div className="font-bold">BED LINEN CHANGE REQUIRED</div>
               </div>
             )}
 
