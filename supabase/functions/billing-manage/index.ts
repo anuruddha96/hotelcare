@@ -30,6 +30,7 @@ import {
   resolveBillingBypass,
   resolveModulePricing,
 } from "../_shared/billingOverrides.ts";
+import { resolveRdOneTimePackage, type RdPackage } from "../_shared/rdOneTimeBilling.ts";
 
 const MODULES: ModuleKey[] = ["revenue_bi", "revenue_automation", "operations", "maintenance"];
 
@@ -121,7 +122,7 @@ Deno.serve(async (req) => {
       }
 
       return json({
-        settings: { ...settings, stripe_secret_configured: Boolean(Deno.env.get("STRIPE_SECRET_KEY")), manual_invoicing_enabled: Deno.env.get("HOTELCARE_MANUAL_BILLING_ENABLED") === "true" },
+        settings: { ...settings, stripe_secret_configured: Boolean(Deno.env.get("STRIPE_SECRET_KEY")), manual_invoicing_enabled: Deno.env.get("HOTELCARE_MANUAL_BILLING_ENABLED") === "true", one_time_collection_enabled: Deno.env.get("HOTELCARE_ONE_TIME_CHECKOUT_ENABLED") === "true" },
         hotels: resolvedHotels,
         subscriptions: subs ?? [],
         trial_ends_at: trialEndsAt(settings),
@@ -141,6 +142,72 @@ Deno.serve(async (req) => {
 
     const stripe = stripeClient();
     if (!stripe) return json({ error: "Stripe is not configured yet" }, 400);
+
+    if (action === "one_time_checkout") {
+      if (!caller.isSuperAdmin && caller.role !== "admin") return json({ error: "Billing administrator required" }, 403);
+      if (slug !== "rdhotels") return json({ error: "One-time RD Hotels package is not available to this organization" }, 403);
+      if (Deno.env.get("HOTELCARE_ONE_TIME_CHECKOUT_ENABLED") !== "true" || !settings.payments_enabled)
+        return json({ error: "One-time collection is not activated yet; please complete payment testing first" }, 503);
+      if (body.packageKey !== "revenue" && body.packageKey !== "housekeeping")
+        return json({ error: "Unknown payment package" }, 400);
+      const pack = resolveRdOneTimePackage(body.packageKey as RdPackage, settings, agreements, entitlements, moduleRows);
+      if (pack.packageKey === "housekeeping" && (subs ?? []).some((sub) =>
+        sub.module === "operations" && Boolean(sub.stripe_subscription_id) &&
+        ["active", "trialing", "past_due"].includes(sub.status)))
+        return json({ error: "Housekeeping has an existing recurring Stripe subscription. Cancel it before starting a replacement one-time collection." }, 409);
+      const origin = req.headers.get("origin") ?? "";
+      const url = new URL(origin);
+      if (!((url.protocol === "https:" && (url.hostname === "hotelcare.app" || url.hostname.endsWith(".hotelcare.app"))) ||
+        (url.protocol === "http:" && url.hostname === "localhost")))
+        return json({ error: "Checkout must be started from HotelCare" }, 400);
+      const paymentId = crypto.randomUUID();
+      const { error: reserveError } = await db.from("billing_one_time_payments").insert({
+        id: paymentId, organization_slug: slug, package_key: pack.packageKey,
+        description: pack.description, currency: "EUR", net_cents: pack.netCents,
+        vat_cents: pack.vatCents, gross_cents: pack.grossCents, status: "pending",
+      });
+      if (reserveError) return json({ error: "There is already an open payment for this package. Finish or expire it before starting another." }, 409);
+      let sessionId: string | null = null;
+      try {
+        // Fixed domestic Hungarian tax rate; deliberately fail closed for
+        // non-Hungarian buyer details at settlement instead of auto-invoicing.
+        const vatRate = await fixedVatRate(stripe, settings);
+        if (!vatRate) throw new Error("Domestic VAT rate is missing");
+        const session = await stripe.checkout.sessions.create({
+          mode: "payment", payment_method_types: ["card"],
+          line_items: [{ quantity: 1, tax_rates: [vatRate], price_data: {
+            currency: "eur", unit_amount: pack.netCents, tax_behavior: "exclusive",
+            product_data: { name: pack.description },
+          } }],
+          customer_creation: "always", billing_address_collection: "required",
+          tax_id_collection: { enabled: true },
+          // This payment has no recurring price, no saved-card mandate and no invoice.
+          invoice_creation: { enabled: false },
+          custom_text: { submit: { message: "Single payment only. Hungarian company billing (27% VAT). If your billing country is not Hungary, contact HotelCare before paying. Official invoices are issued separately via Számlázz.hu." } },
+          metadata: { kind: "hotelcare_one_time", organization_slug: slug, payment_id: paymentId, package_key: pack.packageKey },
+          payment_intent_data: { metadata: { kind: "hotelcare_one_time", organization_slug: slug, payment_id: paymentId } },
+          success_url: url.origin + "/billing?payment=success",
+          cancel_url: url.origin + "/billing?payment=cancelled",
+        }, { idempotencyKey: "rd-onetime-" + paymentId });
+        sessionId = session.id;
+        const { error: updateError } = await db.from("billing_one_time_payments")
+          .update({ stripe_checkout_session_id: session.id }).eq("id", paymentId).eq("status", "pending");
+        if (updateError) throw updateError;
+        return json({ url: session.url, payment_id: paymentId, gross_cents: pack.grossCents, mode: "payment" });
+      } catch (error) {
+        if (!sessionId) {
+          await db.from("billing_one_time_payments").delete().eq("id", paymentId).eq("status", "pending");
+        } else {
+          try {
+            await stripe.checkout.sessions.expire(sessionId);
+            await db.from("billing_one_time_payments").update({ status: "expired" }).eq("id", paymentId).eq("status", "pending");
+          } catch (expireError) {
+            console.error("MANUAL RECONCILIATION REQUIRED: One-time Checkout cannot be expired", paymentId, sessionId, expireError);
+          }
+        }
+        throw error;
+      }
+    }
 
     if (action === "portal" && Deno.env.get("HOTELCARE_MANUAL_BILLING_ENABLED") === "true") {
       const { data: manual } = await db.from("manual_billing_contracts")
@@ -210,7 +277,15 @@ Deno.serve(async (req) => {
         .select("id,status,currency,gross_cents,current_period_end,cancel_at_period_end,items,billing_details")
         .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
       if (contractError) throw contractError;
-      return json({ payments: data ?? [], contracts: contracts ?? [] });
+      const { data: oneTime, error: oneTimeError } = await db.from("billing_one_time_payments")
+        .select("id,created_at,package_key,description,status,currency,net_cents,vat_cents,gross_cents,paid_at,billing_details,szamlazz_invoice_number,invoiced_at")
+        .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
+      if (oneTimeError) console.warn("One-time ledger unavailable until its migration is deployed", oneTimeError.message);
+      const oneTimeRows = (oneTime ?? []).map((p) => ({
+        ...p, contract_id: p.id, payment_source: "one_time",
+        period_start: p.created_at, period_end: p.created_at,
+      }));
+      return json({ payments: [...oneTimeRows, ...(data ?? [])], contracts: contracts ?? [] });
     }
 
     if (action === "cancel_manual_renewal") {
@@ -232,7 +307,12 @@ Deno.serve(async (req) => {
       const number = String(body.invoiceNumber ?? "").trim();
       if (!/^[0-9a-f-]{36}$/i.test(paymentId) || !number || number.length > 128)
         return json({ error: "Valid payment ID and Számlázz invoice number are required" }, 400);
-      const { data, error } = await db.from("manual_billing_payments")
+      const source = body.paymentSource === "one_time" ? "billing_one_time_payments" : "manual_billing_payments";
+      const counterpart = source === "billing_one_time_payments" ? "manual_billing_payments" : "billing_one_time_payments";
+      const { data: alreadyUsed } = await db.from(counterpart)
+        .select("id").eq("organization_slug", slug).eq("szamlazz_invoice_number", number).limit(1);
+      if (alreadyUsed?.length) return json({ error: "This Számlázz invoice number is already linked to another payment" }, 409);
+      const { data, error } = await db.from(source)
         .update({ szamlazz_invoice_number: number, invoiced_at: new Date().toISOString() })
         .eq("id", paymentId).eq("organization_slug", slug).eq("status", "paid")
         .is("szamlazz_invoice_number", null)
@@ -243,6 +323,8 @@ Deno.serve(async (req) => {
     }
 
     if (action === "checkout") {
+      // RD Hotels has explicitly opted out of new Stripe Billing subscriptions.
+      if (slug === "rdhotels") return json({ error: "RD Hotels uses one-time collection. New Stripe subscriptions are disabled." }, 403);
       const selections: { hotel_id: string; module: ModuleKey }[] = Array.isArray(body.selections)
         ? body.selections
         : [];
