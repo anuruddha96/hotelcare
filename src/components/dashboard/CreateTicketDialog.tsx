@@ -265,6 +265,11 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
             <SelectContent><SelectItem value="auto">⚡ {c.auto}</SelectItem>{maintenanceStaff.map(person => <SelectItem key={person.id} value={person.id}>{person.full_name} · {person.is_signed_in ? c.onDuty : c.offDuty}</SelectItem>)}</SelectContent>
           </Select>
           {!staffLoading && maintenanceStaff.length === 0 && <p className="text-xs text-amber-700">{c.none}</p>}
+           {selectedHotel?.hotel_name === 'Hotel Ottofiori' && ['manager', 'top_management', 'top_management_manager'].includes(profile?.role || '') && (
+             <p className="text-xs text-sky-800">{language === 'hu'
+               ? 'Más RD Hotels szállodák karbantartóit a hiba létrehozása után, a Hiba kezelése nézetben jelölheti ki.'
+               : 'After reporting, open the issue to assign a maintenance colleague from another RD Hotels property.'}</p>
+           )}
           {!staffLoading && maintenanceStaff.length > 0 && onDutyCount === 0 && <p className="text-xs text-amber-700 flex gap-1.5"><Clock3 className="h-3.5 w-3.5 mt-0.5 shrink-0" />{c.noDuty}</p>}
           <div className="text-xs text-muted-foreground flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5" />{selectedHotel?.hotel_name || c.selectHotel}</div>
         </CardContent></Card>}

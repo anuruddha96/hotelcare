@@ -168,9 +168,31 @@ export function Dashboard() {
         activeQuery = activeQuery.eq('assigned_to', profile.id);
         completedQuery = completedQuery.eq('assigned_to', profile.id);
       }
-      const [{ data: activeData, error: activeError }, { data: completedData, error: completedError }] = await Promise.all([activeQuery, completedQuery]);
-      if (activeError || completedError) throw activeError || completedError;
-      const parsed: Ticket[] = [...(activeData || []), ...(completedData || [])].map((d: any) => ({
+      const crossPropertyQuery = (completed: boolean) => (supabase as any).from('tickets')
+        .select(selectColumns)
+        .eq('organization_slug', profile.organization_slug).eq('department', 'maintenance')
+        .eq('assigned_to', profile.id).in('hotel', ['ottofiori', 'Hotel Ottofiori'])
+        .eq('status', completed ? 'completed' : 'open');
+      // Cross-property work is an explicit assignment, never an extra hotel-wide feed.
+      const foreignActiveQuery = (supabase as any).from('tickets').select(selectColumns)
+        .eq('organization_slug', profile.organization_slug).eq('department', 'maintenance')
+        .eq('assigned_to', profile.id).in('hotel', ['ottofiori', 'Hotel Ottofiori'])
+        .neq('status', 'completed').limit(100);
+      const foreignDoneQuery = crossPropertyQuery(true).limit(30);
+      const [localActive, localDone, foreignActive, foreignDone] = await Promise.all([
+        activeQuery, completedQuery,
+        profile.role === 'maintenance' ? foreignActiveQuery : Promise.resolve({data:[],error:null}),
+        profile.role === 'maintenance' ? foreignDoneQuery : Promise.resolve({data:[],error:null}),
+      ]);
+      const { data: activeData, error: activeError } = localActive;
+      const { data: completedData, error: completedError } = localDone;
+      if (activeError || completedError || foreignActive.error || foreignDone.error)
+        throw activeError || completedError || foreignActive.error || foreignDone.error;
+      const merged = [...new Map([
+        ...(activeData || []), ...(completedData || []),
+        ...(foreignActive.data || []), ...(foreignDone.data || []),
+      ].map((item: any) => [item.id, item])).values()];
+      const parsed: Ticket[] = merged.map((d: any) => ({
         id: d.id, ticket_number: d.ticket_number, title: d.title,
         description: d.description, room_number: d.room_number,
         priority: d.priority, status: d.status, on_hold: d.on_hold, hold_reason: d.hold_reason,
@@ -237,7 +259,8 @@ export function Dashboard() {
       }, (event: any) => {
         const record = event.new || event.old;
         if (record?.department && record.department !== 'maintenance') return;
-        if (record?.hotel && !maintenanceHotelScopeRef.current.has(record.hotel)) return;
+        if (record?.hotel && !maintenanceHotelScopeRef.current.has(record.hotel)
+          && !(profile.role === 'maintenance' && (record.hotel === 'Hotel Ottofiori' || record.hotel === 'ottofiori'))) return;
         if (profile.role === 'maintenance' && record?.assigned_to && record.assigned_to !== profile.id) return;
         refresh();
       }).subscribe();
