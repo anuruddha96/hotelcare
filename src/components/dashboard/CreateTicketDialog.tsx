@@ -55,6 +55,9 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
   const c = language === 'hu' ? copy.hu : copy.en;
   const attachmentRef = useRef<AttachmentUploadRef>(null);
   const submittingRef = useRef(false);
+  const pendingTicketRef = useRef<{ id: string; assigned_to: string | null; hotel: string; ticket_number: string } | null>(null);
+  const [attachmentBatch, setAttachmentBatch] = useState(0);
+  const [photoSaveError, setPhotoSaveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [canCreateTickets, setCanCreateTickets] = useState(false);
   const [permissionError, setPermissionError] = useState(false);
@@ -112,7 +115,11 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
       });
     return () => { cancelled = true; };
   }, [open, formData.hotel, formData.department, tenantHotels]);
-  const reset = () => { setFormData(initialForm()); setSelectedMaintenancePerson('auto'); setRooms([]); };
+  const reset = () => {
+    setFormData(initialForm()); setSelectedMaintenancePerson('auto'); setRooms([]);
+    setPhotoSaveError(null); setAttachmentBatch(value => value + 1);
+    pendingTicketRef.current = null;
+  };
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (submittingRef.current) return;
@@ -126,24 +133,36 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
       toast({ title: c.error, description: c.required, variant: 'destructive' }); return;
     }
     submittingRef.current = true; setLoading(true);
-    let savedTicket: { id: string; assigned_to: string | null; hotel: string; ticket_number: string } | null = null;
+    let savedTicket = pendingTicketRef.current;
+    setPhotoSaveError(null);
     try {
       const room = formData.roomId ? await validateMaintenanceRoomOption(formData.roomId, hotelKeys, profile.organization_slug) : null;
       const manualAssignee = formData.department === 'maintenance' && selectedMaintenancePerson !== 'auto' ? selectedMaintenancePerson : null;
       const description = room ? formData.description.trim() : `Location: ${formData.location.trim()}\n${formData.description.trim()}`;
-      const { data, error } = await (supabase as any).from('tickets').insert({
+      let data = savedTicket;
+      if (!data) {
+        const { data: inserted, error } = await (supabase as any).from('tickets').insert({
         title: formData.title.trim(), description, room_number: room?.roomNumber || 'N/A', source_room_id: room?.id || null,
         priority: formData.priority, department: formData.department, hotel: selectedHotel.hotel_name,
         created_by: profile.id, ticket_number: `TKT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         attachment_urls: null, assigned_to: manualAssignee, organization_slug: profile.organization_slug,
         source: 'manual', assignment_method: manualAssignee ? 'manual' : null,
       }).select('id, assigned_to, hotel, ticket_number').single();
-      if (error) throw error;
-      savedTicket = data;
+        if (error) throw error;
+        data = inserted;
+        savedTicket = inserted;
+        pendingTicketRef.current = inserted;
+      }
+      if (!data) throw new Error('Ticket could not be created');
       if (attachmentRef.current?.hasAttachments()) {
         try {
           const expectedPhotos = attachmentRef.current.getAttachments().length;
           const uploadedPaths = await attachmentRef.current.uploadWithTicketId(data.id);
+          if (uploadedPaths.length !== expectedPhotos) {
+            throw new Error(language === 'hu'
+              ? 'Egy vagy több fotó nem töltődött fel. Kérjük, próbálja újra.'
+              : 'One or more photos were not uploaded. Please retry.');
+          }
           if (uploadedPaths.length) {
             // A ticket creator is not necessarily allowed to UPDATE tickets. A narrowly
             // scoped RPC verifies ticket ownership and that each file already exists.
@@ -155,14 +174,9 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
               throw new Error('Ticket photos were uploaded but could not be linked. Please contact a manager.');
             }
           }
-          if (uploadedPaths.length !== expectedPhotos) {
-            toast({ title: c.uploadWarning, description: language === 'hu'
-              ? 'Néhány fájl nem töltődött fel. Kérjük, ellenőrizze a jegy fotóit.'
-              : 'Some files did not upload. Please review the ticket photos.', variant: 'destructive' });
-          }
-        } catch (attachmentError) {
-          console.error('Ticket saved but attachment upload failed:', attachmentError);
-          toast({ title: c.uploadWarning, variant: 'destructive' });
+        } catch (attachmentError: any) {
+          console.error('Ticket saved but attachment linking failed:', attachmentError);
+          throw new Error(attachmentError?.message || c.uploadWarning);
         }
       }
       if (data.assigned_to) {
@@ -181,12 +195,19 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
       window.dispatchEvent(new CustomEvent('maintenance-ticket-created', { detail: data }));
       onTicketCreated(); reset(); onOpenChange(false);
     } catch (error: any) {
-      console.error('Ticket creation failed:', error);
-      if (savedTicket) {
-        onTicketCreated(); reset(); onOpenChange(false); toast({ title: `${c.success} · ${savedTicket.ticket_number}`,
-          action: onOpenTicket ? <ToastAction altText="Open issue" onClick={() => onOpenTicket(savedTicket!.id)}>{language === 'hu' ? 'Hiba megnyitása' : 'Open issue'}</ToastAction> : undefined,
-        });
-      } else { toast({ title: c.error, description: error?.message || c.error, variant: 'destructive' }); }
+      console.error('Ticket creation / attachment saving failed:', error);
+      if (savedTicket && attachmentRef.current?.hasAttachments()) {
+        // The ticket exists already. Keep its form/photos open so pressing Submit
+        // retries the uploads and link RPC without ever creating a second ticket.
+        setPhotoSaveError(error?.message || c.uploadWarning);
+        toast({ title: c.uploadWarning, description: error?.message || c.uploadWarning, variant: 'destructive' });
+      } else if (savedTicket) {
+        onTicketCreated(); reset(); onOpenChange(false);
+        toast({ title: `${c.success} · ${savedTicket.ticket_number}`,
+          action: onOpenTicket ? <ToastAction altText="Open issue" onClick={() => onOpenTicket(savedTicket!.id)}>{language === 'hu' ? 'Hiba megnyitása' : 'Open issue'}</ToastAction> : undefined });
+      } else {
+        toast({ title: c.error, description: error?.message || c.error, variant: 'destructive' });
+      }
     } finally { submittingRef.current = false; setLoading(false); }
   };
   return <Dialog open={open} onOpenChange={next => { if (!loading) onOpenChange(next); }}>
@@ -247,7 +268,12 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
           {!staffLoading && maintenanceStaff.length > 0 && onDutyCount === 0 && <p className="text-xs text-amber-700 flex gap-1.5"><Clock3 className="h-3.5 w-3.5 mt-0.5 shrink-0" />{c.noDuty}</p>}
           <div className="text-xs text-muted-foreground flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5" />{selectedHotel?.hotel_name || c.selectHotel}</div>
         </CardContent></Card>}
-        <div className="space-y-2"><Label>{c.attachments}</Label><AttachmentUpload ref={attachmentRef} onAttachmentsChange={() => {}} maxFiles={5} /></div>
+        <div className="space-y-2"><Label>{c.attachments}</Label><AttachmentUpload key={attachmentBatch} ref={attachmentRef} onAttachmentsChange={() => {}} maxFiles={5} /></div>
+        {photoSaveError && <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <strong>{c.uploadWarning}</strong> {photoSaveError} {language === 'hu'
+            ? 'A jegy már létrejött. Az újrapróbáláshoz kattintson ismét a Hiba jelentése gombra. Nem hozunk létre új jegyet.'
+            : 'The ticket already exists. Press Report issue again to retry; no duplicate ticket will be created.'}
+        </div>}
         <div className="grid grid-cols-2 gap-2 pt-2"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading} className="h-11">{c.cancel}</Button>
           <Button type="submit" disabled={loading || roomsLoading || roomsError || !selectedHotel || !canCreateTickets} className="h-11">{loading ? c.creating : <><CheckCircle2 className="h-4 w-4 mr-2" />{c.submit}</>}</Button>
         </div>
