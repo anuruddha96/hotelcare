@@ -272,11 +272,11 @@ Deno.serve(async (req) => {
       const { data, error } = await db.from("manual_billing_payments")
         .select("id,contract_id,period_start,period_end,payment_source,status,currency,net_cents,vat_cents,gross_cents,paid_at,billing_details,szamlazz_invoice_number,invoiced_at")
         .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
-      if (error) throw error;
+      if (error) console.warn("Legacy manual monthly ledger has not been deployed", error.message);
       const { data: contracts, error: contractError } = await db.from("manual_billing_contracts")
         .select("id,status,currency,gross_cents,current_period_end,cancel_at_period_end,items,billing_details")
         .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
-      if (contractError) throw contractError;
+      if (contractError) console.warn("Legacy manual monthly contracts have not been deployed", contractError.message);
       const { data: oneTime, error: oneTimeError } = await db.from("billing_one_time_payments")
         .select("id,created_at,package_key,description,status,currency,net_cents,vat_cents,gross_cents,paid_at,billing_details,szamlazz_invoice_number,invoiced_at")
         .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(100);
