@@ -9,6 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useHousekeepingPresence } from '@/hooks/useHousekeepingPresence';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { housekeeperVisibleAssignmentNote } from '@/lib/housekeeperVisibleAssignmentNote';
+import { ManagerRecheckEvidence } from './ManagerRecheckEvidence';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
@@ -90,8 +91,8 @@ export function MobileHousekeepingCard({
     language,
   });
 
-  const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || hasSeparatePrevioNote || assignmentNotes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, hasManagerNotes, hasSeparatePrevioNote, assignmentNotes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || hasSeparatePrevioNote || assignmentNotes || Boolean(assignment.recheck_photos?.length) || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, hasManagerNotes, hasSeparatePrevioNote, assignmentNotes, Boolean(assignment.recheck_photos?.length), roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
@@ -289,6 +290,7 @@ export function MobileHousekeepingCard({
                 </div>
               </div>
             )}
+            <ManagerRecheckEvidence photos={assignment.recheck_photos} />
           </div>
         )}
 
