@@ -83,12 +83,11 @@ export const classifyPmsHousekeepingRow = (
   const isCancelled = rawStatusId === 7 || row.IsCancelled === true;
   const arrivalDate = pmsBusinessDate(row.ArrivalDate);
   const departureDate = pmsBusinessDate(row.DepartureDate);
-  // Occupancy guard: a guest who is physically in the room (PMS says Occupied,
-  // or the stay started before today and runs past today) can never be a
-  // no-show. Only a reservation with no occupancy today may be flagged.
+  // A booking spanning today is NOT proof the guest arrived. The edge sync
+  // emits Occupied=No for proven/suspected no-shows after the arrival date.
+  // Still protect a genuine checked-in guest or an explicit occupied signal.
   const hasOccupancyToday = occupiedYes(row.Occupied)
-    || (!!today && !!arrivalDate && !!departureDate
-      && arrivalDate < today && departureDate > today);
+    || rawStatusId === 3 || rawStatusId === 5;
   const isNoShow = (rawStatusId === 8 || row.IsNoShow === true) && !hasOccupancyToday;
   const inactiveReservation = isCancelled || isNoShow;
 
