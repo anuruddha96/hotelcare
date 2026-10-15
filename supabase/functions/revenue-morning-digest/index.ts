@@ -179,8 +179,10 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
   const sold14 = next14.reduce((s, d) => s + Number(d.rooms_sold ?? 0), 0);
   const avail14 = next14.reduce((s, d) => s + Number(d.rooms_available ?? 0), 0);
   const rev14 = next14.reduce((s, d) => s + Number(d.revenue_eur ?? 0), 0);
-  const complete14 = next14.length === 14
-    && next14.every((d) => d.rooms_available != null && d.rooms_sold != null && d.revenue_eur != null);
+  const coverage14 = next14.filter((d) =>
+    d.rooms_available != null && d.rooms_sold != null && d.revenue_eur != null
+  ).length;
+  const complete14 = coverage14 === 14;
   const occ14 = complete14 && avail14 ? Math.round((sold14 / avail14) * 100) : null;
   const adr14 = complete14 && sold14 ? Math.round(rev14 / sold14) : null;
 
@@ -253,7 +255,7 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
   return {
     pickupNights, pickupRevenue, pickupRes: pickupRes.size, topPickup,
     soldToday, availTonight, occTonight, adrTonight, revparTonight,
-    occ14, adr14, rev14: complete14 ? rev14 : null, coverage14: next14.length,
+    occ14, adr14, rev14: complete14 ? rev14 : null, coverage14,
     attention, changes, raised, lowered, upcoming,
     changeUnit, runsTotal, shadowRuns,
     runsFailedCount: runsFailed.length,
