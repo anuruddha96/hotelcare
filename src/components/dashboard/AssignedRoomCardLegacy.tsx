@@ -1697,13 +1697,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           )}
         </div>
 
-        {/* Allow Dirty Linen + Minibar access for completed rooms */}
+        {/* Keep post-completion reporting available without reopening the cleaning assignment. */}
         {assignment.status === 'completed' && (
           <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2">
             <p className="text-sm text-purple-800 mb-2">
               {t('roomCard.needUpdateAfterCompletion')}
             </p>
-            <div className={`grid grid-cols-1 ${!noMinibar ? 'sm:grid-cols-2' : ''} gap-2`}>
+            <div className={`grid grid-cols-1 ${!noMinibar ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-2`}>
               <Button
                 size="sm"
                 variant="outline"
@@ -1722,6 +1722,16 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <BedDouble className="h-4 w-4 shrink-0" />
                 <span className="text-center break-words">{t('roomCard.addMinibarLate')}</span>
               </Button>)}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setLostFoundDialogOpen(true)}
+                data-training="late-lost-found-button"
+                className="w-full border-purple-300 text-purple-700 hover:bg-purple-100 h-auto min-h-[44px] py-2 px-2 whitespace-normal text-xs leading-tight flex items-center justify-center gap-2"
+              >
+                <Package className="h-4 w-4 shrink-0" />
+                <span className="text-center break-words">{t('roomCard.addLostAndFoundLate')}</span>
+              </Button>
             </div>
 
             {assignment.supervisor_approved && !noMinibar && (
