@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BedDouble, CheckCircle2, Clock, DoorOpen, MessageSquare, ShieldCheck, UserRound } from 'lucide-react';
+import { AlertTriangle, CalendarClock, BedDouble, CheckCircle2, Clock, DoorOpen, MessageSquare, ShieldCheck, UserRound } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
@@ -252,10 +252,10 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
         {carryForward && carryForwardCopy && (
           <div className="rounded-lg border-2 border-amber-400 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
             <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden="true" />
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                  Carried housekeeping task
+                  Missed service · yesterday
                 </p>
                 <p className="mt-1 text-sm font-bold text-amber-950 dark:text-amber-100">
                   {carryForwardCopy.action}
