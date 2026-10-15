@@ -48,6 +48,10 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
   const [showTranslation, setShowTranslation] = useState(false);
   const [translationRetry, setTranslationRetry] = useState(0);
   const canManage = ticket.department === 'maintenance' && canManageMaintenance(profile?.role);
+  const crossPropertyOttofiori = profile?.organization_slug === 'rdhotels'
+    && profile.role === 'maintenance'
+    && (ticket.hotel === 'Hotel Ottofiori' || ticket.hotel === 'ottofiori')
+    && profile.assigned_hotel !== 'Hotel Ottofiori' && profile.assigned_hotel !== 'ottofiori';
   const translated = useMaintenanceAutoTranslation({
     title: ticket.title,
     description: ticket.description,
@@ -107,7 +111,7 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
 
   return (
     <Card
-      className="cursor-pointer hover:shadow-md transition-shadow duration-200"
+      className={crossPropertyOttofiori ? 'cursor-pointer border-sky-300 ring-2 ring-sky-200 hover:shadow-md transition-shadow duration-200' : 'cursor-pointer hover:shadow-md transition-shadow duration-200'}
       onClick={onClick}
       role="button"
       tabIndex={0}
@@ -119,6 +123,10 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
       data-training="ticket-card"
       data-training-priority={ticket.priority}
     >
+      {crossPropertyOttofiori && <div className="flex flex-wrap items-center gap-2 border-b border-sky-200 bg-sky-50 p-3" role="note">
+        <Badge className="bg-sky-800 text-white">HOTEL OTTOFIORI</Badge>
+        <span className="text-xs font-semibold text-sky-950">{language === 'hu' ? 'Feladat másik hotelben' : 'Assigned at another property'}</span>
+      </div>}
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
