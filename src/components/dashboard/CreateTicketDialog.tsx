@@ -179,15 +179,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
           throw new Error(attachmentError?.message || c.uploadWarning);
         }
       }
-      if (data.assigned_to) {
-        try {
-          await supabase.functions.invoke('send-work-assignment-notification', { body: {
-            staff_id: data.assigned_to, assignment_type: 'ticket', assignment_details: {
-              id: data.id, title: formData.title.trim(), room_number: room?.roomNumber || formData.location.trim(), priority: formData.priority,
-            }, hotel_name: selectedHotel.hotel_name,
-          } });
-        } catch (notificationError) { console.warn('Ticket saved; notification failed:', notificationError); }
-      }
+      // Staff see their assigned maintenance tickets inside HotelCare; no email broadcast.
       const assigneeName = maintenanceStaff.find(person => person.id === data.assigned_to)?.full_name;
       toast({ title: `${c.success} · ${data.ticket_number}`, description: data.assigned_to ? `${c.assigned}: ${assigneeName || 'Maintenance'}` : c.queued,
         action: onOpenTicket && formData.department === 'maintenance' ? <ToastAction altText="Open issue" onClick={() => onOpenTicket(data.id)}>{language === 'hu' ? 'Hiba megnyitása' : 'Open issue'}</ToastAction> : undefined,
