@@ -530,6 +530,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
           }
         `}>
           {isReceptionReadOnly ? (
+            <>
             <TabsTrigger 
               value="manage" 
               className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit"
@@ -537,6 +538,8 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
               <Users className="h-3 w-3 sm:h-4 sm:w-4" />
               <span>{t('housekeeping.tabs.teamView')}</span>
             </TabsTrigger>
+            {renderTabTrigger('lost-and-found')}
+            </>
           ) : (
             <>
               {hasManagerAccess && (
@@ -652,9 +655,14 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         )}
 
         {isReceptionReadOnly && (
-          <TabsContent value="manage" className="space-y-6">
-            <HousekeepingManagerView />
-          </TabsContent>
+          <>
+            <TabsContent value="manage" className="space-y-6">
+              <HousekeepingManagerView />
+            </TabsContent>
+            <TabsContent value="lost-and-found" className="space-y-6">
+              <LostAndFoundManagement />
+            </TabsContent>
+          </>
         )}
 
         <TabsContent value="assignments" className="space-y-6">

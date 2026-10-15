@@ -17,11 +17,14 @@ import { LostAndFoundDialog } from './LostAndFoundDialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { isLostFoundItemVisibleInHotel, LOST_FOUND_UPDATED_EVENT } from '@/lib/lostFoundVisibility';
+import { lostFoundLocationLabel } from '@/lib/lostFoundLocation';
+import type { LangKey } from '@/lib/lostFoundItems';
 
 interface LostAndFoundItem {
   id: string;
   room_id: string | null;
   hotel: string | null;
+  found_location: string | null;
   item_description: string;
   photo_urls: string[];
   found_date: string;
@@ -41,7 +44,8 @@ interface LostAndFoundItem {
 
 export function LostAndFoundManagement() {
   const { user, profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const lang = (['en', 'hu', 'es', 'vi', 'mn', 'uk'].includes(language) ? language : 'en') as LangKey;
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [items, setItems] = useState<LostAndFoundItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,7 +57,8 @@ export function LostAndFoundManagement() {
   const [showAddDialog, setShowAddDialog] = useState(false);
 
   const canDelete = profile?.role === 'admin' || isExecutiveRole(profile?.role) || profile?.is_super_admin;
-  const canAddItems = hasManagerPowers(profile?.role);
+  // Reception already has the database insert permission for lost_and_found.
+  const canAddItems = hasManagerPowers(profile?.role) || profile?.role === 'reception';
 
   const fetchLostAndFound = useCallback(async () => {
     setLoading(true);
@@ -230,7 +235,9 @@ export function LostAndFoundManagement() {
   };
 
   const filteredItems = searchRoom
-    ? items.filter(item => item.rooms?.room_number.includes(searchRoom))
+    ? items.filter(item =>
+        lostFoundLocationLabel(item, lang).toLocaleLowerCase().includes(searchRoom.trim().toLocaleLowerCase()) ||
+        item.rooms?.room_number?.toLocaleLowerCase().includes(searchRoom.trim().toLocaleLowerCase()))
     : items;
 
   return (
@@ -272,7 +279,7 @@ export function LostAndFoundManagement() {
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={t('lostFound.searchByRoom')}
+                placeholder={language === 'hu' ? 'Szoba vagy helyszín keresése' : 'Search room or location'}
                 value={searchRoom}
                 onChange={(e) => setSearchRoom(e.target.value)}
                 className="w-[200px]"
@@ -319,8 +326,10 @@ export function LostAndFoundManagement() {
                       
                       <div className="text-sm text-muted-foreground space-y-1">
                         <div className="flex items-center justify-between">
-                          <span>{t('lostFound.room')}:</span>
-                          <Badge variant="outline">{item.rooms?.room_number || 'N/A'}</Badge>
+                          <span>{language === 'hu' ? 'Helyszín' : 'Location'}:</span>
+                          <Badge variant="outline" className="max-w-[65%] text-right whitespace-normal">
+                            {lostFoundLocationLabel(item, lang)}
+                          </Badge>
                         </div>
                         <div className="flex items-center justify-between">
                           <span>{t('lostFound.hotel')}:</span>
@@ -407,7 +416,7 @@ export function LostAndFoundManagement() {
                   <strong>Item:</strong> {selectedItem.item_description}
                 </div>
                 <div>
-                  <strong>Room:</strong> {selectedItem.rooms?.room_number || 'N/A'}
+                  <strong>{language === 'hu' ? 'Helyszín' : 'Location'}:</strong> {lostFoundLocationLabel(selectedItem, lang)}
                 </div>
                 <div>
                   <strong>Hotel:</strong> {selectedItem.rooms?.hotel || selectedItem.hotel || 'N/A'}
@@ -496,6 +505,7 @@ export function LostAndFoundManagement() {
           roomNumber="General"
           roomId={null}
           assignmentId={null}
+          allowLocationSelection
           onItemReported={() => {
             fetchLostAndFound();
             setShowAddDialog(false);

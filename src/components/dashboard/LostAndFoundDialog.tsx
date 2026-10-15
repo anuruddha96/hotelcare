@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { searchLostFoundItems, labelFor, LOST_FOUND_ITEMS, type LangKey, type LostFoundItem } from '@/lib/lostFoundItems';
 import { cn } from '@/lib/utils';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { LOST_FOUND_AREAS, lostFoundAreaLabel, lostFoundLocationCopy } from '@/lib/lostFoundLocation';
 import { todayBudapest } from '@/lib/budapestTime';
 import { LOST_FOUND_UPDATED_EVENT } from '@/lib/lostFoundVisibility';
 
@@ -22,6 +24,8 @@ interface LostAndFoundDialogProps {
   roomId: string | null;
   assignmentId?: string | null;
   onItemReported?: () => void;
+  /** The management-page flow can report items found outside guest rooms. */
+  allowLocationSelection?: boolean;
 }
 
 type Step = 'photo' | 'item' | 'details';
@@ -33,10 +37,12 @@ export function LostAndFoundDialog({
   roomId,
   assignmentId,
   onItemReported,
+  allowLocationSelection = false,
 }: LostAndFoundDialogProps) {
   const { user, profile } = useAuth();
   const { t, language } = useTranslation();
   const lang = (['en', 'hu', 'es', 'vi', 'mn', 'uk'].includes(language) ? language : 'en') as LangKey;
+  const locationCopy = lostFoundLocationCopy(lang);
 
   const [step, setStep] = useState<Step>('photo');
   const [selectedItem, setSelectedItem] = useState<LostFoundItem | null>(null);
@@ -45,6 +51,14 @@ export function LostAndFoundDialog({
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState<{ dataUrl: string; blob: Blob }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [locationMode, setLocationMode] = useState<'room' | 'area' | 'custom' | null>(null);
+  const [locationRoomId, setLocationRoomId] = useState<string | null>(null);
+  const [locationArea, setLocationArea] = useState('');
+  const [customLocation, setCustomLocation] = useState('');
+  const [roomSearch, setRoomSearch] = useState('');
+  const [roomOptions, setRoomOptions] = useState<{ id: string; room_number: string }[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  const [roomsError, setRoomsError] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [isCameraLoading, setIsCameraLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -61,11 +75,62 @@ export function LostAndFoundDialog({
     setQuery('');
     setNotes('');
     setPhotos([]);
+    setLocationMode(null);
+    setLocationRoomId(null);
+    setLocationArea('');
+    setCustomLocation('');
+    setRoomSearch('');
   }, []);
 
   useEffect(() => {
     if (!open) resetAll();
   }, [open, resetAll]);
+
+  // Load rooms only for the hotel currently selected by the manager. Never
+  // expose cross-property room numbers in the Lost & Found picker.
+  useEffect(() => {
+    if (!open || !allowLocationSelection) return;
+    let cancelled = false;
+    const loadRooms = async () => {
+      setRoomOptions([]);
+      setRoomsError(false);
+      setRoomsLoading(true);
+      try {
+        const hotelKeys = await resolveHotelKeys(profile?.assigned_hotel);
+        if (!profile?.organization_slug || !hotelKeys.length) throw new Error('Hotel scope unavailable');
+        const { data, error } = await supabase
+          .from('rooms')
+          .select('id, room_number')
+          .eq('organization_slug', profile.organization_slug)
+          .in('hotel', hotelKeys)
+          .order('room_number');
+        if (error) throw error;
+        if (!cancelled) {
+          setRoomOptions((data || []).sort((a, b) =>
+            a.room_number.localeCompare(b.room_number, undefined, { numeric: true })));
+        }
+      } catch {
+        if (!cancelled) setRoomsError(true);
+      } finally {
+        if (!cancelled) setRoomsLoading(false);
+      }
+    };
+    void loadRooms();
+    return () => { cancelled = true; };
+  }, [allowLocationSelection, open, profile?.assigned_hotel, profile?.organization_slug]);
+
+  const chosenRoomId = allowLocationSelection
+    ? (locationMode === 'room' ? locationRoomId : null)
+    : roomId;
+  const chosenLocation = allowLocationSelection
+    ? (locationMode === 'area' ? locationArea : locationMode === 'custom' ? customLocation.trim() : '')
+    : '';
+  const locationIsValid = !allowLocationSelection ||
+    (locationMode === 'room' && !!chosenRoomId) ||
+    ((locationMode === 'area' || locationMode === 'custom') && !!chosenLocation);
+  const matchingRooms = roomOptions
+    .filter((room) => room.room_number.toLocaleLowerCase().includes(roomSearch.trim().toLocaleLowerCase()))
+    .slice(0, 40);
 
   const startCamera = useCallback(async () => {
     try {
@@ -148,11 +213,15 @@ export function LostAndFoundDialog({
       toast.error('Please select or type an item');
       return;
     }
+    if (!locationIsValid) {
+      toast.error(locationCopy.locationRequired);
+      return;
+    }
     setIsUploading(true);
     const uploadedUrls: string[] = [];
     try {
       for (const photo of photos) {
-        const fileName = `${user.id}/${roomId || 'general'}/lost_found_${Date.now()}_${Math.random()
+        const fileName = `${user.id}/${chosenRoomId || 'general'}/lost_found_${Date.now()}_${Math.random()
           .toString(36)
           .substring(7)}.jpg`;
         const { data, error } = await supabase.storage
@@ -168,14 +237,21 @@ export function LostAndFoundDialog({
       // Room-linked reports inherit the authoritative room property. General
       // manager reports keep the currently selected property from the profile,
       // so they remain visible to every manager at that hotel.
-      if (roomId) {
+      if (chosenRoomId) {
         const { data: roomScope, error: roomScopeError } = await supabase
           .from('rooms')
           .select('id, organization_slug, hotel')
-          .eq('id', roomId)
+          .eq('id', chosenRoomId)
           .maybeSingle();
         if (roomScopeError) throw roomScopeError;
         if (!roomScope?.id) throw new Error('The selected room could not be verified.');
+        if (allowLocationSelection) {
+          const allowedHotelKeys = await resolveHotelKeys(profile?.assigned_hotel);
+          if (!profile?.organization_slug || roomScope.organization_slug !== profile.organization_slug ||
+              !allowedHotelKeys.includes(roomScope.hotel)) {
+            throw new Error('This room does not belong to the selected hotel.');
+          }
+        }
         organizationSlug = roomScope.organization_slug || organizationSlug;
         hotel = roomScope.hotel || hotel;
       }
@@ -187,8 +263,9 @@ export function LostAndFoundDialog({
       const { data: insertedItem, error: insertError } = await supabase
         .from('lost_and_found')
         .insert({
-          room_id: roomId || null,
-          assignment_id: assignmentId || null,
+          room_id: chosenRoomId || null,
+          assignment_id: allowLocationSelection ? null : (assignmentId || null),
+          found_location: chosenRoomId ? null : (chosenLocation || null),
           reported_by: user.id,
           item_description: finalDescription,
           photo_urls: uploadedUrls,
@@ -235,7 +312,7 @@ export function LostAndFoundDialog({
               <Package className="h-4 w-4" />
             </span>
             <span>
-              {t('lostFound.title')} · {t('common.room')} {roomNumber}
+              {t('lostFound.title')} · {allowLocationSelection ? locationCopy.generalTitle : `${t('common.room')} ${roomNumber}`}
             </span>
           </DialogTitle>
 
@@ -471,6 +548,98 @@ export function LostAndFoundDialog({
                 <div className="font-medium text-foreground">{finalDescription}</div>
               </div>
 
+              {allowLocationSelection && (
+                <div className="space-y-3 rounded-xl border p-3">
+                  <div>
+                    <Label className="font-semibold">{locationCopy.whereFound} *</Label>
+                    <p className="text-xs text-muted-foreground mt-1">{locationCopy.chooseType}</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['room', 'area', 'custom'] as const).map((mode) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        size="sm"
+                        variant={locationMode === mode ? 'default' : 'outline'}
+                        className="h-auto min-h-10 whitespace-normal px-2 text-xs"
+                        onClick={() => setLocationMode(mode)}
+                      >
+                        {locationCopy[mode]}
+                      </Button>
+                    ))}
+                  </div>
+
+                  {locationMode === 'room' && (
+                    <div className="space-y-2">
+                      <Label>{locationCopy.selectRoom}</Label>
+                      <Input
+                        value={roomSearch}
+                        onChange={(e) => setRoomSearch(e.target.value)}
+                        placeholder={locationCopy.searchRooms}
+                        aria-label={locationCopy.searchRooms}
+                      />
+                      {roomsLoading ? (
+                        <p className="text-xs text-muted-foreground">Loading rooms…</p>
+                      ) : roomsError ? (
+                        <p role="alert" className="text-xs text-destructive">{locationCopy.locationUnavailable}</p>
+                      ) : matchingRooms.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">{locationCopy.noRooms}</p>
+                      ) : (
+                        <div className="max-h-40 overflow-y-auto grid grid-cols-3 sm:grid-cols-4 gap-2 rounded-lg border p-2">
+                          {matchingRooms.map((room) => (
+                            <Button
+                              key={room.id}
+                              type="button"
+                              size="sm"
+                              variant={locationRoomId === room.id ? 'default' : 'outline'}
+                              onClick={() => setLocationRoomId(room.id)}
+                              className="h-9"
+                            >
+                              {room.room_number}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                      {locationRoomId && (
+                        <p className="text-xs text-primary font-medium">
+                          {locationCopy.room} {roomOptions.find((room) => room.id === locationRoomId)?.room_number}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {locationMode === 'area' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="lost-found-area">{locationCopy.selectArea}</Label>
+                      <select
+                        id="lost-found-area"
+                        value={locationArea}
+                        onChange={(e) => setLocationArea(e.target.value)}
+                        className="flex h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">{locationCopy.selectArea}</option>
+                        {LOST_FOUND_AREAS.map((area) => (
+                          <option key={area} value={area}>{lostFoundAreaLabel(area, lang)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {locationMode === 'custom' && (
+                    <Input
+                      value={customLocation}
+                      onChange={(e) => setCustomLocation(e.target.value)}
+                      placeholder={locationCopy.customPlaceholder}
+                      aria-label={locationCopy.custom}
+                      maxLength={200}
+                    />
+                  )}
+                  {!locationIsValid && (
+                    <p className="text-xs text-muted-foreground">{locationCopy.locationRequired}</p>
+                  )}
+                </div>
+              )}
+
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -512,7 +681,7 @@ export function LostAndFoundDialog({
           ) : (
             <Button
               onClick={handleSubmit}
-              disabled={isUploading || !finalDescription}
+              disabled={isUploading || !finalDescription || !locationIsValid}
               className="min-h-11 bg-primary hover:bg-primary/90"
             >
               {isUploading ? (
