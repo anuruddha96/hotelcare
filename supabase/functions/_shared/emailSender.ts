@@ -174,8 +174,16 @@ export async function sendEmail(opts: {
       keyProblem: true,
     };
   }
-  const recipients = [...new Set(opts.to.filter((x) => !!x && /\S+@\S+\.\S+/.test(x)))];
-  if (recipients.length === 0) return { ok: false, error: "No valid recipient address." };
+  // Exclude synthetic employee-login domains before contacting Resend. These
+  // addresses are not mailboxes and previously consumed the daily quota.
+  // This guard applies to every HotelCare email entry point, not only maintenance.
+  const recipients = [...new Set(opts.to
+    .map(value => String(value || '').trim().toLowerCase())
+    .filter(value => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
+    .filter(value => !/\.(?:local|invalid|test|example)$/i.test(value.split('@')[1] || ''))) ];
+  if (recipients.length === 0) return {
+    ok: false, skipped: true, error: "No deliverable recipient addresses; placeholder mailboxes skipped.",
+  };
 
   const settings = opts.settings ?? (await loadEmailSettings(opts.admin, opts.organizationSlug));
   const kind = opts.kind ?? "transactional";
