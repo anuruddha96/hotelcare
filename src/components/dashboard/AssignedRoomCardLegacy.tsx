@@ -1935,9 +1935,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         roomNumber={assignment.rooms?.room_number || 'Unknown'}
         roomId={assignment.room_id}
         assignmentId={assignment.id}
-        onItemReported={() => {
-          toast.success('Lost & Found item reported successfully');
-        }}
       />
 
       {/* Pre-complete confirmation dialog */}
