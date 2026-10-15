@@ -175,7 +175,7 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
           <div className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" />{ticket.created_by?.full_name ?? t('ticketCard.unknown')}</div>
           {ticket.hotel && <div className="flex items-center gap-1 text-xs text-muted-foreground"><span className="text-xs">🏨</span><span>{ticket.hotel.replace('-', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}</span></div>}
           {ticket.assigned_to && <div className="flex items-center gap-1 text-xs text-muted-foreground"><AlertCircle className="h-3 w-3" />{t('ticketCard.assignedTo')} {ticket.assigned_to.full_name}</div>}
-          {overdue && <p role="status" className="text-xs font-medium text-red-700">{language === 'hu' ? 'Lejárt határidő' : 'Overdue SLA'}</p>}
+          {overdue && <p role="status" className="text-xs font-medium text-red-700">{language === 'hu' ? 'Lejárt javítási határidő' : 'Repair deadline missed'}</p>}
         </div>
         {canManage && <div className="border-t pt-2" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
           <Button type="button" size="sm" variant="outline" onClick={() => setShowActions(value => !value)}>{language === 'hu' ? 'Hiba kezelése' : 'Manage issue'}</Button>
