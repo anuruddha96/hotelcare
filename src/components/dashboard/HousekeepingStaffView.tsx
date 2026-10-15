@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useHousekeepingLiveRefresh } from '@/hooks/useHousekeepingLiveRefresh';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -77,19 +78,25 @@ export function HousekeepingStaffView() {
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | 'no_service' | 'dnd' | null>('assigned');
 
+  // The mobile screen owns its own queries; do not duplicate subscriptions or polling here.
+  useHousekeepingLiveRefresh(
+    () => Promise.all([fetchAssignments(), fetchSummary()]),
+    !!user?.id && !isMobile,
+  );
+
   useEffect(() => {
-    if (user?.id) {
+    if (user?.id && !isMobile) {
       fetchAssignments();
       fetchSummary();
       fetchPublicTasks();
     }
-  }, [user?.id, selectedDate, statusFilter]);
+  }, [user?.id, selectedDate, statusFilter, isMobile]);
 
   // One Postgres Changes filter (instead of two identical UPDATE/INSERT
   // subscriptions) preserves refreshes and new-assignment notifications while
   // reducing Realtime subscription-check work.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || isMobile) return;
 
     const channel = supabase
       .channel(`assignment-updates-${user.id}`)
@@ -110,12 +117,19 @@ export function HousekeepingStaffView() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        // After a WebSocket reconnect, fetch the latest state even if the
+        // readiness UPDATE happened while this phone was disconnected.
+        if (status === 'SUBSCRIBED') {
+          void fetchAssignments();
+          void fetchSummary();
+        }
+      });
 
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [user?.id, selectedDate, showNotification, t]);
+  }, [user?.id, selectedDate, showNotification, t, isMobile]);
 
   // NOTE: the mobile early-return lives further down, after all function
   // declarations, otherwise the effects above hit a TDZ error
@@ -354,7 +368,7 @@ export function HousekeepingStaffView() {
 
   // Keep the public-area counts/cards live when a manager reassigns work.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || isMobile) return;
     const channel = supabase
       .channel(`public-tasks-${user.id}`)
       .on('postgres_changes', {
@@ -368,7 +382,7 @@ export function HousekeepingStaffView() {
       supabase.removeChannel(channel);
       window.removeEventListener('hk-assignments-changed', onChanged);
     };
-  }, [user?.id, selectedDate]);
+  }, [user?.id, selectedDate, isMobile]);
 
   if (isMobile) {
     return <MobileHousekeepingView />;
