@@ -295,8 +295,8 @@ export default function Billing() {
             <div className="flex min-w-[220px] items-center gap-2">
               {allHotelsBypassed ? <ShieldCheck className="h-5 w-5 text-primary" /> : trialActive ? <Sparkles className="h-5 w-5 text-primary" /> : <ShieldCheck className="h-5 w-5 text-primary" />}
               <div>
-                <p className="text-sm font-semibold">{allHotelsBypassed ? 'Billing access enabled by admin' : trialActive ? `Free trial — ends ${fmtDate(summary?.trial_ends_at)}` : activeSubs.length ? 'Subscription active' : 'No subscription yet'}</p>
-                <p className="text-xs text-muted-foreground">{allHotelsBypassed ? 'Payment gating is bypassed for this organization. Operational hotel status is unchanged.' : activeSubs.length ? `${activeSubs.length} module${activeSubs.length > 1 ? 's' : ''} · ${formatMoney(activeMonthly, currency)} / month excl. VAT` : 'Select a module below to see its exact agreed price.'}</p>
+                <p className="text-sm font-semibold">{allHotelsBypassed ? 'Billing access enabled by admin' : trialActive ? `Free trial — ends ${fmtDate(summary?.trial_ends_at)}` : activeSubs.length ? (isRdPortfolio ? 'Existing Housekeeping subscription active' : 'Subscription active') : 'No subscription yet'}</p>
+                <p className="text-xs text-muted-foreground">{allHotelsBypassed ? 'Payment gating is bypassed for this organization. Operational hotel status is unchanged.' : activeSubs.length ? isRdPortfolio ? `Housekeeping coverage · ${formatMoney(activeMonthly, currency)} / month excl. VAT under the existing Stripe plan` : `${activeSubs.length} module${activeSubs.length > 1 ? 's' : ''} · ${formatMoney(activeMonthly, currency)} / month excl. VAT` : 'Select a module below to see its exact agreed price.'}</p>
               </div>
             </div>
             {nextRenewal && <div><p className="text-xs text-muted-foreground">Next charge</p><p className="text-sm font-semibold">{fmtDate(nextRenewal)}</p></div>}
@@ -317,7 +317,7 @@ export default function Billing() {
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
               <div><p className="font-medium">Revenue BI (all hotels) + Ottofiori Automation</p><p className="text-sm text-muted-foreground">€400.00 + €108.00 VAT = €508.00 total</p></div>
-              <Button disabled={!settings?.one_time_collection_enabled || Boolean(oneTimeBusy)} onClick={() => void startOneTimeCheckout('revenue')}>{oneTimeBusy === 'revenue' ? 'Preparing…' : 'Collect €508 once'}</Button>
+              <Button disabled={!canSwitchOrg || !settings?.one_time_collection_enabled || Boolean(oneTimeBusy)} onClick={() => void startOneTimeCheckout('revenue')}>{oneTimeBusy === 'revenue' ? 'Preparing…' : 'Collect €508 once'}</Button>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
               <div><p className="font-medium">Housekeeping — RD Hotels</p><p className="text-sm text-muted-foreground">€200.00 + €54.00 VAT = €254.00 total</p></div>
