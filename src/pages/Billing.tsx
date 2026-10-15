@@ -74,6 +74,7 @@ export default function Billing() {
   const [busy, setBusy] = useState(false);
   const [quoteFor, setQuoteFor] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<BillingInvoice[] | null>(null);
+  const [oneTimeBusy, setOneTimeBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (!orgSlug && profile?.organization_slug) setOrgSlug(profile.organization_slug);
@@ -91,6 +92,7 @@ export default function Billing() {
   const { summary, loading, error, reload } = useBilling(orgSlug);
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
+  const isRdPortfolio = orgSlug === 'rdhotels';
   const vatPercent = Number(settings?.vat_percent ?? 27);
   const percentLabel = `${((settings?.revenue_percent_bps ?? 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
 
@@ -122,7 +124,17 @@ export default function Billing() {
     summary?.subscriptions.find((sub) => sub.hotel_id === hotelId && normaliseModule(sub.module) === module);
   const usageFor = (hotelId: string) => summary?.revenue_usage?.find((usage) => usage.hotel_id === hotelId);
 
+  // Agreement coverage specifies which modules are included; a shared price does
+  // not grant automated pricing to every hotel in the organization.
+  const moduleCovered = (hotelId: string, module: BillingModule) => {
+    if (module !== 'revenue_automation') return true;
+    const bi = resolvedPricingFor(summary, hotelId, 'revenue_bi');
+    const auto = resolvedPricingFor(summary, hotelId, 'revenue_automation');
+    return !(bi.source === 'agreement' && auto.source !== 'agreement');
+  };
+
   const toggle = (hotelId: string, module: BillingModule) => {
+    if (!summary || !moduleCovered(hotelId, module)) return;
     const key = `${hotelId}|${module}`;
     const pricing = summary ? resolvedPricingFor(summary, hotelId, module) : null;
     const isOrganizationFixed = pricing?.source === 'organization' && pricing.pricing_mode === 'fixed_monthly';
@@ -207,6 +219,22 @@ export default function Billing() {
     else toast.error('Checkout could not be started — please try again.');
   };
 
+  const startOneTimeCheckout = async (packageKey: 'revenue' | 'housekeeping') => {
+    if (!isRdPortfolio || !settings?.one_time_collection_enabled || oneTimeBusy) return;
+    setOneTimeBusy(packageKey);
+    const { data, error: invokeError } = await supabase.functions.invoke('billing-manage', {
+      body: { action: 'one_time_checkout', organizationSlug: orgSlug, packageKey },
+    });
+    setOneTimeBusy(null);
+    const payload = data as { url?: string; error?: string } | null;
+    if (invokeError || payload?.error) {
+      toast.error(payload?.error ?? invokeError?.message ?? 'Could not start one-time payment');
+      return;
+    }
+    if (payload?.url) window.location.assign(payload.url);
+    else toast.error('Could not create the one-time payment link.');
+  };
+
   const openPortal = async () => {
     setBusy(true);
     const { data, error: invokeError } = await supabase.functions.invoke('billing-manage', {
@@ -251,7 +279,7 @@ export default function Billing() {
           <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="mr-1 h-4 w-4" /> Back</Button>
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold"><CreditCard className="h-6 w-6" /> Payments</h1>
-            <p className="text-sm text-muted-foreground">Choose modules per property. Organization fixed agreements are charged once across all covered properties. {settings?.manual_invoicing_enabled ? 'Final VAT is calculated at checkout using company billing details.' : `${vatPercent}% VAT is added on top.`}</p>
+            <p className="text-sm text-muted-foreground">{isRdPortfolio ? 'Revenue BI covers all four RD hotels; automated pricing is included only at Ottofiori. Payments are one-time, without Stripe subscriptions or invoices.' : <>Choose modules per property. Organization fixed agreements are charged once across all covered properties. {settings?.manual_invoicing_enabled ? 'Final VAT is calculated at checkout using company billing details.' : `${vatPercent}% VAT is added on top.`}</>}</p>
           </div>
         </div>
 
@@ -282,6 +310,24 @@ export default function Billing() {
         )}
         {error && <Alert variant="destructive"><AlertTitle>Couldn't load billing</AlertTitle><AlertDescription>{error} <Button size="sm" variant="outline" onClick={reload}>Retry</Button></AlertDescription></Alert>}
 
+        {isRdPortfolio && <Card>
+          <CardHeader><CardTitle className="text-base">One-time Stripe payment collection</CardTitle>
+            <CardDescription>No Stripe invoice, no recurring payment, and no automatic renewal. Issue the official invoice in Számlázz.hu after the payment succeeds. 27% VAT applies to the agreed domestic Hungarian customer.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+              <div><p className="font-medium">Revenue BI (all hotels) + Ottofiori Automation</p><p className="text-sm text-muted-foreground">€400.00 + €108.00 VAT = €508.00 total</p></div>
+              <Button disabled={!settings?.one_time_collection_enabled || Boolean(oneTimeBusy)} onClick={() => void startOneTimeCheckout('revenue')}>{oneTimeBusy === 'revenue' ? 'Preparing…' : 'Collect €508 once'}</Button>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+              <div><p className="font-medium">Housekeeping — RD Hotels</p><p className="text-sm text-muted-foreground">€200.00 + €54.00 VAT = €254.00 total</p></div>
+              <Button variant="outline" disabled={!settings?.one_time_collection_enabled || Boolean(oneTimeBusy)} onClick={() => void startOneTimeCheckout('housekeeping')}>{oneTimeBusy === 'housekeeping' ? 'Preparing…' : 'Collect €254 once'}</Button>
+            </div>
+            {!settings?.one_time_collection_enabled && <p className="text-sm text-muted-foreground">One-time payments are not yet enabled. The payment buttons remain locked until server-side setup and testing are complete.</p>}
+            {activeSubs.some((s) => s.module === 'operations') && <p className="text-sm text-destructive">An existing Housekeeping Stripe subscription is still active. Cancel it separately before replacing recurring collection; creating a one-time payment does not cancel that plan.</p>}
+          </CardContent>
+        </Card>}
+
         <Tabs defaultValue="modules">
           <TabsList>
             <TabsTrigger value="modules">Modules</TabsTrigger>
@@ -309,14 +355,14 @@ export default function Billing() {
                       </CardHeader>
                       <CardContent className="space-y-3">
                         <div className="grid grid-cols-2 gap-2">
-                          {MODULE_ORDER.map((module) => {
+                          {MODULE_ORDER.filter((module) => moduleCovered(hotel.hotel_id, module)).map((module) => {
                             const Icon = MODULE_ICON[module];
                             const pricing = resolvedPricingFor(summary, hotel.hotel_id, module);
                             const active = isSubscriptionActive(subFor(hotel.hotel_id, module));
                             const independentTrial = activeModuleTrial(summary,hotel.hotel_id,module);
                             const accessActive = active || Boolean(hotel.billing_bypass);
                             const custom = pricing.pricing_mode === 'custom';
-                            const available = enabledFor(module);
+                            const available = enabledFor(module) && !isRdPortfolio;
                             const key = `${hotel.hotel_id}|${module}`;
                             const on = Boolean(selected[key]) || accessActive;
                             const promotion = pricing.source === 'standard' ? promotionForModule(settings, module) : null;
@@ -379,7 +425,7 @@ export default function Billing() {
         </Tabs>
       </div>
 
-      {lines.length > 0 && (
+      {!isRdPortfolio && lines.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 p-3 sm:p-4">
             <div className="text-sm"><p className="text-xs text-muted-foreground">{lines.length} property module{lines.length > 1 ? 's' : ''} selected · {chargeCount} billing line{chargeCount > 1 ? 's' : ''}</p><p><span className="text-muted-foreground">Net </span><span className="font-medium">{formatMoney(netTotal, currency)}</span><span className="text-muted-foreground"> + estimated VAT {vatPercent}% </span><span className="font-medium">{formatMoney(vatTotal, currency)}</span></p></div>
