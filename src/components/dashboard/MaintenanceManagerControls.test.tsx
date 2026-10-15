@@ -68,7 +68,7 @@ describe('maintenance manager workflow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Resolved manually' }));
     fireEvent.change(screen.getByLabelText(/Explain what happened/), { target: { value: 'Curtain replaced' } });
     expect((screen.getByRole('button', { name: 'Save update' }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/Reason for missed SLA/), { target: { value: 'Replacement part arrived late' } });
+    fireEvent.change(screen.getByLabelText(/Reason for missed repair deadline/), { target: { value: 'Replacement part arrived late' } });
     expect((screen.getByRole('button', { name: 'Save update' }) as HTMLButtonElement).disabled).toBe(false);
   });
   it('approves a submitted maintenance repair via the secured review RPC', async () => {
