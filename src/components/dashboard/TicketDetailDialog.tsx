@@ -30,6 +30,7 @@ import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileUpload } from './FileUpload';
 import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
+import { MaintenanceManualEmail } from './MaintenanceManualEmail';
 import { AttachmentUpload } from './AttachmentUpload';
 import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -248,7 +249,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
     if (slaInfo.isOverdue && !slaBreachReason.trim()) {
       toast({
         title: t('common.error'),
-        description: t('ticketDetail.slaBreachRequired'),
+        description: language === 'hu' ? 'Adja meg a késés okát.' : 'Please explain why the repair deadline was missed.',
         variant: 'destructive',
       });
       return;
@@ -340,12 +341,13 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
     const now = new Date();
     const hoursElapsed = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60));
     
-    const slaHours = {
-      urgent: 2,
-      high: 8,
-      medium: 24,
-      low: 72
+    const deadline = ticket.sla_due_date ? new Date(ticket.sla_due_date).getTime() : NaN;
+    const configuredHours = {
+      urgent: 4, high: 12, medium: 24, low: 48
     }[priority] || 24;
+    const slaHours = Number.isFinite(deadline) && deadline > created.getTime()
+      ? Math.ceil((deadline - created.getTime()) / 3_600_000)
+      : configuredHours;
 
     const isOverdue = hoursElapsed > slaHours;
     const remainingHours = Math.max(0, slaHours - hoursElapsed);
@@ -444,7 +446,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                       <Clock className="h-4 w-4 text-blue-600" />
                     )}
                     <span className={`font-medium ${slaInfo.isOverdue ? 'text-red-700' : 'text-blue-700'}`}>
-                      SLA: {slaInfo.slaHours}h ({ticket.priority.toUpperCase()} priority)
+                      {language === 'hu' ? 'Javítási határidő' : 'Repair deadline'}: {slaInfo.slaHours}h ({ticket.priority.toUpperCase()} priority)
                     </span>
                   </div>
                   <div className="text-sm">
@@ -501,6 +503,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
             {/* Both original and repair evidence belong to the same maintenance issue. */}
             <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} />
+            {ticket.department === 'maintenance' && <MaintenanceManualEmail ticketId={ticket.id} />}
           </div>
 
           {/* Actions */}
@@ -609,12 +612,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                     const slaInfo = getSLAInfo(ticket.priority, ticket.created_at);
                     return slaInfo.isOverdue && (
                       <div>
-                        <Label htmlFor="slaBreachReason">{t('ticketDetail.slaBreachReason')} *</Label>
+                        <Label htmlFor="slaBreachReason">{language === 'hu' ? 'Késés oka' : 'Reason for delay'} *</Label>
                         <Textarea
                           id="slaBreachReason"
                           value={slaBreachReason}
                           onChange={(e) => setSlaBreachReason(e.target.value)}
-                          placeholder={t('ticketDetail.slaBreachPlaceholder')}
+                          placeholder={language === 'hu' ? 'Miért késett a javítás?' : 'Why was the repair late?'}
                           rows={3}
                         />
                       </div>
