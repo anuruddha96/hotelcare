@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyPmsHousekeepingRow } from "./pmsClassification";
+import { propertyReliablyTracksPrevioCheckIns, isStaleUnarrivedPrevioReservation } from "../../supabase/functions/_shared/previoNoShowInference";
 
 describe("PMS housekeeping classification", () => {
   const row = (Room: string, Departure: string | null, nightTotal: string | null) => ({
@@ -169,5 +170,79 @@ describe("PMS housekeeping classification", () => {
     expect(result.isNoShow).toBe(true);
     expect(result.isDailyRoom).toBe(false);
     expect(result.isCheckoutRoom).toBe(false);
+  });
+  it("correctly separates Memories 308's stale reserved booking from a checked-in stayover", () => {
+    const result = classifyPmsHousekeepingRow({
+      Room: "308", Occupied: "No",
+      ArrivalDate: "2026-10-14", DepartureDate: "2026-10-16",
+      RawReservationStatusId: 2,
+      IsNoShow: true, NoShowSource: "inferred_never_checked_in",
+      "Night / Total": "2/2",
+    }, "2026-10-15");
+    expect(result.isNoShow).toBe(true);
+    expect(result.isDailyRoom).toBe(false);
+    expect(result.isCheckoutRoom).toBe(false);
+    expect(result.isStayThrough).toBe(false);
+  });
+
+  it("restores a guest after confirmed check-in despite an old no-show hint", () => {
+    const result = classifyPmsHousekeepingRow({
+      Occupied: "Yes",
+      ArrivalDate: "2026-10-14", DepartureDate: "2026-10-16",
+      RawReservationStatusId: 3, IsNoShow: true,
+    }, "2026-10-15");
+    expect(result.isNoShow).toBe(false);
+    expect(result.isDailyRoom).toBe(true);
+  });
+
+  it("keeps a confirmed Previo status-8 no-show after its scheduled arrival", () => {
+    const result = classifyPmsHousekeepingRow({
+      Occupied: "No",
+      ArrivalDate: "2026-10-14", DepartureDate: "2026-10-16",
+      RawReservationStatusId: 8, IsNoShow: true,
+    }, "2026-10-15");
+    expect(result.isNoShow).toBe(true);
+    expect(result.isDailyRoom).toBe(false);
+  });
+
+});
+
+describe("Previo property check-in evidence", () => {
+  const checked = (statusId: number) => ({
+    statusId, arrivalDate: "2026-10-14", departureDate: "2026-10-16",
+  });
+  it("recognizes the 70 checked-in/out vs one unarrived room at Memories", () => {
+    const evidence = [...Array.from({ length: 67 }, () => checked(3)),
+      ...Array.from({ length: 3 }, () => checked(9)), checked(2)];
+    expect(propertyReliablyTracksPrevioCheckIns(evidence, "2026-10-15")).toBe(true);
+    expect(isStaleUnarrivedPrevioReservation({
+      statusId: 2, arrivalDate: "2026-10-14", departureDate: "2026-10-16",
+      businessDate: "2026-10-15", propertyTracksCheckIns: true, extensionLinked: false,
+    })).toBe(true);
+  });
+  it("does not infer no-shows at hotels without reliable check-in practices", () => {
+    expect(propertyReliablyTracksPrevioCheckIns(
+      [...Array.from({ length: 12 }, () => checked(2)), ...Array.from({ length: 2 }, () => checked(3))],
+      "2026-10-15",
+    )).toBe(false);
+    expect(propertyReliablyTracksPrevioCheckIns([checked(3), checked(2)], "2026-10-15")).toBe(false);
+  });
+  it("ignores future reservations and already verified extensions", () => {
+    const future = Array.from({ length: 20 }, () => ({
+      statusId: 2, arrivalDate: "2026-10-16", departureDate: "2026-10-19",
+    }));
+    expect(propertyReliablyTracksPrevioCheckIns([...Array.from({ length: 6 }, () => checked(3)), ...future], "2026-10-15")).toBe(true);
+    expect(isStaleUnarrivedPrevioReservation({
+      statusId: 2, arrivalDate: "2026-10-14", departureDate: "2026-10-16",
+      businessDate: "2026-10-15", propertyTracksCheckIns: true, extensionLinked: true,
+    })).toBe(false);
+  });
+  it("keeps today's unarrived arrivals separate and supports the final departure day", () => {
+    const input = { statusId: 2, arrivalDate: "2026-10-15", departureDate: "2026-10-16",
+      businessDate: "2026-10-15", propertyTracksCheckIns: true, extensionLinked: false };
+    expect(isStaleUnarrivedPrevioReservation(input)).toBe(false);
+    expect(isStaleUnarrivedPrevioReservation({
+      ...input, arrivalDate: "2026-10-14", businessDate: "2026-10-16",
+    })).toBe(true);
   });
 });
