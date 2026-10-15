@@ -14,7 +14,7 @@ import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, Ban, AlertTriangle, GripVertical, Coffee, CalendarClock } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, Ban, AlertTriangle, GripVertical, Coffee } from 'lucide-react';
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
@@ -232,10 +232,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  // SLNT's high-density portfolio needs the room board visible immediately;
-  // every legend item stays available on demand, and other hotels keep their
-  // existing expanded-by-default legend.
-  const [showLegend, setShowLegend] = useState(!isSlntTenant);
+  // Keep the operational board uncluttered for Memories and SLNT. Other hotels
+  // retain their existing initial legend preference; every badge explanation
+  // remains available via the Show Legend toggle.
+  const [showLegend, setShowLegend] = useState(!isSlntTenant && !isHotelMemoriesBudapest(hotelName));
   // SLNT portfolio managers can narrow TODAY's room board without changing
   // PMS data, historical snapshots, assignment types or the section totals.
   const [slntRoomSearch, setSlntRoomSearch] = useState('');
@@ -1290,13 +1290,6 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 : "No-show confirmed in Previo or marked manually by management"}
             >{suspectedNoShow ? "NS?" : "NS"}</span>
           )}
-          {(room.pms_metadata as any)?.notArrived === true && !noShow && (
-            <span
-              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-slate-500 text-white"
-              title="Arrival expected today — guest has not checked in yet"
-            >NA</span>
-          )}
-
           {room.pms_metadata?.manual_checkout === true && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
@@ -1329,11 +1322,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
             );
           })()}
-          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {!memoriesOverview && !isHotelMemoriesBudapest(room.hotel) && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {effectiveService.towelChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {effectiveService.linenChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
           {portfolioCarry && portfolioCarryCopy && <span className="ml-0.5 inline-flex items-center justify-center rounded bg-amber-600 px-0.5 text-[9px] font-extrabold text-white" title={`${portfolioCarryCopy.summary} · ${portfolioCarryCopy.detail || ''}`} aria-label={isRdCarryForwardHotel(room.hotel) ? 'Missed housekeeping service from yesterday' : 'Carried housekeeping service'}>
-            {isRdCarryForwardHotel(room.hotel) ? <CalendarClock className="h-3 w-3" aria-hidden="true" /> : '↪'}
+            ↪
           </span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
@@ -1518,7 +1511,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {portfolioCarry && portfolioCarryCopy && (
                 <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/30">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                    {isRdCarryForwardHotel(room.hotel) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" aria-hidden="true" /> Missed service · yesterday</span> : '↪ Carried housekeeping task'}
+                    {isRdCarryForwardHotel(room.hotel) ? '↪ Missed service · yesterday' : '↪ Carried housekeeping task'}
                   </p>
                   <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
                     {portfolioCarryCopy.action}
@@ -2018,7 +2011,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             >M</span>
           )}
           {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
-          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {!memoriesOverview && !isHotelMemoriesBudapest(room.hotel) && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {frozen.towelChangeRequired && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {frozen.linenChangeRequired && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
@@ -2562,14 +2555,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   { label: t('legend.roomCleaning'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: t('legend.roomCleaningHint') },
                   { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: UI_HINTS["room.extraTowels"] },
                   { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
-                  { label: t('legend.approved'), cls: 'text-[10px]', isText: true, text: '✅', hint: t('legend.approvedHint') },
-                  // Additional badges that render on the chip but were missing from the legend:
-                  { label: t('legend.manualCheckout'), cls: 'bg-amber-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'M', hint: t('legend.manualCheckoutHint') },
-                  { label: t('legend.newlySynced'), cls: 'bg-blue-500 ring-1 ring-blue-300', hint: t('legend.newlySyncedHint') },
+                  // Less common badges (manual C/O, new sync, notes) remain visible on chips.
                   { label: t('legend.departsTomorrow'), cls: 'bg-indigo-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C/O+1', hint: t('legend.departsTomorrowHint') },
-                  { label: t('legend.shabbat'), cls: 'text-blue-700 dark:text-blue-300 text-[9px] font-extrabold', isText: true, text: 'SH', hint: t('legend.shabbatHint') },
+                  ...(!memoriesOverview ? [{ label: t('legend.shabbat'), cls: 'text-blue-700 dark:text-blue-300 text-[9px] font-extrabold', isText: true, text: 'SH', hint: t('legend.shabbatHint') }] : []),
                   { label: t('legend.noService'), cls: 'bg-gray-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'NS', hint: t('legend.noServiceHint') },
-                  { label: t('legend.hasNote'), cls: 'text-[10px]', isText: true, text: '📝', hint: t('legend.hasNoteHint') },
+                  { label: t('legend.carriedFromYesterday'), cls: 'bg-amber-600 text-white text-[8px] font-bold px-0.5', isText: true, text: '↪', hint: t('legend.carriedFromYesterdayHint') },
                 ].map(item => (
                   <HelpTooltip key={item.label} hint={(item as any).hint}>
                     <div className="flex items-center gap-1 cursor-help">
@@ -2849,7 +2839,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {selectedCarry && selectedCarryCopy && (
                     <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
                       <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                        {isRdCarryForwardHotel(selectedRoom.hotel) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" aria-hidden="true" /> Missed service · yesterday</span> : '↪ Carried housekeeping task'}
+                        {isRdCarryForwardHotel(selectedRoom.hotel) ? '↪ Missed service · yesterday' : '↪ Carried housekeeping task'}
                       </p>
                       <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
                         {selectedCarryCopy.action}
