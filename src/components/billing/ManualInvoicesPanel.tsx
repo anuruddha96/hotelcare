@@ -16,7 +16,7 @@ type BillingDetails = {
 type Payment = {
   billing_details?: BillingDetails | null;
   id: string; contract_id: string; period_start: string; period_end: string;
-  payment_source: string; status: string; currency: string;
+  payment_source: string; status: string; currency: string; description?: string;
   net_cents: number; vat_cents: number; gross_cents: number;
   paid_at: string | null; szamlazz_invoice_number: string | null;
   invoiced_at: string | null;
@@ -61,7 +61,7 @@ export default function ManualInvoicesPanel({ organizationSlug }: { organization
     if (!invoiceNumber) return toast.error("Enter the issued Számlázz.hu invoice number first.");
     setSaving(payment.id);
     const { data, error } = await supabase.functions.invoke("billing-manage", {
-      body: { action: "mark_invoiced", organizationSlug, paymentId: payment.id, invoiceNumber },
+      body: { action: "mark_invoiced", organizationSlug, paymentId: payment.id, paymentSource: payment.payment_source, invoiceNumber },
     });
     setSaving(null);
     if (error || (data as { error?: string } | null)?.error) {
@@ -129,10 +129,11 @@ export default function ManualInvoicesPanel({ organizationSlug }: { organization
           <div key={payment.id} className="space-y-2 rounded-lg border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold">{amount(payment.gross_cents, payment.currency)} · {payment.payment_source}</p>
+                <p className="text-sm font-semibold">{amount(payment.gross_cents, payment.currency)} · {payment.payment_source === "one_time" ? "One-time payment" : payment.payment_source}</p>
+                {payment.description && <p className="text-xs text-muted-foreground">{payment.description}</p>}
                 <p className="text-xs text-muted-foreground">
                   Net {amount(payment.net_cents, payment.currency)} + VAT {amount(payment.vat_cents, payment.currency)}
-                  {" · "}Period {payment.period_start.slice(0, 10)}–{payment.period_end.slice(0, 10)}
+                  {" · "}{payment.payment_source === "one_time" ? "Paid/requested " + payment.period_start.slice(0, 10) : "Period " + payment.period_start.slice(0, 10) + "–" + payment.period_end.slice(0, 10)}
                 </p>
               </div>
               <Badge variant={payment.status === "paid" ? "secondary" : "outline"}>
