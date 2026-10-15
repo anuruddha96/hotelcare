@@ -36,3 +36,30 @@ export function recheckEvidencePath(userId: string, assignmentId: string, file: 
 export function canSubmitRecheck(assignee: string, reason: string, photos: File[]): boolean {
   return Boolean(assignee) && (Boolean(reason.trim()) || photos.length > 0);
 }
+
+/** Shrink large camera photos before upload for faster mobile submission.
+ * The untouched original is used if the browser cannot decode or convert it.
+ * Drawing onto canvas also avoids retaining camera location EXIF metadata.
+ */
+export async function optimizeRecheckPhoto(file: File): Promise<File> {
+  if (file.size < 750_000 || typeof document === 'undefined' || typeof createImageBitmap !== 'function') return file;
+  let image: ImageBitmap | null = null;
+  try {
+    image = await createImageBitmap(file);
+    const scale = Math.min(1, 1800 / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return file;
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.84));
+    if (!blob || blob.size >= file.size) return file;
+    const filename = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    return new File([blob], filename, { type: 'image/jpeg', lastModified: file.lastModified });
+  } catch {
+    return file;
+  } finally {
+    image?.close();
+  }
+}
