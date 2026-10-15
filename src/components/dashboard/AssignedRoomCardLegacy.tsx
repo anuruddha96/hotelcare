@@ -52,6 +52,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { housekeeperVisibleAssignmentNote } from '@/lib/housekeeperVisibleAssignmentNote';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isGozsduNoMinibarRoom, isNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
 import {
@@ -841,6 +842,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
+  const fullCleanInstruction = getRdFullCleanInstruction({
+    hotel: assignment.rooms?.hotel,
+    isCheckout: isCheckoutClean,
+    linenChangeRequired: showLinenChange,
+    fullRoomCleaningRequired: roomFlags.roomCleaning,
+    currentNight: assignment.rooms?.guest_nights_stayed,
+    language,
+  });
   // Strip PMS-imported reception/kitchen sections from the note shown to
   // housekeepers — those are OTA/reservation blobs that leak through the
   // Previo `Recepce:` / `Kuchyně:` prefixes and are not actionable for
@@ -947,7 +956,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   
   // Count special instructions
   const hasSpecialInstructions = showTowelChange || showLinenChange || !!portfolioCarry || !!bedInstruction || hasManagerNotes || hasSeparatePrevioNote || !!displayAssignmentNote || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [showTowelChange, showLinenChange, !!portfolioCarry, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, !!displayAssignmentNote, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const instructionCount = [!!fullCleanInstruction, !fullCleanInstruction && showTowelChange, !fullCleanInstruction && showLinenChange, !!portfolioCarry, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, !!displayAssignmentNote, roomFlags.collectExtraTowels, !fullCleanInstruction && roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
@@ -1038,7 +1047,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </Badge>
             )}
             {/* Special Requirements Badges */}
-            {showTowelChange && (
+            {showTowelChange && !fullCleanInstruction && (
               <Badge 
                 variant="default" 
                 className="bg-primary/10 text-primary border-primary/20 font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
@@ -1051,7 +1060,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 variant="default" 
                 className="bg-accent text-accent-foreground border-border font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
               >
-                🛏️ {t('roomCard.linenChange')}
+                🛏️ {fullCleanInstruction?.title || t('roomCard.linenChange')}
               </Badge>
             )}
             {(assignment.rooms?.guest_nights_stayed ?? 0) > 0 && (
@@ -1098,6 +1107,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       {/* === SPECIAL INSTRUCTIONS — Between header and content === */}
       {hasSpecialInstructions && (
         <div data-training="room-special-instructions" className="px-6 pb-2 space-y-2">
+          {fullCleanInstruction && (
+            <div role="status" className="p-3 rounded-lg border border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-100">
+              <p className="text-sm font-bold">🛏️🧺 {fullCleanInstruction.title}</p>
+              <p className="text-sm font-medium mt-1">{fullCleanInstruction.message}</p>
+            </div>
+          )}
           {portfolioCarry && portfolioCarryCopy && (
             <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-600 rounded-lg shadow-sm">
               <div className="flex items-start gap-2">
@@ -1132,7 +1147,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
             </div>
           )}
-          {showTowelChange && (
+          {showTowelChange && !fullCleanInstruction && (
             <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🧺</span>
@@ -1140,7 +1155,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
             </div>
           )}
-          {showLinenChange && (
+          {showLinenChange && !fullCleanInstruction && (
             <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-400 dark:border-purple-600 rounded-lg">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🛏️</span>
@@ -1148,7 +1163,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               </div>
             </div>
           )}
-          {roomFlags.roomCleaning && (
+          {roomFlags.roomCleaning && !fullCleanInstruction && (
             <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border-2 border-blue-400 dark:border-blue-600 rounded-lg">
               <div className="flex items-center gap-2">
                 <span className="text-lg">🧹</span>
@@ -1959,23 +1974,28 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               {t('housekeeping.warningExplanation') || 'This room has special instructions that require your attention before cleaning:'}
             </p>
             <ul className="space-y-2 text-sm">
+              {fullCleanInstruction && (
+                <li className="rounded-md bg-sky-50 p-2 dark:bg-sky-950/30">
+                  <strong>{fullCleanInstruction.title}:</strong> {fullCleanInstruction.message}
+                </li>
+              )}
               {portfolioCarry && portfolioCarryCopy && (
                 <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
                   <span>{portfolioCarryCopy.icon}</span>
                   <span>{translatedCarryNote || portfolioCarryCopy.message}</span>
                 </li>
               )}
-              {showTowelChange && (
+              {showTowelChange && !fullCleanInstruction && (
                 <li className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/30 rounded-md">
                   🧺 {t('roomCard.towelChange') || 'Towel Change Required'}
                 </li>
               )}
-              {showLinenChange && (
+              {showLinenChange && !fullCleanInstruction && (
                 <li className="flex items-center gap-2 p-2 bg-purple-50 dark:bg-purple-950/30 rounded-md">
                   🛏️ {t('roomCard.bedLinenChange') || 'Bed Linen Change'}
                 </li>
               )}
-              {roomFlags.roomCleaning && (
+              {roomFlags.roomCleaning && !fullCleanInstruction && (
                 <li className="flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-950/30 rounded-md">
                   🧹 {t('roomCard.roomCleaning') || 'Full Room Cleaning'}
                 </li>
