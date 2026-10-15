@@ -217,6 +217,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     [loadedRooms, venues, isSlntTenant],
   );
   const loadGuardRef = useRef(createOverviewLoadGuard());
+  // Window events are installed once; always call the current date/hotel's loader.
+  const fetchDataRef = useRef<(silent?: boolean) => Promise<void>>(async () => {});
   const currentOverviewScope = `${hotelName}|${selectedDate}`;
   const currentOverviewScopeRef = useRef(currentOverviewScope);
   currentOverviewScopeRef.current = currentOverviewScope;
@@ -303,8 +305,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchData();
-    setRefreshing(false);
+    try {
+      // Keep the board and its Refresh control available during a manual refresh.
+      await fetchData(true);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const displayedScopeRef = useRef(currentOverviewScope);
@@ -312,6 +318,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     if (displayedScopeRef.current !== currentOverviewScope) {
       displayedScopeRef.current = currentOverviewScope;
       loadGuardRef.current.invalidate();
+      setLoading(true);
       setRooms([]); setAssignments([]); setPublicAreaTasks([]);
       setPreviousAssignments(new Map()); setOverviewDataError(null);
     }
@@ -323,10 +330,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   useEffect(() => {
     const onSynced = () => {
       setSyncFlash(true);
-      fetchData(true);
+      void fetchDataRef.current(true);
       setTimeout(() => setSyncFlash(false), 2000);
     };
-    const onAssignmentsChanged = () => fetchData(true);
+    const onAssignmentsChanged = () => { void fetchDataRef.current(true); };
     window.addEventListener('pms-sync-completed', onSynced);
     window.addEventListener('hk-assignments-changed', onAssignmentsChanged);
     return () => {
@@ -384,9 +391,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   }, [selectedDate, hotelName]);
 
   const fetchData = async (silent: boolean = false) => {
+    // Events from a previous hotel/date must never invalidate the current load.
+    if (currentOverviewScopeRef.current !== currentOverviewScope) return;
     const token = loadGuardRef.current.start(currentOverviewScope);
     const latest = () => loadGuardRef.current.isCurrent(token, currentOverviewScopeRef.current);
-    if (!silent) setLoading(true);
+    // Only the first load of a scope needs a blocking skeleton. Room actions,
+    // Refresh, polling and live updates keep the existing board visible.
+    if (!silent && loadGuardRef.current.needsInitialLoad(currentOverviewScope)) setLoading(true);
     try {
       const hotelKeys = await resolveHotelKeys(hotelName);
       const keys = hotelKeys.length ? hotelKeys : [hotelName];
@@ -427,6 +438,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
       setPublicAreaTasks(tasksRes.data || []);
       setOverviewDataError(null);
+      loadGuardRef.current.markLoaded(currentOverviewScope);
+      // Core room/assignment data is ready. Do not block managers while the
+      // optional historical comparison queries are still loading.
+      setLoading(false);
 
       // Load a READ-ONLY snapshot of the previous working day so admins can
       // compare where things stopped yesterday vs where things stand today.
@@ -502,9 +517,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       console.error('Error fetching room overview:', error);
       if (latest()) setOverviewDataError((error as Error)?.message || 'Could not update the room board');
     } finally {
-      if (!silent && latest()) setLoading(false);
+      // A silent realtime load may supersede a visible initial load. It now
+      // owns settling the spinner too, otherwise the board can stay stuck.
+      if (latest()) setLoading(false);
     }
   };
+  fetchDataRef.current = fetchData;
 
   const canInteractWithRooms = isManagerOrAdmin || isReception;
   const [roomNotes, setRoomNotes] = useState('');
