@@ -119,14 +119,17 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
       .order("started_at", { ascending: false }).limit(50),
     admin.from("revenue_daily_snapshots")
       .select("stay_date, captured_date, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur")
-      .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", addDays(today, 30)).limit(2000),
+      .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", addDays(today, 30))
+      // The table has years of historical captures per stay date. Without an
+      // ORDER BY a 2,000-row page can exclude almost all future-date snapshots.
+      .order("captured_at", { ascending: false }).limit(2000),
     admin.from("demand_events")
       .select("title, event_date, end_date, category, expected_impact, venue")
       .eq("organization_slug", orgSlug ?? "")
       .ilike("city", marketCity)
       .ilike("country", marketCountry)
       .gte("event_date", today).lte("event_date", addDays(today, 45))
-      .order("event_date", { ascending: true }).limit(12),
+      .order("event_date", { ascending: true }).limit(120),
   ]);
 
 
@@ -157,7 +160,8 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
   const latest = new Map<string, Snap>();
   for (const raw of (snaps ?? []) as Snap[]) {
     const prev = latest.get(raw.stay_date);
-    if (!prev || String(raw.captured_date ?? "") >= String(prev.captured_date ?? "")) latest.set(raw.stay_date, raw);
+    // SQL orders snapshots newest-first; never replace one with an older capture.
+    if (!prev) latest.set(raw.stay_date, raw);
   }
   const days = [...latest.values()].sort((a, b) => a.stay_date.localeCompare(b.stay_date));
 
@@ -175,8 +179,10 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
   const sold14 = next14.reduce((s, d) => s + Number(d.rooms_sold ?? 0), 0);
   const avail14 = next14.reduce((s, d) => s + Number(d.rooms_available ?? 0), 0);
   const rev14 = next14.reduce((s, d) => s + Number(d.revenue_eur ?? 0), 0);
-  const occ14 = avail14 ? Math.round((sold14 / avail14) * 100) : null;
-  const adr14 = sold14 ? Math.round(rev14 / sold14) : null;
+  const complete14 = next14.length === 14
+    && next14.every((d) => d.rooms_available != null && d.rooms_sold != null && d.revenue_eur != null);
+  const occ14 = complete14 && avail14 ? Math.round((sold14 / avail14) * 100) : null;
+  const adr14 = complete14 && sold14 ? Math.round(rev14 / sold14) : null;
 
   const attention = next14
     .map((s) => ({
@@ -219,17 +225,36 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
   const runsFailed = runRows.filter((r) => r.status === "failed" || r.status === "timed_out" || r.status === "stopped_stale_data");
   const shadowRuns = runRows.filter((r) => r.mode === "shadow").length;
 
-  const upcoming = ((events ?? []) as {
+  const rawUpcoming = ((events ?? []) as {
     title: string; event_date: string; end_date: string | null; category: string | null;
     expected_impact: string | null; venue: string | null;
   }[]);
+  const eventKey = (value: string) =>
+    value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      .replace(/\b(20\d\d|concerts?|tour|live|show)\b/g, "")
+      .replace(/[^a-z0-9]+/g, " ").trim();
+  const seenEvents = new Set<string>();
+  const upcoming = rawUpcoming.flatMap((e) => {
+    // Known malformed imports of André Rieu carry Andr9 / Andre9 / Andr:
+    // normalise for the digest without rewriting shared demand-event records.
+    const title = /^andr(?:e|é|9|e9)?\s+rieu\b/i.test(e.title)
+      ? "André Rieu Concerts"
+      : e.title;
+    const venue = /mvm\s*dome/i.test(e.venue ?? "") ? "MVM Dome" : e.venue;
+    const normalized = { ...e, title, venue };
+    const key = [e.event_date, e.end_date ?? e.event_date, eventKey(title), eventKey(venue ?? "")].join("|");
+    if (seenEvents.has(key)) return [];
+    seenEvents.add(key);
+    return [normalized];
+  }).slice(0, 12);
 
   void orgSlug;
 
   return {
     pickupNights, pickupRevenue, pickupRes: pickupRes.size, topPickup,
     soldToday, availTonight, occTonight, adrTonight, revparTonight,
-    occ14, adr14, rev14, attention, changes, raised, lowered, upcoming,
+    occ14, adr14, rev14: complete14 ? rev14 : null, coverage14: next14.length,
+    attention, changes, raised, lowered, upcoming,
     changeUnit, runsTotal, shadowRuns,
     runsFailedCount: runsFailed.length,
     runFailures: runsFailed.slice(0, 5).map((r) => ({
@@ -262,7 +287,7 @@ function renderHtml(
         `<tr><td style="padding:8px 0;border-bottom:1px solid ${LINE};color:${INK}">${a.date}</td>
              <td style="padding:8px 0;border-bottom:1px solid ${LINE};color:${MUTED}">${a.left != null ? `${a.left} left` : ""}${a.adr != null ? ` · ADR ${money(a.adr)}` : ""}</td>
              <td style="padding:8px 0;border-bottom:1px solid ${LINE};text-align:right;font-weight:700;color:${(a.occ ?? 0) < 40 ? "#b91c1c" : "#b45309"}">${a.occ}%</td></tr>`).join("")
-    : `<tr><td style="padding:8px 0;color:${MUTED}">Nothing under 60% in the next 14 days — good shape.</td></tr>`;
+    : `<tr><td style="padding:8px 0;color:${MUTED}">${d.coverage14 < 14 ? `Only ${d.coverage14}/14 future nights have usable daily snapshots; cannot assess all dates.` : "Nothing under 60% in the next 14 days — good shape."}</td></tr>`;
 
   const li = (inner: string) => `<li style="margin:6px 0;color:${INK}">${inner}</li>`;
   const none = (t: string) => `<li style="margin:6px 0;color:${MUTED}">${t}</li>`;
@@ -328,6 +353,7 @@ function renderHtml(
         <p style="margin:0;color:${INK};font-size:14px">
           On the books: <strong style="color:${BLUE}">${d.occ14 != null ? `${d.occ14}%` : "—"}</strong> occupancy ·
           ADR <strong style="color:${BLUE}">${money(d.adr14)}</strong> · revenue <strong style="color:${BLUE}">${money(d.rev14)}</strong>
+          ${d.coverage14 < 14 ? `<span style="color:#b45309"> · Data coverage ${d.coverage14}/14 nights (incomplete)</span>` : ""}
         </p>
 
         ${h3("Biggest movers")}
@@ -345,7 +371,7 @@ function renderHtml(
         ${h3("Automation health")}
         <p style="margin:0;color:${INK};font-size:14px">
           ${d.runsTotal} run${d.runsTotal === 1 ? "" : "s"} in the last 24 hours${d.shadowRuns ? ` (${d.shadowRuns} in test mode, no prices sent)` : ""}.
-          ${d.runsFailedCount === 0 ? "All runs completed." : `<strong style="color:#b91c1c">${d.runsFailedCount} did not complete.</strong>`}
+          ${d.runsTotal === 0 ? "No automation runs recorded." : d.runsFailedCount === 0 ? "All runs completed." : `<strong style="color:#b91c1c">${d.runsFailedCount} did not complete.</strong>`}
         </p>
         ${d.runFailures.length
           ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;color:${MUTED}">${d.runFailures.map((f) => `<li>${f.at.slice(0, 16).replace("T", " ")} — ${f.status}: ${f.reason}</li>`).join("")}</ul>`
