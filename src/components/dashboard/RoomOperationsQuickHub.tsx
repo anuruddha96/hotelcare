@@ -3,6 +3,7 @@ import {
   ArrowLeftRight,
   BedDouble,
   CalendarDays,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -26,7 +27,7 @@ import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
-import { effectiveCarryServiceFlags, getActionableHousekeepingCarryForward, getCarryForwardManagerCopy, type HousekeepingCarryForward } from '@/lib/housekeepingCarryForward';
+import { effectiveCarryServiceFlags, getActionableHousekeepingCarryForward, getCarryForwardManagerCopy, isRdCarryForwardHotel, type HousekeepingCarryForward } from '@/lib/housekeepingCarryForward';
 import {
   buildDirectRoomTypeNotice,
   buildRoomTypeTransition,
@@ -1038,7 +1039,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     <div className="space-y-4">
       {carryCopy && !selection.isCheckout && (
         <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-amber-950" role="status">
-          <p className="text-sm font-bold">↪ Outstanding housekeeping service: {carryCopy.action}</p>
+          <p className="text-sm font-bold">{isRdCarryForwardHotel(hotelName) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-4 w-4" aria-hidden="true" /> Missed service · yesterday: {carryCopy.action}</span> : <>↪ Outstanding housekeeping service: {carryCopy.action}</>}</p>
           <p className="mt-1 text-xs">{carryCopy.summary}{carryCopy.detail ? ` · ${carryCopy.detail}` : ''}</p>
           <p className="mt-1 text-xs">This missed service is part of today's assignment; it may differ from the normal PMS service cycle below.</p>
         </div>
