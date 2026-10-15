@@ -96,8 +96,30 @@ describe("authenticated user idle return — manual refresh", () => {
     expect(RESUME_REFRESH_AFTER_MS).toBe(60 * 60_000);
     expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
     expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh now" })).toBeInTheDocument();
+    const refreshLink = screen.getByRole("link", { name: "Refresh now" });
+    expect(refreshLink).toBeInTheDocument();
+    // Do not rely on React's onClick after a suspended tab returns.
+    const refreshUrl = new URL(refreshLink.getAttribute("href")!, window.location.href);
+    expect(refreshUrl.pathname).toBe(window.location.pathname);
+    expect(refreshUrl.searchParams.get("chunk-recovery")).toBe(String(now));
     expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument();
+  });
+
+  it("allows the refresh action when an underlying Radix modal locks body pointer events", () => {
+    // Radix writes pointer-events:none to body while its modal is open.
+    // The idle overlay must opt back into pointer interaction or clicks
+    // on Refresh now never reach the browser.
+    const previousPointerEvents = document.body.style.pointerEvents;
+    document.body.style.pointerEvents = "none";
+    try {
+      render(<ExecutiveResumeRefresh />);
+      returnFromHidden(RESUME_REFRESH_AFTER_MS + 1);
+      expect(screen.getByRole("dialog")).toHaveStyle({ pointerEvents: "auto" });
+      const refreshLink = screen.getByRole("link", { name: "Refresh now" });
+      expect(refreshLink.getAttribute("href")).toContain("chunk-recovery=");
+    } finally {
+      document.body.style.pointerEvents = previousPointerEvents;
+    }
   });
 
   it("handles repeated visibilitychange, focus and pageshow without multiple prompts", () => {
