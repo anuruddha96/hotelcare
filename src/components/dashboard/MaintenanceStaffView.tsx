@@ -254,7 +254,10 @@ export function MaintenanceStaffView() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_attendance', filter: `user_id=eq.${user.id}` }, () => void refresh())
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    // Reconcile reassignment revocations even when the previous worker can no
+    // longer receive a Realtime update for the restricted ticket.
+    const interval = window.setInterval(() => void refresh(), 45000);
+    return () => { window.clearInterval(interval); supabase.removeChannel(channel); };
   }, [refresh, user?.id, profile?.organization_slug]);
 
   const filtered = useMemo(() => {
