@@ -59,15 +59,15 @@ export function OttofioriMaintenanceAssignment({
       window.dispatchEvent(new CustomEvent('maintenance-ticket-created'));
       // Existing HotelCare worker-assignment notification email is best-effort.
       // Assignments are committed through the authenticated, scoped RPC above.
-      try {
-        await supabase.functions.invoke('send-work-assignment-notification', {
-          body: {
-            staff_id: person.id, assignment_type: 'ticket',
-            assignment_details: { id: ticket.id, title: ticket.title, room_number: ticket.room_number, priority: ticket.priority },
-            hotel_name: 'Hotel Ottofiori',
-          },
-        });
-      } catch (mailError) { console.warn('Assignment saved; optional email failed', mailError); }
+      void supabase.functions.invoke('send-work-assignment-notification', {
+        body: {
+          staff_id: person.id, assignment_type: 'ticket',
+          assignment_details: { id: ticket.id, title: ticket.title, room_number: ticket.room_number, priority: ticket.priority },
+          hotel_name: 'Hotel Ottofiori',
+        },
+      }).then(({ error }) => {
+        if (error) console.warn('Assignment saved; email notification failed', error);
+      }).catch(mailError => console.warn('Assignment saved; optional email failed', mailError));
       onUpdated();
     } catch (error: any) {
       toast.error(error?.message || (hu ? 'A hozzárendelés sikertelen' : 'Assignment failed'));
