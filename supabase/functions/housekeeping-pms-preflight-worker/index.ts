@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { isUnchangedPrevioRoom } from "../_shared/previoRoomSyncDelta.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -143,7 +144,7 @@ async function syncHotelRoomState(
   const { data: existingRooms, error: roomsError } = mappedRoomIds.length
     ? await admin
       .from("rooms")
-      .select("id,hotel,room_number,pms_metadata")
+      .select("id,hotel,room_number,status,room_type,pms_metadata")
       .in("id", mappedRoomIds)
     : { data: [], error: null };
   if (roomsError) throw new Error(`HotelCare room lookup failed: ${errorText(roomsError)}`);
@@ -151,6 +152,8 @@ async function syncHotelRoomState(
 
   const errors: string[] = [];
   const updates: Array<Record<string, unknown>> = [];
+  let mapped = 0;
+  let skippedUnchanged = 0;
   for (const room of freshRooms) {
     const roomId = roomIdByPmsId.get(String(room.roomId));
     if (!roomId) {
@@ -162,10 +165,8 @@ async function syncHotelRoomState(
       errors.push(`Mapped HotelCare room ${roomId} was not found`);
       continue;
     }
-    updates.push({
-      id: roomId,
-      hotel: existing.hotel,
-      room_number: existing.room_number,
+    mapped++;
+    const proposed = {
       status: mapPrevioStatus(Number(room.roomCleanStatusId || 0)),
       room_type: room.roomKindName || "",
       pms_metadata: {
@@ -176,19 +177,34 @@ async function syncHotelRoomState(
         roomTypeId: room.roomTypeId,
         roomCleanStatusId: room.roomCleanStatusId,
       },
+    };
+    // Previo preflight must verify every room but only write changed PMS-owned
+    // fields. Identical upserts fire rooms triggers and Realtime for no benefit.
+    // Never compare or discard unrelated manager/housekeeping metadata.
+    if (isUnchangedPrevioRoom(existing, proposed)) {
+      skippedUnchanged++;
+      continue;
+    }
+    updates.push({
+      id: roomId,
+      hotel: existing.hotel,
+      room_number: existing.room_number,
+      ...proposed,
       updated_at: new Date().toISOString(),
     });
   }
 
   // Fail before any room update if Previo contains an unmapped physical room.
-  if (errors.length > 0 || updates.length !== freshRooms.length) {
+  if (errors.length > 0 || mapped !== freshRooms.length) {
     throw new Error(errors.slice(0, 8).join("; ") || "Incomplete Previo room mapping.");
   }
 
-  const { error: updateError } = await admin
-    .from("rooms")
-    .upsert(updates, { onConflict: "id" });
-  if (updateError) throw new Error(`HotelCare room-state update failed: ${errorText(updateError)}`);
+  if (updates.length > 0) {
+    const { error: updateError } = await admin
+      .from("rooms")
+      .upsert(updates, { onConflict: "id" });
+    if (updateError) throw new Error(`HotelCare room-state update failed: ${errorText(updateError)}`);
+  }
 
   const syncedAt = new Date().toISOString();
   const historyData = {
@@ -196,6 +212,7 @@ async function syncHotelRoomState(
     trigger: "housekeeping_pms_preflight_worker",
     total: freshRooms.length,
     updated: updates.length,
+    skippedUnchanged,
     mapped: Number(mapping.payload?.results?.mapped || 0),
     mapping_unmapped: Array.isArray(mapping.payload?.results?.unmapped)
       ? mapping.payload.results.unmapped.length
