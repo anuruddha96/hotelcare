@@ -21,6 +21,10 @@ CREATE TABLE public.billing_one_time_payments (
   CONSTRAINT only_invoice_settled_one_time_payment
     CHECK (szamlazz_invoice_number IS NULL OR (status = 'paid' AND paid_at IS NOT NULL))
 );
+-- One open Checkout per package and organization prevents accidental duplicate requests.
+CREATE UNIQUE INDEX billing_one_time_pending_package_unique
+  ON public.billing_one_time_payments(organization_slug, package_key)
+  WHERE status = 'pending';
 CREATE UNIQUE INDEX billing_one_time_invoice_unique
   ON public.billing_one_time_payments(organization_slug, szamlazz_invoice_number)
   WHERE szamlazz_invoice_number IS NOT NULL;
