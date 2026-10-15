@@ -18,6 +18,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Paths: <uploader auth UID>/<new assignment UUID>/<photo name>.
 -- A manager may upload evidence only under their own UID.
+DROP POLICY IF EXISTS "Managers upload their recheck evidence" ON storage.objects;
 CREATE POLICY "Managers upload their recheck evidence" ON storage.objects
 FOR INSERT TO authenticated
 WITH CHECK (
@@ -35,6 +36,7 @@ WITH CHECK (
 -- Keep photos tenant-private, but let the assigned housekeeper and managers
 -- of the assignment's own organization view them. The uploader also needs
 -- SELECT during upload and rollback.
+DROP POLICY IF EXISTS "Recheck evidence visible to assigned staff" ON storage.objects;
 CREATE POLICY "Recheck evidence visible to assigned staff" ON storage.objects
 FOR SELECT TO authenticated
 USING (
@@ -55,6 +57,7 @@ USING (
   )
 );
 
+DROP POLICY IF EXISTS "Managers delete their pending recheck evidence" ON storage.objects;
 CREATE POLICY "Managers delete their pending recheck evidence" ON storage.objects
 FOR DELETE TO authenticated
 USING (
