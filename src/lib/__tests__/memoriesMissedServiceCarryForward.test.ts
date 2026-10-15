@@ -34,7 +34,8 @@ describe('Hotel Memories missed-service carry-forward contract', () => {
     expect(gate).toContain('getCarryForwardHousekeeperCopy');
     expect(gate).toContain("carryForward?.serviceType === 'towel_change'");
     expect(gate).toContain("carryForward?.serviceType === 'full_clean'");
-    expect(manager).toContain('Carried housekeeping task');
+    expect(manager).toContain('Missed service · yesterday');
+    expect(manager).toContain('CalendarClock');
     expect(manager).toContain('getCarryForwardManagerCopy');
   });
 

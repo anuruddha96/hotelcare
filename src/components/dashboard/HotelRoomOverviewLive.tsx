@@ -14,7 +14,7 @@ import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, Ban, AlertTriangle, GripVertical, Coffee } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, Ban, AlertTriangle, GripVertical, Coffee, CalendarClock } from 'lucide-react';
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
@@ -40,6 +40,7 @@ import {
   getCarryForwardManagerCopy,
   getActionableHousekeepingCarryForward,
   isCarryForwardDisplayHotel,
+  isRdCarryForwardHotel,
 } from '@/lib/housekeepingCarryForward';
 import { isCurrentNoServiceOutcome, selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
@@ -1328,7 +1329,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {effectiveService.towelChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {effectiveService.linenChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
-          {portfolioCarry && portfolioCarryCopy && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-600 text-white" title={`${portfolioCarryCopy.summary} · ${portfolioCarryCopy.detail || ''}`}>↪</span>}
+          {portfolioCarry && portfolioCarryCopy && <span className="ml-0.5 inline-flex items-center justify-center rounded bg-amber-600 px-0.5 text-[9px] font-extrabold text-white" title={`${portfolioCarryCopy.summary} · ${portfolioCarryCopy.detail || ''}`} aria-label={isRdCarryForwardHotel(room.hotel) ? 'Missed housekeeping service from yesterday' : 'Carried housekeeping service'}>
+            {isRdCarryForwardHotel(room.hotel) ? <CalendarClock className="h-3 w-3" aria-hidden="true" /> : '↪'}
+          </span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {(() => {
@@ -1512,7 +1515,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {portfolioCarry && portfolioCarryCopy && (
                 <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/30">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                    ↪ Carried housekeeping task
+                    {isRdCarryForwardHotel(room.hotel) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" aria-hidden="true" /> Missed service · yesterday</span> : '↪ Carried housekeeping task'}
                   </p>
                   <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
                     {portfolioCarryCopy.action}
@@ -2843,7 +2846,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {selectedCarry && selectedCarryCopy && (
                     <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
                       <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                        ↪ Carried housekeeping task
+                        {isRdCarryForwardHotel(selectedRoom.hotel) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" aria-hidden="true" /> Missed service · yesterday</span> : '↪ Carried housekeeping task'}
                       </p>
                       <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
                         {selectedCarryCopy.action}

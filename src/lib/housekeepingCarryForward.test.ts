@@ -7,6 +7,7 @@ import {
   getActionableHousekeepingCarryForward,
   isCarryForwardDisplayHotel,
   isPortfolioCarryForwardHotel,
+  isRdCarryForwardHotel,
 } from './housekeepingCarryForward';
 
 describe('portfolio housekeeping carry-forward', () => {
@@ -22,6 +23,12 @@ describe('portfolio housekeeping carry-forward', () => {
     expect(isCarryForwardDisplayHotel('Hotel Ottofiori')).toBe(true);
     expect(isCarryForwardDisplayHotel('slnt-group')).toBe(true);
     expect(isPortfolioCarryForwardHotel('slnt-group')).toBe(true);
+    expect(isRdCarryForwardHotel('Hotel Memories Budapest')).toBe(true);
+    expect(isRdCarryForwardHotel('Hotel Mika Downtown')).toBe(true);
+    expect(isRdCarryForwardHotel('Hotel Ottofiori')).toBe(true);
+    expect(isRdCarryForwardHotel('gozsdu-court')).toBe(true);
+    expect(isRdCarryForwardHotel('slnt-group')).toBe(false);
+    expect(isRdCarryForwardHotel('SLNT Group')).toBe(false);
   });
 
   it('parses repeated carried service context with lineage', () => {
