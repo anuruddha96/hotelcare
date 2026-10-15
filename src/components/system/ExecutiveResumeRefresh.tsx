@@ -130,17 +130,16 @@ export default function ExecutiveResumeRefresh() {
 
   if (!eligible || !needsRefresh) return null;
 
-  const refresh = () => {
-    // Explicit action only. A cache-busting URL prevents stale Safari/Vite
-    // chunks from immediately recreating the white-screen failure; preserve
-    // the exact tenant, hotel, route, existing query parameters and hash.
-    window.location.replace(freshApplicationUrl(window.location.href, Date.now()));
-  };
+  // A real document link continues to work even when a long-suspended tab's
+  // React click handlers are stale. Keep the exact workspace route and force
+  // a fresh HTML request instead of depending on programmatic navigation.
+  const refreshHref = freshApplicationUrl(window.location.href, Date.now());
 
   return (
     <div
       id="idle-refresh-dialog"
-      className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-md"
+      className="pointer-events-auto fixed inset-0 z-[2147483646] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-md"
+      style={{ pointerEvents: "auto" }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="idle-refresh-title"
@@ -155,9 +154,11 @@ export default function ExecutiveResumeRefresh() {
           You were away for some time. This view may be out of date. Refresh to see the latest HotelCare information.
         </p>
         <p className="mt-3 text-xs text-muted-foreground">Refreshing may discard unsaved changes.</p>
-        <Button className="mt-6 w-full" size="lg" onClick={refresh} autoFocus>
-          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-          Refresh now
+        <Button asChild className="mt-6 w-full" size="lg">
+          <a href={refreshHref} autoFocus>
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Refresh now
+          </a>
         </Button>
       </div>
     </div>
