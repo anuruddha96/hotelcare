@@ -152,7 +152,7 @@ AS $function$
       )
       )
   );
-$function$
+$function$;
 
 
 -- Worker update + physical room-access checks must agree with the ticket read rule.
@@ -300,7 +300,7 @@ BEGIN
   END IF;
   RETURN NEXT;
 END;
-$function$
+$function$;
 
 CREATE OR REPLACE FUNCTION public.work_maintenance_ticket(p_ticket_id uuid, p_action text, p_note text, p_expected_updated_at timestamp with time zone, p_hold_reason text DEFAULT NULL::text, p_completion_photo text DEFAULT NULL::text)
  RETURNS void
@@ -464,7 +464,7 @@ BEGIN
     '[Maintenance team action: ' || v_action || '] ' || v_history
   );
 END;
-$function$
+$function$;
 
 
 -- The old generic ticket UPDATE policy can be used by managers to change an
