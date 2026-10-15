@@ -1128,6 +1128,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
     const isDND = isDndForBusinessDate(room, selectedDate, assignment?.status, isCheckoutBucket(room));
     const noShow = isNoShow(room) && !isEarlyCheckout(room);
+    const suspectedNoShow = noShow && (room.pms_metadata as any)?.noShowSource === "inferred_never_checked_in";
     const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
@@ -1284,8 +1285,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {noShow && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white"
-              title="PMS reports no reservation — guest did not arrive"
-            >NS</span>
+              title={suspectedNoShow
+                ? "Suspected no-show: Previo still says Reserved after arrival. Please verify with reception."
+                : "No-show confirmed in Previo or marked manually by management"}
+            >{suspectedNoShow ? "NS?" : "NS"}</span>
           )}
           {(room.pms_metadata as any)?.notArrived === true && !noShow && (
             <span

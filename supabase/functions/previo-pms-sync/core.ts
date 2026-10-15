@@ -18,6 +18,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials, type PrevioXmlAuthVariant } from "../_shared/previoCredentials.ts";
 import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../_shared/budapestBusinessDate.ts";
+import { propertyReliablyTracksPrevioCheckIns, isStaleUnarrivedPrevioReservation } from "../_shared/previoNoShowInference.ts";
 import {
   opaquePrevioFingerprint,
   resolvePrevioContinuousStay,
@@ -953,7 +954,10 @@ serve(async (req) => {
       rosterSource = "reservations";
     }
 
-    const rows = rooms.map((r) => {
+    // Resolve one effective reservation per physical room before deciding
+    // whether this property actually records check-ins. Never count future
+    // reservations or multiple historical rows for the same room.
+    const resolvedRooms = rooms.map((r) => {
       const roomNumber = extractRoomNumber(r.name);
       const candidatePool = [
         ...(r.roomId ? reservationCandidatesByObjId.get(r.roomId) || [] : []),
@@ -965,22 +969,37 @@ serve(async (req) => {
         ?? (r.roomId ? reservationsByObjId.get(r.roomId) : undefined)
         ?? reservationsByRoomName.get(r.name)
         ?? (roomNumber !== r.name ? reservationsByRoomName.get(roomNumber) : undefined);
+      return { r, continuity, res };
+    });
+    const propertyTracksCheckIns = propertyReliablyTracksPrevioCheckIns(
+      resolvedRooms.filter(({ res }) => !!res).map(({ res }) => ({
+        statusId: res!.statusId,
+        arrivalDate: res!.arrivalDate,
+        departureDate: res!.departureDate,
+      })),
+      today,
+    );
+    const rows = resolvedRooms.map(({ r, continuity, res }) => {
       const continuousArrival = continuity.effective ? continuity.originalArrivalDate : res?.arrivalDate ?? null;
       const continuousDeparture = continuity.effective ? continuity.finalDepartureDate : res?.departureDate ?? null;
       const isCancelled = !!res && isCancelledStatus(res.statusId);
       const isArrival = !!res && continuousArrival === today;
       const isCheckedIn = !!res && isInHouseStatus(res.statusId);
-      // Occupancy guard: a guest who already slept here (arrival before today,
-      // departure still ahead) or who is checked in IS occupancy, so the room
-      // can never be a no-show, whatever the check-in status workflow says.
-      const hasOccupancyToday = !!res && !isCancelled
-        && (isCheckedIn || (!!continuousArrival && !!continuousDeparture
-          && continuousArrival < today && continuousDeparture > today));
-      // A no-show is a reservation state Previo owns (statusId 8). We never
-      // infer it from a pre-arrival status: many properties simply do not check
-      // guests in, so an in-house guest would be wrongly flagged.
-      const isNoShow = !!res && isNoShowStatus(res.statusId) && !hasOccupancyToday;
-      const noShowSource = isNoShow ? "previo_status_8" : null;
+      // A date span proves a booking exists, NOT that a guest physically
+      // checked in. Only check-in status is positive occupancy evidence here.
+      const inferredNoShow = !!res && isStaleUnarrivedPrevioReservation({
+        statusId: res.statusId,
+        arrivalDate: res.arrivalDate,
+        departureDate: res.departureDate,
+        businessDate: today,
+        propertyTracksCheckIns,
+        extensionLinked: continuity.extensionLinked,
+      });
+      const isNoShow = !!res && !isCheckedIn
+        && (isNoShowStatus(res.statusId) || inferredNoShow);
+      const noShowSource = isNoShow
+        ? inferredNoShow ? "inferred_never_checked_in" : "previo_status_8"
+        : null;
 
 
       const isNotArrived = !!res && isArrival && !isCancelled && !isNoShow && !isCheckedIn;
@@ -1010,10 +1029,9 @@ serve(async (req) => {
       const departureTomorrowConfirmed =
         isDepartureTomorrow && totalNights > 0 && currentNight === totalNights;
 
-      // No-show is a RESERVATION state, not "the room has no reservation" and
-      // not a phrase found somewhere in the note text. Previo marks a no-show
-      // with statusId 8. Free-text matching used to flag in-house guests whose
-      // OTA blob happened to contain the words "no show".
+      // Explicit Previo status 8 or a guarded suspected no-show from a
+      // property that demonstrably maintains check-in status. Never use
+      // free-text OTA notes as evidence.
       return {
         Room: r.name,
         RoomId: r.roomId,

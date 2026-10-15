@@ -25,7 +25,7 @@ const MANUAL_ROOM_OVERRIDE_KEYS = [
 const STALE_DAY_METADATA_KEYS = [
   "checkedOutToday", "checkedOutAt", "readyToClean", "readyToCleanDate",
   "departureTime", "scheduledDepartureToday", "scheduledDepartureTomorrow",
-  "isNoShow", "notArrived", "arrivalToday", "occupiedToday", "stayThroughToday",
+  "isNoShow", "noShowSource", "notArrived", "arrivalToday", "occupiedToday", "stayThroughToday",
   "manualReadyToCleanAt",
 ];
 
@@ -643,8 +643,10 @@ export async function runPmsRefresh(
         previoStatusRaw === "" ? null
         : previoStatusRaw.startsWith("clean") ? "clean"
         : "dirty";
+      // A suspected no-show is NOT a reason to mark an unclean room clean.
+      // Preserve the physical cleaning condition separately from occupancy.
       const pmsNeedsCleaning = reservationDataAuthoritative && (
-        shouldBeCheckoutRoom || classification.isDailyRoom || row.IsNoShow === true
+        shouldBeCheckoutRoom || classification.isDailyRoom
       );
       // A room that was already cleaned and approved TODAY must never be
       // pushed back to "dirty" by a later sync — the PMS row still says the
@@ -668,9 +670,7 @@ export async function runPmsRefresh(
       const effectiveStatus = trustPmsCleanFlag
         ? "clean"
         : pmsNeedsCleaning
-        ? row.IsNoShow === true
-          ? "clean"
-          : cleanedToday ? "clean" : "dirty"
+        ? cleanedToday ? "clean" : "dirty"
         : cleanedToday && mappedStatus === "dirty" ? "clean" : mappedStatus;
 
       const nextGuestCount = Number(row.People ?? 0);
@@ -695,6 +695,12 @@ export async function runPmsRefresh(
       const manualDailyOverride = existingMetadata?.manual_daily === true
         || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
       const manualNoShowOverride = existingMetadata?.manual_no_show === true;
+      // Reception may confirm the guest actually arrived even if Previo is
+      // still Reserved. Respect today's explicit correction for inference only
+      // (never override Previo's confirmed status-8 no-show).
+      const managerClearedSuspectedNoShow = existingMetadata?.manual_no_show === false
+        && getDateOnly(existingMetadata?.manual_no_show_at) === today
+        && row.NoShowSource === "inferred_never_checked_in";
 
       const stayContinuity = reconcileContinuousStay({
         row,
@@ -815,7 +821,8 @@ export async function runPmsRefresh(
 
       if (reservationDataAuthoritative) {
         updateData.guest_count = nextGuestCount;
-        updateData.guest_nights_stayed = guestNightsStayed;
+        updateData.guest_nights_stayed = (classification.isNoShow && !managerClearedSuspectedNoShow)
+          || classification.isNotArrived || classification.isCancelled ? 0 : guestNightsStayed;
         // Checkout cleans always include a full towel + linen change, so never
         // carry the separate "towel change required" flag on those rooms.
         // Preserve explicit manager/service requirements across PMS syncs;
@@ -835,7 +842,8 @@ export async function runPmsRefresh(
         updateData.pms_metadata.guestIdentityStrength = row.GuestIdentityStrength ?? existingMetadata?.guestIdentityStrength ?? "none";
         updateData.pms_metadata.arrivalDate = row.ArrivalDate ?? existingMetadata?.arrivalDate ?? null;
         updateData.pms_metadata.departureDate = row.DepartureDate ?? existingMetadata?.departureDate ?? null;
-        updateData.pms_metadata.currentNight = guestNightsStayed || null;
+        updateData.pms_metadata.currentNight = (classification.isNoShow && !managerClearedSuspectedNoShow)
+          || classification.isNotArrived || classification.isCancelled ? 0 : guestNightsStayed || null;
         updateData.pms_metadata.totalNights = guestTotalNights || null;
         if (stayContinuity.continuousStay) {
           updateData.pms_metadata.continuousStay = stayContinuity.continuousStay;
@@ -847,7 +855,11 @@ export async function runPmsRefresh(
           || classification.isStayThrough
           || effectiveCheckoutFlag;
         updateData.pms_metadata.isNoShow = !pmsShowsOccupancy
+          && !managerClearedSuspectedNoShow
           && (manualNoShowOverride || classification.isNoShow);
+        updateData.pms_metadata.noShowSource = updateData.pms_metadata.isNoShow
+          ? (row.NoShowSource ?? (manualNoShowOverride ? "manager_manual" : "previo_status_8"))
+          : null;
 
         updateData.pms_metadata.isCancelled = classification.isCancelled;
 
@@ -860,6 +872,7 @@ export async function runPmsRefresh(
             !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
           );
         updateData.pms_metadata.occupiedToday = classification.isDailyRoom
+          || managerClearedSuspectedNoShow
           || stayContinuity.managerConfirmedContinuation
           || (stayContinuity.linkedExtension && !classification.isCancelled && !classification.isNoShow);
         // Arrival that has not checked in yet — shown as "Not checked in" in
@@ -868,6 +881,7 @@ export async function runPmsRefresh(
           && !updateData.pms_metadata.isNoShow
           && classification.isNotArrived;
         updateData.pms_metadata.stayThroughToday = classification.isStayThrough
+          || managerClearedSuspectedNoShow
           || stayContinuity.managerConfirmedContinuation
           || stayContinuity.linkedExtension;
 

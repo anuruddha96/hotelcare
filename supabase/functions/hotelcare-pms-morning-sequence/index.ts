@@ -219,8 +219,14 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       && liveArrival === date && liveDeparture > date
       && live.IsNoShow !== true && live.IsCancelled !== true
       && live.CheckedOut !== true && live.IsCheckoutRoom !== true;
-    const verifiedNoShow = !snapshot && physicalRoomMatch
+    // The occupancy-night overview may still contain a room whose reservation
+    // was never checked in. Rich Previo reservation data is stronger evidence
+    // when it identifies a confirmed or conservatively inferred no-show for
+    // the SAME immutable physical PMS room, even when a snapshot exists.
+    const verifiedNoShow = physicalRoomMatch
       && live.IsNoShow === true && live.Occupied === "No"
+      && (live.NoShowSource === "previo_status_8"
+        || live.NoShowSource === "inferred_never_checked_in")
       && live.CheckedOut !== true && live.IsCheckoutRoom !== true;
     if (!snapshot && gozsdu) {
       const current: any = gozsduRoomById.get(roomId);
@@ -341,15 +347,18 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       );
       const isNoShow = pair.verifiedNoShow === true;
       metadata.pmsOccupancyStatus = isNoShow ? "no_show" : "arrival_pending";
+      metadata.noShowSource = isNoShow ? (live?.NoShowSource ?? null) : null;
+      metadata.reservationStatusId = live?.RawReservationStatusId ?? null;
       metadata.pmsVacancyVerifiedAt = null;
       metadata.pmsVacancyEvidence = null;
       metadata.scheduledDepartureToday = false;
+      metadata.scheduledDepartureTomorrow = false;
       metadata.checkedOutToday = false;
       metadata.checkedOutAt = null;
       metadata.readyToClean = false;
       metadata.readyToCleanDate = null;
       metadata.arrivalToday = !isNoShow;
-      metadata.notArrived = true;
+      metadata.notArrived = !isNoShow;
       metadata.occupiedToday = false;
       metadata.stayThroughToday = false;
       metadata.isNoShow = isNoShow;
