@@ -10,6 +10,7 @@ import { useHousekeepingPresence } from '@/hooks/useHousekeepingPresence';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { housekeeperVisibleAssignmentNote } from '@/lib/housekeeperVisibleAssignmentNote';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -80,6 +81,14 @@ export function MobileHousekeepingCard({
   const bedConfiguration = displayHousekeepingBedSetup(assignment.rooms?.bed_configuration, assignment.rooms?.hotel);
   const assignmentNotes = housekeeperVisibleAssignmentNote(assignment.notes, assignment.rooms?.hotel);
   const guestNights = assignment.rooms?.guest_nights_stayed;
+  const fullCleanInstruction = getRdFullCleanInstruction({
+    hotel: assignment.rooms?.hotel,
+    isCheckout: isCheckoutClean,
+    linenChangeRequired,
+    fullRoomCleaningRequired: roomFlags.roomCleaning,
+    currentNight: guestNights,
+    language,
+  });
 
   const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || hasSeparatePrevioNote || assignmentNotes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
   const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, hasManagerNotes, hasSeparatePrevioNote, assignmentNotes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
@@ -138,7 +147,13 @@ export function MobileHousekeepingCard({
         {/* === SPECIAL INSTRUCTIONS — TOP OF CARD === */}
         {hasSpecialInstructions && (
           <div className="space-y-2 -mt-1">
-            {towelChangeRequired && (
+            {fullCleanInstruction && (
+              <div role="status" className="p-3 rounded-lg border border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-100">
+                <p className="text-sm font-bold">🛏️🧺 {fullCleanInstruction.title}</p>
+                <p className="text-sm font-medium mt-1">{fullCleanInstruction.message}</p>
+              </div>
+            )}
+            {towelChangeRequired && !fullCleanInstruction && (
               <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🧺</span>
@@ -156,7 +171,7 @@ export function MobileHousekeepingCard({
               </div>
             )}
 
-            {linenChangeRequired && (
+            {linenChangeRequired && !fullCleanInstruction && (
               <div className="p-3 bg-purple-50 dark:bg-purple-950/30 border-2 border-purple-400 dark:border-purple-600 rounded-lg">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🛏️</span>
@@ -188,7 +203,7 @@ export function MobileHousekeepingCard({
               </div>
             )}
 
-            {roomFlags.roomCleaning && (
+            {roomFlags.roomCleaning && !fullCleanInstruction && (
               <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border-2 border-blue-400 dark:border-blue-600 rounded-lg">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🧹</span>
