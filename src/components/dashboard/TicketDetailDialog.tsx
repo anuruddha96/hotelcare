@@ -31,6 +31,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileUpload } from './FileUpload';
 import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
 import { MaintenanceManualEmail } from './MaintenanceManualEmail';
+import { isOttofiori, OttofioriMaintenanceAssignment } from './OttofioriMaintenanceAssignment';
 import { AttachmentUpload } from './AttachmentUpload';
 import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -63,6 +64,7 @@ interface Ticket {
     role: string;
   };
   assigned_to?: {
+    id?: string;
     full_name: string;
   };
 }
@@ -111,7 +113,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
   useEffect(() => {
     if (open) {
       fetchComments();
-      if (canAssign) {
+      if (canAssign && !isOttofiori(ticket.hotel)) {
         fetchMaintenanceStaff();
       }
     }
@@ -504,6 +506,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
             {/* Both original and repair evidence belong to the same maintenance issue. */}
             <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} />
             {ticket.department === 'maintenance' && <MaintenanceManualEmail ticketId={ticket.id} />}
+            {ticket.department === 'maintenance' && isOttofiori(ticket.hotel) && <OttofioriMaintenanceAssignment ticket={ticket} onUpdated={onTicketUpdated} />}
           </div>
 
           {/* Actions */}
@@ -532,7 +535,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
                 </Select>
               )}
 
-              {canAssign && (
+              {canAssign && !(ticket.department === 'maintenance' && isOttofiori(ticket.hotel)) && (
                 <Select 
                   value={ticket.assigned_to?.full_name || ''} 
                   onValueChange={handleAssignment}
