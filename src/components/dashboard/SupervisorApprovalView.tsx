@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
-import { addRecheckPhotos, canSubmitRecheck, RECHECK_PHOTO_BUCKET, recheckEvidencePath } from '@/lib/recheckEvidence';
+import { addRecheckPhotos, canSubmitRecheck, optimizeRecheckPhoto, RECHECK_PHOTO_BUCKET, recheckEvidencePath } from '@/lib/recheckEvidence';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getGuestDeclinedServiceComment, isGuestDeclinedService } from '@/lib/hotel-memories-housekeeping';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1066,10 +1066,11 @@ export function SupervisorApprovalView({
       for (let offset = 0; offset < recheckFiles.length; offset += 3) {
         const batch = recheckFiles.slice(offset, offset + 3);
         const outcomes = await Promise.allSettled(batch.map(async (file, index) => {
-          const path = recheckEvidencePath(currentUserId, newAssignmentId, file, offset + index);
+          const optimized = await optimizeRecheckPhoto(file);
+          const path = recheckEvidencePath(currentUserId, newAssignmentId, optimized, offset + index);
           const { error } = await supabase.storage
             .from(RECHECK_PHOTO_BUCKET)
-            .upload(path, file, { upsert: false, contentType: file.type, cacheControl: '3600' });
+            .upload(path, optimized, { upsert: false, contentType: optimized.type, cacheControl: '3600' });
           if (error) throw error;
           uploadedPaths.push(path);
           setRecheckUploadProgress(`Uploaded ${uploadedPaths.length} of ${recheckFiles.length} photos…`);
@@ -1484,7 +1485,7 @@ export function SupervisorApprovalView({
                 ))}
               </div>
             )}
-            <p className="text-xs text-muted-foreground">Up to 10 photos, 8 MB each. Images are shown privately to the assigned housekeeper.</p>
+            <p className="text-xs text-muted-foreground">Up to 10 photos, 8 MB each. Large photos are optimized for faster uploading. Only authorized staff can view them.</p>
           </div>
           {recheckUploadProgress && <p role="status" className="text-xs text-primary">{recheckUploadProgress}</p>}
           <div className="flex justify-end gap-3">
