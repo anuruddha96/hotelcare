@@ -466,3 +466,57 @@ BEGIN
 END;
 $function$
 
+
+-- The old generic ticket UPDATE policy can be used by managers to change an
+-- assignee directly. Enforce the cross-property rule in the database too,
+-- including direct INSERT attempts. Normal same-property routing is unaffected.
+CREATE OR REPLACE FUNCTION public.guard_ottofiori_cross_property_assignment()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $$
+DECLARE
+ v_new public.profiles%ROWTYPE;
+ v_old public.profiles%ROWTYPE;
+ v_new_cross boolean := false;
+ v_old_cross boolean := false;
+BEGIN
+ IF NEW.organization_slug IS DISTINCT FROM 'rdhotels'
+    OR NEW.department IS DISTINCT FROM 'maintenance'
+    OR public.get_hotel_name_from_id(NEW.hotel) IS DISTINCT FROM 'Hotel Ottofiori'
+ THEN RETURN NEW; END IF;
+ IF TG_OP = 'UPDATE' AND NEW.assigned_to IS NOT DISTINCT FROM OLD.assigned_to THEN
+   RETURN NEW;
+ END IF;
+ IF NEW.assigned_to IS NOT NULL THEN
+   SELECT * INTO v_new FROM public.profiles WHERE id=NEW.assigned_to;
+   IF v_new.id IS NULL OR v_new.organization_slug IS DISTINCT FROM 'rdhotels' THEN
+     RAISE EXCEPTION 'Ottofiori assignee must belong to RD Hotels' USING ERRCODE='42501';
+   END IF;
+   v_new_cross := public.get_hotel_name_from_id(v_new.assigned_hotel)
+      IS DISTINCT FROM 'Hotel Ottofiori';
+ END IF;
+ IF TG_OP = 'UPDATE' AND OLD.assigned_to IS NOT NULL THEN
+   SELECT * INTO v_old FROM public.profiles WHERE id=OLD.assigned_to;
+   v_old_cross := v_old.id IS NOT NULL
+     AND public.get_hotel_name_from_id(v_old.assigned_hotel)
+       IS DISTINCT FROM 'Hotel Ottofiori';
+ END IF;
+ IF v_new_cross OR v_old_cross THEN
+   IF v_new_cross AND (v_new.deleted_at IS NOT NULL
+      OR v_new.role::text NOT IN ('maintenance','maintenance_manager')) THEN
+     RAISE EXCEPTION 'Cross-property assignment requires an active maintenance employee' USING ERRCODE='42501';
+   END IF;
+   -- Server-side workers use a service-role token. A signed-in user must
+   -- be an authorized Ottofiori manager, even if another RLS rule is broad.
+   IF coalesce(auth.role(),'') <> 'service_role'
+      AND NOT public.can_assign_ottofiori_maintenance() THEN
+     RAISE EXCEPTION 'Only Hotel Ottofiori managers can change an external maintenance assignment' USING ERRCODE='42501';
+   END IF;
+ END IF;
+ RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.guard_ottofiori_cross_property_assignment() FROM public,anon,authenticated;
+DROP TRIGGER IF EXISTS guard_ottofiori_cross_property_ticket_assignment ON public.tickets;
+CREATE TRIGGER guard_ottofiori_cross_property_ticket_assignment
+ BEFORE INSERT OR UPDATE OF assigned_to ON public.tickets
+ FOR EACH ROW EXECUTE FUNCTION public.guard_ottofiori_cross_property_assignment();
