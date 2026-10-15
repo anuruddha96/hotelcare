@@ -278,13 +278,6 @@ export function MaintenanceIssueDialog({ open, onOpenChange, roomNumber, roomId:
       ticketSaved = true;
       const ticket = Array.isArray(data) ? data[0] : data;
       if (ticket?.assigned_to) {
-        try {
-          await supabase.functions.invoke('send-work-assignment-notification', {
-            body: { staff_id: ticket.assigned_to, assignment_type: 'ticket', assignment_details: {
-              id: ticket.id, title: description.trim().slice(0, 80), room_number: selected.label, priority,
-            }, hotel_name: ticket.hotel },
-          });
-        } catch (notificationError) { console.warn('Maintenance assignment notification failed:', notificationError); }
         toast.success(`${ui.ticketCreated} · ${ticket.ticket_number || ''} · ${ui.assignedTo}: ${ticket.assignee_name || 'Maintenance'}`);
       } else {
         toast.success(`${ui.ticketCreated} · ${ticket?.ticket_number || ''}. ${ui.noOnDutyDetail}`);

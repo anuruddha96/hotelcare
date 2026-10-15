@@ -198,26 +198,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
       if (error) throw error;
 
-      // Send email notification to assigned staff if they have an email
-      try {
-        await supabase.functions.invoke('send-work-assignment-notification', {
-          body: {
-            staff_id: assignedToId,
-            assignment_type: 'ticket',
-            assignment_details: {
-              id: ticket.id,
-              title: ticket.title,
-              room_number: ticket.room_number,
-              priority: ticket.priority
-            },
-            hotel_name: ticket.hotel
-          }
-        });
-        console.log('Assignment notification sent successfully');
-      } catch (notificationError) {
-        console.log('Failed to send notification email:', notificationError);
-        // Don't throw error here - assignment was successful
-      }
+      // Assignment is shown in HotelCare; email recipients are managed only by top management.
 
       toast({
         title: t('common.success'),
@@ -274,23 +255,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
       if (error) throw error;
 
-      // Send email notification to managers
-      try {
-        await supabase.functions.invoke('notify-manager-ticket-closed', {
-          body: {
-            ticketId: ticket.id,
-            ticketNumber: ticket.ticket_number,
-            title: ticket.title,
-            resolutionText: resolutionText.trim(),
-            closedBy: profile?.full_name || 'Unknown User',
-            hotel: ticket.hotel,
-            roomNumber: ticket.room_number
-          }
-        });
-      } catch (emailError) {
-        console.error('Failed to send email notification:', emailError);
-        // Don't fail the entire operation if email fails
-      }
+      // Closing a maintenance ticket updates the dashboard without an all-manager email blast.
 
       toast({
         title: t('common.success'),

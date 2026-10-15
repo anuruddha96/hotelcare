@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { mailClient } from "../_shared/emailSender.ts";
+import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,6 +52,26 @@ const handler = async (req: Request): Promise<Response> => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
       );
+    }
+
+    // Legacy ticket notifications may only handle non-maintenance work.
+    // Maintenance email recipients are exclusively chosen in the property
+    // notification settings (creation/L1/L2), or by a top manager on request.
+    const service = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const url = Deno.env.get('SUPABASE_URL') || '';
+    if (!service || !url) throw new Error('Unable to verify legacy ticket notification scope');
+    const admin = createClient(url, service, { auth: { persistSession: false } });
+    const { data: targetTicket, error: lookupError } = await admin.from('tickets')
+      .select('department').eq('id', ticketId).maybeSingle();
+    if (lookupError || !targetTicket) {
+      return new Response(JSON.stringify({ error: 'Cannot verify ticket; email not sent' }), {
+        status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (targetTicket.department === 'maintenance') {
+      return new Response(JSON.stringify({ skipped: true, reason: 'configured_maintenance_recipients_only' }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     // Validate email format
