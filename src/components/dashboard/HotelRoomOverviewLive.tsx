@@ -1515,7 +1515,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {portfolioCarry && portfolioCarryCopy && (
                 <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/30">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                    {isRdCarryForwardHotel(room.hotel) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" aria-hidden="true" /> Missed service · yesterday</span> : '{isRdCarryForwardHotel(selectedRoom.hotel) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" aria-hidden="true" /> Missed service · yesterday</span> : '↪ Carried housekeeping task'}'}
+                    {isRdCarryForwardHotel(room.hotel) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" aria-hidden="true" /> Missed service · yesterday</span> : '↪ Carried housekeeping task'}
                   </p>
                   <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
                     {portfolioCarryCopy.action}
@@ -2846,7 +2846,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {selectedCarry && selectedCarryCopy && (
                     <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
                       <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                        ↪ Carried housekeeping task
+                        {isRdCarryForwardHotel(selectedRoom.hotel) ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" aria-hidden="true" /> Missed service · yesterday</span> : '↪ Carried housekeeping task'}
                       </p>
                       <p className="mt-1 text-xs font-bold text-amber-950 dark:text-amber-100">
                         {selectedCarryCopy.action}
