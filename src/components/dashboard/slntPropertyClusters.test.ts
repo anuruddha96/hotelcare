@@ -83,7 +83,7 @@ describe('SLNT Gozsdu-style individual room board', () => {
   });
 
   it('retains legend/actions and exposes the new release marker', () => {
-    expect(board).toContain('const [showLegend, setShowLegend] = useState(!isSlntTenant)');
+    expect(board).toContain('const [showLegend, setShowLegend] = useState(!isSlntTenant && !isHotelMemoriesBudapest(hotelName))');
     expect(board).toContain("data-slnt-board-version={isSlntTenant ? '2026-10-10-v6' : undefined}");
     expect(declarationsFor('> div:first-child > div[class~="grid-cols-4"]').get('display')).toBe('none');
     expect(declarationsFor('[data-training="room-legend"]').get('overflow-x')).toBe('auto');
