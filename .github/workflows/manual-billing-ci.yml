@@ -6,6 +6,9 @@ on:
     paths:
       - "supabase/migrations/*manual_stripe_payments_szamlazz_invoices.sql"
       - "supabase/functions/_shared/manualBilling*.ts"
+      - "supabase/functions/_shared/rdOneTimeBilling.ts"
+      - "supabase/migrations/*rd_one_time_payment_collection.sql"
+      - "src/lib/rdOneTimeBilling.test.ts"
       - "supabase/functions/billing-manage/index.ts"
       - "supabase/functions/billing-webhook/index.ts"
       - "supabase/functions/manual-billing-worker/**"
@@ -36,6 +39,9 @@ jobs:
           deno check supabase/functions/manual-billing-worker/index.ts
           deno check supabase/functions/billing-webhook/index.ts
           deno check supabase/functions/billing-manage/index.ts
+          deno check supabase/functions/_shared/rdOneTimeBilling.ts
+      - name: Test RD one-time package amounts and eligibility
+        run: bunx vitest run src/lib/rdOneTimeBilling.test.ts
 
   migration:
     runs-on: ubuntu-latest
@@ -101,4 +107,33 @@ jobs:
             END;
           END
           $$;
+          SQL
+
+      - name: Validate one-time ledger and prohibit invoicing unpaid requests
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261015123000_rd_one_time_payment_collection.sql
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO public.organizations(slug) VALUES ('rdhotels');
+          INSERT INTO public.billing_one_time_payments
+            (id,organization_slug,package_key,description,net_cents,vat_cents,gross_cents)
+          VALUES ('22222222-2222-4222-8222-222222222222','rdhotels','revenue','Test',40000,10800,50800);
+          DO $$
+          BEGIN
+            BEGIN
+              INSERT INTO public.billing_one_time_payments
+                (organization_slug,package_key,description,net_cents,vat_cents,gross_cents)
+              VALUES ('rdhotels','revenue','Duplicate',40000,10800,50800);
+              RAISE EXCEPTION 'Duplicate pending Checkout accepted';
+            EXCEPTION WHEN unique_violation THEN NULL;
+            END;
+            BEGIN
+              UPDATE public.billing_one_time_payments SET szamlazz_invoice_number='INV-TEST'
+              WHERE id='22222222-2222-4222-8222-222222222222';
+              RAISE EXCEPTION 'Pending payment was invoiced';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+          END
+          $$;
+          UPDATE public.billing_one_time_payments SET status='paid', paid_at=now(),
+            szamlazz_invoice_number='INV-TEST' WHERE id='22222222-2222-4222-8222-222222222222';
           SQL

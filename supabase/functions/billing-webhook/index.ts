@@ -3,6 +3,7 @@
 import Stripe from "npm:stripe@18";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { completeManualCheckout, finishManualRenewal, expireManualCheckout, updateManualPaymentMethod } from "../_shared/manualBillingRuntime.ts";
+import { settledBreakdown } from "../_shared/manualBillingPolicy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -131,6 +132,34 @@ Deno.serve(async (req) => {
           await updateManualPaymentMethod(db, stripe, session);
           break;
         }
+        if (session.mode === "payment" && sessionMeta.kind === "hotelcare_one_time") {
+          const paymentId = sessionMeta.payment_id;
+          if (!paymentId || session.payment_status !== "paid") break;
+          const { data: charge, error: lookupError } = await db.from("billing_one_time_payments")
+            .select("*").eq("id", paymentId).maybeSingle();
+          if (lookupError) throw lookupError;
+          if (!charge || charge.stripe_checkout_session_id !== session.id) throw new Error("Unrecognized one-time Checkout session");
+          if (charge.status !== "pending") break; // Webhook is idempotent.
+          const intentId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
+          if (!intentId) throw new Error("One-time payment is missing its PaymentIntent");
+          const intent = await stripe.paymentIntents.retrieve(intentId);
+          if (intent.status !== "succeeded" || intent.currency.toUpperCase() !== charge.currency)
+            throw new Error("One-time payment was not settled in the contracted currency");
+          const breakdown = settledBreakdown(Number(session.amount_subtotal ?? -1),
+            Number(session.total_details?.amount_tax ?? -1), Number(session.amount_total ?? -1));
+          const addressCountry = session.customer_details?.address?.country;
+          const valid = breakdown.net_cents === Number(charge.net_cents) &&
+            breakdown.vat_cents === Number(charge.vat_cents) &&
+            breakdown.gross_cents === Number(charge.gross_cents) && addressCountry === "HU";
+          const { error: finalizeError } = await db.from("billing_one_time_payments").update({
+            status: valid ? "paid" : "needs_review", stripe_payment_intent_id: intentId,
+            paid_at: new Date().toISOString(), billing_details: session.customer_details ?? {},
+            updated_at: new Date().toISOString(),
+          }).eq("id", paymentId).eq("stripe_checkout_session_id", session.id).eq("status", "pending");
+          if (finalizeError) throw finalizeError;
+          if (!valid) console.error("MANUAL TAX REVIEW: One-time payment collected outside the approved Hungarian billing terms", paymentId);
+          break;
+        }
         if (session.mode === "payment" && sessionMeta.kind === "hotelcare_manual_monthly") {
           await completeManualCheckout(db, stripe, session);
           break;
@@ -188,9 +217,17 @@ Deno.serve(async (req) => {
         }
         break;
       }
-      case "checkout.session.expired":
-        await expireManualCheckout(db, event.data.object as Stripe.Checkout.Session);
+      case "checkout.session.expired": {
+        const expired = event.data.object as Stripe.Checkout.Session;
+        if (expired.metadata?.kind === "hotelcare_one_time" && expired.metadata?.payment_id) {
+          const { error } = await db.from("billing_one_time_payments")
+            .update({ status: "expired", updated_at: new Date().toISOString() })
+            .eq("id", expired.metadata.payment_id)
+            .eq("stripe_checkout_session_id", expired.id).eq("status", "pending");
+          if (error) throw error;
+        } else await expireManualCheckout(db, expired);
         break;
+      }
       case "payment_intent.succeeded":
         await finishManualRenewal(db, event.data.object as Stripe.PaymentIntent, true);
         break;
