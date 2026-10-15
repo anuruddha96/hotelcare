@@ -296,7 +296,7 @@ export default function Billing() {
               {allHotelsBypassed ? <ShieldCheck className="h-5 w-5 text-primary" /> : trialActive ? <Sparkles className="h-5 w-5 text-primary" /> : <ShieldCheck className="h-5 w-5 text-primary" />}
               <div>
                 <p className="text-sm font-semibold">{allHotelsBypassed ? 'Billing access enabled by admin' : trialActive ? `Free trial — ends ${fmtDate(summary?.trial_ends_at)}` : activeSubs.length ? (isRdPortfolio ? 'Existing Housekeeping subscription active' : 'Subscription active') : 'No subscription yet'}</p>
-                <p className="text-xs text-muted-foreground">{allHotelsBypassed ? 'Payment gating is bypassed for this organization. Operational hotel status is unchanged.' : activeSubs.length ? isRdPortfolio ? `Housekeeping coverage · ${formatMoney(activeMonthly, currency)} / month excl. VAT under the existing Stripe plan` : `${activeSubs.length} module${activeSubs.length > 1 ? 's' : ''} · ${formatMoney(activeMonthly, currency)} / month excl. VAT` : 'Select a module below to see its exact agreed price.'}</p>
+                <p className="text-xs text-muted-foreground">{allHotelsBypassed ? 'Payment gating is bypassed for this organization. Operational hotel status is unchanged.' : activeSubs.length ? isRdPortfolio ? `Housekeeping coverage · ${formatMoney(activeMonthly, currency)} / month excl. VAT under the existing Stripe plan` : `${activeSubs.length} module${activeSubs.length > 1 ? 's' : ''} · ${formatMoney(activeMonthly, currency)} / month excl. VAT` : isRdPortfolio ? 'Choose the one-time payment package below.' : 'Select a module below to see its exact agreed price.'}</p>
               </div>
             </div>
             {nextRenewal && <div><p className="text-xs text-muted-foreground">Next charge</p><p className="text-sm font-semibold">{fmtDate(nextRenewal)}</p></div>}
@@ -321,7 +321,7 @@ export default function Billing() {
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
               <div><p className="font-medium">Housekeeping — RD Hotels</p><p className="text-sm text-muted-foreground">€200.00 + €54.00 VAT = €254.00 total</p></div>
-              <Button variant="outline" disabled={!settings?.one_time_collection_enabled || Boolean(oneTimeBusy)} onClick={() => void startOneTimeCheckout('housekeeping')}>{oneTimeBusy === 'housekeeping' ? 'Preparing…' : 'Collect €254 once'}</Button>
+              <Button variant="outline" disabled={!canSwitchOrg || !settings?.one_time_collection_enabled || Boolean(oneTimeBusy) || activeSubs.some((sub) => sub.module === 'operations')} onClick={() => void startOneTimeCheckout('housekeeping')}>{oneTimeBusy === 'housekeeping' ? 'Preparing…' : 'Collect €254 once'}</Button>
             </div>
             {!settings?.one_time_collection_enabled && <p className="text-sm text-muted-foreground">One-time payments are not yet enabled. The payment buttons remain locked until server-side setup and testing are complete.</p>}
             {activeSubs.some((s) => s.module === 'operations') && <p className="text-sm text-destructive">An existing Housekeeping Stripe subscription is still active. Cancel it separately before replacing recurring collection; creating a one-time payment does not cancel that plan.</p>}
