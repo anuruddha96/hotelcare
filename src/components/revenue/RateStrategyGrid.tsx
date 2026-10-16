@@ -1315,6 +1315,7 @@ export default function RateStrategyGrid({
   /** The cell currently being typed into: "min|<date>" or "inv|<rawName>|<date>". */
   const [restrictionEdit, setRestrictionEdit] = useState<{ key: string; value: string } | null>(null);
   const [restrictionBusy, setRestrictionBusy] = useState<string | null>(null);
+  const [endingLinkedOffer, setEndingLinkedOffer] = useState<string | null>(null);
   const [inventoryEditor, setInventoryEditor] = useState<{
     date: string;
     rawName: string;
@@ -1329,7 +1330,9 @@ export default function RateStrategyGrid({
   // it borrows. Never present a 22nd sellable room as a new physical unit.
   const [upgradeClosures, setUpgradeClosures] = useState<Set<string>>(new Set());
   const [existingSharedWatches, setExistingSharedWatches] = useState<Map<string, {
-    first_obk_id: string; second_obk_id: string; shared_units: number; status: string;
+    id: string; first_obk_id: string; second_obk_id: string; shared_units: number; status: string;
+    last_confirmed_remaining?: number | null; last_checked_at?: string | null;
+    last_verified_at?: string | null; last_error?: string | null;
   }>>(new Map());
   const [existingTransfers, setExistingTransfers] = useState<Map<string, string>>(new Map());
   // A previously moved Quadruple should be restorable without pretending
@@ -1355,9 +1358,9 @@ export default function RateStrategyGrid({
           .eq("hotel_id", hotelId).gte("stay_date", today)
           .eq("status", "closed").limit(500),
         (supabase as any).from("room_sale_overnight_watches")
-          .select("stay_date,first_obk_id,second_obk_id,shared_units,status")
+          .select("id,stay_date,first_obk_id,second_obk_id,shared_units,status,last_confirmed_remaining,last_checked_at,last_verified_at,last_error")
           .eq("hotel_id", hotelId).gte("stay_date", today)
-          .in("status", ["active", "triggered", "needs_review"]).limit(500),
+          .in("status", ["active", "triggered", "needs_review", "paused"]).limit(500),
       ]);
       if (!cancelled) setExistingSharedWatches(new Map(
         (ongoing ?? []).flatMap((watch: any) => [
@@ -1536,6 +1539,31 @@ export default function RateStrategyGrid({
       setRestrictionBusy(null);
     }
   }, [hotelId, loadMinStay, onAvailabilityUpdated]);
+
+  const endLinkedOffer = async (watchId: string) => {
+    if (!hotelId) return;
+    setRestrictionBusy("linked-end");
+    try {
+      const {data,error}=await supabase.functions.invoke("room-sale-shared-end",{
+        body:{watchId},
+      });
+      if(error)throw error;
+      if(!data?.ok)throw new Error(data?.error ?? "Previo did not confirm closure.");
+      toast.success(data.message ?? "The extra Queen listing has been closed in Previo.");
+      setExistingSharedWatches(prev=>{
+        const next=new Map(prev);
+        for(const [key,watch] of next)if(watch.id===watchId)next.set(key,{...watch,status:"paused",last_confirmed_remaining:0});
+        return next;
+      });
+      setInventoryEditor(null);
+      await onAvailabilityUpdated?.();
+    }catch(error){
+      toast.error(error instanceof Error?error.message:"Unable to close the extra room listing");
+    }finally{
+      setEndingLinkedOffer(null);
+      setRestrictionBusy(null);
+    }
+  };
 
   const commitMinStay = (date: string, raw: string) => {
     setRestrictionEdit(null);
@@ -3795,6 +3823,7 @@ export default function RateStrategyGrid({
                       const override = invOverride.get(cell);
                       const left = override ?? leftByTypeDate?.get(cell);
                       const calculated = calculatedLeftByTypeDate.get(cell);
+                      const linkedWatch = row.obkOfType ? existingSharedWatches.get(`${row.obkOfType}|${d}`) : undefined;
                       const unpricedKind = !row.obkOfType || !priceMap.has(row.obkOfType);
                       const manual = !unpricedKind && left !== undefined && calculated !== undefined ? Math.trunc(left) - calculated : 0;
                       const key = `inv|${cell}`;
@@ -3836,7 +3865,7 @@ export default function RateStrategyGrid({
                             ? `${row.typeName} · ${left ?? 0} Previo rooms to sell; no rates have been configured. Set guest prices before opening inventory.`
                             : left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
-                            : `${row.typeName} · ${left === 0 ? "sold out" : `${left} of ${units} left`} on ${d}${calculated !== undefined ? ` · automatic ${calculated}` : ""}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}${left === 0 && closedAt != null ? ` · last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
+                            : `${row.typeName} · ${left === 0 ? "sold out" : `${left} of ${units} left`} on ${d}${calculated !== undefined ? ` · automatic ${calculated}` : ""}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}${left === 0 && closedAt != null ? ` · last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${linkedWatch ? ` · linked physical pool ${linkedWatch.last_confirmed_remaining ?? linkedWatch.shared_units} remaining · ${linkedWatch.status} · last checked ${linkedWatch.last_verified_at ?? linkedWatch.last_checked_at ?? "pending"}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
                           className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
@@ -3859,6 +3888,12 @@ export default function RateStrategyGrid({
                               )}
                             </>
                           ) : `${left} left`}
+                          {linkedWatch && (
+                            <span className="absolute bottom-0.5 left-1 rounded bg-sky-100 px-1 text-[8px] font-semibold text-sky-800 dark:bg-sky-950 dark:text-sky-300"
+                              title={`Shared physical pool: ${linkedWatch.last_confirmed_remaining ?? linkedWatch.shared_units} remaining (${linkedWatch.status})`}>
+                              Linked
+                            </span>
+                          )}
                           {!busy && manual !== 0 && (
                             <span
                               className="absolute right-1 top-0.5 font-semibold text-destructive"
@@ -4192,7 +4227,7 @@ export default function RateStrategyGrid({
 
 
       {/* Rooms-to-sell editor — intentionally button-first for phones. */}
-      <Dialog open={!!inventoryEditor} onOpenChange={(open) => { if (!open) setInventoryEditor(null); }}>
+      <Dialog open={!!inventoryEditor} onOpenChange={(open) => { if (!open) {setInventoryEditor(null);setEndingLinkedOffer(null);} }}>
         <DialogContent className="w-[calc(100vw-1.5rem)] max-w-sm rounded-2xl p-5">
           <DialogHeader>
             <DialogTitle className="text-base">Rooms to sell</DialogTitle>
@@ -4222,6 +4257,39 @@ export default function RateStrategyGrid({
                 </div>
               </div>
 
+              {inventoryEditor.obkId && existingSharedWatches.get(`${inventoryEditor.obkId}|${inventoryEditor.date}`) && (() => {
+                const watch = existingSharedWatches.get(`${inventoryEditor.obkId}|${inventoryEditor.date}`)!;
+                const nameFor = (id: string) => roomTypes.find((room) => room.pms_room_id === id)?.name ?? id;
+                return (
+                  <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3 text-xs text-slate-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-slate-200">
+                    <div className="font-semibold">Linked physical room offer · {watch.status}</div>
+                    <p className="mt-1">Physical: {nameFor(watch.second_obk_id)}</p>
+                    <p>Alternative: {nameFor(watch.first_obk_id)}</p>
+                    <p>Initially linked: {watch.shared_units} · last verified remaining: {watch.last_confirmed_remaining ?? "pending"}</p>
+                    <p>Previo verified: {watch.last_verified_at ?? watch.last_checked_at ?? "Pending"}</p>
+                    {watch.last_error && <p className="mt-1 font-medium text-destructive">Review needed: {watch.last_error}</p>}
+                    <p className="mt-1">These are the same physical rooms, not additional hotel capacity. Automatic reductions never reopen canceled stock.</p>
+                    {watch.status==="active" && (
+                      <div className="mt-3 space-y-2 border-t pt-2">
+                        <button type="button" className="font-semibold text-destructive underline"
+                          onClick={()=>setEndingLinkedOffer(endingLinkedOffer===watch.id?null:watch.id)}>
+                          End linked offer
+                        </button>
+                        {endingLinkedOffer===watch.id && (
+                          <div className="space-y-2">
+                            <p>Confirm: close ONLY the additional {nameFor(watch.first_obk_id)} listing in Previo.
+                              The genuine {nameFor(watch.second_obk_id)} rooms remain managed normally.
+                              This cannot automatically restore a stopped shared offer.</p>
+                            <Button type="button" size="sm" variant="destructive" disabled={!!restrictionBusy}
+                              onClick={()=>void endLinkedOffer(watch.id)}>Confirm end linked offer</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={()=>setEndingLinkedOffer(null)}>Keep offer active</Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="flex items-center justify-center gap-4">
                 <Button
                   type="button"

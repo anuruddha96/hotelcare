@@ -8,7 +8,7 @@ import { callPrevioXml, loadPrevioCredentials, hasPrevioCredentials } from "../_
 import { parsePrevioReservations, addDays } from "../_shared/previoReservations.ts";
 import { writePrevioInventory } from "../_shared/previoRateWrite.ts";
 import { sendEmail } from "../_shared/emailSender.ts";
-import { permittedLinkedPoolAvailability, unchangedReservationIds } from "../_shared/sharedInventoryPlan.ts";
+import { computeSharedPoolDecision, roomKindsToReduce, sharedInventoryNeedsReduction } from "../_shared/sharedPoolReconciliation.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const reply = (v: unknown, status=200) => new Response(JSON.stringify(v), {status,headers:JSON_HEADERS});
@@ -45,26 +45,44 @@ Deno.serve(async req=>{
   const service=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   if(!service || req.headers.get("Authorization")!=="Bearer "+service) return reply({ok:false,error:"Unauthorized"},401);
   const db=createClient(Deno.env.get("SUPABASE_URL")!,service,{auth:{persistSession:false}});
-  const report={checked:0,triggered:0,closed:0,expired:0,failures:0};
+  const report={checked:0,triggered:0,closed:0,expired:0,failures:0,repaired:0,skipped:0};
   const {data:watches,error:listError}=await db.from("room_sale_overnight_watches")
     .select("*").in("status",["active","triggered","needs_review"]).order("created_at").limit(25);
   if(listError) return reply({ok:false,error:"Could not load linked-inventory watches"},500);
-  for(const watch of watches ?? []){
+  for(const snapshot of watches ?? []){
+    let watch=snapshot;
     report.checked++;
     let lockOwner:string|null=null;
-    let triggered=watch.status!=="active";
+    let credentials: ReturnType<typeof loadPrevioCredentials> | null=null;
+    let pmsHotelId="";
     try {
-      const now=Date.now(), deadline=Date.parse(watch.expires_at);
+      // Claim the property/date lock BEFORE reading Previo reservations.
+      // Prevent a simultaneous manager adjustment or second worker from
+      // changing the inventory between the snapshot and the write.
+      lockOwner=crypto.randomUUID();
+      const {data:acquired,error:lockError}=await db.rpc("claim_room_sale_upgrade_lock",{
+        p_hotel_id:watch.hotel_id,p_stay_date:watch.stay_date,p_owner:lockOwner,
+      });
+      if(lockError||acquired!==true){ lockOwner=null; report.skipped++; continue; }
+      // A manager may have paused the pool after this worker listed it.
+      // Re-read while holding the lock so an old snapshot cannot close real Triples.
+      const {data:fresh,error:freshError}=await db.from("room_sale_overnight_watches")
+        .select("*").eq("id",watch.id).maybeSingle();
+      if(freshError||!fresh)throw Error("Unable to verify linked offer under inventory lock");
+      watch=fresh;
+      if(!["active","triggered","needs_review"].includes(watch.status)){report.skipped++;continue;}
+      const now=Date.now(),deadline=Date.parse(watch.expires_at);
       if(watch.status==="active" && now>deadline+15*60000){
-        await db.from("room_sale_overnight_watches").update({status:"expired",last_checked_at:new Date().toISOString()}).eq("id",watch.id);
-        report.expired++;
-        continue;
+        await db.from("room_sale_overnight_watches").update({status:"expired",last_checked_at:new Date().toISOString()})
+          .eq("id",watch.id).eq("status","active");
+        report.expired++;continue;
       }
       const {data:cfg,error:cfgError}=await db.from("pms_configurations")
         .select("pms_hotel_id,credentials_secret_name,is_active")
         .eq("hotel_id",watch.hotel_id).eq("pms_type","previo").eq("is_active",true).maybeSingle();
       if(cfgError || !cfg || !hasPrevioCredentials(cfg.credentials_secret_name)) throw Error("No verified Previo configuration");
       const creds=loadPrevioCredentials(cfg.credentials_secret_name), hot=String(cfg.pms_hotel_id);
+      credentials=creds;pmsHotelId=hot;
       const xml=await callPrevioXml({method:"searchReservations",creds,pmsHotelId:hot,
         extraXml:"<term><from>"+watch.stay_date+"</from><to>"+addDays(watch.stay_date,1)+"</to></term>",
       });
@@ -77,86 +95,56 @@ Deno.serve(async req=>{
       );
       const old=new Set<string>(watch.baseline_refs ?? []);
       const newLinked=live.filter(r=>
-        !old.has(keyFor(r)) && !old.has(r.resId) && (r.obkId===watch.first_obk_id || r.obkId===watch.second_obk_id) &&
-        (!r.createdAtIso || (Date.parse(r.createdAtIso)>=Date.parse(watch.starts_at)-60000 &&
-          Date.parse(r.createdAtIso)<=deadline))
-      );
-      // Count newly booked room-nights in THIS Quad/Queen pool. Another
-      // independently sellable Twin must not consume the shared pool.
-      // The hotel-wide physical vacancy remains an additional safety cap.
-      const initialUnits=Number(watch.shared_units ?? 1);
-      const physicalCapacity=Number(watch.physical_capacity ?? Number(watch.baseline_confirmed)+initialUnits);
-      const planned=permittedLinkedPoolAvailability(
-        initialUnits,physicalCapacity,watch.baseline_refs??[],
-        live.map(r=>({resId:r.resId,obkId:r.obkId})),
-        watch.first_obk_id,watch.second_obk_id,
-      );
-      if(planned===null)throw Error("Shared-room physical inventory configuration is invalid");
-      const desired = watch.status==="active" ? planned : 0;
-      const repairDue=watch.status==="active" && !!watch.reconcile_requested_at &&
-        (!watch.reconciled_at ||
-          Date.parse(watch.reconciled_at)<Date.parse(watch.reconcile_requested_at));
-      if(repairDue){
-        // Never reopen the virtual Queen following an unprocessed new booking.
-        // The original reservation identities must still be present.
-        const stillTheSame=live.length===Number(watch.baseline_confirmed) &&
-          unchangedReservationIds(watch.baseline_refs??[], live.map(r=>r.resId));
-        if(!stillTheSame || desired!==initialUnits)
-          throw Error("A booking changed after activation: cannot safely restore the linked availability");
-        const {data:otherKinds,error:otherError}=await db.from("room_types")
-          .select("pms_room_id,num_rooms").eq("hotel_id",watch.hotel_id)
-          .eq("is_sellable",true).eq("counts_toward_inventory",true);
-        if(otherError||!otherKinds?.length)throw Error("Physical room-type mapping unavailable");
-        for(const kind of otherKinds){
-          const other=String(kind.pms_room_id??"");
-          if(!other||other===watch.first_obk_id||other===watch.second_obk_id)continue;
-          const ownBooked=live.filter(r=>r.obkId===other).length;
-          const ownFree=Math.max(0,Number(kind.num_rooms||0)-ownBooked);
-          if(await currentAvailability(creds,hot,watch.stay_date,other)>ownFree)
-            throw Error("An independent category is offering more than its own physical inventory");
-        }
-      }
-      if(watch.status==="active" && desired===initialUnits && !repairDue){
-        await db.from("room_sale_overnight_watches").update({
-          last_checked_at:new Date().toISOString(),last_error:null,
-          last_confirmed_remaining:desired,
-        }).eq("id",watch.id);
-        continue; // No physical pickup: don't reopen manager-closed categories.
-      }
-      if(watch.status==="active" && desired===0){
-        const chosen=newLinked[0] ?? live.find(r => !old.has(keyFor(r)) && !old.has(r.resId));
-        if(!chosen)throw Error("Final room booked, but reservation identity could not be established");
+        !old.has(keyFor(r)) && !old.has(r.resId) &&
+        (r.obkId===watch.first_obk_id || r.obkId===watch.second_obk_id));
+      // Monotonic physical inventory: cancellations never reopen previously
+      // closed rooms; new bookings in EITHER linked category consume the pool.
+      const decision=computeSharedPoolDecision({
+        initiallyShared:Number(watch.shared_units??1),
+        physicalCapacity:Number(watch.physical_capacity??Number(watch.baseline_confirmed)+Number(watch.shared_units??1)),
+        previousRemaining:Number(watch.last_confirmed_remaining??watch.shared_units??1),
+        baselineRefs:watch.baseline_refs??[],
+        current:live.map(r=>({resId:r.resId,obkId:r.obkId})),
+        virtualObkId:watch.first_obk_id,
+        physicalObkId:watch.second_obk_id,
+      });
+      if(!decision)throw Error("Shared-room physical allocation could not be verified");
+      const desired=watch.status==="active"?decision.remaining:0;
+      const repairDue=watch.status==="active"&&!!watch.reconcile_requested_at&&
+        (!watch.reconciled_at||Date.parse(watch.reconciled_at)<Date.parse(watch.reconcile_requested_at));
+      if(watch.status==="active"&&desired===0){
+        const chosen=newLinked[0]??live.find(r=>decision.newLinkedReservationIds.includes(r.resId));
         const {data:claim,error:claimError}=await db.from("room_sale_overnight_watches").update({
           status:"triggered",triggered_at:new Date().toISOString(),
-          triggered_reservation:chosen.resId+":"+chosen.obkId,
+          triggered_reservation:chosen?chosen.resId+":"+chosen.obkId:"physical_capacity_limit",
           last_checked_at:new Date().toISOString(),last_error:null,
         }).eq("id",watch.id).eq("status","active").select("id").maybeSingle();
-        if(claimError)throw Error("Could not claim final shared-room booking");
+        if(claimError)throw Error("Could not claim linked room closure");
         if(!claim?.id)continue;
         report.triggered++;
-        triggered=true;
       }
-      // Work through a property/date lock. Ordinary manager adjustments use
-      // the same lock and cannot overlap this closure.
-      lockOwner=crypto.randomUUID();
-      const {data:locked,error:lockError}=await db.rpc("claim_room_sale_upgrade_lock",{
-        p_hotel_id:watch.hotel_id,p_stay_date:watch.stay_date,p_owner:lockOwner,
-      });
-      if(lockError || locked!==true) throw Error("Another inventory update is running; retry next check");
-      for(const obkId of [watch.first_obk_id,watch.second_obk_id]){
+      // Do not treat a quiet booking window as evidence that Previo stock
+      // remains correct: inspect both linked categories on EVERY pass.
+      // An untriggered needs_review state denotes an operational failure:
+      // quarantine the *virtual* Queen ONLY and preserve the real Triple.
+      // When a final linked sale was triggered, both listings must close.
+      const restrictedKinds=roomKindsToReduce(
+        watch.status,watch.triggered_at,watch.first_obk_id,watch.second_obk_id
+      );
+      let reducedAny=false;
+      for(const obkId of restrictedKinds){
         const available=await currentAvailability(creds,hot,watch.stay_date,obkId);
-        if(repairDue ? available===desired : available<=desired) continue;
-        if(repairDue && available>desired)
-          throw Error("Previo has more rooms for sale than the linked allocation");
+        if(!sharedInventoryNeedsReduction(available,desired)) continue;
         const push=await writePrevioInventory({creds,pmsHotelId:hot,
           target:{obkId,from:watch.stay_date,to:watch.stay_date,roomsToSell:desired}});
         if(!push.ok) throw Error("Previo did not accept category closure for "+obkId);
+        reducedAny=true;
         const delays=[0,400,1200];
         let confirmed=false;
         for(const delay of delays){
           if(delay) await new Promise(resolve=>setTimeout(resolve,delay));
           const verified=await currentAvailability(creds,hot,watch.stay_date,obkId);
-          if(repairDue ? verified===desired : verified<=desired){confirmed=true;break;}
+          if(verified<=desired){confirmed=true;break;}
         }
         if(!confirmed) throw Error("Closure not verified for category "+obkId);
       }
@@ -166,7 +154,10 @@ Deno.serve(async req=>{
         currentAvailability(creds,hot,watch.stay_date,watch.first_obk_id),
         currentAvailability(creds,hot,watch.stay_date,watch.second_obk_id),
       ]);
-      if(results.some(v=>repairDue ? v!==desired : v>desired))
+      if(restrictedKinds.some(obkId=>{
+        const index=obkId===watch.first_obk_id?0:1;
+        return results[index]>desired;
+      }))
         throw Error("Shared category availability did not match verified physical inventory");
       for(const [index,obkId] of [watch.first_obk_id,watch.second_obk_id].entries()){
         const {error:mirrorError}=await db.from("revenue_room_type_availability").upsert({
@@ -176,19 +167,28 @@ Deno.serve(async req=>{
         },{onConflict:"hotel_id,pms_hotel_id,stay_date,obk_id"});
         if(mirrorError) console.warn("Availability mirror update failed",obkId);
       }
-      await db.from("room_sale_overnight_watches").update({
-        status:desired===0?"closed":"active",
-        closed_at:desired===0?new Date().toISOString():null,
+      const onlyQuarantined=restrictedKinds.length===1;
+      const safelyClosed=desired===0&&!onlyQuarantined;
+      const {error:saveError}=await db.from("room_sale_overnight_watches").update({
+        status:onlyQuarantined?"needs_review":safelyClosed?"closed":"active",
+        closed_at:safelyClosed?new Date().toISOString():null,
         last_confirmed_remaining:desired,
+        last_verified_virtual_availability:results[0],
+        last_verified_physical_availability:results[1],
+        last_verified_at:new Date().toISOString(),
         reconciled_at:repairDue?new Date().toISOString():watch.reconciled_at,
-        last_checked_at:new Date().toISOString(),last_error:null,
+        last_checked_at:new Date().toISOString(),
+        last_error:onlyQuarantined?watch.last_error:null,
+        failure_alert_sent_at:onlyQuarantined?watch.failure_alert_sent_at:null,
       }).eq("id",watch.id);
-      if(desired===0)report.closed++;
-      if(desired===0&&!watch.email_sent_at){
+      if(saveError)throw Error("Linked inventory reconciled in Previo but database audit could not be saved");
+      if(safelyClosed)report.closed++;
+      else if(reducedAny)report.repaired++;
+      if(safelyClosed&&!watch.email_sent_at){
         const reservation=String(watch.triggered_reservation ?? newLinked[0]?.resId ?? "Check Previo");
         const plain="HotelCare: Overnight shared-room booking detected at "+watch.hotel_id+
           ". Stay date: "+watch.stay_date+". Reservation: "+reservation+
-          ". Both related room types are now confirmed sold out in Previo. "+
+          ". Both linked room-type offers are now confirmed closed in Previo. "+
           "Please review the physical room assignment and provide a complimentary upgrade where required.";
         const mailed=await sendEmail({admin:db,organizationSlug:watch.organization_slug,
           to:[ADMIN_EMAIL],kind:"transactional",
@@ -199,25 +199,45 @@ Deno.serve(async req=>{
       }
     }catch(error){
       report.failures++;
-      await db.from("room_sale_overnight_watches")
-        .update({status:triggered?"needs_review":"active",
-          last_error:error instanceof Error?error.message.slice(0,400):"Watch failed",
-          last_checked_at:new Date().toISOString()}).eq("id",watch.id);
-      console.error("Shared watch failed",watch.hotel_id,watch.stay_date,error instanceof Error?error.message:"Unknown");
-      // A booking was detected but its duplicate channel availability is not
-      // yet confirmed closed. Escalate to the admin once; keep retrying.
-      if(triggered && !watch.failure_alert_sent_at){
+      const reason=error instanceof Error?error.message.slice(0,400):"Watch failed";
+      // Emergency fail-closed: best effort close ONLY the additional Queen
+      // listing. The original physical Triple is never reopened or expanded.
+      let virtualClosed=false;
+      if(credentials&&pmsHotelId){
         try{
-          const msg="URGENT — HotelCare detected a booking of shared inventory at "+
-            watch.hotel_id+" for "+watch.stay_date+
-            ", but could not verify both room types closed in Previo. "+
-            "Please check the linked Queen/Quadruple inventory and stop sales manually if needed.";
+          const current=await currentAvailability(credentials,pmsHotelId,watch.stay_date,watch.first_obk_id);
+          if(current>0){
+            const push=await writePrevioInventory({creds:credentials,pmsHotelId,
+              target:{obkId:watch.first_obk_id,from:watch.stay_date,to:watch.stay_date,roomsToSell:0}});
+            if(!push.ok)throw Error("Emergency Queen close rejected");
+          }
+          virtualClosed=(await currentAvailability(credentials,pmsHotelId,watch.stay_date,watch.first_obk_id))===0;
+        }catch(failSafeError){
+          console.error("Unable to protect linked virtual room",watch.hotel_id,watch.stay_date,failSafeError);
+        }
+      }
+      const marked=await db.from("room_sale_overnight_watches")
+        .update({status:"needs_review",
+          last_error:reason+(virtualClosed?" (virtual room closed)":" (virtual room closure unverified)"),
+          last_checked_at:new Date().toISOString()}).eq("id",watch.id);
+      if(marked.error)console.error("Unable to mark shared watch needs_review",marked.error);
+      console.error("Shared watch failed",watch.hotel_id,watch.stay_date,reason);
+      // Escalate all failures, not only ones after the final room sells.
+      if(!watch.failure_alert_sent_at){
+        try{
+          const msg="URGENT — HotelCare shared-room protection requires review at "+
+            watch.hotel_id+" for "+watch.stay_date+". "+
+            "Physical room type: "+watch.second_obk_id+
+            "; additional room type: "+watch.first_obk_id+
+            ". Problem: "+reason+". Additional availability closed: "+
+            (virtualClosed?"verified":"NOT VERIFIED")+
+            ". Inspect Previo/OTAs immediately. Do not reopen automatically.";
           const sent=await sendEmail({admin:db,organizationSlug:watch.organization_slug,
-            to:[ADMIN_EMAIL],kind:"transactional",subject:"URGENT: Shared room inventory needs review",
+            to:[ADMIN_EMAIL],kind:"transactional",subject:"URGENT: Linked room inventory protection needs review",
             text:msg,html:"<p>"+ESC(msg)+"</p>"});
-          if(sent.ok) await db.from("room_sale_overnight_watches")
+          if(sent.ok)await db.from("room_sale_overnight_watches")
             .update({failure_alert_sent_at:new Date().toISOString()}).eq("id",watch.id);
-        }catch(mailError){console.warn("Failed to escalate inventory watch",mailError);}
+        }catch(mailError){console.warn("Failed to escalate linked inventory",mailError);}
       }
     }finally{
       if(lockOwner) await db.rpc("release_room_sale_upgrade_lock",{
