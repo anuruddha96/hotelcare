@@ -1,0 +1,35 @@
+name: Ottofiori atomic date budget
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/engineV2DateBudget*'
+      - 'supabase/functions/revenue-pickup-automation/index.ts'
+      - 'supabase/functions/revenue-pickup-automation/runV2.ts'
+      - '.github/workflows/ottofiori-atomic-budget-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/engineV2DateBudget*'
+      - 'supabase/functions/revenue-pickup-automation/index.ts'
+      - 'supabase/functions/revenue-pickup-automation/runV2.ts'
+      - '.github/workflows/ottofiori-atomic-budget-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  atomic-budget-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Reproduce real October and January daily-budget failures
+        run: node --test supabase/functions/_shared/engineV2DateBudget.test.mjs
+      - name: Parse pricing queue and V2 engine TypeScript
+        run: |
+          node --check supabase/functions/_shared/engineV2DateBudget.ts
+          node --check supabase/functions/revenue-pickup-automation/index.ts
+          node --check supabase/functions/revenue-pickup-automation/runV2.ts
