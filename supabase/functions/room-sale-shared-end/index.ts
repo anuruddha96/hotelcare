@@ -18,7 +18,8 @@ async function getAvailable(creds:any,pmsHotelId:string,date:string,obkId:string
    signal:AbortSignal.timeout(10000),
  });
  if(!r.ok)throw Error("Previo availability check failed HTTP "+r.status);
- for(const block of Array.isArray(await r.clone().json())?await r.json():[await r.json()]){
+ const raw=await r.json();
+ for(const block of Array.isArray(raw)?raw:[raw]){
    for(const row of block?.availability??[]){
      if(String(row.date??"").slice(0,10)!==date)continue;
      for(const kind of row.roomKinds??[]){
