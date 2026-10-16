@@ -31,6 +31,7 @@ import {
   resolveModulePricing,
 } from "../_shared/billingOverrides.ts";
 import { resolveRdOneTimePackage, type RdPackage } from "../_shared/rdOneTimeBilling.ts";
+import { canCollectRdOneTimePayment } from "../_shared/rdOneTimePermissions.ts";
 
 const MODULES: ModuleKey[] = ["revenue_bi", "revenue_automation", "operations", "maintenance"];
 
@@ -144,8 +145,12 @@ Deno.serve(async (req) => {
     if (!stripe) return json({ error: "Stripe is not configured yet" }, 400);
 
     if (action === "one_time_checkout") {
-      if (!caller.isSuperAdmin && caller.role !== "admin") return json({ error: "Billing administrator required" }, 403);
-      if (slug !== "rdhotels") return json({ error: "One-time RD Hotels package is not available to this organization" }, 403);
+      // Top Managers may initiate *only* RD Hotels one-time payments; every
+      // other billing mutation remains restricted to administrators.
+      if (!canCollectRdOneTimePayment({
+        role: caller.role, organizationSlug: caller.organizationSlug,
+        isSuperAdmin: caller.isSuperAdmin,
+      }, slug)) return json({ error: "RD Hotels billing collection access required" }, 403);
       if (Deno.env.get("HOTELCARE_ONE_TIME_CHECKOUT_ENABLED") !== "true" || !settings.payments_enabled)
         return json({ error: "One-time collection is not activated yet; please complete payment testing first" }, 503);
       if (body.packageKey !== "revenue" && body.packageKey !== "housekeeping")
