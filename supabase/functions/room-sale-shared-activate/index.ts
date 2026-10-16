@@ -257,7 +257,7 @@ Deno.serve(async(req)=>{
     return response({ok:true,
       results:[{ok:true,date,roomTypeName:targetKind.name,
         message:requestedUnits===1
-          ? "The verified Quad room is also offered as a Queen. HotelCare closes both linked listings after either category books it."
+          ? `The verified ${sourceKind.name} room is also offered as ${targetKind.name}. HotelCare closes both linked listings after either category books it.`
           : `Both room types share ${requestedUnits} physical rooms. HotelCare will reduce both categories as those rooms sell.` }],
       mode:"shared_last_room",warning:"Closures are reactive; simultaneous OTA bookings are still possible."});
   }catch(e){
