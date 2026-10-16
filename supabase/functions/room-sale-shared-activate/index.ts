@@ -83,7 +83,7 @@ Deno.serve(async(req)=>{
         .eq("hotel_id",hotelId).eq("is_sellable",true).eq("counts_toward_inventory",true),
       admin.from("room_sale_overnight_watches").select("*")
         .eq("hotel_id",hotelId).eq("stay_date",date)
-        .in("status",["active","triggered","needs_review"]),
+        .in("status",["active","triggered","needs_review","paused"]),
     ]);
     if(cfgErr||kindErr||existErr||!cfgs||cfgs.length!==1||
       !hasPrevioCredentials(cfgs[0].credentials_secret_name)||!kinds?.length)
@@ -94,7 +94,7 @@ Deno.serve(async(req)=>{
     if(existing?.length && (existing.length!==1 || !samePair(existing[0])))
       throw Error("Another room-type pair is linked for this date. Review that rule before creating a second one.");
     if(existing?.length && existing[0].status!=="active")
-      throw Error("A previous linked booking needs review. Do not reopen rooms until its closure is verified.");
+      throw Error("This linked room offer is stopped or needs review. A new baseline must be approved; rooms cannot reopen automatically.");
     const activeWatch=existing?.[0] ?? null;
     if(activeWatch && Number(activeWatch.shared_units)!==requestedUnits)
       throw Error("An existing linked offer has a different protected room quantity. Review it rather than resetting its baseline.");
