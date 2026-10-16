@@ -8,7 +8,7 @@ import { callPrevioXml, loadPrevioCredentials, hasPrevioCredentials } from "../_
 import { parsePrevioReservations, addDays } from "../_shared/previoReservations.ts";
 import { writePrevioInventory } from "../_shared/previoRateWrite.ts";
 import { sendEmail } from "../_shared/emailSender.ts";
-import { computeSharedPoolDecision, sharedInventoryNeedsReduction } from "../_shared/sharedPoolReconciliation.ts";
+import { computeSharedPoolDecision, roomKindsToReduce, sharedInventoryNeedsReduction } from "../_shared/sharedPoolReconciliation.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const reply = (v: unknown, status=200) => new Response(JSON.stringify(v), {status,headers:JSON_HEADERS});
@@ -118,8 +118,13 @@ Deno.serve(async req=>{
       }
       // Do not treat a quiet booking window as evidence that Previo stock
       // remains correct: inspect both linked categories on EVERY pass.
-      // Close the virtual Queen first to minimize oversell exposure.
-      for(const obkId of [watch.first_obk_id,watch.second_obk_id]){
+      // An untriggered needs_review state denotes an operational failure:
+      // quarantine the *virtual* Queen ONLY and preserve the real Triple.
+      // When a final linked sale was triggered, both listings must close.
+      const restrictedKinds=roomKindsToReduce(
+        watch.status,watch.triggered_at,watch.first_obk_id,watch.second_obk_id
+      );
+      for(const obkId of restrictedKinds){
         const available=await currentAvailability(creds,hot,watch.stay_date,obkId);
         if(!sharedInventoryNeedsReduction(available,desired)) continue;
         const push=await writePrevioInventory({creds,pmsHotelId:hot,
@@ -140,7 +145,10 @@ Deno.serve(async req=>{
         currentAvailability(creds,hot,watch.stay_date,watch.first_obk_id),
         currentAvailability(creds,hot,watch.stay_date,watch.second_obk_id),
       ]);
-      if(results.some(v=>v>desired))
+      if(restrictedKinds.some(obkId=>{
+        const index=obkId===watch.first_obk_id?0:1;
+        return results[index]>desired;
+      }))
         throw Error("Shared category availability did not match verified physical inventory");
       for(const [index,obkId] of [watch.first_obk_id,watch.second_obk_id].entries()){
         const {error:mirrorError}=await db.from("revenue_room_type_availability").upsert({
@@ -150,19 +158,24 @@ Deno.serve(async req=>{
         },{onConflict:"hotel_id,pms_hotel_id,stay_date,obk_id"});
         if(mirrorError) console.warn("Availability mirror update failed",obkId);
       }
-      await db.from("room_sale_overnight_watches").update({
-        status:desired===0?"closed":"active",
-        closed_at:desired===0?new Date().toISOString():null,
+      const onlyQuarantined=restrictedKinds.length===1;
+      const safelyClosed=desired===0&&!onlyQuarantined;
+      const {error:saveError}=await db.from("room_sale_overnight_watches").update({
+        status:onlyQuarantined?"needs_review":safelyClosed?"closed":"active",
+        closed_at:safelyClosed?new Date().toISOString():null,
         last_confirmed_remaining:desired,
         last_verified_virtual_availability:results[0],
         last_verified_physical_availability:results[1],
         last_verified_at:new Date().toISOString(),
         reconciled_at:repairDue?new Date().toISOString():watch.reconciled_at,
-        last_checked_at:new Date().toISOString(),last_error:null,
+        last_checked_at:new Date().toISOString(),
+        last_error:onlyQuarantined?watch.last_error:null,
+        failure_alert_sent_at:onlyQuarantined?watch.failure_alert_sent_at:null,
       }).eq("id",watch.id);
-      if(desired===0)report.closed++;
-      else if(results.some(v=>v<Number(watch.last_confirmed_remaining??watch.shared_units)))report.repaired++;
-      if(desired===0&&!watch.email_sent_at){
+      if(saveError)throw Error("Linked inventory reconciled in Previo but database audit could not be saved");
+      if(safelyClosed)report.closed++;
+      else if(!onlyQuarantined)report.repaired++;
+      if(safelyClosed&&!watch.email_sent_at){
         const reservation=String(watch.triggered_reservation ?? newLinked[0]?.resId ?? "Check Previo");
         const plain="HotelCare: Overnight shared-room booking detected at "+watch.hotel_id+
           ". Stay date: "+watch.stay_date+". Reservation: "+reservation+
