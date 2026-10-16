@@ -7,6 +7,8 @@ on:
       - "supabase/migrations/*manual_stripe_payments_szamlazz_invoices.sql"
       - "supabase/functions/_shared/manualBilling*.ts"
       - "supabase/functions/_shared/rdOneTimeBilling.ts"
+      - "supabase/functions/_shared/rdOneTimeRetryPolicy.ts"
+      - "src/lib/rdOneTimeRetryPolicy.test.ts"
       - "supabase/migrations/*rd_one_time_payment_collection.sql"
       - "src/lib/rdOneTimeBilling.test.ts"
       - "supabase/functions/billing-manage/index.ts"
@@ -40,8 +42,9 @@ jobs:
           deno check supabase/functions/billing-webhook/index.ts
           deno check supabase/functions/billing-manage/index.ts
           deno check supabase/functions/_shared/rdOneTimeBilling.ts
+          deno check supabase/functions/_shared/rdOneTimeRetryPolicy.ts
       - name: Test RD one-time package amounts and eligibility
-        run: bunx vitest run src/lib/rdOneTimeBilling.test.ts
+        run: bunx vitest run src/lib/rdOneTimeBilling.test.ts src/lib/rdOneTimeRetryPolicy.test.ts
 
   migration:
     runs-on: ubuntu-latest
