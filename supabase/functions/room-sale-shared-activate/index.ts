@@ -96,6 +96,8 @@ Deno.serve(async(req)=>{
     if(existing?.length && existing[0].status!=="active")
       throw Error("A previous linked booking needs review. Do not reopen rooms until its closure is verified.");
     const activeWatch=existing?.[0] ?? null;
+    if(activeWatch && Number(activeWatch.shared_units)!==requestedUnits)
+      throw Error("An existing linked offer has a different protected room quantity. Review it rather than resetting its baseline.");
     const sourceKind=kinds.find((r:any)=>r.pms_room_id===source);
     const targetKind=kinds.find((r:any)=>r.pms_room_id===target);
     if(!sourceKind||!targetKind)throw Error("Both room types must be active physical room categories");
@@ -185,6 +187,8 @@ Deno.serve(async(req)=>{
           stay_date:date,first_obk_id:target,second_obk_id:source,
           baseline_confirmed:unique.size,baseline_refs:baseline,
           shared_units:requestedUnits,physical_capacity:physicalCapacity,
+          physical_source_obk_id:source,virtual_listing_obk_id:target,
+          activated_physical_available:sourceLeft,activated_virtual_available:targetLeft,
           last_confirmed_remaining:requestedUnits,
           starts_at:now,expires_at:expiration(date),status:"active",
         }).select("id").single();
@@ -221,11 +225,22 @@ Deno.serve(async(req)=>{
       }
       if(activeWatch){
         const {error:updateError}=await admin.from("room_sale_overnight_watches").update({
-          shared_units:requestedUnits,physical_capacity:physicalCapacity,
-          last_confirmed_remaining:requestedUnits,last_checked_at:new Date().toISOString(),
+          // Re-verification cannot reset the original booking snapshot or
+          // restore previously reduced inventory after a cancellation.
+          last_verified_physical_availability:verify[0],
+          last_verified_virtual_availability:verify[1],
+          last_verified_at:new Date().toISOString(),last_checked_at:new Date().toISOString(),
           last_error:null,
         }).eq("id",activeWatch.id).eq("status","active");
         if(updateError) throw Error("Previo updated but shared-rule settings could not be saved; review immediately.");
+      }
+      if(!activeWatch){
+        const {error:verifiedError}=await admin.from("room_sale_overnight_watches").update({
+          last_verified_physical_availability:verify[0],
+          last_verified_virtual_availability:verify[1],
+          last_verified_at:new Date().toISOString(),
+        }).eq("id",watch.id);
+        if(verifiedError)throw Error("Previo updated but verification metadata could not be saved; review immediately.");
       }
       if(exclusive)await admin.from("room_sale_upgrade_rules").update({
         status:"closed",updated_at:new Date().toISOString(),
