@@ -49,19 +49,13 @@ Deno.serve(async req=>{
   const {data:watches,error:listError}=await db.from("room_sale_overnight_watches")
     .select("*").in("status",["active","triggered","needs_review"]).order("created_at").limit(25);
   if(listError) return reply({ok:false,error:"Could not load linked-inventory watches"},500);
-  for(const watch of watches ?? []){
+  for(const snapshot of watches ?? []){
+    let watch=snapshot;
     report.checked++;
     let lockOwner:string|null=null;
-    let triggered=watch.status!=="active";
     let credentials: ReturnType<typeof loadPrevioCredentials> | null=null;
     let pmsHotelId="";
     try {
-      const now=Date.now(), deadline=Date.parse(watch.expires_at);
-      if(watch.status==="active" && now>deadline+15*60000){
-        await db.from("room_sale_overnight_watches").update({status:"expired",last_checked_at:new Date().toISOString()}).eq("id",watch.id);
-        report.expired++;
-        continue;
-      }
       // Claim the property/date lock BEFORE reading Previo reservations.
       // Prevent a simultaneous manager adjustment or second worker from
       // changing the inventory between the snapshot and the write.
@@ -70,6 +64,19 @@ Deno.serve(async req=>{
         p_hotel_id:watch.hotel_id,p_stay_date:watch.stay_date,p_owner:lockOwner,
       });
       if(lockError||acquired!==true){ lockOwner=null; report.skipped++; continue; }
+      // A manager may have paused the pool after this worker listed it.
+      // Re-read while holding the lock so an old snapshot cannot close real Triples.
+      const {data:fresh,error:freshError}=await db.from("room_sale_overnight_watches")
+        .select("*").eq("id",watch.id).maybeSingle();
+      if(freshError||!fresh)throw Error("Unable to verify linked offer under inventory lock");
+      watch=fresh;
+      if(!["active","triggered","needs_review"].includes(watch.status)){report.skipped++;continue;}
+      const now=Date.now(),deadline=Date.parse(watch.expires_at);
+      if(watch.status==="active" && now>deadline+15*60000){
+        await db.from("room_sale_overnight_watches").update({status:"expired",last_checked_at:new Date().toISOString()})
+          .eq("id",watch.id).eq("status","active");
+        report.expired++;continue;
+      }
       const {data:cfg,error:cfgError}=await db.from("pms_configurations")
         .select("pms_hotel_id,credentials_secret_name,is_active")
         .eq("hotel_id",watch.hotel_id).eq("pms_type","previo").eq("is_active",true).maybeSingle();
@@ -114,7 +121,7 @@ Deno.serve(async req=>{
         }).eq("id",watch.id).eq("status","active").select("id").maybeSingle();
         if(claimError)throw Error("Could not claim linked room closure");
         if(!claim?.id)continue;
-        report.triggered++;triggered=true;
+        report.triggered++;
       }
       // Do not treat a quiet booking window as evidence that Previo stock
       // remains correct: inspect both linked categories on EVERY pass.
