@@ -75,7 +75,7 @@ export interface V2Deps {
   queue: (
     payload: Array<Record<string, unknown>>,
     priority: number,
-    context?: { automationRunId: string; dateManifest: Record<string, unknown> },
+    context?: { automationRunId: string; dateManifest: Record<string, unknown>; budgetDayStartUtc?: string },
   ) => Promise<string | null>;
 }
 
@@ -585,7 +585,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // Movement already spent in the local day, per stay date and per direction.
     const { data: spentToday } = await deps.pagedAll((f, t) => admin
       .from("revenue_date_decisions").select("stay_date, movement, direction")
-      .eq("hotel_id", rule.hotel_id).in("status", ["published", "queued"])
+      .eq("hotel_id", rule.hotel_id).in("status", ["queued", "accepted", "confirmed", "published", "partial"])
       .gte("created_at", localDayStart).order("stay_date").range(f, t));
     const movedUpToday = new Map<string, number>();
     const movedDownToday = new Map<string, number>();
@@ -1166,11 +1166,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             }];
           }),
       );
-      pushRunId = await deps.queue(payload, 5, { automationRunId: runId, dateManifest });
+      pushRunId = await deps.queue(payload, 5, { automationRunId: runId, dateManifest, budgetDayStartUtc: localDayStart });
       const movedDates = Object.keys(dateManifest);
       for (const stayDate of movedDates) queuedDates.add(stayDate);
       await admin.from("revenue_date_decisions")
-        .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates);
+        .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates).eq("status", "queued");
       // Record event uplifts so an event can never lift the same date twice.
       const eventApplications = decisions
         .filter((d) => queuedDates.has(d.stayDate) && eventUplift.has(d.stayDate))
