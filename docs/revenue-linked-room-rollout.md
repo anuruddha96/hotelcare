@@ -27,6 +27,9 @@ change Previo Rooms to Sell without a separate explicit approval.
 - On exceptions, the worker attempts to close the **alternative Queen**
   category, marks the rule as `needs_review`, and emails the admin.
   The original physical Triple remains untouched by that emergency step.
+- A top manager can end an active pair via a guarded action. The server closes
+  only the virtual Queen, verifies Previo and marks the pair `paused`, with no
+  automatic re-opening.
 - This system is NOT an atomic OTA/channel-manager room lock and cannot
   guarantee avoidance of simultaneous independent online bookings.
 
@@ -34,7 +37,7 @@ change Previo Rooms to Sell without a separate explicit approval.
 1. Merge tested PR with reviewed diffs. Ensure GitHub frontend tests/build pass.
 2. Apply the schema-only migration, checking the existing watch rows remain
    unchanged in status, shared quantity and original baseline.
-3. Deploy the activation and overnight-monitor Edge Functions with their
+3. Deploy the activation, overnight-monitor, and guarded `room-sale-shared-end` Edge Functions with their
    relative `_shared` dependencies. Preserve their current service-role
    authentication settings and secrets.
 4. Confirm active dates/room-category mapping/Previo availability via read-only
