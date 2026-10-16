@@ -87,6 +87,13 @@ Deno.serve(async req=>{
      last_error:null,
    }).eq("id",watchId).eq("status","active");
    if(saved)throw Error("Previo closed Queen, but HotelCare could not record the stop. Review immediately.");
+   const {error:mirrorError}=await db.from("revenue_room_type_availability").upsert({
+     hotel_id:hotelId,organization_slug:current.organization_slug,
+     pms_hotel_id:pmsHotelId,stay_date:date,obk_id:virtual,
+     availability:0,source:"hotelcare_linked_offer_stopped",
+     captured_at:new Date().toISOString(),
+   },{onConflict:"hotel_id,pms_hotel_id,stay_date,obk_id"});
+   if(mirrorError)console.warn("Stopped Queen availability mirror update failed",mirrorError);
    return json({ok:true,message:"Additional Queen availability is closed and the linked rule is stopped. Genuine Triple inventory remains controlled by Previo."});
  }catch(e){
    console.error("Shared offer stop failed",hotelId,date,e instanceof Error?e.message:"Unknown");
