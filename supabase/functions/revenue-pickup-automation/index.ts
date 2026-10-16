@@ -50,6 +50,7 @@ import {
 } from "../_shared/pricingRules.ts";
 import { enforceRateSafety, loadGuestStep, repairLadder } from "../_shared/rateSafety.ts";
 import { runEngineV2 } from "./runV2.ts";
+import { checkOttofioriMarkdownBudget, MARKDOWN_BUDGET_STATUSES } from "../_shared/engineV2DateBudget.ts";
 
 
 
@@ -418,7 +419,7 @@ async function queueIntents(
   rule: Rule,
   payload: Array<Record<string, unknown>>,
   priority: number,
-  context?: { automationRunId: string; dateManifest: Record<string, unknown> },
+  context?: { automationRunId: string; dateManifest: Record<string, unknown>; budgetDayStartUtc?: string },
 ): Promise<string | null> {
   if (payload.length === 0) return null;
   if (context) {
@@ -500,10 +501,64 @@ async function queueIntents(
     dates = Array.from(new Set(payload.map((row: any) => String(row.stay_date))));
   }
 
+
+  // Preflight Engine V2 against the SAME DB budget that the row trigger
+  // enforces. A decision moves a complete date once, not 13 times. The
+  // evaluator's old "queued/published only" read missed accepted/confirmed
+  // decisions and could approve an already-exhausted daily budget.
+  if (context && rule.hotel_id === "ottofiori") {
+    if (!context.budgetDayStartUtc) throw new Error("A local-day budget timestamp is required for automatic date publication.");
+    const manifestDates = Object.keys(context.dateManifest);
+    const { data: activeDecisions, error: budgetError } = await admin.from("revenue_date_decisions")
+      .select("id,stay_date,direction,status,movement,days_out")
+      .eq("hotel_id", rule.hotel_id)
+      .in("stay_date", manifestDates)
+      .in("status", [...MARKDOWN_BUDGET_STATUSES])
+      .gte("created_at", context.budgetDayStartUtc)
+      .order("created_at", { ascending: false })
+      .limit(1001);
+    if (budgetError || (activeDecisions?.length ?? 0) >= 1001) {
+      throw new Error("Cannot safely evaluate the complete daily discount budget; no prices queued.");
+    }
+    const blocked = new Set<string>();
+    for (const stayDate of manifestDates) {
+      const manifest = context.dateManifest[stayDate] as { decision_id?: string } | undefined;
+      const current = (activeDecisions ?? []).find((d: any) => d.id === manifest?.decision_id);
+      if (!current || current.status !== "queued") {
+        blocked.add(stayDate);
+        continue;
+      }
+      if (current.direction !== "decrease") continue;
+      const check = checkOttofioriMarkdownBudget({
+        decisionId: manifest!.decision_id!, stayDate,
+        decisions: activeDecisions ?? [],
+        windows: Array.isArray((rule as any).window_rules) ? (rule as any).window_rules : [],
+        defaultCap: Number(rule.max_daily_decrease_per_date ?? 0),
+        maxMarkdowns: Number((rule as any).max_markdowns_per_day ?? 1),
+      });
+      if (!check.allowed) {
+        const { error: holdError } = await admin.from("revenue_date_decisions").update({
+          status: "held", decision_reason: "daily_budget_spent_db",
+          reason_detail: check.reason,
+        }).eq("id", manifest!.decision_id!).eq("status", "queued");
+        if (holdError) throw holdError;
+        blocked.add(stayDate);
+      }
+    }
+    if (blocked.size > 0) {
+      for (const date of blocked) delete context.dateManifest[date];
+      payload = payload.filter((row: any) => !blocked.has(String(row.stay_date)));
+      if (payload.length === 0) return null;
+      dates = Array.from(new Set(payload.map((row: any) => String(row.stay_date))));
+    }
+  }
+
   const runId = crypto.randomUUID();
   const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
     id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
     source: "automation", requested_count: payload.length, priority,
+    // Do not expose a partly assembled V2 rate column to the queue drainer.
+    ...(context ? { status: "processing", started_at: new Date().toISOString() } : {}),
     automation_run_id: context?.automationRunId ?? null,
     date_manifest: context?.dateManifest ?? {},
   });
@@ -531,22 +586,84 @@ async function queueIntents(
       .is("claimed_at", null);
   }
 
-  // Persist large horizons in bounded chunks. The 3-minute queue drainer, not
-  // this evaluator, starts Previo delivery after the transaction is durable.
+
+  // Persist the complete date manifest before exposing it to the publisher.
+  // BEFORE INSERT triggers may supersede an individual rate cell after the
+  // planner approved the date. In that case cancel the WHOLE date and do not
+  // create misleading queued push-items for the rejected cells.
+  const insertedDrafts: any[] = [];
   for (let index = 0; index < payload.length; index += 500) {
     const batch = payload.slice(index, index + 500);
     const { data: drafts, error: draftError } = await admin.from("revenue_rate_drafts")
       .insert(batch.map((row) => ({ ...row, priority, push_run_id: runId, confirmation_status: "queued" })))
-      .select("id,stay_date,room_type_name,occupancy");
+      .select("id,stay_date,room_type_name,occupancy,status,superseded_at,push_error");
     if (draftError) throw draftError;
-    const draftMap = new Map((drafts ?? []).map((row: any) => [keyOf(row), row.id]));
-    const { error: itemError } = await admin.from("revenue_rate_push_items").insert(batch.map((row: any) => ({
-      run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
-      stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
-      occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
-      currency: row.currency, draft_id: draftMap.get(keyOf(row)), decision_id: row.decision_id ?? null,
-    })));
-    if (itemError) throw itemError;
+    if ((drafts ?? []).length !== batch.length) {
+      throw new Error("Draft insert returned incomplete date evidence; publication held.");
+    }
+    insertedDrafts.push(...(drafts ?? []));
+    if (!context) {
+      const draftMap = new Map((drafts ?? []).map((row: any) => [keyOf(row), row.id]));
+      const { error: itemError } = await admin.from("revenue_rate_push_items").insert(batch.map((row: any) => ({
+        run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+        stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
+        occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
+        currency: row.currency, draft_id: draftMap.get(keyOf(row)), decision_id: row.decision_id ?? null,
+      })));
+      if (itemError) throw itemError;
+    }
+  }
+  if (context) {
+    const blockedDates = new Set<string>(insertedDrafts
+      .filter((d) => d.status !== "draft" || d.superseded_at != null)
+      .map((d) => String(d.stay_date)));
+    // Even if the DB did not reject a cell, do not publish a truncated or
+    // duplicated Ottofiori column. Never weaken the downstream 13-cell guard.
+    if (rule.hotel_id === "ottofiori") {
+      for (const [stayDate, entry] of Object.entries(context.dateManifest)) {
+        const rows = insertedDrafts.filter((d) => String(d.stay_date) === stayDate);
+        const expected = Number((entry as { expected_cells?: number }).expected_cells);
+        const unique = new Set(rows.map((d) => `${d.room_type_name}|${d.occupancy}`));
+        if (expected !== 13 || rows.length !== 13 || unique.size !== 13) blockedDates.add(stayDate);
+      }
+    }
+    for (const stayDate of blockedDates) {
+      const manifest = context.dateManifest[stayDate] as { decision_id?: string } | undefined;
+      const { error: draftHoldError } = await admin.from("revenue_rate_drafts").update({
+        status: "superseded", superseded_at: new Date().toISOString(),
+        confirmation_status: "blocked",
+        push_error: "Whole date held: a database price-safety rule rejected or changed one of its mapped cells.",
+      }).eq("push_run_id", runId).eq("stay_date", stayDate).in("status", ["draft", "failed"]);
+      if (draftHoldError) throw draftHoldError;
+      if (manifest?.decision_id) {
+        const { error: decisionHoldError } = await admin.from("revenue_date_decisions").update({
+          status: "held", decision_reason: "date_integrity",
+          reason_detail: "The database rejected one mapped rate cell; the entire date was held, and no Previo price was sent.",
+        }).eq("id", manifest.decision_id).eq("status", "queued");
+        if (decisionHoldError) throw decisionHoldError;
+      }
+      delete context.dateManifest[stayDate];
+    }
+    payload = payload.filter((row: any) => !blockedDates.has(String(row.stay_date)));
+    const draftMap = new Map(insertedDrafts.map((row: any) => [keyOf(row), row.id]));
+    for (let index = 0; index < payload.length; index += 500) {
+      const batch = payload.slice(index, index + 500);
+      const { error: itemError } = await admin.from("revenue_rate_push_items").insert(batch.map((row: any) => ({
+        run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+        stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
+        occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
+        currency: row.currency, draft_id: draftMap.get(keyOf(row)), decision_id: row.decision_id ?? null,
+      })));
+      if (itemError) throw itemError;
+    }
+    const { error: readyError } = await admin.from("revenue_rate_push_runs").update({
+      requested_count: payload.length, date_manifest: context.dateManifest,
+      status: payload.length > 0 ? "queued" : "completed",
+      started_at: null,
+      finished_at: payload.length > 0 ? null : new Date().toISOString(),
+    }).eq("id", runId).eq("status", "processing");
+    if (readyError) throw readyError;
+    if (payload.length === 0) return null;
   }
   return runId;
 }
