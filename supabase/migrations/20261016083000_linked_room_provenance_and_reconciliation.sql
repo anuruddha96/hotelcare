@@ -27,3 +27,14 @@ comment on column public.room_sale_overnight_watches.virtual_listing_obk_id is
 'Alternative room category. Only its explicitly shared availability is protected; do not infer physical inventory from a manual +N override.';
 comment on column public.room_sale_overnight_watches.last_verified_at is
 'Last time both Previo room-type availability values were read back and checked against physical capacity.';
+
+-- A manager may end the alternative offer after a verified Previo close.
+-- Paused watches are excluded from the polling worker, but remain auditable.
+alter table public.room_sale_overnight_watches
+  drop constraint if exists room_sale_overnight_watches_status_check;
+alter table public.room_sale_overnight_watches
+  add constraint room_sale_overnight_watches_status_check
+  check (status in ('active','triggered','closed','needs_review','expired','paused'));
+alter table public.room_sale_overnight_watches
+  add column if not exists paused_at timestamptz,
+  add column if not exists paused_by uuid references public.profiles(id);
