@@ -4,6 +4,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "../_shared/previoHousekeepingNote.ts";
 import { findPmsRoomBucketDrift } from "../_shared/pmsRoomBucketPostcondition.ts";
+import { recoverGozsduScheduledDeparture } from "../_shared/gozsduScheduledDepartureEvidence.ts";
 
 const RD_ORDER = ["memories-budapest", "mika-downtown", "ottofiori", "gozsdu-court"];
 const ADMIN_ALERT_EMAIL = "anuruddha.dharmasena@gmail.com";
@@ -228,7 +229,17 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       && (live.NoShowSource === "previo_status_8"
         || live.NoShowSource === "inferred_never_checked_in")
       && live.CheckedOut !== true && live.IsCheckoutRoom !== true;
-    if (!snapshot && gozsdu) {
+    // Previo's overnight occupied-night overview can omit a room scheduled to
+    // depart today, particularly when a different booking arrives today.
+    // A fresh, same-physical-room reservation record can recover ONLY the
+    // scheduled-departure bucket, never establish vacancy or physical checkout.
+    const recoveredDeparture = !snapshot && gozsdu
+      ? recoverGozsduScheduledDeparture(live, mapping.pms_room_id, date)
+      : null;
+    if (recoveredDeparture) {
+      console.log(`[PMS morning] ${hotelId}: recovered scheduled departure for mapped room ${String(mapping.pms_room_name)}; physical checkout remains independently gated`);
+    }
+    if (!snapshot && gozsdu && !recoveredDeparture) {
       const current: any = gozsduRoomById.get(roomId);
       const meta = current?.pms_metadata && typeof current.pms_metadata === "object" ? current.pms_metadata : {};
       const availability = meta.gozsduAvailability && typeof meta.gozsduAvailability === "object" ? meta.gozsduAvailability : {};
@@ -256,7 +267,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       if (rehydratedArrival) rehydratedGozsduRooms.push(String(mapping.pms_room_name || roomId));
       if (rehydratedNoShow) rehydratedNoShowRooms.push(String(mapping.pms_room_name || roomId));
     }
-    if (!snapshot && !verifiedUnsold && !verifiedArrival && !verifiedNoShow && !ottofiori && !rehydratedArrival && !rehydratedNoShow) {
+    if (!snapshot && !recoveredDeparture && !verifiedUnsold && !verifiedArrival && !verifiedNoShow && !ottofiori && !rehydratedArrival && !rehydratedNoShow) {
       const reason = !live ? "no_physical_roster_row"
         : !physicalRoomMatch ? "physical_room_id_mismatch"
         : [
@@ -277,7 +288,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     }
     usedRoomIds.add(roomId);
     if (snapshot) usedSnapshots.add(String(snapshot.id));
-    pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival, rehydratedNoShow, verifiedUnsold, verifiedArrival, verifiedNoShow });
+    pairs.push({ id: roomId, snapshot: snapshot || recoveredDeparture || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null, rehydratedArrival, rehydratedNoShow, verifiedUnsold, verifiedArrival, verifiedNoShow });
     if (verifiedUnsold) {
       verifiedUnsoldIds.add(roomId);
       verifiedUnsoldRooms.push(String(mapping.pms_room_name));
