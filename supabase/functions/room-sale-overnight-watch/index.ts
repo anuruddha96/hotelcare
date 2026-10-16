@@ -131,12 +131,14 @@ Deno.serve(async req=>{
       const restrictedKinds=roomKindsToReduce(
         watch.status,watch.triggered_at,watch.first_obk_id,watch.second_obk_id
       );
+      let reducedAny=false;
       for(const obkId of restrictedKinds){
         const available=await currentAvailability(creds,hot,watch.stay_date,obkId);
         if(!sharedInventoryNeedsReduction(available,desired)) continue;
         const push=await writePrevioInventory({creds,pmsHotelId:hot,
           target:{obkId,from:watch.stay_date,to:watch.stay_date,roomsToSell:desired}});
         if(!push.ok) throw Error("Previo did not accept category closure for "+obkId);
+        reducedAny=true;
         const delays=[0,400,1200];
         let confirmed=false;
         for(const delay of delays){
@@ -181,7 +183,7 @@ Deno.serve(async req=>{
       }).eq("id",watch.id);
       if(saveError)throw Error("Linked inventory reconciled in Previo but database audit could not be saved");
       if(safelyClosed)report.closed++;
-      else if(!onlyQuarantined)report.repaired++;
+      else if(reducedAny)report.repaired++;
       if(safelyClosed&&!watch.email_sent_at){
         const reservation=String(watch.triggered_reservation ?? newLinked[0]?.resId ?? "Check Previo");
         const plain="HotelCare: Overnight shared-room booking detected at "+watch.hotel_id+
