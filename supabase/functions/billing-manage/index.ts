@@ -32,6 +32,7 @@ import {
 } from "../_shared/billingOverrides.ts";
 import { resolveRdOneTimePackage, type RdPackage } from "../_shared/rdOneTimeBilling.ts";
 import { canCollectRdOneTimePayment } from "../_shared/rdOneTimePermissions.ts";
+import { decideOneTimeCheckoutRetry } from "../_shared/rdOneTimeRetryPolicy.ts";
 
 const MODULES: ModuleKey[] = ["revenue_bi", "revenue_automation", "operations", "maintenance"];
 
@@ -165,13 +166,56 @@ Deno.serve(async (req) => {
       if (!((url.protocol === "https:" && (url.hostname === "hotelcare.app" || url.hostname.endsWith(".hotelcare.app"))) ||
         (url.protocol === "http:" && url.hostname === "localhost")))
         return json({ error: "Checkout must be started from HotelCare" }, 400);
-      const paymentId = crypto.randomUUID();
-      const { error: reserveError } = await db.from("billing_one_time_payments").insert({
-        id: paymentId, organization_slug: slug, package_key: pack.packageKey,
-        description: pack.description, currency: "EUR", net_cents: pack.netCents,
-        vat_cents: pack.vatCents, gross_cents: pack.grossCents, status: "pending",
-      });
-      if (reserveError) return json({ error: "There is already an open payment for this package. Finish or expire it before starting another." }, 409);
+      let paymentId: string | null = null;
+      // One pending record is a safety lock, not a reason to strand the payer.
+      // On a retry, recover the existing Stripe Checkout instead of creating
+      // another PaymentIntent (especially after unsuccessful 3-D Secure).
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const candidateId = crypto.randomUUID();
+        const { error: reserveError } = await db.from("billing_one_time_payments").insert({
+          id: candidateId, organization_slug: slug, package_key: pack.packageKey,
+          description: pack.description, currency: "EUR", net_cents: pack.netCents,
+          vat_cents: pack.vatCents, gross_cents: pack.grossCents, status: "pending",
+        });
+        if (!reserveError) { paymentId = candidateId; break; }
+        if (reserveError.code !== "23505") throw reserveError;
+
+        const { data: existing, error: lookupError } = await db
+          .from("billing_one_time_payments")
+          .select("id,organization_slug,package_key,status,currency,gross_cents,stripe_checkout_session_id")
+          .eq("organization_slug", slug).eq("package_key", pack.packageKey)
+          .eq("status", "pending").maybeSingle();
+        if (lookupError) throw lookupError;
+        if (!existing) return json({ error: "Another payment request is being reconciled. Please retry shortly." }, 409);
+        if (!existing.stripe_checkout_session_id)
+          return json({ error: "The previous payment request is still being prepared. Please wait briefly before retrying; no new payment was created." }, 409);
+
+        const checkout = await stripe.checkout.sessions.retrieve(existing.stripe_checkout_session_id);
+        const decision = decideOneTimeCheckoutRetry(existing, checkout, {
+          organization: slug, packageKey: pack.packageKey, grossCents: pack.grossCents,
+        });
+        if (decision === "resume") {
+          // Frontend navigates to this same Stripe URL; nothing new is charged.
+          return json({
+            url: checkout.url, payment_id: existing.id, gross_cents: pack.grossCents,
+            mode: "payment", resumed: true,
+          });
+        }
+        if (decision === "expire") {
+          // Only mark expired after Stripe itself confirms that the session is
+          // closed and unpaid; conditionally release the unique pending lock.
+          const { data: released, error: releaseError } = await db
+            .from("billing_one_time_payments")
+            .update({ status: "expired", updated_at: new Date().toISOString() })
+            .eq("id", existing.id).eq("status", "pending")
+            .eq("stripe_checkout_session_id", checkout.id)
+            .select("id").maybeSingle();
+          if (releaseError) throw releaseError;
+          if (released) continue;
+        }
+        return json({ error: "The existing Stripe payment is being verified. Do not start another charge; check Payments & invoices or contact billing support." }, 409);
+      }
+      if (!paymentId) return json({ error: "Could not safely reserve a new payment. Please try again shortly." }, 409);
       let sessionId: string | null = null;
       try {
         // Fixed domestic Hungarian tax rate; deliberately fail closed for
