@@ -232,13 +232,29 @@ export default function Billing() {
       body: { action: 'one_time_checkout', organizationSlug: orgSlug, packageKey },
     });
     setOneTimeBusy(null);
-    const payload = data as { url?: string; error?: string } | null;
-    if (invokeError || payload?.error) {
-      toast.error(payload?.error ?? invokeError?.message ?? 'Could not start one-time payment');
+    const payload = data as { url?: string; error?: string; resumed?: boolean } | null;
+    // Supabase returns an HTTP error object for non-2xx responses, often hiding
+    // the useful server-side explanation unless we read the response body.
+    let specificError = payload?.error;
+    if (invokeError && !specificError) {
+      const context = (invokeError as { context?: Response }).context;
+      if (context && typeof context.clone === 'function') {
+        try {
+          const details = await context.clone().json() as { error?: string };
+          specificError = details?.error;
+        } catch { /* Fall back to the SDK's message. */ }
+      }
+    }
+    if (invokeError || specificError) {
+      toast.error(specificError ?? invokeError?.message ?? 'Could not start one-time payment');
       return;
     }
-    if (payload?.url) window.location.assign(payload.url);
-    else toast.error('Could not create the one-time payment link.');
+    if (payload?.url) {
+      // Resuming a failed OTP attempt redirects back to the existing unpaid
+      // Stripe Checkout, rather than creating a second payment request.
+      if (payload.resumed) toast.info('Resuming your previous unpaid Stripe checkout');
+      window.location.assign(payload.url);
+    } else toast.error('Could not create the one-time payment link.');
   };
 
   const openPortal = async () => {
