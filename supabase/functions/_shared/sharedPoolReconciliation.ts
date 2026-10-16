@@ -82,3 +82,16 @@ export function computeSharedPoolDecision(input: SharedPoolInput): SharedPoolDec
 export function sharedInventoryNeedsReduction(actual:number, ceiling:number):boolean {
   return Number.isInteger(actual)&&Number.isInteger(ceiling)&&actual>ceiling;
 }
+
+/** On a failed ordinary reconciliation, quarantine the alternative listing
+ * only. The real Triple must remain under Previo's own physical inventory.
+ * If the final linked sale was already detected, both offers must close.
+ */
+export function roomKindsToReduce(
+  status: string, triggeredAt: string | null,
+  virtualObkId: string, physicalObkId: string,
+): string[] {
+  return status==="needs_review" && !triggeredAt
+    ? [virtualObkId]
+    : [virtualObkId,physicalObkId];
+}
