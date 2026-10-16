@@ -29,6 +29,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import ManualInvoicesPanel from '@/components/billing/ManualInvoicesPanel';
 import { isExecutiveRole } from '@/lib/roleAccess';
+import { canCollectRdOneTimePayment } from '../../supabase/functions/_shared/rdOneTimePermissions';
 import {
   ArrowLeft,
   BarChart3,
@@ -93,6 +94,11 @@ export default function Billing() {
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
   const isRdPortfolio = orgSlug === 'rdhotels';
+  const canCollectOneTime = canCollectRdOneTimePayment({
+    role: profile?.role,
+    organizationSlug: profile?.organization_slug,
+    isSuperAdmin: profile?.is_super_admin,
+  }, orgSlug);
   const vatPercent = Number(settings?.vat_percent ?? 27);
   const percentLabel = `${((settings?.revenue_percent_bps ?? 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
 
@@ -220,7 +226,7 @@ export default function Billing() {
   };
 
   const startOneTimeCheckout = async (packageKey: 'revenue' | 'housekeeping') => {
-    if (!isRdPortfolio || !settings?.one_time_collection_enabled || oneTimeBusy) return;
+    if (!canCollectOneTime || !settings?.one_time_collection_enabled || oneTimeBusy) return;
     setOneTimeBusy(packageKey);
     const { data, error: invokeError } = await supabase.functions.invoke('billing-manage', {
       body: { action: 'one_time_checkout', organizationSlug: orgSlug, packageKey },
@@ -317,14 +323,15 @@ export default function Billing() {
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
               <div><p className="font-medium">Revenue BI (all hotels) + Ottofiori Automation</p><p className="text-sm text-muted-foreground">€400.00 + €108.00 VAT = €508.00 total</p></div>
-              <Button disabled={!canSwitchOrg || !settings?.one_time_collection_enabled || Boolean(oneTimeBusy)} onClick={() => void startOneTimeCheckout('revenue')}>{oneTimeBusy === 'revenue' ? 'Preparing…' : 'Collect €508 once'}</Button>
+              <Button disabled={!canCollectOneTime || !settings?.one_time_collection_enabled || Boolean(oneTimeBusy)} onClick={() => void startOneTimeCheckout('revenue')}>{oneTimeBusy === 'revenue' ? 'Preparing…' : 'Collect €508 once'}</Button>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
               <div><p className="font-medium">Housekeeping — RD Hotels</p><p className="text-sm text-muted-foreground">€200.00 + €54.00 VAT = €254.00 total</p></div>
-              <Button variant="outline" disabled={!canSwitchOrg || !settings?.one_time_collection_enabled || Boolean(oneTimeBusy) || activeSubs.some((sub) => sub.module === 'operations')} onClick={() => void startOneTimeCheckout('housekeeping')}>{oneTimeBusy === 'housekeeping' ? 'Preparing…' : 'Collect €254 once'}</Button>
+              <Button variant="outline" disabled={!canCollectOneTime || !settings?.one_time_collection_enabled || Boolean(oneTimeBusy) || activeSubs.some((sub) => sub.module === 'operations')} onClick={() => void startOneTimeCheckout('housekeeping')}>{oneTimeBusy === 'housekeeping' ? 'Preparing…' : 'Collect €254 once'}</Button>
             </div>
+            {!canCollectOneTime && <p className="text-sm text-muted-foreground">Only RD Hotels Admin, Super Admin or Top Manager accounts can initiate one-time payments.</p>}
             {!settings?.one_time_collection_enabled && <p className="text-sm text-muted-foreground">One-time payments are not yet enabled. The payment buttons remain locked until server-side setup and testing are complete.</p>}
-            {activeSubs.some((s) => s.module === 'operations') && <p className="text-sm text-destructive">An existing Housekeeping Stripe subscription is still active. Cancel it separately before replacing recurring collection; creating a one-time payment does not cancel that plan.</p>}
+            {activeSubs.some((s) => s.module === 'operations') && <p className="text-sm text-destructive">An existing Housekeeping Stripe subscription is still active. {activeSubs.some((sub) => sub.module === 'operations' && sub.cancel_at_period_end) ? 'The existing subscription is already scheduled to end; Housekeeping one-time collection unlocks once Stripe reports it inactive.' : 'Cancel it separately before replacing recurring collection; creating a one-time payment does not cancel that plan.'}</p>}
           </CardContent>
         </Card>}
 
