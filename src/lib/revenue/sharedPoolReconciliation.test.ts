@@ -1,5 +1,5 @@
 import {describe,it,expect} from "vitest";
-import {computeSharedPoolDecision,sharedInventoryNeedsReduction,type SharedPoolInput} from "../../../supabase/functions/_shared/sharedPoolReconciliation";
+import {computeSharedPoolDecision,sharedInventoryNeedsReduction,roomKindsToReduce,type SharedPoolInput} from "../../../supabase/functions/_shared/sharedPoolReconciliation";
 
 const queen="976815", triple="982615", twin="977103";
 const fixture=(n:number):SharedPoolInput => {
@@ -57,6 +57,11 @@ describe("linked Queen/Triple capacity",()=>{
    expect(computeSharedPoolDecision({...f,baselineRefs:[""]})).toBeNull();
    expect(computeSharedPoolDecision({...f,previousRemaining:9})).toBeNull();
    expect(computeSharedPoolDecision({...f,virtualObkId:triple})).toBeNull();
+ });
+ it("quarantines just the virtual Queen on ordinary failure, never the real Triple",()=>{
+   expect(roomKindsToReduce("needs_review",null,queen,triple)).toEqual([queen]);
+   expect(roomKindsToReduce("needs_review","2026-10-16T06:00:00Z",queen,triple)).toEqual([queen,triple]);
+   expect(roomKindsToReduce("triggered","2026-10-16T06:00:00Z",queen,triple)).toEqual([queen,triple]);
  });
  it("repairs drift without an additional reservation, and never increases inventory",()=>{
    expect(sharedInventoryNeedsReduction(3,2)).toBe(true);
