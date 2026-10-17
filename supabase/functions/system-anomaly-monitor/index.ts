@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { sendEmail } from "../_shared/emailSender.ts";
+import { enrichRollbackAlert } from "./rollbackClassification.mjs";
 
 const ADMIN_FALLBACK = "anuruddha.dharmasena@gmail.com";
 
@@ -107,6 +108,8 @@ Deno.serve(async (req) => {
   }
   if (!authorized) return json({ error: "Unauthorized" }, 401);
 
+  const diagnosticsCapturedAt = new Date();
+
   // Capture per-role/query counter deltas before detection replaces its five-minute snapshots.
   // Rollbacks are transaction outcomes, NOT a count of failed writes or lost records.
   const { data: evidence, error: evidenceError } = await admin.rpc("get_recent_rollback_evidence");
@@ -163,33 +166,22 @@ Deno.serve(async (req) => {
     const claimedAlert = raw as Alert;
     const isRealtimeHotspot = claimedAlert.kind === "query_cpu_hotspot"
       && String(claimedAlert.details?.query_sample || "").includes("realtime.list_changes(");
-    const shouldEnrich = claimedAlert.kind === "rollback_storm" || isRealtimeHotspot;
-    const alert: Alert = !shouldEnrich ? claimedAlert : {
-      ...claimedAlert,
-      title: claimedAlert.kind === "rollback_storm"
-        ? "Unusually high PostgreSQL rollback rate (cause unconfirmed)"
-        : claimedAlert.title,
-      details: {
-        ...(claimedAlert.details || {}),
-        ...(claimedAlert.kind === "rollback_storm" ? rollbackEvidence : {}),
-        ...(isRealtimeHotspot ? {
+    // Evidence must belong to this alert's detection window, not a delayed
+    // alert that happened to be claimed by a later monitor execution.
+    const alert: Alert = claimedAlert.kind === "rollback_storm"
+      ? enrichRollbackAlert(claimedAlert, rollbackEvidence, aggregateRealtimeEvidence, diagnosticsCapturedAt)
+      : isRealtimeHotspot ? {
+        ...claimedAlert,
+        details: {
+          ...(claimedAlert.details || {}),
           realtime_evidence: aggregateRealtimeEvidence,
-          interpretation: "Supabase Realtime list_changes is an internal WAL-change processing query. Cumulative execution time is not downtime, and these counts do not establish which subscriber or table caused the spike.",
-        } : {}),
-        ...(claimedAlert.kind === "rollback_storm" ? {
-          // The monitor has already captured this before anomaly detection advanced
-          // its snapshots; include it for rollback spikes as well as WAL hotspots.
-          // These samples are contextual only and cannot attribute a rollback.
-          realtime_evidence: aggregateRealtimeEvidence,
-          interpretation: "Rollback counters include intentional transaction aborts. This alert does not confirm SQL errors, failed writes or data loss.",
-          investigation_hint: "Compare the PostgreSQL-wide rollback delta with sampled PostgREST request-setup calls and nearby HTTP/SQL error logs. A mismatch does not prove which internal service caused the spike. Realtime table-change evidence is sampled and does not establish causality.",
-        } : {}),
-      },
-    };
+          interpretation: "Realtime list_changes is an internal WAL-change processing query. Cumulative execution time is not downtime, and these counts do not identify the causal subscriber or table.",
+        },
+      } : claimedAlert;
     if (alert !== claimedAlert) {
       const { error: enrichmentError } = await admin
         .from("system_anomaly_alerts")
-        .update({ title: alert.title, details: alert.details })
+        .update({ title: alert.title, severity: alert.severity, details: alert.details })
         .eq("id", alert.id)
         .eq("status", "sending");
       if (enrichmentError) console.error("could not store anomaly diagnostics", enrichmentError.message);
