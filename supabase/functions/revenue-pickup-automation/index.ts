@@ -51,6 +51,7 @@ import {
 import { enforceRateSafety, loadGuestStep, repairLadder } from "../_shared/rateSafety.ts";
 import { runEngineV2 } from "./runV2.ts";
 import { checkOttofioriMarkdownBudget, MARKDOWN_BUDGET_STATUSES } from "../_shared/engineV2DateBudget.ts";
+import { publishableEngineV2Intents, incompleteInsertDates } from "../_shared/engineV2QueueSafety.ts";
 
 
 
@@ -421,6 +422,15 @@ async function queueIntents(
   priority: number,
   context?: { automationRunId: string; dateManifest: Record<string, unknown>; budgetDayStartUtc?: string },
 ): Promise<string | null> {
+  // The database intentionally drops proactive ladder-repair INSERTs with
+  // RETURN NULL. Never mix these unapproved requests with a legitimate
+  // 13-cell date decision or interpret the missing rows as a failed push.
+  if (context && rule.hotel_id === "ottofiori") {
+    payload = publishableEngineV2Intents(payload as Array<{
+      stay_date: string; room_type_name: string; occupancy: number;
+      intent_source?: string | null;
+    }>);
+  }
   if (payload.length === 0) return null;
   if (context) {
     const byDate = new Map<string, Array<Record<string, unknown>>>();
@@ -592,6 +602,7 @@ async function queueIntents(
   // planner approved the date. In that case cancel the WHOLE date and do not
   // create misleading queued push-items for the rejected cells.
   const insertedDrafts: any[] = [];
+  const suppressedInsertDates = new Set<string>();
   for (let index = 0; index < payload.length; index += 500) {
     const batch = payload.slice(index, index + 500);
     const { data: drafts, error: draftError } = await admin.from("revenue_rate_drafts")
@@ -599,7 +610,14 @@ async function queueIntents(
       .select("id,stay_date,room_type_name,occupancy,status,superseded_at,push_error");
     if (draftError) throw draftError;
     if ((drafts ?? []).length !== batch.length) {
-      throw new Error("Draft insert returned incomplete date evidence; publication held.");
+      if (!context) {
+        throw new Error("Draft insert returned incomplete manual/legacy rate evidence; publication held.");
+      }
+      // A database BEFORE INSERT safety trigger may intentionally suppress a
+      // rate cell. Isolate that stay date; never abort independent dates.
+      for (const date of incompleteInsertDates(batch as any[], (drafts ?? []) as any[])) {
+        suppressedInsertDates.add(date);
+      }
     }
     insertedDrafts.push(...(drafts ?? []));
     if (!context) {
@@ -614,9 +632,12 @@ async function queueIntents(
     }
   }
   if (context) {
-    const blockedDates = new Set<string>(insertedDrafts
-      .filter((d) => d.status !== "draft" || d.superseded_at != null)
-      .map((d) => String(d.stay_date)));
+    const blockedDates = new Set<string>([
+      ...suppressedInsertDates,
+      ...insertedDrafts
+        .filter((d) => d.status !== "draft" || d.superseded_at != null)
+        .map((d) => String(d.stay_date)),
+    ]);
     // Even if the DB did not reject a cell, do not publish a truncated or
     // duplicated Ottofiori column. Never weaken the downstream 13-cell guard.
     if (rule.hotel_id === "ottofiori") {
