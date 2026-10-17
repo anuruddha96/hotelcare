@@ -1123,16 +1123,12 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           }
         }
       }
-      if (mode === "live" && !dryRun && ladderRepairs.length > 0) {
-        for (const repair of ladderRepairs) {
-          const key = `${repair.stay_date}|${repair.obk_id ?? ""}|${repair.room_type_name ?? ""}|${repair.occupancy}`;
-          const existing = payload.find((p) =>
-            `${p.stay_date}|${p.obk_id ?? ""}|${p.room_type_name ?? ""}|${p.occupancy}` === key
-          );
-          if (existing) existing.new_price = repair.new_price;
-          else payload.push(repair);
-        }
-      }
+      // Diagnostic only. The production database explicitly blocks these
+      // proactive ladder repairs. They are NOT demand-based pricing decisions:
+      // adding them to the publication payload causes suppressed INSERT rows,
+      // and overwriting a date decision breaks its uniform 13-cell movement.
+      // Preserve the diagnostic count but never enqueue or apply the repairs
+      // unless a separately approved workflow is implemented end-to-end.
     }
 
     const insertedDecisionIds = new Map<string, string>();
@@ -1216,7 +1212,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       skip_reasons: {
         ...skipReasons,
         simulated_cells: simulatedCells,
-        ladder_repairs: ladderRepairs.length,
+        ladder_repairs: 0,
+        ladder_repairs_suppressed: ladderRepairs.length,
         adr_guard: rule.adr_guard_enabled
           ? { required_rate: adrGuard.requiredRate, projected_adr: adrGuard.projectedAdr, feasible: adrGuard.feasible, reason: adrGuard.reason }
           : null,
@@ -1245,7 +1242,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         ? `${payload.length} price cell${payload.length === 1 ? " was" : "s were"} queued for Previo.`
         : "No prices needed to be sent to Previo.";
     const ladderNote = ladderRepairs.length > 0
-      ? ` Guest-price ladder repair: ${ladderRepairs.length} price${ladderRepairs.length === 1 ? " was" : "s were"} out of line with the higher occupancy prices and ${ladderRepairs.length === 1 ? "was" : "were"} lifted back into order.`
+      ? ` Guest-price ladder diagnostics found ${ladderRepairs.length} proposed adjustment${ladderRepairs.length === 1 ? "" : "s"}; automatic ladder repair is safety-blocked, so none were sent to Previo.`
       : "";
     const activation = gate.phase === "shadow" && gate.passed
       ? " The 24-hour safety review passed; live mode is enabled for the next run."
@@ -1273,7 +1270,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       held,
       cells_queued: payload.length,
       cells_simulated: simulatedCells,
-      ladder_repairs: ladderRepairs.length,
+      ladder_repairs: 0,
+      ladder_repairs_suppressed: ladderRepairs.length,
       skip_reasons: skipReasons,
       timed_out: budgetHit,
       gate,
