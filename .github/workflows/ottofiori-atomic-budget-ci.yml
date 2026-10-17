@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'supabase/functions/_shared/engineV2DateBudget*'
+      - 'supabase/functions/_shared/engineV2QueueSafety*'
       - 'supabase/functions/revenue-pickup-automation/index.ts'
       - 'supabase/functions/revenue-pickup-automation/runV2.ts'
       - '.github/workflows/ottofiori-atomic-budget-ci.yml'
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/functions/_shared/engineV2DateBudget*'
+      - 'supabase/functions/_shared/engineV2QueueSafety*'
       - 'supabase/functions/revenue-pickup-automation/index.ts'
       - 'supabase/functions/revenue-pickup-automation/runV2.ts'
       - '.github/workflows/ottofiori-atomic-budget-ci.yml'
@@ -28,8 +30,11 @@ jobs:
           node-version: '24'
       - name: Reproduce real October and January daily-budget failures
         run: node --test supabase/functions/_shared/engineV2DateBudget.test.mjs
+      - name: Test forbidden ladder repairs and incomplete rate rows
+        run: node --test supabase/functions/_shared/engineV2QueueSafety.test.mjs
       - name: Parse pricing queue and V2 engine TypeScript
         run: |
           node --check supabase/functions/_shared/engineV2DateBudget.ts
+          node --check supabase/functions/_shared/engineV2QueueSafety.ts
           node --check supabase/functions/revenue-pickup-automation/index.ts
           node --check supabase/functions/revenue-pickup-automation/runV2.ts
