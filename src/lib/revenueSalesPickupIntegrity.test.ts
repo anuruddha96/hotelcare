@@ -57,8 +57,10 @@ describe("revenue sales/pickup integrity", () => {
 
     expect(metric.newBookings).toBe(0);
     expect(metric.netPickup).toBe(0);
-    // The hold is deliberately retained in the on-the-books inventory picture.
-    expect(metric.roomsSold).toBe(1);
+    // Hold remains in the PMS book but reduces sellable commercial inventory.
+    expect(metric.roomsSold).toBe(0);
+    expect(metric.roomsAvailable).toBe(81);
+    expect(metric.excludedInventoryHolds).toBe(1);
   });
 
   it("does not suppress a channel-attributed long stay", () => {
