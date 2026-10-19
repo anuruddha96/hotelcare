@@ -10,6 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { canOpenGozsduSameDayReplacement, hasUnstartedReplacementWork } from '@/lib/housekeepingSameDayReplacement';
 import {
   housekeepingAutomationText,
   type HousekeepingAutomationLanguage,
@@ -111,10 +112,13 @@ export function TodayHousekeepingPlanReviewDialog({
   const [replaceWith, setReplaceWith] = useState<string>('');
   const [replacing, setReplacing] = useState(false);
   const isHungarian = String(language).toLowerCase().startsWith('hu');
-  const canReplaceStaff = !!plan && plan.status === 'released'
-    && plan.plan_date === todayBudapest()
-    && isGozsduCourtHotel(profile?.assigned_hotel)
-    && ['manager', 'housekeeping_manager', 'supervisor', 'reception_manager', 'admin', 'top_management', 'top_management_manager'].includes(String(profile?.role));
+  const canReplaceStaff = canOpenGozsduSameDayReplacement({
+    status: plan?.status,
+    planDate: plan?.plan_date,
+    today: todayBudapest(),
+    assignedHotel: profile?.assigned_hotel,
+    role: profile?.role,
+  });
   const text = (key: Parameters<typeof housekeepingAutomationText>[0]) =>
     housekeepingAutomationText(key, language);
 
@@ -234,7 +238,7 @@ export function TodayHousekeepingPlanReviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, plan?.id, plan?.plan_date, profile?.organization_slug, language, reloadVersion]);
+  }, [open, plan, profile?.organization_slug, language, reloadVersion]);
 
   const staffById = useMemo(
     () => new Map((data?.staff || []).map(staff => [staff.id, staff])),
@@ -373,10 +377,7 @@ export function TodayHousekeepingPlanReviewDialog({
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Badge variant="outline">{group.items.length + group.areas.length} {text('tasks')}</Badge>
-                      {canReplaceStaff && (
-                        group.items.some(item => item.liveStatus === 'assigned')
-                        || group.areas.some(area => area.liveStatus === 'assigned')
-                      ) && (
+                      {canReplaceStaff && hasUnstartedReplacementWork(group.items, group.areas) && (
                         <Button size="sm" variant="outline" onClick={() => { setReplaceFrom(group.ownerId); setReplaceWith(''); }}>
                           {isHungarian ? 'Helyettesítés' : 'Replace staff'}
                         </Button>
