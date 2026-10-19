@@ -78,7 +78,31 @@ BEGIN
     'housekeepingCondition', NEW.status
   );
   IF before_state IS NOT DISTINCT FROM after_state THEN RETURN NEW; END IF;
-  IF (new_pms ->> 'pmsSyncDate') ~ '^\\d{4}-\\d{2}-\\d{2}$' THEN
+  IF (new_pms ->> 'pmsSyncDate') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} THEN
+    BEGIN work_date := (new_pms ->> 'pmsSyncDate')::date;
+    EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN NULL;
+    END;
+  END IF;
+
+  INSERT INTO public.gozsdu_room_state_events (
+    organization_slug, hotel_id, room_id, business_date, source, before_state, after_state
+  ) VALUES (
+    NEW.organization_slug, 'gozsdu-court', NEW.id, work_date,
+    CASE WHEN NEW.pms_metadata IS DISTINCT FROM OLD.pms_metadata THEN 'previo_room_sync'
+      ELSE 'housekeeping_action' END,
+    before_state, after_state
+  );
+  RETURN NEW;
+END;
+$fn$;
+
+DROP TRIGGER IF EXISTS hc_record_gozsdu_room_status_change ON public.rooms;
+CREATE TRIGGER hc_record_gozsdu_room_status_change
+  AFTER UPDATE OF pms_metadata, is_checkout_room, status ON public.rooms
+  FOR EACH ROW EXECUTE FUNCTION public.hc_record_gozsdu_room_status_change();
+
+REVOKE ALL ON FUNCTION public.hc_record_gozsdu_room_status_change() FROM PUBLIC, anon, authenticated;
+ THEN
     BEGIN work_date := (new_pms ->> 'pmsSyncDate')::date;
     EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN NULL;
     END;
