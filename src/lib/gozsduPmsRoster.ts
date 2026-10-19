@@ -80,7 +80,8 @@ export function isGozsduVerifiedCheckout(room: LocalRoom, selectedDate: string, 
   const checkoutStamp = Date.parse(String(pms.checkedOutAt || ''));
   return pms.checkedOutToday === true && pms.scheduledDepartureToday === true
     && pms.departureDate === selectedDate
-    && pms.isNoShow !== true && pms.isCancelled !== true
+    && !isGozsduNoShow(room, selectedDate) && pms.isCancelled !== true
+    && [6, 9].includes(Number(pms.reservationStatusId))
     && Number.isFinite(checkoutStamp) && checkoutStamp <= now + 60_000;
 }
 
