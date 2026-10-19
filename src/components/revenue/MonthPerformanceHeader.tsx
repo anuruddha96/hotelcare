@@ -145,6 +145,7 @@ export default function MonthPerformanceHeader({
     const rows = metrics.filter((m) => monthKey(m.stay_date) === key);
     const holds = rows.reduce((s, m) => s + (m.excludedInventoryHolds ?? 0), 0);
     const inactive = rows.reduce((s, m) => s + (m.excludedInactiveNights ?? 0), 0);
+    const missingPrices = rows.reduce((s, m) => s + (m.missingPriceNights ?? 0), 0);
     const sold = rows.reduce((s, m) => s + m.roomsSold, 0);
     const capacity = rows.reduce((s, m) => s + m.roomsAvailable, 0);
     const revenue = rows.reduce((s, m) => s + m.revenueEur, 0);
@@ -161,6 +162,7 @@ export default function MonthPerformanceHeader({
       days: rows.length,
       holds,
       inactive,
+      missingPrices,
       sold,
       capacity,
       left,
@@ -178,7 +180,9 @@ export default function MonthPerformanceHeader({
   };
 
   const agg = useMemo(() => aggregate(month), [metrics, month]);
-  const kpiIntegrityWarning = inventoryMismatch || agg.sold > agg.capacity || agg.holds > 0 || agg.inactive > 0;
+  const syncAgeMs = lastSyncAt ? Date.now() - Date.parse(lastSyncAt) : NaN;
+  const staleSync = Number.isFinite(syncAgeMs) && syncAgeMs > 14 * 60 * 60 * 1000;
+  const kpiIntegrityWarning = inventoryMismatch || agg.sold > agg.capacity || agg.holds > 0 || agg.inactive > 0 || agg.missingPrices > 0 || staleSync;
 
   /**
    * What the selected booking window actually produced: reservations created
@@ -222,6 +226,7 @@ export default function MonthPerformanceHeader({
     const todayCancelledRes = new Set<string>();
     let todayCancelledNights = 0;
     for (const c of cancellations) {
+      if (c.obk_id && excludedRoomTypeIds?.has(c.obk_id)) continue;
       if (!countsTowardRevenueSalesPickup(c)) continue;
       if (c.cancelled_at && budapestDayOf(c.cancelled_at) === today) {
         todayCancelledNights += 1;
@@ -486,6 +491,8 @@ export default function MonthPerformanceHeader({
             {agg.holds > 0 ? ` ${agg.holds} multi-year inventory-hold nights excluded from commercial sales and capacity.` : ""}
             {agg.inactive > 0 ? ` ${agg.inactive} nights in inactive room kinds excluded.` : ""}
             {inventoryMismatch ? ` Configured inventory (${configuredRooms}) differs from active PMS room types (${roomsAvailable}); using active types.` : ""}
+            {agg.missingPrices > 0 ? ` ${agg.missingPrices} sold room-nights are missing prices; revenue, ADR and RevPAR are incomplete.` : ""}
+            {staleSync ? " The latest Previo sync is more than 14 hours old; figures may be stale." : ""}
             {agg.sold > agg.capacity ? " Sold room-nights exceed inventory; verify PMS room mapping." : ""}
           </div>
         )}
@@ -523,7 +530,7 @@ export default function MonthPerformanceHeader({
           <Tile
             loading={tilesLoading}
             label="ADR"
-            value={money(agg.adr)}
+            value={agg.missingPrices ? "—" : money(agg.adr)}
             sub={eurEquivalent(agg.adr) || `${monthLabel} · revenue ÷ nights sold`}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-violet-500 bg-violet-500/5"
@@ -532,7 +539,7 @@ export default function MonthPerformanceHeader({
           <Tile
             loading={tilesLoading}
             label="RevPAR"
-            value={money(agg.revpar)}
+            value={agg.missingPrices ? "—" : money(agg.revpar)}
             sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × occupancy`}
             icon={<Gauge className="h-3.5 w-3.5" />}
             surface="border-l-cyan-500 bg-cyan-500/5"
@@ -541,7 +548,7 @@ export default function MonthPerformanceHeader({
           <Tile
             loading={tilesLoading}
             label="Revenue"
-            value={money(agg.revenue)}
+            value={agg.missingPrices ? "—" : money(agg.revenue)}
             sub={eurEquivalent(agg.revenue) || `${monthLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-emerald-500 bg-emerald-500/5"
