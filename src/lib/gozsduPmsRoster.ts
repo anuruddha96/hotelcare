@@ -9,9 +9,12 @@ export type GozsduPmsRow = {
   status: string | null;
   housekeeping_dep: string | null;
   captured_at: string | null;
+  business_date?: string | null;
 };
 export type GozsduRosterEntry = {
-  bucket: 'checkout' | 'service' | 'other' | 'noshow' | 'arrival';
+  bucket: 'checkout' | 'service' | 'other' | 'noshow' | 'arrival' | 'vacant';
+  incomingToday?: boolean;
+  evidence?: 'night_snapshot' | 'day_arrival' | 'next_day_arrival' | 'explicit_checkout' | 'verified_unsold' | 'confirmed_no_show';
   service: GozsduHousekeepingService;
   night: number;
   totalNights: number;
@@ -46,7 +49,11 @@ export function isGozsduAwaitingArrival(room: LocalRoom, selectedDate: string): 
 export function isGozsduNoShow(room: LocalRoom, selectedDate: string): boolean {
   const pms = room.pms_metadata;
   if (!pms || pms.pmsSyncDate !== selectedDate) return false;
-  return (pms.isNoShow === true || Number(pms.reservationStatusId) === 8)
+  const status = Number(pms.reservationStatusId);
+  // A stale inference can coexist with an actual Previo checked-in status.
+  // Never promote that contradiction into a confirmed no-show.
+  return (status === 8 || (pms.isNoShow === true && pms.noShowSource === 'previo_status_8'))
+    && ![3, 5, 6, 9].includes(status)
     && pms.isCancelled !== true
     && pms.occupiedToday !== true
     && pms.checkedOutToday !== true;
@@ -102,7 +109,7 @@ export function missingGozsduPmsRooms(registry: RegistryEntry[], snapshots: Gozs
  * Unknown gaps, duplicates and stale batches still fail closed. */
 export function reconcileGozsduPmsRoster(
   rooms: LocalRoom[], registry: RegistryEntry[], snapshots: GozsduPmsRow[],
-  selectedDate: string, now = Date.now(),
+  selectedDate: string, now = Date.now(), nextDaySnapshots: GozsduPmsRow[] = [],
 ): { byRoom: Map<string, GozsduRosterEntry>; capturedAt: string } {
   if (!rooms.length || registry.length !== rooms.length) {
     throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local).`);
@@ -115,6 +122,23 @@ export function reconcileGozsduPmsRoster(
     byName.set(alias, entry.room_id);
   }
   const byRoom = new Map<string, GozsduRosterEntry>();
+  const selected = day(selectedDate);
+  const nextDate = new Date((selected + 1) * 86400000).toISOString().slice(0, 10);
+  // Occupied-night snapshots represent the night BEFORE business_date.
+  // A newly arriving guest first appears in tomorrow's row, not today's.
+  const incoming = new Map<string, GozsduPmsRow>();
+  const ambiguousIncoming = new Set<string>();
+  for (const row of nextDaySnapshots) {
+    const roomId = byName.get(key(row.room_label));
+    const stamp = Date.parse(String(row.captured_at || ''));
+    if (!roomId || row.business_date !== nextDate || row.arrival_date !== selectedDate
+      || !row.departure_date || row.departure_date <= selectedDate
+      || !['ongoing', 'departing'].includes(String(row.status || '').toLowerCase())
+      || !Number.isFinite(stamp) || stamp > now + 60000 || now - stamp > 60 * 60 * 1000)
+      continue;
+    if (incoming.has(roomId)) { incoming.delete(roomId); ambiguousIncoming.add(roomId); }
+    else if (!ambiguousIncoming.has(roomId)) incoming.set(roomId, row);
+  }
   let latest = '';
   let oldest = Number.POSITIVE_INFINITY;
   for (const row of snapshots) {
@@ -148,8 +172,9 @@ export function reconcileGozsduPmsRoster(
       ? readGozsduRoomOverride(room.pms_metadata, selectedDate) : null;
     const service = override?.service ?? computedService;
     byRoom.set(roomId, {
-      bucket: noShow ? 'noshow' : awaitingArrival ? 'arrival' : override?.bucket ?? (isCheckout ? 'checkout' : service !== 'none' ? 'service' : 'other'),
-      service, night, totalNights, leavesTomorrow: row.departure_date === new Date((selected + 1) * 86400000).toISOString().slice(0, 10),
+      bucket: noShow ? 'noshow' : isCheckout ? 'checkout' : awaitingArrival ? 'arrival' : override?.bucket ?? (service !== 'none' ? 'service' : 'other'),
+      service, night, totalNights, leavesTomorrow: row.departure_date === nextDate,
+      incomingToday: incoming.has(roomId), evidence: noShow ? 'confirmed_no_show' : 'night_snapshot',
     });
   }
   // The occupied-night feed intentionally omits some reservations whose stay
@@ -159,7 +184,11 @@ export function reconcileGozsduPmsRoster(
     if (byRoom.has(entry.room_id)) continue;
     const room = roomsById.get(entry.room_id)!;
     const noShow = isGozsduNoShow(room, selectedDate);
-    const arrival = !noShow && isGozsduAwaitingArrival(room, selectedDate);
+    const fromTomorrow = !noShow && incoming.has(entry.room_id);
+    const arrival = !noShow && (fromTomorrow || isGozsduAwaitingArrival(room, selectedDate));
+    // An arrival supported by the new booking's own stay dates supersedes the
+    // old reservation's mutable checkout flag. Active checkout work stays
+    // visible independently on the UI.
     const checkout = !noShow && !arrival && isGozsduVerifiedCheckout(room, selectedDate, now);
     const unsold = !noShow && !arrival && !checkout
       && isGozsduVerifiedUnsold(room, selectedDate, now);
@@ -168,11 +197,18 @@ export function reconcileGozsduPmsRoster(
       throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local). Missing from selected-day PMS: ${missing.join(', ')}. Their operating status is unchanged; booking and occupancy are UNKNOWN until verified in Previo.`);
     }
     byRoom.set(entry.room_id, {
-      bucket: noShow ? 'noshow' : arrival ? 'arrival' : checkout ? 'checkout' : 'other',
+      bucket: noShow ? 'noshow' : arrival ? 'arrival' : checkout ? 'checkout' : 'vacant',
       service: 'none',
-      night: Math.max(1, Number(room.pms_metadata.currentNight) || 1),
-      totalNights: Math.max(1, Number(room.pms_metadata.totalNights) || 1),
-      leavesTomorrow: arrival && Number(room.pms_metadata.totalNights) === 1,
+      night: unsold ? 0 : 1,
+      totalNights: unsold ? 0 : fromTomorrow
+        ? Math.max(1, day(incoming.get(entry.room_id)?.departure_date) - selected)
+        : Math.max(1, Number(room.pms_metadata.totalNights) || 1),
+      leavesTomorrow: arrival && (fromTomorrow
+        ? incoming.get(entry.room_id)?.departure_date === nextDate
+        : Number(room.pms_metadata.totalNights) === 1),
+      incomingToday: fromTomorrow,
+      evidence: noShow ? 'confirmed_no_show' : fromTomorrow ? 'next_day_arrival'
+        : arrival ? 'day_arrival' : checkout ? 'explicit_checkout' : 'verified_unsold',
     });
   }
   if (byRoom.size !== rooms.length) throw new Error('Gozsdu PMS snapshot has unmapped local rooms.');
