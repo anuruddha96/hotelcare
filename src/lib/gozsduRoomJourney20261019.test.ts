@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  isGozsduNoShow, isGozsduVerifiedUnsold, reconcileGozsduPmsRoster, type GozsduPmsRow,
+  isGozsduNoShow, isGozsduVerifiedCheckout, isGozsduVerifiedUnsold, reconcileGozsduPmsRoster, type GozsduPmsRow,
 } from './gozsduPmsRoster';
 
 const date = '2026-10-19';
@@ -20,6 +20,26 @@ const snap = (room_label: string, arrival_date: string, departure_date: string):
 });
 
 describe('Gozsdu dated arrival, vacancy and no-show journey (October 19)', () => {
+  it('opens a real 2B-1/3/1 checkout even when an inferred no-show flag is stale', () => {
+    const room = { id: '2b131', room_number: '2B-1/3/1', pms_metadata: metadata({
+      isNoShow: true, noShowSource: 'inferred_never_checked_in',
+      reservationStatusId: 9, checkedOutToday: true, scheduledDepartureToday: true,
+      departureDate: date, checkedOutAt: '2026-10-19T08:03:14Z',
+      occupiedToday: true, reservationId: 'previous-departure',
+    }) };
+    // GozsduRoomOverviewActions must call this SAME date-specific predicate,
+    // not the stale raw isNoShow field, when opening and saving the dialog.
+    expect(isGozsduNoShow(room, date)).toBe(false);
+    expect(isGozsduVerifiedCheckout(room, date, now)).toBe(true);
+    expect(isGozsduVerifiedCheckout(room, '2026-10-20', now)).toBe(false);
+    const confirmed = { ...room, pms_metadata: {
+      ...room.pms_metadata, reservationStatusId: 8,
+      noShowSource: 'previo_status_8', checkedOutToday: false,
+      scheduledDepartureToday: false, occupiedToday: false,
+    } };
+    expect(isGozsduNoShow(confirmed, date)).toBe(true);
+  });
+
   it('never converts actual checked-in room 2B-1/3/1 into inferred no-show', () => {
     const room = { id: 'b', room_number: '2B-1/3/1',
       pms_metadata: metadata({ isNoShow: true, noShowSource: 'inferred_never_checked_in',

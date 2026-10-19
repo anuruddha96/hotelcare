@@ -7,6 +7,7 @@ import { todayBudapest } from '@/lib/budapestTime';
 import { GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME, getGozsduHousekeepingCycle } from '@/lib/gozsdu-housekeeping';
 import { GOZSDU_ROOM_OVERRIDE_KEY, readGozsduRoomOverride, type GozsduRoomBucket } from '@/lib/gozsduRoomBucketOverride';
 import { gozsduDropBucket } from '@/lib/gozsduRoomDropTarget';
+import { isGozsduNoShow } from '@/lib/gozsduPmsRoster';
 import { assignRoomToStaff, isAssignmentInProgressError, readHousekeeperDragPayload, readRoomDragPayload } from '@/lib/hkAssignmentDnd';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -103,7 +104,11 @@ export function GozsduRoomOverviewActions(props: Props) {
       const registered = registryResult.data;
       if (!found || !registered) throw new Error('This room is not mapped to Gozsdu. Refresh the room registry.');
       if (registered.service_status !== 'operating') throw new Error('This room is unavailable for housekeeping.');
-      if (found.pms_metadata?.isNoShow === true) throw new Error('No-show rooms cannot be assigned or moved to cleaning.');
+      // The room board uses dated, confirmed PMS evidence. Do not block a valid
+       // checked-out room because its old inferred no-show marker remains true.
+       if (isGozsduNoShow(found, props.selectedDate)) {
+         throw new Error('Confirmed no-show rooms cannot be assigned or moved to cleaning.');
+       }
       const rows = (assignmentResult.data || []) as Assignment[];
       const existing = rows.find(row => row.status !== 'completed') || rows[0] || null;
       const override = readGozsduRoomOverride(found.pms_metadata, props.selectedDate);
@@ -196,7 +201,11 @@ export function GozsduRoomOverviewActions(props: Props) {
       if (assignmentsResult.error) throw assignmentsResult.error;
       const fresh = freshResult.data;
       if (!fresh || registryResult.data?.service_status !== 'operating') throw new Error('This Gozsdu room is no longer available. Refresh and retry.');
-      if ((fresh.pms_metadata as any)?.isNoShow === true) throw new Error('No-show rooms cannot be assigned to cleaning.');
+      // Re-read at save time so a real, newly confirmed no-show is still blocked.
+       // A dated checked-out reservation wins over stale inference flags.
+       if (isGozsduNoShow(fresh, props.selectedDate)) {
+         throw new Error('Confirmed no-show rooms cannot be assigned to cleaning.');
+       }
       assignmentTypes = (assignmentsResult.data || []) as Assignment[];
       if (assignmentTypes.some(row => row.status === 'in_progress' || row.status === 'completed')) {
         throw new Error('Cleaning has started or finished. Resolve the active assignment before changing this room.');
