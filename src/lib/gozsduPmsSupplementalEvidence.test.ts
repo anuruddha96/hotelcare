@@ -49,7 +49,7 @@ describe('Gozsdu 19 October sparse occupied-night reconciliation', () => {
     expect([...result.byRoom.keys()]).toHaveLength(4);
     expect(result.byRoom.get('checkout')?.bucket).toBe('checkout');
     expect(result.byRoom.get('arrival')?.bucket).toBe('arrival');
-    expect(result.byRoom.get('unsold')?.bucket).toBe('other');
+    expect(result.byRoom.get('unsold')?.bucket).toBe('vacant');
     expect(result.byRoom.get('unsold')?.service).toBe('none');
   });
 

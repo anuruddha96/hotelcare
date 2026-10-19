@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { isGozsduAwaitingArrival, reconcileGozsduPmsRoster, type GozsduPmsRow } from '@/lib/gozsduPmsRoster';
+import { reconcileGozsduPmsRoster, type GozsduPmsRow } from '@/lib/gozsduPmsRoster';
+import { resolveGozsduOperationalBucket } from '@/lib/gozsduOperationalBuckets';
+import { GozsduRoomJourneyDialog } from './GozsduRoomJourneyDialog';
 import { canonicalGozsduOverviewName, groupGozsduOverviewByBuilding } from '@/lib/gozsduRoomOverviewDisplay';
-import { BedDouble, Building2, ChevronDown, ChevronRight, Clock3, Coffee, GripVertical, Hotel, MapPin, Plus, RefreshCw, UserX } from 'lucide-react';
+import { BedDouble, Building2, ChevronDown, ChevronRight, Clock3, Coffee, GripVertical, History, Hotel, MapPin, Plus, RefreshCw, UserX } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { canManageHousekeepingMapping, hasManagerPowers } from '@/lib/roleAccess';
@@ -25,7 +27,7 @@ import type { SignedInHousekeeper } from './HotelRoomOverviewLive';
 // chips retain the same target/drag contracts as the ordinary Team View.
 const HOTEL_NAME = 'Gozsdu Court Budapest';
 const HOTEL_KEYS = [GOZSDU_COURT_HOTEL_ID, HOTEL_NAME];
-type Bucket = 'checkout' | 'service' | 'arrival' | 'other' | 'noshow';
+type Bucket = 'checkout' | 'service' | 'arrival' | 'other' | 'noshow' | 'vacant';
 type Room = {
   id: string; hotel: string | null; room_number: string; floor_number: number | null;
   status: string | null; last_cleaned_at: string | null; updated_at: string | null;
@@ -61,16 +63,6 @@ const STATUS_COLORS: Record<string, string> = {
   pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
   overdue: 'bg-rose-300 text-rose-950 border-rose-600 dark:bg-rose-900/60 dark:text-rose-200 dark:border-rose-500',
 };
-function checkout(room: Room, assignment?: Assignment) {
-  if (room.pms_metadata?.manual_daily === true) return false;
-  return room.is_checkout_room === true || room.pms_metadata?.scheduledDepartureToday === true
-    || room.pms_metadata?.checkedOutToday === true
-    || (room.pms_metadata?.pmsSyncDate !== todayBudapest() && assignment?.assignment_type === 'checkout_cleaning');
-}
-function noShow(room: Room, selectedDate: string) {
-  return room.pms_metadata?.pmsSyncDate === selectedDate
-    && (room.pms_metadata?.isNoShow === true || Number(room.pms_metadata?.reservationStatusId) === 8);
-}
 function service(room: Room, isCheckout: boolean): GozsduHousekeepingService {
   if (isCheckout || room.pms_metadata?.isNoShow === true) return 'none';
   // Persisted serviceType may represent the old 2/4/6 night rule. Recalculate
@@ -90,6 +82,8 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
   const [rooms, setRooms] = useState<Room[]>([]);
   const [registry, setRegistry] = useState<RegistryRoom[]>([]);
   const [pmsRows, setPmsRows] = useState<GozsduPmsRow[]>([]);
+  const [nextDayRows, setNextDayRows] = useState<GozsduPmsRow[]>([]);
+  const [journeyRoom, setJourneyRoom] = useState<Room | null>(null);
   const [pmsFetchIssue, setPmsFetchIssue] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [areas, setAreas] = useState<PublicArea[]>([]);
@@ -111,6 +105,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
+      const tomorrow = new Date(Date.parse(`${selectedDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
       const [roomResult, areaResult, sectionsResult, registryResult, snapshotResult] = await Promise.all([
         supabase.from('rooms')
           .select('id, hotel, room_number, floor_number, status, last_cleaned_at, updated_at, is_checkout_room, is_dnd, dnd_marked_at, notes, wing, room_category, room_size_sqm, bed_type, bed_configuration, guest_nights_stayed, towel_change_required, linen_change_required, pms_metadata')
@@ -123,9 +118,9 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         (supabase as any).from('gozsdu_housekeeping_room_registry')
           .select('room_id, pms_room_name, building_code, service_status, unavailability_reason'),
         profile?.organization_slug ? (supabase as any).from('daily_overview_snapshots')
-          .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,captured_at')
+          .select('business_date,room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,captured_at')
           .eq('organization_slug', profile.organization_slug).eq('hotel_id', GOZSDU_COURT_HOTEL_ID)
-          .eq('business_date', selectedDate).eq('source', 'previo')
+          .in('business_date', [selectedDate, tomorrow]).eq('source', 'previo')
           : Promise.resolve({ data: [], error: { message: 'Organization missing from user session.' } }),
       ]);
       if (roomResult.error) throw roomResult.error;
@@ -163,7 +158,9 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
       }
       setRooms(selectedRooms);
       setRegistry(((registryResult.data || []) as RegistryRoom[]).filter(row => selectedIds.has(row.room_id)));
-      setPmsRows((snapshotResult.data || []) as GozsduPmsRow[]);
+      const allDatedRows = (snapshotResult.data || []) as GozsduPmsRow[];
+      setPmsRows(allDatedRows.filter(row => row.business_date === selectedDate));
+      setNextDayRows(allDatedRows.filter(row => row.business_date === tomorrow));
       setPmsFetchIssue(snapshotResult.error?.message || null);
       setAssignments(assignmentRows.filter(row => selectedIds.has(row.room_id)));
       setAreas((areaResult.data || []) as PublicArea[]);
@@ -241,11 +238,11 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
   const pmsRoster = useMemo(() => {
     if (pmsFetchIssue) return { data: null, error: pmsFetchIssue };
     try {
-      return { data: reconcileGozsduPmsRoster(rooms, registry, pmsRows, selectedDate), error: null };
+      return { data: reconcileGozsduPmsRoster(rooms, registry, pmsRows, selectedDate, Date.now(), nextDayRows), error: null };
     } catch (cause) {
       return { data: null, error: cause instanceof Error ? cause.message : 'Could not verify Gozsdu PMS data.' };
     }
-  }, [rooms, registry, pmsRows, selectedDate, pmsFetchIssue]);
+  }, [rooms, registry, pmsRows, selectedDate, nextDayRows, pmsFetchIssue]);
   const registryByRoom = useMemo(() => new Map(registry.map(row => [row.room_id, row])), [registry]);
   const displayName = useCallback((room: Room) => canonicalGozsduOverviewName(room, registryByRoom), [registryByRoom]);
   const isOperating = (room: Room) => registryByRoom.get(room.id)?.service_status === 'operating';
@@ -253,29 +250,20 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
   const buildingByRoom = useMemo(() => new Map(mappings.map(row => [row.room_id, row.section_id])), [mappings]);
   const nameByBuilding = useMemo(() => new Map(buildings.map(row => [row.id, row.name])), [buildings]);
   const buckets = useMemo(() => {
-    const result: Record<Bucket, Room[]> & { inactive: Room[] } = { checkout: [], service: [], arrival: [], other: [], noshow: [], inactive: [] };
+    const result: Record<Bucket, Room[]> & { inactive: Room[] } = { checkout: [], service: [], arrival: [], other: [], noshow: [], vacant: [], inactive: [] };
     for (const room of rooms) {
       if (registryByRoom.get(room.id)?.service_status !== 'operating') {
         result.inactive.push(room);
         continue;
       }
       const verifiedBucket = pmsRoster.data?.byRoom.get(room.id)?.bucket;
-      if (verifiedBucket === 'checkout') result.checkout.push(room);
-      else if (verifiedBucket === 'noshow') result.noshow.push(room);
-      else if (verifiedBucket === 'service') result.service.push(room);
-      else if (verifiedBucket === 'arrival') result.arrival.push(room);
-      else if (verifiedBucket === 'other') result.other.push(room);
-      else {
-        // Degraded fallback: only a date-matched explicit pending arrival gets
-        // its own section. Other stored flags remain visibly unverified.
-        const assignment = assignmentMap.get(room.id);
-        const hasActiveCheckout = assignment?.assignment_type === 'checkout_cleaning' && assignment.status === 'in_progress';
-        if (isGozsduAwaitingArrival(room, selectedDate) && !hasActiveCheckout) result.arrival.push(room);
-        else if (checkout(room, assignment)) result.checkout.push(room);
-        else if (noShow(room, selectedDate)) result.noshow.push(room);
-        else if (service(room, false) !== 'none') result.service.push(room);
-        else result.other.push(room);
-      }
+      const assignment = assignmentMap.get(room.id);
+      // Keep today's live checkout clean visible alongside an arriving guest.
+      const activeCheckout = assignment?.assignment_type === 'checkout_cleaning' && assignment.status === 'in_progress';
+      const bucket: Bucket = verifiedBucket === 'arrival' && activeCheckout
+        ? 'checkout' : resolveGozsduOperationalBucket(room, assignment, selectedDate,
+          verifiedBucket ? { bucket: verifiedBucket } : null);
+      result[bucket].push(room);
     }
     return result;
   }, [rooms, registryByRoom, assignmentMap, pmsRoster, selectedDate]);
@@ -284,7 +272,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     const payload = readHousekeeperDragPayload(event);
     if (!payload || !canAssign || selectedDate !== todayBudapest() || !isOperating(room)) return;
     if (!pmsRoster.data) { toast.warning('Gozsdu PMS room counts are unverified; check Previo before changing assignments.'); return; }
-    if (pmsRoster.data.byRoom.get(room.id)?.bucket === 'arrival') {
+    if (['arrival', 'vacant', 'noshow'].includes(pmsRoster.data.byRoom.get(room.id)?.bucket || '')) {
       toast.warning('This guest has not arrived and no cleaning is scheduled. Confirm a cleaning request with reception first.');
       return;
     }
@@ -315,6 +303,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     const isDND = isDndForBusinessDate(room, selectedDate, assignment?.status, isCheckout);
     const isNoShow = bucket === 'noshow';
     const isArrival = bucket === 'arrival';
+    const isVacant = bucket === 'vacant';
     const verified = pmsRoster.data?.byRoom.get(room.id);
     const change = bucket === 'service' ? (verified?.service ?? service(room, false)) : 'none';
     const pending = assignment?.status === 'completed' && assignment.supervisor_approved !== true;
@@ -364,9 +353,13 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
                 ${highlight ? 'ring-2 ring-primary ring-offset-1' : ''}
                 ${hovered === room.id ? 'shadow-md' : ''}`}>
                 {displayName(room)}
+                <button type="button" data-room-journey-trigger className="ml-1 inline-flex rounded p-0.5 align-middle hover:bg-black/10" aria-label={`Room journey for ${displayName(room)}`}
+                  onClick={event => { event.preventDefault(); event.stopPropagation(); setJourneyRoom(room); }}><History className="h-3 w-3" /></button>
                 {room.pms_metadata?.manual_checkout === true && <span className="ml-0.5 rounded bg-amber-500 px-0.5 text-[9px] text-white" title="Manual checkout">M</span>}
+                {isVacant && <span className="ml-0.5 rounded bg-slate-600 px-1 text-[9px] text-white">Vacant</span>}
+                {verified?.incomingToday && isCheckout && <span className="ml-0.5 rounded bg-sky-600 px-1 text-[9px] text-white">+Arrival</span>}
                 {isArrival && <span className="ml-0.5 rounded bg-sky-600 px-1 text-[9px] text-white" title="Expected arrival, not a no-show">Arriving</span>}
-                {!isArrival && room.pms_metadata?.pmsSyncDate === selectedDate && room.pms_metadata?.notArrived === true && !isNoShow && <span className="ml-0.5 rounded bg-slate-500 px-0.5 text-[9px] text-white" title="Not arrived, not a no-show">Not arrived</span>}
+                {!isArrival && !isVacant && room.pms_metadata?.pmsSyncDate === selectedDate && room.pms_metadata?.notArrived === true && !isNoShow && <span className="ml-0.5 rounded bg-slate-500 px-0.5 text-[9px] text-white" title="Not arrived, not a no-show">Not arrived</span>}
                 {(verified?.leavesTomorrow ?? (room.pms_metadata?.scheduledDepartureTomorrow === true)) && !isCheckout && !isArrival && <span className="ml-0.5 rounded bg-indigo-600 px-0.5 text-[9px] text-white">C/O+1</span>}
                 {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700">SH</span>}
                 {change === 'towel_change' && <span className="ml-0.5 rounded bg-blue-600 px-0.5 text-[9px] text-white">T</span>}
@@ -390,6 +383,8 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
           <TooltipContent side="top" className="max-w-xs text-xs">
             <p className="font-semibold">Room {displayName(room)} · {status.replaceAll('_', ' ')}</p>
             <p>PMS: {displayName(room)}</p>
+            {isVacant && <p>No reservation today; independently verified by Previo.</p>}
+            {verified?.incomingToday && isCheckout && <p>Same-day turnover: new guest also arrives today.</p>}
             {isArrival && <p>Expected arrival {selectedDate} · Not checked in · Not a no-show. No housekeeping scheduled from this reservation.</p>}
             {isArrival && room.pms_metadata?.pmsSyncDate && <p>PMS status checked for {room.pms_metadata.pmsSyncDate}{pmsRoster.error ? ' · Full roster not verified' : ''}</p>}
             {nights > 0 && total > 0 && !isArrival && <p>Stay {nights}/{total}</p>}
@@ -481,8 +476,8 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
             </Button>
           </div>
         </div>
-        <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
-          {[['Operating', rooms.length - buckets.inactive.length], ['Checkout', buckets.checkout.length], ['Service', buckets.service.length], ['Arriving', buckets.arrival.length], ['Unavailable', buckets.inactive.length]].map(([label, count]) => (
+        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-7 sm:gap-2">
+          {[['Operating', rooms.length - buckets.inactive.length], ['Checkout', buckets.checkout.length], ['Service', buckets.service.length], ['Arriving', buckets.arrival.length], ['Vacant', buckets.vacant.length], ['No-show', buckets.noshow.length], ['Unavailable', buckets.inactive.length]].map(([label, count]) => (
             <div key={label} className="rounded-lg border bg-muted/40 px-1.5 py-1.5 text-center">
               <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</div>
               <div className="text-sm font-semibold leading-tight">{count}</div>
@@ -519,6 +514,8 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
           <div className="border-t border-border/50" />
           {renderSection('Awaiting arrival', buckets.arrival, 'arrival', <Clock3 className="h-3.5 w-3.5 text-sky-600" />, 'Expected check-ins · not occupied · not confirmed no-shows')}
           <div className="border-t border-border/50" />
+          {renderSection('Vacant / Unsold', buckets.vacant, 'vacant', <MapPin className="h-3.5 w-3.5 text-emerald-600" />, 'Verified empty in Previo · no reservation today')}
+          <div className="border-t border-border/50" />
           {renderSection('Other rooms', buckets.other, 'other', <MapPin className="h-3.5 w-3.5 text-slate-500" />, 'No housekeeping scheduled today')}
           <div className="border-t border-border/50" />
           {renderSection('No show', buckets.noshow, 'noshow', <UserX className="h-3.5 w-3.5 text-red-600" />, 'Only confirmed no-show reservations')}
@@ -549,6 +546,11 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">{rooms.map(room => <div key={room.id} className="flex items-center gap-2 rounded-lg border p-2"><div className="min-w-[85px]"><div className="text-xs font-bold">{registryByRoom.get(room.id)?.pms_room_name || room.room_number}</div>{!isOperating(room) && <div className="text-[9px] text-slate-500">Not available</div>}</div><Select value={buildingByRoom.get(room.id) || 'unmapped'} onValueChange={value => void mapRoom(room, value)} disabled={!canMap || mappingBusy === room.id}><SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="Unmapped" /></SelectTrigger><SelectContent><SelectItem value="unmapped">Unmapped</SelectItem>{buildings.map(building => <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>)}</SelectContent></Select></div>)}</div>
         </div>}
       </CardContent>
+      <GozsduRoomJourneyDialog open={!!journeyRoom} onOpenChange={open => { if (!open) setJourneyRoom(null); }}
+        roomId={journeyRoom?.id ?? null} roomName={journeyRoom ? displayName(journeyRoom) : ''}
+        selectedDate={selectedDate} currentBucket={journeyRoom
+          ? (Object.keys(buckets) as Array<keyof typeof buckets>).find(k => buckets[k].some(r => r.id === journeyRoom.id)) ?? 'other'
+          : 'other'} />
     </Card>
   );
 }

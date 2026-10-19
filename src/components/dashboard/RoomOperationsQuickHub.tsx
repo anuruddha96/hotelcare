@@ -312,6 +312,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   }, [hotelName, selectedDate]);
 
   const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement)?.closest?.('[data-room-journey-trigger]')) return;
     if (!canOpen) return;
     const chip = roomChipFromTarget(event.target, rootRef.current);
     if (!chip) return;
