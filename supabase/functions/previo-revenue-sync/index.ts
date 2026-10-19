@@ -745,23 +745,38 @@ serve(async (req) => {
   const hasNamedTypes = roomTypes.some((r) => !UNIT_GROUP.test(r.name) && !isNonRoom(r.name));
   const countsForInventory = (name: string) =>
     !isNonRoom(name) && (hasNamedTypes ? !UNIT_GROUP.test(name) : true);
+  const { data: storedKindFlags, error: storedKindFlagsError } = await service
+    .from("room_types")
+    .select("pms_room_id,is_sellable,counts_toward_inventory")
+    .eq("hotel_id", hotelId);
+  if (storedKindFlagsError) {
+    return json({ success: false, errors: [...errors, `Cannot verify active Previo inventory: ${storedKindFlagsError.message}`] }, 502);
+  }
+  const previouslyDisabledKinds = new Set(
+    (storedKindFlags ?? []).filter((r) => r.pms_room_id && (r.is_sellable === false || r.counts_toward_inventory === false))
+      .map((r) => String(r.pms_room_id)),
+  );
+  const isActiveKind = (obkId: string | null | undefined): boolean =>
+    !obkId || !previouslyDisabledKinds.has(String(obkId));
   const totalRoomsFromKinds = roomTypes
-    .filter((r) => countsForInventory(r.name))
+    .filter((r) => countsForInventory(r.name) && isActiveKind(r.obkId))
     .reduce((s, r) => s + r.numRooms, 0);
   const { data: revSettings } = await service
     .from("hotel_revenue_settings")
     .select("sellable_rooms, base_currency, eur_conversion_rate")
     .eq("hotel_id", hotelId)
     .maybeSingle();
-  const totalRooms =
-    Number((revSettings as { sellable_rooms?: number } | null)?.sellable_rooms || 0) ||
-    totalRoomsFromKinds;
+  const configuredInventory = Number((revSettings as { sellable_rooms?: number } | null)?.sellable_rooms || 0);
+  const totalRooms = totalRoomsFromKinds || configuredInventory;
+  if (totalRoomsFromKinds > 0 && configuredInventory > 0 && totalRoomsFromKinds !== configuredInventory) {
+    softNotes.push(`inventory mismatch: configured ${configuredInventory}, active Previo room kinds ${totalRoomsFromKinds}; commercial KPIs use active inventory`);
+  }
 
 
   if (roomTypes.length && orgSlug) {
     const { data: existing } = await service
       .from("room_types")
-      .select("id, pms_room_id, name, num_rooms")
+      .select("id, pms_room_id, name, num_rooms, is_sellable, counts_toward_inventory")
       .eq("hotel_id", hotelId);
     const byPms = new Map(
       ((existing ?? []) as Array<{ id: string; pms_room_id: string | null }>)
@@ -779,8 +794,9 @@ serve(async (req) => {
             name: rt.name,
             num_rooms: rt.numRooms,
             sort_order: rt.order,
-            is_sellable: !isNonRoom(rt.name),
-            counts_toward_inventory: countsForInventory(rt.name),
+            // Manual inactive-kind decisions must survive routine Previo sync.
+            is_sellable: isActiveKind(rt.obkId) && !isNonRoom(rt.name),
+            counts_toward_inventory: isActiveKind(rt.obkId) && countsForInventory(rt.name),
           })
           .eq("id", match.id);
         if (error) errors.push(`Room type ${rt.obkId}: ${error.message}`);
@@ -1776,8 +1792,8 @@ serve(async (req) => {
   // Inventory-hold reservations remain in the on-the-books dataset so
   // occupancy/revenue behavior is unchanged, but they must not enter
   // booking-created sales or pickup movement math.
-  const salesPickupNights = nights.filter(countsTowardRevenueSalesPickup);
-  const salesPickupCancelledNights = cancelledNights.filter(countsTowardRevenueSalesPickup);
+  const salesPickupNights = nights.filter((n) => isActiveKind(n.obk_id) && countsTowardRevenueSalesPickup(n));
+  const salesPickupCancelledNights = cancelledNights.filter((n) => isActiveKind(n.obk_id) && countsTowardRevenueSalesPickup(n));
   const suppressedPickupReservationIds = new Set(
     nights.filter((n) => !countsTowardRevenueSalesPickup(n)).map((n) => n.res_id),
   );
@@ -2045,15 +2061,21 @@ serve(async (req) => {
 
 
   // ---------- 4. daily snapshot ----------
-  const perDate = new Map<string, { sold: number; revenue: number; created: number }>();
+  const perDate = new Map<string, { sold: number; revenue: number; created: number; held: number; unpriced: number }>();
   for (let i = 0; i <= horizonDays; i++) {
-    perDate.set(addDays(from, i), { sold: 0, revenue: 0, created: 0 });
+    perDate.set(addDays(from, i), { sold: 0, revenue: 0, created: 0, held: 0, unpriced: 0 });
   }
   for (const n of nights) {
     const slot = perDate.get(n.stay_date);
-    if (!slot) continue;
+    if (!slot || !isActiveKind(n.obk_id)) continue;
+    if (!countsTowardRevenueSalesPickup(n)) {
+      // Inventory holds reduce sellable capacity, not commercial ADR.
+      slot.held += 1;
+      continue;
+    }
     slot.sold += 1;
     slot.revenue += n.nightly_price_eur ?? 0;
+    if (n.nightly_price_eur === null) slot.unpriced += 1;
     // Stored as UTC; a booking made at 01:00 Budapest is still "yesterday" in
     // UTC, so compare Budapest calendar days or early-morning pickup is lost.
     if (
@@ -2069,14 +2091,18 @@ serve(async (req) => {
     stay_date: stayDate,
     captured_date: today,
     rooms_sold: v.sold,
-    rooms_available: totalRooms,
-    occupancy_pct: totalRooms ? Math.round((v.sold / totalRooms) * 1000) / 10 : 0,
+    rooms_available: Math.max(0, totalRooms - v.held),
+    occupancy_pct: totalRooms > v.held ? Math.round((v.sold / (totalRooms - v.held)) * 1000) / 10 : 0,
     revenue_eur: Math.round(v.revenue * 100) / 100,
     adr_eur: v.sold ? Math.round((v.revenue / v.sold) * 100) / 100 : null,
     new_bookings: v.created,
     captured_at: capturedAt,
   }));
-  if (!resErrors.length) {
+  const invalidSnapshots = snapshots.filter((s) => s.rooms_available < s.rooms_sold || s.rooms_available < 1);
+  const missingPriceDays = Array.from(perDate.values()).filter((s) => s.unpriced > 0).length;
+  if (invalidSnapshots.length > 0) softNotes.push(`KPI validation: ${invalidSnapshots.length} days have sales above commercial inventory or zero inventory`);
+  if (missingPriceDays > 0) softNotes.push(`KPI validation: ${missingPriceDays} days contain missing room prices; verify in Previo`);
+  if (!resErrors.length && invalidSnapshots.length === 0) {
     for (let i = 0; i < snapshots.length; i += 500) {
       const { error } = await service
         .from("revenue_daily_snapshots")

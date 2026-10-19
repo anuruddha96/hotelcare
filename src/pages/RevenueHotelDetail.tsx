@@ -1206,6 +1206,9 @@ export default function RevenueHotelDetail() {
             hotelId={hotelId ?? null}
             canEdit={isTechnicalAdmin}
             roomsAvailable={live.roomsAvailable}
+            excludedRoomTypeIds={live.excludedRoomTypeIds}
+            inventoryMismatch={live.inventoryMismatch}
+            configuredRooms={live.configuredRooms}
             selectedMonth={selectedMonth}
             onSelectedMonthChange={setSelectedMonth}
             nights={live.nights}

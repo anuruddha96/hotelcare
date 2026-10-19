@@ -468,11 +468,15 @@ export function useRevenueHotelData(
     .filter((r) => r.is_sellable !== false && r.counts_toward_inventory !== false)
     .reduce((s, r) => s + (r.num_rooms || 0), 0), [roomTypes]);
   const snapshotRooms = snapshots[0]?.rooms_available ?? 0;
-  const typesLookInflated = snapshotRooms > 0 && inventoryFromTypes > snapshotRooms * 1.2;
-  const sellableOverride = (settings.sellable_rooms as number | null) ?? null;
-  const roomsAvailable = sellableOverride
-    || (typesLookInflated ? snapshotRooms : inventoryFromTypes)
-    || snapshotRooms;
+  const sellableOverride = Number(settings.sellable_rooms) || 0;
+  // A stale manual override cannot supersede the Previo-backed active catalog.
+  // SLNT, for example, had 61 configured but only 57 active room-type units.
+  const roomsAvailable = inventoryFromTypes || sellableOverride || snapshotRooms;
+  const excludedRoomTypeIds = useMemo(() => new Set(roomTypes
+    .filter((r) => r.is_sellable === false || r.counts_toward_inventory === false)
+    .map((r) => r.pms_room_id)
+    .filter((id): id is string => !!id)), [roomTypes]);
+  const inventoryMismatch = inventoryFromTypes > 0 && sellableOverride > 0 && inventoryFromTypes !== sellableOverride;
 
   const metrics = useRevenueMetrics({
     today,
@@ -483,12 +487,14 @@ export function useRevenueHotelData(
     movements,
     rates,
     roomsAvailable,
+    excludedRoomTypeIds,
     pickupWindowDays,
   });
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
     nights, snapshots, rates, cancellations, soldOutPrices, availability, metrics, lastSyncAt, lastSyncBy, thresholds, reload, refreshAvailability, refreshRoomTypes,
+    excludedRoomTypeIds, inventoryMismatch, configuredRooms: sellableOverride,
     extending,
   };
 }
