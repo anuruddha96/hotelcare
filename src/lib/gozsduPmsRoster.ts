@@ -52,6 +52,44 @@ export function isGozsduNoShow(room: LocalRoom, selectedDate: string): boolean {
     && pms.checkedOutToday !== true;
 }
 
+/**
+ * The exact-day occupied-night feed intentionally excludes some same-day events.
+ * Use an independent, date-matched Previo *room* sync only when it explicitly
+ * proves a checkout or verified unsold room. Unrecognized absences still fail
+ * closed; the missing room is NEVER assumed vacant just because it is absent.
+ */
+const MAX_SUPPLEMENT_AGE_MS = 2 * 60 * 60 * 1000;
+
+function recentSameDayRoomEvidence(room: LocalRoom, selectedDate: string, now: number): boolean {
+  const pms = room.pms_metadata;
+  if (!pms || pms.pmsProvider !== 'previo' || pms.pmsSyncDate !== selectedDate) return false;
+  const stamp = Date.parse(String(pms.lastServerMorningSyncAt || ''));
+  return Number.isFinite(stamp) && stamp <= now + 60_000 && now - stamp <= MAX_SUPPLEMENT_AGE_MS;
+}
+
+export function isGozsduVerifiedCheckout(room: LocalRoom, selectedDate: string, now = Date.now()): boolean {
+  const pms = room.pms_metadata;
+  if (!recentSameDayRoomEvidence(room, selectedDate, now)) return false;
+  const checkoutStamp = Date.parse(String(pms.checkedOutAt || ''));
+  return pms.checkedOutToday === true && pms.scheduledDepartureToday === true
+    && pms.departureDate === selectedDate
+    && pms.isNoShow !== true && pms.isCancelled !== true
+    && Number.isFinite(checkoutStamp) && checkoutStamp <= now + 60_000;
+}
+
+export function isGozsduVerifiedUnsold(room: LocalRoom, selectedDate: string, now = Date.now()): boolean {
+  const pms = room.pms_metadata;
+  if (!recentSameDayRoomEvidence(room, selectedDate, now)) return false;
+  const stamp = Date.parse(String(pms.pmsVacancyVerifiedAt || ''));
+  return pms.pmsOccupancyStatus === 'unsold'
+    && pms.pmsVacancyEvidence === 'current_previo_reservation_snapshot_and_physical_room_roster'
+    && pms.reservationId == null && pms.occupiedToday === false
+    && pms.arrivalToday === false && pms.checkedOutToday === false
+    && pms.isNoShow !== true
+    && Number.isFinite(stamp) && stamp <= now + 60_000
+    && now - stamp <= MAX_SUPPLEMENT_AGE_MS;
+}
+
 /** Identify a sparse selected-day feed without equating a missing row to a vacant or unavailable room. */
 export function missingGozsduPmsRooms(registry: RegistryEntry[], snapshots: GozsduPmsRow[]): string[] {
   const observed = new Set(snapshots.map(row => key(row.room_label)));
@@ -122,14 +160,19 @@ export function reconcileGozsduPmsRoster(
     const room = roomsById.get(entry.room_id)!;
     const noShow = isGozsduNoShow(room, selectedDate);
     const arrival = !noShow && isGozsduAwaitingArrival(room, selectedDate);
-    if (!noShow && !arrival) {
+    const checkout = !noShow && !arrival && isGozsduVerifiedCheckout(room, selectedDate, now);
+    const unsold = !noShow && !arrival && !checkout
+      && isGozsduVerifiedUnsold(room, selectedDate, now);
+    if (!noShow && !arrival && !checkout && !unsold) {
       const missing = missingGozsduPmsRooms(registry, snapshots);
       throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local). Missing from selected-day PMS: ${missing.join(', ')}. Their operating status is unchanged; booking and occupancy are UNKNOWN until verified in Previo.`);
     }
     byRoom.set(entry.room_id, {
-      bucket: noShow ? 'noshow' : 'arrival', service: 'none', night: 1,
+      bucket: noShow ? 'noshow' : arrival ? 'arrival' : checkout ? 'checkout' : 'other',
+      service: 'none',
+      night: Math.max(1, Number(room.pms_metadata.currentNight) || 1),
       totalNights: Math.max(1, Number(room.pms_metadata.totalNights) || 1),
-      leavesTomorrow: Number(room.pms_metadata.totalNights) === 1,
+      leavesTomorrow: arrival && Number(room.pms_metadata.totalNights) === 1,
     });
   }
   if (byRoom.size !== rooms.length) throw new Error('Gozsdu PMS snapshot has unmapped local rooms.');

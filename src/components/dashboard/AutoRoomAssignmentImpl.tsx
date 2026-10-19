@@ -78,6 +78,8 @@ import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
 import { isPotentialCheckoutRoom } from '@/lib/nextDayHousekeepingSnapshot';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { todayBudapest } from '@/lib/budapestTime';
+import { TodayHousekeepingPlanReviewDialog } from './TodayHousekeepingPlanReviewDialog';
 import { nextDayAutoAssignUiText } from '@/lib/nextDayAutoAssignUiTranslations';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { isActiveGozsduLaundryner } from '@/lib/gozsduLaundryDutySession';
@@ -226,6 +228,11 @@ export function AutoRoomAssignment({
   const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(new Set());
   const [checkedInStaff, setCheckedInStaff] = useState<Set<string>>(new Set());
   const [dirtyRooms, setDirtyRooms] = useState<RoomForAssignment[]>([]);
+  const [pmsVerificationError, setPmsVerificationError] = useState<string | null>(null);
+  const [savedTodayPlan, setSavedTodayPlan] = useState<{
+    id: string; plan_date: string; status: 'released'; auto_release: boolean;
+  } | null>(null);
+  const [showSavedTodayPlan, setShowSavedTodayPlan] = useState(false);
   const [excludedRoomIds, setExcludedRoomIds] = useState<Set<string>>(new Set());
   const [maintenanceHoldRoomIds, setMaintenanceHoldRoomIds] = useState<Set<string>>(new Set());
   const [assignmentPreviews, setAssignmentPreviews] = useState<AssignmentPreview[]>([]);
@@ -269,6 +276,33 @@ export function AutoRoomAssignment({
   const draftRestoredRef = useRef(false);
   const laundryCommitRef = useRef(laundryDutyCommitRevision);
   const roomSectionsRef = useRef<Map<string, { id: string; name: string }>>(new Map());
+
+  useEffect(() => {
+    if (!open || !isGozsdu || isNextDayPlanning || selectedDate !== todayBudapest()
+        || !profile?.organization_slug) {
+      setSavedTodayPlan(null);
+      setShowSavedTodayPlan(false);
+      return;
+    }
+    let active = true;
+    void (async () => {
+      const { data, error } = await (supabase as any)
+        .from('next_day_housekeeping_plans')
+        .select('id,plan_date,status,auto_release')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('hotel_id', 'gozsdu-court')
+        .eq('plan_date', selectedDate)
+        .eq('status', 'released')
+        .maybeSingle();
+      if (!active) return;
+      if (error) {
+        console.warn('[Gozsdu] Could not load today\'s released plan', error);
+        return;
+      }
+      setSavedTodayPlan(data || null);
+    })();
+    return () => { active = false; };
+  }, [open, isGozsdu, isNextDayPlanning, selectedDate, profile?.organization_slug]);
 
   const saveKey = getSaveKey(profile?.organization_slug, profile?.assigned_hotel, selectedDate);
   const cleaningStaffIds = useMemo(
@@ -486,6 +520,7 @@ export function AutoRoomAssignment({
 
   const fetchData = async (preserveDraft: boolean = false) => {
     setLoading(true);
+    setPmsVerificationError(null);
     try {
       if (!profile?.organization_slug) throw new Error('Organization access could not be verified');
       const hotelName = await getManagerHotel();
@@ -867,9 +902,14 @@ export function AutoRoomAssignment({
         ? Object.fromEntries(Object.entries(localPrefs).filter(([id]) => validStaffIds.has(id))) : {});
     } catch (error) {
       console.error('[AutoRoomAssignment] fetch failed:', error);
-      toast.error(isGozsdu && error instanceof Error
-        ? `Gozsdu PMS could not be verified. Refresh Previo and retry: ${error.message}`
-        : t('autoAssign.failedToLoad'));
+      if (isGozsdu && error instanceof Error) {
+        // Keep a true verification failure visible without suggesting that a
+        // zero-room result is an authoritative PMS result.
+        setPmsVerificationError(error.message);
+        setDirtyRooms([]);
+      } else {
+        toast.error(t('autoAssign.failedToLoad'));
+      }
     } finally {
       setLoading(false);
     }
@@ -1835,7 +1875,7 @@ export function AutoRoomAssignment({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open && !showSavedTodayPlan} onOpenChange={onOpenChange}>
         <DialogContent className={`flex min-h-0 flex-col gap-2 p-3 sm:gap-4 sm:p-6 ${isGozsdu ? 'h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden sm:h-[min(92vh,900px)] sm:w-[95vw] sm:max-w-[95vw]' : `max-h-[92vh] ${step === 'preview' ? 'max-w-[100vw] sm:max-w-[95vw] w-full' : 'max-w-4xl'}`}`}>
           <DialogHeader>
             <DialogTitle className="flex flex-wrap items-center gap-2">
@@ -1873,6 +1913,22 @@ export function AutoRoomAssignment({
             ) : step === 'select-staff' ? (
               <div className="space-y-4">
                 {isGozsdu && <div data-gozsdu-laundryner-slot className="min-w-0" />}
+                {isGozsdu && !isNextDayPlanning && savedTodayPlan && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-300 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+                    <p className="text-xs font-medium text-sky-900 dark:text-sky-100">
+                      {String(language).toLowerCase().startsWith('hu')
+                        ? 'A mai beosztás már ki lett adva. A helyettesítést a mentett beosztásban kezeld.'
+                        : 'Today\'s saved plan has already been released. Change absent staff in the saved plan.'}
+                    </p>
+                    <Button type="button" size="sm" onClick={() => setShowSavedTodayPlan(true)}>
+                      <Users className="mr-2 h-4 w-4" />
+                      {String(language).toLowerCase().startsWith('hu')
+                        ? 'Mai beosztás · Helyettesítés'
+                        : 'Today\'s saved plan · Replace staff'}
+                    </Button>
+                  </div>
+                )}
+
                 <div className={`grid ${isNextDayPlanning ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-3 rounded-lg bg-muted p-3`}>
                   <div className="text-center"><p className="text-2xl font-bold">{effectiveRooms.length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.totalRooms')}</p></div>
                   <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(room => isCheckoutLike(room) && !isPotentialCheckoutRoom(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
@@ -1888,7 +1944,20 @@ export function AutoRoomAssignment({
                 {dirtyRooms.length === 0 ? (
                   <div className="py-8 text-center text-muted-foreground">
                     <AlertCircle className="mx-auto mb-3 h-10 w-10 opacity-50" />
-                    <p>{t('autoAssign.noDirtyRooms')}</p>
+                    <p>{pmsVerificationError
+                      ? (String(language).toLowerCase().startsWith('hu') ? 'A Previo szobák ellenőrzése nem sikerült. Az új automatikus beosztás leállt.' : 'Previo coverage not verified. New automatic assignment is paused.')
+                      : t('autoAssign.noDirtyRooms')}</p>
+                    {pmsVerificationError && (
+                      <p role="alert" className="mx-auto mt-2 max-w-xl break-words text-xs text-amber-700 dark:text-amber-300">
+                        {pmsVerificationError}
+                      </p>
+                    )}
+                    {pmsVerificationError && (
+                      <Button className="ml-2 mt-4" type="button" variant="outline" onClick={() => void fetchData(false)}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        {String(language).toLowerCase().startsWith('hu') ? 'Ellenőrzés újra' : 'Retry verification'}
+                      </Button>
+                    )}
                     {isGozsdu && !isNextDayPlanning && (
                       <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed">
                         {String(language).toLowerCase().startsWith('hu')
@@ -2156,6 +2225,11 @@ export function AutoRoomAssignment({
         </DialogContent>
       </Dialog>
 
+      <TodayHousekeepingPlanReviewDialog
+        open={open && showSavedTodayPlan}
+        onOpenChange={setShowSavedTodayPlan}
+        plan={savedTodayPlan}
+      />
       <AlertDialog open={showOverAllocationDialog} onOpenChange={setShowOverAllocationDialog}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-5 w-5" />{t('autoAssign.shiftExceeded')}</AlertDialogTitle><AlertDialogDescription asChild><div className="space-y-3"><p>{t('autoAssign.shiftExceededDesc')}</p>{overAllocatedStaff.map(staff => <div key={staff.staffId} className="flex items-center justify-between rounded bg-destructive/10 p-2"><span>{staff.staffName}</span><b>{formatMinutesToTime(staff.totalWithBreak)}</b></div>)}</div></AlertDialogDescription></AlertDialogHeader>
