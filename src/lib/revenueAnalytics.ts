@@ -217,9 +217,11 @@ export interface DayMetrics {
   /** Rooms still sellable on this date (inventory minus rooms sold). */
   roomsLeft: number;
   /** Nightly inventory allocated to source-less multi-year non-commercial holds. */
-  excludedInventoryHolds: number;
+  excludedInventoryHolds?: number;
   /** Booked nights belonging to explicitly inactive/non-inventory room kinds. */
-  excludedInactiveNights: number;
+  excludedInactiveNights?: number;
+  /** Commercial stays without a nightly room price (do not present computed ADR as certified). */
+  missingPriceNights?: number;
   /** Bookings created inside the pickup window (never negative). */
   newBookings: number;
   /** Room-nights cancelled inside the pickup window (never negative). */
@@ -302,11 +304,10 @@ export function buildDayMetrics(params: {
 
   const sold = new Map<string, number>();
   const revenue = new Map<string, number>();
-  // Rooms that actually carry a price. A group booking often puts the whole
-  // amount on one room and sends the others at 0, so those must not drag the
-  // ADR average down.
+  // Capacity holds are tracked per stay-date, separately from sellable sales.
   const heldRooms = new Map<string, number>();
   const excludedInactiveNights = new Map<string, number>();
+  const missingPriceNights = new Map<string, number>();
   // Pickup is counted in ROOMS per reservation, so a second room added to a
   // booking that already covered that night still reads as one pickup, while a
   // physical room-key change on the same room does not.
@@ -322,6 +323,9 @@ export function buildDayMetrics(params: {
     if (isNonCommercialInventoryHold(n)) {
       heldRooms.set(n.stay_date, (heldRooms.get(n.stay_date) ?? 0) + 1);
       continue;
+    }
+    if (n.nightly_price_eur === null || !Number.isFinite(n.nightly_price_eur)) {
+      missingPriceNights.set(n.stay_date, (missingPriceNights.get(n.stay_date) ?? 0) + 1);
     }
     sold.set(n.stay_date, (sold.get(n.stay_date) ?? 0) + 1);
     revenue.set(n.stay_date, (revenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
@@ -449,6 +453,7 @@ export function buildDayMetrics(params: {
       roomsLeft: Math.max(0, commercialCapacity - rs),
       excludedInventoryHolds: heldRooms.get(d) ?? 0,
       excludedInactiveNights: excludedInactiveNights.get(d) ?? 0,
+      missingPriceNights: missingPriceNights.get(d) ?? 0,
       newBookings: createdN,
       cancelledBookings: cancelledN < 0 ? 0 : cancelledN,
       newRevenueEur: Math.round((createdRevenue.get(d) ?? 0) * 100) / 100,
