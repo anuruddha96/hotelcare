@@ -1886,7 +1886,17 @@ export function AutoRoomAssignment({
                 </div>
 
                 {dirtyRooms.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground"><AlertCircle className="mx-auto mb-3 h-10 w-10 opacity-50" /><p>{t('autoAssign.noDirtyRooms')}</p></div>
+                  <div className="py-8 text-center text-muted-foreground">
+                    <AlertCircle className="mx-auto mb-3 h-10 w-10 opacity-50" />
+                    <p>{t('autoAssign.noDirtyRooms')}</p>
+                    {isGozsdu && !isNextDayPlanning && (
+                      <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed">
+                        {String(language).toLowerCase().startsWith('hu')
+                          ? 'A tegnap elkészített, ma kiadott beosztás nem tűnt el. A személyzet cseréjéhez zárd be ezt az ablakot, nyisd meg a Mai előkészített beosztást, és válaszd a Helyettesítés lehetőséget. Nem szükséges új PMS-szinkron.'
+                          : 'Yesterday’s released schedule is still saved. To replace a sick staff member, close this window, open Today’s Prepared Plan and choose Replace staff. A new PMS refresh is not required.'}
+                      </p>
+                    )}
+                  </div>
                 ) : (
                   <>
                     <div className="space-y-1">
