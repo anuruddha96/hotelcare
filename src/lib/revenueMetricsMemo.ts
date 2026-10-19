@@ -11,6 +11,7 @@ export function useRevenueMetrics(params: {
   movements: PickupMovement[];
   rates: RoomTypeRate[];
   roomsAvailable: number;
+  excludedRoomTypeIds?: Set<string>;
   pickupWindowDays: number;
 }) {
   const ratedDates = useMemo(() => new Set(params.rates.map((r) => r.stay_date)), [params.rates]);
@@ -22,7 +23,8 @@ export function useRevenueMetrics(params: {
     cancellations: params.cancellations,
     movements: params.movements,
     roomsAvailable: params.roomsAvailable,
+    excludedRoomTypeIds: params.excludedRoomTypeIds,
     windowDays: params.pickupWindowDays,
     ratedDates,
-  }), [params.today, params.horizonEnd, params.nights, params.snapshots, params.cancellations, params.movements, params.roomsAvailable, params.pickupWindowDays, ratedDates]);
+  }), [params.today, params.horizonEnd, params.nights, params.snapshots, params.cancellations, params.movements, params.roomsAvailable, params.excludedRoomTypeIds, params.pickupWindowDays, ratedDates]);
 }
