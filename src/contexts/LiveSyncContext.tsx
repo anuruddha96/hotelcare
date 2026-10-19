@@ -164,6 +164,17 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     if (!enabled || !hotelId || !user?.id) return;
     let cancelled = false;
     let inFlight = false;
+    let activeJob = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // No reason to query every 3 seconds once a hotel's manual queue is idle.
+    // Active jobs still report progress every 3 seconds; explicit refreshes
+    // and tab resumption trigger an immediate reconciliation.
+    const schedule = () => {
+      if (cancelled || document.hidden) return;
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => { timer = undefined; void poll(); },
+        activeJob ? 3_000 : 60_000);
+    };
     const poll = async () => {
       if (cancelled || inFlight || document.hidden) return;
       inFlight = true;
@@ -176,10 +187,11 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
           .order("requested_at",{ascending:false}).limit(60);
         if (error || cancelled) return;
         const group = selectActivePmsQueueGroup((data || []) as PmsQueueRow[],hotelId);
-        if (!group.length) return;
+        if (!group.length) { activeJob = false; return; }
         const groupId = group[0].request_group_id || group[0].id;
         const summary = summarizeQueuedPmsJobs(group);
         const ongoing = summary.status === "queued" || summary.status === "syncing";
+        activeJob = ongoing;
         const finishedAt = summary.finishedAt ? new Date(summary.finishedAt) : null;
         if (ongoing) observedQueueGroupRef.current = groupId;
 
@@ -227,21 +239,32 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         window.dispatchEvent(new CustomEvent("pms-sync-completed"));
       } finally {
         inFlight = false;
+        schedule();
       }
     };
     void poll();
-    const timer = window.setInterval(() => { void poll(); }, 3000);
     const queued = (event: Event) => {
       const groupId = (event as CustomEvent).detail?.groupId;
       if (typeof groupId === "string" && groupId) observedQueueGroupRef.current = groupId;
+      activeJob = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
       void poll();
     };
     window.addEventListener("pms-manual-refresh-queued",queued);
-    const visible = () => { if (!document.hidden) void poll(); };
+    const visible = () => {
+      if (document.hidden) {
+        if (timer !== undefined) window.clearTimeout(timer);
+        timer = undefined;
+      } else void poll();
+    };
     document.addEventListener("visibilitychange",visible);
-    return () => { cancelled = true;window.clearInterval(timer);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
       document.removeEventListener("visibilitychange",visible);
-      window.removeEventListener("pms-manual-refresh-queued",queued); };
+      window.removeEventListener("pms-manual-refresh-queued",queued);
+    };
   }, [enabled,hotelId,user?.id,businessDate]);
 
   const runPms = useCallback(async (force = false): Promise<RefreshOutcome> => {
