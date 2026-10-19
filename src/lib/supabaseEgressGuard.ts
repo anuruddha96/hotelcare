@@ -71,18 +71,23 @@ export function createSupabaseEgressGuard(
     let request = pending.get(key)?.generation === generation
       ? pending.get(key)?.promise : undefined;
     if (!request) {
-      request = Promise.resolve().then(() => transport(input, init));
-      pending.set(key, { generation, promise: request });
-      void request.then((response) => {
-        if (response.ok && (generations.get(table) ?? 0) === generation) {
-          cache.set(key, {
-            response: response.clone(), expiresAt: clock() + ttl, table, generation,
-          });
-          while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value!);
-        }
-      }).catch(() => { /* Failed requests must not be cached. */ }).finally(() => {
-        if (pending.get(key)?.promise === request) pending.delete(key);
-      });
+      // Cache bookkeeping and pending cleanup complete BEFORE a caller can
+      // retry. In particular, a failed response must never be coalesced with
+      // an immediate follow-up request that starts after the first finished.
+      const shared = Promise.resolve().then(() => transport(input, init))
+        .then((response) => {
+          if (response.ok && (generations.get(table) ?? 0) === generation) {
+            cache.set(key, {
+              response: response.clone(), expiresAt: clock() + ttl, table, generation,
+            });
+            while (cache.size > MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value!);
+          }
+          return response;
+        }).finally(() => {
+          if (pending.get(key)?.promise === shared) pending.delete(key);
+        });
+      request = shared;
+      pending.set(key, { generation, promise: shared });
     }
     // Caller-specific clones avoid already-consumed response bodies.
     const response = await request;
