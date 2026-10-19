@@ -45,3 +45,10 @@ export function enrichRollbackAlert(alert, rollbackEvidence, realtimeEvidence, c
     },
   };
 }
+
+// A rollback counter spike is an observation, not a verified application error.
+// The monitor currently has no same-window SQL error/failed-write correlation.
+// Email other established classes of anomaly, including verified deadlocks.
+export function shouldEmailAnomalyAlert(alert) {
+  return alert?.kind !== "rollback_storm";
+}

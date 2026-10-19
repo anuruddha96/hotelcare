@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { sendEmail } from "../_shared/emailSender.ts";
-import { enrichRollbackAlert } from "./rollbackClassification.mjs";
+import { enrichRollbackAlert, shouldEmailAnomalyAlert } from "./rollbackClassification.mjs";
 
 const ADMIN_FALLBACK = "anuruddha.dharmasena@gmail.com";
 
@@ -161,6 +161,7 @@ Deno.serve(async (req) => {
 
   let sent = 0;
   let failed = 0;
+  let diagnosticOnly = 0;
 
   for (const raw of claimed || []) {
     const claimedAlert = raw as Alert;
@@ -185,6 +186,31 @@ Deno.serve(async (req) => {
         .eq("id", alert.id)
         .eq("status", "sending");
       if (enrichmentError) console.error("could not store anomaly diagnostics", enrichmentError.message);
+    }
+    // PostgreSQL xact_rollback includes normal transaction aborts. The monitor
+    // has no correlated SQL-error/failed-write evidence, so do not email a
+    // rollback-only alert as though an operational failure were proven.
+    // Keep it in the anomaly table for investigation; other alert kinds
+    // (deadlocks, costly queries, repeated loops) continue to email normally.
+    if (!shouldEmailAnomalyAlert(alert)) {
+      const { error: observeError } = await admin
+        .from("system_anomaly_alerts")
+        .update({
+          status: "observed",
+          processing_started_at: null,
+          notified_at: null,
+          email_message_id: null,
+          last_notify_error: null,
+        })
+        .eq("id", alert.id)
+        .eq("status", "sending");
+      if (observeError) {
+        failed++;
+        console.error("could not retain diagnostic-only anomaly", alert.id, observeError.message);
+      } else {
+        diagnosticOnly++;
+      }
+      continue;
     }
     const message = messageFor(alert);
     const result = await sendEmail({
@@ -230,6 +256,7 @@ Deno.serve(async (req) => {
     claimed: (claimed || []).length,
     sent,
     failed,
+    diagnostic_only: diagnosticOnly,
     recipient,
     checked_at: new Date().toISOString(),
   });
