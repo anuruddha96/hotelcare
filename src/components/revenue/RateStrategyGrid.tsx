@@ -1351,9 +1351,9 @@ export default function RateStrategyGrid({
           .eq("hotel_id", hotelId).gte("stay_date", today)
           .in("status", ["active", "needs_review"]).limit(500),
         (supabase as any).from("room_sale_overnight_watches")
-          .select("stay_date,first_obk_id,second_obk_id,triggered_reservation,status")
+          .select("stay_date,first_obk_id,second_obk_id,triggered_reservation,status,created_at")
           .eq("hotel_id", hotelId).gte("stay_date", today)
-          .eq("status", "closed").limit(500),
+          .eq("status", "closed").order("created_at", { ascending: false }).limit(500),
         (supabase as any).from("room_sale_overnight_watches")
           .select("stay_date,first_obk_id,second_obk_id,shared_units,status")
           .eq("hotel_id", hotelId).gte("stay_date", today)
@@ -1375,9 +1375,20 @@ export default function RateStrategyGrid({
         setOriginalTransferTargets(promotedByOriginal);
       }
       const nameByObk = new Map(roomTypes.map((room) => [room.pms_room_id, room.name]));
+      const watchPairKey = (item: any) =>
+        `${item.stay_date}|${[String(item.first_obk_id), String(item.second_obk_id)].sort().join("|")}`;
+      // A previously closed shared offer must NOT mask the same pair once a
+      // new, separately baselined and VERIFIED live protection is activated.
+      const reactivatedPairs = new Set(
+        (ongoing ?? []).filter((item: any) => item.status === "active").map(watchPairKey),
+      );
+      const latestClosedPairs = new Set<string>();
       for (const item of overnight ?? []) {
-        // Show the real last-sale price only on the category that actually
-        // received the booking. The alternative is closed to avoid a double sale.
+        const pair = watchPairKey(item);
+        if (reactivatedPairs.has(pair) || latestClosedPairs.has(pair)) continue;
+        latestClosedPairs.add(pair);
+        // Show only the LATEST confirmed closure for each pair/date. Older
+        // protection cycles remain in the audit history, not the current legend.
         const booked = String(item.triggered_reservation ?? "").split(":").pop();
         const other = booked === item.first_obk_id ? item.second_obk_id
           : booked === item.second_obk_id ? item.first_obk_id : null;
