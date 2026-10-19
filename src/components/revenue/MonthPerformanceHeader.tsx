@@ -94,12 +94,16 @@ function shiftMonth(key: string, delta: number) {
 export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
   selectedMonth, onSelectedMonthChange, nights = [], cancellations = [], loading = false, loadedThrough,
+  excludedRoomTypeIds, inventoryMismatch = false, configuredRooms = 0,
   refreshing = false, lastSyncAt = null,
 }: {
   today: string;
   metrics: DayMetrics[];
   /** Room-nights on the books — used for "booked today". */
   nights?: BookingNight[];
+  excludedRoomTypeIds?: Set<string>;
+  inventoryMismatch?: boolean;
+  configuredRooms?: number;
   /** Cancelled room-nights — used for what today gave back. */
   cancellations?: CancelledNight[];
   pickupWindowDays: number;
@@ -139,6 +143,8 @@ export default function MonthPerformanceHeader({
 
   const aggregate = (key: string) => {
     const rows = metrics.filter((m) => monthKey(m.stay_date) === key);
+    const holds = rows.reduce((s, m) => s + (m.excludedInventoryHolds ?? 0), 0);
+    const inactive = rows.reduce((s, m) => s + (m.excludedInactiveNights ?? 0), 0);
     const sold = rows.reduce((s, m) => s + m.roomsSold, 0);
     const capacity = rows.reduce((s, m) => s + m.roomsAvailable, 0);
     const revenue = rows.reduce((s, m) => s + m.revenueEur, 0);
@@ -153,6 +159,8 @@ export default function MonthPerformanceHeader({
     const datesDown = rows.filter((m) => (m.netPickup ?? 0) < 0).length;
     return {
       days: rows.length,
+      holds,
+      inactive,
       sold,
       capacity,
       left,
@@ -170,6 +178,7 @@ export default function MonthPerformanceHeader({
   };
 
   const agg = useMemo(() => aggregate(month), [metrics, month]);
+  const kpiIntegrityWarning = inventoryMismatch || agg.sold > agg.capacity || agg.holds > 0 || agg.inactive > 0;
 
   /**
    * What the selected booking window actually produced: reservations created
@@ -189,11 +198,12 @@ export default function MonthPerformanceHeader({
     let revenue = 0;
     let todayRoomNights = 0;
     let todayRevenue = 0;
-    // Rooms a group booking carries at zero: their money sits on another room
-    // of the same reservation, so they are worth calling out.
+    // Zero-priced booking legs can be group revenue allocations or genuine
+    // complimentary stays. We cannot infer their cause without Previo detail.
     let todayUnpricedNights = 0;
     const todayRes = new Set<string>();
     for (const n of nights) {
+      if (n.obk_id && excludedRoomTypeIds?.has(n.obk_id)) continue;
       if (!n.created_at_pms || !countsTowardRevenueSalesPickup(n)) continue;
       if (budapestDayOf(n.created_at_pms) === today) {
         todayRoomNights += 1;
@@ -470,6 +480,15 @@ export default function MonthPerformanceHeader({
         </div>
 
 
+        {kpiIntegrityWarning && !loading && (
+          <div role="status" className="text-[11px] text-muted-foreground rounded-md border border-amber-300/60 px-2 py-1.5">
+            <strong className="text-foreground">Revenue data scope:</strong>
+            {agg.holds > 0 ? ` ${agg.holds} multi-year inventory-hold nights excluded from commercial sales and capacity.` : ""}
+            {agg.inactive > 0 ? ` ${agg.inactive} nights in inactive room kinds excluded.` : ""}
+            {inventoryMismatch ? ` Configured inventory (${configuredRooms}) differs from active PMS room types (${roomsAvailable}); using active types.` : ""}
+            {agg.sold > agg.capacity ? " Sold room-nights exceed inventory; verify PMS room mapping." : ""}
+          </div>
+        )}
         <div
           ref={tileScrollRef}
           className="-mx-1 flex touch-pan-x gap-2 overflow-x-auto overscroll-x-contain px-1 snap-x snap-mandatory scrollbar-hide [-webkit-overflow-scrolling:touch]"
@@ -487,7 +506,7 @@ export default function MonthPerformanceHeader({
             tone={booked.todayRoomNights > 0 ? "text-primary" : ""}
             explain={{
               title: "Bookings created today",
-              body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"} created\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} booked\n• ${money(booked.todayRevenue)} of room revenue\n• ${booked.todayCancelledNights} room-night${booked.todayCancelledNights === 1 ? "" : "s"} cancelled (${booked.todayCancelledRes} reservation${booked.todayCancelledRes === 1 ? "" : "s"})${booked.todayUnpricedNights ? `\n• ${booked.todayUnpricedNights} room-night${booked.todayUnpricedNights === 1 ? "" : "s"} came in at €0 because the amount sits on another room of the same group booking; they are counted as sold but left out of ADR.` : ""}\n\nThe pickup row in the calendar below uses the booking window you selected (${windowLabel(pickupWindowDays).toLowerCase()}), so it can show movement even on a quiet morning.`,
+              body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"} created\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} booked\n• ${money(booked.todayRevenue)} of room revenue\n• ${booked.todayCancelledNights} room-night${booked.todayCancelledNights === 1 ? "" : "s"} cancelled (${booked.todayCancelledRes} reservation${booked.todayCancelledRes === 1 ? "" : "s"})${booked.todayUnpricedNights ? `\n• ${booked.todayUnpricedNights} room-night${booked.todayUnpricedNights === 1 ? "" : "s"} have a €0 rate in Previo. These remain in sold room-night counts; confirm whether they are group-price allocations or complimentary stays.` : ""}\n\nThe pickup row in the calendar below uses the booking window you selected (${windowLabel(pickupWindowDays).toLowerCase()}), so it can show movement even on a quiet morning.`,
             }}
           />
 
@@ -499,7 +518,7 @@ export default function MonthPerformanceHeader({
             sub={`${agg.sold} of ${agg.capacity} room-nights · ${monthLabel}`}
             icon={<BedDouble className="h-3.5 w-3.5" />}
             surface={agg.occupancyPct >= 75 ? "border-l-emerald-500 bg-emerald-500/5" : agg.occupancyPct >= 45 ? "border-l-amber-500 bg-amber-500/5" : "border-l-sky-500 bg-sky-500/5"}
-            explain={{ title: `Occupancy — ${monthLabel}`, body: "Room-nights sold in this month ÷ sellable room-nights in this month (units × days). Source: Previo reservations." }}
+            explain={{ title: `Occupancy — ${monthLabel}`, body: "Commercial occupied room-nights ÷ commercial room-nights available. Source: Previo reservations and active room inventory; non-commercial multi-year holds are removed from both sales and capacity." }}
           />
           <Tile
             loading={tilesLoading}
@@ -508,7 +527,7 @@ export default function MonthPerformanceHeader({
             sub={eurEquivalent(agg.adr) || `${monthLabel} · revenue ÷ nights sold`}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-violet-500 bg-violet-500/5"
-            explain={{ title: "ADR = Average Daily Rate", body: `Room revenue ÷ room-nights sold for ${monthLabel}. Shown in ${currency.code}.` }}
+            explain={{ title: "ADR = Average Daily Rate", body: `Commercial room revenue ÷ commercially sold room-nights (including group rooms with €0 allocated). Non-commercial multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
           />
           <Tile
             loading={tilesLoading}
