@@ -60,7 +60,11 @@ export function createSupabaseEgressGuard(
     // Do not share responses across identities or cache unauthenticated queries.
     if (!authorization) return transport(input, init);
 
-    const key = authorization + '\n' + url.href;
+    // PostgREST response shape and range also depend on headers, even when
+    // URL and user are identical (for example .single() versus array reads).
+    const representation = ['accept', 'prefer', 'accept-profile', 'range', 'range-unit']
+      .map(name => headers.get(name) ?? '').join('|');
+    const key = authorization + '\n' + url.href + '\n' + representation;
     const generation = generations.get(table) ?? 0;
     const hit = cache.get(key);
     if (hit && hit.expiresAt > clock() && hit.generation === generation) {
