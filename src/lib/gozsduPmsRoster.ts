@@ -81,7 +81,6 @@ export function isGozsduVerifiedCheckout(room: LocalRoom, selectedDate: string, 
   return pms.checkedOutToday === true && pms.scheduledDepartureToday === true
     && pms.departureDate === selectedDate
     && !isGozsduNoShow(room, selectedDate) && pms.isCancelled !== true
-    && [6, 9].includes(Number(pms.reservationStatusId))
     && Number.isFinite(checkoutStamp) && checkoutStamp <= now + 60_000;
 }
 
