@@ -1,8 +1,8 @@
 import { getGozsduHousekeepingCycle, GOZSDU_COURT_HOTEL_ID } from './gozsdu-housekeeping';
-import { isGozsduAwaitingArrival, type GozsduRosterEntry } from './gozsduPmsRoster';
+import { isGozsduAwaitingArrival, isGozsduNoShow, isGozsduVerifiedUnsold, type GozsduRosterEntry } from './gozsduPmsRoster';
 import { readGozsduRoomOverride } from './gozsduRoomBucketOverride';
 
-export type GozsduOperationalBucket = 'checkout' | 'service' | 'arrival' | 'other' | 'noshow';
+export type GozsduOperationalBucket = 'checkout' | 'service' | 'arrival' | 'other' | 'noshow' | 'vacant';
 
 export type GozsduOperationalRoom = {
   id: string;
@@ -45,15 +45,14 @@ export function selectGozsduOperationalRooms<T extends GozsduOperationalRoom>(
 function fallbackCheckout(room: GozsduOperationalRoom, assignment: GozsduOperationalAssignment | undefined, selectedDate: string): boolean {
   const pms = room.pms_metadata || {};
   if (pms.manual_daily === true) return false;
-  return room.is_checkout_room === true || pms.scheduledDepartureToday === true
-    || pms.checkedOutToday === true
-    || (pms.pmsSyncDate !== selectedDate && assignment?.assignment_type === 'checkout_cleaning');
-}
-
-function fallbackNoShow(room: GozsduOperationalRoom, selectedDate: string): boolean {
-  const pms = room.pms_metadata || {};
-  return pms.pmsSyncDate === selectedDate
-    && (pms.isNoShow === true || Number(pms.reservationStatusId) === 8);
+  // Stored room.is_checkout_room can be yesterday's assignment mirror.
+  // Only same-day Previo evidence or an existing live cleaning assignment
+  // may classify checkout without the fully verified overnight roster.
+  return (pms.pmsSyncDate === selectedDate
+      && pms.scheduledDepartureToday === true
+      && pms.isCancelled !== true && !isGozsduNoShow(room, selectedDate))
+    || (assignment?.assignment_type === 'checkout_cleaning'
+      && assignment.status === 'in_progress');
 }
 
 function fallbackServiceDue(room: GozsduOperationalRoom): boolean {
@@ -80,15 +79,15 @@ export function resolveGozsduOperationalBucket(
 ): GozsduOperationalBucket {
   if (verified?.bucket) return verified.bucket;
 
-  const override = readGozsduRoomOverride(room.pms_metadata, selectedDate);
-  if (override?.bucket === 'service') return 'service';
-  if (override?.bucket === 'other') return 'other';
-
+  if (isGozsduNoShow(room, selectedDate)) return 'noshow';
   const hasActiveCheckout = assignment?.assignment_type === 'checkout_cleaning'
     && assignment.status === 'in_progress';
   if (isGozsduAwaitingArrival(room, selectedDate) && !hasActiveCheckout) return 'arrival';
+  if (isGozsduVerifiedUnsold(room, selectedDate)) return 'vacant';
   if (fallbackCheckout(room, assignment, selectedDate)) return 'checkout';
-  if (fallbackNoShow(room, selectedDate)) return 'noshow';
-  if (fallbackServiceDue(room)) return 'service';
+  const override = readGozsduRoomOverride(room.pms_metadata, selectedDate);
+  if (override?.bucket === 'service') return 'service';
+  if (override?.bucket === 'other') return 'other';
+  if (room.pms_metadata?.pmsSyncDate === selectedDate && fallbackServiceDue(room)) return 'service';
   return 'other';
 }
