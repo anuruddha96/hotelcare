@@ -49,8 +49,9 @@ function fallbackCheckout(room: GozsduOperationalRoom, assignment: GozsduOperati
   // Only same-day Previo evidence or an existing live cleaning assignment
   // may classify checkout without the fully verified overnight roster.
   return (pms.pmsSyncDate === selectedDate
-      && pms.scheduledDepartureToday === true
-      && pms.isCancelled !== true && !isGozsduNoShow(room, selectedDate))
+      ? (pms.scheduledDepartureToday === true
+          && pms.isCancelled !== true && !isGozsduNoShow(room, selectedDate))
+      : (room.is_checkout_room === true || assignment?.assignment_type === 'checkout_cleaning'))
     || (assignment?.assignment_type === 'checkout_cleaning'
       && assignment.status === 'in_progress');
 }
@@ -88,6 +89,8 @@ export function resolveGozsduOperationalBucket(
   const override = readGozsduRoomOverride(room.pms_metadata, selectedDate);
   if (override?.bucket === 'service') return 'service';
   if (override?.bucket === 'other') return 'other';
-  if (room.pms_metadata?.pmsSyncDate === selectedDate && fallbackServiceDue(room)) return 'service';
+  // Preserve active housekeeping and laundry plans when the optional PMS room
+  // metadata feed has not yet been refreshed; never infer a booking from it.
+  if (fallbackServiceDue(room)) return 'service';
   return 'other';
 }
