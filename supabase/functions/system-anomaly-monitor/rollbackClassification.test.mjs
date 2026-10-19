@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { enrichRollbackAlert } from "./rollbackClassification.mjs";
+import { enrichRollbackAlert, shouldEmailAnomalyAlert } from "./rollbackClassification.mjs";
 
 const capturedAt = new Date("2026-10-16T21:00:30.000Z");
 const base = {
@@ -52,4 +52,15 @@ test("missing capture clock cannot attach unrelated counters", () => {
 test("other system alerts retain their verified severity and evidence", () => {
   const deadlock = { ...base, kind: "deadlock_spike", title: "Deadlocks", details: { deadlocks: 3 } };
   assert.equal(enrichRollbackAlert(deadlock, queries, realtime, capturedAt), deadlock);
+});
+
+test("rollback-only alerts stay recorded without generating email", () => {
+  assert.equal(shouldEmailAnomalyAlert(base), false);
+  assert.equal(shouldEmailAnomalyAlert(enrichRollbackAlert(base, queries, realtime, capturedAt)), false);
+});
+
+test("verified deadlock and hot-query alert emails remain active", () => {
+  for (const kind of ["deadlock_spike", "query_loop", "query_cpu_hotspot"]) {
+    assert.equal(shouldEmailAnomalyAlert({ ...base, kind }), true);
+  }
 });
