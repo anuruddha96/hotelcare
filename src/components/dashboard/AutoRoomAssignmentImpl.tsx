@@ -1913,6 +1913,22 @@ export function AutoRoomAssignment({
             ) : step === 'select-staff' ? (
               <div className="space-y-4">
                 {isGozsdu && <div data-gozsdu-laundryner-slot className="min-w-0" />}
+                {isGozsdu && !isNextDayPlanning && savedTodayPlan && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-300 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
+                    <p className="text-xs font-medium text-sky-900 dark:text-sky-100">
+                      {String(language).toLowerCase().startsWith('hu')
+                        ? 'A mai beosztás már ki lett adva. A helyettesítést a mentett beosztásban kezeld.'
+                        : 'Today\'s saved plan has already been released. Change absent staff in the saved plan.'}
+                    </p>
+                    <Button type="button" size="sm" onClick={() => setShowSavedTodayPlan(true)}>
+                      <Users className="mr-2 h-4 w-4" />
+                      {String(language).toLowerCase().startsWith('hu')
+                        ? 'Mai beosztás · Helyettesítés'
+                        : 'Today\'s saved plan · Replace staff'}
+                    </Button>
+                  </div>
+                )}
+
                 <div className={`grid ${isNextDayPlanning ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-3 rounded-lg bg-muted p-3`}>
                   <div className="text-center"><p className="text-2xl font-bold">{effectiveRooms.length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.totalRooms')}</p></div>
                   <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(room => isCheckoutLike(room) && !isPotentialCheckoutRoom(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
@@ -1935,14 +1951,6 @@ export function AutoRoomAssignment({
                       <p role="alert" className="mx-auto mt-2 max-w-xl break-words text-xs text-amber-700 dark:text-amber-300">
                         {pmsVerificationError}
                       </p>
-                    )}
-                    {isGozsdu && !isNextDayPlanning && savedTodayPlan && (
-                      <Button className="mt-4" type="button" onClick={() => setShowSavedTodayPlan(true)}>
-                        <Users className="mr-2 h-4 w-4" />
-                        {String(language).toLowerCase().startsWith('hu')
-                          ? 'Mai beosztás megnyitása – helyettesítés'
-                          : 'Open today\'s saved plan · Replace staff'}
-                      </Button>
                     )}
                     {pmsVerificationError && (
                       <Button className="ml-2 mt-4" type="button" variant="outline" onClick={() => void fetchData(false)}>
