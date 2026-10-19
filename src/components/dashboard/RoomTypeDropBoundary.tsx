@@ -5,6 +5,7 @@ import { hasManagerPowers } from '@/lib/roleAccess';
 import { todayBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { readRoomDragPayload } from '@/lib/hkAssignmentDnd';
+import { shouldRefreshRoomTypeNotices } from '@/lib/roomTypeNoticeRefresh';
 import { getGozsduHousekeepingCycle, gozsduServiceLabel } from '@/lib/gozsdu-housekeeping';
 import { gozsduDropBucket } from '@/lib/gozsduRoomDropTarget';
 import {
@@ -60,6 +61,9 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
   const [notices, setNotices] = useState<DisplayNotice[]>([]);
   const [flash, setFlash] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track all relevant room IDs, not only the five shown in the notice banner.
+  // This lets Realtime refresh a notice when a manager removes or edits it.
+  const noticeRoomIdsRef = useRef<Set<string>>(new Set());
 
   const loadNotices = useCallback(async () => {
     if (!canChange) return;
@@ -70,12 +74,23 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
         .select('id,hotel,room_number,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
         .in('hotel', hotelKeys);
       if (error) throw error;
+      const noticeRooms = (data || []).filter(room => {
+        const notice = (room.pms_metadata as any)?.roomTypeChangeNotice as RoomTypeNotice | undefined;
+        return notice?.date === selectedDate && (notice.to === 'checkout' || notice.to === 'daily');
+      });
+      noticeRoomIdsRef.current = new Set(noticeRooms.map(room => room.id));
+      if (noticeRooms.length === 0) {
+        setNotices([]);
+        return;
+      }
       const latest: DisplayNotice[] = [];
+      // An ordinary room update is not a reason to make two more PMS lookups.
+      // Check provider configuration only when a manager notice actually exists.
       const isPrevioClient = await hotelUsesPrevio(hotelKeys);
       const isSlnt = hotelKeys.some(key =>
         String(key).trim().toLowerCase() === 'slnt-group' || String(key).trim().toLowerCase().includes('slnt')
       );
-      for (const room of data || []) {
+      for (const room of noticeRooms) {
         const meta = room.pms_metadata as any;
         const notice = meta?.roomTypeChangeNotice as RoomTypeNotice | undefined;
         if (notice?.date === selectedDate && (notice.to === 'checkout' || notice.to === 'daily')) {
@@ -109,18 +124,68 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
   }, [canChange, hotelName, selectedDate, isGozsdu]);
 
   useEffect(() => {
-    void loadNotices();
     if (!canChange) return;
+    let cancelled = false;
+    let inFlight = false;
+    let refreshQueued = false;
+    let lastRefreshStartedAt = 0;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let hotelKeys = [hotelName];
+
+    // Resolve both canonical and legacy aliases once per mounted property.
+    void resolveHotelKeys(hotelName).then(keys => {
+      if (!cancelled) hotelKeys = keys.length ? keys : [hotelName];
+    }).catch(() => { /* periodic poll remains the recovery path */ });
+
+    const scheduleRefresh = () => {
+      if (cancelled || document.hidden || refreshTimer) return;
+      // During a noisy PMS sync, hundreds of UPDATEs must produce at most one
+      // coalesced request per five seconds, not one query bundle per row.
+      const delay = Math.max(150, 5_000 - (Date.now() - lastRefreshStartedAt));
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        void refresh();
+      }, delay);
+    };
+    const refresh = async () => {
+      if (cancelled || document.hidden) return;
+      if (inFlight) {
+        refreshQueued = true;
+        return;
+      }
+      inFlight = true;
+      lastRefreshStartedAt = Date.now();
+      try {
+        await loadNotices();
+      } finally {
+        inFlight = false;
+        if (refreshQueued && !cancelled) {
+          refreshQueued = false;
+          scheduleRefresh();
+        }
+      }
+    };
+
+    void refresh();
     const channel = supabase.channel(`room-type-notices:${hotelName}:${selectedDate}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms' }, (event: any) => {
-        const changedHotel = event.new?.hotel || event.old?.hotel;
-        if (!changedHotel || changedHotel === hotelName) void loadNotices();
-        else void resolveHotelKeys(hotelName).then(keys => {
-          if (keys.includes(changedHotel)) void loadNotices();
-        });
+        if (shouldRefreshRoomTypeNotices(event, hotelKeys, selectedDate, noticeRoomIdsRef.current)) {
+          scheduleRefresh();
+        }
       }).subscribe();
-    const poll = window.setInterval(() => { if (!document.hidden) void loadNotices(); }, 60_000);
-    return () => { window.clearInterval(poll); void supabase.removeChannel(channel); };
+
+    // Reconcile any missed messages after the app resumes; also retain a
+    // bounded fallback while visible, without polling when the tab sleeps.
+    const poll = window.setInterval(() => { if (!document.hidden) scheduleRefresh(); }, 60_000);
+    const onVisible = () => { if (!document.hidden) scheduleRefresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      window.clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
+      void supabase.removeChannel(channel);
+    };
   }, [canChange, hotelName, selectedDate, loadNotices]);
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
