@@ -9,6 +9,7 @@ export type GozsduPmsRow = {
   status: string | null;
   housekeeping_dep: string | null;
   captured_at: string | null;
+  business_date?: string | null;
 };
 export type GozsduRosterEntry = {
   bucket: 'checkout' | 'service' | 'other' | 'noshow' | 'arrival';
