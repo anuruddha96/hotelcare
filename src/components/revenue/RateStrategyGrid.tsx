@@ -1652,14 +1652,15 @@ export default function RateStrategyGrid({
 
   /** Explicitly opt into the existing physical room sharing/transfer workflow. */
   const offerRoomUpgrade = (editor: NonNullable<typeof inventoryEditor>) => {
-    if (editor.value <= editor.current || !editor.obkId) return;
+    if (!editor.obkId) return;
     const { date, rawName, obkId, label, value, current } = editor;
+    const requested = Math.max(value, current + 1);
     const existingPool = existingSharedWatches.get(`${obkId}|${date}`);
     const promotedObkId = originalTransferTargets.get(`${obkId}|${date}`);
-    const restorePreviousPair = promotedObkId && value - current === 1
+    const restorePreviousPair = promotedObkId && requested - current === 1
       ? { originalObkId: obkId, promotedObkId } : undefined;
     setUpgradePrompt({
-      date, rawName, obkId, label, requested: value, current,
+      date, rawName, obkId, label, requested, current,
       sourceObkId: restorePreviousPair ? obkId :
         existingPool ? (existingPool.first_obk_id === obkId
           ? existingPool.second_obk_id : existingPool.first_obk_id) :
@@ -4251,7 +4252,21 @@ export default function RateStrategyGrid({
                   −
                 </Button>
                 <div className="min-w-[92px] text-center">
-                  <div className="text-4xl font-semibold tabular-nums">{inventoryEditor.value}</div>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={999}
+                    step={1}
+                    aria-label="Final rooms to sell"
+                    className="h-14 w-28 text-center text-3xl font-semibold tabular-nums"
+                    value={inventoryEditor.value}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      if (Number.isInteger(n) && n >= 0 && n <= 999) {
+                        setInventoryEditor((prev) => prev ? { ...prev, value: n } : prev);
+                      }
+                    }}
+                  />
                   <div className="mt-1 text-[11px] text-muted-foreground">
                     {inventoryEditor.value === 0 ? "Sold out" : inventoryEditor.value === 1 ? "room for sale" : "rooms for sale"}
                   </div>
@@ -4262,9 +4277,9 @@ export default function RateStrategyGrid({
                   size="lg"
                   className="h-14 w-14 rounded-full p-0 text-2xl"
                   aria-label="Increase rooms to sell"
-                  disabled={inventoryEditor.value >= inventoryEditor.units}
+                  disabled={inventoryEditor.value >= 999}
                   onClick={() => setInventoryEditor((prev) => prev
-                    ? { ...prev, value: Math.min(prev.units, prev.value + 1) }
+                    ? { ...prev, value: Math.min(999, prev.value + 1) }
                     : prev)}
                 >
                   +
@@ -4272,14 +4287,25 @@ export default function RateStrategyGrid({
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Standard adjustment: change only this room category, without linking another type. Automatic = physical rooms minus booked rooms; Manual = the +/− difference. Previo must confirm availability before the change is saved.
+                Standard adjustment changes only this category. Type a final quantity or use +/−. Previo verifies physical availability before saving; selling extra capacity requires explicitly linking another room type.
               </p>
 
-              {inventoryEditor.value > inventoryEditor.current && (
-                <Button type="button" variant="outline" className="w-full h-auto min-h-10 whitespace-normal py-2" onClick={() => offerRoomUpgrade(inventoryEditor)}>
-                  Offer another room category as a free upgrade instead
-                </Button>
-              )}
+              {(() => {
+                const target = houseInventoryTypes.find((room) => room.pms_room_id === inventoryEditor.obkId);
+                const linked = inventoryEditor.obkId && existingSharedWatches.has(`${inventoryEditor.obkId}|${inventoryEditor.date}`);
+                const hasUpgradeSource = !!linked || houseInventoryTypes.some((room) =>
+                  !!target && canOfferComplimentaryUpgrade(
+                    target, room,
+                    invOverride.get(`${room.name}|${inventoryEditor.date}`) ??
+                      leftByTypeDate?.get(`${room.name}|${inventoryEditor.date}`) ?? 0,
+                    1,
+                  ));
+                return hasUpgradeSource ? (
+                  <Button type="button" variant="outline" className="w-full h-auto min-h-10 whitespace-normal py-2" onClick={() => offerRoomUpgrade(inventoryEditor)}>
+                    Offer a higher room category as a free upgrade
+                  </Button>
+                ) : null;
+              })()}
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button type="button" variant="outline" onClick={() => setInventoryEditor(null)}>
                   Cancel
@@ -4414,9 +4440,10 @@ export default function RateStrategyGrid({
                       upgradeFromObkId: originalObkId,
                       upgradeFromRoomTypeName: source?.name ?? null,
                       upgradeMode: prior ? "shared_pool" : upgradePrompt.mode,
-                      sharedUnits: upgradePrompt.mode === "shared_pool" ? upgradePrompt.requested : undefined,
-                      linkedDisplayKey: prior ? `${upgradePrompt.rawName}|${upgradePrompt.date}` :
-                        source ? `${source.name}|${upgradePrompt.date}` : undefined,
+                      sharedUnits: upgradePrompt.mode === "shared_pool" ? upgradePrompt.requested - upgradePrompt.current : undefined,
+                      // The physical source keeps its own independent availability.
+                      // Never optimistically replace its full count with the shared increment.
+                      linkedDisplayKey: undefined,
                     });
                     setUpgradePrompt(null);
                   }}>{upgradePrompt.restorePreviousPair ? "Restore both room types" :
