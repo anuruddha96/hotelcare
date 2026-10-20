@@ -12,6 +12,9 @@ const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   global: {
+    // Server may reject stale browser bundles after a safe rollout. This is
+    // a public build timestamp, not a credential or user identifier.
+    headers: { 'x-hotelcare-build-at': String(__HOTELCARE_BUILD_AT__) },
     fetch: createSupabaseEgressGuard(fetch),
   },
   auth: {
