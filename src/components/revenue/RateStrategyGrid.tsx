@@ -14,6 +14,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUiPreference } from "@/hooks/useUiPreference";
 import { canOfferComplimentaryUpgrade, showOwnLastSoldPrice } from "@/lib/revenue/roomSaleUpgradeEligibility";
+import { standardRoomsToSellDecision } from "@/lib/revenue/roomsToSellAdjustment";
 import { activeTransferLookups } from "@/lib/revenue/sharedLastRoom";
 import { activePricingRoomTypes, isTechnicalRoomKind } from "@/lib/revenue/roomTypeVisibility";
 import InitializeRoomRatesDialog from "@/components/revenue/InitializeRoomRatesDialog";
@@ -1632,38 +1633,40 @@ export default function RateStrategyGrid({
 
 
 
-  const commitInventory = (date: string, rawName: string, obkId: string | null, label: string, raw: string) => {
+
+  /** Standard +/- adjustments never create or modify a complimentary upgrade. */
+  const commitInventory = (date: string, rawName: string, obkId: string | null, label: string, raw: string, capacity: number) => {
     setRestrictionEdit(null);
-    setInventoryEditor(null);
-    const rooms = Math.round(Number(raw));
-    if (!Number.isFinite(rooms) || rooms < 0 || rooms > 999) {
-      if (raw.trim()) toast.error("Rooms to sell must be a whole number.");
-      return;
-    }
     const cellKey = `${rawName}|${date}`;
-    const current = leftByTypeDate?.get(cellKey);
-    if (current === rooms) return;
-    if (rooms > (current ?? 0)) {
-      // A complimentary upgrade is an allocation from an existing room type,
-      // not extra property capacity. Explain the source before writing to PMS.
-      const existingPool = obkId ? existingSharedWatches.get(`${obkId}|${date}`) : undefined;
-      const promotedObkId = obkId ? originalTransferTargets.get(`${obkId}|${date}`) : undefined;
-      const restorePreviousPair = promotedObkId && rooms - (current ?? 0) === 1 && obkId
-        ? { originalObkId: obkId, promotedObkId } : undefined;
-      setUpgradePrompt({
-        date, rawName, obkId, label,
-        requested: rooms, current: current ?? 0,
-        sourceObkId: restorePreviousPair ? obkId! :
-          existingPool ? (existingPool.first_obk_id === obkId
-            ? existingPool.second_obk_id : existingPool.first_obk_id) :
+    const current = invOverride.get(cellKey) ?? leftByTypeDate?.get(cellKey);
+    const decision = standardRoomsToSellDecision(Number(raw), current, capacity);
+    if (decision.kind === "invalid") { toast.error(decision.message); return; }
+    if (decision.kind === "unchanged") { setInventoryEditor(null); return; }
+    if (!obkId) { toast.error("Room category is not mapped to Previo."); return; }
+    setInventoryEditor(null);
+    void sendRestriction({
+      key: `inv|${cellKey}`, date, roomsToSell: decision.roomsToSell,
+      obkId, roomTypeName: label,
+    });
+  };
+
+  /** Explicitly opt into the existing physical room sharing/transfer workflow. */
+  const offerRoomUpgrade = (editor: NonNullable<typeof inventoryEditor>) => {
+    if (editor.value <= editor.current || !editor.obkId) return;
+    const { date, rawName, obkId, label, value, current } = editor;
+    const existingPool = existingSharedWatches.get(`${obkId}|${date}`);
+    const promotedObkId = originalTransferTargets.get(`${obkId}|${date}`);
+    const restorePreviousPair = promotedObkId && value - current === 1
+      ? { originalObkId: obkId, promotedObkId } : undefined;
+    setUpgradePrompt({
+      date, rawName, obkId, label, requested: value, current,
+      sourceObkId: restorePreviousPair ? obkId :
+        existingPool ? (existingPool.first_obk_id === obkId
+          ? existingPool.second_obk_id : existingPool.first_obk_id) :
           existingTransfers.get(`${obkId}|${date}`) ?? "",
-        mode: "shared_pool",
-        restorePreviousPair,
-      });
-      return;
-    }
-    setInvOverride((prev) => new Map(prev).set(cellKey, rooms));
-    void sendRestriction({ key: `inv|${cellKey}`, date, roomsToSell: rooms, obkId, roomTypeName: label });
+      mode: "shared_pool", restorePreviousPair,
+    });
+    setInventoryEditor(null);
   };
 
   /**
@@ -4269,25 +4272,31 @@ export default function RateStrategyGrid({
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Automatic = physical rooms minus booked rooms. Manual shows the +/− override, just like Previo. Saving writes the final Rooms to sell value to Previo and HotelCare reads it back before confirming.
+                Standard adjustment: change only this room category, without linking another type. Automatic = physical rooms minus booked rooms; Manual = the +/− difference. Previo must confirm availability before the change is saved.
               </p>
 
+              {inventoryEditor.value > inventoryEditor.current && (
+                <Button type="button" variant="outline" className="w-full h-auto min-h-10 whitespace-normal py-2" onClick={() => offerRoomUpgrade(inventoryEditor)}>
+                  Offer another room category as a free upgrade instead
+                </Button>
+              )}
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button type="button" variant="outline" onClick={() => setInventoryEditor(null)}>
                   Cancel
                 </Button>
                 <Button
                   type="button"
-                  disabled={inventoryEditor.value === inventoryEditor.current}
+                  disabled={inventoryEditor.value === inventoryEditor.current || !!restrictionBusy}
                   onClick={() => commitInventory(
                     inventoryEditor.date,
                     inventoryEditor.rawName,
                     inventoryEditor.obkId,
                     inventoryEditor.label,
                     String(inventoryEditor.value),
+                    inventoryEditor.units,
                   )}
                 >
-                  Save to Previo
+                  Save standard availability
                 </Button>
               </DialogFooter>
             </div>
@@ -4295,7 +4304,7 @@ export default function RateStrategyGrid({
         </DialogContent>
       </Dialog>
 
-      {/* Confirm a physical room-type upgrade before increasing inventory. */}
+      {/* Optional upgrade shown only after an explicit selection in the rooms-to-sell editor. */}
       <Dialog open={!!upgradePrompt} onOpenChange={(open) => { if (!open) setUpgradePrompt(null); }}>
         <DialogContent className="w-[calc(100vw-1.5rem)] max-w-sm rounded-2xl p-5">
           <DialogHeader>
