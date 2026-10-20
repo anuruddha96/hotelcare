@@ -14,7 +14,9 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
   global: {
     // Server may reject stale browser bundles after a safe rollout. This is
     // a public build timestamp, not a credential or user identifier.
-    headers: { 'x-hotelcare-build-at': String(typeof __HOTELCARE_BUILD_AT__ === 'number' ? __HOTELCARE_BUILD_AT__ : 0) },
+    // Use Supabase's existing CORS-allowed x-client-info header rather than
+    // introducing a new cross-origin header that might fail browser preflight.
+    headers: { 'x-client-info': 'supabase-js-web/2.53.0 hotelcare/' + String(typeof __HOTELCARE_BUILD_AT__ === 'number' ? __HOTELCARE_BUILD_AT__ : 0) },
     fetch: createSupabaseEgressGuard(fetch),
   },
   auth: {
