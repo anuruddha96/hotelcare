@@ -20,7 +20,7 @@
 1. Merge the PR once CI passes, and publish the updated frontend at
    https://my.hotelcare.app. Check that /hotelcare-release.json returns JSON
    with the published buildId (not HTML) and does not remain cached. Check the
-   build script includes x-hotelcare-build-at in Data API requests.
+   build script includes a hotelcare/<timestamp> marker in the existing x-client-info\n   header on Data API requests.
 2. Deploy migration 20261020093000_hotelcare_stale_browser_gate.sql to the
    HotelCare Supabase project (pcmszqqklkolvvlabohq). The setting
    enforce_stale_clients is initially FALSE; applying the migration **must
