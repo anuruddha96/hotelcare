@@ -2,7 +2,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StaffSchedulePlanner as LegacyStaffSchedulePlanner } from './LegacyStaffSchedulePlanner';
 import { MasterStaffSchedulePlanner } from './MasterStaffSchedulePlanner';
-import { SlntSecureStaffSchedulePlanner } from './SlntSecureStaffSchedulePlanner';
+import { SlntTeamAQuickPlanner } from './SlntTeamAQuickPlanner';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
 
 const MASTER_SCHEDULE_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
@@ -21,7 +21,7 @@ export function StaffSchedulePlanner() {
   const canManageMaster = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(role);
 
   const housekeepingView = isSlnt
-    ? (canManageHousekeeping ? <SlntSecureStaffSchedulePlanner /> : <UpcomingShiftCard />)
+    ? (canManageHousekeeping ? <SlntTeamAQuickPlanner /> : <UpcomingShiftCard />)
     : <LegacyStaffSchedulePlanner />;
 
   if (!canManageMaster) return housekeepingView;
