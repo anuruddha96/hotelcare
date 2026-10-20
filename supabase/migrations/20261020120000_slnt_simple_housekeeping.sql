@@ -1,10 +1,11 @@
 -- SLNT-only simplified housekeeping. This migration deliberately does not
 -- change RD Hotels, shared assignment classifications or existing schedules.
--- Rollout must remain disabled until Team A staff/rooms are verified and
--- two-PMS-account approval tests pass. Merge does not enable production UX.
+-- SLNT Team B can be activated independently of Team A. Keep Team A off
+-- until SLNT confirms staff and apartment membership in person.
 CREATE TABLE IF NOT EXISTS public.slnt_housekeeping_rollout (
   organization_slug text PRIMARY KEY,
   enabled boolean NOT NULL DEFAULT false,
+  team_a_enabled boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT slnt_housekeeping_rollout_tenant CHECK (organization_slug = 'slnt')
 );
@@ -23,14 +24,6 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
                  WHERE f.organization_slug='slnt' AND f.enabled)
      AND EXISTS (
        SELECT 1 FROM public.housekeeping_teams t
-       WHERE t.organization_slug='slnt' AND t.code='team-a' AND t.is_active
-         AND EXISTS (SELECT 1 FROM public.housekeeping_team_rooms r
-                     WHERE r.team_id=t.id AND r.is_active)
-         AND EXISTS (SELECT 1 FROM public.housekeeping_team_members m
-                     WHERE m.team_id=t.id AND m.is_active)
-     )
-     AND EXISTS (
-       SELECT 1 FROM public.housekeeping_teams t
        WHERE t.organization_slug='slnt' AND t.code='team-b' AND t.is_active
          AND EXISTS (SELECT 1 FROM public.housekeeping_team_rooms r
                      WHERE r.team_id=t.id AND r.is_active)
@@ -38,6 +31,25 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
 $;
 REVOKE ALL ON FUNCTION public.slnt_simple_housekeeping_enabled(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.slnt_simple_housekeeping_enabled(text) TO authenticated, service_role;
+
+-- Deferred Team A remains disabled even while Team B shared rooms are live.
+CREATE OR REPLACE FUNCTION public.slnt_team_a_housekeeping_enabled()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $
+  SELECT public.slnt_simple_housekeeping_enabled('slnt')
+    AND EXISTS (SELECT 1 FROM public.slnt_housekeeping_rollout f
+                WHERE f.organization_slug='slnt' AND f.team_a_enabled)
+    AND EXISTS (
+      SELECT 1 FROM public.housekeeping_teams t
+      WHERE t.organization_slug='slnt' AND t.code='team-a' AND t.is_active
+        AND EXISTS (SELECT 1 FROM public.housekeeping_team_rooms tr
+                    WHERE tr.team_id=t.id AND tr.is_active)
+        AND EXISTS (SELECT 1 FROM public.housekeeping_team_members tm
+                    WHERE tm.team_id=t.id AND tm.is_active)
+    );
+$;
+REVOKE ALL ON FUNCTION public.slnt_team_a_housekeeping_enabled() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.slnt_team_a_housekeeping_enabled() TO authenticated, service_role;
+
 
 CREATE TABLE IF NOT EXISTS public.slnt_team_a_days_off (
   team_id uuid NOT NULL REFERENCES public.housekeeping_teams(id) ON DELETE CASCADE,
@@ -68,8 +80,8 @@ CREATE OR REPLACE FUNCTION public.slnt_set_team_a_day_off(
   p_team_id uuid, p_user_id uuid, p_work_date date, p_is_off boolean
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NOT public.slnt_simple_housekeeping_enabled() THEN
-    RAISE EXCEPTION 'SLNT simplified housekeeping rollout is not enabled'; END IF;
+  IF NOT public.slnt_team_a_housekeeping_enabled() THEN
+    RAISE EXCEPTION 'SLNT Team A has not been configured or activated'; END IF;
   IF NOT EXISTS (
     SELECT 1 FROM public.profiles p
     JOIN public.housekeeping_teams t ON t.organization_slug = 'slnt'
@@ -118,6 +130,16 @@ BEGIN
   IF p_service_date <> (now() AT TIME ZONE 'Europe/Budapest')::date THEN
     RAISE EXCEPTION 'Team B shared worklist is available for today only';
   END IF;
+  -- Today's room-state refresh is authoritative. Old daily-overview
+  -- snapshots may be several days stale even when business_date is today.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.housekeeping_team_rooms tr
+    JOIN public.housekeeping_teams t ON t.id=tr.team_id
+    JOIN public.rooms r ON r.id=tr.room_id
+    WHERE t.organization_slug='slnt' AND t.code='team-b' AND t.is_active
+      AND tr.is_active AND r.pms_metadata->>'pmsSyncDate'=p_service_date::text
+      AND r.updated_at >= (p_service_date::timestamp AT TIME ZONE 'Europe/Budapest')
+  ) THEN RAISE EXCEPTION 'SLNT Team B PMS data is stale; refresh rooms before claiming'; END IF;
   SELECT t.id INTO v_team_id FROM public.housekeeping_teams t
     WHERE t.organization_slug = 'slnt' AND t.code = 'team-b' AND t.is_active
     LIMIT 1;
@@ -146,13 +168,19 @@ BEGIN
     ORDER BY ra.created_at DESC LIMIT 1
   ) a ON true
   WHERE tr.team_id=v_team_id AND tr.is_active
+    AND r.pms_metadata->>'pmsSyncDate'=p_service_date::text
+    AND r.updated_at >= (p_service_date::timestamp AT TIME ZONE 'Europe/Budapest')
     AND lower(coalesce(r.status,'')) NOT IN ('out_of_order','out_of_service','blocked','maintenance')
     AND (
       a.id IS NOT NULL
-      OR lower(coalesce(r.status,'')) IN ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty')
-      OR coalesce(r.is_checkout_room,false)
-      OR coalesce(r.towel_change_required,false)
-      OR coalesce(r.linen_change_required,false)
+      OR (lower(coalesce(r.status,'')) IN ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty')
+        AND (
+          (r.pms_metadata->>'scheduledDepartureToday'='true'
+            AND r.pms_metadata->>'pmsOccupancyStatus'='departing')
+          OR (r.pms_metadata->>'pmsOccupancyStatus'='stayover'
+            AND (coalesce(r.towel_change_required,false) OR coalesce(r.linen_change_required,false)))
+        )
+      )
     )
   ORDER BY coalesce(r.is_checkout_room,false) DESC, r.room_number;
 END $$;
@@ -190,12 +218,18 @@ BEGIN
   IF lower(coalesce(v_room.status,'')) IN ('clean','cleaned','ready','out_of_order','out_of_service','blocked','maintenance') THEN
     RAISE EXCEPTION 'Room is already clean or unavailable';
   END IF;
-  IF NOT (
-    lower(coalesce(v_room.status,'')) IN ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty')
-    OR coalesce(v_room.is_checkout_room,false)
-    OR coalesce(v_room.towel_change_required,false)
-    OR coalesce(v_room.linen_change_required,false)
-  ) THEN RAISE EXCEPTION 'Room has no confirmed housekeeping task today'; END IF;
+  IF v_room.pms_metadata->>'pmsSyncDate' IS DISTINCT FROM p_service_date::text
+    OR v_room.updated_at < (p_service_date::timestamp AT TIME ZONE 'Europe/Budapest') THEN
+    RAISE EXCEPTION 'Room PMS status is not current; refresh before claiming';
+  END IF;
+  IF lower(coalesce(v_room.status,'')) NOT IN
+    ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty')
+    OR NOT (
+      (v_room.pms_metadata->>'scheduledDepartureToday'='true'
+        AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing')
+      OR (v_room.pms_metadata->>'pmsOccupancyStatus'='stayover'
+        AND (coalesce(v_room.towel_change_required,false) OR coalesce(v_room.linen_change_required,false)))
+    ) THEN RAISE EXCEPTION 'Room has no confirmed housekeeping task today'; END IF;
 
   SELECT * INTO v_assignment FROM public.room_assignments
     WHERE room_id=p_room_id AND assignment_date=p_service_date
@@ -219,7 +253,9 @@ BEGIN
     p_room_id,auth.uid(),auth.uid(),p_service_date,v_org_slug,
     CASE WHEN coalesce(v_room.is_checkout_room,false) THEN 'checkout_cleaning'
          ELSE 'daily_cleaning' END::public.assignment_type,
-    'assigned',2,NOT coalesce(v_room.is_checkout_room,false),false
+    'assigned',2,CASE WHEN coalesce(v_room.is_checkout_room,false)
+         THEN coalesce((v_room.pms_metadata->>'checkedOutToday')::boolean,false)
+         ELSE true END,false
   ) RETURNING id INTO v_assignment.id;
   RETURN v_assignment.id;
 END $$;
