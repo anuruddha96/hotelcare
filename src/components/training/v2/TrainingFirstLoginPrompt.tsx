@@ -141,15 +141,18 @@ export function TrainingFirstLoginPrompt() {
   const { pendingAutoStart, acceptAutoStart, snoozeAutoStart, lang } = useTrainingV2();
   if (!pendingAutoStart) return null;
 
+  const isSlntCurriculum = pendingAutoStart.slug.startsWith('slnt_');
   const stepCount = pendingAutoStart.steps?.length ?? 0;
   const minutes = pendingAutoStart.estMinutes ?? Math.max(1, Math.round(stepCount * 0.35));
   const isHousekeeper = profile?.role === 'housekeeping' && pendingAutoStart.moduleKey === 'housekeeping';
   const fullName = profile?.full_name?.trim();
   const firstName = fullName?.split(/\s+/)[0];
-  const title = firstName
-    ? txt(TXT.greeting, lang).replace('{name}', firstName)
-    : txt(TXT.title, lang);
-  const learningItems = isHousekeeper
+  const title = isSlntCurriculum
+    ? (lang === 'hu' ? 'Új SLNT takarítási útmutató' : 'Your new SLNT housekeeping guide')
+    : firstName
+      ? txt(TXT.greeting, lang).replace('{name}', firstName)
+      : txt(TXT.title, lang);
+  const learningItems = isHousekeeper && !isSlntCurriculum
     ? HOUSEKEEPER_LEARNING
     : pendingAutoStart.steps.slice(0, 4).map((step) => step.title);
 

@@ -80,6 +80,16 @@ export function MobileHousekeepingView() {
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  // SLNT cleaner profile dates are actionable, on mobile and desktop.
+  useEffect(() => {
+    const showDate = (event: Event) => {
+      const date = (event as CustomEvent<{ date?: string }>).detail?.date;
+      if (date && /^\\d{4}-\\d{2}-\\d{2}$/.test(date)) setSelectedDate(date);
+    };
+    window.addEventListener('hotelcare:slnt-staff-date', showDate);
+    return () => window.removeEventListener('hotelcare:slnt-staff-date', showDate);
+  }, []);
+
   const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | 'no_service' | 'dnd' | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
@@ -429,7 +439,7 @@ export function MobileHousekeepingView() {
 
   return (
     <div className="w-full max-w-md mx-auto px-4 py-4 space-y-4 min-h-screen overflow-x-hidden">
-      {profile?.organization_slug === "slnt" && <UpcomingShiftCard />}
+      {["slnt","slnt-group"].includes(profile?.organization_slug || "") && <UpcomingShiftCard />}
       {/* Date Selector - Mobile Optimized */}
       <Card className="bg-gradient-to-r from-primary/5 to-accent/10 border-primary/20">
         <CardHeader className="pb-3">

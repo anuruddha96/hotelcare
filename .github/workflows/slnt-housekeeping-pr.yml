@@ -1,0 +1,35 @@
+name: SLNT Housekeeping PR Validation
+
+on:
+  pull_request:
+    paths:
+      - 'src/components/dashboard/Slnt*'
+      - 'src/components/dashboard/Housekeeping*'
+      - 'src/components/dashboard/StaffSchedulePlanner.tsx'
+      - 'src/components/dashboard/UpcomingShiftCard.tsx'
+      - 'src/components/dashboard/MobileHousekeepingView.tsx'
+      - 'src/components/training/**'
+      - 'src/lib/slnt*'
+      - 'supabase/functions/previo-update-room-status/**'
+      - 'supabase/migrations/*slnt_simple_housekeeping.sql'
+      - '.github/workflows/slnt-housekeeping-pr.yml'
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    name: TypeScript / Vitest / Vite
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      # This repo's package-lock.json is not synchronized with package.json.
+      # Use Bun consistently with the existing Frontend CI workflow.
+      - run: bun install
+      # Baseline repository has unrelated tsc errors; record them without
+      # skipping the SLNT-focused tests and production build.
+      - run: bunx tsc --noEmit --project tsconfig.app.json
+        continue-on-error: true
+      - run: bun run test -- --run src/lib/slntSimplifiedHousekeeping.test.ts
+      - run: bun run build
