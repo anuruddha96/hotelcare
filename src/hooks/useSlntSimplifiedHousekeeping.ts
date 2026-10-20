@@ -8,14 +8,14 @@ import { isSlntOrganization } from '@/lib/slnt14DayHousekeeping';
  * workflows before the migration, Team A mappings and acceptance sign-off.
  * Read-only RPC; missing RPC, sign-out or network error means legacy mode.
  */
-export function useSlntSimplifiedHousekeeping(): boolean {
+export function useSlntSimplifiedHousekeeping(): boolean | null {
   const { user, profile } = useAuth();
   const org = profile?.organization_slug;
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState<boolean | null>(null);
 
   useEffect(() => {
     let active = true;
-    setReady(false);
+    setReady(isSlntOrganization(org) && !!user?.id ? null : false);
     if (!user?.id || !isSlntOrganization(org)) return;
     void (async () => {
       try {
