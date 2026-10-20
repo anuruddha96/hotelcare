@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { summarizeTeamBProgress } from '@/lib/slntSimplifiedHousekeeping';
 
 type Item = {
   room_id: string;
@@ -85,9 +86,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
     } finally { setBusy(null); }
   };
 
-  const pending = useMemo(() => items.filter(i => i.assignment_status === 'completed' && !i.supervisor_approved).length, [items]);
-  const done = useMemo(() => items.filter(i => i.assignment_status === 'completed' && i.supervisor_approved).length, [items]);
-  const open = items.length - pending - done;
+  const { pendingApproval: pending, approved: done, remaining: open } = useMemo(() => summarizeTeamBProgress(items), [items]);
   const label = (i: Item) => i.is_checkout_room ? (hu ? 'Kijelentkezés' : 'Checkout')
     : i.linen_change_required ? (hu ? 'Ágyneműcsere' : 'Linen change')
     : i.towel_change_required ? (hu ? 'Törölközőcsere' : 'Towel change')
