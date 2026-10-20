@@ -229,3 +229,16 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $
 $$;
 REVOKE ALL ON FUNCTION public.slnt_is_team_b_member() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.slnt_is_team_b_member() TO authenticated;
+
+-- Preserve existing future Team A Days Off during migration. Once imported,
+-- SLNT managers edit only the simple days-off table, not daily shifts.
+INSERT INTO public.slnt_team_a_days_off(team_id,user_id,work_date,created_by)
+SELECT t.id,ss.user_id,ss.work_date,ss.created_by
+FROM public.staff_schedules ss
+JOIN public.housekeeping_teams t ON t.organization_slug='slnt'
+  AND t.code='team-a' AND t.is_active
+JOIN public.housekeeping_team_members tm ON tm.team_id=t.id
+  AND tm.user_id=ss.user_id AND tm.is_active
+WHERE ss.organization_slug IN ('slnt','slnt-group') AND ss.status='off'
+  AND ss.work_date >= (now() AT TIME ZONE 'Europe/Budapest')::date
+ON CONFLICT (team_id,user_id,work_date) DO NOTHING;
