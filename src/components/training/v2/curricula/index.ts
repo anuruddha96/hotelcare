@@ -11,10 +11,12 @@ import { managerRevenueCurriculum } from './manager-revenue';
 import { managerInvoicesCurriculum } from './manager-invoices';
 import { autoAssignPromo } from './autoAssignPromo';
 import { adminPmsOverviewCurriculum } from './admin-pms-overview';
+import { slntManagerTraining, slntTeamACleanerTraining, slntTeamBCleanerTraining } from './slnt-simplified';
 
 const housekeeperCurriculum = applyHousekeeperUiFixes(baseHousekeeperCurriculum);
 
 export const ALL_CURRICULA: TrainingCurriculum[] = [
+  slntManagerTraining, slntTeamACleanerTraining, slntTeamBCleanerTraining,
   housekeeperCurriculum,
   managerCompleteCurriculum,
   managerOrientationCurriculum,
