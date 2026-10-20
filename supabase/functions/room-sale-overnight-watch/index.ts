@@ -8,7 +8,7 @@ import { callPrevioXml, loadPrevioCredentials, hasPrevioCredentials } from "../_
 import { parsePrevioReservations, addDays } from "../_shared/previoReservations.ts";
 import { writePrevioInventory } from "../_shared/previoRateWrite.ts";
 import { sendEmail } from "../_shared/emailSender.ts";
-import { permittedLinkedPoolAvailability, unchangedReservationIds } from "../_shared/sharedInventoryPlan.ts";
+import { incrementalLinkedAvailability, permittedLinkedPoolAvailability, unchangedReservationIds } from "../_shared/sharedInventoryPlan.ts";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const reply = (v: unknown, status=200) => new Response(JSON.stringify(v), {status,headers:JSON_HEADERS});
@@ -70,7 +70,7 @@ Deno.serve(async req=>{
       });
       if(!xml.ok) throw Error("Previo reservation verification failed HTTP "+xml.status);
       const rows=parsePrevioReservations(xml.text);
-      if(!rows.length) throw Error("Previo returned no usable reservations; closure not attempted");
+      // An empty hotel can legitimately have no confirmed reservations.
       const live=rows.filter(r=>
         r.arrivalDate<=watch.stay_date && r.departureDate>watch.stay_date &&
         (r.statusId===2 || r.statusId===3)
@@ -92,8 +92,24 @@ Deno.serve(async req=>{
         watch.first_obk_id,watch.second_obk_id,
       );
       if(planned===null)throw Error("Shared-room physical inventory configuration is invalid");
-      const desired = watch.status==="active" ? planned : 0;
-      const repairDue=watch.status==="active" && !!watch.reconcile_requested_at &&
+      const incremental=watch.pool_mode==="incremental"
+        ? incrementalLinkedAvailability({
+            sourceAtStart:Number(watch.source_base_availability),
+            targetAtStart:Number(watch.target_base_availability),
+            sharedUnits:initialUnits,
+            sourceBookedAtStart:Number(watch.source_booked_at_start),
+            targetBookedAtStart:Number(watch.target_booked_at_start),
+            sourceBookedNow:live.filter(r=>r.obkId===watch.second_obk_id).length,
+            targetBookedNow:live.filter(r=>r.obkId===watch.first_obk_id).length,
+          })
+        : null;
+      if(watch.pool_mode==="incremental" && !incremental)
+        throw Error("Incremental shared-room baseline cannot be reconciled safely.");
+      const desired = watch.status==="active"
+        ? (incremental ? incremental.sharedRemaining : planned) : 0;
+      const desiredTarget=incremental ? incremental.target : desired;
+      const desiredSource=incremental ? incremental.source : desired;
+      const repairDue=!incremental && watch.status==="active" && !!watch.reconcile_requested_at &&
         (!watch.reconciled_at ||
           Date.parse(watch.reconciled_at)<Date.parse(watch.reconcile_requested_at));
       if(repairDue){
@@ -116,7 +132,7 @@ Deno.serve(async req=>{
             throw Error("An independent category is offering more than its own physical inventory");
         }
       }
-      if(watch.status==="active" && desired===initialUnits && !repairDue){
+      if(watch.status==="active" && !incremental && desired===initialUnits && !repairDue){
         await db.from("room_sale_overnight_watches").update({
           last_checked_at:new Date().toISOString(),last_error:null,
           last_confirmed_remaining:desired,
@@ -143,20 +159,21 @@ Deno.serve(async req=>{
         p_hotel_id:watch.hotel_id,p_stay_date:watch.stay_date,p_owner:lockOwner,
       });
       if(lockError || locked!==true) throw Error("Another inventory update is running; retry next check");
-      for(const obkId of [watch.first_obk_id,watch.second_obk_id]){
+      for(const [obkId,planned] of [[watch.first_obk_id,desiredTarget],
+        [watch.second_obk_id,desiredSource]] as const){
         const available=await currentAvailability(creds,hot,watch.stay_date,obkId);
-        if(repairDue ? available===desired : available<=desired) continue;
-        if(repairDue && available>desired)
+        if(repairDue ? available===planned : available<=planned) continue;
+        if(repairDue && available>planned)
           throw Error("Previo has more rooms for sale than the linked allocation");
         const push=await writePrevioInventory({creds,pmsHotelId:hot,
-          target:{obkId,from:watch.stay_date,to:watch.stay_date,roomsToSell:desired}});
+          target:{obkId,from:watch.stay_date,to:watch.stay_date,roomsToSell:planned}});
         if(!push.ok) throw Error("Previo did not accept category closure for "+obkId);
         const delays=[0,400,1200];
         let confirmed=false;
         for(const delay of delays){
           if(delay) await new Promise(resolve=>setTimeout(resolve,delay));
           const verified=await currentAvailability(creds,hot,watch.stay_date,obkId);
-          if(repairDue ? verified===desired : verified<=desired){confirmed=true;break;}
+          if(repairDue ? verified===planned : verified<=planned){confirmed=true;break;}
         }
         if(!confirmed) throw Error("Closure not verified for category "+obkId);
       }
@@ -166,7 +183,7 @@ Deno.serve(async req=>{
         currentAvailability(creds,hot,watch.stay_date,watch.first_obk_id),
         currentAvailability(creds,hot,watch.stay_date,watch.second_obk_id),
       ]);
-      if(results.some(v=>repairDue ? v!==desired : v>desired))
+      if(results.some((v,index)=>repairDue ? v!==[desiredTarget,desiredSource][index] : v>[desiredTarget,desiredSource][index]))
         throw Error("Shared category availability did not match verified physical inventory");
       for(const [index,obkId] of [watch.first_obk_id,watch.second_obk_id].entries()){
         const {error:mirrorError}=await db.from("revenue_room_type_availability").upsert({
@@ -188,11 +205,13 @@ Deno.serve(async req=>{
         const reservation=String(watch.triggered_reservation ?? newLinked[0]?.resId ?? "Check Previo");
         const plain="HotelCare: Overnight shared-room booking detected at "+watch.hotel_id+
           ". Stay date: "+watch.stay_date+". Reservation: "+reservation+
-          ". Both related room types are now confirmed sold out in Previo. "+
+          (results.every(v=>v===0)
+            ? ". Both linked categories are confirmed sold out in Previo. "
+            : ". Shared inventory is consumed; any independent category availability remains on sale. ")+
           "Please review the physical room assignment and provide a complimentary upgrade where required.";
         const mailed=await sendEmail({admin:db,organizationSlug:watch.organization_slug,
           to:[ADMIN_EMAIL],kind:"transactional",
-          subject:"HotelCare — shared room booked, both categories closed",
+          subject:"HotelCare — linked shared-room inventory consumed",
           html:"<p>"+ESC(plain)+"</p>",text:plain});
         if(mailed.ok) await db.from("room_sale_overnight_watches")
           .update({email_sent_at:new Date().toISOString()}).eq("id",watch.id);
