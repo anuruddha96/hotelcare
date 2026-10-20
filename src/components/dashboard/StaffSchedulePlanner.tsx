@@ -1,5 +1,6 @@
 import { useAuth } from '@/hooks/useAuth';
 import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
+import { useSlntTeamAEnabled } from '@/hooks/useSlntTeamAEnabled';
 import { SlntSecureStaffSchedulePlanner } from './SlntSecureStaffSchedulePlanner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StaffSchedulePlanner as LegacyStaffSchedulePlanner } from './LegacyStaffSchedulePlanner';
@@ -17,7 +18,7 @@ const HOUSEKEEPING_MANAGER_ROLES = ['admin', 'top_management', 'top_management_m
  */
 export function StaffSchedulePlanner() {
   const { profile } = useAuth();
-  const simplifiedEnabled = useSlntSimplifiedHousekeeping() === true;
+  const simplifiedEnabled = useSlntSimplifiedHousekeeping() === true && useSlntTeamAEnabled();
   const isSlnt = profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group';
   const role = profile?.role ?? '';
   const canManageHousekeeping = HOUSEKEEPING_MANAGER_ROLES.includes(role);
