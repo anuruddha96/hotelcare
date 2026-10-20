@@ -39,7 +39,14 @@ serve(async (req) => {
 
     // SLNT Team B: only a manager-approved, completed assignment may mark
     // the room clean in Previo. Enforce this in the privileged PMS edge function.
+    // The revised approval gate becomes active only after the controlled SLNT
+    // rollout. Until then the existing Previo workflow remains unchanged.
+    let simplifiedSlntEnabled = false;
     if (status === 'clean' && ['slnt', 'slnt-group'].includes(room.organization_slug || '')) {
+      const rollout = await supabase.rpc('slnt_simple_housekeeping_enabled', { p_org: 'slnt' });
+      if (!rollout.error) simplifiedSlntEnabled = rollout.data === true;
+    }
+    if (status === 'clean' && simplifiedSlntEnabled) {
       const { data: team } = await supabase.from('housekeeping_teams')
         .select('id').eq('organization_slug', 'slnt')
         .eq('code', 'team-b').eq('is_active', true).maybeSingle();
