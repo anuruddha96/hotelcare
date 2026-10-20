@@ -6,14 +6,16 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
-type RequestStatus = 'requested' | 'delivered' | 'returned' | 'resolved';
-type RequestEvent = { status: RequestStatus; actorId: string; at: string };
+type RequestStatus = 'requested' | 'delivered' | 'returned' | 'resolved' | 'partial_return' | 'not_collected';
+type RequestEvent = { status: RequestStatus; actorId: string; at: string; quantity?: number };
 type GuestItemPayload = {
   version: 1;
   workDate: string;
   requestType: string;
   label: string;
   quantity: number;
+  /** Number already physically recovered in one or more visits. */
+  collectedQuantity?: number;
   requiresReturn: boolean;
   status: RequestStatus;
   detail?: string;
@@ -91,6 +93,7 @@ function parse(content: string): GuestItemPayload | null {
       requestType: value.requestType,
       label: value.label || 'Guest item',
       quantity: Math.max(1, Number(value.quantity) || 1),
+      collectedQuantity: Math.max(0, Number(value.collectedQuantity) || 0),
       requiresReturn: !!value.requiresReturn,
       status: value.status,
       detail: value.detail || '',
@@ -109,13 +112,25 @@ function actorKind(role?: string | null) {
   return 'team';
 }
 
-export function GuestItemRecoveryNotice({ roomId }: { roomId?: string | null }) {
+export function GuestItemRecoveryNotice({
+  roomId,
+  memoriesMode = false,
+  readOnly = false,
+}: {
+  roomId?: string | null;
+  /** HMB-only recovery UX; other properties keep their existing behavior. */
+  memoriesMode?: boolean;
+  /** Managers can monitor the outstanding quantity; collection is for cleaners. */
+  readOnly?: boolean;
+}) {
   const { user } = useAuth();
   const { language } = useTranslation();
   const lang = languageOf(language);
   const [rows, setRows] = useState<NoteRow[]>([]);
   const [actors, setActors] = useState<Record<string, Actor>>({});
   const [saving, setSaving] = useState<string | null>(null);
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
     if (!roomId) return;
@@ -129,8 +144,10 @@ export function GuestItemRecoveryNotice({ roomId }: { roomId?: string | null }) 
       .limit(30);
     if (error) {
       console.warn('[GuestItemRecovery] load failed', error);
+      setLoadError(true);
       return;
     }
+    setLoadError(false);
     const next = (data || []) as NoteRow[];
     setRows(next);
     const actorIds = [...new Set(next.flatMap((row) => {
@@ -164,38 +181,75 @@ export function GuestItemRecoveryNotice({ roomId }: { roomId?: string | null }) 
     return [{ row, payload, actor: actors[actorId] }];
   }), [actors, rows]);
 
-  const markCollected = async (row: NoteRow, payload: GuestItemPayload) => {
-    if (!user?.id || saving) return;
+  const updateRecovery = async (row: NoteRow, payload: GuestItemPayload, action: 'collected' | 'not_collected') => {
+    if (!user?.id || saving || readOnly) return;
     const at = new Date().toISOString();
+    const already = Math.min(payload.quantity, Math.max(0, payload.collectedQuantity || 0));
+    const outstanding = payload.quantity - already;
+    if (outstanding <= 0) return;
+
+    const amount = memoriesMode
+      ? Math.max(1, Math.min(outstanding, Math.floor(quantities[row.id] ?? outstanding)))
+      : outstanding;
+    const recovered = action === 'collected' ? amount : 0;
+    const total = already + recovered;
+    const fullyReturned = total >= payload.quantity;
+    const eventStatus: RequestStatus = action === 'not_collected'
+      ? 'not_collected'
+      : fullyReturned ? 'returned' : 'partial_return';
     const next: GuestItemPayload = {
       ...payload,
-      status: 'returned',
-      events: [...payload.events, { status: 'returned', actorId: user.id, at }],
+      collectedQuantity: total,
+      status: fullyReturned ? 'returned' : 'delivered',
+      events: [...payload.events, { status: eventStatus, actorId: user.id, at, ...(recovered ? { quantity: recovered } : {}) }],
     };
+
     setSaving(row.id);
-    const { error } = await supabase.from('housekeeping_notes').update({
-      content: JSON.stringify(next),
-      is_resolved: true,
-      resolved_by: user.id,
-      resolved_at: at,
-    } as any).eq('id', row.id);
-    setSaving(null);
-    if (error) {
-      toast.error('Could not mark the guest item as collected.');
-      return;
+    try {
+      // Compare-and-swap prevents simultaneous cleaners from over-collecting
+      // the same items or overwriting another housekeeper's event history.
+      const { data, error } = await supabase.from('housekeeping_notes').update({
+        content: JSON.stringify(next),
+        is_resolved: fullyReturned,
+        resolved_by: fullyReturned ? user.id : null,
+        resolved_at: fullyReturned ? at : null,
+      } as any)
+        .eq('id', row.id)
+        .eq('content', row.content)
+        .eq('is_resolved', false)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) throw new Error('This item was updated by someone else. Please refresh.');
+      window.dispatchEvent(new CustomEvent('hc:guest-request-changed', { detail: { roomId } }));
+      toast.success(action === 'not_collected'
+        ? 'Still pending — this item will remain on the next housekeeping visit.'
+        : fullyReturned
+          ? copy[lang].collected
+          : `${recovered} collected · ${payload.quantity - total} still pending`);
+      await load();
+      setQuantities((previous) => ({ ...previous, [row.id]: Math.max(1, payload.quantity - total) }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not update the guest item.');
+      await load();
+    } finally {
+      setSaving(null);
     }
-    toast.success(copy[lang].collected);
-    await load();
   };
 
+  if (loadError && memoriesMode) {
+    return <p role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">Unable to load outstanding guest items. Refresh before closing the room.</p>;
+  }
   if (!items.length) return null;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" aria-label={memoriesMode ? 'Outstanding items to collect' : undefined}>
+      {memoriesMode && <p className="text-xs font-bold text-orange-800 dark:text-orange-200">Extra items to collect · pending until the housekeeper confirms collection</p>}
       {items.map(({ row, payload, actor }) => {
         const kind = actorKind(actor?.role);
         const item = copy[lang].item[payload.requestType] || payload.label;
-        const message = copy[lang].sentence(copy[lang].from[kind], payload.quantity, item, payload.workDate);
+        const remaining = Math.max(0, payload.quantity - (payload.collectedQuantity || 0));
+        const message = copy[lang].sentence(copy[lang].from[kind], memoriesMode ? remaining : payload.quantity, item, payload.workDate);
         return (
           <div key={row.id} className="rounded-lg border-2 border-orange-400 bg-orange-50 p-3 dark:border-orange-600 dark:bg-orange-950/30">
             <div className="flex items-start gap-2">
@@ -204,17 +258,55 @@ export function GuestItemRecoveryNotice({ roomId }: { roomId?: string | null }) 
                 <p className="text-xs font-bold uppercase tracking-wide text-orange-700 dark:text-orange-300">{copy[lang].title}</p>
                 <p className="mt-1 text-sm font-medium text-orange-900 dark:text-orange-100">{message}</p>
                 {payload.detail && <p className="mt-1 text-xs text-orange-800/80 dark:text-orange-200/80">{payload.detail}</p>}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="mt-2 h-8 border-orange-400 bg-background/80 text-xs"
-                  disabled={saving !== null}
-                  onClick={() => void markCollected(row, payload)}
-                >
-                  {saving === row.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1 h-3.5 w-3.5" />}
-                  {copy[lang].collect}
-                </Button>
+                {memoriesMode && (
+                  <p className="mt-1 text-xs font-semibold text-orange-900 dark:text-orange-100">
+                    Pending: {remaining} of {payload.quantity} · originally issued {payload.workDate}
+                  </p>
+                )}
+                {!readOnly && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {memoriesMode && remaining > 1 && (
+                      <label className="flex items-center gap-1 text-xs">
+                        Collected quantity
+                        <input
+                          type="number"
+                          min={1}
+                          max={remaining}
+                          value={quantities[row.id] ?? remaining}
+                          onChange={(event) => setQuantities((previous) => ({
+                            ...previous,
+                            [row.id]: Number(event.target.value),
+                          }))}
+                          className="h-8 w-16 rounded border bg-background px-2 text-sm"
+                          aria-label={`Quantity collected for ${payload.label}`}
+                        />
+                      </label>
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 border-orange-400 bg-background/80 text-xs"
+                      disabled={saving !== null}
+                      onClick={() => void updateRecovery(row, payload, 'collected')}
+                    >
+                      {saving === row.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1 h-3.5 w-3.5" />}
+                      {copy[lang].collect}
+                    </Button>
+                    {memoriesMode && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 border-slate-300 text-xs"
+                        disabled={saving !== null}
+                        onClick={() => void updateRecovery(row, payload, 'not_collected')}
+                      >
+                        Not collected
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
