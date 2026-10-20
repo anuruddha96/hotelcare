@@ -211,3 +211,20 @@ DROP TRIGGER IF EXISTS slnt_team_b_protect_approval ON public.room_assignments;
 CREATE TRIGGER slnt_team_b_protect_approval
   BEFORE UPDATE ON public.room_assignments FOR EACH ROW
   EXECUTE FUNCTION public.slnt_team_b_protect_approval();
+
+-- Safe membership probe for routing each cleaner to the correct SLNT UI.
+CREATE OR REPLACE FUNCTION public.slnt_is_team_b_member()
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.housekeeping_team_members m
+    JOIN public.housekeeping_teams t ON t.id=m.team_id
+    JOIN public.profiles p ON p.id=m.user_id
+    WHERE m.user_id=auth.uid() AND m.is_active
+      AND t.organization_slug='slnt' AND t.code='team-b' AND t.is_active
+      AND p.organization_slug IN ('slnt','slnt-group')
+      AND (m.effective_from IS NULL OR m.effective_from <= (now() AT TIME ZONE 'Europe/Budapest')::date)
+      AND (m.effective_to IS NULL OR m.effective_to >= (now() AT TIME ZONE 'Europe/Budapest')::date)
+  );
+$$;
+REVOKE ALL ON FUNCTION public.slnt_is_team_b_member() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.slnt_is_team_b_member() TO authenticated;
