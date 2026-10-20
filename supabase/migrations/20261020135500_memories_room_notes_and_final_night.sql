@@ -19,8 +19,8 @@ BEGIN
      AND v_auto ~* '^Previous guest bed setup: .+ (—|–|-) reset to standard room setup\.$'
      AND position(v_auto IN coalesce(NEW.notes,'')) > 0 THEN
     NEW.notes := nullif(btrim(
-      regexp_replace(replace(coalesce(NEW.notes,''),v_auto,''), E'\n[ \t]*\n+', E'\n', 'g')
-    ), '');
+      regexp_replace(replace(coalesce(NEW.notes,''),v_auto,''), E'\n[ \t]*\n+', E'\n', 'g'),
+      E' \n\r\t'), '');
   END IF;
   RETURN NEW;
 END;
@@ -39,7 +39,7 @@ UPDATE public.rooms r
 SET notes = nullif(btrim(regexp_replace(
   replace(coalesce(r.notes,''), r.pms_metadata #>> '{previousGuestBedSetup,note}', ''),
   E'\n[ \t]*\n+', E'\n', 'g'
-)), '')
+), E' \n\r\t'), '')
 WHERE lower(btrim(coalesce(r.hotel,''))) IN
   ('hotel memories budapest','memories budapest','memories-budapest')
   AND coalesce(r.pms_metadata #>> '{previousGuestBedSetup,note}','')
