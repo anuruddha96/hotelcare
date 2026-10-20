@@ -135,8 +135,8 @@ Deno.serve(async(req)=>{
       readAvailability(creds,previoHotelId,date,source),
       readAvailability(creds,previoHotelId,date,target),
     ]);
-    if(sourceLeft>requestedUnits||targetLeft>requestedUnits)
-      throw Error("Room availability exceeds the shared quantity requested. Refresh the inventory first.");
+    // Existing target inventory can remain on sale when an additional physical
+    // room from the higher category is offered under the lower label.
     // The linked Quad must be a genuine, unsold physical unit. Other rooms
     // such as an available Twin are independent and must remain on sale.
     const bookedByKind=new Map<string,number>();
@@ -163,13 +163,25 @@ Deno.serve(async(req)=>{
     // When a Queen is already for sale without a recorded transfer or linked
     // rule, we cannot tell which reservation would consume the physical Queen.
     // Do not overwrite an independently sellable Queen with a virtual offer.
-    if(targetLeft>0 && !exclusive && !activeWatch)
-      throw Error("The Queen category already has availability. Share only when the additional Queen offer starts from zero.");
+    const incremental=activeWatch
+      ? activeWatch.pool_mode==="incremental"
+      : targetLeft>0 && !exclusive;
+    if(activeWatch && Number(activeWatch.shared_units)!==requestedUnits)
+      throw Error("A linked offer is active; wait for booking reconciliation before changing the shared quantity.");
+    if(incremental){
+      const targetPhysicalLeft=Math.max(0,Number(targetKind.num_rooms||0)-(bookedByKind.get(target)??0));
+      if(targetLeft>targetPhysicalLeft || sourceLeft>physicalSourceLeft)
+        throw Error("Independent inventory is not verified against its physical category in Previo.");
+      if(sourceLeft<requestedUnits || physicalSourceLeft<requestedUnits)
+        throw Error("Not enough higher-category physical rooms remain for the shared offer.");
+    }
+    if(!incremental && (sourceLeft>requestedUnits||targetLeft>requestedUnits))
+      throw Error("Linked room availability exceeds the selected shared allocation.");
     if(sourceLeft===0&&!exclusive && !activeWatch)
       throw Error("The larger room is closed, with no verified previous allocation to restore.");
-    if(sourceLeft<requestedUnits && sourceLeft!==0 && !activeWatch)
+    if(!incremental && sourceLeft<requestedUnits && sourceLeft!==0 && !activeWatch)
       throw Error("The original room category does not have enough remaining rooms to share.");
-    if(sourceLeft===0 && !activeWatch && requestedUnits>1)
+    if(!incremental && sourceLeft===0 && !activeWatch && requestedUnits>1)
       throw Error("Only a previously recorded single-room transfer can be restored automatically.");
     // When both were already manually made available, simply attach the
     // reservation watch without changing Previo availability.
@@ -178,6 +190,16 @@ Deno.serve(async(req)=>{
     // categories. The monitor uses the same stable sourceRef signature.
     const baseline=live.map(r=>[r.resId,r.objId??"",r.obkId??""].join("|"));
     const now=new Date().toISOString();
+    if(incremental && activeWatch){
+      const expectedTarget=Number(activeWatch.target_base_availability)+requestedUnits;
+      const expectedSource=Number(activeWatch.source_base_availability);
+      if(targetLeft!==expectedTarget || sourceLeft!==expectedSource)
+        throw Error("Linked availability changed after activation. Wait for reservation reconciliation.");
+      return response({ok:true,results:[{ok:true,date,roomTypeName:targetKind.name,
+        message:"The existing linked offer is active and verified."}],
+        availabilityByObkId:{[source]:sourceLeft,[target]:targetLeft},
+        warning:"Reservations are checked periodically, not atomically."});
+    }
     const {data:watch,error:watchError}=activeWatch
       ? {data:activeWatch,error:null}
       : await admin.from("room_sale_overnight_watches").insert({
@@ -185,6 +207,12 @@ Deno.serve(async(req)=>{
           stay_date:date,first_obk_id:target,second_obk_id:source,
           baseline_confirmed:unique.size,baseline_refs:baseline,
           shared_units:requestedUnits,physical_capacity:physicalCapacity,
+          pool_mode:incremental?"incremental":"legacy_full",
+          ...(incremental?{
+            source_base_availability:sourceLeft,target_base_availability:targetLeft,
+            source_booked_at_start:bookedByKind.get(source)??0,
+            target_booked_at_start:bookedByKind.get(target)??0,
+          }:{}),
           last_confirmed_remaining:requestedUnits,
           starts_at:now,expires_at:expiration(date),status:"active",
         }).select("id").single();
