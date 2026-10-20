@@ -129,4 +129,34 @@ describe('portfolio housekeeping carry-forward', () => {
       isCheckout: true,
     })).toEqual({ towelChangeRequired: false, linenChangeRequired: false });
   });
+
+  it('turns an HMB missed Change Room into towel-only on the verified last occupied night', () => {
+    const carry = getHousekeepingCarryForward({
+      carry_forward: {
+        active: true,
+        property_id: 'memories-budapest',
+        source_business_date: '2026-10-19',
+        original_due_date: '2026-10-19',
+        service_type: 'full_clean',
+        reason: 'dnd',
+        attempt_count: 1,
+      },
+    });
+    expect(effectiveCarryServiceFlags({
+      towelChangeRequired: false,
+      linenChangeRequired: true,
+      carryForward: carry,
+      isCheckout: false,
+      forceTowelOnly: true,
+    })).toEqual({ towelChangeRequired: true, linenChangeRequired: false });
+
+    // 5/8: missed change can still be completed; the HMB override is NOT set.
+    expect(effectiveCarryServiceFlags({
+      towelChangeRequired: false,
+      linenChangeRequired: true,
+      carryForward: carry,
+      isCheckout: false,
+      forceTowelOnly: false,
+    })).toEqual({ towelChangeRequired: false, linenChangeRequired: true });
+  });
 });

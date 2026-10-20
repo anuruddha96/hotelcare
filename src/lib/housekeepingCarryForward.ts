@@ -126,9 +126,15 @@ export function effectiveCarryServiceFlags(input: {
   linenChangeRequired?: boolean | null;
   carryForward?: HousekeepingCarryForward | null;
   isCheckout?: boolean;
+  /** HMB only: a proven missed C becomes T on the final occupied night. */
+  forceTowelOnly?: boolean;
 }) {
   if (input.isCheckout) {
     return { towelChangeRequired: false, linenChangeRequired: false };
+  }
+
+  if (input.forceTowelOnly && input.carryForward) {
+    return { towelChangeRequired: true, linenChangeRequired: false };
   }
 
   const naturalFull = !!input.linenChangeRequired;

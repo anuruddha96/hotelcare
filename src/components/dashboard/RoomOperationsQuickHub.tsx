@@ -27,6 +27,8 @@ import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { cleanMemoriesOperationalNotes, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
 import { effectiveCarryServiceFlags, getActionableHousekeepingCarryForward, getCarryForwardManagerCopy, isRdCarryForwardHotel, type HousekeepingCarryForward } from '@/lib/housekeepingCarryForward';
 import {
   buildDirectRoomTypeNotice,
@@ -40,6 +42,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
+import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
 import { RoomMinibarOperations } from './RoomMinibarOperations';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { RoomPlannedNotesCalendar } from './RoomPlannedNotesCalendar';
@@ -160,6 +163,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const activeSlug = orgSlug?.toLowerCase() ?? '';
   const isSlntTenant = venuesEnabled && (activeSlug === 'slnt' || activeSlug === 'slnt-group');
   const isGozsdu = isGozsduCourtHotel(hotelName);
+  const isMemories = isHotelMemoriesBudapest(hotelName);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef(0);
   const [open, setOpen] = useState(false);
@@ -260,7 +264,10 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       // Never surface legacy implementation/audit lines in the shared human
       // note editor. The DB migration removes them permanently; this also makes
       // old rows clear immediately before that migration reaches production.
-      const humanRoomNotes = stripRoomTypeSystemNotes(room.notes || null);
+      const typeSafeNotes = stripRoomTypeSystemNotes(room.notes || null);
+      const humanRoomNotes = isMemories
+        ? cleanMemoriesOperationalNotes(typeSafeNotes, (room.pms_metadata as Record<string, unknown> | null) || null)
+        : typeSafeNotes;
       const flags = parseRoomFlags(humanRoomNotes);
       const minibarPendingUnits = (minibarRows || [])
         .filter((row) => !row.is_cleared)
@@ -309,7 +316,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       if (requestRef.current !== requestId) return;
       setSelection((current) => current ? { ...current, loading: false, error: error?.message || 'Could not load this room.' } : current);
     }
-  }, [hotelName, selectedDate]);
+  }, [hotelName, selectedDate, isMemories]);
 
   const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement)?.closest?.('[data-room-journey-trigger]')) return;
@@ -1030,6 +1037,8 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     linenChangeRequired: selection?.linenChangeRequired,
     carryForward: selection?.carryForward,
     isCheckout: !!selection?.isCheckout,
+    forceTowelOnly: isMemories && !!selection?.carryForward
+      && isMemoriesFinalOccupiedNight(selection?.pmsMetadata, selectedDate),
   });
   const carryCopy = selection?.carryForward ? getCarryForwardManagerCopy(selection.carryForward) : null;
   const currentRequiredService = selection?.isCheckout
@@ -1224,6 +1233,25 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         </div>
       </section>
 
+      {isMemories && selection.roomId && (
+        <section aria-label="Outstanding guest item collections">
+          <GuestItemRecoveryNotice roomId={selection.roomId} memoriesMode readOnly />
+        </section>
+      )}
+
+      {isMemories && selection.roomId && canWriteNotes && (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
+          <RoomCommunicationPanel
+            assignmentId={selection.assignmentId || ''}
+            roomId={selection.roomId}
+            roomNumber={selection.roomNumber}
+            hotelName={hotelName}
+            dateLabel={selectedDate}
+            readOnly={readOnlyForPast}
+          />
+        </section>
+      )}
+
       <section className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3 sm:p-4">
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2"><MessageSquareText className="h-4 w-4 text-indigo-700" /><p className="text-sm font-bold text-indigo-950">Housekeeper / manager note</p></div>
@@ -1275,7 +1303,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         />
       )}
 
-      {selection.roomId && canWriteNotes && (
+      {!isMemories && selection.roomId && canWriteNotes && (
         <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
           <RoomCommunicationPanel
             assignmentId={selection.assignmentId || ''}
@@ -1438,7 +1466,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               ) : selection?.error ? (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{selection.error}</p>
               ) : panel === 'requests' && selection?.roomId ? (
-                <div className="space-y-3"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-fuchsia-600" /><h3 className="font-bold">Guest requests — Room {selection.roomNumber}</h3></div><RoomGuestRequestsPanel roomId={selection.roomId} roomNumber={selection.roomNumber} assignmentId={selection.assignmentId} workDate={selectedDate} /></div>
+                <div className="space-y-3"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-fuchsia-600" /><h3 className="font-bold">Guest requests — Room {selection.roomNumber}</h3></div><RoomGuestRequestsPanel roomId={selection.roomId} roomNumber={selection.roomNumber} assignmentId={selection.assignmentId} workDate={selectedDate} returnCollectionByHousekeeperOnly={isMemories} /></div>
               ) : panel === 'minibar' && selection?.roomId ? (
                 <RoomMinibarOperations roomId={selection.roomId} roomNumber={selection.roomNumber} isCheckout={selection.isCheckout} readOnly={readOnlyForPast || !canOpen} onChanged={() => void refresh()} />
               ) : mainView}

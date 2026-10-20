@@ -80,6 +80,10 @@ interface RoomGuestRequestsPanelProps {
   readOnly?: boolean;
   compact?: boolean;
   hideWhenEmpty?: boolean;
+  /** Hotel Memories cleaner view uses the dedicated persistent collection card. */
+  excludeReturnableDeliveries?: boolean;
+  /** HMB: returnable items must be signed off by the housekeeper, not reception. */
+  returnCollectionByHousekeeperOnly?: boolean;
 }
 
 const REQUEST_TYPES = [
@@ -172,6 +176,8 @@ export function RoomGuestRequestsPanel({
   readOnly = false,
   compact = false,
   hideWhenEmpty = false,
+  excludeReturnableDeliveries = false,
+  returnCollectionByHousekeeperOnly = false,
 }: RoomGuestRequestsPanelProps) {
   const { user, profile } = useAuth();
   const [rows, setRows] = useState<GuestRequestRow[]>([]);
@@ -415,13 +421,14 @@ export function RoomGuestRequestsPanel({
       .map((row) => ({ row, payload: parsePayload(row.content) }))
       .filter((entry): entry is { row: GuestRequestRow; payload: GuestRequestPayload } => !!entry.payload)
       .filter(({ payload }) => payload.status === 'requested' || payload.status === 'delivered' || payload.workDate === workDate)
+      .filter(({ payload }) => !excludeReturnableDeliveries || !(payload.status === 'delivered' && payload.requiresReturn))
       .sort((a, b) => {
         const aOpen = a.payload.status === 'requested' || a.payload.status === 'delivered';
         const bOpen = b.payload.status === 'requested' || b.payload.status === 'delivered';
         if (aOpen !== bOpen) return aOpen ? -1 : 1;
         return new Date(b.row.created_at).getTime() - new Date(a.row.created_at).getTime();
       });
-  }, [rows, workDate]);
+  }, [rows, workDate, excludeReturnableDeliveries]);
 
   const authorName = (actorId: string) => {
     if (actorId === user?.id) return 'You';
@@ -521,6 +528,8 @@ export function RoomGuestRequestsPanel({
 
   const advanceRequest = async (row: GuestRequestRow, payload: GuestRequestPayload) => {
     if (readOnly || savingId || !user?.id) return;
+    if (returnCollectionByHousekeeperOnly && payload.status === 'delivered'
+      && payload.requiresReturn && normalizedRole !== 'housekeeping') return;
     const now = new Date().toISOString();
     const nextStatus: RequestStatus = payload.status === 'requested'
       ? 'delivered'
@@ -716,6 +725,9 @@ export function RoomGuestRequestsPanel({
             const open = payload.status === 'requested' || payload.status === 'delivered';
             const carried = open && payload.workDate < workDate;
             const latest = payload.events[payload.events.length - 1];
+            const housekeeperCollectionOnly = returnCollectionByHousekeeperOnly
+              && payload.status === 'delivered' && payload.requiresReturn
+              && normalizedRole !== 'housekeeping';
             const nextLabel = payload.status === 'requested'
               ? 'Mark delivered'
               : payload.requiresReturn
@@ -744,7 +756,10 @@ export function RoomGuestRequestsPanel({
                       </div>
                     )}
                   </div>
-                  {open && !readOnly && (
+                  {housekeeperCollectionOnly && (
+                    <span className="text-[10px] font-medium text-amber-800">Collection remains open until the housekeeper confirms it.</span>
+                  )}
+                  {open && !readOnly && !housekeeperCollectionOnly && (
                     <Button
                       type="button"
                       size="sm"
