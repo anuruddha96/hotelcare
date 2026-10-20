@@ -191,6 +191,7 @@ export function TrainingOverlayV2() {
   }, [active, pause]);
 
   if (!active || !step) return null;
+  const isSlntTour = active.slug.startsWith('slnt_');
   const isHousekeeperTour = active.slug === 'v2_housekeeper_first_day';
   const isManagerTour = active.roles.some((role) => role !== 'housekeeping');
   const isGuidedTour = isHousekeeperTour || isManagerTour;
@@ -226,13 +227,13 @@ export function TrainingOverlayV2() {
       };
     }
     const cardW = Math.min(450, window.innerWidth - 32);
-    const cardH = 380;
+    const cardH = Math.min(cardRef.current?.offsetHeight ?? 360, window.innerHeight - 32);
     const spaceBelow = window.innerHeight - (rect.bottom + 16);
     const placeBelow = spaceBelow > cardH;
     const top = placeBelow ? rect.bottom + 16 : Math.max(16, rect.top - cardH - 16);
     let left = rect.left + rect.width / 2 - cardW / 2;
     left = Math.max(16, Math.min(left, window.innerWidth - cardW - 16));
-    return { top, left, width: cardW, maxHeight: 'calc(100% - 32px)', overflowY: 'auto' };
+    return { top, left, width: cardW, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100dvh - 32px)', overflowX: 'hidden', overflowY: 'auto' };
   })();
 
   const pointerStyle: CSSProperties | undefined = rect
@@ -315,7 +316,7 @@ export function TrainingOverlayV2() {
           />
         )}
 
-        {rect && (
+        {rect && (!isSlntTour || requiresAction || step.advanceOnClick) && (
           <motion.div
             className="absolute z-[201] pointer-events-none inline-flex items-center gap-1.5 rounded-full bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground shadow-lg"
             style={pointerStyle}
@@ -511,7 +512,7 @@ export function TrainingOverlayV2() {
               </Button>
               <div className="flex gap-2">
                 {isGuidedTour && (
-                  <Button variant="outline" size="sm" onClick={skipForNow} className="min-h-11 flex-1">
+                  <Button variant="outline" size="sm" onClick={skipForNow} className={isSlntTour ? 'min-h-11 flex-1 min-w-24 whitespace-normal' : 'min-h-11 flex-1'}>
                     {txt(LABELS.skipStep, lang)}
                   </Button>
                 )}

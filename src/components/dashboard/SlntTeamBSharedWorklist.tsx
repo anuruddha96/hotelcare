@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { summarizeTeamBProgress } from '@/lib/slntSimplifiedHousekeeping';
+import { slntWorkSection, isSlntRtcReady } from '@/lib/slntTeamBQueue';
 
 type Item = {
   room_id: string;
@@ -93,10 +94,61 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
   };
 
   const { pendingApproval: pending, approved: done, remaining: open } = useMemo(() => summarizeTeamBProgress(items), [items]);
+  const groups = useMemo(() => ({
+    rtc: items.filter(item => slntWorkSection(item, date) === 'rtc'),
+    stayover: items.filter(item => slntWorkSection(item, date) === 'stayover'),
+    waiting: items.filter(item => slntWorkSection(item, date) === 'waiting'),
+  }), [items, date]);
   const label = (i: Item) => i.is_checkout_room ? (hu ? 'Kijelentkezés' : 'Checkout')
     : i.linen_change_required ? (hu ? 'Ágyneműcsere' : 'Linen change')
     : i.towel_change_required ? (hu ? 'Törölközőcsere' : 'Towel change')
     : (hu ? 'Takarítás' : 'Cleaning');
+
+  const renderRooms = (roomList: Item[]) => {
+    return roomList.map(item => {
+        const mine = item.assigned_to === user?.id;
+        const completed = item.assignment_status === 'completed';
+        const claimed = !!item.assignment_id;
+        const waitingRtc = item.is_checkout_room && !isSlntRtcReady(item, date);
+        return (
+          <Card key={item.room_id} data-training="slnt-team-b-room" className="overflow-hidden">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold text-base">{item.room_name || item.room_number}</p>
+                  <p className="text-sm text-muted-foreground">{item.room_number} · {label(item)}
+                    {item.guest_count != null ? ` · ${item.guest_count} ${hu ? 'vendég' : 'guests'}` : ''}
+                  </p>
+                </div>
+                {completed ? <Badge variant={item.supervisor_approved ? 'default' : 'secondary'}>
+                  {item.supervisor_approved
+                    ? (hu ? 'Jóváhagyva' : 'Approved')
+                    : (hu ? 'Jóváhagyásra vár' : 'Awaiting approval')}
+                </Badge> : claimed ? <Badge variant="secondary">
+                  {mine ? (hu ? 'Saját feladat' : 'Your task') : (hu ? 'Már átvett feladat' : 'Already claimed')}
+                </Badge> : waitingRtc ? <Badge variant="secondary">{hu ? 'RTC-re vár' : 'Awaiting RTC'}</Badge>
+                  : <Badge variant="outline">{hu ? 'Elérhető' : 'Available'}</Badge>}
+              </div>
+              {item.notes && <p className="rounded-md bg-muted/40 p-2 text-sm">{item.notes}</p>}
+              {item.pms_metadata && (
+                <div className="text-xs text-muted-foreground">
+                  {typeof item.pms_metadata['arrivalDate'] === 'string' ? `${hu ? 'Érkezés' : 'Arrival'}: ${item.pms_metadata['arrivalDate']} · ` : ''}
+                  {typeof item.pms_metadata['departureDate'] === 'string' ? `${hu ? 'Távozás' : 'Departure'}: ${item.pms_metadata['departureDate']}` : ''}
+                </div>
+              )}
+              {!managerView && !completed && (!claimed || mine) && (!waitingRtc || claimed) && (
+                <Button size="sm" disabled={!!busy}
+                  data-training="slnt-team-b-claim"
+                  onClick={() => void (claimed ? openExisting(item.assignment_id!) : claim(item))}>
+                  <ClipboardCheck className="mr-2 h-4 w-4" />
+                  {mine ? (hu ? 'Feladat megnyitása' : 'Open my task') : (hu ? 'Feladat átvétele' : 'Take room')}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        );
+      });
+  };
 
   return (
     <div className="space-y-4" data-training="slnt-team-b-shared-worklist">
@@ -123,47 +175,26 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
       </Card>
       {error && <div role="alert" className="rounded-lg border border-destructive p-3 text-sm">{error}</div>}
       {loading && items.length === 0 && !error && <p className="text-sm">{hu ? 'Szobák betöltése…' : 'Loading rooms…'}</p>}
-      {items.map(item => {
-        const mine = item.assigned_to === user?.id;
-        const completed = item.assignment_status === 'completed';
-        const claimed = !!item.assignment_id;
-        return (
-          <Card key={item.room_id} data-training="slnt-team-b-room" className="overflow-hidden">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold text-base">{item.room_name || item.room_number}</p>
-                  <p className="text-sm text-muted-foreground">{item.room_number} · {label(item)}
-                    {item.guest_count != null ? ` · ${item.guest_count} ${hu ? 'vendég' : 'guests'}` : ''}
-                  </p>
-                </div>
-                {completed ? <Badge variant={item.supervisor_approved ? 'default' : 'secondary'}>
-                  {item.supervisor_approved
-                    ? (hu ? 'Jóváhagyva' : 'Approved')
-                    : (hu ? 'Jóváhagyásra vár' : 'Awaiting approval')}
-                </Badge> : claimed ? <Badge variant="secondary">
-                  {mine ? (hu ? 'Saját feladat' : 'Your task') : (hu ? 'Már átvett feladat' : 'Already claimed')}
-                </Badge> : <Badge variant="outline">{hu ? 'Elérhető' : 'Available'}</Badge>}
-              </div>
-              {item.notes && <p className="rounded-md bg-muted/40 p-2 text-sm">{item.notes}</p>}
-              {item.pms_metadata && (
-                <div className="text-xs text-muted-foreground">
-                  {typeof item.pms_metadata['arrivalDate'] === 'string' ? `${hu ? 'Érkezés' : 'Arrival'}: ${item.pms_metadata['arrivalDate']} · ` : ''}
-                  {typeof item.pms_metadata['departureDate'] === 'string' ? `${hu ? 'Távozás' : 'Departure'}: ${item.pms_metadata['departureDate']}` : ''}
-                </div>
-              )}
-              {!managerView && !completed && (!claimed || mine) && (
-                <Button size="sm" disabled={!!busy}
-                  data-training="slnt-team-b-claim"
-                  onClick={() => void (claimed ? openExisting(item.assignment_id!) : claim(item))}>
-                  <ClipboardCheck className="mr-2 h-4 w-4" />
-                  {mine ? (hu ? 'Feladat megnyitása' : 'Open my task') : (hu ? 'Feladat átvétele' : 'Take room')}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
+      {([
+        { key: 'rtc' as const, title: hu ? 'Takarításra kész kijelentkezők (RTC)' : 'RTC — ready checkouts',
+          help: hu ? 'Ezek a szobák elsőbbséget élveznek.' : 'Clean these rooms first.' },
+        { key: 'stayover' as const, title: hu ? 'Napi szobák és külön kérések' : 'Stayovers & special requests',
+          help: hu ? 'Törölköző, ágynemű és egyéb esedékes feladatok.' : 'Towel, linen and other due services.' },
+        { key: 'waiting' as const, title: hu ? 'Kijelentkezésre / RTC-re vár' : 'Awaiting checkout / RTC',
+          help: hu ? 'Takarítás csak RTC állapot után indítható.' : 'Cleaning can start only once the room is RTC-ready.' },
+      ]).map(group => (
+        <section key={group.key} className="space-y-2" data-training={`slnt-team-b-${group.key}`}>
+          <div className="flex flex-wrap items-baseline gap-2 pt-2">
+            <h3 className="font-semibold">{group.title}</h3>
+            <Badge variant="secondary">{groups[group.key].length}</Badge>
+            <p className="text-xs text-muted-foreground">{group.help}</p>
+          </div>
+          {groups[group.key].length === 0
+            ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+              {hu ? 'Jelenleg nincs feladat.' : 'No rooms in this category.'}</p>
+            : renderRooms(groups[group.key])}
+        </section>
+      ))}
       {!loading && !error && items.length === 0 && <p className="rounded-lg border p-5 text-center text-sm">
         {hu ? 'Nincs takarítandó egység mára.' : 'No rooms need cleaning today.'}
       </p>}

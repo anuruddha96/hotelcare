@@ -376,8 +376,8 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       const candidates = curriculaForRole(role).filter((c) => {
         if (c.category !== 'core' || !c.roles.includes(role as any)) return false;
         if (!isSlntTrainingOrg || !simplifiedEnabled) return !c.slug.startsWith('slnt_');
-        if (c.slug === 'slnt_simple_manager_b_v1') return role !== 'housekeeping';
-        if (c.slug === 'slnt_team_b_cleaner_v1') return role === 'housekeeping' && isSlntTeamB === true;
+        if (c.slug === 'slnt_simple_manager_b_v2') return role !== 'housekeeping';
+        if (c.slug === 'slnt_team_b_cleaner_v2') return role === 'housekeeping' && isSlntTeamB === true;
         if (c.slug === 'slnt_team_a_cleaner_v1') return role === 'housekeeping' && teamAEnabled && isSlntTeamB === false;
         return !c.slug.startsWith('slnt_') && role === 'housekeeping' && !teamAEnabled && isSlntTeamB === false;
       });
@@ -996,9 +996,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     return curriculaForRole(role || '').filter(c => {
       if (!c.slug.startsWith('slnt_')) return true;
       if (!isSlntTrainingOrg || !simplifiedEnabled) return false;
-      if (role !== 'housekeeping') return c.slug === 'slnt_simple_manager_b_v1';
+      if (role !== 'housekeeping') return c.slug === 'slnt_simple_manager_b_v2';
       if (isSlntTeamB === null) return false;
-      return c.slug === (isSlntTeamB ? 'slnt_team_b_cleaner_v1' : (teamAEnabled ? 'slnt_team_a_cleaner_v1' : 'none'));
+      return c.slug === (isSlntTeamB ? 'slnt_team_b_cleaner_v2' : (teamAEnabled ? 'slnt_team_a_cleaner_v1' : 'none'));
     });
   }, [role, isSlntTrainingOrg, isSlntTeamB, simplifiedEnabled, teamAEnabled]);
 

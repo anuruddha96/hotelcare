@@ -1,3 +1,4 @@
+import { SlntTeamBAvailability } from './SlntTeamBAvailability';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -914,6 +915,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       <TabsContent value="team" className="space-y-6" data-training="team-view">
+        {isSlntTenant && <SlntTeamBAvailability />}
       {isSlntTenant && slntRosterNotice && (
         <div
           role={slntRosterNotice.kind === 'missing' ? 'status' : 'alert'}
