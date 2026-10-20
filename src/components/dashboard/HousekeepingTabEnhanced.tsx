@@ -1,5 +1,6 @@
 import { useAuth } from '@/hooks/useAuth';
 import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
+import { useSlntTeamAEnabled } from '@/hooks/useSlntTeamAEnabled';
 import { HousekeepingTab as ExistingHousekeepingTab } from './HousekeepingTabLegacy';
 import { HousekeepingRoomSettings } from './HousekeepingRoomSettings';
 import { HousekeepingMobilePolish } from './HousekeepingMobilePolish';
@@ -29,6 +30,7 @@ interface Props {
 export function HousekeepingTabEnhanced(props: Props = {}) {
   const { profile } = useAuth();
   const simplifiedEnabled = useSlntSimplifiedHousekeeping() === true;
+  const teamAEnabled = useSlntTeamAEnabled();
   const { language } = useTranslation();
   const hu = language === 'hu';
   const activeHotel = profile?.assigned_hotel;
@@ -52,12 +54,12 @@ export function HousekeepingTabEnhanced(props: Props = {}) {
     return (
       <div key={`${profile.organization_slug}:${activeHotel}`} className="space-y-4 hk-mobile-workspace" data-training="slnt-simple-housekeeping">
         <HousekeepingMobilePolish />
-        <Tabs defaultValue="team-a" className="space-y-4">
+        <Tabs defaultValue="team-b" className="space-y-4">
           <TabsList className="w-full sm:w-auto" data-training="slnt-team-switcher">
-            <TabsTrigger value="team-a" className="flex-1">{hu ? 'A csapat – beosztás' : 'Team A — plan'}</TabsTrigger>
             <TabsTrigger value="team-b" className="flex-1">{hu ? 'B csapat – mai munka' : 'Team B — today'}</TabsTrigger>
+            {teamAEnabled && <TabsTrigger value="team-a" className="flex-1">{hu ? 'A csapat – beosztás' : 'Team A — plan'}</TabsTrigger>}
           </TabsList>
-          <TabsContent value="team-a"><SlntTeamAQuickPlanner /></TabsContent>
+          {teamAEnabled && <TabsContent value="team-a"><SlntTeamAQuickPlanner /></TabsContent>}
           <TabsContent value="team-b" className="space-y-3">
             <SlntTeamBSharedWorklist managerView />
             <details className="rounded-md border p-3" data-training="slnt-team-b-approvals">
@@ -66,6 +68,7 @@ export function HousekeepingTabEnhanced(props: Props = {}) {
             </details>
           </TabsContent>
         </Tabs>
+        {!teamAEnabled && <p className="text-xs text-muted-foreground">{hu ? 'Az A csapat beállítása később, az SLNT csapattal együtt történik. A meglévő beosztások változatlanok.' : 'Team A will be configured together with SLNT later. Existing schedules remain unchanged.'}</p>}
         <details className="rounded-lg border p-3">
           <summary className="cursor-pointer text-sm font-medium">{hu ? 'Speciális housekeeping eszközök' : 'Advanced housekeeping tools'}</summary>
           <div className="mt-3 space-y-3">

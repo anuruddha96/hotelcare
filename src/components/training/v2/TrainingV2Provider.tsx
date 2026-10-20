@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
+import { useSlntTeamAEnabled } from '@/hooks/useSlntTeamAEnabled';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
 import { propertyTermsFor } from '@/lib/propertyTerminology';
@@ -113,6 +114,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
   const rollout = useSlntSimplifiedHousekeeping();
   const simplifiedEnabled = rollout === true;
+  const teamAEnabled = useSlntTeamAEnabled();
   const { language } = useTranslation();
   // TrainingV2Provider mounts above the tenant router, so useTenant may throw
   // on routes without a TenantProvider (e.g. /auth). Fall back safely.
@@ -374,10 +376,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       const candidates = curriculaForRole(role).filter((c) => {
         if (c.category !== 'core' || !c.roles.includes(role as any)) return false;
         if (!isSlntTrainingOrg || !simplifiedEnabled) return !c.slug.startsWith('slnt_');
-        if (c.slug === 'slnt_simple_manager_v1') return role !== 'housekeeping';
+        if (c.slug === 'slnt_simple_manager_b_v1') return role !== 'housekeeping';
         if (c.slug === 'slnt_team_b_cleaner_v1') return role === 'housekeeping' && isSlntTeamB === true;
-        if (c.slug === 'slnt_team_a_cleaner_v1') return role === 'housekeeping' && isSlntTeamB === false;
-        return false;
+        if (c.slug === 'slnt_team_a_cleaner_v1') return role === 'housekeeping' && teamAEnabled && isSlntTeamB === false;
+        return !c.slug.startsWith('slnt_') && role === 'housekeeping' && !teamAEnabled && isSlntTeamB === false;
       });
       const target = candidates.find((c) => progressBySlug[c.slug]?.status !== 'completed');
       if (!target) return;
@@ -412,7 +414,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           { onConflict: 'user_id' },
         );
     })();
-  }, [user, role, location.pathname, refreshStatuses, isSlntTrainingOrg, isSlntTeamB, simplifiedEnabled, rollout]);
+  }, [user, role, location.pathname, refreshStatuses, isSlntTrainingOrg, isSlntTeamB, simplifiedEnabled, rollout, teamAEnabled]);
 
   const guardRole = role || 'unknown';
 
@@ -994,10 +996,11 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     return curriculaForRole(role || '').filter(c => {
       if (!c.slug.startsWith('slnt_')) return true;
       if (!isSlntTrainingOrg || !simplifiedEnabled) return false;
-      if (role !== 'housekeeping') return c.slug === 'slnt_simple_manager_v1';
-      return isSlntTeamB !== null && c.slug === (isSlntTeamB ? 'slnt_team_b_cleaner_v1' : 'slnt_team_a_cleaner_v1');
+      if (role !== 'housekeeping') return c.slug === 'slnt_simple_manager_b_v1';
+      if (isSlntTeamB === null) return false;
+      return c.slug === (isSlntTeamB ? 'slnt_team_b_cleaner_v1' : (teamAEnabled ? 'slnt_team_a_cleaner_v1' : 'none'));
     });
-  }, [role, isSlntTrainingOrg, isSlntTeamB, simplifiedEnabled]);
+  }, [role, isSlntTrainingOrg, isSlntTeamB, simplifiedEnabled, teamAEnabled]);
 
 
   // Continue only after the manager explicitly chooses the next module.

@@ -5,6 +5,7 @@ import { CalendarDays, Clock, MapPin, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
+import { useSlntTeamAEnabled } from '@/hooks/useSlntTeamAEnabled';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { useTranslation } from '@/hooks/useTranslation';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
@@ -23,7 +24,9 @@ const dateOf = (date: string) => new Date(`${date}T12:00:00`);
 /** Read-only self view; staff never query or receive colleagues' shifts or draft plans. */
 export function UpcomingShiftCard() {
   const { user, profile } = useAuth();
-  const simplifiedEnabled = useSlntSimplifiedHousekeeping() === true;
+  const simplifiedReady = useSlntSimplifiedHousekeeping() === true;
+  const teamAReady = useSlntTeamAEnabled();
+  const simplifiedEnabled = simplifiedReady && teamAReady;
   const { language } = useTranslation();
   const { venuesEnabled, orgSlug } = useTenantFeatures();
   const [shifts, setShifts] = useState<Shift[]>([]);
