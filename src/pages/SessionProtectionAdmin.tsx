@@ -42,14 +42,14 @@ export default function SessionProtectionAdmin() {
   const changeCutoff = async (enable: boolean) => {
     if (!authorized || busy) return;
     if (enable && !window.confirm(
-      'Block obsolete HotelCare browser versions? Old reception and management tabs may need a manual refresh before rooms and PMS connection data can load. Ensure the new frontend has been published first.',
+      'Require this published HotelCare version? Older reception and management tabs may need a manual refresh before rooms and PMS connection data can load. Ensure the latest frontend is published first.',
     )) return;
     setBusy(true);
     setError(null);
     try {
       const next = {
         enforce_stale_clients: enable,
-        minimum_build_at: enable ? localBuild : (policy?.minimum_build_at ?? 0),
+        minimum_build_at: enable ? Math.max(localBuild, policy?.minimum_build_at ?? 0) : (policy?.minimum_build_at ?? 0),
         updated_at: new Date().toISOString(),
       };
       const { data, error: saveError } = await (supabase as any)
@@ -103,9 +103,16 @@ export default function SessionProtectionAdmin() {
                   Enable outdated-browser cutoff
                 </Button>
               ) : (
-                <Button variant="destructive" disabled={busy} onClick={() => void changeCutoff(false)}>
-                  Disable cutoff immediately
-                </Button>
+                <>
+                  {localBuild > policy.minimum_build_at && (
+                    <Button disabled={busy} onClick={() => void changeCutoff(true)}>
+                      Require this newer version
+                    </Button>
+                  )}
+                  <Button variant="destructive" disabled={busy} onClick={() => void changeCutoff(false)}>
+                    Disable cutoff immediately
+                  </Button>
+                </>
               )}
               <Button variant="outline" disabled={busy} onClick={() => void load()}>
                 <RefreshCw className="mr-2 h-4 w-4" /> Recheck status
