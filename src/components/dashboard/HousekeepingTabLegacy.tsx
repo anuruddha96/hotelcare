@@ -8,6 +8,7 @@ import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isNoMinibarOrganization } from '@/lib/gozsduNoMinibar';
 import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
+import { SlntStaffWorkRouter } from './SlntStaffWorkRouter';
 import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
 import { PMSUpload } from './PMSUpload';
 import { PmsSyncControls } from '@/components/pms/PmsSyncControls';
@@ -666,7 +667,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         )}
 
         <TabsContent value="assignments" className="space-y-6">
-          <HousekeepingStaffView />
+          {['slnt', 'slnt-group'].includes(profile?.organization_slug || '') ? <SlntStaffWorkRouter /> : <HousekeepingStaffView />}
         </TabsContent>
 
         {hasManagerAccess && !noMinibar && (
