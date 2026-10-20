@@ -142,6 +142,21 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
   // Do NOT default role to 'housekeeping'. Wait until profile loads.
   const role = (profile?.role as string) || null;
+  const isSlntTrainingOrg = ['slnt', 'slnt-group'].includes(profile?.organization_slug || '');
+  const [isSlntTeamB, setIsSlntTeamB] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!isSlntTrainingOrg || role !== 'housekeeping' || !user?.id) {
+      setIsSlntTeamB(null); return;
+    }
+    let current = true;
+    void (async () => {
+      const { data, error } = await (supabase as any).rpc('slnt_is_team_b_member');
+      if (current && !error) setIsSlntTeamB(data === true);
+      if (current && error) console.warn('[training] SLNT team membership unavailable:', error.message);
+    })();
+    return () => { current = false; };
+  }, [user?.id, role, isSlntTrainingOrg]);
+
   const assignedHotel = (profile as any)?.assigned_hotel || null;
 
   const [active, setActive] = useState<TrainingCurriculum | null>(null);
@@ -304,6 +319,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   // Initial: load + auto-start (core curricula only, throttled to 4h)
   useEffect(() => {
     if (!user || !role || autoStartedRef.current) return;
+    if (isSlntTrainingOrg && role === 'housekeeping' && isSlntTeamB === null) return;
     // Don't auto-start on transient routes — wait until the user lands on
     // a real screen so the first step's anchor (e.g. hotel-switcher) is
     // actually in the DOM.
@@ -335,7 +351,9 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       const tooRecent =
         lastAuto && Date.now() - new Date(lastAuto).getTime() < AUTO_START_THROTTLE_MS;
 
-      if ((dismissed || tooRecent) && !forced) return;
+      // A newly versioned SLNT workflow should be offered on next login even
+      // when an older generic tour was shown within the last four hours.
+      if ((dismissed || (tooRecent && !isSlntTrainingOrg)) && !forced) return;
 
       const { data: progressData } = await supabase
         .from('user_tour_progress')
@@ -349,9 +367,14 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
         };
       });
 
-      const candidates = curriculaForRole(role).filter(
-        (c) => c.category === 'core' && c.roles.includes(role as any),
-      );
+      const candidates = curriculaForRole(role).filter((c) => {
+        if (c.category !== 'core' || !c.roles.includes(role as any)) return false;
+        if (!isSlntTrainingOrg) return !c.slug.startsWith('slnt_');
+        if (c.slug === 'slnt_simple_manager_v1') return role !== 'housekeeping';
+        if (c.slug === 'slnt_team_b_cleaner_v1') return role === 'housekeeping' && isSlntTeamB === true;
+        if (c.slug === 'slnt_team_a_cleaner_v1') return role === 'housekeeping' && isSlntTeamB === false;
+        return false;
+      });
       const target = candidates.find((c) => progressBySlug[c.slug]?.status !== 'completed');
       if (!target) return;
 
@@ -385,7 +408,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
           { onConflict: 'user_id' },
         );
     })();
-  }, [user, role, location.pathname, refreshStatuses]);
+  }, [user, role, location.pathname, refreshStatuses, isSlntTrainingOrg, isSlntTeamB]);
 
   const guardRole = role || 'unknown';
 
@@ -743,6 +766,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     async (slug: string, opts?: { restart?: boolean; manual?: boolean; startAtKey?: string }) => {
       const c = findCurriculum(slug);
       if (!c || !c.roles.includes(role as any)) return;
+      if (slug.startsWith('slnt_') && !isSlntTrainingOrg) return;
       setPendingNextModule(null);
       let resumeIdx = 0;
       if (user && !opts?.restart) {
@@ -963,8 +987,13 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const availableCurricula = useMemo(() => {
     // Revenue Management training applies to every organization, including
     // property-style tenants (SLNT).
-    return curriculaForRole(role || '');
-  }, [role]);
+    return curriculaForRole(role || '').filter(c => {
+      if (!c.slug.startsWith('slnt_')) return true;
+      if (!isSlntTrainingOrg) return false;
+      if (role !== 'housekeeping') return c.slug === 'slnt_simple_manager_v1';
+      return c.slug === (isSlntTeamB ? 'slnt_team_b_cleaner_v1' : 'slnt_team_a_cleaner_v1');
+    });
+  }, [role, isSlntTrainingOrg, isSlntTeamB]);
 
 
   // Continue only after the manager explicitly chooses the next module.
