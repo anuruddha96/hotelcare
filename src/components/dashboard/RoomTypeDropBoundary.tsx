@@ -6,6 +6,7 @@ import { todayBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { readRoomDragPayload } from '@/lib/hkAssignmentDnd';
 import { shouldRefreshRoomTypeNotices } from '@/lib/roomTypeNoticeRefresh';
+import { roomTypeNoticeDateFilter } from '@/lib/roomTypeNoticeDateFilter';
 import { getGozsduHousekeepingCycle, gozsduServiceLabel } from '@/lib/gozsdu-housekeeping';
 import { gozsduDropBucket } from '@/lib/gozsduRoomDropTarget';
 import {
@@ -70,9 +71,14 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
     try {
       const keys = await resolveHotelKeys(hotelName);
       const hotelKeys = keys.length ? keys : [hotelName];
+      // A manager notice is rare. Filtering in PostgreSQL prevents fetching
+      // every room's potentially large PMS metadata on each refresh. Clearing
+      // or editing a notice still works: this query returns the new matching
+      // set, and a Realtime event triggers it for known notice room IDs.
       const { data, error } = await supabase.from('rooms')
         .select('id,hotel,room_number,pms_metadata,guest_nights_stayed,towel_change_required,linen_change_required')
-        .in('hotel', hotelKeys);
+        .in('hotel', hotelKeys)
+        .contains('pms_metadata', roomTypeNoticeDateFilter(selectedDate));
       if (error) throw error;
       const noticeRooms = (data || []).filter(room => {
         const notice = (room.pms_metadata as any)?.roomTypeChangeNotice as RoomTypeNotice | undefined;
@@ -176,7 +182,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
 
     // Reconcile any missed messages after the app resumes; also retain a
     // bounded fallback while visible, without polling when the tab sleeps.
-    const poll = window.setInterval(() => { if (!document.hidden) scheduleRefresh(); }, 60_000);
+    const poll = window.setInterval(() => { if (!document.hidden) scheduleRefresh(); }, 180_000);
     const onVisible = () => { if (!document.hidden) scheduleRefresh(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
