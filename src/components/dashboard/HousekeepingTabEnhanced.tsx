@@ -28,7 +28,7 @@ interface Props {
  */
 export function HousekeepingTabEnhanced(props: Props = {}) {
   const { profile } = useAuth();
-  const simplifiedEnabled = useSlntSimplifiedHousekeeping();
+  const simplifiedEnabled = useSlntSimplifiedHousekeeping() === true;
   const { language } = useTranslation();
   const hu = language === 'hu';
   const activeHotel = profile?.assigned_hotel;
