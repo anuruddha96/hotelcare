@@ -9,6 +9,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { writePrevioInventory, writePrevioRestrictions } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
+import { callPrevioXml } from "../_shared/previoCredentials.ts";
+import { parsePrevioReservations } from "../_shared/previoReservations.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -104,67 +106,35 @@ interface Item {
  * Requires a fresh inventory snapshot for every real product and a booking
  * count. If Previo hasn't synced, fail closed rather than guess.
  */
+/**
+ * A normal availability edit concerns ONE physical room category. A hotel-wide
+ * sum of Previo offers cannot enforce this safely: live cross-category linked
+ * offers are duplicated by design, while cached booking-night counts may lag.
+ * Verify the actual room kind's booked inventory against fresh Previo bookings.
+ * Category-to-category borrowing must use the separate audited upgrade flow.
+ */
 async function checkUnlinkedInventoryIncrease(
-  admin: any,
-  hotelId: string,
-  stayDate: string,
-  targetObkId: string,
-  currentTarget: number,
-  newTarget: number,
+  creds: any, pmsHotelId: string, stayDate: string,
+  targetObkId: string, physicalRooms: number, newTarget: number,
 ): Promise<string | null> {
-  const [{ data: roomTypes, error: roomError }, { data: availability, error: availabilityError },
-    { count: booked, error: bookedError }] = await Promise.all([
-    admin.from("room_types")
-      .select("pms_room_id,num_rooms").eq("hotel_id", hotelId)
-      .eq("is_sellable", true).eq("counts_toward_inventory", true),
-    admin.from("revenue_room_type_availability")
-      .select("obk_id,availability,captured_at").eq("hotel_id", hotelId)
-      .eq("stay_date", stayDate),
-    admin.from("revenue_booking_nights")
-      .select("id", { count: "exact", head: true })
-      .eq("hotel_id", hotelId).eq("stay_date", stayDate).in("status_id", [2, 3]),
-  ]);
-  if (roomError || availabilityError || bookedError || !roomTypes?.length || booked === null) {
-    return "Unable to confirm property-wide room availability. Refresh Previo before increasing rooms for sale.";
+  const response = await callPrevioXml({
+    method: "searchReservations", creds, pmsHotelId,
+    extraXml: "<term><from>" + stayDate + "</from><to>" +
+      addDaysIso(stayDate, 1) + "</to></term>",
+  });
+  if (!response.ok) {
+    return "Could not verify current reservations in Previo. Refresh PMS and retry before opening rooms.";
   }
-  const uniqueTypes = new Map<string, number>();
-  for (const type of roomTypes) {
-    const id = String(type.pms_room_id ?? "").trim();
-    const units = Number(type.num_rooms);
-    if (!id || !Number.isInteger(units) || units <= 0) continue;
-    // Multiple mapping records may represent the same physical product.
-    if (!uniqueTypes.has(id)) uniqueTypes.set(id, units);
-  }
-  if (!uniqueTypes.has(targetObkId)) {
-    return "Room type cannot be verified against physical inventory.";
-  }
-  const physical = [...uniqueTypes.values()].reduce((a, b) => a + b, 0);
-  if (!physical || booked > physical) {
-    return "The property's physical inventory does not match reservations. Review Previo before editing.";
-  }
-  const byType = new Map<string, { availability: number; captured_at: string }>();
-  for (const row of availability ?? []) {
-    byType.set(String(row.obk_id), {
-      availability: Number(row.availability),
-      captured_at: String(row.captured_at ?? ""),
-    });
-  }
-  let currentForSale = 0;
-  for (const id of uniqueTypes.keys()) {
-    const row = byType.get(id);
-    if (!row || !Number.isInteger(row.availability) || row.availability < 0 ||
-        !Number.isFinite(Date.parse(row.captured_at)) ||
-        Date.now() - Date.parse(row.captured_at) > 90 * 60_000) {
-      return "Room availability is not up to date. Refresh Previo before increasing rooms for sale.";
-    }
-    currentForSale += row.availability;
-  }
-  // Avoid an inaccurate cached mirror approving a different Previo value.
-  if (byType.get(targetObkId)?.availability !== currentTarget) {
-    return "Availability has changed in Previo. Refresh the room grid and try again.";
-  }
-  if (currentForSale - currentTarget + newTarget > physical - booked) {
-    return "This would exceed the hotel's remaining physical rooms. Choose a source room type for a free upgrade or close another room type first.";
+  const confirmed = parsePrevioReservations(response.text).filter(r =>
+    r.arrivalDate <= stayDate && r.departureDate > stayDate &&
+    (r.statusId === 2 || r.statusId === 3)
+  );
+  const bookedInKind = new Set(confirmed.filter(r => String(r.obkId) === targetObkId)
+    .map(r => r.sourceRef)).size;
+  const availablePhysical = Math.max(0, physicalRooms - bookedInKind);
+  if (newTarget > availablePhysical) {
+    return "Only " + availablePhysical + " unbooked physical room(s) remain in this category. " +
+      "Choose a higher category under 'Offer a free upgrade' for extra sellable stock.";
   }
   return null;
 }
@@ -479,9 +449,22 @@ Deno.serve(async (req) => {
               watch.first_obk_id === resolved.scopedObkId ||
               watch.second_obk_id === resolved.scopedObkId
             );
-            const unlinkedIncreaseError = !upgrade && before.value !== null && rooms > before.value && !watchError && !linkedEdit
+            const { data: transferRules, error: transferError } = !upgrade
+              ? await admin.from("room_sale_upgrade_rules")
+                  .select("source_obk_id,target_obk_id")
+                  .eq("hotel_id", hotelId).eq("stay_date", item.date)
+                  .in("status", ["active", "needs_review"])
+              : { data: [], error: null };
+            const hasExistingTransfer = (transferRules ?? []).some((rule: any) =>
+              rule.source_obk_id === resolved.scopedObkId ||
+              rule.target_obk_id === resolved.scopedObkId
+            );
+            const unlinkedIncreaseError = !upgrade && before.value !== null &&
+              rooms > before.value && !watchError && !linkedEdit &&
+              !transferError && !hasExistingTransfer
               ? await checkUnlinkedInventoryIncrease(
-                  admin, hotelId, item.date, resolved.scopedObkId, before.value, rooms,
+                  resolved.account.creds, resolved.account.hotId, item.date,
+                  resolved.obkId, physicalRooms, rooms,
                 )
               : null;
             if (watchError) {
@@ -489,7 +472,10 @@ Deno.serve(async (req) => {
               lastMessage = "Could not verify linked-room protection. No availability was changed.";
             } else if (linkedEdit) {
               allOk = false;
-              lastMessage = "This room category is part of an active linked-room offer. Manage or close the linked offer before making a standard availability adjustment.";
+              lastMessage = "This room category belongs to an active linked offer. Use the linked-room option, or close that rule first.";
+            } else if (transferError || hasExistingTransfer) {
+              allOk = false;
+              lastMessage = "An existing complimentary room transfer affects this category. Resolve that transfer before editing its ordinary availability.";
             } else if (unlinkedIncreaseError) {
               allOk = false;
               lastMessage = unlinkedIncreaseError;
