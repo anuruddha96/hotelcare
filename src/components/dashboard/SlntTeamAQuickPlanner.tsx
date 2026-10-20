@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { workingTeamAStaff } from '@/lib/slntSimplifiedHousekeeping';
 
 type Staff = { id: string; full_name: string };
 type Assignment = { room_id: string; assigned_to: string; status: string };
@@ -136,7 +137,7 @@ export function SlntTeamAQuickPlanner() {
       } else {
         await assignRoomToStaff({
           roomId: room.id, staffId, assignedBy: user.id, assignmentDate: selectedDate,
-          organizationSlug: 'slnt', isCheckoutRoom: room.is_checkout_room,
+          organizationSlug: profile?.organization_slug || 'slnt', isCheckoutRoom: room.is_checkout_room,
           readyToClean: room.ready_to_clean, preventOutOfOrder: true,
         });
       }
@@ -211,7 +212,7 @@ export function SlntTeamAQuickPlanner() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NONE}>{hu ? 'Nincs kiosztva' : 'Unassigned'}</SelectItem>
-                    {staff.filter(p => !off.has(p.id)).map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
+                    {workingTeamAStaff(staff, off).map(p => <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>)}
