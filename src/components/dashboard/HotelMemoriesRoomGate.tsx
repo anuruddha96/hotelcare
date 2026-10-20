@@ -12,6 +12,7 @@ import { AssignedRoomCard } from './AssignedRoomCard';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
+import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -124,14 +125,18 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     !hasCleanRequest;
 
   const guestRequestPanel = assignment.rooms?.room_number ? (
-    <RoomGuestRequestsPanel
+    <div className="space-y-2">
+      <GuestItemRecoveryNotice roomId={assignment.room_id} memoriesMode />
+      <RoomGuestRequestsPanel
       roomId={assignment.room_id}
       roomNumber={assignment.rooms.room_number}
       assignmentId={assignment.id}
       workDate={assignment.assignment_date || todayBudapest()}
       compact
       hideWhenEmpty
+      excludeReturnableDeliveries
     />
+    </div>
   ) : null;
 
   const secondAttemptNumber = Math.max(2, (assignment.dnd_attempt_count ?? 1) + 1);
