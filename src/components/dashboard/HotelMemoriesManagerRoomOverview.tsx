@@ -9,6 +9,7 @@ import { parseRoomFlags } from '@/lib/room-service-flags';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
 import { getCarryForwardManagerCopy } from '@/lib/housekeepingCarryForward';
 import {
   getMemoriesCarryForwardService,
@@ -178,10 +179,12 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
   const carryForwardCopy = carryForward
     ? getCarryForwardManagerCopy(carryForward)
     : null;
+  const finalNightTowelCarry = !!carryForward
+    && isMemoriesFinalOccupiedNight(room.pms_metadata, todayBudapest());
   const effectiveTowel = !checkout && (
-    !!room.towel_change_required || carryForward?.serviceType === 'towel_change'
+    finalNightTowelCarry || !!room.towel_change_required || carryForward?.serviceType === 'towel_change'
   );
-  const effectiveFullClean = !checkout && (
+  const effectiveFullClean = !checkout && !finalNightTowelCarry && (
     !!room.linen_change_required || carryForward?.serviceType === 'full_clean'
   );
   const optionalDaily = workClass.bucket === 4 && !checkout && assignment.assignment_type === 'daily_cleaning';
