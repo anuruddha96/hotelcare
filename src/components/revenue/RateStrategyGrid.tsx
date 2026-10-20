@@ -2244,6 +2244,7 @@ export default function RateStrategyGrid({
     const shapedSet = dayMode === "set" && keepShape && Number.isFinite(target) && target > 0;
 
     for (const d of dayToolDates) {
+      if (!canEditCalendarDate(d, today, canEditRates)) continue;
       // A fixed price prices the cheapest cell of the day; the rest of the day
       // keeps its shape, so room and guest differences survive the edit.
       const shaped = shapedSet
@@ -2263,7 +2264,7 @@ export default function RateStrategyGrid({
       }
     }
     return out;
-  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext, dayMode, dayValue, dayRound, keepShape, guestStep]);
+  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext, dayMode, dayValue, dayRound, keepShape, guestStep, today, canEditRates]);
 
 
   /** Publish every change the day tool previews. */
@@ -2339,6 +2340,7 @@ export default function RateStrategyGrid({
   }, [nights]);
   const dates = useMemo(() => allDates.filter((d) => {
     if (monthFilter && !d.startsWith(monthFilter) && !(historyRevealed && d < today)) return false;
+    if (d < today) return historyRevealed;
     if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
     if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
@@ -3518,17 +3520,17 @@ export default function RateStrategyGrid({
                       <button
                         key={d}
                         type="button"
-                        disabled={!canEditRates || busy}
+                        disabled={!canEditCalendarDate(d, today, canEditRates) || busy}
                         onPointerDown={(e) => {
-                          if (!canEditRates) return;
+                          if (!canEditCalendarDate(d, today, canEditRates)) return;
                           e.currentTarget.releasePointerCapture?.(e.pointerId);
                           beginMinDrag(i);
                         }}
-                        onPointerEnter={() => extendMinDrag(i)}
+                        onPointerEnter={() => { if (d >= today) extendMinDrag(i); }}
                         onClick={() => {
                           // A drag that covered more than one date opens the range tool instead.
                           if (minRange) return;
-                          if (canEditRates) setRestrictionEdit({ key, value: String(nights ?? 1) });
+                          if (canEditCalendarDate(d, today, canEditRates)) setRestrictionEdit({ key, value: String(nights ?? 1) });
                         }}
                         title={nights && nights > 1
                           ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change, drag for a range" : ""}`
