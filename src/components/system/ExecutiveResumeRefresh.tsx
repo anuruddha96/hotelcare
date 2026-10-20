@@ -178,7 +178,7 @@ export default function ExecutiveResumeRefresh() {
         <Button
           asChild
           size="lg"
-          className="relative mt-8 h-13 w-full rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-base font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:from-sky-600 hover:to-blue-700 hover:shadow-xl hover:shadow-blue-500/25 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+          className="relative mt-8 h-[52px] w-full rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-base font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:from-sky-600 hover:to-blue-700 hover:shadow-xl hover:shadow-blue-500/25 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
         >
           <a href={refreshHref} autoFocus>
             <RefreshCw className="mr-2 h-[18px] w-[18px]" aria-hidden="true" />
