@@ -1,5 +1,44 @@
 -- SLNT-only simplified housekeeping. This migration deliberately does not
 -- change RD Hotels, shared assignment classifications or existing schedules.
+-- Rollout must remain disabled until Team A staff/rooms are verified and
+-- two-PMS-account approval tests pass. Merge does not enable production UX.
+CREATE TABLE IF NOT EXISTS public.slnt_housekeeping_rollout (
+  organization_slug text PRIMARY KEY,
+  enabled boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT slnt_housekeeping_rollout_tenant CHECK (organization_slug = 'slnt')
+);
+ALTER TABLE public.slnt_housekeeping_rollout ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.slnt_housekeeping_rollout FROM PUBLIC, anon, authenticated;
+INSERT INTO public.slnt_housekeeping_rollout (organization_slug, enabled)
+VALUES ('slnt', false) ON CONFLICT (organization_slug) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION public.slnt_simple_housekeeping_enabled(p_org text DEFAULT 'slnt')
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
+  SELECT p_org = 'slnt'
+     AND (current_setting('request.jwt.claim.role', true) = 'service_role'
+          OR EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid()
+                     AND p.organization_slug IN ('slnt','slnt-group')))
+     AND EXISTS (SELECT 1 FROM public.slnt_housekeeping_rollout f
+                 WHERE f.organization_slug='slnt' AND f.enabled)
+     AND EXISTS (
+       SELECT 1 FROM public.housekeeping_teams t
+       WHERE t.organization_slug='slnt' AND t.code='team-a' AND t.is_active
+         AND EXISTS (SELECT 1 FROM public.housekeeping_team_rooms r
+                     WHERE r.team_id=t.id AND r.is_active)
+         AND EXISTS (SELECT 1 FROM public.housekeeping_team_members m
+                     WHERE m.team_id=t.id AND m.is_active)
+     )
+     AND EXISTS (
+       SELECT 1 FROM public.housekeeping_teams t
+       WHERE t.organization_slug='slnt' AND t.code='team-b' AND t.is_active
+         AND EXISTS (SELECT 1 FROM public.housekeeping_team_rooms r
+                     WHERE r.team_id=t.id AND r.is_active)
+     );
+$;
+REVOKE ALL ON FUNCTION public.slnt_simple_housekeeping_enabled(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.slnt_simple_housekeeping_enabled(text) TO authenticated, service_role;
+
 CREATE TABLE IF NOT EXISTS public.slnt_team_a_days_off (
   team_id uuid NOT NULL REFERENCES public.housekeeping_teams(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -29,6 +68,8 @@ CREATE OR REPLACE FUNCTION public.slnt_set_team_a_day_off(
   p_team_id uuid, p_user_id uuid, p_work_date date, p_is_off boolean
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
+  IF NOT public.slnt_simple_housekeeping_enabled() THEN
+    RAISE EXCEPTION 'SLNT simplified housekeeping rollout is not enabled'; END IF;
   IF NOT EXISTS (
     SELECT 1 FROM public.profiles p
     JOIN public.housekeeping_teams t ON t.organization_slug = 'slnt'
@@ -72,6 +113,8 @@ RETURNS TABLE(
 ) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 DECLARE v_team_id uuid;
 BEGIN
+  IF NOT public.slnt_simple_housekeeping_enabled() THEN
+    RAISE EXCEPTION 'SLNT simplified housekeeping rollout is not enabled'; END IF;
   IF p_service_date <> (now() AT TIME ZONE 'Europe/Budapest')::date THEN
     RAISE EXCEPTION 'Team B shared worklist is available for today only';
   END IF;
@@ -123,6 +166,8 @@ RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_team_id uuid; v_org_slug text; v_room public.rooms%ROWTYPE;
         v_assignment public.room_assignments%ROWTYPE;
 BEGIN
+  IF NOT public.slnt_simple_housekeeping_enabled() THEN
+    RAISE EXCEPTION 'SLNT simplified housekeeping rollout is not enabled'; END IF;
   IF p_service_date <> (now() AT TIME ZONE 'Europe/Budapest')::date THEN
     RAISE EXCEPTION 'Only today''s Team B rooms may be claimed';
   END IF;
@@ -187,6 +232,7 @@ GRANT EXECUTE ON FUNCTION public.slnt_team_b_claim_room(uuid,date) TO authentica
 CREATE OR REPLACE FUNCTION public.slnt_team_b_protect_approval()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
+  IF NOT public.slnt_simple_housekeeping_enabled() THEN RETURN NEW; END IF;
   IF (NEW.supervisor_approved IS DISTINCT FROM OLD.supervisor_approved
       OR NEW.supervisor_approved_by IS DISTINCT FROM OLD.supervisor_approved_by
       OR NEW.supervisor_approved_at IS DISTINCT FROM OLD.supervisor_approved_at)
