@@ -120,7 +120,7 @@ Deno.serve(async(req)=>{
       r.arrivalDate<=date&&r.departureDate>date&&(r.statusId===2||r.statusId===3));
     const unique=new Set(live.map(r=>r.sourceRef));
     const physicalRemaining=physicalCapacity-unique.size;
-    if(physicalRemaining<1||physicalRemaining>20)
+    if(physicalRemaining<1)
       throw Error("No verified sellable physical rooms remain for this hotel and date.");
     if(requestedUnits>physicalRemaining)
       throw Error(`Only ${physicalRemaining} physical room${physicalRemaining===1?" remains":"s remain"}. Cannot share ${requestedUnits} without overbooking.`);
