@@ -83,20 +83,22 @@ BEGIN
     WHERE r.id=p_room_id AND r.organization_slug IN ('slnt','slnt-group')
     FOR UPDATE OF r;
   IF NOT FOUND THEN RAISE EXCEPTION 'Room is not assigned to SLNT Team B'; END IF;
-  IF lower(coalesce(v_room.status,'')) IN ('clean','cleaned','ready','out_of_order','out_of_service','blocked','maintenance') THEN
+  IF lower(coalesce(v_room.status,'')) IN ('out_of_order','out_of_service','blocked','maintenance') THEN
     RAISE EXCEPTION 'Room is already clean or unavailable';
   END IF;
   IF v_room.pms_metadata->>'pmsSyncDate' IS DISTINCT FROM p_service_date::text
     OR v_room.updated_at < (p_service_date::timestamp AT TIME ZONE 'Europe/Budapest') THEN
     RAISE EXCEPTION 'Room PMS status is not current; refresh before claiming';
   END IF;
-  IF lower(coalesce(v_room.status,'')) NOT IN
-    ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty')
-    OR NOT (
-      (v_room.pms_metadata->>'scheduledDepartureToday'='true'
-        AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing')
-      OR public.slnt_team_b_stayover_due(p_room_id,p_service_date)
-    ) THEN RAISE EXCEPTION 'Room has no confirmed housekeeping task today'; END IF;
+  IF NOT (
+    (
+      lower(coalesce(v_room.status,'')) IN
+        ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty')
+      AND v_room.pms_metadata->>'scheduledDepartureToday'='true'
+      AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing'
+    )
+    OR public.slnt_team_b_stayover_due(p_room_id,p_service_date)
+  ) THEN RAISE EXCEPTION 'Room has no confirmed housekeeping task today'; END IF;
 
   -- A checkout cannot be started before RTC/confirmed checkout. Stayovers are unaffected.
   IF (v_room.pms_metadata->>'scheduledDepartureToday'='true'
@@ -214,8 +216,7 @@ BEGIN
                 AND r.pms_metadata->>'readyToCleanDate'=p_service_date::text)) OR lower(coalesce(r.status,'')) IN
               ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty')))
       -- Only explicitly due daily services qualify; never all stayovers.
-      OR (lower(coalesce(r.status,'')) IN
-              ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty') AND public.slnt_team_b_stayover_due(r.id,p_service_date))
+      OR public.slnt_team_b_stayover_due(r.id,p_service_date)
     )
   ORDER BY (r.pms_metadata->>'pmsOccupancyStatus'='departing' AND r.pms_metadata->>'scheduledDepartureToday'='true') DESC, r.room_number;
 END $function$;
