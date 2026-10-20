@@ -1,4 +1,5 @@
 import { useAuth } from '@/hooks/useAuth';
+import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
 import { HousekeepingTab as ExistingHousekeepingTab } from './HousekeepingTabLegacy';
 import { HousekeepingRoomSettings } from './HousekeepingRoomSettings';
 import { HousekeepingMobilePolish } from './HousekeepingMobilePolish';
@@ -27,6 +28,7 @@ interface Props {
  */
 export function HousekeepingTabEnhanced(props: Props = {}) {
   const { profile } = useAuth();
+  const simplifiedEnabled = useSlntSimplifiedHousekeeping();
   const { language } = useTranslation();
   const hu = language === 'hu';
   const activeHotel = profile?.assigned_hotel;
@@ -42,7 +44,7 @@ export function HousekeepingTabEnhanced(props: Props = {}) {
   }
 
   const isSlnt = isSlntOrganization(profile.organization_slug);
-  const showSlntFuturePlanner = isSlnt
+  const showSlntFuturePlanner = simplifiedEnabled && isSlnt
     && !!profile.role
     && hasManagerPowers(profile.role);
 
