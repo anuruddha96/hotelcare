@@ -142,7 +142,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
                     ? (hu ? 'Jóváhagyva' : 'Approved')
                     : (hu ? 'Jóváhagyásra vár' : 'Awaiting approval')}
                 </Badge> : claimed ? <Badge variant="secondary">
-                  {mine ? (hu ? 'Saját feladat' : 'Your task') : (hu ? 'Folyamatban' : 'In progress')}
+                  {mine ? (hu ? 'Saját feladat' : 'Your task') : (hu ? 'Már átvett feladat' : 'Already claimed')}
                 </Badge> : <Badge variant="outline">{hu ? 'Elérhető' : 'Available'}</Badge>}
               </div>
               {item.notes && <p className="rounded-md bg-muted/40 p-2 text-sm">{item.notes}</p>}
@@ -176,10 +176,23 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
             <DialogHeader>
               <DialogTitle>{hu ? 'Szoba takarítása' : 'Clean room'}</DialogTitle>
             </DialogHeader>
-            {activeAssignment && <AssignedRoomCard assignment={activeAssignment} onStatusUpdate={() => {
-              setActiveAssignment(null);
-              void refresh();
-            }} />}
+            {activeAssignment && (
+              // Reuse the exact existing HotelCare room card. Lost & Found,
+              // dirty linen, maintenance, notes, timers, photos, DND/no
+              // service and the manager-approval completion process remain
+              // unchanged; only claiming from the shared pool is new.
+              <AssignedRoomCard assignment={activeAssignment} onStatusUpdate={(assignmentId, status) => {
+                void refresh();
+                // Keep the card open when cleaning starts or changes status.
+                // The original completion workflow closes only on completion
+                // and sends the room for supervisor approval as before.
+                if (status === 'completed' || status === 'cancelled') {
+                  setActiveAssignment(null);
+                } else {
+                  void loadAssignment(assignmentId);
+                }
+              }} />
+            )}
           </DialogContent>
         </Dialog>
       )}
