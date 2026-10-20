@@ -75,10 +75,12 @@ BEGIN
  IF v_memories AND v_departure IS NULL
     AND p_pms_metadata->>'pmsSyncDate' = p_business_date::text THEN
    BEGIN
-     v_current := coalesce(nullif(p_pms_metadata #>> '{continuousStay,currentNight}','')::integer,
-                            nullif(p_pms_metadata->>'currentNight','')::integer);
-     v_total := coalesce(nullif(p_pms_metadata #>> '{continuousStay,totalNights}','')::integer,
-                          nullif(p_pms_metadata->>'totalNights','')::integer);
+     -- Preserve the whole in-house stay; continuousStay can describe only
+     -- the latest extension segment (e.g. 2/2 within a 2/6 total stay).
+     v_current := coalesce(nullif(p_pms_metadata->>'currentNight','')::integer,
+                           nullif(p_pms_metadata #>> '{continuousStay,currentNight}','')::integer);
+     v_total := coalesce(nullif(p_pms_metadata->>'totalNights','')::integer,
+                         nullif(p_pms_metadata #>> '{continuousStay,totalNights}','')::integer);
      v_last_night := v_total > 0 AND v_current = v_total;
    EXCEPTION WHEN OTHERS THEN v_last_night := false;
    END;
