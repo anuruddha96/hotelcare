@@ -1466,7 +1466,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               ) : selection?.error ? (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{selection.error}</p>
               ) : panel === 'requests' && selection?.roomId ? (
-                <div className="space-y-3"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-fuchsia-600" /><h3 className="font-bold">Guest requests — Room {selection.roomNumber}</h3></div><RoomGuestRequestsPanel roomId={selection.roomId} roomNumber={selection.roomNumber} assignmentId={selection.assignmentId} workDate={selectedDate} /></div>
+                <div className="space-y-3"><div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-fuchsia-600" /><h3 className="font-bold">Guest requests — Room {selection.roomNumber}</h3></div><RoomGuestRequestsPanel roomId={selection.roomId} roomNumber={selection.roomNumber} assignmentId={selection.assignmentId} workDate={selectedDate} returnCollectionByHousekeeperOnly={isMemories} /></div>
               ) : panel === 'minibar' && selection?.roomId ? (
                 <RoomMinibarOperations roomId={selection.roomId} roomNumber={selection.roomNumber} isCheckout={selection.isCheckout} readOnly={readOnlyForPast || !canOpen} onChanged={() => void refresh()} />
               ) : mainView}
