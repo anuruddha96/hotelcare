@@ -8,6 +8,7 @@ import { AssignedRoomCard } from './AssignedRoomCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { summarizeTeamBProgress } from '@/lib/slntSimplifiedHousekeeping';
 
@@ -68,6 +69,11 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
     if (loadError) throw loadError;
     if (!data) throw new Error(hu ? 'A feladat nem található.' : 'Assignment not found.');
     setActiveAssignment(data);
+  };
+
+  const openExisting = async (id: string) => {
+    try { await loadAssignment(id); }
+    catch (cause) { toast.error(cause instanceof Error ? cause.message : 'Cannot open room.'); }
   };
 
   const claim = async (item: Item) => {
@@ -149,7 +155,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
               {!managerView && !completed && (!claimed || mine) && (
                 <Button size="sm" disabled={!!busy}
                   data-training="slnt-team-b-claim"
-                  onClick={() => void (claimed ? loadAssignment(item.assignment_id!) : claim(item))}>
+                  onClick={() => void (claimed ? openExisting(item.assignment_id!) : claim(item))}>
                   <ClipboardCheck className="mr-2 h-4 w-4" />
                   {mine ? (hu ? 'Feladat megnyitása' : 'Open my task') : (hu ? 'Feladat átvétele' : 'Take room')}
                 </Button>
@@ -161,23 +167,21 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
       {!loading && !error && items.length === 0 && <p className="rounded-lg border p-5 text-center text-sm">
         {hu ? 'Nincs takarítandó egység mára.' : 'No rooms need cleaning today.'}
       </p>}
-      {!managerView && activeAssignment && (
-        <Card data-training="slnt-team-b-active-assignment">
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between gap-2 text-base">
-              {hu ? 'Kiválasztott feladat' : 'Selected room'}
-              <Button size="sm" variant="ghost" onClick={() => { setActiveAssignment(null); void refresh(); }}>
-                {hu ? 'Bezárás' : 'Close'}
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <AssignedRoomCard assignment={activeAssignment} onStatusUpdate={() => {
+      {!managerView && (
+        <Dialog open={!!activeAssignment} onOpenChange={open => {
+          if (!open) { setActiveAssignment(null); void refresh(); }
+        }}>
+          <DialogContent className="max-h-[95dvh] w-[98vw] max-w-3xl overflow-y-auto p-3 sm:p-5"
+            data-training="slnt-team-b-active-assignment">
+            <DialogHeader>
+              <DialogTitle>{hu ? 'Szoba takarítása' : 'Clean room'}</DialogTitle>
+            </DialogHeader>
+            {activeAssignment && <AssignedRoomCard assignment={activeAssignment} onStatusUpdate={() => {
               setActiveAssignment(null);
               void refresh();
-            }} />
-          </CardContent>
-        </Card>
+            }} />}
+          </DialogContent>
+        </Dialog>
       )}
       {managerView && pending > 0 && <div className="flex items-center gap-2 text-sm">
         <CheckCircle2 className="h-4 w-4" />
