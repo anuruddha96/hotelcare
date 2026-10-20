@@ -76,6 +76,16 @@ export function HousekeepingStaffView() {
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  // SLNT cleaner profile dates are actionable, on mobile and desktop.
+  useEffect(() => {
+    const showDate = (event: Event) => {
+      const date = (event as CustomEvent<{ date?: string }>).detail?.date;
+      if (date && /^\\d{4}-\\d{2}-\\d{2}$/.test(date)) setSelectedDate(date);
+    };
+    window.addEventListener('hotelcare:slnt-staff-date', showDate);
+    return () => window.removeEventListener('hotelcare:slnt-staff-date', showDate);
+  }, []);
+
   const [statusFilter, setStatusFilter] = useState<'assigned' | 'in_progress' | 'completed' | 'total' | 'no_service' | 'dnd' | null>('assigned');
 
   // The mobile screen owns its own queries; do not duplicate subscriptions or polling here.
