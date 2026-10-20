@@ -99,9 +99,8 @@ BEGIN
     ) THEN RAISE EXCEPTION 'Room has no confirmed housekeeping task today'; END IF;
 
   -- A checkout cannot be started before RTC/confirmed checkout. Stayovers are unaffected.
-  IF (coalesce(v_room.is_checkout_room,false)
-      OR (v_room.pms_metadata->>'scheduledDepartureToday'='true'
-        AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing'))
+  IF (v_room.pms_metadata->>'scheduledDepartureToday'='true'
+        AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing')
     AND NOT (
       (v_room.pms_metadata->>'checkedOutToday')='true'
       OR (
@@ -131,13 +130,11 @@ BEGIN
     assignment_type,status,priority,ready_to_clean,supervisor_approved
   ) VALUES (
     p_room_id,auth.uid(),auth.uid(),p_service_date,v_org_slug,
-    CASE WHEN (coalesce(v_room.is_checkout_room,false)
-       OR (v_room.pms_metadata->>'scheduledDepartureToday'='true'
-         AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing')) THEN 'checkout_cleaning'
+    CASE WHEN (v_room.pms_metadata->>'scheduledDepartureToday'='true'
+         AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing') THEN 'checkout_cleaning'
          ELSE 'daily_cleaning' END::public.assignment_type,
-    'assigned',2,CASE WHEN (coalesce(v_room.is_checkout_room,false)
-       OR (v_room.pms_metadata->>'scheduledDepartureToday'='true'
-         AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing'))
+    'assigned',2,CASE WHEN (v_room.pms_metadata->>'scheduledDepartureToday'='true'
+         AND v_room.pms_metadata->>'pmsOccupancyStatus'='departing')
          THEN (v_room.pms_metadata->>'checkedOutToday'='true'
            OR (v_room.pms_metadata->>'readyToClean'='true'
              AND v_room.pms_metadata->>'readyToCleanDate'=p_service_date::text))
@@ -189,8 +186,8 @@ BEGIN
   END IF;
   RETURN QUERY
   SELECT r.id, r.room_number, r.status, r.room_name, r.notes,
-         r.guest_count, (coalesce(r.is_checkout_room,false) OR (r.pms_metadata->>'pmsOccupancyStatus'='departing'
-          AND r.pms_metadata->>'scheduledDepartureToday'='true')),
+         r.guest_count, (r.pms_metadata->>'pmsOccupancyStatus'='departing'
+          AND r.pms_metadata->>'scheduledDepartureToday'='true'),
          coalesce(r.towel_change_required,false), coalesce(r.linen_change_required,false),
          r.pms_metadata::jsonb,
          a.id, a.assigned_to, a.status::text, coalesce(a.supervisor_approved,false)
@@ -220,6 +217,6 @@ BEGIN
       OR (lower(coalesce(r.status,'')) IN
               ('dirty','unclean','needs_cleaning','needs cleaning','to_clean','checkout_dirty') AND public.slnt_team_b_stayover_due(r.id,p_service_date))
     )
-  ORDER BY coalesce(r.is_checkout_room,false) DESC, r.room_number;
+  ORDER BY (r.pms_metadata->>'pmsOccupancyStatus'='departing' AND r.pms_metadata->>'scheduledDepartureToday'='true') DESC, r.room_number;
 END $function$;
 
