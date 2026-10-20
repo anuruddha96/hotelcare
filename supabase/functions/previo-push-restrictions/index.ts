@@ -464,12 +464,31 @@ Deno.serve(async (req) => {
               obkId: resolved.obkId,
             });
             previousAvailability = before.value;
-            const unlinkedIncreaseError = !upgrade && before.value !== null && rooms > before.value
+            // The independent inventory editor must not overwrite one side of
+            // an active linked-room watch. Those two category counts represent
+            // the same physical inventory until the watch is resolved.
+            const { data: linkedWatches, error: watchError } = !upgrade
+              ? await admin.from("room_sale_overnight_watches")
+                  .select("first_obk_id,second_obk_id")
+                  .eq("hotel_id", hotelId).eq("stay_date", item.date)
+                  .in("status", ["active", "triggered", "needs_review"])
+              : { data: [], error: null };
+            const linkedEdit = (linkedWatches ?? []).some((watch: any) =>
+              watch.first_obk_id === resolved.scopedObkId ||
+              watch.second_obk_id === resolved.scopedObkId
+            );
+            const unlinkedIncreaseError = !upgrade && before.value !== null && rooms > before.value && !watchError && !linkedEdit
               ? await checkUnlinkedInventoryIncrease(
                   admin, hotelId, item.date, resolved.scopedObkId, before.value, rooms,
                 )
               : null;
-            if (unlinkedIncreaseError) {
+            if (watchError) {
+              allOk = false;
+              lastMessage = "Could not verify linked-room protection. No availability was changed.";
+            } else if (linkedEdit) {
+              allOk = false;
+              lastMessage = "This room category is part of an active linked-room offer. Manage or close the linked offer before making a standard availability adjustment.";
+            } else if (unlinkedIncreaseError) {
               allOk = false;
               lastMessage = unlinkedIncreaseError;
             } else if (before.value === null) {
