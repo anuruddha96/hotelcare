@@ -48,7 +48,7 @@ export function SlntTeamAQuickPlanner() {
       const scope = await loadActiveSlntTeamScope('slnt', 'slnt-group', 'team-a');
       const ids = scope.roomIds;
       setTeamId(scope.teamId); setRoomIds(ids);
-      const [memberRows, roomRows, overviewRows, assignmentRows, dayOffRows, scheduleRows] = await Promise.all([
+      const [memberRows, roomRows, overviewRows, assignmentRows, dayOffRows] = await Promise.all([
         (supabase as any).from('housekeeping_team_members').select('user_id').eq('team_id', scope.teamId).eq('is_active', true),
         supabase.from('rooms').select('id,room_number,room_name,hotel,status,pms_metadata,notes,is_checkout_room,room_size_sqm,room_capacity,towel_change_required,linen_change_required,checkout_time').in('id', ids),
         (supabase as any).from('daily_overview_snapshots')
@@ -56,20 +56,15 @@ export function SlntTeamAQuickPlanner() {
           .eq('organization_slug', 'slnt').eq('hotel_id', 'slnt-group').eq('source', 'previo').eq('business_date', selectedDate),
         supabase.from('room_assignments').select('room_id,assigned_to,status').eq('assignment_date', selectedDate).in('room_id', ids),
         (supabase as any).from('slnt_team_a_days_off').select('user_id').eq('team_id', scope.teamId).eq('work_date', selectedDate),
-        (supabase as any).from('staff_schedules').select('user_id,status').eq('organization_slug', 'slnt')
-          .eq('work_date', selectedDate).eq('status', 'off'),
       ]);
-      for (const result of [memberRows,roomRows,overviewRows,assignmentRows,dayOffRows,scheduleRows]) if (result.error) throw result.error;
+      for (const result of [memberRows,roomRows,overviewRows,assignmentRows,dayOffRows]) if (result.error) throw result.error;
       if ((roomRows.data||[]).length !== ids.length) throw new Error('Team A apartment mapping requires review.');
       const memberIds = (memberRows.data || []).map((m: any) => String(m.user_id));
       if (memberIds.length === 0) throw new Error('No active Team A cleaners configured.');
       const profiles = await supabase.from('profiles').select('id,full_name').in('id', memberIds).in('organization_slug', ['slnt','slnt-group']);
       if (profiles.error) throw profiles.error;
       setStaff((profiles.data || []).map(p => ({ id: p.id, full_name: p.full_name || p.id })));
-      setOff(new Set([
-        ...(dayOffRows.data || []).map((r: any) => r.user_id as string),
-        ...(scheduleRows.data || []).map((r: any) => r.user_id as string),
-      ]));
+      setOff(new Set((dayOffRows.data || []).map((r: any) => r.user_id as string)));
       setAssigned(new Map((assignmentRows.data || []).filter(a => a.status !== 'cancelled')
         .map(a => [a.room_id, a as Assignment])));
       setOverviewCount((overviewRows.data || []).length);
