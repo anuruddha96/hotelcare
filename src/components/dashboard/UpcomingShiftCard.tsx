@@ -23,7 +23,7 @@ const dateOf = (date: string) => new Date(`${date}T12:00:00`);
 /** Read-only self view; staff never query or receive colleagues' shifts or draft plans. */
 export function UpcomingShiftCard() {
   const { user, profile } = useAuth();
-  const simplifiedEnabled = useSlntSimplifiedHousekeeping();
+  const simplifiedEnabled = useSlntSimplifiedHousekeeping() === true;
   const { language } = useTranslation();
   const { venuesEnabled, orgSlug } = useTenantFeatures();
   const [shifts, setShifts] = useState<Shift[]>([]);
