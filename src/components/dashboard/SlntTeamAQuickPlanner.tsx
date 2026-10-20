@@ -196,7 +196,7 @@ export function SlntTeamAQuickPlanner() {
             <div className="space-y-2" data-training="slnt-team-a-assignments">
               {rooms.map(room => <div key={room.id} className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
                 <div className="min-w-32 flex-1">
-                  <p className="font-semibold">{room.room_name || room.room_number}</p>
+                  <p className="font-semibold">{room.room_number}</p>
                   <p className="text-xs text-muted-foreground">
                     {isUnsoldPlanningRoom(room) ? (hu ? 'Ideiglenes – nincs foglalás' : 'Provisional — unsold')
                       : room.is_checkout_room ? (hu ? 'Kijelentkezés' : 'Checkout')
