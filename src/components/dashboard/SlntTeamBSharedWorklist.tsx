@@ -136,7 +136,12 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
                   {typeof item.pms_metadata['departureDate'] === 'string' ? `${hu ? 'Távozás' : 'Departure'}: ${item.pms_metadata['departureDate']}` : ''}
                 </div>
               )}
-              {!managerView && !completed && (!claimed || mine) && (!waitingRtc || claimed) && (
+              {!managerView && !completed && waitingRtc && (
+                <Button size="sm" variant="outline" disabled aria-disabled="true">
+                  {hu ? 'RTC-re vár – nem indítható' : 'Awaiting RTC — cannot start'}
+                </Button>
+              )}
+              {!managerView && !completed && !waitingRtc && (!claimed || mine) && (
                 <Button size="sm" disabled={!!busy}
                   data-training="slnt-team-b-claim"
                   onClick={() => void (claimed ? openExisting(item.assignment_id!) : claim(item))}>
