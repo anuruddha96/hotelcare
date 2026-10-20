@@ -79,7 +79,77 @@ export function UpcomingShiftCard() {
   </CardContent></Card>;
 
   // SLNT Team A: future dates are browsable; no published shift is required.
-  if (slnt && !simplifiedEnabled) return <Card className="w-full" ><CardContent className="p-4"><p className="text-sm text-muted-foreground">{language === 'hu' ? 'A közzétett beosztást a Beosztás menüben találod.' : 'View your published shifts in Staff Schedule.'}</p></CardContent></Card>;
+  // Until rollout is approved, preserve the exact existing SLNT schedule UI.
+  if (slnt && !simplifiedEnabled) {
+  const isHungarian = language === 'hu';
+  const copy = isHungarian ? {
+    title: 'Munkaidő-beosztásom',
+    refresh: 'Frissítés',
+    summary: 'Közzétett műszakok · budapesti idő · következő 14 nap',
+    loading: 'Beosztás betöltése…',
+    error: 'Nem sikerült betölteni a beosztást. Próbáld újra.',
+    today: 'Ma',
+    locationPending: 'Helyszín egyeztetés alatt',
+    noShift: 'Nincs közzétett műszak',
+    expand: 'Mind a 14 nap megtekintése',
+    collapse: 'Csak a következő 3 nap',
+    help: 'Itt csak a közzétett beosztásod látható. A szobafeladatokat a Takarítás menüben találod.',
+  } : {
+    title: 'My work schedule',
+    refresh: 'Refresh',
+    summary: 'Published shifts · Budapest time · next 14 days',
+    loading: 'Loading your schedule…',
+    error: 'Unable to load your schedule. Please try again.',
+    today: 'Today',
+    locationPending: 'Venue to be confirmed',
+    noShift: 'No published shift',
+    expand: 'Show all 14 days',
+    collapse: 'Show next 3 days',
+    help: 'Only published shifts appear here. Room assignments are available in Housekeeping.',
+  };
+  const shiftByDay = new Map(shifts.map((shift) => [shift.work_date, shift]));
+  const days = Array.from({ length: 14 }, (_, i) => format(addDays(dateOf(from), i), 'yyyy-MM-dd'));
+  return <Card className="w-full">
+    <CardHeader className="pb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="h-4 w-4" />{copy.title}</CardTitle>
+        <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
+          <RefreshCw className="mr-1 h-3.5 w-3.5" />{copy.refresh}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{copy.summary}</p>
+    </CardHeader>
+    <CardContent className="space-y-2">
+      {error && <p className="text-sm text-destructive" role="alert">{copy.error}</p>}
+      {loading ? <p role="status" className="text-sm text-muted-foreground">{copy.loading}</p>
+        : days.slice(0, expanded ? days.length : 3).map((day) => {
+          const shift = shiftByDay.get(day);
+          return <div key={day} className={`rounded-lg border px-3 py-2.5 ${day === from ? 'border-sky-300 bg-sky-50/60 dark:bg-sky-950/20' : 'border-border'}`}>
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <div className="text-sm font-semibold capitalize">
+                {isHungarian
+                  ? format(dateOf(day), 'MMM d., EEEE', { locale: hu })
+                  : format(dateOf(day), 'EEE, MMM d')}
+                {day === from ? ` · ${copy.today}` : ''}
+              </div>
+              {shift && <Badge className="gap-1"><Clock className="h-3 w-3" />{shift.shift_start.slice(0, 5)}–{shift.shift_end.slice(0, 5)}</Badge>}
+            </div>
+            {shift ? <>
+              <div className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 break-words">{shift.staff_schedule_venues?.map((link) => link.venues?.name).filter(Boolean).join(', ') || copy.locationPending}</span>
+              </div>
+              {shift.notes && <p className="mt-1 text-xs">{shift.notes}</p>}
+            </> : <p className="mt-1 text-xs text-muted-foreground">{copy.noShift}</p>}
+          </div>;
+        })}
+      {!loading && <Button type="button" size="sm" variant="ghost" className="w-full" onClick={() => setExpanded((old) => !old)}>
+        {expanded ? copy.collapse : copy.expand}
+      </Button>}
+      <p className="text-xs leading-relaxed text-muted-foreground">{copy.help}</p>
+    </CardContent>
+  </Card>;
+  }
   const isHungarian = language === 'hu';
   const days = Array.from({ length: 14 }, (_, i) => format(addDays(dateOf(from), i), 'yyyy-MM-dd'));
   const counts = new Map<string, number>();
