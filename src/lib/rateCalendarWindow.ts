@@ -22,9 +22,12 @@ function monthEnd(month: string): string {
 }
 
 /** One month is bounded to its real end (including leap years). */
-export function calendarWindow(today: string, month: string | null): string[] {
-  if (!month || month < today.slice(0, 7)) return dateRange(today, addDays(today, RATE_CALENDAR_DAYS - 1));
-  const start = month === today.slice(0, 7) ? today : `${month}-01`;
+export function calendarWindow(today: string, month: string | null, revealHistory = false): string[] {
+  // A historical reveal adds three read-only columns; it never consumes any
+  // of the thirty future nights and never expands the published-rate horizon.
+  const historicalStart = revealHistory ? addDays(today, -3) : today;
+  if (!month || month < today.slice(0, 7)) return dateRange(historicalStart, addDays(today, RATE_CALENDAR_DAYS - 1));
+  const start = month === today.slice(0, 7) ? historicalStart : `${month}-01`;
   return dateRange(start, monthEnd(month));
 }
 
