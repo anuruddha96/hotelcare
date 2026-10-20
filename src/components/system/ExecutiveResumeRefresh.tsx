@@ -64,14 +64,22 @@ export default function ExecutiveResumeRefresh() {
     const onUserActivity = (event: Event) => {
       // No synthetic activity or background process may silently extend life.
       if (!event.isTrusted || document.hidden) return;
-      if (checkHotelCareInactivity()) return;
+      if (checkHotelCareInactivity()) {
+        // The first click after a long idle must not accidentally change a
+        // rate, assign a room or submit a form under the new modal.
+        const dialog = document.getElementById("idle-refresh-dialog");
+        if (dialog && event.target instanceof Node && dialog.contains(event.target)) return;
+        if (event.cancelable) event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       recordHotelCareInteraction();
     };
     // pointermove is intentionally excluded: desk mice and remote-control
     // utilities can generate movement without anyone actually working.
-    const activityEvents = ["pointerdown", "keydown", "touchstart", "wheel"];
+    const activityEvents = ["pointerdown", "click", "keydown", "touchstart", "wheel"];
     for (const eventName of activityEvents) {
-      window.addEventListener(eventName, onUserActivity, { passive: true, capture: true });
+      window.addEventListener(eventName, onUserActivity, { passive: false, capture: true });
     }
     const onResume = () => { checkIdle(); };
     document.addEventListener("visibilitychange", onResume);
