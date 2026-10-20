@@ -822,7 +822,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
     },
-    [user, role, statuses],
+    [user, role, statuses, isSlntTrainingOrg],
   );
 
 
@@ -991,7 +991,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       if (!c.slug.startsWith('slnt_')) return true;
       if (!isSlntTrainingOrg) return false;
       if (role !== 'housekeeping') return c.slug === 'slnt_simple_manager_v1';
-      return c.slug === (isSlntTeamB ? 'slnt_team_b_cleaner_v1' : 'slnt_team_a_cleaner_v1');
+      return isSlntTeamB !== null && c.slug === (isSlntTeamB ? 'slnt_team_b_cleaner_v1' : 'slnt_team_a_cleaner_v1');
     });
   }, [role, isSlntTrainingOrg, isSlntTeamB]);
 
