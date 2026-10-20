@@ -188,8 +188,9 @@ export function GuestItemRecoveryNotice({
     const outstanding = payload.quantity - already;
     if (outstanding <= 0) return;
 
+    const requested = quantities[row.id] ?? outstanding;
     const amount = memoriesMode
-      ? Math.max(1, Math.min(outstanding, Math.floor(quantities[row.id] ?? outstanding)))
+      ? Math.max(1, Math.min(outstanding, Math.floor(Number.isFinite(requested) ? requested : outstanding)))
       : outstanding;
     const recovered = action === 'collected' ? amount : 0;
     const total = already + recovered;
