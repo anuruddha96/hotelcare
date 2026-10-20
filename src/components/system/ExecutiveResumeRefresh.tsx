@@ -63,7 +63,8 @@ export default function ExecutiveResumeRefresh() {
     const checkIdle = () => { checkHotelCareInactivity(); };
     const onUserActivity = (event: Event) => {
       // No synthetic activity or background process may silently extend life.
-      if (!event.isTrusted || document.hidden) return;
+      if (document.hidden) return;
+      // Even a synthetic event must not activate a stale underlying control.
       if (checkHotelCareInactivity()) {
         // The first click after a long idle must not accidentally change a
         // rate, assign a room or submit a form under the new modal.
@@ -73,6 +74,7 @@ export default function ExecutiveResumeRefresh() {
         event.stopImmediatePropagation();
         return;
       }
+      if (!event.isTrusted) return;
       recordHotelCareInteraction();
     };
     // pointermove is intentionally excluded: desk mice and remote-control
@@ -154,7 +156,8 @@ export default function ExecutiveResumeRefresh() {
     <div
       id="idle-refresh-dialog"
       className="pointer-events-auto fixed inset-0 z-[2147483646] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-md"
-      role="alertdialog"
+      role="dialog"
+      style={{ pointerEvents: "auto" }}
       aria-modal="true"
       aria-labelledby="idle-refresh-title"
       aria-describedby="idle-refresh-description"
