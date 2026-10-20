@@ -2,7 +2,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { HousekeepingTab as ExistingHousekeepingTab } from './HousekeepingTabLegacy';
 import { HousekeepingRoomSettings } from './HousekeepingRoomSettings';
 import { HousekeepingMobilePolish } from './HousekeepingMobilePolish';
-import { Slnt14DayHousekeepingPlannerV2 } from './Slnt14DayHousekeepingPlannerV2';
+import { SlntTeamAQuickPlanner } from './SlntTeamAQuickPlanner';
+import { SlntTeamBSharedWorklist } from './SlntTeamBSharedWorklist';
+import { SupervisorApprovalView } from './SupervisorApprovalView';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTranslation } from '@/hooks/useTranslation';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { isSlntOrganization } from '@/lib/slnt14DayHousekeeping';
 import '@/styles/housekeeping-mobile.css';
@@ -23,6 +27,8 @@ interface Props {
  */
 export function HousekeepingTabEnhanced(props: Props = {}) {
   const { profile } = useAuth();
+  const { language } = useTranslation();
+  const hu = language === 'hu';
   const activeHotel = profile?.assigned_hotel;
 
   // Never interpret a missing venue as permission to show an organization-wide
@@ -40,10 +46,38 @@ export function HousekeepingTabEnhanced(props: Props = {}) {
     && !!profile.role
     && hasManagerPowers(profile.role);
 
+  if (showSlntFuturePlanner) {
+    return (
+      <div key={`${profile.organization_slug}:${activeHotel}`} className="space-y-4 hk-mobile-workspace" data-training="slnt-simple-housekeeping">
+        <HousekeepingMobilePolish />
+        <Tabs defaultValue="team-a" className="space-y-4">
+          <TabsList className="w-full sm:w-auto" data-training="slnt-team-switcher">
+            <TabsTrigger value="team-a" className="flex-1">{hu ? 'A csapat – beosztás' : 'Team A — plan'}</TabsTrigger>
+            <TabsTrigger value="team-b" className="flex-1">{hu ? 'B csapat – mai munka' : 'Team B — today'}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="team-a"><SlntTeamAQuickPlanner /></TabsContent>
+          <TabsContent value="team-b" className="space-y-3">
+            <SlntTeamBSharedWorklist managerView />
+            <details className="rounded-md border p-3" data-training="slnt-team-b-approvals">
+              <summary className="cursor-pointer font-semibold">{hu ? 'Függő jóváhagyások megnyitása' : 'Review pending approvals'}</summary>
+              <div className="pt-3"><SupervisorApprovalView /></div>
+            </details>
+          </TabsContent>
+        </Tabs>
+        <details className="rounded-lg border p-3">
+          <summary className="cursor-pointer text-sm font-medium">{hu ? 'Speciális housekeeping eszközök' : 'Advanced housekeeping tools'}</summary>
+          <div className="mt-3 space-y-3">
+            <HousekeepingRoomSettings />
+            <ExistingHousekeepingTab {...props} />
+          </div>
+        </details>
+      </div>
+    );
+  }
+
   return (
     <div key={`${profile.organization_slug}:${activeHotel}`} className="space-y-3 hk-mobile-workspace">
       <HousekeepingMobilePolish />
-      {showSlntFuturePlanner && <Slnt14DayHousekeepingPlannerV2 />}
       <HousekeepingRoomSettings />
       <ExistingHousekeepingTab {...props} />
     </div>
