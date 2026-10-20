@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { permittedSharedAvailability, permittedLinkedPoolAvailability, sharedPoolRequiresClosing, unchangedReservationIds } from "../../../supabase/functions/_shared/sharedInventoryPlan";
+import { incrementalLinkedAvailability, permittedSharedAvailability, permittedLinkedPoolAvailability, sharedPoolRequiresClosing, unchangedReservationIds } from "../../../supabase/functions/_shared/sharedInventoryPlan";
 describe("shared physical room selling",()=>{
  it("keeps the final room visible under both types until booked",()=>{
   expect(permittedSharedAvailability(1,21,20)).toBe(1);
@@ -54,4 +54,34 @@ describe("Quad/Queen sharing with a separate sellable Twin",()=>{
  it("never offers the shared room if the hotel is fully physically sold",()=>{
   expect(permitted([...baseline,{resId:"T9",obkId:twin},{resId:"O6",obkId:"other"}])).toBe(0);
  });
+});
+
+describe("incremental Queen / Quad shared-room allocation",()=>{
+  const start={sourceAtStart:1,targetAtStart:2,sharedUnits:1,
+    sourceBookedAtStart:0,targetBookedAtStart:0};
+  const at=(queenBooked:number,quadBooked:number)=>
+    incrementalLinkedAvailability({...start,sourceBookedNow:quadBooked,targetBookedNow:queenBooked});
+  it("sells 3 Queens plus 1 Quad offer against only 3 physical rooms",()=>{
+    expect(at(0,0)).toEqual({target:3,source:1,sharedRemaining:1});
+    expect(at(1,0)).toEqual({target:2,source:1,sharedRemaining:1});
+    expect(at(2,0)).toEqual({target:1,source:1,sharedRemaining:1});
+    expect(at(3,0)).toEqual({target:0,source:0,sharedRemaining:0});
+  });
+  it("closes the virtual Queen but preserves unsold independent Queens after a Quad books",()=>{
+    expect(at(0,1)).toEqual({target:2,source:0,sharedRemaining:0});
+    expect(at(1,1)).toEqual({target:1,source:0,sharedRemaining:0});
+    expect(at(2,1)).toEqual({target:0,source:0,sharedRemaining:0});
+  });
+  it("keeps other independent Quad units on sale when the 1 shared unit is consumed",()=>{
+    expect(incrementalLinkedAvailability({...start,sourceAtStart:2,
+      sourceBookedNow:1,targetBookedNow:0})).toEqual({
+        target:2,source:1,sharedRemaining:0,
+      });
+  });
+  it("rejects invalid or inconsistent booking baselines",()=>{
+    expect(incrementalLinkedAvailability({...start,sourceAtStart:0,
+      sourceBookedNow:0,targetBookedNow:0})).toBeNull();
+    expect(incrementalLinkedAvailability({...start,sourceBookedAtStart:1,
+      sourceBookedNow:0,targetBookedNow:0})).toBeNull();
+  });
 });
