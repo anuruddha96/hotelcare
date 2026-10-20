@@ -120,7 +120,7 @@ GRANT EXECUTE ON FUNCTION public.slnt_team_b_worklist(date) TO authenticated;
 -- The existing room assignment + supervisor approval/photo workflow is reused.
 CREATE OR REPLACE FUNCTION public.slnt_team_b_claim_room(p_room_id uuid,p_service_date date)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_team_id uuid; v_room public.rooms%ROWTYPE;
+DECLARE v_team_id uuid; v_org_slug text; v_room public.rooms%ROWTYPE;
         v_assignment public.room_assignments%ROWTYPE;
 BEGIN
   IF p_service_date <> (now() AT TIME ZONE 'Europe/Budapest')::date THEN
@@ -128,6 +128,7 @@ BEGIN
   END IF;
   SELECT t.id INTO v_team_id FROM public.housekeeping_teams t
     WHERE t.organization_slug='slnt' AND t.code='team-b' AND t.is_active LIMIT 1;
+  SELECT p.organization_slug INTO v_org_slug FROM public.profiles p WHERE p.id=auth.uid();
   IF v_team_id IS NULL OR NOT EXISTS (
     SELECT 1 FROM public.housekeeping_team_members m
     JOIN public.profiles p ON p.id=m.user_id
@@ -160,7 +161,7 @@ BEGIN
   END IF;
   IF FOUND AND v_assignment.status = 'cancelled' THEN
     UPDATE public.room_assignments SET assigned_to=auth.uid(),assigned_by=auth.uid(),
-      organization_slug='slnt',status='assigned',completed_at=null,started_at=null,
+      organization_slug=v_org_slug,status='assigned',completed_at=null,started_at=null,
       supervisor_approved=false,supervisor_approved_by=null,supervisor_approved_at=null
       WHERE id=v_assignment.id RETURNING id INTO v_assignment.id;
     RETURN v_assignment.id;
@@ -170,7 +171,7 @@ BEGIN
     room_id,assigned_to,assigned_by,assignment_date,organization_slug,
     assignment_type,status,priority,ready_to_clean,supervisor_approved
   ) VALUES (
-    p_room_id,auth.uid(),auth.uid(),p_service_date,'slnt',
+    p_room_id,auth.uid(),auth.uid(),p_service_date,v_org_slug,
     CASE WHEN coalesce(v_room.is_checkout_room,false) THEN 'checkout_cleaning'
          ELSE 'daily_cleaning' END::public.assignment_type,
     'assigned',2,NOT coalesce(v_room.is_checkout_room,false),false
