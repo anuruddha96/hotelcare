@@ -1526,11 +1526,20 @@ export default function RateStrategyGrid({
         // screen until the live availability prop catches up; otherwise the
         // cell briefly falls back to stale inventory (the exact 2 -> 1 bug).
         setInvOverride((prev) => {
-          const next = new Map(prev).set(
-            opts.key.replace(/^inv\|/, ""),
-            Math.max(0, Math.trunc(opts.roomsToSell!)),
-          );
-          if (isShared && opts.linkedDisplayKey) next.set(opts.linkedDisplayKey, opts.sharedUnits ?? 1);
+          const confirmed = isShared && opts.obkId
+            ? Number(data?.availabilityByObkId?.[opts.obkId])
+            : opts.roomsToSell!;
+          const next = new Map(prev);
+          if (Number.isInteger(confirmed) && confirmed >= 0) {
+            next.set(opts.key.replace(/^inv\|/, ""), confirmed);
+          }
+          // Never invent the source category's count: only display quantities
+          // that the shared-activation endpoint actually read back from Previo.
+          if (isShared && opts.upgradeFromObkId && opts.linkedDisplayKey) {
+            const sourceConfirmed = Number(data?.availabilityByObkId?.[opts.upgradeFromObkId]);
+            if (Number.isInteger(sourceConfirmed) && sourceConfirmed >= 0)
+              next.set(opts.linkedDisplayKey, sourceConfirmed);
+          }
           return next;
         });
         await onAvailabilityUpdated?.();
@@ -4292,7 +4301,10 @@ export default function RateStrategyGrid({
 
               {(() => {
                 const target = houseInventoryTypes.find((room) => room.pms_room_id === inventoryEditor.obkId);
-                const linked = inventoryEditor.obkId && existingSharedWatches.has(`${inventoryEditor.obkId}|${inventoryEditor.date}`);
+                const existingPair = inventoryEditor.obkId
+                  ? existingSharedWatches.get(`${inventoryEditor.obkId}|${inventoryEditor.date}`)
+                  : undefined;
+                const linked = existingPair?.first_obk_id === inventoryEditor.obkId;
                 const hasUpgradeSource = !!linked || houseInventoryTypes.some((room) =>
                   !!target && canOfferComplimentaryUpgrade(
                     target, room,
