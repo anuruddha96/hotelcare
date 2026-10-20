@@ -49,10 +49,16 @@ export default function ExecutiveResumeRefresh() {
   );
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const firstUpdateSeen = useRef<number | null>(null);
+  const initializedUserRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!eligible) return;
-    resetHotelCareSession();
+    if (!eligible || !user?.id) return;
+    // A temporary profile reload must not unlock an already suspended tab.
+    // Reset the idle clock only for a genuinely new signed-in user.
+    if (initializedUserRef.current !== user.id) {
+      initializedUserRef.current = user.id;
+      resetHotelCareSession();
+    }
 
     const checkIdle = () => { checkHotelCareInactivity(); };
     const onUserActivity = (event: Event) => {
