@@ -66,7 +66,7 @@ describe("authenticated user idle return — scope", () => {
   });
 
   it.each(["housekeeping", "maintenance", "reception", "manager", "finance"])(
-    "shows the same refresh prompt for operational role %s after one hour",
+    "shows the same refresh prompt for operational role %s after 30 minutes",
     (role) => {
       auth(role);
       render(<ExecutiveResumeRefresh />);
@@ -90,13 +90,13 @@ describe("authenticated user idle return — manual refresh", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("shows an accessible blurred-background prompt after exactly one hour", () => {
+  it("shows an accessible blurred-background prompt after exactly 30 minutes", () => {
     render(<ExecutiveResumeRefresh />);
     returnFromHidden(RESUME_REFRESH_AFTER_MS);
-    expect(RESUME_REFRESH_AFTER_MS).toBe(60 * 60_000);
+    expect(RESUME_REFRESH_AFTER_MS).toBe(30 * 60_000);
     expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
-    expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
-    const refreshLink = screen.getByRole("link", { name: "Refresh now" });
+    expect(screen.getByRole("heading", { name: "HotelCare paused after 30 minutes" })).toBeInTheDocument();
+    const refreshLink = screen.getByRole("link", { name: "Refresh HotelCare" });
     expect(refreshLink).toBeInTheDocument();
     // Do not rely on React's onClick after a suspended tab returns.
     const refreshUrl = new URL(refreshLink.getAttribute("href")!, window.location.href);
@@ -108,14 +108,14 @@ describe("authenticated user idle return — manual refresh", () => {
   it("allows the refresh action when an underlying Radix modal locks body pointer events", () => {
     // Radix writes pointer-events:none to body while its modal is open.
     // The idle overlay must opt back into pointer interaction or clicks
-    // on Refresh now never reach the browser.
+    // on Refresh HotelCare never reach the browser.
     const previousPointerEvents = document.body.style.pointerEvents;
     document.body.style.pointerEvents = "none";
     try {
       render(<ExecutiveResumeRefresh />);
       returnFromHidden(RESUME_REFRESH_AFTER_MS + 1);
       expect(screen.getByRole("dialog")).toHaveStyle({ pointerEvents: "auto" });
-      const refreshLink = screen.getByRole("link", { name: "Refresh now" });
+      const refreshLink = screen.getByRole("link", { name: "Refresh HotelCare" });
       expect(refreshLink.getAttribute("href")).toContain("chunk-recovery=");
     } finally {
       document.body.style.pointerEvents = previousPointerEvents;
@@ -132,7 +132,7 @@ describe("authenticated user idle return — manual refresh", () => {
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
-  it("blocks the first click after one hour of foreground inactivity", () => {
+  it("blocks the first click after 30 minutes of foreground inactivity", () => {
     render(<ExecutiveResumeRefresh />);
     const underlyingAction = vi.fn();
     const button = document.createElement("button");

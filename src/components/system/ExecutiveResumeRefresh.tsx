@@ -1,25 +1,25 @@
-import { useEffect, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { RefreshCw, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { freshApplicationUrl } from "@/lib/lazyModuleRecovery";
+import { checkHotelCareRelease } from "@/lib/hotelcareVersion";
+import {
+  checkHotelCareInactivity,
+  CLIENT_UPDATE_GRACE_MS,
+  CLIENT_VERSION_CHECK_MS,
+  getSessionSuspension,
+  observeSessionSuspension,
+  recordHotelCareInteraction,
+  resetHotelCareSession,
+  SESSION_INACTIVITY_MS,
+  suspendHotelCareSession,
+} from "@/lib/clientSessionGuard";
 
-/**
- * HotelCare users often leave tabs open while working around the property.
- * Never mutate or replace their current view merely because a tab regained
- * focus: after one hour of inactivity, put the choice in the user's hands,
- * including when the tab stayed visible but received no input.
- */
-export const RESUME_REFRESH_ROLES = new Set([
-  "admin",
-  "top_management",
-  "top_management_manager",
-]);
-
-export const RESUME_REFRESH_AFTER_MS = 60 * 60 * 1000;
-// Kept as compatibility exports for older listeners/tests. Neither threshold
-// triggers a background refresh or a synthetic resume event anymore.
-export const EXTENDED_RESUME_AFTER_MS = RESUME_REFRESH_AFTER_MS;
+/** Compatibility exports retained for existing consumers. */
+export const RESUME_REFRESH_ROLES = new Set(["admin", "top_management", "top_management_manager"]);
+export const RESUME_REFRESH_AFTER_MS = SESSION_INACTIVITY_MS;
+export const EXTENDED_RESUME_AFTER_MS = SESSION_INACTIVITY_MS;
 export const RESUME_DEBOUNCE_MS = 5000;
 export const EXECUTIVE_RESUME_EVENT = "hotelcare:executive-resume";
 
@@ -27,137 +27,160 @@ export interface ExecutiveResumeDetail {
   idleMs: number;
   level: "normal" | "extended";
 }
-
 export function isResumeRefreshEligible(
   profile: { role?: string | null; is_super_admin?: boolean | null } | null | undefined,
 ): boolean {
-  if (!profile) return false;
-  // Every authenticated HotelCare profile uses the same stale-session guard,
-  // including housekeeping, maintenance, reception and other operational roles.
-  return true;
+  return !!profile;
 }
 
+/**
+ * After 30 minutes WITHOUT trusted interaction, remove the operational app
+ * subtree (AuthenticatedShell) and require a new document load to resume.
+ * Merely showing a dialog would leave the old React timers running.
+ *
+ * Version polling goes to the static host every five minutes; this is
+ * deliberately independent of Supabase data usage.
+ */
 export default function ExecutiveResumeRefresh() {
   const { user, profile } = useAuth();
   const eligible = !!user && isResumeRefreshEligible(profile);
-  const [needsRefresh, setNeedsRefresh] = useState(false);
-  const lastInteractionRef = useRef(Date.now());
-  const awaySinceRef = useRef<number | null>(null);
-  const pendingRef = useRef(false);
+  const suspension = useSyncExternalStore(
+    observeSessionSuspension, getSessionSuspension, () => null,
+  );
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const firstUpdateSeen = useRef<number | null>(null);
+  const initializedUserRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!eligible) {
-      pendingRef.current = false;
-      awaySinceRef.current = null;
-      setNeedsRefresh(false);
-      return;
+    if (!eligible || !user?.id) return;
+    // A temporary profile reload must not unlock an already suspended tab.
+    // Reset the idle clock only for a genuinely new signed-in user.
+    if (initializedUserRef.current !== user.id) {
+      initializedUserRef.current = user.id;
+      resetHotelCareSession();
     }
-    // A fresh sign-in starts a fresh idle window, even if this tab has been
-    // displaying the login screen for a long time.
-    lastInteractionRef.current = Date.now();
 
-    const markAway = () => {
-      if (awaySinceRef.current === null) awaySinceRef.current = Date.now();
-    };
-
-    const promptIfIdle = (now: number): boolean => {
-      if (pendingRef.current) return true;
-      const idleSince = awaySinceRef.current === null
-        ? lastInteractionRef.current
-        : Math.min(lastInteractionRef.current, awaySinceRef.current);
-      if (now - idleSince < RESUME_REFRESH_AFTER_MS) return false;
-      pendingRef.current = true;
-      setNeedsRefresh(true);
-      return true;
-    };
-
-    const handleReturn = () => {
-      if (document.visibilityState === "hidden" || pendingRef.current) return;
-      const now = Date.now();
-      const showPrompt = promptIfIdle(now);
-      awaySinceRef.current = null;
-      if (!showPrompt) lastInteractionRef.current = now;
-    };
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") markAway();
-      else handleReturn();
-    };
-
-    const onActivity = (event: Event) => {
-      if (document.visibilityState === "hidden") return;
-      if (pendingRef.current) {
-        // Some browsers emit click even after pointerdown was cancelled. Only
-        // allow input inside the refresh dialog once the prompt is pending.
+    const checkIdle = () => { checkHotelCareInactivity(); };
+    const onUserActivity = (event: Event) => {
+      // No synthetic activity or background process may silently extend life.
+      if (document.hidden) return;
+      // Even a synthetic event must not activate a stale underlying control.
+      if (checkHotelCareInactivity()) {
+        // The first click after a long idle must not accidentally change a
+        // rate, assign a room or submit a form under the new modal.
         const dialog = document.getElementById("idle-refresh-dialog");
-        if (!dialog || !(event.target instanceof Node) || !dialog.contains(event.target)) {
-          if (event.cancelable) event.preventDefault();
-          event.stopImmediatePropagation();
-        }
-        return;
-      }
-      if (promptIfIdle(Date.now())) {
-        // The very first click/key after an idle period must not inadvertently
-        // submit a form or change a price underneath the newly opened dialog.
+        if (dialog && event.target instanceof Node && dialog.contains(event.target)) return;
         if (event.cancelable) event.preventDefault();
         event.stopImmediatePropagation();
         return;
       }
-      lastInteractionRef.current = Date.now();
+      if (!event.isTrusted) return;
+      recordHotelCareInteraction();
     };
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("pagehide", markAway);
-    window.addEventListener("pageshow", handleReturn);
-    window.addEventListener("blur", markAway);
-    window.addEventListener("focus", handleReturn);
-    for (const name of ["pointermove", "pointerdown", "click", "keydown", "touchstart", "wheel"]) {
-      window.addEventListener(name, onActivity, { capture: true, passive: false });
+    // pointermove is intentionally excluded: desk mice and remote-control
+    // utilities can generate movement without anyone actually working.
+    const activityEvents = ["pointerdown", "click", "keydown", "touchstart", "wheel"];
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, onUserActivity, { passive: false, capture: true });
     }
-    if (document.visibilityState === "hidden") markAway();
+    const onResume = () => { checkIdle(); };
+    document.addEventListener("visibilitychange", onResume);
+    window.addEventListener("pageshow", onResume);
+    window.addEventListener("focus", onResume);
 
+    const interval = window.setInterval(checkIdle, 15_000);
     return () => {
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("pagehide", markAway);
-      window.removeEventListener("pageshow", handleReturn);
-      window.removeEventListener("blur", markAway);
-      window.removeEventListener("focus", handleReturn);
-      for (const name of ["pointermove", "pointerdown", "click", "keydown", "touchstart", "wheel"]) {
-        window.removeEventListener(name, onActivity, true);
+      window.clearInterval(interval);
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, onUserActivity, true);
+      }
+      document.removeEventListener("visibilitychange", onResume);
+      window.removeEventListener("pageshow", onResume);
+      window.removeEventListener("focus", onResume);
+    };
+  }, [eligible, user?.id]);
+
+  useEffect(() => {
+    if (!eligible) {
+      firstUpdateSeen.current = null;
+      setUpdateAvailable(false);
+      return;
+    }
+    let active = true;
+    const checkRelease = async () => {
+      if (!active || getSessionSuspension()) return;
+      try {
+        if (!(await checkHotelCareRelease()) || !active) return;
+        if (firstUpdateSeen.current === null) firstUpdateSeen.current = Date.now();
+        setUpdateAvailable(true);
+        // Do not wake an unattended room-board just to show a notice.
+        if (document.hidden) suspendHotelCareSession("update");
+      } catch {
+        // Hosting may temporarily be unavailable. Do not lock out a working
+        // hotel because version discovery timed out.
       }
     };
-  }, [eligible]);
+    void checkRelease();
+    const timer = window.setInterval(() => { void checkRelease(); }, CLIENT_VERSION_CHECK_MS);
+    const deadline = window.setInterval(() => {
+      if (firstUpdateSeen.current !== null
+          && Date.now() - firstUpdateSeen.current >= CLIENT_UPDATE_GRACE_MS) {
+        suspendHotelCareSession("update");
+      }
+    }, 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.clearInterval(deadline);
+    };
+  }, [eligible, user?.id]);
 
-  if (!eligible || !needsRefresh) return null;
-
-  // A real document link continues to work even when a long-suspended tab's
-  // React click handlers are stale. Keep the exact workspace route and force
-  // a fresh HTML request instead of depending on programmatic navigation.
+  if (!eligible) return null;
   const refreshHref = freshApplicationUrl(window.location.href, Date.now());
 
+  if (!suspension && updateAvailable) {
+    return (
+      <div role="status" className="fixed bottom-4 left-4 right-4 z-[2147483645] mx-auto max-w-md rounded-xl border border-amber-300 bg-card p-4 text-card-foreground shadow-2xl sm:left-auto sm:right-5">
+        <p className="flex items-center gap-2 font-semibold"><RefreshCw className="h-4 w-4" /> HotelCare update available</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Save any unfinished changes, then refresh to continue. The older version will be paused shortly.
+        </p>
+        <Button asChild className="mt-3 w-full"><a href={refreshHref}>Refresh HotelCare</a></Button>
+      </div>
+    );
+  }
+
+  if (!suspension) return null;
+  const idle = suspension === "idle";
   return (
     <div
       id="idle-refresh-dialog"
-      className="pointer-events-auto fixed inset-0 z-[2147483646] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-md"
-      style={{ pointerEvents: "auto" }}
+      className="pointer-events-auto fixed inset-0 z-[2147483646] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-md"
       role="dialog"
+      style={{ pointerEvents: "auto" }}
       aria-modal="true"
       aria-labelledby="idle-refresh-title"
       aria-describedby="idle-refresh-description"
     >
       <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center text-card-foreground shadow-2xl sm:p-8">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <RefreshCw className="h-6 w-6" aria-hidden="true" />
+          {idle ? <ShieldAlert className="h-6 w-6" /> : <RefreshCw className="h-6 w-6" />}
         </div>
-        <h2 id="idle-refresh-title" className="text-xl font-semibold">Welcome back</h2>
+        <h2 id="idle-refresh-title" className="text-xl font-semibold">
+          {idle ? "HotelCare paused after 30 minutes" : "HotelCare needs an update"}
+        </h2>
         <p id="idle-refresh-description" className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          You were away for some time. This view may be out of date. Refresh to see the latest HotelCare information.
+          {idle
+            ? "No activity was detected for 30 minutes. Background operational queries and live subscriptions are stopped until you refresh."
+            : "This version is outdated. Refresh to load the latest HotelCare and continue working safely."}
         </p>
-        <p className="mt-3 text-xs text-muted-foreground">Refreshing may discard unsaved changes.</p>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Saved work is preserved. Unsaved changes on this page may be lost.
+        </p>
         <Button asChild className="mt-6 w-full" size="lg">
           <a href={refreshHref} autoFocus>
             <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-            Refresh now
+            Refresh HotelCare
           </a>
         </Button>
       </div>

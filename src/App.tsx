@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import { PointerEventsGuard } from "@/components/system/PointerEventsGuard";
 import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
 import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
+import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSessionGuard";
 import { canAccessLegacyModules } from "@/lib/roleAccess";
 
 // Lazy load all pages to keep initial bundle small
@@ -41,6 +42,7 @@ const ReceptionBreakfastUpload = lazy(() => import("./pages/ReceptionBreakfastUp
 const AssistantPage = lazy(() => import("./pages/AssistantPage"));
 const AssistantInsights = lazy(() => import("./pages/AssistantInsights"));
 const Billing = lazy(() => import("./pages/Billing"));
+const SessionProtectionAdmin = lazy(() => import("./pages/SessionProtectionAdmin"));
 
 // Lazy load non-critical global components
 const AssistantLauncher = lazy(() => import("@/components/assistant/AssistantLauncher"));
@@ -164,6 +166,7 @@ const TenantRouter = () => {
           <Route path="/assistant/:threadId" element={<AssistantPage />} />
           <Route path="/assistant-insights" element={<AssistantInsights />} />
           <Route path="/billing" element={<Billing />} />
+          <Route path="/admin/session-protection" element={<SessionProtectionAdmin />} />
           <Route path="/parking-tickets" element={canUseLegacyModules ? <ParkingTickets /> : <Navigate to={legacyFallback} replace />} />
         </Routes>
         <AssistantLauncher />
@@ -195,8 +198,17 @@ const PublicBreakfastApp = () => (
 const AuthenticatedShell = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const location = useLocation();
+  const suspended = useSyncExternalStore(
+    observeSessionSuspension, getSessionSuspension, () => null,
+  );
 
   if (!user) return <>{children}</>;
+
+  // Unmount the entire operational subtree after 30 minutes without input
+  // or after a forced update. React effect cleanup closes polling timers,
+  // queries and Realtime channels; a mere modal overlay cannot do this.
+  // AuthProvider remains mounted to preserve the signed-in session.
+  if (suspended) return null;
 
   const isRevenueRoute = /\/revenue(?:\/|$)/.test(location.pathname);
 
