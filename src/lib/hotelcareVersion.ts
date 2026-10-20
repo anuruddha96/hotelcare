@@ -1,5 +1,6 @@
 /** Client update detection uses static hosting, not the busy Supabase API. */
-export const HOTELCARE_BUILD_ID = __HOTELCARE_BUILD_ID__;
+export const HOTELCARE_BUILD_ID = typeof __HOTELCARE_BUILD_ID__ === 'string'
+  ? __HOTELCARE_BUILD_ID__ : 'dev-test-build-00001';
 
 export function isNewHotelCareRelease(
   current: string, response: unknown,
