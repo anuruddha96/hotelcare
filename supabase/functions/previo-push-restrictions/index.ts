@@ -341,8 +341,10 @@ Deno.serve(async (req) => {
             let transferred: { before: number; obkId: string; account: Account } | null = null;
             let transferRuleId: string | null = null;
             let leaseOwner: string | null = null;
-            if (allOk && upgrade) {
-              // Avoid concurrent manager transfers for the same property/date.
+            if (allOk) {
+              // Serialize standard adjustments and room transfers for the same
+              // property/date, so concurrent managers cannot both publish a
+              // positive change against the same remaining physical capacity.
               leaseOwner = crypto.randomUUID();
               const lock = await admin.rpc("claim_room_sale_upgrade_lock", {
                 p_hotel_id: hotelId, p_stay_date: item.date, p_owner: leaseOwner,
