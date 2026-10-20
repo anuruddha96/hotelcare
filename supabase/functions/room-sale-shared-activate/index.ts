@@ -222,30 +222,33 @@ Deno.serve(async(req)=>{
       // Read and publish each category with Previo verification. The same
       // physical rooms are intentionally represented under both categories;
       // the booking watcher compensates after a confirmed reservation.
-      for(const id of [source,target]){
+      const plannedSource=incremental?sourceLeft:requestedUnits;
+      const plannedTarget=incremental?targetLeft+requestedUnits:requestedUnits;
+      for(const [id,planned] of [[source,plannedSource],[target,plannedTarget]] as const){
         const availability=await readAvailability(creds,previoHotelId,date,id);
-        if(availability===requestedUnits)continue;
-        if(availability>requestedUnits)
-          throw Error("Previo reports more rooms than the shared allocation allows.");
+        if(availability===planned)continue;
+        if(availability>planned)
+          throw Error("Previo reports more rooms than this linked allocation allows.");
         const write=await writePrevioInventory({creds,pmsHotelId:previoHotelId,
-          target:{obkId:id,from:date,to:date,roomsToSell:requestedUnits}});
+          target:{obkId:id,from:date,to:date,roomsToSell:planned}});
         if(!write.ok)throw Error("Previo rejected shared availability for "+id);
-        if(await readAvailability(creds,previoHotelId,date,id)!==requestedUnits)
-          throw Error("Previo could not verify the requested shared availability for "+id);
+        if(await readAvailability(creds,previoHotelId,date,id)!==planned)
+          throw Error("Previo could not verify shared availability for "+id);
       }
       const verify=await Promise.all([
         readAvailability(creds,previoHotelId,date,source),
         readAvailability(creds,previoHotelId,date,target),
       ]);
-      if(verify[0]!==requestedUnits||verify[1]!==requestedUnits)
+      if(verify[0]!==plannedSource||verify[1]!==plannedTarget)
         throw Error("Linked availability verification failed");
-      for(const id of [source,target]){
-        await admin.from("revenue_room_type_availability").upsert({
+      for(const [id,actual] of [[source,plannedSource],[target,plannedTarget]] as const){
+        const {error:mirrorError}=await admin.from("revenue_room_type_availability").upsert({
           hotel_id:hotelId,organization_slug:sourceKind.organization_slug,
           pms_hotel_id:previoHotelId,stay_date:date,
-          obk_id:id,availability:requestedUnits,source:"hotelcare_linked_last_room",
+          obk_id:id,availability:actual,source:"hotelcare_linked_last_room",
           captured_at:new Date().toISOString(),
         },{onConflict:"hotel_id,pms_hotel_id,stay_date,obk_id"});
+        if(mirrorError)throw Error("Previo changed but the HotelCare availability mirror failed; manager review required.");
       }
       if(activeWatch){
         const {error:updateError}=await admin.from("room_sale_overnight_watches").update({
@@ -269,10 +272,13 @@ Deno.serve(async(req)=>{
     }
     return response({ok:true,
       results:[{ok:true,date,roomTypeName:targetKind.name,
-        message:requestedUnits===1
-          ? "The verified Quad room is also offered as a Queen. HotelCare closes both linked listings after either category books it."
-          : `Both room types share ${requestedUnits} physical rooms. HotelCare will reduce both categories as those rooms sell.` }],
-      mode:"shared_last_room",warning:"Closures are reactive; simultaneous OTA bookings are still possible."});
+        message:incremental
+          ? `Added ${requestedUnits} higher-category room(s) to ${targetKind.name} alongside ${targetLeft} ordinary room(s).`
+          : `Both room categories share ${requestedUnits} physical room(s), monitored for bookings.`}],
+      availabilityByObkId:{[source]:incremental?sourceLeft:requestedUnits,
+        [target]:incremental?targetLeft+requestedUnits:requestedUnits},
+      mode:incremental?"incremental_shared_room":"shared_last_room",
+      warning:"Updates after external bookings are reactive; simultaneous OTA bookings can still overlap."});
   }catch(e){
     console.error("Shared-last-room activation",e instanceof Error?e.message:"Unknown");
     return response({ok:false,error:e instanceof Error?e.message:"Could not enable shared last room"});
