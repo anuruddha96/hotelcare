@@ -15,7 +15,7 @@ INSERT INTO public.slnt_housekeeping_rollout (organization_slug, enabled)
 VALUES ('slnt', false) ON CONFLICT (organization_slug) DO NOTHING;
 
 CREATE OR REPLACE FUNCTION public.slnt_simple_housekeeping_enabled(p_org text DEFAULT 'slnt')
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT p_org = 'slnt'
      AND (current_setting('request.jwt.claim.role', true) = 'service_role'
           OR EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid()
@@ -28,13 +28,13 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
          AND EXISTS (SELECT 1 FROM public.housekeeping_team_rooms r
                      WHERE r.team_id=t.id AND r.is_active)
      );
-$;
+$$;
 REVOKE ALL ON FUNCTION public.slnt_simple_housekeeping_enabled(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.slnt_simple_housekeeping_enabled(text) TO authenticated, service_role;
 
 -- Deferred Team A remains disabled even while Team B shared rooms are live.
 CREATE OR REPLACE FUNCTION public.slnt_team_a_housekeeping_enabled()
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
   SELECT public.slnt_simple_housekeeping_enabled('slnt')
     AND EXISTS (SELECT 1 FROM public.slnt_housekeeping_rollout f
                 WHERE f.organization_slug='slnt' AND f.team_a_enabled)
@@ -46,7 +46,7 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $
         AND EXISTS (SELECT 1 FROM public.housekeeping_team_members tm
                     WHERE tm.team_id=t.id AND tm.is_active)
     );
-$;
+$$;
 REVOKE ALL ON FUNCTION public.slnt_team_a_housekeeping_enabled() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.slnt_team_a_housekeeping_enabled() TO authenticated, service_role;
 
