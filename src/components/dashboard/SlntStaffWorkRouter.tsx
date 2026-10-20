@@ -8,7 +8,7 @@ import { SlntTeamBSharedWorklist } from './SlntTeamBSharedWorklist';
 /** Only Team B substitutes a shared task queue; Team A keeps individual assignments. */
 export function SlntStaffWorkRouter() {
   const { user, profile } = useAuth();
-  const simplifiedEnabled = useSlntSimplifiedHousekeeping();
+  const simplifiedEnabled = useSlntSimplifiedHousekeeping() === true;
   const [isTeamB, setIsTeamB] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
