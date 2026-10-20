@@ -23,11 +23,10 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npx tsc --noEmit --project tsconfig.app.json
-      - run: npm run test -- --run src/lib/slntSimplifiedHousekeeping.test.ts
-      - run: npm run build
+      - uses: oven-sh/setup-bun@v2
+      # This repo's package-lock.json is not synchronized with package.json.
+      # Use Bun consistently with the existing Frontend CI workflow.
+      - run: bun install
+      - run: bunx tsc --noEmit --project tsconfig.app.json
+      - run: bun run test -- --run src/lib/slntSimplifiedHousekeeping.test.ts
+      - run: bun run build
