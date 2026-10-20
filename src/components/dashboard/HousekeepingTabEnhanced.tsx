@@ -32,7 +32,6 @@ export function HousekeepingTabEnhanced(props: Props = {}) {
     );
   }
 
-  const isSlnt = isSlntOrganization(profile.organization_slug);
   // Always retain the established management workspace for SLNT:
   // Team View (PMS refresh, checkout/stayover room chips, notes, scheduling,
   // approvals, maintenance, Lost & Found and other manager controls).
