@@ -6,6 +6,7 @@ import { componentTagger } from "lovable-tagger";
 
 // Emit a no-store-polled release marker with every production build. Old open
 // tabs can compare their embedded build ID without contacting Supabase.
+const hotelCareBuildAt = Date.now();
 const hotelCareBuildId = process.env.VITE_HOTELCARE_BUILD_ID
   || process.env.GITHUB_SHA
   || String(Date.now());
@@ -30,7 +31,10 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
-  define: { __HOTELCARE_BUILD_ID__: JSON.stringify(hotelCareBuildId) },
+  define: {
+    __HOTELCARE_BUILD_ID__: JSON.stringify(hotelCareBuildId),
+    __HOTELCARE_BUILD_AT__: JSON.stringify(hotelCareBuildAt),
+  },
   plugins: [
     react(),
     hotelCareReleasePlugin(),
