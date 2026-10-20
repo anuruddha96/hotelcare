@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { RefreshCw, ShieldAlert } from "lucide-react";
+import { RefreshCw, Clock3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { freshApplicationUrl } from "@/lib/lazyModuleRecovery";
@@ -155,32 +155,34 @@ export default function ExecutiveResumeRefresh() {
   return (
     <div
       id="idle-refresh-dialog"
-      className="pointer-events-auto fixed inset-0 z-[2147483646] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-md"
+      className="pointer-events-auto fixed inset-0 z-[2147483646] flex items-center justify-center bg-slate-950/45 px-5 py-8 backdrop-blur-[3px]"
       role="dialog"
       style={{ pointerEvents: "auto" }}
       aria-modal="true"
       aria-labelledby="idle-refresh-title"
-      aria-describedby="idle-refresh-description"
+      aria-describedby={idle ? undefined : "idle-refresh-description"}
     >
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 text-center text-card-foreground shadow-2xl sm:p-8">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-          {idle ? <ShieldAlert className="h-6 w-6" /> : <RefreshCw className="h-6 w-6" />}
+      <div className="relative w-full max-w-[490px] overflow-hidden rounded-[28px] border border-white/80 bg-card/95 px-7 py-9 text-center text-card-foreground shadow-[0_30px_100px_rgba(12,24,48,0.32)] ring-1 ring-white/25 sm:px-11 sm:py-11">
+        <div className="pointer-events-none absolute inset-x-12 top-0 h-16 rounded-full bg-sky-400/10 blur-3xl" aria-hidden="true" />
+        <div className="relative mx-auto mb-6 flex h-[68px] w-[68px] items-center justify-center rounded-[22px] bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-100 text-blue-600 ring-1 ring-blue-100 dark:from-sky-900/50 dark:via-blue-900/40 dark:to-indigo-900/30 dark:text-sky-300 dark:ring-blue-800">
+          {idle ? <Clock3 className="h-8 w-8" strokeWidth={1.8} aria-hidden="true" /> : <RefreshCw className="h-8 w-8" strokeWidth={1.8} aria-hidden="true" />}
         </div>
-        <h2 id="idle-refresh-title" className="text-xl font-semibold">
-          {idle ? "HotelCare paused after 30 minutes" : "HotelCare needs an update"}
+        <h2 id="idle-refresh-title" className="relative text-balance text-[25px] font-semibold leading-tight tracking-tight sm:text-[28px]">
+          {idle ? "You've been away for some time" : "HotelCare has been updated"}
         </h2>
-        <p id="idle-refresh-description" className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          {idle
-            ? "No activity was detected for 30 minutes. Background operational queries and live subscriptions are stopped until you refresh."
-            : "This version is outdated. Refresh to load the latest HotelCare and continue working safely."}
-        </p>
-        <p className="mt-3 text-xs text-muted-foreground">
-          Saved work is preserved. Unsaved changes on this page may be lost.
-        </p>
-        <Button asChild className="mt-6 w-full" size="lg">
+        {!idle && (
+          <p id="idle-refresh-description" className="relative mt-3 text-sm text-muted-foreground">
+            Refresh to continue with the latest version.
+          </p>
+        )}
+        <Button
+          asChild
+          size="lg"
+          className="relative mt-8 h-[52px] w-full rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 text-base font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:from-sky-600 hover:to-blue-700 hover:shadow-xl hover:shadow-blue-500/25 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+        >
           <a href={refreshHref} autoFocus>
-            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-            Refresh HotelCare
+            <RefreshCw className="mr-2 h-[18px] w-[18px]" aria-hidden="true" />
+            Refresh and continue
           </a>
         </Button>
       </div>

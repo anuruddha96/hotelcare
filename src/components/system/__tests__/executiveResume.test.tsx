@@ -95,14 +95,14 @@ describe("authenticated user idle return — manual refresh", () => {
     returnFromHidden(RESUME_REFRESH_AFTER_MS);
     expect(RESUME_REFRESH_AFTER_MS).toBe(30 * 60_000);
     expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
-    expect(screen.getByRole("heading", { name: "HotelCare paused after 30 minutes" })).toBeInTheDocument();
-    const refreshLink = screen.getByRole("link", { name: "Refresh HotelCare" });
+    expect(screen.getByRole("heading", { name: "You\u0027ve been away for some time" })).toBeInTheDocument();
+    const refreshLink = screen.getByRole("link", { name: "Refresh and continue" });
     expect(refreshLink).toBeInTheDocument();
     // Do not rely on React's onClick after a suspended tab returns.
     const refreshUrl = new URL(refreshLink.getAttribute("href")!, window.location.href);
     expect(refreshUrl.pathname).toBe(window.location.pathname);
     expect(refreshUrl.searchParams.get("chunk-recovery")).toBe(String(now));
-    expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/unsaved changes|background operational queries|30 minutes without/i)).not.toBeInTheDocument();
   });
 
   it("allows the refresh action when an underlying Radix modal locks body pointer events", () => {
@@ -115,7 +115,7 @@ describe("authenticated user idle return — manual refresh", () => {
       render(<ExecutiveResumeRefresh />);
       returnFromHidden(RESUME_REFRESH_AFTER_MS + 1);
       expect(screen.getByRole("dialog")).toHaveStyle({ pointerEvents: "auto" });
-      const refreshLink = screen.getByRole("link", { name: "Refresh HotelCare" });
+      const refreshLink = screen.getByRole("link", { name: "Refresh and continue" });
       expect(refreshLink.getAttribute("href")).toContain("chunk-recovery=");
     } finally {
       document.body.style.pointerEvents = previousPointerEvents;
