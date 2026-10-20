@@ -34,6 +34,16 @@ export function captureIdleVisualBackdrop(): void {
   snapshot.querySelectorAll('iframe, video, audio, script, object, embed, canvas')
     .forEach(element => element.remove());
   snapshot.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
+  // Avoid any new remote image/bandwidth requests from the frozen copy.
+  snapshot.querySelectorAll<HTMLImageElement>('img').forEach(image => {
+    image.removeAttribute('srcset');
+    image.removeAttribute('src');
+    image.style.backgroundColor = 'rgba(148, 163, 184, .18)';
+  });
+  snapshot.querySelectorAll<HTMLSourceElement>('source').forEach(source => {
+    source.removeAttribute('src');
+    source.removeAttribute('srcset');
+  });
   snapshot.querySelectorAll<HTMLInputElement>('input').forEach(input => {
     input.value = '';
     input.removeAttribute('value');
