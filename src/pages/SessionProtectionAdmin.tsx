@@ -10,7 +10,7 @@ type Policy = {
   minimum_build_at: number;
   updated_at: string;
 };
-const localBuild = __HOTELCARE_BUILD_AT__;
+const localBuild = typeof __HOTELCARE_BUILD_AT__ === 'number' ? __HOTELCARE_BUILD_AT__ : 0;
 
 export default function SessionProtectionAdmin() {
   const { profile } = useAuth();
@@ -40,7 +40,7 @@ export default function SessionProtectionAdmin() {
   useEffect(() => { if (authorized) void load(); }, [authorized]);
 
   const changeCutoff = async (enable: boolean) => {
-    if (!authorized || busy) return;
+    if (!authorized || busy || (enable && !localBuild)) return;
     if (enable && !window.confirm(
       'Require this published HotelCare version? Older reception and management tabs may need a manual refresh before rooms and PMS connection data can load. Ensure the latest frontend is published first.',
     )) return;
@@ -99,7 +99,7 @@ export default function SessionProtectionAdmin() {
             </p>
             <div className="flex flex-wrap gap-2">
               {!policy.enforce_stale_clients ? (
-                <Button disabled={busy} onClick={() => void changeCutoff(true)}>
+                <Button disabled={busy || localBuild === 0} onClick={() => void changeCutoff(true)}>
                   Enable outdated-browser cutoff
                 </Button>
               ) : (
