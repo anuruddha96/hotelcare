@@ -1,6 +1,6 @@
 -- Remote, opt-in cutoff for obsolete HotelCare browser bundles.
 -- Disabled on installation. Enable only AFTER production deployment and
--- verifying that fresh clients send x-hotelcare-build-at.
+-- verifying that fresh clients include the hotelcare/build stamp in x-client-info.
 --
 -- Scope is exceptionally narrow: signed-in GETs for the three previously
 -- identified expensive PostgREST tables, originating from my.hotelcare.app.
@@ -71,7 +71,7 @@ BEGIN
     RETURN;
   END IF;
 
-  build_timestamp := request_headers ->> 'x-hotelcare-build-at';
+  build_timestamp := substring(coalesce(request_headers ->> 'x-client-info', '') FROM 'hotelcare/([0-9]{13})');
   IF build_timestamp IS NULL
     OR build_timestamp !~ '^[0-9]{13}$'
     OR build_timestamp::bigint < minimum_timestamp THEN
