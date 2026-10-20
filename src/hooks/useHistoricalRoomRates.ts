@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { historyStart, historicalRateKey } from "@/lib/rateCalendarPresentation";
+import { addDays } from "@/lib/revenueAnalytics";
 
 export interface HistoricalRate {
   stay_date: string;
@@ -56,7 +57,7 @@ export function useHistoricalRoomRates(hotelId: string | null | undefined, today
     setRatesByCell(new Map());
     setKpisByDate(new Map());
     const start = historyStart(today);
-    const end = historyStart(today) === today ? today : new Date(Date.parse(today + "T00:00:00Z") - 86_400_000).toISOString().slice(0, 10);
+    const end = addDays(today, -1);
 
     void (async () => {
       try {
