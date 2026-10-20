@@ -4,6 +4,7 @@ import { hu } from 'date-fns/locale';
 import { CalendarDays, Clock, MapPin, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { useTranslation } from '@/hooks/useTranslation';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
@@ -22,6 +23,7 @@ const dateOf = (date: string) => new Date(`${date}T12:00:00`);
 /** Read-only self view; staff never query or receive colleagues' shifts or draft plans. */
 export function UpcomingShiftCard() {
   const { user, profile } = useAuth();
+  const simplifiedEnabled = useSlntSimplifiedHousekeeping();
   const { language } = useTranslation();
   const { venuesEnabled, orgSlug } = useTenantFeatures();
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -38,7 +40,7 @@ export function UpcomingShiftCard() {
     setLoading(true);
     setError('');
     try {
-      if (slnt) {
+      if (slnt && simplifiedEnabled) {
         const { data: tasks, error: tasksError } = await supabase.from('room_assignments')
           .select('assignment_date,room_id,status').eq('assigned_to', user.id)
           .in('organization_slug', ['slnt','slnt-group']).gte('assignment_date',from)
@@ -66,7 +68,7 @@ export function UpcomingShiftCard() {
     } catch (cause) {
       if (isActive()) { setShifts([]); setError(cause instanceof Error ? cause.message : 'Could not load your shifts.'); }
     } finally { if (isActive()) setLoading(false); }
-  }, [venuesEnabled, user?.id, profile?.organization_slug, profile?.assigned_hotel, slnt, from, to]);
+  }, [venuesEnabled, user?.id, profile?.organization_slug, profile?.assigned_hotel, slnt, from, to, simplifiedEnabled]);
 
   useEffect(() => { let active = true; void refresh(() => active); return () => { active = false; }; }, [refresh]);
   if (!venuesEnabled) return null;
@@ -77,6 +79,7 @@ export function UpcomingShiftCard() {
   </CardContent></Card>;
 
   // SLNT Team A: future dates are browsable; no published shift is required.
+  if (slnt && !simplifiedEnabled) return <Card className="w-full" ><CardContent className="p-4"><p className="text-sm text-muted-foreground">{language === 'hu' ? 'A közzétett beosztást a Beosztás menüben találod.' : 'View your published shifts in Staff Schedule.'}</p></CardContent></Card>;
   const isHungarian = language === 'hu';
   const days = Array.from({ length: 14 }, (_, i) => format(addDays(dateOf(from), i), 'yyyy-MM-dd'));
   const counts = new Map<string, number>();
