@@ -256,7 +256,11 @@ BEGIN
 END $$;
 DROP TRIGGER IF EXISTS slnt_team_b_protect_approval ON public.room_assignments;
 CREATE TRIGGER slnt_team_b_protect_approval
-  BEFORE UPDATE ON public.room_assignments FOR EACH ROW
+  BEFORE UPDATE OF supervisor_approved, supervisor_approved_by, supervisor_approved_at
+  ON public.room_assignments FOR EACH ROW
+  WHEN (NEW.supervisor_approved IS DISTINCT FROM OLD.supervisor_approved
+     OR NEW.supervisor_approved_by IS DISTINCT FROM OLD.supervisor_approved_by
+     OR NEW.supervisor_approved_at IS DISTINCT FROM OLD.supervisor_approved_at)
   EXECUTE FUNCTION public.slnt_team_b_protect_approval();
 
 -- Safe membership probe for routing each cleaner to the correct SLNT UI.
