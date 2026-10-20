@@ -18,7 +18,9 @@ const HOUSEKEEPING_MANAGER_ROLES = ['admin', 'top_management', 'top_management_m
  */
 export function StaffSchedulePlanner() {
   const { profile } = useAuth();
-  const simplifiedEnabled = useSlntSimplifiedHousekeeping() === true && useSlntTeamAEnabled();
+  const simplifiedReady = useSlntSimplifiedHousekeeping() === true;
+  const teamAReady = useSlntTeamAEnabled();
+  const simplifiedEnabled = simplifiedReady && teamAReady;
   const isSlnt = profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group';
   const role = profile?.role ?? '';
   const canManageHousekeeping = HOUSEKEEPING_MANAGER_ROLES.includes(role);
