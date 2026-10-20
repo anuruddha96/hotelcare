@@ -47,7 +47,9 @@ DECLARE
   enabled boolean;
 BEGIN
   -- Extremely cheap exits for the entire rest of the Data API.
-  IF current_user <> 'authenticated'
+  -- SECURITY DEFINER changes current_user to the function owner; inspect
+  -- the verified PostgREST JWT role instead of current_user.
+  IF coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') <> 'authenticated'
     OR current_setting('request.method', true) <> 'GET' THEN
     RETURN;
   END IF;
