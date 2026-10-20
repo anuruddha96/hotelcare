@@ -84,3 +84,37 @@ export function permittedLinkedPoolAvailability(
   }
   return Math.min(hotelLimit, Math.max(0, initialSharedUnits - linkedPickup));
 }
+
+
+/** Incremental cross-category offer: the receiving category keeps its ordinary
+ * independent stock, and only EXTRA units are advertised under both labels.
+ * All counts are room-nights; no booking count is reset on later polls.
+ */
+export function incrementalLinkedAvailability(input: {
+  sourceAtStart: number;
+  targetAtStart: number;
+  sharedUnits: number;
+  sourceBookedAtStart: number;
+  targetBookedAtStart: number;
+  sourceBookedNow: number;
+  targetBookedNow: number;
+}): { source: number; target: number; sharedRemaining: number } | null {
+  const values = Object.values(input);
+  if (!values.every(v => Number.isInteger(v) && v >= 0) ||
+    input.sharedUnits < 1 || input.sharedUnits > 20 ||
+    input.sourceAtStart < input.sharedUnits ||
+    input.sourceBookedNow < input.sourceBookedAtStart ||
+    input.targetBookedNow < input.targetBookedAtStart) return null;
+  const sourcePickup = input.sourceBookedNow - input.sourceBookedAtStart;
+  const targetPickup = input.targetBookedNow - input.targetBookedAtStart;
+  // Bookings in the target use that category's physical stock first.
+  const overflowTargetPickup = Math.max(0, targetPickup - input.targetAtStart);
+  const sharedRemaining = Math.max(0, input.sharedUnits - sourcePickup - overflowTargetPickup);
+  const targetOrdinaryRemaining = Math.max(0, input.targetAtStart - targetPickup);
+  const sourceRemaining = Math.max(0, input.sourceAtStart - sourcePickup - overflowTargetPickup);
+  return {
+    target: targetOrdinaryRemaining + sharedRemaining,
+    source: sourceRemaining,
+    sharedRemaining,
+  };
+}
