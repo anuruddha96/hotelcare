@@ -63,7 +63,7 @@ interface Summary {
 
 export function HousekeepingStaffView() {
   const { user, profile } = useAuth();
-  const isSlntStaff = profile?.organization_slug === 'slnt';
+  const isSlntStaff = ['slnt','slnt-group'].includes(profile?.organization_slug || '');
   const isMobile = useIsMobile();
   const { t } = useTranslation();
   const { showNotification } = useNotifications();
