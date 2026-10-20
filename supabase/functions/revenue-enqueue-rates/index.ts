@@ -3,6 +3,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { z } from "npm:zod@3.23.8";
 import { enforceRateSafety } from "../_shared/rateSafety.ts";
 import { findDraftsToSupersede } from "../_shared/rateDraftPagination.ts";
+import { isHistoricalRateDate } from "../_shared/rateWriteDates.ts";
 
 const ChangeSchema = z.object({
   stay_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -78,6 +79,22 @@ Deno.serve(async (req) => {
     // one and reported; the correctly mapped prices are still queued, so a
     // single unmapped room type cannot cancel a month of pricing.
     const preRejected: Array<{ stay_date: string; room_type_name: string; occupancy: number; reason: string }> = [];
+    // Prevent forged/bulk/manual requests from publishing a historical date.
+    // Run this BEFORE any draft or queue insert, including the automation path.
+    const now = new Date();
+    changes = changes.filter((change) => {
+      if (!isHistoricalRateDate(change.stay_date, now)) return true;
+      preRejected.push({
+        stay_date: change.stay_date,
+        room_type_name: change.room_type_name,
+        occupancy: change.occupancy,
+        reason: "Historical stay dates are read-only and cannot be sent to Previo.",
+      });
+      return false;
+    });
+    if (changes.length === 0) {
+      return json({ error: "Historical stay dates are read-only.", rejected: preRejected.slice(0, 20) }, 400);
+    }
     {
       const safetyInput = changes.map((change) => ({ ...change, intent_source: intent }));
       const safe = await enforceRateSafety(admin, hotelId, safetyInput as any[]);
