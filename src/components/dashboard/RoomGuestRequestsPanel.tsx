@@ -80,6 +80,8 @@ interface RoomGuestRequestsPanelProps {
   readOnly?: boolean;
   compact?: boolean;
   hideWhenEmpty?: boolean;
+  /** Hotel Memories cleaner view uses the dedicated persistent collection card. */
+  excludeReturnableDeliveries?: boolean;
 }
 
 const REQUEST_TYPES = [
@@ -172,6 +174,7 @@ export function RoomGuestRequestsPanel({
   readOnly = false,
   compact = false,
   hideWhenEmpty = false,
+  excludeReturnableDeliveries = false,
 }: RoomGuestRequestsPanelProps) {
   const { user, profile } = useAuth();
   const [rows, setRows] = useState<GuestRequestRow[]>([]);
@@ -415,13 +418,14 @@ export function RoomGuestRequestsPanel({
       .map((row) => ({ row, payload: parsePayload(row.content) }))
       .filter((entry): entry is { row: GuestRequestRow; payload: GuestRequestPayload } => !!entry.payload)
       .filter(({ payload }) => payload.status === 'requested' || payload.status === 'delivered' || payload.workDate === workDate)
+      .filter(({ payload }) => !excludeReturnableDeliveries || !(payload.status === 'delivered' && payload.requiresReturn))
       .sort((a, b) => {
         const aOpen = a.payload.status === 'requested' || a.payload.status === 'delivered';
         const bOpen = b.payload.status === 'requested' || b.payload.status === 'delivered';
         if (aOpen !== bOpen) return aOpen ? -1 : 1;
         return new Date(b.row.created_at).getTime() - new Date(a.row.created_at).getTime();
       });
-  }, [rows, workDate]);
+  }, [rows, workDate, excludeReturnableDeliveries]);
 
   const authorName = (actorId: string) => {
     if (actorId === user?.id) return 'You';
