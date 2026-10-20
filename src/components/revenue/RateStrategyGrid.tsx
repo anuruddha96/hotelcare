@@ -2137,6 +2137,7 @@ export default function RateStrategyGrid({
     const { data: auth } = await supabase.auth.getUser();
     const start = dates.indexOf(edit.stay_date);
     const targetDates = (start >= 0 ? dates.slice(start, start + applyDays) : [edit.stay_date])
+      .filter((d) => canEditCalendarDate(d, today, canEditRates))
       .filter((d) =>
         applyWeekdays === "all" ? true :
         applyWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
@@ -3072,6 +3073,19 @@ export default function RateStrategyGrid({
             >
               Next 30 days
             </Button>
+            {(!monthFilter || monthFilter === today.slice(0, 7)) && (
+              <Button type="button" size="sm" variant={historyRevealed ? "secondary" : "outline"}
+                className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                aria-pressed={historyRevealed}
+                title={historyRevealed ? "Hide read-only historical dates" : "Reveal previous three dates (read-only)"}
+                onClick={() => {
+                  setShowHistory((visible) => !visible);
+                  requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
+                }}>
+                <History className="h-3.5 w-3.5" />
+                {historyRevealed ? "Hide history" : "Previous 3 days"}
+              </Button>
+            )}
             {monthChips.map((m) => (
               <div key={m.value} className="contents">
                 <Button
@@ -3101,6 +3115,11 @@ export default function RateStrategyGrid({
           {loading && (
             <div role="status" className="flex items-center gap-1.5 border-b px-3 py-1 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" /> Loading selected calendar dates…
+            </div>
+          )}
+          {historyRevealed && (historical.loading || historical.error) && (
+            <div role="status" className="border-b px-3 py-1 text-xs text-muted-foreground">
+              {historical.loading ? "Loading recorded Previo prices for the previous three dates…" : "Historical prices could not be loaded; no prices have been estimated."}
             </div>
           )}
 
@@ -3173,12 +3192,22 @@ export default function RateStrategyGrid({
                     // represented here — automation included.
                     const dayOrigins = headerOriginsByDate.get(d) ?? [];
 
+                    if (d < today) return (
+                      <div key={d} aria-label={d + " · historical, read-only"}
+                        title={d + " · Historical prices (read-only)"}
+                        className="flex shrink-0 flex-col items-center justify-center border-r border-border/70 bg-muted/65 text-muted-foreground"
+                        style={{ width: CELL_W, height: DAY_H }}>
+                        <span style={{ fontSize: fz(10) }}>{formatWeekday(d)}</span>
+                        <span className="font-bold tabular-nums" style={{ fontSize: fz(12) }}>{formatDay(d)}</span>
+                        <span style={{ fontSize: fz(8) }}>Past · locked</span>
+                      </div>
+                    );
                     const dayButton = (
                       <button
                         key={d}
                         type="button"
                         data-date={d}
-                        disabled={!canEditRates}
+                        disabled={!canEditCalendarDate(d, today, canEditRates)}
                         onPointerDown={(e) => {
                           if (e.pointerType === "touch") return;
                           if (!canEditRates || multiMode) return;
@@ -3839,9 +3868,9 @@ export default function RateStrategyGrid({
                         <button
                           key={d}
                           type="button"
-                          disabled={!canEditRates || busy || left === undefined || unpricedKind}
+                          disabled={!canEditCalendarDate(d, today, canEditRates) || busy || left === undefined || unpricedKind}
                           onClick={() => {
-                            if (!canEditRates || busy || left === undefined || unpricedKind) return;
+                            if (!canEditCalendarDate(d, today, canEditRates) || busy || left === undefined || unpricedKind) return;
                             setInventoryEditor({
                               date: d,
                               rawName: row.rawName,
@@ -3905,6 +3934,22 @@ export default function RateStrategyGrid({
                           style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {value === null ? eur(null) : priceLabel(value)}
+                        </div>
+                      );
+                    }
+                    if (d < today) {
+                      const saved = row.obk ? historical.ratesByCell.get(historicalRateKey(row.obk, row.occ, d)) : undefined;
+                      const historicalPrice = saved ? Number(saved.price) : null;
+                      const detail = saved
+                        ? `Last recorded Previo price for ${d} · captured ${new Date(saved.captured_at).toLocaleString()}`
+                        : historical.loading ? `Loading historical price for ${d}` : `No saved historical Previo rate for ${d}`;
+                      return (
+                        <div key={d} role="cell"
+                          aria-label={`${row.roomTypeName} · ${d} · ${historicalPrice === null ? "No recorded price" : eur(historicalPrice)} · read-only`}
+                          title={detail}
+                          className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground"
+                          style={{ width: CELL_W, fontSize: fz(12) }}>
+                          {historicalPrice === null ? (historical.loading ? "…" : "—") : priceLabel(historicalPrice)}
                         </div>
                       );
                     }
