@@ -58,8 +58,10 @@ export function isMemoriesFinalOccupiedNight(
   // A cached total night count is not sufficient: trust it only when Previo's
   // service snapshot was refreshed for this same business day.
   if (metadata.pmsSyncDate !== businessDate) return false;
-  const current = Number(continuous.currentNight ?? metadata.currentNight);
-  const total = Number(continuous.totalNights ?? metadata.totalNights);
+  // The property-wide night count is authoritative. Linked booking segments
+  // sometimes report 2/2 while the actual uninterrupted stay is 2/6.
+  const current = Number(metadata.currentNight ?? continuous.currentNight);
+  const total = Number(metadata.totalNights ?? continuous.totalNights);
   return Number.isInteger(current) && Number.isInteger(total)
     && total > 0 && current === total;
 }
