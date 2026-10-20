@@ -1,3 +1,5 @@
+import { captureIdleVisualBackdrop, clearIdleVisualBackdrop } from './idleVisualBackdrop';
+
 /**
  * One browser tab, one activity clock. Suspension is intentionally sticky:
  * mouse moves or focus changes never reactivate an obsolete application.
@@ -29,6 +31,9 @@ export function recordHotelCareInteraction(now = Date.now()): void {
 export function checkHotelCareInactivity(now = Date.now()): boolean {
   if (suspension) return true;
   if (now - lastInteractionAt >= SESSION_INACTIVITY_MS) {
+    // Preserve a noninteractive image of the current workspace for the dialog
+    // before the authenticated UI is unmounted. Operational cleanup is unchanged.
+    captureIdleVisualBackdrop();
     suspendHotelCareSession('idle');
     return true;
   }
@@ -40,6 +45,7 @@ export function suspendHotelCareSession(reason: Exclude<SessionSuspension, null>
   notify();
 }
 export function resetHotelCareSession(now = Date.now()): void {
+  clearIdleVisualBackdrop();
   lastInteractionAt = now;
   suspension = null;
   notify();
