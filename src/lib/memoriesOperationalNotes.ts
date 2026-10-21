@@ -1,3 +1,6 @@
+import { parseRoomFlags } from './room-service-flags';
+import { stripRoomTypeSystemNotes } from './roomTypeTransition';
+
 /**
  * HMB-only presentation policy. Never guess whether an ordinary note is manual.
  * Only strip generated text for which the PMS metadata contains exact provenance.
@@ -64,4 +67,17 @@ export function isMemoriesFinalOccupiedNight(
   const total = Number(metadata.totalNights ?? continuous.totalNights);
   return Number.isInteger(current) && Number.isInteger(total)
     && total > 0 && current === total;
+}
+
+/**
+ * Display-only, HMB-specific note indicator text. Uses the exact same
+ * provenance filtering as the HMB manager's room dialog, without changing
+ * stored notes or hiding service flags (RC / collect towels).
+ */
+export function getMemoriesRoomBoardNote(
+  roomNotes: string | null | undefined,
+  metadata: Record<string, unknown> | null | undefined,
+): string {
+  const withoutLegacySystemLines = stripRoomTypeSystemNotes(roomNotes);
+  return parseRoomFlags(cleanMemoriesOperationalNotes(withoutLegacySystemLines, metadata)).cleanNotes;
 }
