@@ -44,6 +44,42 @@ CREATE TRIGGER trg_dismiss_superseded_housekeeping_approvals
 AFTER INSERT ON public.room_assignments
 FOR EACH ROW EXECUTE FUNCTION public.dismiss_superseded_housekeeping_approvals();
 
+-- Approving a superseded submission can incorrectly mark a room clean while
+-- the replacement housekeeper is still working. Enforce the same guard for
+-- single-approve, bulk-approve, and clients with an outdated approval screen.
+CREATE OR REPLACE FUNCTION public.block_approval_of_superseded_housekeeping()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $
+BEGIN
+  IF NEW.supervisor_approved IS TRUE
+     AND OLD.supervisor_approved IS DISTINCT FROM TRUE
+     AND (
+       OLD.supervisor_review_outcome IS NOT NULL
+       OR EXISTS (
+         SELECT 1 FROM public.room_assignments other
+          WHERE other.room_id = OLD.room_id
+            AND other.assignment_date = OLD.assignment_date
+            AND other.id <> OLD.id
+            AND (
+              (other.created_at, other.id) > (OLD.created_at, OLD.id)
+              OR other.status IN ('assigned', 'in_progress', 'dnd_pending_retry')
+            )
+       )
+     )
+  THEN
+    RAISE EXCEPTION 'This room has been reassigned. Refresh the approval queue.'
+      USING ERRCODE = 'P0001';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+REVOKE ALL ON FUNCTION public.block_approval_of_superseded_housekeeping() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS trg_block_approval_of_superseded_housekeeping ON public.room_assignments;
+CREATE TRIGGER trg_block_approval_of_superseded_housekeeping
+BEFORE UPDATE OF supervisor_approved ON public.room_assignments
+FOR EACH ROW EXECUTE FUNCTION public.block_approval_of_superseded_housekeeping();
+
 -- Reconcile pending approvals already superseded today before this guard existed.
 -- Historical completed work/photos remain untouched.
 UPDATE public.room_assignments old
