@@ -1,7 +1,7 @@
 /**
  * Planning/audit breadcrumbs are useful to managers but not housekeeping
- * instructions. Keep them in the assignment record; hide them only in the
- * SLNT housekeeper UI, after the live PMS checkout gate has been evaluated.
+ * instructions. Preserve them in the assignment audit, but suppress recognized
+ * automatic status lines in the corresponding housekeeper view.
  */
 // Hotel Memories stores the guest's green-board decision in assignment.notes
 // for workflow/audit. The machine-generated status must not be presented as
