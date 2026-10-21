@@ -500,7 +500,10 @@ export function AutoRoomAssignment({
     const schedule = () => {
       if (cancelled) return;
       if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => void refreshLiveRoomState(), 250);
+      debounce = setTimeout(() => {
+        void refreshLiveRoomState().catch(error =>
+          console.warn('[HMB Auto Assign] Unable to verify outstanding carry tasks:', error));
+      }, 250);
     };
 
     const channel = supabase
