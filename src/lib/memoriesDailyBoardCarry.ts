@@ -72,7 +72,7 @@ export function overlayMemoriesDailyCarryOnRooms<
       carryForward: carry,
       forceTowelOnly: finalNight,
     });
-    return { ...room, ...flags, towel_change_required: flags.towelChangeRequired,
+    return { ...room, towel_change_required: flags.towelChangeRequired,
       linen_change_required: flags.linenChangeRequired } as T;
   });
 }
