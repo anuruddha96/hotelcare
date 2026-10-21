@@ -229,3 +229,69 @@ WHERE s.room_id=r.id
   AND coalesce(r.pms_metadata->>'isNoShow','false') <> 'true'
   AND coalesce(r.pms_metadata->>'isCancelled','false') <> 'true'
   AND (coalesce(r.towel_change_required,false) OR coalesce(r.linen_change_required,false));
+
+-- Once today’s valid T/C duty was recorded, no repeat PMS refresh may
+-- silently erase it for the SAME continuing reservation. This runs after
+-- the existing cycle/import/notes BEFORE triggers and before the snapshot
+-- AFTER capture. Explicit manager overrides and true departures win.
+CREATE OR REPLACE FUNCTION public.hc_memories_preserve_same_day_verified_service()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public,pg_temp
+AS $body$
+DECLARE
+  v_today text := (statement_timestamp() AT TIME ZONE 'Europe/Budapest')::date::text;
+  v_due jsonb;
+BEGIN
+  IF lower(btrim(coalesce(NEW.hotel,''))) NOT IN
+       ('hotel memories budapest','memories budapest','memories-budapest')
+    OR NEW.organization_slug IS NULL
+    OR NEW.pms_metadata IS NOT DISTINCT FROM OLD.pms_metadata
+    OR coalesce(NEW.is_checkout_room,false)
+    OR coalesce(NEW.pms_metadata->>'scheduledDepartureToday','false')='true'
+    OR coalesce(NEW.pms_metadata->>'isNoShow','false')='true'
+    OR coalesce(NEW.pms_metadata->>'isCancelled','false')='true'
+    OR coalesce(NEW.pms_metadata->>'occupiedToday','false') <> 'true'
+    OR coalesce(NEW.pms_metadata->>'stayThroughToday','false') <> 'true'
+    OR coalesce(NEW.pms_metadata->>'pmsSyncDate','') <> v_today
+    OR coalesce(NEW.pms_metadata->>'memoriesServiceManualOverrideDate','') = v_today
+    OR coalesce(NEW.pms_metadata#>>'{hotelcareManualServiceOverride,businessDate}','')=v_today
+    OR coalesce(NEW.pms_metadata->>'hotelcareManualServiceClearDate','')=v_today
+  THEN RETURN NEW; END IF;
+
+  SELECT s.scheduled_service_due INTO v_due
+  FROM public.housekeeping_room_snapshots s
+  WHERE s.room_id=NEW.id
+    AND s.business_date=v_today::date
+    AND s.organization_slug=NEW.organization_slug
+    AND s.final_state IS NULL
+    AND lower(btrim(coalesce(s.hotel,''))) IN
+      ('hotel memories budapest','memories budapest','memories-budapest');
+
+  IF v_due IS NULL
+    OR nullif(v_due->>'reservation_id','') IS NULL
+    OR v_due->>'reservation_id' IS DISTINCT FROM NEW.pms_metadata->>'reservationId'
+  THEN RETURN NEW; END IF;
+
+  IF coalesce(v_due->>'change_room','false')='true'
+    AND NOT coalesce(NEW.linen_change_required,false)
+  THEN
+    NEW.linen_change_required:=true;
+    NEW.towel_change_required:=false;
+  ELSIF coalesce(v_due->>'towel','false')='true'
+        AND NOT coalesce(NEW.linen_change_required,false)
+  THEN
+    NEW.towel_change_required:=true;
+  END IF;
+  RETURN NEW;
+END;
+$body$;
+
+REVOKE ALL ON FUNCTION public.hc_memories_preserve_same_day_verified_service()
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.hc_memories_preserve_same_day_verified_service()
+  TO service_role;
+
+DROP TRIGGER IF EXISTS zzzzzzzzzzzzzz_hc_memories_keep_verified_due ON public.rooms;
+CREATE TRIGGER zzzzzzzzzzzzzz_hc_memories_keep_verified_due
+BEFORE UPDATE OF pms_metadata ON public.rooms
+FOR EACH ROW EXECUTE FUNCTION public.hc_memories_preserve_same_day_verified_service();
