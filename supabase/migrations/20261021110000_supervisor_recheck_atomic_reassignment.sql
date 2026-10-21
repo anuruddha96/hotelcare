@@ -49,7 +49,7 @@ FOR EACH ROW EXECUTE FUNCTION public.dismiss_superseded_housekeeping_approvals()
 -- single-approve, bulk-approve, and clients with an outdated approval screen.
 CREATE OR REPLACE FUNCTION public.block_approval_of_superseded_housekeeping()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
-AS $
+AS $$
 BEGIN
   IF NEW.supervisor_approved IS TRUE
      AND OLD.supervisor_approved IS DISTINCT FROM TRUE
@@ -72,7 +72,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 REVOKE ALL ON FUNCTION public.block_approval_of_superseded_housekeeping() FROM PUBLIC, anon, authenticated;
 DROP TRIGGER IF EXISTS trg_block_approval_of_superseded_housekeeping ON public.room_assignments;
