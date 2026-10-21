@@ -35,7 +35,7 @@ import { todayBudapest } from '@/lib/budapestTime';
 import { compareRoomAuthority, createOverviewLoadGuard } from '@/lib/roomOverviewAuthority';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
-import { isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
+import { getMemoriesRoomBoardNote, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
 import {
   effectiveCarryServiceFlags,
   getCarryForwardManagerCopy,
@@ -1113,6 +1113,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       ? isCurrentNoServiceOutcome(assignment)
       : !!assignment?.notes?.includes('[NO_SERVICE]');
     const roomFlags = parseRoomFlags(room.notes);
+    // HMB: a note badge must mean there is a real instruction visible in
+    // the room popup. Former-guest automated bed messages remain in some
+    // older room records and are intentionally hidden from the popup.
+    const visibleRoomNote = isHotelMemoriesBudapest(room.hotel)
+      ? getMemoriesRoomBoardNote(room.notes, room.pms_metadata as Record<string, unknown> | null)
+      : roomFlags.cleanNotes;
     const slntPrevioNote = isSlntTenant
       ? String(room.pms_metadata?.slntPrevioHousekeepingNote || '').trim()
       : '';
@@ -1387,8 +1393,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               })()}
             </span>
           )}
-          {roomFlags.cleanNotes && (
-            <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
+          {visibleRoomNote && (
+            <span className="text-[8px]" title={summarizePmsNote(visibleRoomNote) || visibleRoomNote} aria-label="Room has a housekeeping note">📝</span>
           )}
           {hasSeparatePrevioNote && (
             <span className="text-[8px]" title={`Previo housekeeping: ${slntPrevioNote}`}>📋</span>
