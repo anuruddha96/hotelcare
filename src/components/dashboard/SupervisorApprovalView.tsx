@@ -609,6 +609,7 @@ export function SupervisorApprovalView({
         `)
         .eq('status', 'completed')
         .or('supervisor_approved.eq.false,supervisor_approved.is.null')
+        .is('supervisor_review_outcome', null)
         .eq('assignment_date', dateStr)
         .eq('organization_slug', userOrgSlug)
         .order('completed_at', { ascending: false });
@@ -1038,31 +1039,25 @@ export function SupervisorApprovalView({
       return;
     }
 
-    const reason = reassignmentReason.trim() || 'Please correct the issues shown in the manager photos';
-    let uploadedPaths: string[] = [];
-    let newAssignmentCreated = false;
+    const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
+    if (!assignment) {
+      toast.error('This approval is no longer pending. Refresh and try again.');
+      fetchPendingAssignments();
+      return;
+    }
+
+    const newAssignmentId = crypto.randomUUID();
+    const uploadedPaths: string[] = [];
+    let returnCommitted = false;
     setReassigning(true);
     setRecheckUploadProgress('');
 
     try {
-      const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
-      if (!assignment) throw new Error('The completed assignment is no longer in the approval queue.');
-
-      const { data: existingAssignments, error: checkError } = await supabase
-        .from('room_assignments')
-        .select('id, assigned_to, status')
-        .eq('room_id', assignment.room_id)
-        .eq('assignment_date', assignment.assignment_date)
-        .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
-        .neq('id', selectedAssignment);
-      if (checkError) throw checkError;
-
       const currentUserId = (await supabase.auth.getUser()).data.user?.id;
       if (!currentUserId) throw new Error('Please sign in again to submit your findings.');
 
-      const newAssignmentId = crypto.randomUUID();
-      // Upload first: if an attachment fails, the manager can retry without
-      // closing anyone's existing task or creating an evidence-less recheck.
+      // Manager photos support the recheck, but are never confused with the
+      // housekeeper's required cleaning-completion evidence.
       for (let offset = 0; offset < recheckFiles.length; offset += 3) {
         const batch = recheckFiles.slice(offset, offset + 3);
         const outcomes = await Promise.allSettled(batch.map(async (file, index) => {
@@ -1075,72 +1070,48 @@ export function SupervisorApprovalView({
           uploadedPaths.push(path);
           setRecheckUploadProgress(`Uploaded ${uploadedPaths.length} of ${recheckFiles.length} photos…`);
         }));
-        // Wait for the whole batch before cleanup; otherwise another upload
-        // might finish after rollback and leave an orphaned private object.
         const failed = outcomes.find((result): result is PromiseRejectedResult => result.status === 'rejected');
         if (failed) throw failed.reason;
       }
 
-      if (existingAssignments && existingAssignments.length > 0) {
-        const { error: updateError } = await supabase
-          .from('room_assignments')
-          .update({
-            status: 'completed',
-            supervisor_approved: true,
-            supervisor_approved_by: currentUserId,
-            supervisor_approved_at: new Date().toISOString(),
-            notes: 'Reassigned to another housekeeper'
-          })
-          .in('id', existingAssignments.map(a => a.id));
-        if (updateError) throw updateError;
-      }
-
-      const { error } = await supabase
-        .from('room_assignments')
-        .insert({
-          id: newAssignmentId,
-          room_id: assignment.room_id,
-          assigned_to: selectedHousekeeper,
-          assigned_by: currentUserId,
-          assignment_date: assignment.assignment_date,
-          assignment_type: assignment.assignment_type,
-          estimated_duration: assignment.estimated_duration,
-          priority: assignment.priority,
-          organization_slug: assignment.organization_slug,
-          recheck_photos: uploadedPaths,
-          notes: `[SUPERVISOR_RECHECK:${selectedHousekeeper === assignment.assigned_to ? 'same' : 'handover'}] ${reason}`
-        } as any);
+      // One transaction decides whether this is still the latest completion.
+      // Never complete/approve another active assignment to clear a conflict:
+      // that invokes the normal daily-cleaning photo validation and can erase
+      // a housekeeper's work. The RPC preserves history and returns a result.
+      const { data, error } = await (supabase as any).rpc('return_housekeeping_room_for_recheck', {
+        p_assignment_id: selectedAssignment,
+        p_assigned_to: selectedHousekeeper,
+        p_reason: reassignmentReason.trim(),
+        p_evidence_paths: uploadedPaths,
+        p_new_assignment_id: newAssignmentId,
+      });
       if (error) throw error;
-      newAssignmentCreated = true;
-
-      const { error: approvalError } = await supabase
-        .from('room_assignments')
-        .update({
-          supervisor_approved: true,
-          supervisor_approved_by: currentUserId,
-          supervisor_approved_at: new Date().toISOString()
-        })
-        .eq('id', selectedAssignment);
-      if (approvalError) throw approvalError;
-
-      toast.success(recheckFiles.length ? 'Room returned with manager photos' : 'Room returned for recheck');
-      fetchPendingAssignments();
+      const action = (data as { action?: string } | null)?.action;
+      if (action !== 'reassigned' && action !== 'already_reassigned') {
+        throw new Error('Unexpected return-room response. Refresh the approval list.');
+      }
+      returnCommitted = action === 'reassigned';
+      if (action === 'already_reassigned') {
+        // The existing, newer assignment must remain in place. Evidence
+        // uploaded for the aborted duplicate return is no longer needed.
+        if (uploadedPaths.length) {
+          await supabase.storage.from(RECHECK_PHOTO_BUCKET).remove(uploadedPaths);
+        }
+        toast.info('Room already reassigned — outdated approval dismissed');
+      } else {
+        toast.success(recheckFiles.length ? 'Room returned with manager photos' : 'Room returned for recheck');
+      }
       setReassignDialogOpen(false);
       resetReassign();
+      await fetchPendingAssignments();
     } catch (error: any) {
-      if (uploadedPaths.length && !newAssignmentCreated) {
-        // Private paths are scoped to this manager. Cleanup is best effort.
+      if (!returnCommitted && uploadedPaths.length) {
         await supabase.storage.from(RECHECK_PHOTO_BUCKET).remove(uploadedPaths);
       }
       console.error('Error reassigning room:', error);
       toast.error(error?.message ? `Failed to return room: ${error.message}` : 'Failed to return room for recheck');
-      if (newAssignmentCreated) {
-        // Keep evidence linked to the new assignment; do not encourage a
-        // second submission after a partial approval-history write.
-        setReassignDialogOpen(false);
-        resetReassign();
-        fetchPendingAssignments();
-      }
+      // A stale request is safe to retry only after refreshing the queue.
+      await fetchPendingAssignments();
     } finally {
       setReassigning(false);
       setRecheckUploadProgress('');
