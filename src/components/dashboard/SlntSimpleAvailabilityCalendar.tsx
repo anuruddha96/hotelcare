@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { addDays, format } from 'date-fns';
+import { addDays, format, startOfWeek } from 'date-fns';
 import { CalendarDays, Check, RefreshCw, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -22,12 +22,12 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
 }) {
   const { language } = useTranslation();
   const hu = language === 'hu';
-  const [week, setWeek] = useState(() => todayBudapest());
+  const [week, setWeek] = useState(() => format(startOfWeek(local(todayBudapest()), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [days, setDays] = useState<SlntWorkingDay[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dates = useMemo(() => Array.from({ length: compact ? 1 : 7 }, (_, i) => dayPlus(week, i)), [week,compact]);
+  const dates = useMemo(() => Array.from({ length: compact ? 1 : 7 }, (_, i) => dayPlus(compact ? todayBudapest() : week, i)), [week,compact]);
   const refresh = useCallback(async () => {
     setLoading(true);
     const { data, error: failure } = await (supabase as any).rpc('slnt_team_b_calendar_v4', {
@@ -79,7 +79,7 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
             <Button size="sm" variant="outline" onClick={() => setWeek(dayPlus(week,-7))}><CalendarDays className="h-3.5 w-3.5 mr-1"/>{hu ? 'Előző' : 'Previous'}</Button>
             <Button size="sm" variant="outline" onClick={() => setWeek(dayPlus(week,7))}>{hu ? 'Következő' : 'Next'}</Button>
           </div>}
-          <Button size="sm" variant="ghost" onClick={() => { if (!compact) setWeek(todayBudapest()); void refresh(); }} disabled={loading}>
+          <Button size="sm" variant="ghost" onClick={() => { if (!compact) setWeek(format(startOfWeek(local(todayBudapest()), { weekStartsOn: 1 }), 'yyyy-MM-dd')); void refresh(); }} disabled={loading}>
             <RefreshCw className="h-4 w-4 mr-1"/>{hu ? 'Frissítés' : 'Refresh'}
           </Button>
         </div>
