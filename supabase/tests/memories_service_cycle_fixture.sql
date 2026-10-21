@@ -2,6 +2,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
+CREATE ROLE service_role NOLOGIN;
 CREATE SCHEMA auth;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('app.test_user_id', true), '')::uuid
@@ -25,6 +26,15 @@ CREATE TABLE public.rooms(
   towel_change_required boolean DEFAULT false,
   linen_change_required boolean DEFAULT false,
   last_towel_change date, last_linen_change date
+);
+CREATE TABLE public.housekeeping_room_snapshots(
+  business_date date NOT NULL,
+  room_id uuid NOT NULL REFERENCES public.rooms(id),
+  hotel text NOT NULL,
+  organization_slug text NOT NULL,
+  final_state jsonb,
+  scheduled_service_due jsonb,
+  PRIMARY KEY (business_date,room_id)
 );
 CREATE TABLE public.room_assignments(
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

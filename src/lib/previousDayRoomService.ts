@@ -7,6 +7,7 @@ export interface HistoricalRoomSnapshot {
   bed_configuration?: string | null;
   pms_metadata?: Record<string, unknown> | null;
   final_state?: Record<string, unknown> | null;
+  scheduled_service_due?: { towel?: boolean; change_room?: boolean } | null;
 }
 
 function booleanValue(value: unknown): boolean {
@@ -23,16 +24,16 @@ export function frozenPreviousRoomService(
   );
   return {
     isCheckout,
-    towelChangeRequired: !isCheckout && booleanValue(
+    towelChangeRequired: !isCheckout && (booleanValue(
       final.towel_change_required_for_assignment
         ?? final.towel_change_required_at_close
         ?? snapshot?.towel_change_required,
-    ),
-    linenChangeRequired: !isCheckout && booleanValue(
+    ) || snapshot?.scheduled_service_due?.towel === true),
+    linenChangeRequired: !isCheckout && (booleanValue(
       final.linen_change_required_for_assignment
         ?? final.linen_change_required_at_close
         ?? snapshot?.linen_change_required,
-    ),
+    ) || snapshot?.scheduled_service_due?.change_room === true),
     notes: (final.room_notes_at_close ?? snapshot?.room_notes ?? null) as string | null,
     bedConfiguration: snapshot?.bed_configuration || null,
     pmsMetadata: (final.pms_metadata_at_close ?? snapshot?.pms_metadata ?? null) as Record<string, unknown> | null,

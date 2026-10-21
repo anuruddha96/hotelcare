@@ -28,6 +28,7 @@ type RoomSnapshot = {
   assignment_completed_at: string | null; supervisor_approved: boolean | null;
   ready_to_clean: boolean | null; assignment_notes: string | null;
   final_state: Record<string, unknown> | null; finalized_at: string | null;
+  scheduled_service_due?: { towel?: boolean; change_room?: boolean; first_observed_at?: string } | null;
   source: string | null; captured_at: string | null; updated_at: string | null;
   status_history: Array<Record<string, any>> | null;
 };
@@ -105,7 +106,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         const hotelKeys = keys.length ? keys : [hotelName];
         const [historyRes, tasksRes] = await Promise.all([
           (supabase as any).from('housekeeping_room_snapshots')
-            .select('business_date,hotel,room_id,room_number,floor_number,venue_id,room_size_sqm,bed_type,bed_configuration,room_status,is_checkout_room,is_dnd,had_dnd,dnd_attempt_count,towel_change_required,linen_change_required,had_towel_change,had_linen_change,had_room_cleaning_request,had_extra_towels_request,had_ready_to_clean,had_no_service,had_no_show,room_notes,pms_metadata,guest_nights_stayed,assignment_id,assigned_to,assignment_type,assignment_status,assignment_started_at,assignment_completed_at,supervisor_approved,ready_to_clean,assignment_notes,source,captured_at,updated_at,status_history,final_state,finalized_at')
+            .select('business_date,hotel,room_id,room_number,floor_number,venue_id,room_size_sqm,bed_type,bed_configuration,room_status,is_checkout_room,is_dnd,had_dnd,dnd_attempt_count,towel_change_required,linen_change_required,had_towel_change,had_linen_change,had_room_cleaning_request,had_extra_towels_request,had_ready_to_clean,had_no_service,had_no_show,room_notes,pms_metadata,guest_nights_stayed,assignment_id,assigned_to,assignment_type,assignment_status,assignment_started_at,assignment_completed_at,supervisor_approved,ready_to_clean,assignment_notes,source,captured_at,updated_at,status_history,final_state,finalized_at,scheduled_service_due')
             .in('hotel', hotelKeys).eq('business_date', selectedDate).order('room_number'),
           supabase.from('general_tasks').select('id,task_name,task_type,assigned_to,status')
             .in('hotel', hotelKeys).eq('assigned_date', selectedDate),
@@ -213,8 +214,8 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
     const saved = resolveHistoricalHousekeepingState(row);
     const flags = parseRoomFlags(saved.roomNotes);
     const noService = saved.hadNoService;
-    const towel = !room.checkout && saved.towel;
-    const linen = !room.checkout && saved.changeRoom;
+    const towel = !room.checkout && (saved.towel || saved.scheduledTowel);
+    const linen = !room.checkout && (saved.changeRoom || saved.scheduledChangeRoom);
     const name = assigneeLabel(staffMap, row.assigned_to);
     const size = sizeLabel(row.room_size_sqm);
     const config = bedLabel(row.bed_configuration);
@@ -230,7 +231,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
             label, name ? `Assigned: ${name}` : null, 'Read-only saved history – click for details'].filter(Boolean).join(' · ')}>
           {row.room_number}
           {noShow && <span className="ml-0.5 px-0.5 rounded text-[9px] bg-red-600 text-white">NS</span>}
-          {row.pms_metadata?.notArrived && !noShow && <span className="ml-0.5 px-0.5 rounded text-[9px] bg-slate-500 text-white">NA</span>}
+          {row.pms_metadata?.notArrived && row.pms_metadata?.occupiedToday !== true && !noShow && <span className="ml-0.5 px-0.5 rounded text-[9px] bg-slate-500 text-white">NA</span>}
           {row.pms_metadata?.manual_checkout && <span className="ml-0.5 px-0.5 rounded text-[9px] bg-amber-500 text-white">M</span>}
           {towel && <span className="ml-0.5 px-0.5 rounded text-[9px] bg-blue-600 text-white">T</span>}
           {linen && <span className="ml-0.5 px-0.5 rounded text-[9px] bg-orange-500 text-white">C</span>}
@@ -345,6 +346,11 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
               <p><strong>Saved room category:</strong> {selectedRoom.checkout ? 'Checkout' : 'Daily'}.</p>
               {hasMemoriesHistoricalRoomTypeConflict(selectedRoom.snapshot) && <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">A {selectedRoom.snapshot.assignment_type === 'checkout_cleaning' ? 'checkout' : 'daily'} cleaning assignment was recorded for this date, but the final saved room category is {selectedRoom.checkout ? 'checkout' : 'daily'}. The room is grouped by the saved category; the original work record is preserved for audit.</p>}
               <p><strong>Saved status:</strong> {selectedRoom.snapshot.assignment_status || selectedRoom.snapshot.room_status || 'Not recorded'}; supervisor approved: {selectedRoom.approved ? 'Yes' : 'No'}.</p>
+              {(selectedRoom.snapshot.scheduled_service_due?.towel || selectedRoom.snapshot.scheduled_service_due?.change_room) && (
+                <p><strong>Original scheduled service:</strong> {selectedRoom.snapshot.scheduled_service_due?.change_room ? 'Change Room' : 'Towel change'}.
+                  This dated record confirms that service was scheduled, not that towels or linen were physically changed.
+                  Completion and supervisor approval are recorded separately.</p>
+              )}
               <p><strong>DND verification:</strong> {selectedRoom.dnd === 'none'
                 ? 'No DND event verified for this date.' : selectedRoom.dnd === 'earlier'
                   ? 'DND encounter recorded on this date; not shown as an active block on an approved room.'

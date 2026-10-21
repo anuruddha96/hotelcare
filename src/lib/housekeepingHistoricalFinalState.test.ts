@@ -46,4 +46,27 @@ describe('historical housekeeping final-state resolver', () => {
     expect(state.managerInstruction).toBe('2 towels and 2 pillows');
     expect(state.finalized).toBe(true);
   });
+
+  it('remembers a scheduled towel change when an approved clean later clears live T', () => {
+    const state = resolveHistoricalHousekeepingState({
+      towel_change_required: false,
+      final_state: {
+        towel_change_required_for_assignment: false,
+        towel_change_required_at_close: false,
+        service_result: 'cleaned',
+      },
+      scheduled_service_due: { towel: true, change_room: false, first_observed_at: '2026-10-21T06:00:00Z' },
+    });
+    expect(state.towel).toBe(false); // immutable end-of-day instruction
+    expect(state.scheduledTowel).toBe(true); // independent original duty evidence
+    expect(state.scheduledChangeRoom).toBe(false);
+  });
+
+  it('does not fabricate scheduled duties for snapshots lacking evidence', () => {
+    const state = resolveHistoricalHousekeepingState({
+      final_state: { towel_change_required_for_assignment: false },
+    });
+    expect(state.scheduledTowel).toBe(false);
+    expect(state.scheduledChangeRoom).toBe(false);
+  });
 });

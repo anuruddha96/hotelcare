@@ -498,7 +498,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             if (!latest()) return;
             const { data: frozenRows, error: snapshotsError } = await (supabase as any)
               .from('hc_housekeeping_room_service_history')
-              .select('room_id, is_checkout_room, towel_change_required, linen_change_required, room_notes, bed_configuration, pms_metadata, final_state')
+              .select('room_id, is_checkout_room, towel_change_required, linen_change_required, room_notes, bed_configuration, pms_metadata, final_state, scheduled_service_due')
               .in('room_id', roomIdList)
               .eq('business_date', prevDate);
             if (!latest()) return;

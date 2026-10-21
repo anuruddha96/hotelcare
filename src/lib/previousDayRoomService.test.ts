@@ -28,4 +28,24 @@ describe('frozen previous-day housekeeping room board', () => {
     expect(historical.isCheckout).toBe(true);
     expect(historical.linenChangeRequired).toBe(false);
   });
+
+  it('remembers a past HMB scheduled towel duty independently of final clean', () => {
+    const historical = frozenPreviousRoomService({
+      towel_change_required: false,
+      final_state: {
+        is_checkout_room_at_close: false,
+        towel_change_required_for_assignment: false,
+      },
+      scheduled_service_due: { towel: true },
+    }, 'daily_cleaning');
+    expect(historical.towelChangeRequired).toBe(true);
+  });
+  it('never resurrects a scheduled stayover T after verified checkout', () => {
+    const historical = frozenPreviousRoomService({
+      final_state: { is_checkout_room_at_close: true },
+      scheduled_service_due: { towel: true, change_room: true },
+    }, 'checkout_cleaning');
+    expect(historical.towelChangeRequired).toBe(false);
+    expect(historical.linenChangeRequired).toBe(false);
+  });
 });

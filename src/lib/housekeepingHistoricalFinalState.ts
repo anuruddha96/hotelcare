@@ -7,6 +7,7 @@ export interface HistoricalHousekeepingRowLike {
   room_notes?: string | null;
   assignment_notes?: string | null;
   final_state?: Record<string, unknown> | null;
+  scheduled_service_due?: { towel?: boolean; change_room?: boolean; first_observed_at?: string } | null;
 }
 
 function bool(value: unknown): boolean | null {
@@ -40,6 +41,11 @@ export function resolveHistoricalHousekeepingState(row: HistoricalHousekeepingRo
   return {
     towel,
     changeRoom,
+    // Recorded duty is independent of the final approved cleaning result.
+    // Only Hotel Memories records this evidence. It must not imply that towels
+    // or linen were physically changed or override the immutable final_state.
+    scheduledTowel: row.scheduled_service_due?.towel === true,
+    scheduledChangeRoom: row.scheduled_service_due?.change_room === true,
     hadDnd,
     hadNoService,
     roomNotes: text(final.room_notes_at_close) ?? row.room_notes ?? null,
