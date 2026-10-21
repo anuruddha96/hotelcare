@@ -79,6 +79,8 @@ import { getLocalDateString } from '@/lib/utils';
 import { isPotentialCheckoutRoom } from '@/lib/nextDayHousekeepingSnapshot';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { overlayMemoriesDailyCarryOnRooms } from '@/lib/memoriesDailyBoardCarry';
 import { TodayHousekeepingPlanReviewDialog } from './TodayHousekeepingPlanReviewDialog';
 import { nextDayAutoAssignUiText } from '@/lib/nextDayAutoAssignUiTranslations';
 import { hasManagerPowers } from '@/lib/roleAccess';
@@ -412,6 +414,16 @@ export function AutoRoomAssignment({
     } as RoomForAssignment;
   };
 
+  const loadMemoriesDailyBoardCarry = async (): Promise<Array<{ room_id: string; carry_forward: unknown }>> => {
+    if (isNextDayPlanning || selectedDate !== todayBudapest() || !isHotelMemoriesBudapest(hotelName)) return [];
+    const { data, error } = await (supabase as any)
+      .from('hc_memories_daily_carry_board')
+      .select('room_id, carry_forward')
+      .eq('business_date', selectedDate);
+    if (error) throw new Error('Hotel Memories carry-forward tasks are unavailable: ' + error.message);
+    return (data || []) as Array<{ room_id: string; carry_forward: unknown }>;
+  };
+
   const refreshLiveRoomState = async () => {
     if (isNextDayPlanning) return;
     const keys = hotelKeysRef.current;
@@ -424,7 +436,11 @@ export function AutoRoomAssignment({
       .eq('organization_slug', profile?.organization_slug || '');
     if (roomErr || !roomRows) return;
 
-    let currentRooms = roomRows.map(addSectionContext);
+    let currentRooms = overlayMemoriesDailyCarryOnRooms(
+      roomRows.map(addSectionContext),
+      await loadMemoriesDailyBoardCarry(),
+      selectedDate, todayBudapest(),
+    );
     if (isGozsdu) {
       if (!profile?.organization_slug) return;
       try {
@@ -699,7 +715,11 @@ export function AutoRoomAssignment({
         } as HousekeepingSectionTaskTemplate] : [];
       }));
 
-      const allHotelRooms = (roomRows || []).map(addSectionContext);
+      const allHotelRooms = overlayMemoriesDailyCarryOnRooms(
+        (roomRows || []).map(addSectionContext),
+        await loadMemoriesDailyBoardCarry(),
+        selectedDate, todayBudapest(),
+      );
       const verifiedLiveRooms = isGozsdu && !isNextDayPlanning
         ? await fetchVerifiedGozsduAutoAssignRooms(allHotelRooms, profile.organization_slug, selectedDate)
         : allHotelRooms;
