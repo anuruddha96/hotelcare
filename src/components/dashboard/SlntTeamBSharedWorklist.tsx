@@ -28,6 +28,7 @@ type Item = {
   assigned_to: string | null;
   assignment_status: string | null;
   supervisor_approved: boolean;
+  is_optional: boolean;
 };
 
 type Props = { managerView?: boolean };
@@ -46,7 +47,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true);
     const { data, error: loadError } = await (supabase as any)
-      .rpc('slnt_team_b_worklist', { p_service_date: date });
+      .rpc('slnt_team_b_pool_v4', { p_service_date: date });
     if (loadError) { setError(loadError.message); setItems([]); }
     else { setError(null); setItems((data || []) as Item[]); }
     setLoading(false);
@@ -81,11 +82,12 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
     if (busy || managerView) return;
     setBusy(item.room_id);
     try {
-      const { data, error: claimError } = await (supabase as any).rpc('slnt_team_b_claim_room', {
+      const { data, error: claimError } = await (supabase as any).rpc('slnt_team_b_start_room_v4', {
         p_room_id: item.room_id, p_service_date: date,
       });
       if (claimError) throw claimError;
       await loadAssignment(String(data));
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
       await refresh();
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : (hu ? 'Nem sikerült a feladat átvétele.' : 'Could not claim this room.'));
@@ -96,10 +98,15 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
   const { pendingApproval: pending, approved: done, remaining: open } = useMemo(() => summarizeTeamBProgress(items), [items]);
   const groups = useMemo(() => ({
     rtc: items.filter(item => slntWorkSection(item, date) === 'rtc'),
-    stayover: items.filter(item => slntWorkSection(item, date) === 'stayover'),
+    towel: items.filter(item => !item.is_checkout_room && !item.is_optional &&
+      (item.towel_change_required || item.linen_change_required)),
+    due: items.filter(item => !item.is_checkout_room && !item.is_optional &&
+      !item.towel_change_required && !item.linen_change_required),
+    optional: items.filter(item => item.is_optional),
     waiting: items.filter(item => slntWorkSection(item, date) === 'waiting'),
   }), [items, date]);
-  const label = (i: Item) => i.is_checkout_room ? (hu ? 'Kijelentkezés' : 'Checkout')
+  const label = (i: Item) => i.is_optional ? (hu ? 'Opcionális napi takarítás' : 'Optional stayover')
+    : i.is_checkout_room ? (hu ? 'Kijelentkezés' : 'Checkout')
     : i.linen_change_required ? (hu ? 'Ágyneműcsere' : 'Linen change')
     : i.towel_change_required ? (hu ? 'Törölközőcsere' : 'Towel change')
     : (hu ? 'Takarítás' : 'Cleaning');
@@ -125,7 +132,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
                     ? (hu ? 'Jóváhagyva' : 'Approved')
                     : (hu ? 'Jóváhagyásra vár' : 'Awaiting approval')}
                 </Badge> : claimed ? <Badge variant="secondary">
-                  {mine ? (hu ? 'Saját feladat' : 'Your task') : (hu ? 'Már átvett feladat' : 'Already claimed')}
+                  {mine ? (hu ? 'Saját feladat' : 'Your room') : (hu ? 'Más takarító dolgozik' : 'Cleaner working')}
                 </Badge> : waitingRtc ? <Badge variant="secondary">{hu ? 'RTC-re vár' : 'Awaiting RTC'}</Badge>
                   : <Badge variant="outline">{hu ? 'Elérhető' : 'Available'}</Badge>}
               </div>
@@ -146,7 +153,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
                   data-training="slnt-team-b-claim"
                   onClick={() => void (claimed ? openExisting(item.assignment_id!) : claim(item))}>
                   <ClipboardCheck className="mr-2 h-4 w-4" />
-                  {mine ? (hu ? 'Feladat megnyitása' : 'Open my task') : (hu ? 'Feladat átvétele' : 'Take room')}
+                  {mine ? (hu ? 'Feladat megnyitása' : 'Open my room') : (hu ? 'Takarítás indítása' : 'Start cleaning')}
                 </Button>
               )}
             </CardContent>
@@ -183,8 +190,12 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
       {([
         { key: 'rtc' as const, title: hu ? 'Takarításra kész kijelentkezők (RTC)' : 'RTC — ready checkouts',
           help: hu ? 'Ezek a szobák elsőbbséget élveznek.' : 'Clean these rooms first.' },
-        { key: 'stayover' as const, title: hu ? 'Napi szobák és külön kérések' : 'Stayovers & special requests',
-          help: hu ? 'Törölköző, ágynemű és egyéb esedékes feladatok.' : 'Towel, linen and other due services.' },
+        { key: 'towel' as const, title: hu ? 'Törölköző- és ágyneműcsere (T/C)' : 'Towel & linen changes (T/C)',
+          help: hu ? 'Esedékes feladatok, a többi napi szoba előtt.' : 'Due services before other stayovers.' },
+        { key: 'due' as const, title: hu ? 'Esedékes napi takarítás és kérések' : 'Other due stayovers & requests',
+          help: hu ? 'Előírt napi takarítás és egyedi kérések.' : 'Scheduled daily cleaning and explicit requests.' },
+        { key: 'optional' as const, title: hu ? 'Egyéb napi szobák (opcionális)' : 'Other stayovers (optional)',
+          help: hu ? 'Csak szükség esetén; a DND és No Service szobák kizárva.' : 'Start only when appropriate; DND and No Service excluded.' },
         { key: 'waiting' as const, title: hu ? 'Kijelentkezésre / RTC-re vár' : 'Awaiting checkout / RTC',
           help: hu ? 'Takarítás csak RTC állapot után indítható.' : 'Cleaning can start only once the room is RTC-ready.' },
       ]).map(group => (
@@ -194,10 +205,17 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
             <Badge variant="secondary">{groups[group.key].length}</Badge>
             <p className="text-xs text-muted-foreground">{group.help}</p>
           </div>
-          {groups[group.key].length === 0
-            ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-              {hu ? 'Jelenleg nincs feladat.' : 'No rooms in this category.'}</p>
-            : renderRooms(groups[group.key])}
+          {group.key === 'optional'
+            ? <details className="rounded-md border p-3" data-training="slnt-optional-stayovers">
+                <summary className="cursor-pointer text-sm font-medium">
+                  {hu ? 'Opcionális napi szobák megtekintése' : 'Show optional stayovers'} ({groups.optional.length})
+                </summary>
+                <div className="space-y-2 pt-3">{renderRooms(groups.optional)}</div>
+              </details>
+            : groups[group.key].length === 0
+              ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                {hu ? 'Jelenleg nincs feladat.' : 'No rooms in this category.'}</p>
+              : renderRooms(groups[group.key])}
         </section>
       ))}
       {!loading && !error && items.length === 0 && <p className="rounded-lg border p-5 text-center text-sm">
@@ -223,6 +241,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
                 // The original completion workflow closes only on completion
                 // and sends the room for supervisor approval as before.
                 if (status === 'completed' || status === 'cancelled') {
+                  window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
                   setActiveAssignment(null);
                 } else {
                   void loadAssignment(assignmentId);
