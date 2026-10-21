@@ -91,7 +91,16 @@ BEGIN
          v_night >= 2
          AND coalesce(v_meta ->> 'stayThroughToday','false') = 'true'
          AND coalesce(v_meta ->> 'reservationId','') <> ''
-         AND coalesce(v_meta ->> 'arrivalDate','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
+         AND length(coalesce(v_meta ->> 'arrivalDate','')) = 10
+         AND substring(v_meta ->> 'arrivalDate' from 5 for 1) = '-'
+         AND substring(v_meta ->> 'arrivalDate' from 8 for 1) = '-'
+         AND (v_meta ->> 'arrivalDate') < v_today
+         AND length(coalesce(v_meta ->> 'departureDate','')) = 10
+         AND substring(v_meta ->> 'departureDate' from 5 for 1) = '-'
+         AND substring(v_meta ->> 'departureDate' from 8 for 1) = '-'
+         AND (v_meta ->> 'departureDate') > v_today
+       )
+     )
   THEN
     v_towel := v_night >= (v_policy ->> 'towel_first_night')::integer
       AND (v_night - (v_policy ->> 'towel_first_night')::integer)
