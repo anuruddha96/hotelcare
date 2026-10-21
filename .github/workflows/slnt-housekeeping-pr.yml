@@ -11,7 +11,9 @@ on:
       - 'src/components/training/**'
       - 'src/lib/slnt*'
       - 'supabase/functions/previo-update-room-status/**'
-      - 'supabase/migrations/*slnt_simple_housekeeping.sql'
+      - 'supabase/migrations/*slnt*housekeeping*.sql'
+      - 'supabase/migrations/*slnt_team_b*.sql'
+      - 'src/hooks/useSlnt*.ts'
       - '.github/workflows/slnt-housekeeping-pr.yml'
   workflow_dispatch:
 
@@ -31,5 +33,5 @@ jobs:
       # skipping the SLNT-focused tests and production build.
       - run: bunx tsc --noEmit --project tsconfig.app.json
         continue-on-error: true
-      - run: bun run test -- --run src/lib/slntSimplifiedHousekeeping.test.ts
+      - run: bunx vitest run src/lib/slntSimplifiedHousekeeping.test.ts src/lib/slntTeamBQueue.test.ts
       - run: bun run build
