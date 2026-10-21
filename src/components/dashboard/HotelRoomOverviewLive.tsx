@@ -36,6 +36,7 @@ import { compareRoomAuthority, createOverviewLoadGuard } from '@/lib/roomOvervie
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { getMemoriesRoomBoardNote, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
+import { getMemoriesDailyBoardCarry } from '@/lib/memoriesDailyBoardCarry';
 import {
   effectiveCarryServiceFlags,
   getCarryForwardManagerCopy,
@@ -225,6 +226,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   currentOverviewScopeRef.current = currentOverviewScope;
   const [overviewDataError, setOverviewDataError] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<AssignmentData[]>([]);
+  // HMB: dated, proof-checked outstanding service for rooms not yet assigned today.
+  const [memoriesCarryByRoomId, setMemoriesCarryByRoomId] = useState<Map<string, unknown>>(new Map());
   const [publicAreaTasks, setPublicAreaTasks] = useState<PublicAreaTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [averageCleanTime, setAverageCleanTime] = useState<number | null>(null);
@@ -402,7 +405,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     try {
       const hotelKeys = await resolveHotelKeys(hotelName);
       const keys = hotelKeys.length ? hotelKeys : [hotelName];
-      const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
+      const [roomsRes, assignmentsRes, tasksRes, completedRes, carryBoardRes] = await Promise.all([
         supabase
           .from('rooms')
           .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, dnd_marked_at, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, bed_configuration, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
@@ -423,7 +426,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .eq('assignment_date', selectedDate)
           .eq('status', 'completed')
           .not('started_at', 'is', null)
-          .not('completed_at', 'is', null)
+          .not('completed_at', 'is', null),
+        // HMB room-board carries must be visible even before today's assignments
+        // are released. Other hotels, historical dates and the PMS remain unchanged.
+        isHotelMemoriesBudapest(hotelName) && selectedDate === todayBudapest()
+          ? (supabase as any)
+              .from('hc_memories_daily_carry_board')
+              .select('room_id, carry_forward')
+              .eq('business_date', selectedDate)
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
       if (!latest()) return;
@@ -437,8 +448,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       
       const roomIds = new Set(dedupedRooms.map(r => r.id));
       setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
+      setMemoriesCarryByRoomId(new Map(
+        (((carryBoardRes as any)?.data || []) as Array<{ room_id: string; carry_forward: unknown }>)
+          .filter(item => roomIds.has(item.room_id))
+          .map(item => [item.room_id, item.carry_forward] as const),
+      ));
       setPublicAreaTasks(tasksRes.data || []);
-      setOverviewDataError(null);
+      setOverviewDataError((carryBoardRes as any)?.error
+        ? 'Hotel Memories missed-service verification is unavailable. Please refresh the room board.'
+        : null);
       loadGuardRef.current.markLoaded(currentOverviewScope);
       // Core room/assignment data is ready. Do not block managers while the
       // optional historical comparison queries are still loading.
@@ -1159,7 +1177,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = isCheckoutBucket(room);
     const portfolioCarry = !isCheckout && isCarryForwardDisplayHotel(room.hotel)
-      ? getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
+      ? isHotelMemoriesBudapest(room.hotel) && selectedDate === todayBudapest()
+        ? getMemoriesDailyBoardCarry({
+            hotel: room.hotel,
+            selectedDate,
+            today: todayBudapest(),
+            isCheckout,
+            cachedCarry: memoriesCarryByRoomId.get(room.id),
+            assignment,
+          })
+        : getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
       : null;
     const portfolioCarryCopy = portfolioCarry
       ? getCarryForwardManagerCopy(portfolioCarry)
@@ -2748,7 +2775,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               const assignment = assignmentMap.get(selectedRoom.id);
               const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room || isScheduledCheckoutRoom(selectedRoom);
               const selectedCarry = !isCheckout && isCarryForwardDisplayHotel(selectedRoom.hotel)
-                ? getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
+                ? isHotelMemoriesBudapest(selectedRoom.hotel) && selectedDate === todayBudapest()
+                  ? getMemoriesDailyBoardCarry({
+                      hotel: selectedRoom.hotel,
+                      selectedDate,
+                      today: todayBudapest(),
+                      isCheckout,
+                      cachedCarry: memoriesCarryByRoomId.get(selectedRoom.id),
+                      assignment,
+                    })
+                  : getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
                 : null;
               const selectedCarryCopy = selectedCarry
                 ? getCarryForwardManagerCopy(selectedCarry)
