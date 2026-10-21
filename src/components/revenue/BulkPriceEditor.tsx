@@ -11,7 +11,8 @@ import { CalendarRange, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { DateRange } from "react-day-picker";
-import { addDays, isWeekend, type RoomTypeRate } from "@/lib/revenueAnalytics";
+import { addDays, type RoomTypeRate } from "@/lib/revenueAnalytics";
+import { hasRevenueDayPreset, isRdHotelsRevenueOrganization, revenueDaysForPreset, type RevenueDayPreset } from "@/lib/revenueBulkDaySelection";
 import { getRevenueCurrency, moneyBase } from "@/lib/revenueCurrency";
 import { logRateChanges } from "@/lib/rateAudit";
 import type { DraftChange } from "@/lib/rateDrafts";
@@ -76,6 +77,7 @@ export default function BulkPriceEditor({
 
   const cur = getRevenueCurrency();
   const monthMode = !!initialMonth;
+  const rdHotelsWeekend = isRdHotelsRevenueOrganization(organizationSlug);
   const monthLabel = initialMonth
     ? new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric", timeZone: "UTC" }).format(parse(`${initialMonth}-01`))
     : "";
@@ -137,6 +139,7 @@ export default function BulkPriceEditor({
   const to = range?.to ? iso(range.to) : from;
 
   const quick = (days: number) => setRange({ from: parse(today), to: parse(addDays(today, days - 1)) });
+  const chooseDayPreset = (preset: RevenueDayPreset) => setDows(revenueDaysForPreset(organizationSlug, preset));
 
   const changes = useMemo(() => {
     if (mode !== "round" && value.trim() === "") return [] as Array<DraftChange & { label: string }>;
@@ -363,36 +366,44 @@ export default function BulkPriceEditor({
             </div>
           )}
 
-          {/* --- weekdays --- */}
-          <div className="space-y-1.5">
+          {/* --- weekdays: tenant-aware presets + editable individual days --- */}
+          <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Which days</Label>
-            {monthMode ? (
-              <div className="flex flex-wrap items-center gap-1">
-                <Button size="sm" variant={dows.size === 7 ? "default" : "outline"} className="h-8 px-3 text-xs"
-                  onClick={() => setDows(new Set([0, 1, 2, 3, 4, 5, 6]))}>All days</Button>
-                <Button size="sm" variant={dows.size === 5 && !dows.has(0) && !dows.has(6) ? "default" : "outline"} className="h-8 px-3 text-xs"
-                  onClick={() => setDows(new Set([1, 2, 3, 4, 5]))}>Weekdays</Button>
-                <Button size="sm" variant={dows.size === 2 && dows.has(0) && dows.has(6) ? "default" : "outline"} className="h-8 px-3 text-xs"
-                  onClick={() => setDows(new Set([0, 6]))}>Weekends</Button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-1">
-                {WEEKDAYS.map((w) => (
-                  <Button
-                    key={w.i}
-                    size="sm"
-                    variant={dows.has(w.i) ? "default" : "outline"}
-                    className="h-8 w-10 px-0 text-[11px]"
-                    onClick={() => toggle(dows, w.i, setDows)}
-                  >
-                    {w.label}
-                  </Button>
-                ))}
-                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([5, 6]))}>Weekends</Button>
-                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([0, 1, 2, 3, 4]))}>Weekdays</Button>
-                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([0, 1, 2, 3, 4, 5, 6]))}>All</Button>
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {([
+                ["all", "All days"], ["weekdays", "Weekdays"], ["weekends", "Weekends"],
+              ] as Array<[RevenueDayPreset, string]>).map(([preset, label]) => (
+                <Button
+                  key={preset}
+                  size="sm"
+                  variant={hasRevenueDayPreset(dows, organizationSlug, preset) ? "default" : "outline"}
+                  className="h-8 px-3 text-xs"
+                  aria-pressed={hasRevenueDayPreset(dows, organizationSlug, preset)}
+                  onClick={() => chooseDayPreset(preset)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+            <div role="group" aria-label="Customize selected days" className="flex flex-wrap items-center gap-1">
+              {WEEKDAYS.map((w) => (
+                <Button
+                  key={w.i}
+                  size="sm"
+                  variant={dows.has(w.i) ? "default" : "outline"}
+                  className="h-9 min-w-9 px-2 text-xs"
+                  aria-pressed={dows.has(w.i)}
+                  onClick={() => toggle(dows, w.i, setDows)}
+                >
+                  {w.label}
+                </Button>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {rdHotelsWeekend
+                ? "RD Hotels Budapest: Weekends select Friday + Saturday. Tap Su to include Sunday. Weekdays select Monday–Thursday."
+                : "Weekends select Saturday + Sunday. Tap Fr to include Friday."}
+            </p>
           </div>
 
           {/* --- room types / occupancy --- */}
