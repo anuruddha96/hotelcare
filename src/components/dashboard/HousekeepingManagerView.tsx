@@ -1,4 +1,5 @@
-import { SlntTeamBAvailability } from './SlntTeamBAvailability';
+import { SlntTeamPoolSummary } from './SlntTeamPoolSummary';
+import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -154,6 +155,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const { venuesEnabled, orgSlug } = useTenantFeatures();
   const activeOrganizationSlug = orgSlug || profile?.organization_slug || null;
   const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes((activeOrganizationSlug || '').toLowerCase());
+  const slntPoolMode = useSlntSimplifiedHousekeeping() === true && isSlntTenant;
   const { venueName } = useVenues();
   // Managers/supervisors may move work between housekeepers by drag & drop.
   const canDragAssign = !!profile?.role && ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
@@ -184,7 +186,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [slntRosterNotice, setSlntRosterNotice] = useState<SlntRosterNotice | null>(null);
   const [slntVerifiedKey, setSlntVerifiedKey] = useState<string | null>(null);
   const scheduleRequestId = useRef(0);
-  const slntRosterReady = !isSlntTenant || slntRosterAllowsManualAssignment(slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}`, slntRosterNotice);
+  const slntRosterReady = slntPoolMode || !isSlntTenant || slntRosterAllowsManualAssignment(slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}`, slntRosterNotice);
   const openSlntStaffSchedule = () => {
     if (!profile?.assigned_hotel) return;
     window.dispatchEvent(new CustomEvent('hotelcare:open-slnt-staff-schedule', {
@@ -234,7 +236,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       toast.error(slntRosterNotice?.message ?? 'Checking the published SLNT roster. Please wait.');
       return;
     }
-    if (staff && venuesEnabled && slntRosterNotice?.kind !== 'missing') {
+    if (staff && venuesEnabled && !slntPoolMode && slntRosterNotice?.kind !== 'missing') {
       const shift = staffSchedules[staff.id];
       const allowedVenues = new Set(shift?.staff_schedule_venues?.map((row) => row.venue_id) ?? []);
       const selectedVenueIds = selectedUnits.map((unit) => roomAssignments.find((room) => room.room_id === unit.roomId)?.venue_id).filter(Boolean) as string[];
@@ -624,7 +626,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         || memoriesCurrent.get(row.room_id)?.id === row.id,
       );
 
-      const summaryMap = new Map<string, TeamAssignment>();
+      // SLNT individual cleaner cards only track rooms that cleaning has
+      // actually started. Unstarted tasks remain on the Team B card.
+      const activeCurrentData = slntPoolMode
+        ? currentData.filter(a => ['in_progress','completed','dnd_pending_retry'].includes(a.status))
+        : currentData;
+            const summaryMap = new Map<string, TeamAssignment>();
 
       // Initialize all staff with zero counts so cards always show
       housekeepingStaff.forEach(staff => {
@@ -640,7 +647,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
       });
 
-      currentData.forEach((row: any) => {
+      activeCurrentData.forEach((row: any) => {
         const staffId = row.assigned_to as string;
         let summary = summaryMap.get(staffId);
         if (!summary) {
@@ -701,8 +708,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         filteredData.filter((item: any) => isHotelMemoriesBudapest(item.rooms?.hotel)),
       );
       const assignments = filteredData.filter((item: any) =>
-        !isHotelMemoriesBudapest(item.rooms?.hotel)
-        || currentMemories.get(item.room_id)?.id === item.id,
+        (!isHotelMemoriesBudapest(item.rooms?.hotel)
+          || currentMemories.get(item.room_id)?.id === item.id)
+        && (!slntPoolMode || ['in_progress','completed','dnd_pending_retry'].includes(item.status)),
       ).map((item: any) => ({
         id: item.id,
         room_id: item.room_id,
@@ -749,6 +757,14 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         message: 'Select an SLNT property with venue scheduling enabled to load its published roster.',
         action: 'retry',
       } : null);
+      return;
+    }
+    if (slntPoolMode) {
+      // Team B uses virtual default-working availability, not published shifts.
+      // A missing roster is normal and must never disable today's property view.
+      setStaffSchedules({});
+      setSlntRosterNotice(null);
+      setSlntVerifiedKey(`${profile.assigned_hotel}|${selectedDate}`);
       return;
     }
     if (isSlntTenant) {
@@ -915,8 +931,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       <TabsContent value="team" className="space-y-6" data-training="team-view">
-        {isSlntTenant && <SlntTeamBAvailability />}
-      {isSlntTenant && slntRosterNotice && (
+      {isSlntTenant && !slntPoolMode && slntRosterNotice && (
         <div
           role={slntRosterNotice.kind === 'missing' ? 'status' : 'alert'}
           className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${slntRosterNotice.kind === 'missing' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-destructive/60 bg-destructive/5 text-destructive'}`}
@@ -932,7 +947,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           </div>
         </div>
       )}
-      {isSlntTenant && !slntRosterNotice && !slntRosterReady && (
+      {isSlntTenant && !slntPoolMode && !slntRosterNotice && !slntRosterReady && (
         <div role="status" className="rounded-md border p-3 text-sm text-muted-foreground">
           Checking the published SLNT roster for {selectedDate}…
         </div>
@@ -1076,6 +1091,8 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
+      {slntPoolMode && <SlntTeamPoolSummary selectedDate={selectedDate} staff={housekeepingStaff} />}
+
       <div className={`grid grid-cols-1 ${isSlntTenant ? "xl:grid-cols-2 gap-3" : "md:grid-cols-2 lg:grid-cols-3 gap-4"}`}>
         {[...housekeepingStaff].sort((a, b) => {
           const aCount = teamAssignments.find(t => t.staff_id === a.id)?.total_assigned || 0;
@@ -1168,7 +1185,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   >
                     {myChips.length === 0 && (
                       <span className="text-xs text-muted-foreground self-center">
-                        {isDropTarget ? `Drop to assign` : hasSelection ? `Tap to assign ${selectedUnits.length} selected` : `Tap ${terms.unitPlural.toLowerCase()} above, then tap here`}
+                        {slntPoolMode ? 'No rooms started yet' : isDropTarget ? `Drop to assign` : hasSelection ? `Tap to assign ${selectedUnits.length} selected` : `Tap ${terms.unitPlural.toLowerCase()} above, then tap here`}
                       </span>
                     )}
                     {myChips.map((a) => (
