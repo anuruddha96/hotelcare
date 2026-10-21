@@ -23,7 +23,7 @@ describe('SLNT housekeeper note visibility', () => {
     const notice = '[GREEN_BOARD_CLEAN_REQUEST] Green Clean My Room card seen at the door — cleaning requested.';
     expect(housekeeperVisibleAssignmentNote(notice, 'Hotel Memories Budapest')).toBe('');
     expect(housekeeperVisibleAssignmentNote(
-      notice + '\\nPlease leave a baby cot in the room.', 'Hotel Memories Budapest',
+      notice + '\nPlease leave a baby cot in the room.', 'Hotel Memories Budapest',
     )).toBe('Please leave a baby cot in the room.');
     expect(housekeeperVisibleAssignmentNote(notice, 'Hotel Ottofiori')).toBe(notice);
   });
@@ -31,7 +31,7 @@ describe('SLNT housekeeper note visibility', () => {
   it('hides Hotel Memories no-board system text but preserves a real note', () => {
     const notice = '[NO_BOARD_NO_CLEANING] Door checked — no green Clean My Room card / no cleaning request.';
     expect(housekeeperVisibleAssignmentNote(
-      notice + '\\nManager: Check extra bed.', 'memories-budapest',
+      notice + '\nManager: Check extra bed.', 'memories-budapest',
     )).toBe('Manager: Check extra bed.');
   });
 
