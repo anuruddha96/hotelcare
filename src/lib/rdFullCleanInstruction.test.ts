@@ -12,6 +12,23 @@ describe('RD Hotels full room clean instruction', () => {
     expect(getRdFullCleanInstruction({ ...base, linenChangeRequired: false, fullRoomCleaningRequired: true })?.message)
       .toContain('bed linen and all towels');
   });
+  it('does not let a Hotel Memories RC flag create an unapproved linen/towel change', () => {
+    const memories = { hotel: 'Hotel Memories Budapest', isCheckout: false, currentNight: 2 };
+    expect(getRdFullCleanInstruction({
+      ...memories, linenChangeRequired: false, fullRoomCleaningRequired: true,
+    })).toBeNull();
+    expect(getRdFullCleanInstruction({
+      ...memories, linenChangeRequired: false, fullRoomCleaningRequired: false,
+    })).toBeNull();
+    expect(getRdFullCleanInstruction({
+      ...memories, linenChangeRequired: true, fullRoomCleaningRequired: false,
+    })?.message).toContain('change the bed linen and all towels');
+    // RC remains unchanged for the other RD hotels.
+    expect(getRdFullCleanInstruction({
+      ...base, linenChangeRequired: false, fullRoomCleaningRequired: true,
+    })).not.toBeNull();
+  });
+
   it('does not convert towel-only or checkout cleans into full-clean instructions', () => {
     expect(getRdFullCleanInstruction({ ...base, linenChangeRequired: false })).toBeNull();
     expect(getRdFullCleanInstruction({ ...base, isCheckout: true })).toBeNull();
