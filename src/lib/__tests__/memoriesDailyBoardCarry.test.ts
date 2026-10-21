@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { getMemoriesDailyBoardCarry } from '@/lib/memoriesDailyBoardCarry';
+import { getMemoriesDailyBoardCarry, overlayMemoriesDailyCarryOnRooms } from '@/lib/memoriesDailyBoardCarry';
 
 const source = '2026-10-20';
 const today = '2026-10-21';
@@ -49,6 +49,31 @@ describe('HMB room-board carry before assignments', () => {
   it('does not invent tasks from No Service without proof', () => {
     expect(read({ cachedCarry: null })).toBeNull();
     expect(read({ cachedCarry: { ...verified, active: false } })).toBeNull();
+  });
+
+  it('adds T to the HMB Auto Assign preview without modifying input PMS flags', () => {
+    const room = {
+      id: 'r110', hotel: 'Hotel Memories Budapest', is_checkout_room: false,
+      towel_change_required: false, linen_change_required: false,
+      pms_metadata: { scheduledDepartureTomorrow: true, currentNight: 4, totalNights: 4, pmsSyncDate: today },
+    };
+    const output = overlayMemoriesDailyCarryOnRooms(
+      [room], [{ room_id: room.id, carry_forward: verified }], today, today,
+    );
+    expect(output[0].towel_change_required).toBe(true);
+    expect(output[0].linen_change_required).toBe(false);
+    expect(room.towel_change_required).toBe(false);
+  });
+
+  it('does not project a previous guest carry into a checkout room or another hotel', () => {
+    const rooms = [
+      { id: 'r207', hotel: 'Hotel Memories Budapest', is_checkout_room: true, towel_change_required: false },
+      { id: 'other', hotel: 'Hotel Mika Downtown', is_checkout_room: false, towel_change_required: false },
+    ];
+    const result = overlayMemoriesDailyCarryOnRooms(
+      rooms, rooms.map(room => ({ room_id: room.id, carry_forward: verified })), today, today,
+    );
+    expect(result.map(room => room.towel_change_required)).toEqual([false, false]);
   });
 
   it('uses original-due snapshot proof and is HMB only at the SQL level', () => {
