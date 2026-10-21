@@ -55,11 +55,13 @@ import { ManagerRecheckEvidence } from './ManagerRecheckEvidence';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { getMemoriesRoomBoardNote, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
 import { isGozsduNoMinibarRoom, isNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
 import {
   effectiveCarryServiceFlags,
   getCarryForwardHousekeeperCopy,
-  getHousekeepingCarryForward,
+  getActionableHousekeepingCarryForward,
   isPortfolioCarryForwardHotel,
 } from '@/lib/housekeepingCarryForward';
 
@@ -164,7 +166,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   // deep-cleaning assignments must never enter the DND retry/approval flow.
   const canUseDnd = !isCheckoutClean && assignment.assignment_type === 'daily_cleaning';
   const portfolioCarry = !isCheckoutClean && isPortfolioCarryForwardHotel(assignment.rooms?.hotel)
-    ? getHousekeepingCarryForward(assignment.previous_day_context)
+    ? getActionableHousekeepingCarryForward(assignment.previous_day_context, assignment)
     : null;
   const portfolioCarryCopy = portfolioCarry
     ? getCarryForwardHousekeeperCopy(portfolioCarry)
@@ -174,6 +176,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     linenChangeRequired: assignment.rooms?.linen_change_required,
     carryForward: portfolioCarry,
     isCheckout: isCheckoutClean,
+    forceTowelOnly: isHotelMemoriesBudapest(assignment.rooms?.hotel) && !!portfolioCarry
+      && isMemoriesFinalOccupiedNight(assignment.rooms?.pms_metadata, todayBudapest()),
   });
 
   // Checkout cleans already include full towel/linen service. For stayovers,
@@ -858,7 +862,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   // cleaning. Keep only manager-typed free text and the explicit
   // `Housekeeping:` section (which IS meant for the housekeeper).
   const managerVisibleNote = (() => {
-    const raw = (roomFlags.cleanNotes || '').trim();
+    // Use the exact same Hotel Memories provenance-based filter as the manager
+    // room popup. Otherwise a former guest's automatic bed-reset note leaks into
+    // housekeeper cards even though management cannot see it.
+    const raw = (isHotelMemoriesBudapest(assignment.rooms?.hotel)
+      ? getMemoriesRoomBoardNote(assignment.rooms?.notes, assignment.rooms?.pms_metadata)
+      : roomFlags.cleanNotes).trim();
     if (!raw) return '';
     const PMS_SECTION_RE = /(Recepce|Reception|Kuchyn[ěe]|Kitchen|Syst[ée]m|Poznámka)\s*:\s*/i;
     // If the note contains any PMS section labels, only keep the
