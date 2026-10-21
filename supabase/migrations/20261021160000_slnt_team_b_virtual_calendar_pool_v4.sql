@@ -176,6 +176,14 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.slnt_team_b_days_off d
     WHERE d.team_id=v_team AND d.user_id=auth.uid() AND d.work_date=p_service_date)
   THEN RAISE EXCEPTION 'Marked not working today'; END IF;
+  -- Respect the existing active-break/checked-out restrictions while allowing
+  -- SLNT to operate without a published shift or synthetic attendance entry.
+  IF EXISTS (
+    SELECT 1 FROM public.staff_attendance att
+    WHERE att.user_id=auth.uid() AND att.work_date=p_service_date
+      AND (att.status IN ('on_break','checked_out')
+         OR (att.check_out_time IS NOT NULL AND att.check_in_time IS NOT NULL))
+  ) THEN RAISE EXCEPTION 'Finish your break or contact your manager before starting another room'; END IF;
   SELECT r.* INTO v_room FROM public.rooms r
   JOIN public.housekeeping_team_rooms tr ON tr.room_id=r.id AND tr.team_id=v_team AND tr.is_active
   WHERE r.id=p_room_id AND r.organization_slug IN ('slnt','slnt-group') FOR UPDATE OF r;
@@ -237,3 +245,26 @@ BEGIN
 END $fn$;
 REVOKE ALL ON FUNCTION public.slnt_team_b_start_room_v4(uuid,date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.slnt_team_b_start_room_v4(uuid,date) TO authenticated;
+
+-- Older manager tools can still manually create room assignments. Do not
+-- bypass an explicit SLNT Team B absence via those legacy assignment paths.
+CREATE OR REPLACE FUNCTION public.slnt_team_b_guard_absent_assignment_v4()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn$
+BEGIN
+  IF NEW.organization_slug NOT IN ('slnt','slnt-group') OR NEW.assigned_to IS NULL
+     OR NOT public.slnt_simple_housekeeping_enabled('slnt') THEN RETURN NEW; END IF;
+  IF EXISTS (
+    SELECT 1 FROM public.housekeeping_team_rooms tr
+    JOIN public.housekeeping_teams t ON t.id=tr.team_id
+      AND t.organization_slug='slnt' AND t.code='team-b' AND t.is_active
+    JOIN public.slnt_team_b_days_off d ON d.team_id=t.id AND d.user_id=NEW.assigned_to
+      AND d.work_date=NEW.assignment_date
+    WHERE tr.room_id=NEW.room_id AND tr.is_active
+  ) THEN RAISE EXCEPTION 'Cannot assign Team B room to an absent housekeeper'; END IF;
+  RETURN NEW;
+END $fn$;
+DROP TRIGGER IF EXISTS slnt_team_b_guard_absent_assignment_v4 ON public.room_assignments;
+CREATE TRIGGER slnt_team_b_guard_absent_assignment_v4
+  BEFORE INSERT OR UPDATE OF assigned_to,room_id,assignment_date
+  ON public.room_assignments FOR EACH ROW
+  EXECUTE FUNCTION public.slnt_team_b_guard_absent_assignment_v4();
