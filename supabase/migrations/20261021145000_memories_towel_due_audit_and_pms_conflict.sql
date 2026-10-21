@@ -80,11 +80,8 @@ BEGIN
      AND coalesce(v_meta ->> 'scheduledDepartureToday','false') <> 'true'
      AND coalesce(v_meta ->> 'isNoShow','false') <> 'true'
      AND coalesce(v_meta ->> 'isCancelled','false') <> 'true'
-     AND coalesce(v_meta ->> 'occupiedToday','false') = 'true'
-     -- Previo sometimes leaves notArrived=true and arrivalToday=true on a
-     -- continuing stay (e.g. HMB room 205, 3/3). Never suppress an already
-     -- occupied second-or-later night on that contradictory flag alone.
-     -- No-show, cancellation and today's checkout remain hard exclusions.
+     -- Some continuing stays have stale notArrived=true in otherwise occupied
+     -- Previo records. Use a confirmed multi-night in-house context only.
      AND (
        coalesce(v_meta ->> 'notArrived','false') <> 'true'
        OR (
@@ -101,6 +98,7 @@ BEGIN
          AND (v_meta ->> 'departureDate') > v_today
        )
      )
+     AND coalesce(v_meta ->> 'occupiedToday','false') = 'true'
   THEN
     v_towel := v_night >= (v_policy ->> 'towel_first_night')::integer
       AND (v_night - (v_policy ->> 'towel_first_night')::integer)
@@ -134,80 +132,6 @@ BEGIN
   RETURN NEW;
 END;
 $fn$;
-
-         AND (v_meta ->> 'arrivalDate') < v_today
-         AND coalesce(v_meta ->> 'departureDate','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
-  THEN
-    v_towel := v_night >= (v_policy ->> 'towel_first_night')::integer
-      AND (v_night - (v_policy ->> 'towel_first_night')::integer)
-        % (v_policy ->> 'towel_repeat_nights')::integer = 0;
-    v_change := v_night >= (v_policy ->> 'change_first_night')::integer
-      AND (v_night - (v_policy ->> 'change_first_night')::integer)
-        % (v_policy ->> 'change_repeat_nights')::integer = 0;
-    -- A full Change Room includes towel service; show only the larger task.
-    IF v_change THEN v_towel := false; END IF;
-    v_last_night := v_night = v_total
-      AND coalesce(v_meta ->> 'scheduledDepartureTomorrow','false') = 'true';
-    IF v_change AND v_last_night
-       AND coalesce(v_policy ->> 'final_night_towel_only','false') = 'true'
-    THEN v_change := false; v_towel := true; END IF;
-  END IF;
-
-  -- Explicit dated room requests, if present, supersede a calculated cycle.
-  -- Otherwise a new Budapest business day discards yesterday's mutable flags.
-  IF v_meta ->> 'memoriesServiceManualOverrideDate' = v_today THEN RETURN NEW; END IF;
-  IF NEW.towel_change_required IS DISTINCT FROM v_towel
-     OR NEW.linen_change_required IS DISTINCT FROM v_change THEN
-    INSERT INTO public.pms_change_events(hotel_id,room_id,room_label,event_type,source,before,after,category)
-    VALUES ('memories-budapest', NEW.id, NEW.room_number,
-      'housekeeping_service_cycle_reconciled','automatic_service_cycle',
-      jsonb_build_object('towel', NEW.towel_change_required, 'change_room', NEW.linen_change_required),
-      jsonb_build_object('towel', v_towel, 'change_room', v_change, 'night', v_night,
-                         'total_nights', v_total, 'business_date', v_today), 'housekeeping');
-  END IF;
-  NEW.towel_change_required := v_towel;
-  NEW.linen_change_required := v_change;
-  RETURN NEW;
-END;
-$fn$;
-
-         AND (v_meta ->> 'departureDate') > v_today
-       )
-     )
-  THEN
-    v_towel := v_night >= (v_policy ->> 'towel_first_night')::integer
-      AND (v_night - (v_policy ->> 'towel_first_night')::integer)
-        % (v_policy ->> 'towel_repeat_nights')::integer = 0;
-    v_change := v_night >= (v_policy ->> 'change_first_night')::integer
-      AND (v_night - (v_policy ->> 'change_first_night')::integer)
-        % (v_policy ->> 'change_repeat_nights')::integer = 0;
-    -- A full Change Room includes towel service; show only the larger task.
-    IF v_change THEN v_towel := false; END IF;
-    v_last_night := v_night = v_total
-      AND coalesce(v_meta ->> 'scheduledDepartureTomorrow','false') = 'true';
-    IF v_change AND v_last_night
-       AND coalesce(v_policy ->> 'final_night_towel_only','false') = 'true'
-    THEN v_change := false; v_towel := true; END IF;
-  END IF;
-
-  -- Explicit dated room requests, if present, supersede a calculated cycle.
-  -- Otherwise a new Budapest business day discards yesterday's mutable flags.
-  IF v_meta ->> 'memoriesServiceManualOverrideDate' = v_today THEN RETURN NEW; END IF;
-  IF NEW.towel_change_required IS DISTINCT FROM v_towel
-     OR NEW.linen_change_required IS DISTINCT FROM v_change THEN
-    INSERT INTO public.pms_change_events(hotel_id,room_id,room_label,event_type,source,before,after,category)
-    VALUES ('memories-budapest', NEW.id, NEW.room_number,
-      'housekeeping_service_cycle_reconciled','automatic_service_cycle',
-      jsonb_build_object('towel', NEW.towel_change_required, 'change_room', NEW.linen_change_required),
-      jsonb_build_object('towel', v_towel, 'change_room', v_change, 'night', v_night,
-                         'total_nights', v_total, 'business_date', v_today), 'housekeeping');
-  END IF;
-  NEW.towel_change_required := v_towel;
-  NEW.linen_change_required := v_change;
-  RETURN NEW;
-END;
-$fn$;
-
 
 -- Provenance is separate from a live room flag and from service completion.
 -- Once today's due service was observed, a later PMS update may not erase the
