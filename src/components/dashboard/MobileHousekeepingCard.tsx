@@ -13,6 +13,14 @@ import { ManagerRecheckEvidence } from './ManagerRecheckEvidence';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { getMemoriesRoomBoardNote, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
+import { todayBudapest } from '@/lib/budapestTime';
+import {
+  effectiveCarryServiceFlags,
+  getActionableHousekeepingCarryForward,
+  isPortfolioCarryForwardHotel,
+} from '@/lib/housekeepingCarryForward';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
@@ -65,20 +73,38 @@ export function MobileHousekeepingCard({
 
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
-  const hasManagerNotes = !!roomFlags.cleanNotes;
+  const managerVisibleNote = isHotelMemoriesBudapest(assignment.rooms?.hotel)
+    ? getMemoriesRoomBoardNote(assignment.rooms?.notes, assignment.rooms?.pms_metadata)
+    : roomFlags.cleanNotes;
+  const hasManagerNotes = !!managerVisibleNote;
   const slntPrevioNote = assignment.rooms?.hotel === 'slnt-group'
     ? String(assignment.rooms?.pms_metadata?.slntPrevioHousekeepingNote || '').trim()
     : '';
-  const pmsOwnsVisibleNote = !!slntPrevioNote && slntPrevioNote === roomFlags.cleanNotes;
+  const pmsOwnsVisibleNote = !!slntPrevioNote && slntPrevioNote === managerVisibleNote;
   const hasSeparatePrevioNote = !!slntPrevioNote && !pmsOwnsVisibleNote;
 
   // Check for special instructions
   // Checkout cleans always include a full towel change — never show the
   // separate "Towel Change" instruction for them.
-  const isCheckoutClean = assignment.assignment_type === 'checkout_cleaning' || assignment.rooms?.is_checkout_room === true;
-  const towelChangeRequired = assignment.rooms?.towel_change_required && !isCheckoutClean;
-  // Checkout cleans always include full linen — don't repeat it as an instruction.
-  const linenChangeRequired = assignment.rooms?.linen_change_required && !isCheckoutClean;
+  const pmsMeta = assignment.rooms?.pms_metadata;
+  const freshPms = pmsMeta?.pmsSyncDate === todayBudapest();
+  const pmsCheckout = assignment.rooms?.is_checkout_room === true || pmsMeta?.scheduledDepartureToday === true;
+  const isCheckoutClean = freshPms ? pmsCheckout : assignment.assignment_type === 'checkout_cleaning' || pmsCheckout;
+  // Use the same T/C source as the manager and the full-size housekeeper card.
+  // Completed carry-forward tasks must never reappear as new instructions.
+  const carryForward = !isCheckoutClean && isPortfolioCarryForwardHotel(assignment.rooms?.hotel)
+    ? getActionableHousekeepingCarryForward(assignment.previous_day_context, assignment)
+    : null;
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: assignment.rooms?.towel_change_required,
+    linenChangeRequired: assignment.rooms?.linen_change_required,
+    carryForward,
+    isCheckout: isCheckoutClean,
+    forceTowelOnly: isHotelMemoriesBudapest(assignment.rooms?.hotel) && !!carryForward
+      && isMemoriesFinalOccupiedNight(pmsMeta, todayBudapest()),
+  });
+  const towelChangeRequired = effectiveService.towelChangeRequired;
+  const linenChangeRequired = effectiveService.linenChangeRequired;
   const bedConfiguration = displayHousekeepingBedSetup(assignment.rooms?.bed_configuration, assignment.rooms?.hotel);
   const assignmentNotes = housekeeperVisibleAssignmentNote(assignment.notes, assignment.rooms?.hotel);
   const guestNights = assignment.rooms?.guest_nights_stayed;
@@ -231,12 +257,12 @@ export function MobileHousekeepingCard({
                       {pmsOwnsVisibleNote ? 'Previo housekeeping note' : (t('roomCard.managerNotes') || 'Manager Notes')}
                     </p>
                     <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
-                      {translatedManagerNote || roomFlags.cleanNotes}
+                      {translatedManagerNote || managerVisibleNote}
                     </p>
                     {!translatedManagerNote && (
                       <button
                         className="mt-1.5 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
-                        onClick={() => handleTranslateNote(roomFlags.cleanNotes, setTranslatedManagerNote)}
+                        onClick={() => handleTranslateNote(managerVisibleNote, setTranslatedManagerNote)}
                         disabled={translating}
                       >
                         {translating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}

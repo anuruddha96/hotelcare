@@ -4,6 +4,8 @@
  * have been completed, not five. This is housekeeper-facing display copy,
  * never a guest-facing message or a persisted task note.
  */
+import { isHotelMemoriesBudapest } from './hotel-memories-housekeeping';
+
 const RD_HOTELS = new Set([
   'ottofiori', 'hotel ottofiori',
   'mika-downtown', 'hotel mika downtown', 'mika downtown',
@@ -30,8 +32,12 @@ export interface RdFullCleanInstruction {
 }
 
 export function getRdFullCleanInstruction(input: RdFullCleanInput): RdFullCleanInstruction | null {
-  if (!isRdHousekeepingHotel(input.hotel) || input.isCheckout ||
-      (!input.linenChangeRequired && !input.fullRoomCleaningRequired)) return null;
+  // At Hotel Memories, RC is an ordinary cleaning flag, not an instruction
+  // to replace bed linen and towels. Only an approved C service may do that.
+  // Other RD properties retain their existing RC semantics.
+  const requiresTextileChange = !!input.linenChangeRequired
+    || (!isHotelMemoriesBudapest(input.hotel) && !!input.fullRoomCleaningRequired);
+  if (!isRdHousekeepingHotel(input.hotel) || input.isCheckout || !requiresTextileChange) return null;
 
   const value = Number(input.currentNight);
   const currentNight = Number.isInteger(value) && value > 0 ? value : null;
