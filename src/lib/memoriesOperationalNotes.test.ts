@@ -52,7 +52,7 @@ describe('HMB room-board note indicator matches popup', () => {
   });
 
   it('preserves precise manager notes beside an automated instruction', () => {
-    expect(getMemoriesRoomBoardNote('Single Beds\\n' + generated, meta)).toBe('Single Beds');
+    expect(getMemoriesRoomBoardNote('Single Beds\n' + generated, meta)).toBe('Single Beds');
   });
 
   it('keeps real bed and guest instructions', () => {
@@ -61,7 +61,7 @@ describe('HMB room-board note indicator matches popup', () => {
   });
 
   it('does not mistake an operational service marker for a manually entered note', () => {
-    expect(getMemoriesRoomBoardNote('[ROOM_CLEANING]\\n' + generated, meta)).toBe('');
+    expect(getMemoriesRoomBoardNote('[ROOM_CLEANING]\n' + generated, meta)).toBe('');
     expect(getMemoriesRoomBoardNote('[COLLECT_EXTRA_TOWELS]', {})).toBe('');
   });
 
