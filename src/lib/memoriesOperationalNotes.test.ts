@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanMemoriesOperationalNotes, isMemoriesFinalOccupiedNight } from './memoriesOperationalNotes';
+import { cleanMemoriesOperationalNotes, getMemoriesRoomBoardNote, isMemoriesFinalOccupiedNight } from './memoriesOperationalNotes';
 
 describe('HMB operational note provenance', () => {
   const auto = 'Previous guest bed setup: Twin Beds Together — reset to standard room setup.';
@@ -40,5 +40,32 @@ describe('HMB final occupied night', () => {
   it('uses verified fresh 6/6 metadata if departure date is absent', () => {
     expect(isMemoriesFinalOccupiedNight({ pmsSyncDate: '2026-10-20', currentNight: 6, totalNights: 6 }, '2026-10-20')).toBe(true);
     expect(isMemoriesFinalOccupiedNight({ pmsSyncDate: '2026-10-19', currentNight: 6, totalNights: 6 }, '2026-10-20')).toBe(false);
+  });
+});
+
+describe('HMB room-board note indicator matches popup', () => {
+  const generated = 'Previous guest bed setup: Twin Beds Together — reset to standard room setup.';
+  const meta = { previousGuestBedSetup: { note: generated } };
+
+  it('hides generated-only notes, so the room icon does not imply a visible note', () => {
+    expect(getMemoriesRoomBoardNote(generated, meta)).toBe('');
+  });
+
+  it('preserves precise manager notes beside an automated instruction', () => {
+    expect(getMemoriesRoomBoardNote('Single Beds\n' + generated, meta)).toBe('Single Beds');
+  });
+
+  it('keeps real bed and guest instructions', () => {
+    expect(getMemoriesRoomBoardNote('baby bed', {})).toBe('baby bed');
+    expect(getMemoriesRoomBoardNote('Baby Cot', {})).toBe('Baby Cot');
+  });
+
+  it('does not mistake an operational service marker for a manually entered note', () => {
+    expect(getMemoriesRoomBoardNote('[ROOM_CLEANING]\n' + generated, meta)).toBe('');
+    expect(getMemoriesRoomBoardNote('[COLLECT_EXTRA_TOWELS]', {})).toBe('');
+  });
+
+  it('does not strip notes when provenance is absent', () => {
+    expect(getMemoriesRoomBoardNote(generated, null)).toBe(generated);
   });
 });
