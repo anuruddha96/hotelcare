@@ -119,6 +119,13 @@ BEGIN
          due.linen_change_required,due.pms_metadata,due.assignment_id,
          due.assigned_to,due.assignment_status,due.supervisor_approved,false
   FROM due
+  JOIN public.rooms room_scope ON room_scope.id=due.room_id
+  WHERE (
+    (NOT coalesce(room_scope.is_dnd,false)
+       AND coalesce(room_scope.notes,'') NOT ILIKE '%[NO_SERVICE]%'
+       AND coalesce(room_scope.notes,'') NOT ILIKE '%[DND]%')
+    OR due.assignment_id IS NOT NULL
+  )
   UNION ALL
   SELECT r.id,r.room_number,r.status,r.room_name,r.notes,r.guest_count,
          false,coalesce(r.towel_change_required,false),coalesce(r.linen_change_required,false),
