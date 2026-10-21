@@ -89,6 +89,7 @@ interface AssignedRoomCardProps {
     supervisor_approved_at?: string | null;
     ready_to_clean?: boolean;
     previous_day_context?: any;
+    service_result?: string | null;
     rooms: {
       room_number: string;
       hotel: string;
