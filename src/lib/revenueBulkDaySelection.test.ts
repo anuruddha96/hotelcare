@@ -34,15 +34,15 @@ describe("Bulk revenue editor day presets", () => {
 
   it("targets exactly the selected weekdays in April 2027", () => {
     const april = Array.from({ length: 30 }, (_, i) => new Date(Date.UTC(2027, 3, i + 1)));
-    const selected = (org: string, days: Set<number>) =>
+    const selected = (days: Set<number>) =>
       april.filter((d) => days.has(d.getUTCDay())).map((d) => d.toISOString().slice(0, 10));
-    expect(selected("rdhotels", revenueDaysForPreset("rdhotels", "weekends"))).toEqual([
+    expect(selected(revenueDaysForPreset("rdhotels", "weekends"))).toEqual([
       "2027-04-02", "2027-04-03", "2027-04-09", "2027-04-10",
       "2027-04-16", "2027-04-17", "2027-04-23", "2027-04-24", "2027-04-30",
     ]);
     const rdPlusSunday = revenueDaysForPreset("rdhotels", "weekends");
     rdPlusSunday.add(0);
-    expect(selected("rdhotels", rdPlusSunday)).toHaveLength(13);
-    expect(selected("slnt", revenueDaysForPreset("slnt", "weekends"))).toHaveLength(8);
+    expect(selected(rdPlusSunday)).toHaveLength(13);
+    expect(selected(revenueDaysForPreset("slnt", "weekends"))).toHaveLength(8);
   });
 });
