@@ -228,6 +228,7 @@ export function AutoRoomAssignment({
   const [step, setStep] = useState<Step>('select-staff');
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [tomorrowApprovalError, setTomorrowApprovalError] = useState<string | null>(null);
   const [allStaff, setAllStaff] = useState<StaffForAssignment[]>([]);
   const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(new Set());
   const [checkedInStaff, setCheckedInStaff] = useState<Set<string>>(new Set());
@@ -265,6 +266,10 @@ export function AutoRoomAssignment({
   const [nextDayPlan, setNextDayPlan] = useState<NextDayPlan | null>(null);
   const [nextDayPmsSyncedAt, setNextDayPmsSyncedAt] = useState<string | null>(pmsSyncedAt);
   const [autoRelease, setAutoRelease] = useState(true);
+
+  useEffect(() => {
+    if (open) setTomorrowApprovalError(null);
+  }, [open, selectedDate]);
   const [sharedByRoom, setSharedByRoom] = useState<Map<string, string>>(new Map());
   const [suggestedByRoom, setSuggestedByRoom] = useState<Map<string, string>>(new Map());
   const [staffDefaultSource, setStaffDefaultSource] = useState<AutoAssignStaffDefaultSource>('attendance_fallback');
@@ -1626,9 +1631,12 @@ export function AutoRoomAssignment({
   const handleAssignPublicAreas = async () => {
     if (isNextDayPlanning) {
       if (!user || !profile?.organization_slug || !profile.assigned_hotel || !nextDayPmsSyncedAt) {
-        toast.error('Tomorrow PMS data is missing. Close and reopen Auto Assign to refresh it.');
+        const message = 'Tomorrow PMS data is missing. Close and reopen Auto Assign to refresh it.';
+        setTomorrowApprovalError(message);
+        toast.error(message);
         return;
       }
+      setTomorrowApprovalError(null);
       setSubmitting(true);
       try {
         const scheduleByUser = publishedScheduleByStaff;
@@ -1671,7 +1679,9 @@ export function AutoRoomAssignment({
         onOpenChange(false);
       } catch (error) {
         console.error('[AutoRoomAssignment] tomorrow plan save failed:', error);
-        toast.error(error instanceof Error ? error.message : 'Could not approve tomorrow’s plan.');
+        const message = error instanceof Error ? error.message : 'Could not approve tomorrow’s plan.';
+        setTomorrowApprovalError(message);
+        toast.error(message);
       } finally {
         setSubmitting(false);
       }
@@ -2252,6 +2262,17 @@ export function AutoRoomAssignment({
             ) : (
               <div className="space-y-4">
                 <div className="text-center"><Check className="mx-auto mb-2 h-12 w-12 text-green-600" /><h3 className="text-lg font-semibold">{isNextDayPlanning ? nt('reviewPublicAreas') : t('autoAssign.roomsAssignedSuccess')}</h3><p className="text-sm text-muted-foreground">{isNextDayPlanning ? 'Mapped section tasks are included in the same 08:00 plan. Add any extra one-off public areas, then approve the complete plan.' : 'Mapped section tasks are already assigned. Add only any extra one-off public areas needed today.'}</p></div>
+                {isNextDayPlanning && submitting && (
+                  <div role="status" className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
+                    Checking tomorrow's Previo reservations and staff permissions before approval.
+                  </div>
+                )}
+                {isNextDayPlanning && tomorrowApprovalError && (
+                  <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div><strong>Tomorrow's plan was not approved.</strong><p className="mt-1 break-words">{tomorrowApprovalError}</p><p className="mt-1 text-xs">The preview is preserved. If Previo data changed, go back and regenerate it before trying again.</p></div>
+                  </div>
+                )}
                 <div className="space-y-2">
                   {PUBLIC_AREAS.map(area => <div key={area.key} className="flex items-center gap-3 rounded-lg border p-3"><span className="text-lg">{area.icon}</span><span className="min-w-0 flex-1 text-sm font-medium">{area.name}</span><Select value={publicAreaAssignments.get(area.key) || ''} onValueChange={value => setPublicAreaAssignments(previous => { const next = new Map(previous); if (value === 'none') next.delete(area.key); else next.set(area.key, value); return next; })}><SelectTrigger className="w-[160px]"><SelectValue placeholder={t('autoAssign.notAssigned')} /></SelectTrigger><SelectContent><SelectItem value="none">{t('autoAssign.notAssigned')}</SelectItem>{allStaff.filter(staff => cleaningStaffIds.has(staff.id)).map(staff => <SelectItem key={staff.id} value={staff.id}>{staff.full_name}</SelectItem>)}</SelectContent></Select></div>)}
                 </div>
@@ -2283,7 +2304,7 @@ export function AutoRoomAssignment({
               <Button onClick={handleProceedToConfirm} disabled={!!loadError || (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner))} className={isGozsdu ? 'col-span-2 sm:w-auto' : undefined}>{editingExistingAssignments ? nt('reviewChanges') : t('autoAssign.proceedToConfirm')}<ArrowRight className="ml-2 h-4 w-4" /></Button>
             </>}
             {step === 'confirm' && <><Button variant="outline" onClick={() => setStep('preview')}>{t('autoAssign.back')}</Button><Button variant="outline" onClick={handlePrintAssignments}><Printer className="mr-2 h-4 w-4" />{t('autoAssign.print')}</Button><Button onClick={handleConfirmAssignment} disabled={!!loadError || submitting || (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner))}>{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('autoAssign.assigning')}</> : <><Check className="mr-2 h-4 w-4" />{isNextDayPlanning ? nt('continuePublicAreas') : editingExistingAssignments ? 'Save Changes' : t('autoAssign.confirmAndAssign')}</>}</Button></>}
-            {step === 'public-areas' && <><Button variant="outline" onClick={() => isNextDayPlanning ? setStep('confirm') : onOpenChange(false)}>{isNextDayPlanning ? t('autoAssign.back') : t('autoAssign.skipAndClose')}</Button><Button onClick={handleAssignPublicAreas} disabled={submitting || (!isNextDayPlanning && publicAreaAssignments.size === 0)}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MapPin className="mr-2 h-4 w-4" />}{isNextDayPlanning ? `${nt('approvePlan')} (${sectionTasks.length + publicAreaAssignments.size})` : `${t('autoAssign.assignAreas')} (${publicAreaAssignments.size})`}</Button></>}
+            {step === 'public-areas' && <><Button variant="outline" onClick={() => isNextDayPlanning ? setStep('confirm') : onOpenChange(false)}>{isNextDayPlanning ? t('autoAssign.back') : t('autoAssign.skipAndClose')}</Button><Button onClick={handleAssignPublicAreas} disabled={submitting || (!isNextDayPlanning && publicAreaAssignments.size === 0)}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MapPin className="mr-2 h-4 w-4" />}{isNextDayPlanning ? (tomorrowApprovalError ? `Retry approval (${sectionTasks.length + publicAreaAssignments.size})` : `${nt('approvePlan')} (${sectionTasks.length + publicAreaAssignments.size})`) : `${t('autoAssign.assignAreas')} (${publicAreaAssignments.size})`}</Button></>}
           </DialogFooter>
         </DialogContent>
       </Dialog>
