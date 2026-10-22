@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { isReusableTomorrowReservationBatch } from '@/lib/nextDayPmsGateCoverage';
 import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
   buildSelectedDateHousekeepingWorkload,
@@ -151,7 +152,7 @@ async function findReusableTomorrowSnapshot(args: {
     const [snapshotResult, roomCountResult] = await Promise.all([
       (supabase as any)
         .from('daily_overview_snapshots')
-        .select('captured_at')
+        .select('room_label,room_number,captured_at')
         .eq('organization_slug', args.organizationSlug)
         .eq('hotel_id', args.hotelId)
         .eq('business_date', args.selectedDate)
@@ -159,31 +160,26 @@ async function findReusableTomorrowSnapshot(args: {
       supabase
         .from('rooms')
         .select('id', { count: 'exact', head: true })
+        .eq('organization_slug', args.organizationSlug)
         .in('hotel', hotelKeys),
     ]);
 
     if (snapshotResult.error || roomCountResult.error) return null;
 
-    const snapshotRows = (snapshotResult.data || []) as Array<{ captured_at: string | null }>;
-    const capturedTimes = snapshotRows
-      .map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN)
-      .filter(value => Number.isFinite(value));
+    const snapshotRows = (snapshotResult.data || []) as Array<{
+      room_label: string | null;
+      room_number: string | null;
+      captured_at: string | null;
+    }>;
     const roomCount = Number(roomCountResult.count || 0);
-
-    if (capturedTimes.length === 0 || roomCount <= 0 || snapshotRows.length < roomCount) return null;
-
-    const now = Date.now();
-    const oldestCapturedAt = Math.min(...capturedTimes);
-    const newestCapturedAt = Math.max(...capturedTimes);
-    const completeSnapshotIsRecent =
-      now - oldestCapturedAt >= 0
-      && now - oldestCapturedAt <= RECENT_TOMORROW_PMS_SNAPSHOT_MS
-      && newestCapturedAt <= now + 60_000;
-
-    if (!completeSnapshotIsRecent) return null;
+    if (!isReusableTomorrowReservationBatch({
+      roomCount,
+      rows: snapshotRows,
+      freshnessMs: RECENT_TOMORROW_PMS_SNAPSHOT_MS,
+    })) return null;
 
     return {
-      capturedAt: new Date(newestCapturedAt).toISOString(),
+      capturedAt: new Date(Math.max(...snapshotRows.map(row => Date.parse(row.captured_at!)))).toISOString(),
       rowCount: snapshotRows.length,
       roomCount,
     };
