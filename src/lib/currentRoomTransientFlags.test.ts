@@ -72,3 +72,28 @@ describe('daily transient housekeeping flags', () => {
     expect(isNoShowForBusinessDate(room, '2026-09-23')).toBe(true);
   });
 });
+
+describe('Mika Downtown inferred no-show display guard', () => {
+  const suspected = {
+    pms_metadata: {
+      isNoShow: true,
+      noShowSource: 'inferred_never_checked_in',
+      reservationStatusId: 2,
+      pmsSyncDate: '2026-10-22',
+    },
+  };
+  it('keeps a wrongly inferred SUITE 1/3 in Daily at Mika only', () => {
+    expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'Hotel Mika Downtown')).toBe(false);
+    expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'mika-downtown')).toBe(false);
+    expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'Hotel Memories Budapest')).toBe(true);
+  });
+  it('preserves explicit Previo no-shows and manager decisions', () => {
+    expect(isNoShowForBusinessDate({
+      pms_metadata: { ...suspected.pms_metadata, noShowSource: 'previo_status_8', reservationStatusId: 8 },
+    }, '2026-10-22', 'Hotel Mika Downtown')).toBe(true);
+    expect(isNoShowForBusinessDate({
+      pms_metadata: { ...suspected.pms_metadata, manual_no_show: true,
+        manual_no_show_at: '2026-10-22T09:15:00+02:00' },
+    }, '2026-10-22', 'Hotel Mika Downtown')).toBe(true);
+  });
+});

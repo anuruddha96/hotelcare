@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyPmsHousekeepingRow } from "./pmsClassification";
-import { propertyReliablyTracksPrevioCheckIns, isStaleUnarrivedPrevioReservation } from "../../supabase/functions/_shared/previoNoShowInference";
+import { propertyReliablyTracksPrevioCheckIns, isStaleUnarrivedPrevioReservation, isMikaDowntownProperty, normalizeMikaInferredNoShowRow } from "../../supabase/functions/_shared/previoNoShowInference";
 
 describe("PMS housekeeping classification", () => {
   const row = (Room: string, Departure: string | null, nightTotal: string | null) => ({
@@ -244,5 +244,39 @@ describe("Previo property check-in evidence", () => {
     expect(isStaleUnarrivedPrevioReservation({
       ...input, arrivalDate: "2026-10-14", businessDate: "2026-10-16",
     })).toBe(true);
+  });
+});
+
+describe("Mika Downtown no-show safeguard", () => {
+  const staleMikaRow = {
+    Room: "SUITE - 1/3", Occupied: "No", ArrivalDate: "2026-10-21",
+    DepartureDate: "2026-10-23", RawReservationStatusId: 2,
+    IsNoShow: true, NoShowSource: "inferred_never_checked_in",
+    NotArrived: false, People: 0, "Night / Total": "2/2",
+  };
+
+  it("recognizes Mika's slug and display-name variants", () => {
+    expect(isMikaDowntownProperty("mika-downtown")).toBe(true);
+    expect(isMikaDowntownProperty("Hotel Mika Downtown")).toBe(true);
+    expect(isMikaDowntownProperty("hotel-mika-downtown")).toBe(true);
+    expect(isMikaDowntownProperty("memories-budapest")).toBe(false);
+  });
+
+  it("recovers Mika SUITE 1/3 as an occupied daily room while retaining nights/guests", () => {
+    const row = normalizeMikaInferredNoShowRow(staleMikaRow, "2026-10-22", 3);
+    const flags = classifyPmsHousekeepingRow(row, "2026-10-22");
+    expect(row.Occupied).toBe("Yes");
+    expect(row.People).toBe(3);
+    expect(flags.isNoShow).toBe(false);
+    expect(flags.isDailyRoom).toBe(true);
+    expect(flags.isCheckoutRoom).toBe(false);
+    expect(flags.isDepartureTomorrow).toBe(true);
+  });
+
+  it("does not rewrite an explicit Previo status-8 or manually recorded no-show", () => {
+    const explicit = { ...staleMikaRow, RawReservationStatusId: 8 };
+    expect(normalizeMikaInferredNoShowRow(explicit, "2026-10-22")).toBe(explicit);
+    const manual = { ...staleMikaRow, NoShowSource: "manager_manual" };
+    expect(normalizeMikaInferredNoShowRow(manual, "2026-10-22")).toBe(manual);
   });
 });

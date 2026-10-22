@@ -1,3 +1,5 @@
+import { isMikaDowntownProperty } from '../../supabase/functions/_shared/previoNoShowInference';
+
 export interface DailyTransientRoomFlagsInput {
   is_dnd?: boolean | null;
   dnd_marked_at?: string | null;
@@ -54,9 +56,16 @@ export function isDndForBusinessDate(
 export function isNoShowForBusinessDate(
   room: DailyTransientRoomFlagsInput,
   businessDate: string,
+  hotelName?: string | null,
 ): boolean {
   const meta = room.pms_metadata || {};
   if (meta.isNoShow !== true) return false;
+  // Discard legacy inferred Mika flags immediately on the live room board.
+  // An explicit manager no-show or Previo status 8 remains authoritative.
+  if (isMikaDowntownProperty(hotelName)
+    && meta.noShowSource === 'inferred_never_checked_in'
+    && meta.manual_no_show !== true
+    && Number(meta.reservationStatusId) !== 8) return false;
 
   if (meta.manual_no_show === true) {
     return budapestDateOf(meta.manual_no_show_at) === businessDate;

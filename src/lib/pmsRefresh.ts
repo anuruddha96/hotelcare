@@ -10,6 +10,7 @@ import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
 import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "@/lib/previoHousekeepingNote";
 import { normalizeUnitName, isTechnicalRow, buildUnitResolver, isSlntInactiveOperationalUnit, isSlntWorkbookActiveUnit } from "@/lib/slntUnitMapping";
+import { isMikaDowntownProperty, normalizeMikaInferredNoShowRow } from "../../supabase/functions/_shared/previoNoShowInference";
 import { reconcileContinuousStay } from "@/lib/stayContinuity";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
@@ -509,7 +510,8 @@ export async function runPmsRefresh(
 
 
 
-  for (const row of rows) {
+  for (const incomingRow of rows) {
+    let row = incomingRow;
     try {
       const rawRoomName = String(row.Room ?? "").trim();
       if (!rawRoomName) continue;
@@ -605,6 +607,11 @@ export async function runPmsRefresh(
       }
 
 
+      // A stale edge deployment can still send inferred Mika no-shows.
+      // Recover current stayovers until the corrected edge sync is deployed.
+      if (isMikaDowntownProperty(...hotelKeys)) {
+        row = normalizeMikaInferredNoShowRow(row, today, room.guest_count);
+      }
       const classification = classifyPmsHousekeepingRow(row, today);
       const departureParsed = classification.departureTime;
       const isScheduledDeparture = classification.isScheduledDeparture;
