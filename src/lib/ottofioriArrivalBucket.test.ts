@@ -37,7 +37,7 @@ describe('PMS arrival bucket uses the actual business date', () => {
     }
   });
 
-  it('does not use old PMS data to classify today's arrivals', () => {
+  it("does not use old PMS data to classify today's arrivals", () => {
     expect(isPmsArrivalForDate({
       pmsSyncDate: '2026-10-21', arrivalDate: today, arrivalToday: true,
     }, today)).toBe(false);
