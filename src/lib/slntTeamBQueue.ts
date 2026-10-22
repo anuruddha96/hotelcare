@@ -34,7 +34,8 @@ export const SLNT_TEAM_B_DISPLAY_ORDER: readonly SlntTeamBDisplayGroup[] =
 
 export function slntTeamBDisplayGroup(room: SlntTeamBCardRoom, today: string): SlntTeamBDisplayGroup {
   if (room.is_checkout_room) return isSlntRtcReady(room, today) ? 'rtc' : 'waiting';
-  if (room.is_optional) return 'optional';
+  // Never style a due towel/linen service as optional if flags disagree.
   if (room.towel_change_required || room.linen_change_required) return 'towel';
+  if (room.is_optional) return 'optional';
   return 'due';
 }
