@@ -1281,7 +1281,7 @@ export default function RevenueHotelDetail() {
             tools={[
               {
                 key: "segments",
-                label: "Segments & channels",
+                label: hu ? "Szegmensek és csatornák" : "Segments & channels",
                 icon: <PieChart className="h-4 w-4" />,
                 featureKey: "revenue.segments",
                 render: () => (
@@ -1290,14 +1290,14 @@ export default function RevenueHotelDetail() {
               },
               {
                 key: "yoy",
-                label: "Year over year",
+                label: hu ? "Éves összehasonlítás" : "Year over year",
                 icon: <BarChart3 className="h-4 w-4" />,
                 featureKey: "revenue.yoy",
                 render: () => <YearOverYearPanel hotelId={hotelId ?? null} />,
               },
               {
                 key: "compset",
-                label: "Competitor rates",
+                label: hu ? "Versenytársi árak" : "Competitor rates",
                 icon: <Binoculars className="h-4 w-4" />,
                 featureKey: "revenue.compset",
                 render: () => (
@@ -1311,7 +1311,7 @@ export default function RevenueHotelDetail() {
               },
               {
                 key: "digest",
-                label: "Morning e-mail",
+                label: hu ? "Reggeli e-mail" : "Morning e-mail",
                 icon: <Mail className="h-4 w-4" />,
                 featureKey: "revenue.digest",
                 render: () => (
@@ -1326,7 +1326,7 @@ export default function RevenueHotelDetail() {
                 ? [
                     {
                       key: "demand",
-                      label: "Demand desk",
+                      label: hu ? "Keresletelemzés" : "Demand desk",
                       icon: <Gauge className="h-4 w-4" />,
                       render: () => (
                         <DemandPricingPanel
@@ -1341,7 +1341,7 @@ export default function RevenueHotelDetail() {
                     },
                     {
                       key: "pulse",
-                      label: "Revenue pulse",
+                      label: hu ? "Bevételi pillanatkép" : "Revenue pulse",
                       icon: <Activity className="h-4 w-4" />,
                       render: () => (
                         <RevenuePulsePanel
@@ -1354,7 +1354,7 @@ export default function RevenueHotelDetail() {
                     },
                     {
                       key: "ai",
-                      label: "AI intelligence",
+                      label: hu ? "AI elemzés" : "AI intelligence",
                       icon: <Sparkles className="h-4 w-4" />,
                       render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
                     },
