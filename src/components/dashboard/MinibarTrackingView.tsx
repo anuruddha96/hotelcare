@@ -987,7 +987,7 @@ export function MinibarTrackingView() {
           <CardContent>
             <div className="text-2xl font-bold">€{summary.totalRevenue.toFixed(2)}</div>
             <p className="text-xs text-muted-foreground">
-              Usage recorded in HotelCare · Previo billing not verified
+              {format(selectedDate, 'MMMM d, yyyy')} · Usage recorded in HotelCare; Previo billing not verified
             </p>
           </CardContent>
         </Card>
