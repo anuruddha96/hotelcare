@@ -69,6 +69,7 @@ import { formatDistance } from "date-fns";
 import { setTabHotel } from "@/lib/tabHotel";
 import { HotelSwitchOverlay } from "@/components/layout/HotelSwitchOverlay";
 import { RevenueSkeleton } from "@/components/revenue/RevenueSkeleton";
+import { useTranslation } from "@/hooks/useTranslation";
 
 
 
@@ -108,6 +109,8 @@ function iso(d: Date) { return d.toISOString().slice(0,10); }
 
 export default function RevenueHotelDetail() {
   const { profile, loading, applyAssignedHotel } = useAuth();
+  const { language } = useTranslation();
+  const hu = language === 'hu';
   const { hotels: tenantHotels, loading: tenantLoading } = useTenant();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const revenueOrgSlug = organizationSlug ?? null;
@@ -1153,36 +1156,36 @@ export default function RevenueHotelDetail() {
             <RefreshCw className={`h-3.5 w-3.5 text-muted-foreground ${(syncing || syncWaiting || bgRefreshing || serverRefreshing) ? "animate-spin" : ""}`} />
             <span className="text-muted-foreground">
               {syncing || bgRefreshing || serverRefreshing
-                ? syncStep || "Updating from Previo…"
+                ? syncStep || (hu ? "Frissítés a Previóból…" : "Updating from Previo…")
                 : syncWaiting
-                  ? "Refresh queued — this page will update automatically."
+                  ? (hu ? "Frissítés várakozik – az oldal automatikusan frissül." : "Refresh queued — this page will update automatically.")
                   : syncError || bgFailed
-                    ? "The last refresh did not complete."
+                    ? (hu ? "A legutóbbi frissítés nem fejeződött be." : "The last refresh did not complete.")
                     : live.lastSyncAt
-                      ? `Last synced ${new Date(live.lastSyncAt).toLocaleString()}${live.lastSyncBy ? ` by ${live.lastSyncBy}` : ""}`
-                      : "No successful revenue sync recorded yet."}
+                      ? `${hu ? "Utoljára szinkronizálva" : "Last synced"} ${new Date(live.lastSyncAt).toLocaleString()}${live.lastSyncBy ? (hu ? " · " : " by ") + live.lastSyncBy : ""}`
+                      : (hu ? "Még nincs sikeres bevételi szinkron." : "No successful revenue sync recorded yet.")}
             </span>
             {live.extending && (
-              <span className="text-muted-foreground">· loading selected calendar dates…</span>
+              <span className="text-muted-foreground">· {hu ? "Kiválasztott naptári napok betöltése…" : "loading selected calendar dates…"}</span>
             )}
             <div className="ml-auto flex items-center gap-1.5">
               {isTechnicalAdmin && (
                 <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setSyncHistoryOpen(true)}>
-                  <HistoryIcon className="h-3.5 w-3.5" /> History
+                  <HistoryIcon className="h-3.5 w-3.5" /> {hu ? "Előzmények" : "History"}
                 </Button>
               )}
               {revAdmin && (
                 <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => void refreshRoomCatalog()}
                   disabled={roomCatalogBusy || syncing || syncWaiting || bgRefreshing || serverRefreshing}
-                  title="Discover new Previo categories and reconcile physical room counts without pulling rates and bookings">
+                  title={hu ? "Új Previo-kategóriák és szobaszámok egyeztetése az árak és foglalások letöltése nélkül" : "Discover new Previo categories and reconcile physical room counts without pulling rates and bookings"}>
                   {roomCatalogBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                  Refresh room types
+                  {hu ? "Szobatípusok frissítése" : "Refresh room types"}
                 </Button>
               )}
               <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => void requestSync()}
                 disabled={syncing || syncWaiting || bgRefreshing || serverRefreshing}>
                 {(syncing || syncWaiting || bgRefreshing || serverRefreshing) && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                Sync now
+                {hu ? "Szinkronizálás most" : "Sync now"}
               </Button>
             </div>
           </div>
@@ -1193,7 +1196,7 @@ export default function RevenueHotelDetail() {
 
           <Dialog open={syncHistoryOpen} onOpenChange={setSyncHistoryOpen}>
             <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
-              <DialogHeader><DialogTitle>Revenue sync history</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>{hu ? "Bevételi szinkronizálás előzményei" : "Revenue sync history"}</DialogTitle></DialogHeader>
               {hotelId && <RevenueSyncHistory hotelId={hotelId} limit={30} />}
             </DialogContent>
           </Dialog>
