@@ -95,13 +95,13 @@ function SourceBadge({ source, role, name }: { source: string; role?: string; na
     if (source === 'guest') return 'Guest (QR)';
     if (source === 'reception' || role === 'reception') return 'Reception';
     if (role === 'housekeeping_manager' || role === 'manager' || role === 'admin') return 'Manager';
-    if (role === 'housekeeper') return 'Housekeeper';
+    if (role === 'housekeeper' || role === 'housekeeping') return 'Housekeeper';
     return 'Staff';
   })();
   const Icon = source === 'guest' ? ScanLine : source === 'reception' || role === 'reception' ? Monitor : User;
   const cls = source === 'guest'
     ? 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100'
-    : role === 'housekeeper'
+    : role === 'housekeeper' || role === 'housekeeping'
     ? 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100'
     : role === 'housekeeping_manager' || role === 'manager' || role === 'admin'
     ? 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-100'
