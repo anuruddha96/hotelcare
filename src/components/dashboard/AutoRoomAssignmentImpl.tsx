@@ -130,6 +130,7 @@ interface AutoRoomAssignmentProps {
   pmsSyncedAt?: string | null;
   laundryDutyIds?: readonly string[];
   laundryDutyCommitRevision?: number;
+  includeCleanRoomsByDefault?: boolean;
 }
 
 const EMPTY_LAUNDRY_DUTY: readonly string[] = [];
@@ -212,6 +213,7 @@ export function AutoRoomAssignment({
   pmsSyncedAt = null,
   laundryDutyIds = EMPTY_LAUNDRY_DUTY,
   laundryDutyCommitRevision = 0,
+  includeCleanRoomsByDefault = false,
 }: AutoRoomAssignmentProps) {
   const { user, profile } = useAuth();
   const { venueName } = useVenues();
@@ -230,6 +232,7 @@ export function AutoRoomAssignment({
   const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(new Set());
   const [checkedInStaff, setCheckedInStaff] = useState<Set<string>>(new Set());
   const [dirtyRooms, setDirtyRooms] = useState<RoomForAssignment[]>([]);
+  const [includeCleanRooms, setIncludeCleanRooms] = useState(includeCleanRoomsByDefault);
   const [pmsVerificationError, setPmsVerificationError] = useState<string | null>(null);
   const [savedTodayPlan, setSavedTodayPlan] = useState<{
     id: string; plan_date: string; status: 'released'; auto_release: boolean;
@@ -472,6 +475,7 @@ export function AutoRoomAssignment({
       .filter(room => isRoomEligibleForAutoAssign(room, {
         hasActiveAssignment: activeRoomIds.has(room.id),
         hasCompletedAssignment: completedRoomIds.has(room.id),
+        includeCleanOperatingRooms: includeCleanRooms,
       }))
       .map(room => ({
         ...room,
@@ -531,13 +535,13 @@ export function AutoRoomAssignment({
       window.removeEventListener('pms-sync-completed', onPmsSync);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [open, selectedDate, profile?.assigned_hotel, isNextDayPlanning]);
+  }, [open, selectedDate, profile?.assigned_hotel, isNextDayPlanning, includeCleanRooms]);
 
   useEffect(() => {
     if (isNextDayPlanning && pmsSyncedAt) setNextDayPmsSyncedAt(pmsSyncedAt);
   }, [isNextDayPlanning, pmsSyncedAt]);
 
-  const fetchData = async (preserveDraft: boolean = false) => {
+  const fetchData = async (preserveDraft: boolean = false, includeCleanOverride = includeCleanRooms) => {
     setLoading(true);
     setPmsVerificationError(null);
     try {
@@ -818,6 +822,7 @@ export function AutoRoomAssignment({
             .filter(room => isRoomEligibleForAutoAssign(room, {
               hasActiveAssignment: assignedRoomIds.has(room.id),
               hasCompletedAssignment: completedRoomIds.has(room.id),
+              includeCleanOperatingRooms: includeCleanOverride,
             }))
             .map(room => ({
               ...room,
@@ -1936,6 +1941,29 @@ export function AutoRoomAssignment({
             ) : step === 'select-staff' ? (
               <div className="space-y-4">
                 {isGozsdu && <div data-gozsdu-laundryner-slot className="min-w-0" />}
+                {isGozsdu && !isNextDayPlanning && (
+                  <div className="flex items-start gap-3 rounded-lg border bg-muted/40 p-3">
+                    <Checkbox
+                      id="extra-clean-rooms"
+                      checked={includeCleanRooms}
+                      onCheckedChange={checked => {
+                        const next = checked === true;
+                        setIncludeCleanRooms(next);
+                        void fetchData(false, next);
+                      }}
+                    />
+                    <label htmlFor="extra-clean-rooms" className="cursor-pointer text-sm leading-relaxed">
+                      <strong>Include clean operating rooms</strong> for extra cleaning.
+                      No clean/dirty status changes are sent to Previo.
+                      Unavailable, non-guest, out-of-order and completed rooms stay excluded.
+                    </label>
+                  </div>
+                )}
+                {!isGozsdu && !isNextDayPlanning && includeCleanRooms && (
+                  <p role="status" className="rounded-lg border bg-muted/40 p-3 text-sm">
+                    Clean rooms can be assigned without first changing their clean/dirty status.
+                  </p>
+                )}
                 {isGozsdu && !isNextDayPlanning && savedTodayPlan && (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-300 bg-sky-50 p-3 dark:border-sky-900 dark:bg-sky-950/30">
                     <p className="text-xs font-medium text-sky-900 dark:text-sky-100">
