@@ -110,20 +110,19 @@ export function usePendingApprovals() {
         setBreakRequestCount(breakError ? 0 : (breakData || []).length);
 
         // Late minibar additions and unresolved physical refills both need a
-        // manager's attention. A blocked refill can stay open across days after
-        // the Previo charge was already confirmed, so count it in the same
-        // hotel-scoped minibar action queue.
+        // manager's attention. A blocked physical refill can remain open
+        // across days; it is a HotelCare task, NOT proof of Previo billing.
         try {
           const { data: lateMinibar } = await (supabase as any)
             .from('room_minibar_usage')
-            .select('id, rooms:room_id(hotel)')
+            .select('id, is_cleared, pending_supervisor_review, rooms:room_id(hotel)')
             .or('pending_supervisor_review.eq.true,refill_status.eq.blocked_guest_inside')
             .eq('organization_slug', userOrgSlug)
             .limit(500);
           const hotelKeySet = new Set(hotelKeys);
           const lateCount = (lateMinibar || []).filter((r: any) => {
             const h = r.rooms?.hotel;
-            return h && hotelKeySet.has(h);
+            return h && hotelKeySet.has(h) && (!r.is_cleared || r.pending_supervisor_review);
           }).length;
           setLateMinibarCount(lateCount);
         } catch {
