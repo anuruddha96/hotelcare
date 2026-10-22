@@ -21,7 +21,7 @@ export function slntWorkSection(room: SlntPoolRoom, today: string):
 }
 
 /** SLNT-only visual ordering. RTC waiting always stays at the bottom; due
- * towel/linen work must appear before ready checkouts and ordinary daily work.
+ * ready-to-clean checkouts precede towel/linen due stayovers, then ordinary daily work.
  * The server independently enforces RTC and tenant/claim permissions. */
 export type SlntTeamBDisplayGroup = 'towel' | 'rtc' | 'due' | 'optional' | 'waiting';
 export type SlntTeamBCardRoom = SlntPoolRoom & {
@@ -30,7 +30,7 @@ export type SlntTeamBCardRoom = SlntPoolRoom & {
   is_optional: boolean;
 };
 export const SLNT_TEAM_B_DISPLAY_ORDER: readonly SlntTeamBDisplayGroup[] =
-  ['towel', 'rtc', 'due', 'optional', 'waiting'];
+  ['rtc', 'towel', 'due', 'optional', 'waiting'];
 
 export function slntTeamBDisplayGroup(room: SlntTeamBCardRoom, today: string): SlntTeamBDisplayGroup {
   if (room.is_checkout_room) return isSlntRtcReady(room, today) ? 'rtc' : 'waiting';
