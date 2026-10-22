@@ -13,14 +13,20 @@ import {
 afterEach(() => { resetHotelCareSession(Date.now()); vi.restoreAllMocks(); });
 
 describe('HotelCare global idle protection', () => {
-  it('does not suspend before exactly 30 minutes of no user interaction', () => {
+  it('suspends at exactly two hours without user interaction', () => {
     resetHotelCareSession(1_000);
-    expect(SESSION_INACTIVITY_MS).toBe(1_800_000);
-    expect(checkHotelCareInactivity(1_000 + 29 * 60_000)).toBe(false);
-    recordHotelCareInteraction(1_000 + 29 * 60_000);
-    expect(checkHotelCareInactivity(1_000 + 58 * 60_000)).toBe(false);
+    expect(SESSION_INACTIVITY_MS).toBe(7_200_000);
+    expect(checkHotelCareInactivity(1_000 + 119 * 60_000)).toBe(false);
     expect(getSessionSuspension()).toBeNull();
-    expect(checkHotelCareInactivity(1_000 + 59 * 60_000)).toBe(true);
+    expect(checkHotelCareInactivity(1_000 + 120 * 60_000)).toBe(true);
+    expect(getSessionSuspension()).toBe('idle');
+  });
+
+  it('restarts the two-hour clock after user interaction', () => {
+    resetHotelCareSession(1_000);
+    recordHotelCareInteraction(1_000 + 119 * 60_000);
+    expect(checkHotelCareInactivity(1_000 + 238 * 60_000)).toBe(false);
+    expect(checkHotelCareInactivity(1_000 + 239 * 60_000)).toBe(true);
     expect(getSessionSuspension()).toBe('idle');
   });
 

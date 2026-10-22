@@ -77,7 +77,7 @@ export default function SessionProtectionAdmin() {
         <ShieldCheck className="h-6 w-6" /> HotelCare session protection
       </h1>
       <p className="text-sm text-muted-foreground">
-        Remote cutoff for outdated browser builds. The 30-minute idle suspension
+        Remote cutoff for outdated browser builds. The 2-hour idle suspension
         works independently and needs no server-side switch.
       </p>
 

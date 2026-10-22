@@ -1,8 +1,8 @@
-# HotelCare 30-minute idle suspension & obsolete-browser cutoff
+# HotelCare 2-hour idle suspension & obsolete-browser cutoff
 
 ## Guarantees
 
-- **After 30 minutes of no trusted interaction** (pointer down, key, touch or
+- **After 2 hours of no trusted interaction** (pointer down, key, touch or
   scrolling), every authenticated management/housekeeping/reception screen
   unmounts. Polling intervals and Supabase Realtime channels owned by those
   screens are cleaned up by React. A sticky refresh dialog remains.
@@ -27,7 +27,7 @@
    not revoke access**.
 3. Test with one current manager browser at Gozsdu and Memories:
    room board, housekeeping approval, room service type, RTC, PMS refresh,
-   rate editor and notices. Leave an isolated test tab idle for 30 minutes
+   rate editor and notices. Leave an isolated test tab idle for 2 hours
    and verify its room/PMS queries and Realtime subscriptions stop.
 4. As super admin, navigate to /rdhotels/admin/session-protection.
    Confirm the current build timestamp, and only then choose
@@ -42,7 +42,7 @@
 ## Administrators: rollback
 
 At /rdhotels/admin/session-protection click **Disable cutoff immediately**.
-The 30-minute browser idle protection remains independent.
+The 2-hour browser idle protection remains independent.
 
 If admin UI is unreachable, a database administrator can run:
 
@@ -76,8 +76,8 @@ minimum can be raised on future deployments using
 
 ## QA checklist
 
-- [ ] New manager remains functional for 29 minutes without interaction.
-- [ ] At 30 minutes, room board disappears and refresh-only dialog appears.
+- [ ] New manager remains functional for 119 minutes without interaction.
+- [ ] At 2 hours, room board disappears and refresh-only dialog appears.
 - [ ] Moving the cursor or auto-received Realtime events cannot unpause it.
 - [ ] Refreshed browser returns to the same hotel/route and retains login.
 - [ ] Active users see release notice and 5-minute grace before cutoff.

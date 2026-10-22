@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
-describe('30-minute session protection integration wiring', () => {
+describe('2-hour session protection integration wiring', () => {
   it('actually unmounts the operational providers when suspended', () => {
     const app = source('src/App.tsx');
     expect(app).toContain('observeSessionSuspension');
