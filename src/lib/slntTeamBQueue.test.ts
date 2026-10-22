@@ -42,6 +42,10 @@ describe('SLNT Team B RD-style room card order', () => {
   });
   it('does not mix optional stayovers or stale PMS checkouts into mandatory due work', () => {
     expect(slntTeamBDisplayGroup({ ...base, is_optional:true }, today)).toBe('optional');
+    // An old optional flag must not turn an explicitly due towel/linen service
+    // into low-priority, low-contrast optional work.
+    expect(slntTeamBDisplayGroup({ ...base, is_optional:true, towel_change_required:true }, today)).toBe('towel');
+    expect(slntTeamBDisplayGroup({ ...base, is_optional:true, linen_change_required:true }, today)).toBe('towel');
     expect(slntTeamBDisplayGroup({ ...base, is_optional:true, is_checkout_room:true }, today)).toBe('waiting');
   });
 });
