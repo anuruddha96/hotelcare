@@ -42,3 +42,43 @@ export function isStaleUnarrivedPrevioReservation(input: {
     && !!arrivalDate && arrivalDate < businessDate
     && !!departureDate && departureDate >= businessDate;
 }
+
+
+// Mika Downtown exposes occupied stayovers whose reservation status may remain
+// "Reserved". A property-wide check-in ratio is not room-level proof of a
+// no-show. Only Previo status 8 or an explicit manager action can mark NS here.
+export function isMikaDowntownProperty(...identifiers: Array<string | null | undefined>): boolean {
+  return identifiers.some((identifier) => {
+    const key = String(identifier ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    return key === "mika" || key === "mikadowntown" || key === "hotelmikadowntown";
+  });
+}
+
+// Browser compatibility guard for a stale edge-function deployment: recover
+// active Mika stayovers from its *inferred* flag, never from Previo status 8.
+// This does not modify the PMS reservation or manufacture a checkout event.
+export function normalizeMikaInferredNoShowRow<T extends Record<string, any>>(
+  row: T,
+  businessDate: string,
+  fallbackGuestCount: number | null = null,
+): T {
+  if (row.NoShowSource !== "inferred_never_checked_in" || Number(row.RawReservationStatusId) === 8) {
+    return row;
+  }
+  const arrival = String(row.ArrivalDate ?? "").slice(0, 10);
+  const departure = String(row.DepartureDate ?? "").slice(0, 10);
+  const activeStay = /^\d{4}-\d{2}-\d{2}$/.test(arrival)
+    && /^\d{4}-\d{2}-\d{2}$/.test(departure)
+    && arrival < businessDate && departure > businessDate;
+
+  return {
+    ...row,
+    IsNoShow: false,
+    NoShowSource: null,
+    ...(activeStay ? {
+      Occupied: "Yes",
+      NotArrived: false,
+      People: Number(row.People) > 0 ? row.People : (fallbackGuestCount ?? row.People),
+    } : {}),
+  } as T;
+}
