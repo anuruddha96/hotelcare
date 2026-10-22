@@ -3,7 +3,7 @@
  * mouse moves or focus changes never reactivate an obsolete application.
  * A full document refresh is required to restore subscriptions and queries.
  */
-export const SESSION_INACTIVITY_MS = 30 * 60 * 1000;
+export const SESSION_INACTIVITY_MS = 2 * 60 * 60 * 1000;
 export const CLIENT_VERSION_CHECK_MS = 5 * 60 * 1000;
 export const CLIENT_UPDATE_GRACE_MS = 5 * 60 * 1000;
 

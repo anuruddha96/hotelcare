@@ -34,7 +34,7 @@ export function isResumeRefreshEligible(
 }
 
 /**
- * After 30 minutes WITHOUT trusted interaction, remove the operational app
+ * After 2 hours WITHOUT trusted interaction, remove the operational app
  * subtree (AuthenticatedShell) and require a new document load to resume.
  * Merely showing a dialog would leave the old React timers running.
  *
@@ -167,11 +167,11 @@ export default function ExecutiveResumeRefresh() {
           {idle ? <ShieldAlert className="h-6 w-6" /> : <RefreshCw className="h-6 w-6" />}
         </div>
         <h2 id="idle-refresh-title" className="text-xl font-semibold">
-          {idle ? "HotelCare paused after 30 minutes" : "HotelCare needs an update"}
+          {idle ? "HotelCare paused after 2 hours" : "HotelCare needs an update"}
         </h2>
         <p id="idle-refresh-description" className="mt-3 text-sm leading-relaxed text-muted-foreground">
           {idle
-            ? "No activity was detected for 30 minutes. Background operational queries and live subscriptions are stopped until you refresh."
+            ? "No activity was detected for 2 hours. Background operational queries and live subscriptions are stopped until you refresh."
             : "This version is outdated. Refresh to load the latest HotelCare and continue working safely."}
         </p>
         <p className="mt-3 text-xs text-muted-foreground">

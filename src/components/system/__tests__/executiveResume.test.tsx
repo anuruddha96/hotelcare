@@ -66,7 +66,7 @@ describe("authenticated user idle return — scope", () => {
   });
 
   it.each(["housekeeping", "maintenance", "reception", "manager", "finance"])(
-    "shows the same refresh prompt for operational role %s after 30 minutes",
+    "shows the same refresh prompt for operational role %s after 2 hours",
     (role) => {
       auth(role);
       render(<ExecutiveResumeRefresh />);
@@ -78,7 +78,7 @@ describe("authenticated user idle return — scope", () => {
   it("does not display a dialog for logged-out visitors", () => {
     auth(null);
     render(<ExecutiveResumeRefresh />);
-    returnFromHidden(30 * 60_000);
+    returnFromHidden(2 * 60 * 60_000);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
@@ -90,12 +90,12 @@ describe("authenticated user idle return — manual refresh", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("shows an accessible blurred-background prompt after exactly 30 minutes", () => {
+  it("shows an accessible blurred-background prompt after exactly 2 hours", () => {
     render(<ExecutiveResumeRefresh />);
     returnFromHidden(RESUME_REFRESH_AFTER_MS);
-    expect(RESUME_REFRESH_AFTER_MS).toBe(30 * 60_000);
+    expect(RESUME_REFRESH_AFTER_MS).toBe(2 * 60 * 60_000);
     expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
-    expect(screen.getByRole("heading", { name: "HotelCare paused after 30 minutes" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "HotelCare paused after 2 hours" })).toBeInTheDocument();
     const refreshLink = screen.getByRole("link", { name: "Refresh HotelCare" });
     expect(refreshLink).toBeInTheDocument();
     // Do not rely on React's onClick after a suspended tab returns.
@@ -132,7 +132,7 @@ describe("authenticated user idle return — manual refresh", () => {
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
-  it("blocks the first click after 30 minutes of foreground inactivity", () => {
+  it("blocks the first click after 2 hours of foreground inactivity", () => {
     render(<ExecutiveResumeRefresh />);
     const underlyingAction = vi.fn();
     const button = document.createElement("button");
