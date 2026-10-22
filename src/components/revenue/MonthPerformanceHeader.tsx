@@ -9,7 +9,13 @@ import { budapestDayOf, countsTowardRevenueSalesPickup, formatMonth, pickupWindo
 import { money, eurEquivalent, setRevenueCurrency, setDisplayCurrency, currencySymbol, useRevenueCurrency, isForeignCurrency } from "@/lib/revenueCurrency";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useTranslation } from "@/hooks/useTranslation";
 
+const PICKUP_WINDOW_HU: Record<number,string> = {
+  0.0001: 'Elmúlt 48 óra (automatizálás)',
+  1: 'Csak ma', 2: 'Tegnap és ma', 3: 'Elmúlt 3 nap', 7: 'Elmúlt 7 nap',
+  14: 'Elmúlt 14 nap', 30: 'Elmúlt 30 nap', 60: 'Elmúlt 60 nap', 90: 'Elmúlt 90 nap',
+};
 const PICKUP_WINDOWS = [
   { value: PICKUP_WINDOW_48H, label: "Last 48 hours (automation)" },
   { value: 1, label: "Today only" },
@@ -123,6 +129,14 @@ export default function MonthPerformanceHeader({
   lastSyncAt?: string | null;
 }) {
 
+  const { language } = useTranslation();
+  const hu = language === 'hu';
+  const localMonth = (date: string) => hu
+    ? new Intl.DateTimeFormat('hu-HU',{year:'numeric',month:'long',timeZone:'UTC'}).format(new Date(date+'T12:00:00Z'))
+    : formatMonth(date);
+  const localWindow = (days: number) => hu
+    ? (PICKUP_WINDOW_HU[days] || (days === PICKUP_WINDOW_48H ? 'Elmúlt 48 óra (automatizálás)' : windowLabel(days)))
+    : windowLabel(days);
   const [internalMonth, setInternalMonth] = useState(() => monthKey(today));
   const month = selectedMonth ?? internalMonth;
   const setMonth = (value: string) => {
@@ -290,7 +304,7 @@ export default function MonthPerformanceHeader({
   const canPrev = months.length > 0 && month > months[0];
   const canNext = months.length > 0 && month < months[months.length - 1];
 
-  const monthLabel = formatMonth(`${month}-01`);
+  const monthLabel = localMonth(month+"-01");
   const tilesLoading = loading || monthPending;
 
   /**
@@ -416,7 +430,7 @@ export default function MonthPerformanceHeader({
               <SelectTrigger className="h-8 w-[170px] text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {months.map((m) => (
-                  <SelectItem key={m} value={m}>{formatMonth(`${m}-01`)}</SelectItem>
+                  <SelectItem key={m} value={m}>{localMonth(m+"-01")}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -430,7 +444,7 @@ export default function MonthPerformanceHeader({
 
         {isForeignCurrency() && (
           <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5 text-[11px]">
-            <span className="font-medium">Show prices in</span>
+            <span className="font-medium">{hu?"Árak megjelenítése":"Show prices in"}</span>
             <div className="flex rounded-md border overflow-hidden">
               {[currency.code, "EUR"].map((c) => {
                 const disabled = c === "EUR" && !(currency.eurRate && currency.eurRate > 0);
@@ -448,8 +462,8 @@ export default function MonthPerformanceHeader({
               })}
             </div>
             <span className="text-muted-foreground">
-              PMS publishes {currency.code}
-              {currency.displayCode === "EUR" ? " · converted at the rate below" : ""}
+              {hu?"A PMS pénzneme":"PMS publishes"} {currency.code}
+              {currency.displayCode === "EUR" ? (hu?" · átváltás az alábbi árfolyamon":" · converted at the rate below") : ""}
             </span>
             {canEdit ? (
               <span className="flex items-center gap-1">
@@ -459,7 +473,7 @@ export default function MonthPerformanceHeader({
                   onChange={(e) => setRateInput(e.target.value)}
                   onBlur={saveRate}
                   inputMode="decimal"
-                  placeholder="rate"
+                  placeholder={hu?"árfolyam":"rate"}
                   className="h-6 w-20 text-[11px]"
                   aria-label={`Exchange rate, ${currency.code} per euro`}
                 />
@@ -468,32 +482,32 @@ export default function MonthPerformanceHeader({
             ) : currency.eurRate ? (
               <span className="text-muted-foreground">1 € = {currency.eurRate} {currency.code}</span>
             ) : (
-              <span className="text-muted-foreground">no euro rate set — ask an admin</span>
+              <span className="text-muted-foreground">{hu?"Nincs euróárfolyam beállítva – kérj adminisztrátori segítséget":"no euro rate set — ask an admin"}</span>
             )}
           </div>
         )}
 
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold">
-            <span className="sm:hidden">{monthLabel} performance</span>
-            <span className="hidden sm:inline">How {monthLabel} is performing</span>
+            <span className="sm:hidden">{monthLabel} {hu?"teljesítménye":"performance"}</span>
+            <span className="hidden sm:inline">{hu?monthLabel+" teljesítménye":"How "+monthLabel+" is performing"}</span>
           </h2>
           <span className="text-[11px] text-muted-foreground">
-            {roomsAvailable ? `${roomsAvailable} rooms` : ""}
-            <span className="hidden sm:inline">{roomsAvailable ? " · " : ""}on the books today</span>
+            {roomsAvailable ? `${roomsAvailable} ${hu?"szoba":"rooms"}` : ""}
+            <span className="hidden sm:inline">{roomsAvailable ? " · " : ""}{hu?"a mai foglalások alapján":"on the books today"}</span>
           </span>
         </div>
 
 
         {kpiIntegrityWarning && !loading && (
           <div role="status" className="text-[11px] text-muted-foreground rounded-md border border-amber-300/60 px-2 py-1.5">
-            <strong className="text-foreground">Revenue data scope:</strong>
-            {agg.holds > 0 ? ` ${agg.holds} multi-year inventory-hold nights excluded from commercial sales and capacity.` : ""}
-            {agg.inactive > 0 ? ` ${agg.inactive} nights in inactive room kinds excluded.` : ""}
-            {inventoryMismatch ? ` Configured inventory (${configuredRooms}) differs from active PMS room types (${roomsAvailable}); using active types.` : ""}
-            {agg.missingPrices > 0 ? ` ${agg.missingPrices} sold room-nights are missing prices; revenue, ADR and RevPAR are incomplete.` : ""}
-            {staleSync ? " The latest Previo sync is more than 14 hours old; figures may be stale." : ""}
-            {agg.sold > agg.capacity ? " Sold room-nights exceed inventory; verify PMS room mapping." : ""}
+            <strong className="text-foreground">{hu?"Bevételi adatok köre:":"Revenue data scope:"}</strong>
+            {agg.holds > 0 ? ` ${agg.holds} ${hu?"többéves blokkolt éjszaka kizárva a kereskedelmi készletből.":"multi-year inventory-hold nights excluded from commercial sales and capacity."}` : ""}
+            {agg.inactive > 0 ? ` ${agg.inactive} ${hu?"éjszaka kizárva inaktív szobatípusokban.":"nights in inactive room kinds excluded."}` : ""}
+            {inventoryMismatch ? ` ${hu?"A beállított készlet":"Configured inventory"} (${configuredRooms}) ${hu?"eltér az aktív PMS-készlettől":"differs from active PMS room types"} (${roomsAvailable}); ${hu?"az aktív típusok használatban.":"using active types."}` : ""}
+            {agg.missingPrices > 0 ? ` ${agg.missingPrices} ${hu?"eladott szobaéjszakához hiányzik az ár; a bevétel, ADR és RevPAR nem teljes.":"sold room-nights are missing prices; revenue, ADR and RevPAR are incomplete."}` : ""}
+            {staleSync ? (hu?" Az utolsó Previo-szinkron több mint 14 órás; az adatok elavultak lehetnek.":" The latest Previo sync is more than 14 hours old; figures may be stale.") : ""}
+            {agg.sold > agg.capacity ? (hu?" Az eladott éjszakák meghaladják a készletet; ellenőrizd a PMS-szobatérképezést.":" Sold room-nights exceed inventory; verify PMS room mapping.") : ""}
           </div>
         )}
         <div
@@ -503,9 +517,9 @@ export default function MonthPerformanceHeader({
 
           <Tile
             loading={loading}
-            label="Bookings created today"
-            value={`${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"}`}
-            sub={`${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"}${
+            label={hu?"Ma létrehozott foglalások":"Bookings created today"}
+            value={`${booked.todayRoomNights} ${hu?"szobaéjszaka":"room-night"+(booked.todayRoomNights===1?"":"s")}`}
+            sub={`${booked.todayReservations} ${hu?"foglalás":"reservation"+(booked.todayReservations===1?"":"s")}${
               booked.todayCancelledNights ? ` · ${booked.todayCancelledNights} cancelled` : ""
             }`}
             icon={<CalendarPlus className="h-3.5 w-3.5" />}
@@ -520,9 +534,9 @@ export default function MonthPerformanceHeader({
 
           <Tile
             loading={tilesLoading}
-            label="Occupancy"
+            label={hu?"Kihasználtság":"Occupancy"}
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
-            sub={`${agg.sold} of ${agg.capacity} room-nights · ${monthLabel}`}
+            sub={`${agg.sold} ${hu?"a(z)":"of"} ${agg.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${monthLabel}`}
             icon={<BedDouble className="h-3.5 w-3.5" />}
             surface={agg.occupancyPct >= 75 ? "border-l-emerald-500 bg-emerald-500/5" : agg.occupancyPct >= 45 ? "border-l-amber-500 bg-amber-500/5" : "border-l-sky-500 bg-sky-500/5"}
             explain={{ title: `Occupancy — ${monthLabel}`, body: "Commercial occupied room-nights ÷ commercial room-nights available. Source: Previo reservations and active room inventory; non-commercial multi-year holds are removed from both sales and capacity." }}
@@ -531,7 +545,7 @@ export default function MonthPerformanceHeader({
             loading={tilesLoading}
             label="ADR"
             value={agg.missingPrices ? "—" : money(agg.adr)}
-            sub={eurEquivalent(agg.adr) || `${monthLabel} · revenue ÷ nights sold`}
+            sub={eurEquivalent(agg.adr) || `${monthLabel} · ${hu?"bevétel ÷ eladott éjszakák":"revenue ÷ nights sold"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-violet-500 bg-violet-500/5"
             explain={{ title: "ADR = Average Daily Rate", body: `Commercial room revenue ÷ commercially sold room-nights (including group rooms with €0 allocated). Non-commercial multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
@@ -540,14 +554,14 @@ export default function MonthPerformanceHeader({
             loading={tilesLoading}
             label="RevPAR"
             value={agg.missingPrices ? "—" : money(agg.revpar)}
-            sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × occupancy`}
+            sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × ${hu?"kihasználtság":"occupancy"}`}
             icon={<Gauge className="h-3.5 w-3.5" />}
             surface="border-l-cyan-500 bg-cyan-500/5"
             explain={{ title: "RevPAR = ADR × Occupancy", body: `Room revenue ÷ all sellable room-nights in ${monthLabel}. What every unit earns on average, sold or not.` }}
           />
           <Tile
             loading={tilesLoading}
-            label="Revenue"
+            label={hu?"Bevétel":"Revenue"}
             value={agg.missingPrices ? "—" : money(agg.revenue)}
             sub={eurEquivalent(agg.revenue) || `${monthLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
@@ -559,18 +573,18 @@ export default function MonthPerformanceHeader({
           />
           <Tile
             loading={tilesLoading}
-            label="Rooms left"
+            label={hu?"Szabad szobaéjszakák":"Rooms left"}
             value={agg.capacity ? String(agg.left) : "—"}
-            sub={`${monthLabel} · whole month`}
+            sub={`${monthLabel} · ${hu?"teljes hónap":"whole month"}`}
             icon={<DoorOpen className="h-3.5 w-3.5" />}
             surface="border-l-amber-500 bg-amber-500/5"
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
           />
           <Tile
             loading={tilesLoading}
-            label="Net pickup"
+            label={hu?"Nettó foglalásváltozás":"Net pickup"}
             value={`${agg.pickup > 0 ? "+" : ""}${agg.pickup}`}
-            sub={`${agg.gained} in · ${agg.lost} out · ${windowLabel(pickupWindowDays).toLowerCase()}`}
+            sub={`${agg.gained} ${hu?"új":"in"} · ${agg.lost} ${hu?"törölt":"out"} · ${localWindow(pickupWindowDays).toLowerCase()}`}
             icon={agg.pickup >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
             surface={agg.pickup < 0 ? "border-l-destructive bg-destructive/5" : "border-l-emerald-500 bg-emerald-500/5"}
             tone={agg.pickup < 0 ? "text-destructive" : agg.pickup > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}
@@ -597,18 +611,18 @@ export default function MonthPerformanceHeader({
 
         {/* One place to choose the pickup window, right next to the numbers it drives. */}
         <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5">
-          <span className="text-[11px] font-medium">Pickup window</span>
+          <span className="text-[11px] font-medium">{hu?"Foglalásváltozás időszaka":"Pickup window"}</span>
           <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
             <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               {PICKUP_WINDOWS.map((p) => (
-                <SelectItem key={p.value} value={String(p.value)}>{p.label}</SelectItem>
+                <SelectItem key={p.value} value={String(p.value)}>{hu?(PICKUP_WINDOW_HU[p.value]|| (p.value===PICKUP_WINDOW_48H?"Elmúlt 48 óra":p.label)):p.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
           <span className="text-[11px] text-muted-foreground">
-            <span className="sm:hidden">Pickup & demand</span>
-            <span className="hidden sm:inline">Controls pickup, calendar PU and demand. “Bookings created today” always stays on today.</span>
+            <span className="sm:hidden">{hu?"Foglalásváltozás és kereslet":"Pickup & demand"}</span>
+            <span className="hidden sm:inline">{hu?"A foglalásváltozás, a naptár és a kereslet időszakát szabályozza. A „Ma létrehozott foglalások” mindig a mai napra vonatkozik.":"Controls pickup, calendar PU and demand. “Bookings created today” always stays on today."}</span>
           </span>
         </div>
 
@@ -630,14 +644,14 @@ export default function MonthPerformanceHeader({
                   }`}
                 >
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
-                    {formatMonth(`${o.key}-01`)}{i === 0 ? " · now" : ""}
+                    {localMonth(o.key+"-01")}{i === 0 ? (hu?" · most":" · now") : ""}
                   </div>
                   {isMonthPending(o.key) ? (
                     <div className="animate-pulse space-y-1.5 mt-1">
                       <div className="h-4 w-12 rounded bg-muted-foreground/20" />
                       <div className="h-2 w-16 rounded bg-muted-foreground/10" />
                       <div className="h-2 w-14 rounded bg-muted-foreground/10" />
-                      <div className="text-[9px] text-muted-foreground">loading…</div>
+                      <div className="text-[9px] text-muted-foreground">{hu?"betöltés…":"loading…"}</div>
                     </div>
                   ) : (
                     <>
@@ -659,7 +673,7 @@ export default function MonthPerformanceHeader({
         </div>
         {pendingMonths > 0 && (
           <p className="px-1 text-[11px] text-muted-foreground animate-pulse">
-            Loading later months…
+            {hu?"Későbbi hónapok betöltése…":"Loading later months…"}
           </p>
         )}
       </CardContent>
