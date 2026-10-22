@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Eye, Zap, PauseCircle, AlertTriangle } from "lucide-react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface RuleRow {
   is_enabled: boolean | null;
@@ -44,6 +45,8 @@ function evaluationNeedsAttention(rule: RuleRow) {
 
 export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
   const [rule, setRule] = useState<RuleRow | null>(null);
+  const { language } = useTranslation();
+  const hu = language === "hu";
 
   useEffect(() => {
     if (!hotelId) { setRule(null); return; }
@@ -77,20 +80,20 @@ export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
         : "text-muted-foreground";
 
   const headline = disabled
-    ? "Pickup automation rule is switched off for this property."
+    ? (hu ? "A foglalásváltozáson alapuló automatikus árazás ki van kapcsolva ennél az ingatlannál." : "Pickup automation rule is switched off for this property.")
     : needsAttention
-      ? "Automatic pricing needs attention — open Pricing activity for details."
+      ? (hu ? "Az automatikus árazás figyelmet igényel – részletek az árváltozásoknál." : "Automatic pricing needs attention — open Pricing activity for details.")
       : live
-        ? "Automatic pricing is live — price changes are sent to Previo."
+        ? (hu ? "Az automatikus árazás aktív – az árváltozások a Previóba kerülnek." : "Automatic pricing is live — price changes are sent to Previo.")
         : "Pickup automation is monitoring in shadow mode — no pricing error detected.";
 
   const mobileHeadline = disabled
-    ? "Automatic pricing off"
+    ? (hu ? "Automatikus árazás kikapcsolva" : "Automatic pricing off")
     : needsAttention
-      ? "Automatic pricing needs attention"
+      ? (hu ? "Automatikus árazás – figyelmet igényel" : "Automatic pricing needs attention")
       : live
-        ? "Automatic pricing live"
-        : "Automation monitoring only";
+        ? (hu ? "Automatikus árazás aktív" : "Automatic pricing live")
+        : (hu ? "Csak megfigyelési mód" : "Automation monitoring only");
 
   const lastRun = when(rule.last_run_at ?? rule.last_evaluated_at);
   const nextRun = when(rule.next_run_at);
@@ -106,12 +109,12 @@ export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
           <span className="hidden sm:inline">{headline}</span>
         </div>
         <div className="text-muted-foreground sm:hidden">
-          {lastRunTime ? `Last ${lastRunTime}` : "No run yet"}
-          {nextRunTime ? ` · Next ${nextRunTime}` : ""}
+          {lastRunTime ? `${hu ? "Utolsó" : "Last"} ${lastRunTime}` : (hu ? "Még nem futott" : "No run yet")}
+          {nextRunTime ? ` · ${hu ? "Következő" : "Next"} ${nextRunTime}` : ""}
         </div>
         <div className="hidden text-muted-foreground sm:block">
-          {lastRun ? `Last run ${lastRun}` : "No run recorded yet"}
-          {nextRun ? ` · next run ${nextRun}` : ""}
+          {lastRun ? `${hu ? "Utolsó futás" : "Last run"} ${lastRun}` : (hu ? "Még nincs rögzített futás" : "No run recorded yet")}
+          {nextRun ? ` · ${hu ? "következő futás" : "next run"} ${nextRun}` : ""}
           {rule.last_evaluation_status ? ` · ${rule.last_evaluation_status.replace(/_/g, " ")}` : ""}
         </div>
         {needsAttention && rule.last_evaluation_error && (
@@ -119,7 +122,7 @@ export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
         )}
         {shadow && (
           <div className="hidden text-muted-foreground sm:block">
-            This pickup rule is observing only; it is not reporting a failure.
+            {hu ? "Ez a szabály csak megfigyel; nem jelent hibát." : "This pickup rule is observing only; it is not reporting a failure."}
           </div>
         )}
       </div>
