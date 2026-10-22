@@ -18,7 +18,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials, type PrevioXmlAuthVariant } from "../_shared/previoCredentials.ts";
 import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../_shared/budapestBusinessDate.ts";
-import { propertyReliablyTracksPrevioCheckIns, isStaleUnarrivedPrevioReservation } from "../_shared/previoNoShowInference.ts";
+import { propertyReliablyTracksPrevioCheckIns, isStaleUnarrivedPrevioReservation, isMikaDowntownProperty } from "../_shared/previoNoShowInference.ts";
 import {
   opaquePrevioFingerprint,
   resolvePrevioContinuousStay,
@@ -971,7 +971,10 @@ serve(async (req) => {
         ?? (roomNumber !== r.name ? reservationsByRoomName.get(roomNumber) : undefined);
       return { r, continuity, res };
     });
-    const propertyTracksCheckIns = propertyReliablyTracksPrevioCheckIns(
+    // Mika's REST/XML booking status may lag actual occupied room state.
+    // Do not convert "Reserved" into a no-show based on other rooms' statuses.
+    const propertyTracksCheckIns = !isMikaDowntownProperty(targetHotel, canonicalHotelName)
+      && propertyReliablyTracksPrevioCheckIns(
       resolvedRooms.filter(({ res }) => !!res).map(({ res }) => ({
         statusId: res!.statusId,
         arrivalDate: res!.arrivalDate,
