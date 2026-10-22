@@ -60,11 +60,17 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => { void refresh(); }, 30_000);
+    const timer = window.setInterval(() => { void refresh(); }, 8_000);
+    const channel = supabase.channel('slnt-team-b-claims-'+date)
+      .on('postgres_changes',{event:'*',schema:'public',table:'room_assignments',filter:'assignment_date=eq.'+date},()=>void refresh()).subscribe();
     const onChange = () => { void refresh(); };
+    const onFocus = () => { if(!document.hidden) void refresh(); };
+    document.addEventListener('visibilitychange',onFocus);
     window.addEventListener('hk-assignments-changed', onChange);
     return () => {
       window.clearInterval(timer);
+      void supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange',onFocus);
       window.removeEventListener('hk-assignments-changed', onChange);
     };
   }, [refresh]);
@@ -130,16 +136,20 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
     } finally { setBusy(null); }
   };
 
-  const { pendingApproval: pending, approved: done } = useMemo(() => summarizeTeamBProgress(items), [items]);
+  // Claiming instantly removes that room from OTHER cleaners' shared choices.
+  // Current cleaner retains the room for continuing/completing their work.
+  const visibleItems = useMemo(() => managerView ? items : items.filter(item =>
+    !item.assignment_id || item.assigned_to === user?.id), [items, managerView, user?.id]);
+  const { pendingApproval: pending, approved: done } = useMemo(() => summarizeTeamBProgress(visibleItems), [visibleItems]);
   const groups = useMemo(() => {
     const next: Record<SlntTeamBDisplayGroup, Item[]> = {
       towel: [], rtc: [], due: [], optional: [], waiting: [],
     };
-    for (const item of items) next[slntTeamBDisplayGroup(item, date)].push(item);
+    for (const item of visibleItems) next[slntTeamBDisplayGroup(item, date)].push(item);
     return next;
-  }, [items, date]);
-  const remaining = items.filter(item => item.assignment_status !== 'completed').length;
-  const inProgress = items.filter(item => item.assignment_status === 'in_progress').length;
+  }, [visibleItems, date]);
+  const remaining = visibleItems.filter(item => item.assignment_status !== 'completed').length;
+  const inProgress = visibleItems.filter(item => item.assignment_status === 'in_progress').length;
   const sectionNames: Record<SlntTeamBDisplayGroup, string> = {
     rtc: hu ? 'Takarításra kész kijelentkezők — elsőbbség' : 'Ready checkouts · first priority',
     towel: hu ? 'Törölköző- és ágyneműcsere' : 'Towel & linen changes',
@@ -180,7 +190,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {([
-            { value: items.length, caption: hu ? 'Összes szoba' : 'Total rooms', style: 'bg-sky-50 text-sky-800 dark:bg-sky-950/30 dark:text-sky-200' },
+            { value: visibleItems.length, caption: hu ? 'Látható szobák' : 'Visible rooms', style: 'bg-sky-50 text-sky-800 dark:bg-sky-950/30 dark:text-sky-200' },
             { value: inProgress, caption: hu ? 'Folyamatban' : 'In progress', style: 'bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200' },
             { value: pending, caption: hu ? 'Jóváhagyásra vár' : 'Pending approval', style: 'bg-violet-50 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200' },
             { value: done, caption: hu ? 'Jóváhagyva' : 'Approved', style: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200' },
@@ -199,7 +209,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
 
       <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={hu ? 'Szobaszűrők' : 'Room filters'}>
         {([
-          ['all', hu ? 'Mind' : 'All', items.length],
+          ['all', hu ? 'Mind' : 'All', visibleItems.length],
           ['rtc', hu ? 'Kész kijelentkező' : 'Ready checkout', groups.rtc.length],
           ['towel', hu ? 'T/C' : 'Towels / linen', groups.towel.length],
           ['due', hu ? 'Napi' : 'Daily', groups.due.length],
@@ -240,7 +250,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
           </section>
         );
       })}
-      {!loading && !error && items.length === 0 && <p className="rounded-lg border p-5 text-center text-sm">
+      {!loading && !error && visibleItems.length === 0 && <p className="rounded-lg border p-5 text-center text-sm">
         {hu ? 'Ma nincs takarítandó szoba.' : 'No rooms need cleaning today.'}
       </p>}
       {!managerView && (
