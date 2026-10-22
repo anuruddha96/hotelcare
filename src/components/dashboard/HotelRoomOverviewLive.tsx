@@ -756,7 +756,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const checkoutRooms = rooms.filter(isCheckoutBucket);
   const isPmsNoShow = (room: RoomData) =>
-    isNoShowForBusinessDate(room, selectedDate);
+    isNoShowForBusinessDate(room, selectedDate, hotelName);
 
   // No-show is a current-business-day reservation state. Never infer it from
   // sticky room notes, because notes can legitimately remain after midnight.
