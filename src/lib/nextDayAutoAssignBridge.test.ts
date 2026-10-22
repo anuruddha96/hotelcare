@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { AssignmentPreview, RoomForAssignment } from './roomAssignmentAlgorithm';
-import { TOMORROW_PMS_REUSE_MS, compatibleHousekeepingSnapshotTime } from './nextDayAutoAssignBridge';
+import { TOMORROW_PMS_REUSE_MS, compatibleHousekeepingSnapshotTime, shouldRefreshCurrentPmsRoomStateForTomorrow } from './nextDayAutoAssignBridge';
 
 describe('unified next-day Auto Assign bridge', () => {
+  it('does not rewrite live housekeeping room flags at final tomorrow approval', () => {
+    expect(shouldRefreshCurrentPmsRoomStateForTomorrow({ hotelId: 'mika-downtown', refreshLiveRoomState: false })).toBe(false);
+    expect(shouldRefreshCurrentPmsRoomStateForTomorrow({ hotelId: 'ottofiori', refreshLiveRoomState: false })).toBe(false);
+    expect(shouldRefreshCurrentPmsRoomStateForTomorrow({ hotelId: 'gozsdu-court', refreshLiveRoomState: false })).toBe(false);
+    expect(shouldRefreshCurrentPmsRoomStateForTomorrow({ hotelId: 'gozsdu-court' })).toBe(false);
+    // Existing gate/open behavior is unchanged.
+    expect(shouldRefreshCurrentPmsRoomStateForTomorrow({ hotelId: 'mika-downtown' })).toBe(true);
+  });
+
   it('keeps the short PMS reuse window at fifteen minutes', () => {
     expect(TOMORROW_PMS_REUSE_MS).toBe(15 * 60 * 1000);
   });
