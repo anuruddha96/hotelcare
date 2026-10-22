@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ClipboardCheck, RefreshCw, Users } from 'lucide-react';
+import { CheckCircle2, ClipboardCheck, Clock3, DoorClosed, DoorOpen, RefreshCw, Sparkles, Users, Waves } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { summarizeTeamBProgress } from '@/lib/slntSimplifiedHousekeeping';
-import { slntWorkSection, isSlntRtcReady } from '@/lib/slntTeamBQueue';
+import { isSlntRtcReady, SLNT_TEAM_B_DISPLAY_ORDER, slntTeamBDisplayGroup, type SlntTeamBDisplayGroup } from '@/lib/slntTeamBQueue';
 
 type Item = {
   room_id: string;
@@ -32,6 +32,19 @@ type Item = {
 };
 
 type Props = { managerView?: boolean };
+type Timing = { id: string; started_at: string | null; completed_at: string | null };
+const MINUTE = 60_000;
+function elapsed(start: string | null, end: string | null): string | null {
+  if (!start) return null;
+  const minutes = Math.max(0, Math.round((new Date(end || Date.now()).getTime() - new Date(start).getTime()) / MINUTE));
+  return minutes < 60 ? minutes + ' min' : Math.floor(minutes / 60) + 'h ' + (minutes % 60) + 'm';
+}
+function clock(iso: string, hu: boolean) {
+  return new Intl.DateTimeFormat(hu ? 'hu-HU' : 'en-GB', {
+    timeZone: 'Europe/Budapest', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(iso));
+}
+
 
 export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
   const { user } = useAuth();
@@ -39,6 +52,8 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
   const hu = language === 'hu';
   const [items, setItems] = useState<Item[]>([]);
   const [activeAssignment, setActiveAssignment] = useState<any>(null);
+  const [filter, setFilter] = useState<'all' | SlntTeamBDisplayGroup>('all');
+  const [timings, setTimings] = useState<Record<string, Timing>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,15 +64,55 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
     const { data, error: loadError } = await (supabase as any)
       .rpc('slnt_team_b_pool_v4', { p_service_date: date });
     if (loadError) { setError(loadError.message); setItems([]); }
-    else { setError(null); setItems((data || []) as Item[]); }
+    else {
+      const next = (data || []) as Item[];
+      setError(null); setItems(next);
+      const ids = next.flatMap(item => item.assignment_id ? [item.assignment_id] : []);
+      if (ids.length) {
+        // Timing is optional presentation data and respects normal assignment RLS.
+        const { data: times } = await supabase.from('room_assignments')
+          .select('id,started_at,completed_at').in('id', ids);
+        if (times) setTimings(Object.fromEntries((times as Timing[]).map(t => [t.id, t])));
+      } else setTimings({});
+    }
     setLoading(false);
   }, [date]);
 
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => { void refresh(); }, 30_000);
-    return () => window.clearInterval(timer);
+    const onChange = () => { void refresh(); };
+    window.addEventListener('hk-assignments-changed', onChange);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('hk-assignments-changed', onChange);
+    };
   }, [refresh]);
+
+  // Only meaningful actions count as activity. A tab left open and polling
+  // every 30 seconds must NOT keep an absent cleaner falsely marked active.
+  useEffect(() => {
+    if (!user?.id || managerView) return;
+    let lastSent = 0;
+    const touch = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastSent < 5 * MINUTE) return;
+      lastSent = Date.now();
+      void (supabase as any).rpc('slnt_team_b_touch_activity_v5')
+        .then(({ error: failure }: { error: { message: string } | null }) => {
+          if (failure) lastSent = 0; // Safe on old deployments without the optional RPC.
+        }).catch(() => { lastSent = 0; });
+    };
+    touch();
+    const onVisible = () => { if (!document.hidden) touch(); };
+    window.addEventListener('pointerdown', touch, { passive: true });
+    window.addEventListener('keydown', touch);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('pointerdown', touch);
+      window.removeEventListener('keydown', touch);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [managerView, user?.id]);
 
   const loadAssignment = async (id: string) => {
     const { data, error: loadError } = await supabase.from('room_assignments').select(`
@@ -95,131 +150,218 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
     } finally { setBusy(null); }
   };
 
-  const { pendingApproval: pending, approved: done, remaining: open } = useMemo(() => summarizeTeamBProgress(items), [items]);
-  const groups = useMemo(() => ({
-    rtc: items.filter(item => slntWorkSection(item, date) === 'rtc'),
-    towel: items.filter(item => !item.is_checkout_room && !item.is_optional &&
-      (item.towel_change_required || item.linen_change_required)),
-    due: items.filter(item => !item.is_checkout_room && !item.is_optional &&
-      !item.towel_change_required && !item.linen_change_required),
-    optional: items.filter(item => item.is_optional),
-    waiting: items.filter(item => slntWorkSection(item, date) === 'waiting'),
-  }), [items, date]);
-  const label = (i: Item) => i.is_optional ? (hu ? 'Opcionális napi takarítás' : 'Optional stayover')
-    : i.is_checkout_room ? (hu ? 'Kijelentkezés' : 'Checkout')
+  const { pendingApproval: pending, approved: done } = useMemo(() => summarizeTeamBProgress(items), [items]);
+  const groups = useMemo(() => {
+    const next: Record<SlntTeamBDisplayGroup, Item[]> = {
+      towel: [], rtc: [], due: [], optional: [], waiting: [],
+    };
+    for (const item of items) next[slntTeamBDisplayGroup(item, date)].push(item);
+    return next;
+  }, [items, date]);
+  const remaining = items.filter(item => item.assignment_status !== 'completed').length;
+  const inProgress = items.filter(item => item.assignment_status === 'in_progress').length;
+  const label = (i: Item) => i.is_checkout_room ? (hu ? 'Kijelentkező' : 'Checkout clean')
     : i.linen_change_required ? (hu ? 'Ágyneműcsere' : 'Linen change')
     : i.towel_change_required ? (hu ? 'Törölközőcsere' : 'Towel change')
-    : (hu ? 'Takarítás' : 'Cleaning');
-
-  const renderRooms = (roomList: Item[]) => {
-    return roomList.map(item => {
-        const mine = item.assigned_to === user?.id;
-        const completed = item.assignment_status === 'completed';
-        const claimed = !!item.assignment_id;
-        const waitingRtc = item.is_checkout_room && !isSlntRtcReady(item, date);
-        return (
-          <Card key={item.room_id} data-training="slnt-team-b-room" className="overflow-hidden">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold text-base">{item.room_name || item.room_number}</p>
-                  <p className="text-sm text-muted-foreground">{item.room_number} · {label(item)}
-                    {item.guest_count != null ? ` · ${item.guest_count} ${hu ? 'vendég' : 'guests'}` : ''}
-                  </p>
-                </div>
-                {completed ? <Badge variant={item.supervisor_approved ? 'default' : 'secondary'}>
-                  {item.supervisor_approved
-                    ? (hu ? 'Jóváhagyva' : 'Approved')
-                    : (hu ? 'Jóváhagyásra vár' : 'Awaiting approval')}
-                </Badge> : claimed ? <Badge variant="secondary">
-                  {mine ? (hu ? 'Saját feladat' : 'Your room') : (hu ? 'Más takarító dolgozik' : 'Cleaner working')}
-                </Badge> : waitingRtc ? <Badge variant="secondary">{hu ? 'RTC-re vár' : 'Awaiting RTC'}</Badge>
-                  : <Badge variant="outline">{hu ? 'Elérhető' : 'Available'}</Badge>}
-              </div>
-              {item.notes && <p className="rounded-md bg-muted/40 p-2 text-sm">{item.notes}</p>}
-              {item.pms_metadata && (
-                <div className="text-xs text-muted-foreground">
-                  {typeof item.pms_metadata['arrivalDate'] === 'string' ? `${hu ? 'Érkezés' : 'Arrival'}: ${item.pms_metadata['arrivalDate']} · ` : ''}
-                  {typeof item.pms_metadata['departureDate'] === 'string' ? `${hu ? 'Távozás' : 'Departure'}: ${item.pms_metadata['departureDate']}` : ''}
-                </div>
-              )}
-              {!managerView && !completed && waitingRtc && (
-                <Button size="sm" variant="outline" disabled aria-disabled="true">
-                  {hu ? 'RTC-re vár – nem indítható' : 'Awaiting RTC — cannot start'}
-                </Button>
-              )}
-              {!managerView && !completed && !waitingRtc && (!claimed || mine) && (
-                <Button size="sm" disabled={!!busy}
-                  data-training="slnt-team-b-claim"
-                  onClick={() => void (claimed ? openExisting(item.assignment_id!) : claim(item))}>
-                  <ClipboardCheck className="mr-2 h-4 w-4" />
-                  {mine ? (hu ? 'Feladat megnyitása' : 'Open my room') : (hu ? 'Takarítás indítása' : 'Start cleaning')}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        );
-      });
+    : i.is_optional ? (hu ? 'Opcionális napi szoba' : 'Optional daily')
+    : (hu ? 'Napi takarítás' : 'Daily cleaning');
+  const sectionNames: Record<SlntTeamBDisplayGroup, string> = {
+    towel: hu ? 'Törölköző- és ágyneműcsere' : 'Towel & linen changes',
+    rtc: hu ? 'Takarításra kész kijelentkezők' : 'Ready checkouts',
+    due: hu ? 'Mai napi feladatok és kérések' : 'Due daily rooms & requests',
+    optional: hu ? 'További napi szobák' : 'Other daily rooms',
+    waiting: hu ? 'Kijelentkezésre / RTC-re vár' : 'Waiting for checkout / RTC',
   };
 
-  return (
-    <div className="space-y-4" data-training="slnt-team-b-shared-worklist">
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Users className="h-5 w-5" />
-            {hu ? 'B csapat – mai takarítandó egységek' : 'Team B — today’s cleaning'}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {hu ? 'Minden B csapattag ugyanazt a listát látja. A kész munkát vezető hagyja jóvá a Previo-frissítés előtt.'
-              : 'All Team B cleaners share this list. A manager approves completed work before Previo is updated.'}
-          </p>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{hu ? 'Hátralévő' : 'Remaining'}: {open}</Badge>
-          <Badge variant="outline">{hu ? 'Jóváhagyásra vár' : 'Awaiting approval'}: {pending}</Badge>
-          <Badge variant="outline">{hu ? 'Jóváhagyva' : 'Approved'}: {done}</Badge>
-          <Button className="ml-auto" variant="outline" size="sm" disabled={loading} onClick={() => void refresh()}
-            data-training="slnt-team-b-refresh">
-            <RefreshCw className="mr-1 h-4 w-4" />{hu ? 'Frissítés' : 'Refresh'}
-          </Button>
+  const renderRooms = (roomList: Item[]) => roomList.map(item => {
+    const mine = item.assigned_to === user?.id;
+    const completed = item.assignment_status === 'completed';
+    const claimed = !!item.assignment_id;
+    const working = item.assignment_status === 'in_progress';
+    const waitingRtc = item.is_checkout_room && !isSlntRtcReady(item, date);
+    const itemGroup = slntTeamBDisplayGroup(item, date);
+    const time = item.assignment_id ? timings[item.assignment_id] : undefined;
+    const duration = time ? elapsed(time.started_at, time.completed_at) : null;
+    const arrival = item.pms_metadata?.arrivalDate;
+    const departure = item.pms_metadata?.departureDate;
+    const badgeText = completed ? (item.supervisor_approved
+      ? (hu ? 'Jóváhagyva' : 'Approved') : (hu ? 'Jóváhagyásra vár' : 'Pending approval'))
+      : claimed ? (mine ? (working ? (hu ? 'Folyamatban' : 'In progress') : (hu ? 'Saját szoba' : 'My room'))
+        : (hu ? 'Másik takarítónál' : 'Teammate working'))
+      : waitingRtc ? (hu ? 'Vendég a szobában' : 'Guest in room')
+      : (hu ? 'Elérhető' : 'Available');
+    const accent = waitingRtc ? 'border-l-orange-400 bg-orange-50/30 dark:bg-orange-950/10'
+      : itemGroup === 'towel' ? 'border-l-violet-400'
+      : itemGroup === 'rtc' ? 'border-l-sky-500'
+      : itemGroup === 'optional' ? 'border-l-emerald-400' : 'border-l-blue-400';
+
+    return (
+      <Card key={item.room_id} data-training="slnt-team-b-room"
+        className={'overflow-hidden border-l-4 shadow-sm ' + accent}>
+        <CardContent className="space-y-3 p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="break-words text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">
+                {item.room_name || item.room_number}
+              </p>
+              {item.room_name && item.room_name !== item.room_number && (
+                <p className="mt-1 text-xs text-muted-foreground">{item.room_number}</p>
+              )}
+            </div>
+            <Badge variant={waitingRtc || claimed ? 'secondary' : 'outline'}
+              className="shrink-0 max-w-[45%] whitespace-normal text-center text-xs">
+              {badgeText}
+            </Badge>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant="secondary" className="gap-1 py-1 text-xs">
+              {item.is_checkout_room ? <DoorOpen className="h-3.5 w-3.5" /> :
+                itemGroup === 'towel' ? <Waves className="h-3.5 w-3.5" /> :
+                <Sparkles className="h-3.5 w-3.5" />}
+              {label(item)}
+            </Badge>
+            {item.guest_count != null && <span className="text-muted-foreground">
+              {item.guest_count} {hu ? 'vendég' : item.guest_count === 1 ? 'guest' : 'guests'}
+            </span>}
+            <Badge variant="outline" className="text-xs">
+              {item.room_status === 'dirty' ? (hu ? 'Takarítandó' : 'Dirty') : item.room_status || (hu ? 'Szoba' : 'Room')}
+            </Badge>
+          </div>
+          {(typeof arrival === 'string' || typeof departure === 'string') && (
+            <p className="text-xs text-muted-foreground">
+              {typeof arrival === 'string' ? (hu ? 'Érkezés: ' : 'Arrival: ') + arrival : ''}
+              {typeof arrival === 'string' && typeof departure === 'string' ? ' · ' : ''}
+              {typeof departure === 'string' ? (hu ? 'Távozás: ' : 'Departure: ') + departure : ''}
+            </p>
+          )}
+          {item.notes && !/\[(?:DND|NO_SERVICE)\]/i.test(item.notes) && (
+            <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">{item.notes}</p>
+          )}
+          {time?.started_at && (
+            <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+              <Clock3 className="h-3.5 w-3.5" />
+              {hu ? 'Kezdés' : 'Started'} {clock(time.started_at, hu)}
+              {duration ? ' · ' + duration : ''}
+              {time.completed_at ? (hu ? ' · Befejezve' : ' · Finished') : ''}
+            </p>
+          )}
+          {waitingRtc && !completed && (
+            <div role="status" className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm font-semibold text-orange-900 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-100">
+              <DoorClosed className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{hu ? 'Várakozás a kijelentkezésre. Nem kezdhető el, amíg a PMS nem jelzi az RTC állapotot.'
+                : 'Waiting for guest checkout. Cleaning is locked until PMS confirms RTC.'}</span>
+            </div>
+          )}
+          {!managerView && !completed && waitingRtc && (
+            <Button className="h-12 w-full text-base" variant="outline" disabled
+              data-training="slnt-team-b-waiting-rtc">
+              <DoorClosed className="mr-2 h-4 w-4" />
+              {hu ? 'Nem kezdhető el · RTC-re vár' : 'Cannot start · awaiting checkout'}
+            </Button>
+          )}
+          {!managerView && !completed && !waitingRtc && claimed && !mine && (
+            <div className="rounded-lg bg-muted px-3 py-3 text-center text-sm font-medium text-muted-foreground">
+              {hu ? 'Ezt a szobát már másik takarító vette fel.' : 'Another cleaner has started this room.'}
+            </div>
+          )}
+          {!managerView && !completed && !waitingRtc && (!claimed || mine) && (
+            <Button className="h-12 w-full text-base font-bold" disabled={!!busy}
+              data-training="slnt-team-b-claim"
+              onClick={() => void (claimed ? openExisting(item.assignment_id!) : claim(item))}>
+              <ClipboardCheck className="mr-2 h-5 w-5" />
+              {mine ? (hu ? 'Saját szobám megnyitása' : 'Open my room')
+                : (hu ? 'Takarítás indítása' : 'Start cleaning')}
+            </Button>
+          )}
         </CardContent>
       </Card>
+    );
+  });
+
+  return (
+    <div className="space-y-5 pb-6" data-training="slnt-team-b-shared-worklist">
+      <div className="rounded-xl border bg-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="flex items-center gap-2 text-xl font-extrabold tracking-tight">
+              <Users className="h-5 w-5 text-sky-500" />
+              {hu ? 'B csapat · mai szobák' : 'Team B · My Tasks'}
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hu ? 'Közös szobalista · aki először elkezdi, azé a szoba.'
+                : 'Shared rooms · first cleaner to start takes the room.'}
+            </p>
+          </div>
+          <Button size="sm" variant="outline" disabled={loading} onClick={() => void refresh()}
+            data-training="slnt-team-b-refresh">
+            <RefreshCw className="mr-1.5 h-4 w-4" />
+            {hu ? 'Frissítés' : 'Refresh'}
+          </Button>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {([
+            { value: items.length, caption: hu ? 'Összes szoba' : 'Total rooms', style: 'bg-sky-50 text-sky-800 dark:bg-sky-950/30 dark:text-sky-200' },
+            { value: inProgress, caption: hu ? 'Folyamatban' : 'In progress', style: 'bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200' },
+            { value: pending, caption: hu ? 'Jóváhagyásra vár' : 'Pending approval', style: 'bg-violet-50 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200' },
+            { value: done, caption: hu ? 'Jóváhagyva' : 'Approved', style: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200' },
+          ]).map(card => (
+            <div key={card.caption} className={'rounded-xl border p-3 ' + card.style}>
+              <p className="text-2xl font-extrabold tabular-nums">{card.value}</p>
+              <p className="text-xs font-semibold">{card.caption}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {remaining} {hu ? 'szoba még nincs kész. Az elkészült munkát vezető hagyja jóvá a Previo-frissítés előtt.'
+            : 'rooms not yet completed. Managers approve finished rooms before Previo sync.'}
+        </p>
+      </div>
+
+      <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label={hu ? 'Szobaszűrők' : 'Room filters'}>
+        {([
+          ['all', hu ? 'Mind' : 'All', items.length],
+          ['towel', hu ? 'T/C' : 'Towels / linen', groups.towel.length],
+          ['rtc', hu ? 'Kész' : 'Ready checkout', groups.rtc.length],
+          ['due', hu ? 'Napi' : 'Daily', groups.due.length],
+          ['optional', hu ? 'Opcionális' : 'Optional', groups.optional.length],
+          ['waiting', hu ? 'Várakozik' : 'Waiting', groups.waiting.length],
+        ] as const).map(([key, title, count]) => (
+          <Button key={key} type="button" size="sm" className="shrink-0 rounded-full"
+            variant={filter === key ? 'default' : 'outline'}
+            aria-pressed={filter === key} onClick={() => setFilter(key)}>
+            {title} <span className="ml-1 tabular-nums opacity-80">{count}</span>
+          </Button>
+        ))}
+      </div>
+
       {error && <div role="alert" className="rounded-lg border border-destructive p-3 text-sm">{error}</div>}
       {loading && items.length === 0 && !error && <p className="text-sm">{hu ? 'Szobák betöltése…' : 'Loading rooms…'}</p>}
-      {([
-        { key: 'rtc' as const, title: hu ? 'Takarításra kész kijelentkezők (RTC)' : 'RTC — ready checkouts',
-          help: hu ? 'Ezek a szobák elsőbbséget élveznek.' : 'Clean these rooms first.' },
-        { key: 'towel' as const, title: hu ? 'Törölköző- és ágyneműcsere (T/C)' : 'Towel & linen changes (T/C)',
-          help: hu ? 'Esedékes feladatok, a többi napi szoba előtt.' : 'Due services before other stayovers.' },
-        { key: 'due' as const, title: hu ? 'Esedékes napi takarítás és kérések' : 'Other due stayovers & requests',
-          help: hu ? 'Előírt napi takarítás és egyedi kérések.' : 'Scheduled daily cleaning and explicit requests.' },
-        { key: 'optional' as const, title: hu ? 'Egyéb napi szobák (opcionális)' : 'Other stayovers (optional)',
-          help: hu ? 'Csak szükség esetén; a DND és No Service szobák kizárva.' : 'Start only when appropriate; DND and No Service excluded.' },
-        { key: 'waiting' as const, title: hu ? 'Kijelentkezésre / RTC-re vár' : 'Awaiting checkout / RTC',
-          help: hu ? 'Takarítás csak RTC állapot után indítható.' : 'Cleaning can start only once the room is RTC-ready.' },
-      ]).map(group => (
-        <section key={group.key} className="space-y-2" data-training={`slnt-team-b-${group.key}`}>
-          <div className="flex flex-wrap items-baseline gap-2 pt-2">
-            <h3 className="font-semibold">{group.title}</h3>
-            <Badge variant="secondary">{groups[group.key].length}</Badge>
-            <p className="text-xs text-muted-foreground">{group.help}</p>
-          </div>
-          {group.key === 'optional'
-            ? <details className="rounded-md border p-3" data-training="slnt-optional-stayovers">
-                <summary className="cursor-pointer text-sm font-medium">
-                  {hu ? 'Opcionális napi szobák megtekintése' : 'Show optional stayovers'} ({groups.optional.length})
-                </summary>
-                <div className="space-y-2 pt-3">{renderRooms(groups.optional)}</div>
-              </details>
-            : groups[group.key].length === 0
-              ? <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                {hu ? 'Jelenleg nincs feladat.' : 'No rooms in this category.'}</p>
-              : renderRooms(groups[group.key])}
-        </section>
-      ))}
+      {!error && SLNT_TEAM_B_DISPLAY_ORDER.filter(group => filter === 'all' || filter === group).map(group => {
+        const rooms = groups[group];
+        if (!rooms.length && filter === 'all') return null;
+        return (
+          <section key={group} className="space-y-3" data-training={'slnt-team-b-' + group}>
+            <div className="flex items-center gap-2 border-b pb-2">
+              {group === 'waiting' ? <DoorClosed className="h-4 w-4 text-orange-600" /> :
+                group === 'towel' ? <Waves className="h-4 w-4 text-violet-600" /> :
+                group === 'rtc' ? <DoorOpen className="h-4 w-4 text-sky-600" /> :
+                <Sparkles className="h-4 w-4 text-blue-600" />}
+              <h3 className="font-bold">{sectionNames[group]}</h3>
+              <Badge variant="secondary">{rooms.length}</Badge>
+            </div>
+            {group === 'waiting' && <p className="text-xs text-muted-foreground">
+              {hu ? 'A vendég még bent van / RTC-re vár. Ezek a szobák csak kijelentkezés után indíthatók.'
+                : 'Guest still inside / awaiting RTC. These rooms remain locked until checkout.'}
+            </p>}
+            {rooms.length ? <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">{renderRooms(rooms)}</div>
+              : <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                {hu ? 'Ebben a kategóriában nincs szoba.' : 'No rooms in this category.'}
+              </p>}
+          </section>
+        );
+      })}
       {!loading && !error && items.length === 0 && <p className="rounded-lg border p-5 text-center text-sm">
-        {hu ? 'Nincs takarítandó egység mára.' : 'No rooms need cleaning today.'}
+        {hu ? 'Ma nincs takarítandó szoba.' : 'No rooms need cleaning today.'}
       </p>}
       {!managerView && (
         <Dialog open={!!activeAssignment} onOpenChange={open => {
@@ -231,15 +373,8 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
               <DialogTitle>{hu ? 'Szoba takarítása' : 'Clean room'}</DialogTitle>
             </DialogHeader>
             {activeAssignment && (
-              // Reuse the exact existing HotelCare room card. Lost & Found,
-              // dirty linen, maintenance, notes, timers, photos, DND/no
-              // service and the manager-approval completion process remain
-              // unchanged; only claiming from the shared pool is new.
               <AssignedRoomCard assignment={activeAssignment} onStatusUpdate={(assignmentId, status) => {
                 void refresh();
-                // Keep the card open when cleaning starts or changes status.
-                // The original completion workflow closes only on completion
-                // and sends the room for supervisor approval as before.
                 if (status === 'completed' || status === 'cancelled') {
                   window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
                   setActiveAssignment(null);
