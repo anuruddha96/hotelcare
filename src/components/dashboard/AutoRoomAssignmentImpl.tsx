@@ -234,6 +234,7 @@ export function AutoRoomAssignment({
   const [dirtyRooms, setDirtyRooms] = useState<RoomForAssignment[]>([]);
   const [includeCleanRooms, setIncludeCleanRooms] = useState(includeCleanRoomsByDefault);
   const [pmsVerificationError, setPmsVerificationError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [savedTodayPlan, setSavedTodayPlan] = useState<{
     id: string; plan_date: string; status: 'released'; auto_release: boolean;
   } | null>(null);
@@ -418,7 +419,7 @@ export function AutoRoomAssignment({
   };
 
   const loadMemoriesDailyBoardCarry = async (): Promise<Array<{ room_id: string; carry_forward: unknown }>> => {
-    if (isNextDayPlanning || selectedDate !== todayBudapest() || !isHotelMemoriesBudapest(hotelName)) return [];
+    if (isNextDayPlanning || selectedDate !== todayBudapest() || !isHotelMemoriesBudapest(managerHotelRef.current || profile?.assigned_hotel)) return [];
     const { data, error } = await (supabase as any)
       .from('hc_memories_daily_carry_board')
       .select('room_id, carry_forward')
@@ -544,6 +545,7 @@ export function AutoRoomAssignment({
   const fetchData = async (preserveDraft: boolean = false, includeCleanOverride = includeCleanRooms) => {
     setLoading(true);
     setPmsVerificationError(null);
+    setLoadError(null);
     try {
       if (!profile?.organization_slug) throw new Error('Organization access could not be verified');
       const hotelName = await getManagerHotel();
@@ -930,6 +932,8 @@ export function AutoRoomAssignment({
         ? Object.fromEntries(Object.entries(localPrefs).filter(([id]) => validStaffIds.has(id))) : {});
     } catch (error) {
       console.error('[AutoRoomAssignment] fetch failed:', error);
+      setLoadError(error instanceof Error ? error.message : 'Unable to load assignment data');
+      setDirtyRooms([]);
       if (isGozsdu && error instanceof Error) {
         // Keep a true verification failure visible without suggesting that a
         // zero-room result is an authoritative PMS result.
@@ -1938,6 +1942,14 @@ export function AutoRoomAssignment({
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-1">
             {loading ? (
               <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+            ) : loadError ? (
+              <div role="alert" className="mx-auto max-w-xl space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-5 text-center">
+                <AlertTriangle className="mx-auto h-8 w-8 text-destructive" />
+                <p className="font-semibold">{String(language).toLowerCase().startsWith('hu') ? 'A személyzet és a szobák betöltése nem sikerült.' : 'Staff and rooms could not be loaded.'}</p>
+                <p className="text-sm text-muted-foreground">{String(language).toLowerCase().startsWith('hu') ? 'A 0 szoba nem ellenőrzött állapot. A mentett beosztások változatlanok.' : 'The room count is not verified. Saved assignments have not been changed.'}</p>
+                <p className="break-words text-xs text-muted-foreground">{loadError}</p>
+                <Button type="button" variant="outline" onClick={() => void fetchData(false)}><RefreshCw className="mr-2 h-4 w-4" />{String(language).toLowerCase().startsWith('hu') ? 'Betöltés újra' : 'Retry loading'}</Button>
+              </div>
             ) : step === 'select-staff' ? (
               <div className="space-y-4">
                 {isGozsdu && <div data-gozsdu-laundryner-slot className="min-w-0" />}
@@ -2262,15 +2274,15 @@ export function AutoRoomAssignment({
           )}
 
           <DialogFooter className={isGozsdu ? '!grid grid-cols-2 gap-2 border-t pt-2 sm:!flex sm:flex-wrap sm:justify-end' : 'flex-shrink-0 gap-2'}>
-            {step === 'select-staff' && <><Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button><Button onClick={handleGeneratePreview} disabled={cleaningStaffIds.size === 0 || effectiveRooms.length === 0}>{t('autoAssign.generatePreview')}<ArrowRight className="ml-2 h-4 w-4" /></Button></>}
+            {step === 'select-staff' && <><Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button><Button onClick={handleGeneratePreview} disabled={!!loadError || cleaningStaffIds.size === 0 || effectiveRooms.length === 0}>{t('autoAssign.generatePreview')}<ArrowRight className="ml-2 h-4 w-4" /></Button></>}
             {step === 'preview' && <>
               {restoredFromSave && <Button variant="ghost" size="sm" className="mr-auto text-muted-foreground" onClick={handleClearSaved}><Trash2 className="mr-1 h-3.5 w-3.5" />{t('autoAssign.clearSaved')}</Button>}
               {previewHistory.length > 0 && <Button variant="ghost" size="sm" onClick={handleUndo}><Undo2 className="mr-1 h-3.5 w-3.5" />{t('autoAssign.undo')} ({previewHistory.length})</Button>}
               <Button variant="outline" onClick={() => setStep('select-staff')}>{t('autoAssign.back')}</Button>
               <Button variant="outline" onClick={handleGeneratePreview} disabled={isGozsdu && (cleaningStaffIds.size === 0 || effectiveRooms.length === 0)}><RefreshCw className="mr-2 h-4 w-4" />{t('autoAssign.regenerate')}</Button>
-              <Button onClick={handleProceedToConfirm} disabled={isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)} className={isGozsdu ? 'col-span-2 sm:w-auto' : undefined}>{editingExistingAssignments ? nt('reviewChanges') : t('autoAssign.proceedToConfirm')}<ArrowRight className="ml-2 h-4 w-4" /></Button>
+              <Button onClick={handleProceedToConfirm} disabled={!!loadError || (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner))} className={isGozsdu ? 'col-span-2 sm:w-auto' : undefined}>{editingExistingAssignments ? nt('reviewChanges') : t('autoAssign.proceedToConfirm')}<ArrowRight className="ml-2 h-4 w-4" /></Button>
             </>}
-            {step === 'confirm' && <><Button variant="outline" onClick={() => setStep('preview')}>{t('autoAssign.back')}</Button><Button variant="outline" onClick={handlePrintAssignments}><Printer className="mr-2 h-4 w-4" />{t('autoAssign.print')}</Button><Button onClick={handleConfirmAssignment} disabled={submitting || (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner))}>{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('autoAssign.assigning')}</> : <><Check className="mr-2 h-4 w-4" />{isNextDayPlanning ? nt('continuePublicAreas') : editingExistingAssignments ? 'Save Changes' : t('autoAssign.confirmAndAssign')}</>}</Button></>}
+            {step === 'confirm' && <><Button variant="outline" onClick={() => setStep('preview')}>{t('autoAssign.back')}</Button><Button variant="outline" onClick={handlePrintAssignments}><Printer className="mr-2 h-4 w-4" />{t('autoAssign.print')}</Button><Button onClick={handleConfirmAssignment} disabled={!!loadError || submitting || (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner))}>{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('autoAssign.assigning')}</> : <><Check className="mr-2 h-4 w-4" />{isNextDayPlanning ? nt('continuePublicAreas') : editingExistingAssignments ? 'Save Changes' : t('autoAssign.confirmAndAssign')}</>}</Button></>}
             {step === 'public-areas' && <><Button variant="outline" onClick={() => isNextDayPlanning ? setStep('confirm') : onOpenChange(false)}>{isNextDayPlanning ? t('autoAssign.back') : t('autoAssign.skipAndClose')}</Button><Button onClick={handleAssignPublicAreas} disabled={submitting || (!isNextDayPlanning && publicAreaAssignments.size === 0)}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MapPin className="mr-2 h-4 w-4" />}{isNextDayPlanning ? `${nt('approvePlan')} (${sectionTasks.length + publicAreaAssignments.size})` : `${t('autoAssign.assignAreas')} (${publicAreaAssignments.size})`}</Button></>}
           </DialogFooter>
         </DialogContent>
