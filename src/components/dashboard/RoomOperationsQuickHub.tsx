@@ -46,6 +46,7 @@ import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
 import { RoomMinibarOperations } from './RoomMinibarOperations';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { RoomPlannedNotesCalendar } from './RoomPlannedNotesCalendar';
+import { RoomNoteProvenance } from './RoomNoteProvenance';
 import { toast } from 'sonner';
 
 type StaffMap = Record<string, string>;
@@ -1291,6 +1292,12 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             </Button>
           )}
         </div>
+        <RoomNoteProvenance
+          roomId={selection.roomId}
+          roomNotes={selection.roomNotes}
+          draftChanged={notesDraft.trim() !== notesSavedDraftRef.current.trim()}
+          showHistory
+        />
       </section>
 
       {selection.roomId && (

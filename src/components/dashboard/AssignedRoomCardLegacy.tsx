@@ -38,6 +38,7 @@ import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
 import { toast } from 'sonner';
 import { RoomDetailDialog } from './RoomDetailDialog';
+import { RoomNoteProvenance } from './RoomNoteProvenance';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
 
@@ -1214,6 +1215,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
                     {translatedManagerNote || managerVisibleNote}
                   </p>
+                  <RoomNoteProvenance roomId={assignment.room_id} roomNotes={assignment.rooms?.notes} language={language} />
                   {!translatedManagerNote && (
                     <button
                       className="mt-1.5 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"

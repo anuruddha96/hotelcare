@@ -10,6 +10,7 @@ import { useHousekeepingPresence } from '@/hooks/useHousekeepingPresence';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { housekeeperVisibleAssignmentNote } from '@/lib/housekeeperVisibleAssignmentNote';
 import { ManagerRecheckEvidence } from './ManagerRecheckEvidence';
+import { RoomNoteProvenance } from './RoomNoteProvenance';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getRdFullCleanInstruction } from '@/lib/rdFullCleanInstruction';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
@@ -259,6 +260,7 @@ export function MobileHousekeepingCard({
                     <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
                       {translatedManagerNote || managerVisibleNote}
                     </p>
+                    <RoomNoteProvenance roomId={assignment.room_id} roomNotes={assignment.rooms?.notes} language={language} />
                     {!translatedManagerNote && (
                       <button
                         className="mt-1.5 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
