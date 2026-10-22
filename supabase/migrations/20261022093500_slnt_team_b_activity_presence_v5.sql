@@ -39,7 +39,7 @@ BEGIN
   VALUES(auth.uid(), v_date, now(), now())
   ON CONFLICT(user_id, work_date) DO UPDATE SET last_activity_at=now();
 END $$;
-REVOKE ALL ON FUNCTION public.slnt_team_b_touch_activity_v5() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.slnt_team_b_touch_activity_v5() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.slnt_team_b_touch_activity_v5() TO authenticated;
 
 -- The calendar gives managers a live operational status without changing
@@ -66,7 +66,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
     ON a.user_id=c.user_id AND a.work_date=c.work_date
   ORDER BY c.staff_name,c.work_date
 $$;
-REVOKE ALL ON FUNCTION public.slnt_team_b_calendar_v5(date,date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.slnt_team_b_calendar_v5(date,date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.slnt_team_b_calendar_v5(date,date) TO authenticated;
 
 COMMENT ON FUNCTION public.slnt_team_b_calendar_v5(date,date) IS
