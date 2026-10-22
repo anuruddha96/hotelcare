@@ -53,6 +53,7 @@ import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 import { shortUnitLabel } from '@/lib/venueUnitLabel';
 import { filterSlntRoomsToActiveVenues, matchesSlntBoardFilter } from '@/lib/slntFlatRoomBoard';
 import { isDndForBusinessDate, isNoShowForBusinessDate } from '@/lib/currentRoomTransientFlags';
+import { isPmsArrivalForDate } from '@/lib/ottofioriArrivalBucket';
 import { canAssignSlntRoom, getSlntRoomChipMode } from '@/lib/slntRoomChipBehavior';
 
 
@@ -751,8 +752,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const isArrivalOnly = (room: RoomData) =>
     !isCheckoutBucket(room) &&
     hasFreshPms(room) &&
-    (room.pms_metadata as any)?.arrivalToday === true &&
-    (room.pms_metadata as any)?.occupiedToday !== true;
+    isPmsArrivalForDate(room.pms_metadata, selectedDate);
 
   const checkoutRooms = rooms.filter(isCheckoutBucket);
   const isPmsNoShow = (room: RoomData) =>
