@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
+import { matchingRoomNoteHistory, formatBudapestNoteTimestamp } from '@/lib/roomNoteProvenance';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { 
@@ -711,6 +712,17 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                     rows={2}
                   />
 
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {roomNotes !== lastSavedNotesRef.current
+                      ? 'Unsaved changes — the timestamp belongs to the last saved note'
+                      : (() => {
+                          const saved = matchingRoomNoteHistory(lastPersistedNotesRef.current, noteHistory);
+                          return saved
+                            ? 'Entered: ' + formatBudapestNoteTimestamp(saved.created_at) + ' (Budapest) · ' + (saved.created_by_name || 'Unknown user')
+                            : 'Note date/time not recorded';
+                        })()}
+                  </div>
+
                   <div className="mt-3 rounded-lg border bg-muted/20 p-3">
                     <div className="text-xs font-semibold text-muted-foreground mb-2">Last 5 note changes</div>
                     {noteHistory.length > 0 ? (
@@ -721,7 +733,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                             <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
                               <span>{entry.created_by_name || 'Unknown user'}</span>
                               <span>•</span>
-                              <span>{new Date(entry.created_at).toLocaleString()}</span>
+                              <span>{formatBudapestNoteTimestamp(entry.created_at)} (Budapest)</span>
                             </div>
                           </div>
                         ))}
