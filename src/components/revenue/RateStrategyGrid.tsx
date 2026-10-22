@@ -338,6 +338,7 @@ export default function RateStrategyGrid({
   demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onAvailabilityUpdated, onHorizonDaysChange,
 }: Props) {
   const { language } = useTranslation();
+  const hu = language === 'hu';
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
 
@@ -2857,18 +2858,18 @@ export default function RateStrategyGrid({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm sm:text-base flex items-center gap-2">
             <CalendarRange className="h-4 w-4 text-primary" />
-            Rate &amp; pickup calendar
+            {hu ? 'Ár- és foglalásváltozási naptár' : 'Rate & pickup calendar'}
             {suspicious > 0 && (
               <span className="flex items-center gap-1">
                 <button type="button" onClick={() => setReviewOnly((v) => !v)}>
                   <Badge variant={reviewOnly ? "default" : "destructive"} className="gap-1 font-normal cursor-pointer">
                     <AlertTriangle className="h-3 w-3" />
-                    {reviewOnly ? "Showing" : "Review"} {suspicious} price{suspicious === 1 ? "" : "s"}
+                    {hu ? (reviewOnly ? "Mutatva" : "Ellenőrizendő") : (reviewOnly ? "Showing" : "Review")} {suspicious} {hu ? "ár" : suspicious === 1 ? "price" : "prices"}
                   </Badge>
                 </button>
                 <MetricInfo
-                  title="Prices to review"
-                  body={`${suspicious} price cells are below your critical safety-net threshold (set in Revenue settings). That is usually a typing mistake (e.g. 2 EUR instead of 200) or a rate that was never loaded for that date. Tap the badge to show only those cells; tap again to see the whole calendar.`}
+                  title={hu ? "Ellenőrizendő árak" : "Prices to review"}
+                  body={hu ? `${suspicious} árcella a biztonsági minimum alatt van. Ez lehet elírás vagy hiányzó tarifa. Kattints a jelzésre a problémás árak szűréséhez, majd ismét a teljes naptárhoz.` : `${suspicious} price cells are below your critical safety-net threshold (set in Revenue settings). That is usually a typing mistake (e.g. 2 EUR instead of 200) or a rate that was never loaded for that date. Tap the badge to show only those cells; tap again to see the whole calendar.`}
                 />
               </span>
             )}
@@ -2878,12 +2879,12 @@ export default function RateStrategyGrid({
               <SheetTrigger asChild>
                 <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
                   <History className="h-3.5 w-3.5" />
-                  Price activity
+                  {hu ? "Árváltozások" : "Price activity"}
                 </Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-4">
                 <SheetHeader className="pb-2">
-                  <SheetTitle className="text-base">Price activity</SheetTitle>
+                  <SheetTitle className="text-base">{hu ? "Árváltozások" : "Price activity"}</SheetTitle>
                 </SheetHeader>
                 <div className="flex-1 min-h-0 overflow-y-auto">
                   <RateActivityPanel hotelId={hotelId ?? null} embedded />
@@ -2898,7 +2899,7 @@ export default function RateStrategyGrid({
                 onClick={() => { setBulkMonth(null); setBulkOpen(true); }}
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
-                Bulk edit prices
+                {hu ? "Árak tömeges szerkesztése" : "Bulk edit prices"}
               </Button>
             )}
             {canEditRates && <PickupAutomationRules hotelId={hotelId ?? null} organizationSlug={organizationSlug ?? null} />}
@@ -3779,8 +3780,8 @@ export default function RateStrategyGrid({
                         <span
                           className="inline-flex w-full items-center justify-center gap-0.5 tabular-nums text-foreground"
                           style={{ fontSize: fz(10) }}
-                          title={`${row.occ} ${row.occ === 1 ? "guest" : "guests"}`}
-                          aria-label={`${row.occ} ${row.occ === 1 ? "guest" : "guests"}`}
+                          title={`${row.occ} ${hu ? "vendég" : row.occ === 1 ? "guest" : "guests"}`}
+                          aria-label={`${row.occ} ${hu ? "vendég" : row.occ === 1 ? "guest" : "guests"}`}
                         >
                           <UserRound className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
                           <span>{row.occ}</span>
@@ -3865,10 +3866,10 @@ export default function RateStrategyGrid({
                           style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : unpricedKind ? (
-                            <><span className="text-amber-700 dark:text-amber-300">Not priced</span><span className="text-[9px] font-normal opacity-80">{left ?? 0} to sell in Previo</span></>
+                            <><span className="text-amber-700 dark:text-amber-300">{hu ? "Nincs ár" : "Not priced"}</span><span className="text-[9px] font-normal opacity-80">{left ?? 0} {hu ? "értékesíthető a Previóban" : "to sell in Previo"}</span></>
                           ) : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
                             <>
-                              <span>Sold out</span>
+                              <span>{hu ? "Elfogyott" : "Sold out"}</span>
                               {closedAt != null && (
                                 <span className="font-semibold opacity-80 inline-flex items-center gap-0.5" style={{ fontSize: fz(9) }}>
                         {priceLabel(closedAt)}
@@ -4491,9 +4492,9 @@ export default function RateStrategyGrid({
               <Select value={rangeCalc} onValueChange={(v) => setRangeCalc(v as typeof rangeCalc)}>
                 <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="amount">Change by amount</SelectItem>
-                  <SelectItem value="percent">Change by %</SelectItem>
-                  <SelectItem value="set">Set price to</SelectItem>
+                  <SelectItem value="amount">{hu ? "Változtatás összeggel" : "Change by amount"}</SelectItem>
+                  <SelectItem value="percent">{hu ? "Változtatás százalékkal" : "Change by %"}</SelectItem>
+                  <SelectItem value="set">{hu ? "Ár beállítása" : "Set price to"}</SelectItem>
                 </SelectContent>
               </Select>
               <Input
@@ -4508,7 +4509,7 @@ export default function RateStrategyGrid({
             {/* One-tap presets — the same steps as the day editor. */}
             <div className="space-y-2">
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Increase</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">{hu ? "Emelés" : "Increase"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -4524,7 +4525,7 @@ export default function RateStrategyGrid({
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">Decrease</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">{hu ? "Csökkentés" : "Decrease"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -4540,7 +4541,7 @@ export default function RateStrategyGrid({
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Percent</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{hu ? "Százalék" : "Percent"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {["10", "20", "-10", "-20"].map((p) => (
                     <Button
@@ -4558,11 +4559,11 @@ export default function RateStrategyGrid({
             </div>
 
             <p className="text-[11px] text-muted-foreground">
-              Sold-out cells are included. Prices are always sent to Previo as whole {getRevenueCurrency().code}.
+              {hu ? "A teltházas napok is szerepelnek. Az árak egész pénzegységben kerülnek a Previóba:" : "Sold-out cells are included. Prices are always sent to Previo as whole"} {getRevenueCurrency().code}.
             </p>
             <div className="max-h-52 overflow-y-auto rounded-md border">
               {rangeChanges.length === 0 ? (
-                <p className="p-3 text-xs text-muted-foreground">Nothing would change with these settings.</p>
+                <p className="p-3 text-xs text-muted-foreground">{hu ? "Ezekkel a beállításokkal semmi nem változna." : "Nothing would change with these settings."}</p>
               ) : (
                 rangeChanges.slice(0, 60).map((c) => (
                   <div key={`${c.date}|${c.row.key}`} className="flex items-center justify-between border-b px-2 py-1 text-[11px] last:border-b-0">
