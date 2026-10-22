@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 export type SlntWorkingDay = {
   work_date: string; user_id: string; staff_name: string;
   is_working: boolean; absence_kind: string | null;
+  activity_state?: 'off' | 'planned' | 'historical' | 'not_online' | 'inactive' | 'active';
+  last_activity_at?: string | null;
 };
 const local = (date: string) => new Date(date + 'T12:00:00');
 const dayPlus = (date: string, n: number) => format(addDays(local(date), n), 'yyyy-MM-dd');
@@ -30,14 +32,21 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
   const dates = useMemo(() => Array.from({ length: compact ? 1 : 7 }, (_, i) => dayPlus(compact ? todayBudapest() : week, i)), [week,compact]);
   const refresh = useCallback(async () => {
     setLoading(true);
-    const { data, error: failure } = await (supabase as any).rpc('slnt_team_b_calendar_v4', {
-      p_start: dates[0], p_end: dates[dates.length - 1],
-    });
-    if (failure) { setError(failure.message); setDays([]); }
-    else { setDays((data || []) as SlntWorkingDay[]); setError(null); }
+    const args = { p_start: dates[0], p_end: dates[dates.length - 1] };
+    let result = await (supabase as any).rpc('slnt_team_b_calendar_v5', args);
+    // Deploy-safe when frontend releases before the SLNT-only migration.
+    if (result.error && ['42883', 'PGRST202'].includes(result.error.code || '')) {
+      result = await (supabase as any).rpc('slnt_team_b_calendar_v4', args);
+    }
+    if (result.error) { setError(result.error.message); setDays([]); }
+    else { setDays((result.data || []) as SlntWorkingDay[]); setError(null); }
     setLoading(false);
   }, [dates[0], dates[dates.length - 1]]);
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => { void refresh(); }, compact ? 60_000 : 5 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [refresh, compact]);
 
   const setAvailability = async (person: SlntWorkingDay, value: string) => {
     if (busy || person.work_date < todayBudapest()) return;
@@ -58,6 +67,14 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
   const byDay = useMemo(() => new Map(days.map(d => [d.user_id + ':' + d.work_date, d])), [days]);
   const working = days.filter(d => d.is_working).length;
   const total = days.length;
+  const online = days.filter(d => d.work_date === todayBudapest() && d.activity_state === 'active').length;
+  const inactive = days.filter(d => d.work_date === todayBudapest() && d.activity_state === 'inactive').length;
+  const activityLabel = (state: SlntWorkingDay['activity_state']) => {
+    if (state === 'active') return hu ? 'Aktív az alkalmazásban' : 'Active in app';
+    if (state === 'inactive') return hu ? '3 órája inaktív' : 'Inactive for 3+ hours';
+    if (state === 'not_online') return hu ? 'Ma még nem jelentkezett be' : 'Not yet online today';
+    return null;
+  };
 
   return (
     <Card data-training="slnt-availability-calendar">
@@ -67,13 +84,17 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
             <Users className="h-4 w-4" />{hu ? 'B csapat — ki dolgozik?' : 'Team B — who is working?'}
           </CardTitle>
           <Badge variant="secondary">{compact
-            ? `${working}/${total} ${hu ? 'dolgozik' : 'working'}`
+            ? (hu ? 'Tervezett: ' : 'Scheduled: ') + working + '/' + total
             : hu ? 'Alapértelmezés: dolgozik' : 'Default: working'}</Badge>
         </div>
         <p className="text-xs text-muted-foreground">{hu
-          ? 'Nem kell műszakot létrehozni vagy közzétenni. Csak a szabadnapot és szabadságot jelöld. A meglévő munkát előbb át kell adni.'
-          : 'No shifts to create or publish. Mark only absences or leave. Release existing room work before marking someone off.'}
+          ? 'A napi szobák közösek. A munkabeosztás alapértelmezésben aktív; a mai alkalmazáshasználat külön jelenik meg. A meglévő szobamunkát át kell adni a szabadnap előtt.'
+          : 'Shared rooms need no daily allocation. Working days are planned by default; live app activity is shown separately. Release room work before marking leave.'}
         </p>
+        {compact && <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge variant="outline">{hu ? 'Aktív' : 'Active'}: {online}</Badge>
+          {inactive > 0 && <Badge variant="secondary">{hu ? 'Inaktív' : 'Inactive 3h+'}: {inactive}</Badge>}
+        </div>}
         <div className="flex items-center gap-2 justify-between">
           {!compact && <div className="flex items-center gap-1">
             <Button size="sm" variant="outline" onClick={() => setWeek(dayPlus(week,-7))}><CalendarDays className="h-3.5 w-3.5 mr-1"/>{hu ? 'Előző' : 'Previous'}</Button>
@@ -113,14 +134,21 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
                       <SelectItem value="sick_leave">{hu ? 'Betegszabadság' : 'Sick leave'}</SelectItem>
                     </SelectContent>
                   </Select>
+                  {date === todayBudapest() && item.is_working && activityLabel(item.activity_state) && (
+                    <p className={'mt-1 text-[11px] leading-snug ' +
+                      (item.activity_state === 'active' ? 'text-emerald-600 dark:text-emerald-400' :
+                      item.activity_state === 'inactive' ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground')}>
+                      {activityLabel(item.activity_state)}
+                    </p>
+                  )}
                 </td>;
               })}
             </tr>)}</tbody>
           </table>
         </div>
         {!compact && <p className="text-xs text-muted-foreground">
-          {hu ? 'A táblázat automatikusan mutatja a csapattagokat. Csak az eltérések mentődnek. A jelenlétet külön kezeljük.'
-            : 'Team membership pre-fills this calendar automatically. Only exceptions are stored. Physical attendance is separate.'}
+          {hu ? 'A beosztás automatikusan töltődik. 3 óra alkalmazásaktivitás nélkül a takarító inaktívként jelenik meg, amíg vissza nem tér. A szabadság és a jelenlét nem változik.'
+            : 'Team membership pre-fills the schedule. After 3 hours without app activity, a cleaner shows as inactive until they return. This never changes approved leave or physical attendance.'}
         </p>}
       </CardContent>
     </Card>
