@@ -23,7 +23,6 @@ interface LateMinibarRow {
   refill_status?: string | null;
   refill_blocked_reason?: string | null;
   refill_blocked_at?: string | null;
-  previo_charge_confirmed_at?: string | null;
   rooms: { room_number: string; hotel: string } | null;
   minibar_items: { name: string; price: number; category: string } | null;
   recorded_by_profile?: { full_name: string; nickname: string | null; role: string | null } | null;
@@ -59,7 +58,6 @@ export function LateMinibarApprovals() {
         refill_status,
         refill_blocked_reason,
         refill_blocked_at,
-        previo_charge_confirmed_at,
         rooms:room_id ( room_number, hotel ),
         minibar_items:minibar_item_id ( name, price, category )
       `)
