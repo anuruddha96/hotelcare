@@ -6,6 +6,31 @@ describe('isRoomEligibleForAutoAssign', () => {
     expect(isRoomEligibleForAutoAssign({ status: 'clean', hotel: 'Hotel Mika Downtown', is_checkout_room: false })).toBe(true);
   });
 
+  it('includes clean rooms for a normal RD property', () => {
+    const room = { status: 'clean', hotel: 'Hotel Ottofiori', is_checkout_room: false };
+    expect(isRoomEligibleForAutoAssign(room)).toBe(true);
+    expect(room.status).toBe('clean');
+  });
+
+  it('allows only verified operating Gozsdu clean rooms when requested', () => {
+    const room = { status: 'clean', hotel: 'gozsdu-court', is_checkout_room: false,
+      pms_metadata: { gozsduAvailability: { status: 'operating' },
+        currentNight: 2, totalNights: 5 } };
+    expect(isRoomEligibleForAutoAssign(room)).toBe(false);
+    expect(isRoomEligibleForAutoAssign(room, { includeCleanOperatingRooms: true })).toBe(true);
+    for (const status of ['unavailable', 'non_guest', 'unmapped']) {
+      expect(isRoomEligibleForAutoAssign({ ...room, pms_metadata: {
+        ...room.pms_metadata, gozsduAvailability: { status },
+      } }, { includeCleanOperatingRooms: true })).toBe(false);
+    }
+    expect(isRoomEligibleForAutoAssign(room, {
+      includeCleanOperatingRooms: true, hasCompletedAssignment: true,
+    })).toBe(false);
+    expect(isRoomEligibleForAutoAssign({ ...room, status: 'out_of_order' }, {
+      includeCleanOperatingRooms: true,
+    })).toBe(false);
+  });
+
   it('includes dirty and in-progress rooms for other hotels', () => {
     expect(isRoomEligibleForAutoAssign({ status: 'dirty', hotel: 'Hotel Mika Downtown', is_checkout_room: false })).toBe(true);
     expect(isRoomEligibleForAutoAssign({ status: 'in_progress', hotel: 'Hotel Mika Downtown', is_checkout_room: false })).toBe(true);

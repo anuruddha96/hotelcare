@@ -166,6 +166,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [loading, setLoading] = useState(true);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
   const [autoAssignDialogOpen, setAutoAssignDialogOpen] = useState(false);
+  const [includeCleanRoomMode, setIncludeCleanRoomMode] = useState(false);
   const [publicAreaDialogOpen, setPublicAreaDialogOpen] = useState(false);
   const [bulkUnassignMode, setBulkUnassignMode] = useState(false);
   const [selectedAssignments, setSelectedAssignments] = useState<string[]>([]);
@@ -1002,13 +1003,25 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 variant="default"
                 data-tour="auto-assign-btn"
                 data-training="auto-assign-btn"
-                onClick={() => setAutoAssignDialogOpen(true)}
+                onClick={() => { setIncludeCleanRoomMode(false); setAutoAssignDialogOpen(true); }}
                 disabled={!slntRosterReady}
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Wand2 className="h-4 w-4" />
                 <span className="truncate">{isSlntTenant ? 'Rebalance' : t('manager.autoAssign')}</span>
                </Button>
+               {!isSlntTenant && (
+                 <Button
+                   type="button"
+                   variant="outline"
+                   onClick={() => { setIncludeCleanRoomMode(true); setAutoAssignDialogOpen(true); }}
+                   className="flex items-center gap-2 w-full sm:w-auto touch-manipulation"
+                   title="Assign eligible clean rooms without changing their Previo status"
+                 >
+                   <CheckCircle className="h-4 w-4" />
+                   Assign Clean Rooms
+                 </Button>
+               )}
 
                {!isSlntTenant && <Button
                  variant="outline"
@@ -1054,6 +1067,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           open={autoAssignDialogOpen}
           onOpenChange={setAutoAssignDialogOpen}
           selectedDate={selectedDate}
+          includeCleanRoomsByDefault={includeCleanRoomMode}
           onAssignmentCreated={handleAssignmentCreated}
         />
       )}

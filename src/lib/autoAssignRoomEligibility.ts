@@ -4,6 +4,8 @@ import { getGozsduHousekeepingCycle, isGozsduCourtHotel } from '@/lib/gozsdu-hou
 export interface AutoAssignRoomEligibility {
   hasActiveAssignment?: boolean;
   hasCompletedAssignment?: boolean;
+  /** Manager-requested extra cleaning; does not change the PMS room state. */
+  includeCleanOperatingRooms?: boolean;
 }
 
 type EligibilityRoom = Pick<RoomForAssignment, 'status' | 'hotel' | 'is_checkout_room' | 'pms_metadata'>
@@ -27,7 +29,10 @@ export function isRoomEligibleForAutoAssign(
 
     const isNoShow = room.pms_metadata?.isNoShow === true
       || Number(room.pms_metadata?.reservationStatusId) === 8;
-    if (isNoShow) return false;
+    if (isNoShow || room.status === 'out_of_order') return false;
+    // Additional cleaning can be planned for verified operating clean rooms
+    // without falsely changing either HotelCare's or Previo's room status.
+    if (assignment.includeCleanOperatingRooms && room.status === 'clean') return true;
 
     const checkout = room.is_checkout_room === true
       || room.pms_metadata?.scheduledDepartureToday === true

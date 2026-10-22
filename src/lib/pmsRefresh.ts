@@ -661,12 +661,10 @@ export async function runPmsRefresh(
         && new Date(existingMetadata.checkedOutAt as string).getTime() > new Date(lastCleanedAt).getTime();
       const cleanedToday =
         getDateOnly(lastCleanedAt) === today && room.status === "clean" && !checkedOutAfterClean;
-      // Portfolio tenants (SLNT) manage housekeeping status directly in Previo
-      // too: when Previo says the unit is Clean and no departure was confirmed
-      // after the last clean, that wins over "it's a checkout/daily unit today".
-      const trustPmsCleanFlag = accounts.length > 0
-        && mappedStatus === "clean"
-        && !checkedOutAfterClean;
+      // Previo's explicit cleaning status applies to every property, not only
+      // multi-account hotels. Checkout/stayover workload must not override a
+      // confirmed Clean value, unless checkout happened after the last cleaning.
+      const trustPmsCleanFlag = mappedStatus === "clean" && !checkedOutAfterClean;
       const effectiveStatus = trustPmsCleanFlag
         ? "clean"
         : pmsNeedsCleaning
@@ -936,11 +934,8 @@ export async function runPmsRefresh(
       }
       if (effectiveStatus) {
         updateData.status = effectiveStatus;
-        // Only stamp a new "cleaned at" when the room actually transitions to
-        // clean — never re-stamp a room that was already clean.
-        if (effectiveStatus === "clean" && room.status !== "clean") {
-          updateData.last_cleaned_at = new Date().toISOString();
-        }
+        // A PMS Clean signal is not a completed HotelCare housekeeping task.
+        // Preserve last_cleaned_at as the genuine cleaning-completion timestamp.
       }
       // PMS sync is authoritative for today's buckets only when the snapshot
       // contains reservation/departure data (live API or today's upload
