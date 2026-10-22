@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NewFeatureBadge, useFeatureSeen } from "@/components/common/NewFeatureBadge";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface RevenueTool {
   key: string;
@@ -21,6 +22,7 @@ export interface RevenueTool {
  */
 export default function RevenueToolsBar({ tools }: { tools: RevenueTool[] }) {
   const [open, setOpen] = useState<string | null>(null);
+  const { language } = useTranslation();
   const active = tools.find((t) => t.key === open) ?? null;
   const { isNew, markSeen } = useFeatureSeen();
 
@@ -59,7 +61,7 @@ export default function RevenueToolsBar({ tools }: { tools: RevenueTool[] }) {
                 onClick={() => setOpen(null)}
               >
                 <X className="h-4 w-4" />
-                Close
+                {language === "hu" ? "Bezárás" : "Close"}
               </Button>
             </div>
           </SheetHeader>
