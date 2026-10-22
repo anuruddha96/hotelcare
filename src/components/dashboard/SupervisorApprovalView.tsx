@@ -204,11 +204,10 @@ export function SupervisorApprovalView({
   const [translatedApprovalMsgs, setTranslatedApprovalMsgs] = useState<Record<string, string>>({});
   const [translatingApprovalMsg, setTranslatingApprovalMsg] = useState<string | null>(null);
 
-  // Minibar gate: when a manager tries to approve a room (or bulk of rooms)
-  // that has minibar consumption logged today, hold the approval and require
-  // confirmation of the Previo charge plus the physical refill outcome. For a
-  // single stayover room, "guest inside" is a valid outcome that carries the
-  // physical refill forward instead of forcing a false refill confirmation.
+  // HotelCare's minibar consumption is a staff/guest usage record, NOT a
+  // verified Previo folio charge. Gate housekeeping approval on the physical
+  // refill outcome only; billing must be checked separately in Previo.
+  // For a single stayover room, "guest inside" carries the refill forward.
   type MinibarGateItem = { room: string; qty: number; name: string; price: number };
   const [minibarGate, setMinibarGate] = useState<{
     title: string;
@@ -220,7 +219,6 @@ export function SupervisorApprovalView({
   } | null>(null);
   const [gateRefilled, setGateRefilled] = useState(false);
   const [gateGuestInside, setGateGuestInside] = useState(false);
-  const [gateAddedToPrevio, setGateAddedToPrevio] = useState(false);
   const [gateBusy, setGateBusy] = useState(false);
 
   const fetchMinibarForRooms = async (
@@ -265,9 +263,8 @@ export function SupervisorApprovalView({
     return { items, total, usageIds };
   };
 
-  // Physical refill completed now. Also record that the Previo charge was
-  // confirmed in this approval flow so the same consumption can never be
-  // charged again during a later follow-up.
+  // Mark physical refill completed. Never claim or record a verified Previo
+  // transaction here: housekeeping approval does not call the Previo billing API.
   const markMinibarUsageCleared = async (usageIds: string[]) => {
     if (!usageIds || usageIds.length === 0) return;
     const { data: authData } = await supabase.auth.getUser();
@@ -285,16 +282,14 @@ export function SupervisorApprovalView({
         refill_blocked_by: null,
         refill_resolved_at: now,
         refill_resolved_by: uid,
-        previo_charge_confirmed_at: now,
-        previo_charge_confirmed_by: uid,
       })
       .in('id', usageIds)
       .eq('is_cleared', false);
     if (error) throw error;
   };
 
-  // Guest/no-access outcome: approve the housekeeping completion and billing,
-  // but deliberately keep the physical refill unresolved. A DB trigger carries
+  // Guest/no-access outcome: approve housekeeping but deliberately leave
+  // the physical refill unresolved. A DB trigger carries
   // a reminder to the next room assignment and the minibar follow-up queue
   // remains visible until a manager later marks it refilled.
   const markMinibarRefillBlocked = async (usageIds: string[]) => {
@@ -315,8 +310,6 @@ export function SupervisorApprovalView({
         refill_blocked_by: uid,
         refill_resolved_at: null,
         refill_resolved_by: null,
-        previo_charge_confirmed_at: now,
-        previo_charge_confirmed_by: uid,
       })
       .in('id', usageIds);
     if (error) throw error;
@@ -326,7 +319,6 @@ export function SupervisorApprovalView({
     setMinibarGate(null);
     setGateRefilled(false);
     setGateGuestInside(false);
-    setGateAddedToPrevio(false);
     setGateBusy(false);
   };
 
@@ -878,7 +870,6 @@ export function SupervisorApprovalView({
     }
     setGateRefilled(false);
     setGateGuestInside(false);
-    setGateAddedToPrevio(false);
     setMinibarGate({
       title: `${t('common.room')} ${assignment.rooms?.room_number || ''} — ${t('minibarGate.minibarUsed')}`,
       items,
@@ -1021,7 +1012,6 @@ export function SupervisorApprovalView({
     }
     setGateRefilled(false);
     setGateGuestInside(false);
-    setGateAddedToPrevio(false);
     const uniqueMinibarRooms = new Set(items.map((item) => item.room));
     setMinibarGate({
       title: `${hotelName} — ${t('minibarGate.itemsAcrossRooms').replace('{count}', String(items.length))}`,
@@ -2025,9 +2015,8 @@ export function SupervisorApprovalView({
       {/* Shared Reassign Dialog */}
       {renderReassignDialog()}
 
-      {/* Minibar confirmation gate — the Previo charge is always required. The
-          physical outcome can be either refilled now or, for a single room,
-          blocked by a guest/no-access condition and carried forward. */}
+      {/* This is a physical refill gate, not a Previo payment verification.
+          Billing is a separate workflow and must not block housekeeping. */}
       <Dialog open={!!minibarGate} onOpenChange={(o) => { if (!o && !gateBusy) resetMinibarGate(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -2095,7 +2084,7 @@ export function SupervisorApprovalView({
                         Guest is inside — I cannot refill now
                       </span>
                       <span className="block text-xs text-muted-foreground mt-0.5">
-                        Approve the cleaned room but keep this minibar refill pending. The next assignment will show a reminder, and this consumption will not be charged in Previo again.
+                        Approve the cleaned room and carry this refill to the next assignment. HotelCare does not verify or send a Previo charge here; check billing separately.
                       </span>
                     </span>
                   </label>
@@ -2105,14 +2094,9 @@ export function SupervisorApprovalView({
                   </div>
                 )}
 
-                <label className="flex items-start gap-2 text-sm cursor-pointer rounded-md border border-border p-2.5">
-                  <Checkbox
-                    checked={gateAddedToPrevio}
-                    onCheckedChange={(v) => setGateAddedToPrevio(v === true)}
-                    className="mt-0.5"
-                  />
-                  <span>{t('minibarGate.confirmCharged')}</span>
-                </label>
+                <p className="rounded-md border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-700">
+                  <strong>Billing is separate:</strong> this records minibar usage in HotelCare, not a confirmed Previo charge. Check the guest folio in Previo before charging, and avoid posting a duplicate.
+                </p>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -2122,7 +2106,6 @@ export function SupervisorApprovalView({
                 <Button
                   size="sm"
                   disabled={
-                    !gateAddedToPrevio ||
                     (!gateRefilled && !(minibarGate.allowGuestInside && gateGuestInside)) ||
                     gateBusy
                   }
