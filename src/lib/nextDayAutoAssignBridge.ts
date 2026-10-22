@@ -241,6 +241,10 @@ async function saveVerifiedPortfolioPlan(args: SaveArgs):
     hotelId: canonicalHotelId,
     selectedDate: args.selectedDate,
     forceFresh: true,
+    // Re-read tomorrow's authoritative Previo reservation roster, but do NOT
+    // mutate today's live room state while the manager approves a staged plan.
+    // Morning release still performs its own independent PMS revalidation.
+    refreshLiveRoomState: false,
   });
   if (!source.authoritative) throw new Error('An authoritative Previo snapshot is unavailable. Nothing was saved.');
   const { data: roomRows, error: roomError } = await supabase.from('rooms')
