@@ -128,17 +128,14 @@ BEGIN
       'scheduledDepartureToday',true,'scheduledDepartureTomorrow',false,
       'stayThroughToday',false);
   END IF;
-  -- Previo confirms an in-house stayover. Never carry yesterday's
-  -- arrival-pending flags into a later workday (Ottofiori Q-403 regression).
-  -- The REST occupiedToday field may be false even for a checked-in status.
+  -- Check-in evidence on a later business date supersedes the previous
+  -- day's sticky arrivalToday/notArrived flags, even if occupiedToday=false.
   IF NEW.pms_metadata->>'pmsOccupancyStatus' = 'stayover'
      AND NEW.pms_metadata->>'reservationStatusId' IN ('3','5')
-     AND NEW.pms_metadata->>'arrivalDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
-
-     AND NEW.pms_metadata->>'departureDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}
-
-     AND (NEW.pms_metadata->>'arrivalDate')::date < work_date
-     AND (NEW.pms_metadata->>'departureDate')::date > work_date
+     AND length(coalesce(NEW.pms_metadata->>'arrivalDate','')) >= 10
+     AND length(coalesce(NEW.pms_metadata->>'departureDate','')) >= 10
+     AND left(NEW.pms_metadata->>'arrivalDate',10) < work_date::text
+     AND left(NEW.pms_metadata->>'departureDate',10) > work_date::text
      AND NEW.pms_metadata->>'isNoShow' IS DISTINCT FROM 'true'
      AND NEW.pms_metadata->>'manual_no_show' IS DISTINCT FROM 'true'
   THEN
