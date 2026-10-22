@@ -150,7 +150,8 @@ interface HousekeepingManagerViewProps {
 
 export function HousekeepingManagerView({ onActiveInnerTabChange }: HousekeepingManagerViewProps = {}) {
   const { user, profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const hu = language === 'hu';
   const terms = usePropertyTerms();
   const { venuesEnabled, orgSlug } = useTenantFeatures();
   const activeOrganizationSlug = orgSlug || profile?.organization_slug || null;
@@ -956,10 +957,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold">{isSlntTenant ? 'Today’s work' : t('team.management')}</h2>
+          <h2 className="text-xl font-semibold">{isSlntTenant ? (hu ? 'Mai munka' : 'Today’s work') : t('team.management')}</h2>
           {venuesEnabled && <div className="inline-flex rounded-md border p-1 gap-1">
-            <Button size="sm" variant={selectedDate === todayBudapest() ? 'default' : 'ghost'} onClick={() => setSelectedDate(todayBudapest())}>Today</Button>
-            <Button size="sm" variant={selectedDate === format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd') ? 'default' : 'ghost'} onClick={() => setSelectedDate(format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd'))}>Tomorrow</Button>
+            <Button size="sm" variant={selectedDate === todayBudapest() ? 'default' : 'ghost'} onClick={() => setSelectedDate(todayBudapest())}>{hu ? 'Ma' : 'Today'}</Button>
+            <Button size="sm" variant={selectedDate === format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd') ? 'default' : 'ghost'} onClick={() => setSelectedDate(format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd'))}>{hu ? 'Holnap' : 'Tomorrow'}</Button>
           </div>}
           <input
             type="date"
@@ -1008,7 +1009,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Wand2 className="h-4 w-4" />
-                <span className="truncate">{isSlntTenant ? 'Rebalance' : t('manager.autoAssign')}</span>
+                <span className="truncate">{isSlntTenant ? (hu ? 'Újraelosztás' : 'Rebalance') : t('manager.autoAssign')}</span>
                </Button>
                {!isSlntTenant && (
                  <Button
@@ -1084,6 +1085,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
+      {/* SLNT shared pool must be the first operational section, above Property Overview. */}
+      {slntPoolMode && <SlntTeamPoolSummary selectedDate={selectedDate} staff={housekeepingStaff} />}
+
       {/* Hotel Room Overview */}
       {managerHotelName && (
         <HotelRoomOverview
@@ -1105,7 +1109,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
-      {slntPoolMode && <SlntTeamPoolSummary selectedDate={selectedDate} staff={housekeepingStaff} />}
+
 
       <div className={`grid grid-cols-1 ${isSlntTenant ? "xl:grid-cols-2 gap-3" : "md:grid-cols-2 lg:grid-cols-3 gap-4"}`}>
         {[...housekeepingStaff].sort((a, b) => {
@@ -1199,7 +1203,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   >
                     {myChips.length === 0 && (
                       <span className="text-xs text-muted-foreground self-center">
-                        {slntPoolMode ? 'No rooms started yet' : isDropTarget ? `Drop to assign` : hasSelection ? `Tap to assign ${selectedUnits.length} selected` : `Tap ${terms.unitPlural.toLowerCase()} above, then tap here`}
+                        {slntPoolMode ? (hu ? 'Még egy szobát sem kezdtek el' : 'No rooms started yet') : isDropTarget ? `Drop to assign` : hasSelection ? `Tap to assign ${selectedUnits.length} selected` : `Tap ${terms.unitPlural.toLowerCase()} above, then tap here`}
                       </span>
                     )}
                     {myChips.map((a) => (

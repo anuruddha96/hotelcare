@@ -131,6 +131,12 @@ export function SlntTeamBRoomPreview({
       </CardHeader>
 
       <CardContent className="space-y-3 p-4 pt-2 sm:p-5 sm:pt-2">
+        {checkout && <div className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100" data-training="slnt-checkout-guest-count">
+          <p className="text-sm font-extrabold">{hu ? 'Távozó vendégek' : 'Guests checking out'}: {item.guest_count != null ? item.guest_count : (hu ? 'Nem ismert' : 'Unknown')}</p>
+          <p className="mt-1 text-xs">{hu ? 'Érkező vendégek száma: nincs megerősítve a jelenlegi PMS-adatokban.' : 'Incoming guest count: not confirmed in current PMS data.'}</p>
+          {!service.bedInstruction && <p className="mt-1 text-xs">{hu ? 'Ágyelrendezés: nincs külön utasítás megadva.' : 'Bed configuration: no specific instruction recorded.'}</p>}
+        </div>}
+
         {/* Mirrors the prominent RD hotel instruction boxes for actionable
             requirements; only real manager/PMS values are shown. */}
         {!checkout && item.linen_change_required && (

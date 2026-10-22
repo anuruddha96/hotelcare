@@ -178,7 +178,8 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   }, [hasManagerAccess, profile?.organization_slug, profile?.assigned_hotel, onActiveSubTabChange]);
 
   const isAdmin = userRole === 'admin';
-  const noMinibar = isNoMinibarOrganization(profile?.organization_slug) || isGozsduCourtHotel(profile?.assigned_hotel || assignedHotel);
+  const slntNoManualUpload = isNoMinibarOrganization(profile?.organization_slug);
+  const noMinibar = slntNoManualUpload || isGozsduCourtHotel(profile?.assigned_hotel || assignedHotel);
   // Top Management now has the exact same Housekeeping powers as a manager
   // (assignments, dirty linen, minibar, approvals). No executive read-only mode.
   const isExecutiveReadOnly = false;
@@ -421,7 +422,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     if (['slnt', 'slnt-group'].includes(profile?.organization_slug ?? '') && !order.includes('staff-schedule')) {
       order = [...order, 'staff-schedule'];
     }
-    if (hidePmsUploadTab) order = order.filter((id) => id !== 'pms-upload');
+    if (hidePmsUploadTab || slntNoManualUpload) order = order.filter((id) => id !== 'pms-upload');
     if (noMinibar) order = order.filter((id) => id !== 'minibar');
     // Hide operational/admin tabs for read-only executives
     if (isExecutiveReadOnly) {
@@ -523,7 +524,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <Tabs value={noMinibar && activeTab === 'minibar' ? 'manage' : activeTab} onValueChange={(val) => { setActiveTab(val); onActiveSubTabChange?.(val); }} className="w-full">
+      <Tabs value={(noMinibar && activeTab === 'minibar') || (slntNoManualUpload && activeTab === 'pms-upload') ? 'manage' : activeTab} onValueChange={(val) => { setActiveTab(val); onActiveSubTabChange?.(val); }} className="w-full">
         <TabsList className={`
           ${hasManagerAccess || isReceptionReadOnly
             ? 'inline-flex overflow-x-auto overflow-y-hidden w-full justify-start gap-1 p-1 h-auto flex-nowrap scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent' 
@@ -591,7 +592,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
               <PerformanceLeaderboard />
             </TabsContent>
 
-            {!hidePmsUploadTab && (
+            {!hidePmsUploadTab && !slntNoManualUpload && (
               <TabsContent value="pms-upload" className="space-y-6">
                 {isAdmin && (
                   <div className="text-[11px] text-muted-foreground rounded-md border border-dashed border-border/60 bg-muted/30 px-3 py-1.5">
