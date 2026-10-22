@@ -13,7 +13,8 @@ import {
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
+import { isReusableTomorrowReservationBatch } from '@/lib/nextDayPmsGateCoverage';
 import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
   buildSelectedDateHousekeepingWorkload,
@@ -151,7 +152,7 @@ async function findReusableTomorrowSnapshot(args: {
     const [snapshotResult, roomCountResult] = await Promise.all([
       (supabase as any)
         .from('daily_overview_snapshots')
-        .select('captured_at')
+        .select('room_label,room_number,captured_at')
         .eq('organization_slug', args.organizationSlug)
         .eq('hotel_id', args.hotelId)
         .eq('business_date', args.selectedDate)
@@ -159,31 +160,26 @@ async function findReusableTomorrowSnapshot(args: {
       supabase
         .from('rooms')
         .select('id', { count: 'exact', head: true })
+        .eq('organization_slug', args.organizationSlug)
         .in('hotel', hotelKeys),
     ]);
 
     if (snapshotResult.error || roomCountResult.error) return null;
 
-    const snapshotRows = (snapshotResult.data || []) as Array<{ captured_at: string | null }>;
-    const capturedTimes = snapshotRows
-      .map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN)
-      .filter(value => Number.isFinite(value));
+    const snapshotRows = (snapshotResult.data || []) as Array<{
+      room_label: string | null;
+      room_number: string | null;
+      captured_at: string | null;
+    }>;
     const roomCount = Number(roomCountResult.count || 0);
-
-    if (capturedTimes.length === 0 || roomCount <= 0 || snapshotRows.length < roomCount) return null;
-
-    const now = Date.now();
-    const oldestCapturedAt = Math.min(...capturedTimes);
-    const newestCapturedAt = Math.max(...capturedTimes);
-    const completeSnapshotIsRecent =
-      now - oldestCapturedAt >= 0
-      && now - oldestCapturedAt <= RECENT_TOMORROW_PMS_SNAPSHOT_MS
-      && newestCapturedAt <= now + 60_000;
-
-    if (!completeSnapshotIsRecent) return null;
+    if (!isReusableTomorrowReservationBatch({
+      roomCount,
+      rows: snapshotRows,
+      freshnessMs: RECENT_TOMORROW_PMS_SNAPSHOT_MS,
+    })) return null;
 
     return {
-      capturedAt: new Date(newestCapturedAt).toISOString(),
+      capturedAt: new Date(Math.max(...snapshotRows.map(row => Date.parse(row.captured_at!)))).toISOString(),
       rowCount: snapshotRows.length,
       roomCount,
     };
@@ -367,7 +363,8 @@ export function NextDayAssignmentPlanner({
       throw new Error('Hotel access is missing.');
     }
 
-    const hotelId = profile.assigned_hotel;
+    const hotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+    if (!hotelId) throw new Error('The assigned hotel could not be resolved to a PMS property.');
     const { data: hotelConfig, error: hotelConfigError } = await supabase
       .from('hotel_configurations')
       .select('hotel_name')
@@ -401,6 +398,7 @@ export function NextDayAssignmentPlanner({
       supabase
         .from('rooms')
         .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
+        .eq('organization_slug', profile.organization_slug)
         .in('hotel', hotelKeys),
       (supabase as any)
         .from('daily_overview_snapshots')
@@ -582,10 +580,12 @@ export function NextDayAssignmentPlanner({
     let stageTimer: number | null = null;
 
     try {
+      const canonicalHotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+      if (!canonicalHotelId) throw new Error('The assigned hotel could not be resolved to a PMS property.');
       if (!forceFresh) {
         const reusableSnapshot = await findReusableTomorrowSnapshot({
           organizationSlug: profile.organization_slug,
-          hotelId: profile.assigned_hotel,
+          hotelId: canonicalHotelId,
           selectedDate,
         });
         if (syncGeneration.current !== generation) return;
@@ -612,7 +612,7 @@ export function NextDayAssignmentPlanner({
         if (syncGeneration.current === generation) setSyncStage('checkouts');
       }, 650);
 
-      const result = await runPmsRefresh(profile.assigned_hotel, { trigger: 'manual' });
+      const result = await runPmsRefresh(canonicalHotelId, { trigger: 'manual' });
       if (syncGeneration.current !== generation) return;
 
       if (result.status === 'error' || result.reservationDataAuthoritative === false) {
@@ -627,7 +627,7 @@ export function NextDayAssignmentPlanner({
         'previo-sync-daily-overview',
         {
           body: {
-            hotelId: profile.assigned_hotel,
+            hotelId: canonicalHotelId,
             fromDate: selectedDate,
             toDate: addIsoDays(selectedDate, 1),
             days: 1,
@@ -775,6 +775,8 @@ export function NextDayAssignmentPlanner({
 
     setSaving(true);
     try {
+      const canonicalHotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+      if (!canonicalHotelId) throw new Error('The assigned hotel could not be resolved to a PMS property.');
       const primaryEntries = previews.flatMap(preview => preview.rooms.map(room => ({
         room,
         staffId: preview.staffId,
@@ -797,7 +799,7 @@ export function NextDayAssignmentPlanner({
 
       const planPayload = {
         organization_slug: profile.organization_slug,
-        hotel_id: profile.assigned_hotel,
+        hotel_id: canonicalHotelId,
         plan_date: selectedDate,
         status: 'draft',
         auto_release: autoRelease,
@@ -944,7 +946,7 @@ export function NextDayAssignmentPlanner({
       setExistingPlanChanged(false);
       window.dispatchEvent(new CustomEvent('hk-next-day-plan-changed', {
         detail: {
-          hotelId: profile.assigned_hotel,
+          hotelId: canonicalHotelId,
           planDate: selectedDate,
           planId,
         },

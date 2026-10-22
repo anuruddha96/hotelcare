@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { GOZSDU_COURT_HOTEL_ID } from '@/lib/gozsdu-housekeeping';
 import { verifyGozsduTomorrowCoverage } from '@/lib/gozsduPmsRoster';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
 import { ensureFreshSupabaseSession, runPmsRefresh } from '@/lib/pmsRefresh';
 import {
   buildSelectedDateHousekeepingWorkload,
@@ -424,11 +424,15 @@ export async function loadExistingNextDayPlan(args: {
   hotelId: string;
   selectedDate: string;
 }): Promise<ExistingNextDayPlan> {
+  // Managers may have a legacy display name in profiles.assigned_hotel,
+  // whereas next-day plans are always stored with the canonical PMS hotel ID.
+  const canonicalHotelId = await resolveCanonicalHotelId(args.hotelId);
+  if (!canonicalHotelId) throw new Error('The hotel could not be resolved for tomorrow planning.');
   const { data: planData, error: planError } = await (supabase as any)
     .from('next_day_housekeeping_plans')
     .select('id,status,auto_release,release_timezone,created_by,pms_synced_at')
     .eq('organization_slug', args.organizationSlug)
-    .eq('hotel_id', args.hotelId)
+    .eq('hotel_id', canonicalHotelId)
     .eq('plan_date', args.selectedDate)
     .maybeSingle();
   if (planError) throw planError;
