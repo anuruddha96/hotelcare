@@ -590,6 +590,9 @@ export function MinibarTrackingView() {
           .update({ is_cleared: true })
           .in('room_id', roomIds)
           .eq('is_cleared', false)
+          // Physical refills blocked by a guest are real outstanding tasks.
+          // Never discard them from a bulk cleanup of yesterday's records.
+          .neq('refill_status', 'blocked_guest_inside')
           .gte('usage_date', startOfYesterday.toISOString())
           .lte('usage_date', endOfYesterday.toISOString());
 
