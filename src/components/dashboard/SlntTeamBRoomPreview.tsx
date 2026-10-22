@@ -1,4 +1,4 @@
-import { AlertTriangle, BedDouble, CheckCircle2, Clock3, DoorClosed, DoorOpen, Info, MapPin, Play, Waves } from 'lucide-react';
+import { AlertTriangle, BedDouble, CheckCircle2, Clock3, CircleDashed, DoorClosed, DoorOpen, Info, MapPin, Play, Waves } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -56,21 +56,28 @@ export function SlntTeamBRoomPreview({
   const mine = !!userId && item.assigned_to === userId;
   const claimed = !!item.assignment_id;
   const working = item.assignment_status === 'in_progress';
+  // Muted styling applies ONLY to optional, unclaimed stayovers. Once started,
+  // the room should look active again, and an actual due service is never muted.
+  const optionalUnstarted = category === 'optional' && !claimed && !completed;
   const service = slntTeamBRoomInstructions(item);
   const meta = item.pms_metadata || {};
   const arrival = typeof meta.arrivalDate === 'string' ? meta.arrivalDate : null;
   const departure = typeof meta.departureDate === 'string' ? meta.departureDate : null;
 
-  // Keep a consistent, unmistakable visual identity for checkout, stayover,
-  // and waiting rooms, independent of the optional service badge.
+  // Keep checkout and due-service colors strong. Optional stayovers are visually
+  // quieter WITHOUT dimming or disabling the start action or critical notes.
   const accent = waiting
     ? 'border-l-4 border-l-orange-500 bg-orange-50/40 dark:bg-orange-950/20'
-    : checkout
-      ? 'border-l-4 border-l-sky-500'
-      : 'border-l-4 border-l-emerald-500';
+    : optionalUnstarted
+      ? 'border-l-4 border-l-slate-300 bg-slate-50/80 shadow-none dark:border-l-slate-600 dark:bg-slate-900/30'
+      : checkout
+        ? 'border-l-4 border-l-sky-500'
+        : 'border-l-4 border-l-emerald-500';
   const typeBadge = checkout
     ? 'border-orange-400 bg-orange-500 text-white'
-    : 'border-emerald-400 bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100';
+    : optionalUnstarted
+      ? 'border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200'
+      : 'border-emerald-400 bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100';
 
   const statusText = completed
     ? item.supervisor_approved ? (hu ? 'Jóváhagyva' : 'Approved') : (hu ? 'Jóváhagyásra vár' : 'Pending approval')
@@ -82,6 +89,7 @@ export function SlntTeamBRoomPreview({
 
   return (
     <Card data-training="slnt-team-b-room" data-room-state={waiting ? 'waiting-rtc' : category}
+      data-optional-unstarted={optionalUnstarted ? 'true' : undefined}
       className={'overflow-hidden rounded-xl shadow-sm ' + accent}>
       <CardHeader className="space-y-3 pb-2">
         {waiting && (
@@ -97,16 +105,17 @@ export function SlntTeamBRoomPreview({
         )}
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <CardTitle className="break-words text-xl font-extrabold leading-tight tracking-tight sm:text-2xl">
+            <CardTitle className={"break-words text-xl font-extrabold leading-tight tracking-tight sm:text-2xl " + (optionalUnstarted ? "text-slate-700 dark:text-slate-100" : "")}>
               {item.room_name || item.room_number}
             </CardTitle>
             {item.room_name && item.room_name !== item.room_number && (
-              <p className="mt-1 text-sm text-muted-foreground">{item.room_number}</p>
+              <p className={"mt-1 text-sm " + (optionalUnstarted ? "text-slate-500 dark:text-slate-400" : "text-muted-foreground")}>{item.room_number}</p>
             )}
           </div>
           <Badge variant={waiting || claimed ? 'secondary' : 'outline'}
             className={'max-w-[50%] shrink-0 whitespace-normal text-center text-xs ' +
-              (waiting ? 'border-orange-400 bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-100' : '')}>
+              (waiting ? 'border-orange-400 bg-orange-100 text-orange-900 dark:bg-orange-950 dark:text-orange-100' :
+                optionalUnstarted ? 'border-slate-300 bg-slate-100/80 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200' : '')}>
             {statusText}
           </Badge>
         </div>
@@ -121,8 +130,13 @@ export function SlntTeamBRoomPreview({
               {item.linen_change_required ? (hu ? 'Ágyneműcsere' : 'Linen change') : (hu ? 'Törölközőcsere' : 'Towel change')}
             </Badge>
           )}
-          {!checkout && item.is_optional && (
-            <Badge variant="outline">{hu ? 'Opcionális' : 'Optional'}</Badge>
+          {!checkout && category === 'optional' && (
+            <Badge variant="outline" className={optionalUnstarted
+              ? 'border-slate-300 bg-white/80 text-slate-600 dark:border-slate-600 dark:bg-slate-800/80 dark:text-slate-200'
+              : ''}>
+              <CircleDashed className="mr-1 h-3 w-3" />
+              {hu ? 'Opcionális · nem kötelező' : 'Optional · not required'}
+            </Badge>
           )}
           {item.guest_nights_stayed != null && item.guest_nights_stayed > 0 && (
             <Badge variant="outline" className="bg-muted text-foreground">🌙 {hu ? 'Éj' : 'Night'} {item.guest_nights_stayed}</Badge>
@@ -131,6 +145,21 @@ export function SlntTeamBRoomPreview({
       </CardHeader>
 
       <CardContent className="space-y-3 p-4 pt-2 sm:p-5 sm:pt-2">
+        {optionalUnstarted && (
+          <div data-training="slnt-team-b-optional-hint"
+            className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-100/70 p-3 text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+            <CircleDashed aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold">
+                {hu ? 'Opcionális napi szoba – nem kötelező feladat' : 'Optional stayover — not a required task'}
+              </p>
+              <p className="mt-1 text-xs">
+                {hu ? 'Nincs mára előírt törölköző- vagy ágyneműcsere. Csak szükség esetén kezdj takarítani.' :
+                  'No towel or linen change is due today. Start cleaning only if needed.'}
+              </p>
+            </div>
+          </div>
+        )}
         {checkout && <div className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100" data-training="slnt-checkout-guest-count">
           <p className="text-sm font-extrabold">{hu ? 'Távozó vendégek' : 'Guests checking out'}: {item.guest_count != null ? item.guest_count : (hu ? 'Nem ismert' : 'Unknown')}</p>
           <p className="mt-1 text-xs">{hu ? 'Érkező vendégek száma: nincs megerősítve a jelenlegi PMS-adatokban.' : 'Incoming guest count: not confirmed in current PMS data.'}</p>
@@ -184,7 +213,8 @@ export function SlntTeamBRoomPreview({
             <p className="mt-1 break-words font-semibold whitespace-pre-wrap">{note.text}</p>
           </div>
         ))}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <div className={'flex flex-wrap items-center gap-x-2 gap-y-1 text-xs ' + (optionalUnstarted
+          ? 'text-slate-500 dark:text-slate-400' : 'text-muted-foreground')}>
           <MapPin className="h-3.5 w-3.5" />
           {item.floor_number != null && <span>{hu ? 'Emelet' : 'Floor'} {item.floor_number} · </span>}
           <span>{item.room_number}</span>
@@ -195,7 +225,8 @@ export function SlntTeamBRoomPreview({
             </Badge>
           )}
         </div>
-        {(arrival || departure) && <p className="text-xs text-muted-foreground">
+        {(arrival || departure) && <p className={'text-xs ' + (optionalUnstarted
+          ? 'text-slate-500 dark:text-slate-400' : 'text-muted-foreground')}>
           {arrival ? (hu ? 'Érkezés: ' : 'Arrival: ') + arrival : ''}
           {arrival && departure ? ' · ' : ''}
           {departure ? (hu ? 'Távozás: ' : 'Departure: ') + departure : ''}
@@ -229,7 +260,8 @@ export function SlntTeamBRoomPreview({
           </Button>
         )}
         {!managerView && !completed && !waiting && !claimed && (
-          <div className="w-full pb-5" data-training="slnt-team-b-claim">
+          <div className="flex w-full flex-col pb-5" data-training="slnt-team-b-claim">
+            {/* Do not fade this action: optional cleaning must remain easy to start. */}
             <HoldButton size="lg" holdDuration={2000} disabled={busy}
               className="min-h-14 w-full select-none text-base font-bold"
               holdText={hu ? 'Tartsd nyomva az indításhoz' : 'Press & Hold to Start'}
