@@ -77,7 +77,7 @@ describe('SLNT Gozsdu-style individual room board', () => {
     expect(board).toContain('const previousEntries: Array<');
     expect(board).toContain('slntRoomSearch');
     expect(board).toContain('slntOnlyUnassigned');
-    expect(board).toContain('aria-label="Find property or room"');
+    expect(board).toContain('aria-label={hu ? "Ingatlan vagy szoba keresése" : "Find property or room"}');
     expect(board).toContain("aria-pressed={slntOnlyUnassigned}");
     expect(board).toContain('roomList.length}</Badge>');
   });
