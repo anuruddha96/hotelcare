@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { reportClientError } from '@/lib/clientErrorReporter';
 import {
   AssignmentPreview,
   BREAK_TIME_MINUTES,
@@ -1679,6 +1680,10 @@ export function AutoRoomAssignment({
         onOpenChange(false);
       } catch (error) {
         console.error('[AutoRoomAssignment] tomorrow plan save failed:', error);
+        void reportClientError(error, {
+          context: 'next-day-housekeeping-plan-approval',
+          action: `approve-${profile.assigned_hotel}-${selectedDate}`,
+        });
         const message = error instanceof Error ? error.message : 'Could not approve tomorrow’s plan.';
         setTomorrowApprovalError(message);
         toast.error(message);
