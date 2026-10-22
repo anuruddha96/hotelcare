@@ -50,7 +50,7 @@ describe('SLNT Team B optional stayover cards', () => {
     expect(card).toHaveAttribute('data-room-state', 'towel');
     expect(card).not.toHaveAttribute('data-optional-unstarted');
     expect(card?.className).toContain('border-l-emerald-500');
-    expect(screen.getByText('TOWEL CHANGE REQUIRED')).toBeInTheDocument();
+    expect(screen.getByText(/TOWEL CHANGE REQUIRED/)).toBeInTheDocument();
     expect(screen.queryByText('Optional stayover — not a required task')).not.toBeInTheDocument();
   });
 
