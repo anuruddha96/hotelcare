@@ -749,7 +749,16 @@ Deno.serve(async (req) => {
         release: releaseResult,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const postgrestError = error && typeof error === "object"
+        ? error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown }
+        : null;
+      const parts = [postgrestError?.message, postgrestError?.details, postgrestError?.hint]
+        .filter((part): part is string => typeof part === "string" && part.length > 0);
+      const message = error instanceof Error
+        ? error.message
+        : parts.length
+          ? [postgrestError?.code, ...parts].filter(Boolean).join(" — ")
+          : String(error);
       console.error(`[HK release] ${plan.hotel_id}/${plan.id}:`, message);
       await admin
         .from("next_day_housekeeping_plans")
