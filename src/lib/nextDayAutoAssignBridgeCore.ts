@@ -85,6 +85,8 @@ export type TomorrowPmsSnapshotArgs = {
   hotelId: string;
   selectedDate: string;
   forceFresh?: boolean;
+  /** Final approval needs a fresh selected-date reservation feed, not a live-room status rewrite. */
+  refreshLiveRoomState?: boolean;
   onProgress?: (event: TomorrowPmsProgressEvent) => void;
 };
 
@@ -279,6 +281,11 @@ async function findReusableSnapshot(args: {
   };
 }
 
+/** Keep today's live room state isolated from tomorrow's approval-time validation. */
+export function shouldRefreshCurrentPmsRoomStateForTomorrow(args: Pick<TomorrowPmsSnapshotArgs, 'hotelId' | 'refreshLiveRoomState'>): boolean {
+  return args.hotelId !== GOZSDU_COURT_HOTEL_ID && args.refreshLiveRoomState !== false;
+}
+
 export async function ensureTomorrowPmsSnapshot(
   args: TomorrowPmsSnapshotArgs,
 ): Promise<TomorrowSnapshotState> {
@@ -290,7 +297,7 @@ export async function ensureTomorrowPmsSnapshot(
 
   // Gozsdu relies on its selected-date overview, not sparse checked-out poll events.
   // Do not mutate today's live room flags just to open tomorrow's planner.
-  if (args.hotelId !== GOZSDU_COURT_HOTEL_ID) {
+  if (shouldRefreshCurrentPmsRoomStateForTomorrow(args)) {
     emitTomorrowPmsProgress(args.onProgress, 'refreshing-live-room-state');
     const result = await runPmsRefresh(args.hotelId, { trigger: 'manual' });
     if (result.status === 'error' || result.reservationDataAuthoritative === false) {
