@@ -201,7 +201,8 @@ function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): 
 
 export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey, signedInHousekeepers = [] }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const hu = language === 'hu';
   const terms = usePropertyTerms();
   const { orgSlug, venuesEnabled } = useTenantFeatures();
   // Use the active tenant, never the profile's default organization, to scope
@@ -1325,7 +1326,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             <span
               className="ml-1 rounded bg-slate-600 px-1 py-0.5 text-[8px] font-extrabold text-white"
               title="Verified unsold in Previo today; cleaning condition remains separate"
-            >Unsold</span>
+            >{hu ? 'Nem értékesített' : 'Unsold'}</span>
           )}
           {isSlntTenant && room.status === 'out_of_order' && (
             <span
@@ -2360,7 +2361,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {icon}
             <span className="text-sm font-semibold">{title}</span>
             <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
-            {slntFilterIsActive && <span className="text-[10px] text-muted-foreground">{todayRooms.length} shown</span>}
+            {slntFilterIsActive && <span className="text-[10px] text-muted-foreground">{todayRooms.length} {hu ? 'látható' : 'shown'}</span>}
             {sectionType === 'checkout' && roomList.length > 0 && (() => {
               const manualCount = roomList.filter(r => r.pms_metadata?.manual_checkout === true).length;
               const pmsCount = roomList.filter(r => r.is_checkout_room && !r.pms_metadata?.manual_checkout).length;
@@ -2370,7 +2371,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   <span>{pmsCount} PMS</span>
                   <span className="opacity-40">·</span>
                   <span className={manualCount > 0 ? 'font-semibold text-amber-700 dark:text-amber-500' : ''}>
-                    {manualCount} manual
+                    {manualCount} {hu ? 'kézi' : 'manual'}
                   </span>
                 </span>
               );
@@ -2397,7 +2398,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   };
                 }))}
               >
-                {todayRooms.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
+                {todayRooms.every(r => selectedUnitIds.has(r.id)) ? (hu ? 'Kijelölés törlése' : 'Deselect all') : (hu ? 'Összes kijelölése' : 'Select all')}
               </Button>
             )}
           </div>
@@ -2520,7 +2521,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-sm sm:text-base font-semibold flex items-center gap-1.5 min-w-0">
               <Hotel className="h-4 w-4 text-primary shrink-0" />
-              <span className="truncate">{isSlntTenant ? 'Property Overview' : t('team.hotelRoomOverview')}</span>
+              <span className="truncate">{isSlntTenant ? (hu ? 'Ingatlanok áttekintése' : 'Property Overview') : t('team.hotelRoomOverview')}</span>
               {isSlntTenant && (
                 <span className="shrink-0 rounded border border-border/60 bg-muted/50 px-1 py-0.5 text-[9px] font-medium text-muted-foreground" title="SLNT flat room-chip board — September 2026">v4</span>
               )}
@@ -2535,7 +2536,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   aria-label={viewMode === 'list' ? 'Switch to map view' : 'Switch to list view'}
                 >
                   <MapIcon className="h-3.5 w-3.5 sm:mr-1" />
-                  <span className="hidden sm:inline">{viewMode === 'list' ? 'Map' : 'List'}</span>
+                  <span className="hidden sm:inline">{viewMode === 'list' ? (hu ? 'Térkép' : 'Map') : (hu ? 'Lista' : 'List')}</span>
                 </Button>
               )}
               <HelpTooltip hint={UI_HINTS["room.refresh"]}>
@@ -2631,9 +2632,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           </div>
           {isSlntTenant && viewMode === 'list' && (
             <div className="slnt-board-toolbar flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-muted/15 px-2 py-1.5">
-              <span className="text-[11px] font-semibold text-foreground">Checkout {checkoutRooms.length}</span>
+              <span className="text-[11px] font-semibold text-foreground">{hu ? "Kijelentkezők" : "Checkout"} {checkoutRooms.length}</span>
               <span className="text-muted-foreground/60">·</span>
-              <span className="text-[11px] font-semibold text-foreground">Daily {dailyRooms.length}</span>
+              <span className="text-[11px] font-semibold text-foreground">{hu ? "Napi szobák" : "Daily"} {dailyRooms.length}</span>
               <span className="text-muted-foreground/60">·</span>
               <Button
                 type="button"
@@ -2643,12 +2644,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 aria-pressed={slntOnlyUnassigned}
                 onClick={() => setSlntOnlyUnassigned(value => !value)}
               >
-                Unassigned {slntUnassignedCount}
+                {hu ? "Kiosztatlan" : "Unassigned"} {slntUnassignedCount}
               </Button>
               <input
                 type="search"
-                aria-label="Find property or room"
-                placeholder="Find property or room…"
+                aria-label={hu ? "Ingatlan vagy szoba keresése" : "Find property or room"}
+                placeholder={hu ? "Ingatlan vagy szoba keresése…" : "Find property or room…"}
                 value={slntRoomSearch}
                 onChange={e => setSlntRoomSearch(e.target.value)}
                 className="h-7 min-w-0 flex-1 basis-[11rem] rounded-md border border-input bg-background px-2 text-xs text-foreground outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
@@ -2661,7 +2662,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   className="h-7 px-2 text-[11px]"
                   onClick={() => { setSlntRoomSearch(''); setSlntOnlyUnassigned(false); }}
                 >
-                  Clear
+                  {hu ? 'Törlés' : 'Clear'}
                 </Button>
               )}
             </div>
@@ -2678,9 +2679,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-[11px] font-semibold text-foreground">Signed in today</span>
+                <span className="text-[11px] font-semibold text-foreground">{hu ? "Ma bejelentkezett munkatársak" : "Signed in today"}</span>
                 <span className="text-[10px] text-muted-foreground hidden sm:inline">
-                  — drag a housekeeper onto a {terms.unit.toLowerCase()} to assign
+                  {hu ? "— takarító húzása egy szobára a kiosztáshoz" : "— drag a housekeeper onto a " + terms.unit.toLowerCase() + " to assign"}
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -2719,13 +2720,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             />
           ) : (
             <>
-               {renderSection(terms.isProperty ? terms.checkoutSection : t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
+               {renderSection(isSlntTenant && hu ? 'Kijelentkező szobák' : terms.isProperty ? terms.checkoutSection : t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
                <div className="border-t border-border/50" />
-               {renderSection(terms.isProperty ? terms.dailySection : t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {renderSection(isSlntTenant && hu ? 'Napi szobák / szolgáltatási emlékeztetők' : terms.isProperty ? terms.dailySection : t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
                {unsoldRooms.length > 0 && (
                  <>
                    <div className="border-t border-border/50" />
-                   {renderSection('Unsold / Vacant', unsoldRooms, <BedDouble className="h-3.5 w-3.5 text-slate-600" />, 'daily', true)}
+                   {renderSection(hu ? 'Nem értékesített / üres' : 'Unsold / Vacant', unsoldRooms, <BedDouble className="h-3.5 w-3.5 text-slate-600" />, 'daily', true)}
                  </>
                )}
                {arrivalRooms.length > 0 && (
