@@ -24,8 +24,8 @@ describe('SLNT Team B shared queue presentation', () => {
 
 describe('SLNT Team B RD-style room card order', () => {
   const base = { is_checkout_room: false, is_optional: false, towel_change_required: false, linen_change_required: false, pms_metadata: {} };
-  it('shows towel and linen changes first, even before ready checkouts', () => {
-    expect(SLNT_TEAM_B_DISPLAY_ORDER).toEqual(['towel','rtc','due','optional','waiting']);
+  it('prioritizes RTC ready checkout, then towel and linen changes', () => {
+    expect(SLNT_TEAM_B_DISPLAY_ORDER).toEqual(['rtc','towel','due','optional','waiting']);
     expect(slntTeamBDisplayGroup({ ...base, towel_change_required: true }, today)).toBe('towel');
     expect(slntTeamBDisplayGroup({ ...base, linen_change_required: true }, today)).toBe('towel');
     expect(slntTeamBDisplayGroup({ ...base }, today)).toBe('due');
