@@ -8,7 +8,7 @@ import { AssignedRoomCard } from './AssignedRoomCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { SlntTeamBRoomPreview, type SlntTeamBPreviewItem } from './SlntTeamBRoomPreview';
+import { SlntTeamBRoomPreview, type SlntTeamBPreviewItem, type SlntIncomingArrival } from './SlntTeamBRoomPreview';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { summarizeTeamBProgress } from '@/lib/slntSimplifiedHousekeeping';
@@ -37,6 +37,9 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [incomingByRoom, setIncomingByRoom] = useState<Record<string, SlntIncomingArrival>>({});
+  const [incomingStatus, setIncomingStatus] = useState<'loading' | 'verified' | 'unavailable'>('loading');
+  const [incomingAsOf, setIncomingAsOf] = useState<string | null>(null);
   const date = todayBudapest();
 
   const refresh = useCallback(async () => {
@@ -74,6 +77,43 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
       window.removeEventListener('hk-assignments-changed', onChange);
     };
   }, [refresh]);
+
+  // Check the physical-room Previo bookings separately from the 8-second
+  // housekeeping assignment updates. Avoid hitting the PMS on each poll.
+  const refreshIncoming = useCallback(async () => {
+    try {
+      const { data, error: failure } = await supabase.functions.invoke('slnt-next-arrivals', { body: {} });
+      if (failure || !data?.ok || data.from !== date || !Array.isArray(data.rooms)) {
+        throw new Error('Incoming reservation lookup incomplete');
+      }
+      const next: Record<string, SlntIncomingArrival> = {};
+      for (const row of data.rooms as SlntIncomingArrival[]) {
+        if (row && typeof row.room_id === 'string') next[row.room_id] = row;
+      }
+      setIncomingByRoom(next);
+      setIncomingAsOf(typeof data.as_of === 'string' ? data.as_of : null);
+      setIncomingStatus('verified');
+    } catch {
+      // Keep failed reads visibly unverified instead of showing stale counts.
+      setIncomingByRoom({});
+      setIncomingAsOf(null);
+      setIncomingStatus('unavailable');
+    }
+  }, [date]);
+
+  useEffect(() => {
+    setIncomingStatus('loading');
+    void refreshIncoming();
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void refreshIncoming();
+    }, 5 * MINUTE);
+    const onVisible = () => { if (!document.hidden) void refreshIncoming(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refreshIncoming]);
 
   // Only meaningful actions count as activity. A tab left open and polling
   // every 30 seconds must NOT keep an absent cleaner falsely marked active.
@@ -163,6 +203,8 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
     return <SlntTeamBRoomPreview key={item.room_id} item={item} date={date}
       hu={hu} userId={user?.id} busy={!!busy} managerView={managerView}
       startedAt={time?.started_at} duration={time ? elapsed(time.started_at, time.completed_at) : null}
+      incoming={incomingByRoom[item.room_id] ?? null}
+      incomingStatus={incomingStatus} incomingAsOf={incomingAsOf}
       onStart={() => void claim(item)}
       onOpen={() => { if (item.assignment_id) void openExisting(item.assignment_id); }}
     />;
@@ -182,7 +224,7 @@ export function SlntTeamBSharedWorklist({ managerView = false }: Props) {
                 : 'Shared rooms · first cleaner to start takes the room.'}
             </p>
           </div>
-          <Button size="sm" variant="outline" disabled={loading} onClick={() => void refresh()}
+          <Button size="sm" variant="outline" disabled={loading} onClick={() => { void refresh(); void refreshIncoming(); }}
             data-training="slnt-team-b-refresh">
             <RefreshCw className="mr-1.5 h-4 w-4" />
             {hu ? 'Frissítés' : 'Refresh'}
