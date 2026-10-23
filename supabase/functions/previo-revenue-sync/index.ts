@@ -2010,7 +2010,7 @@ serve(async (req) => {
     for (let i = 0; i < cancelPayload.length; i += 500) {
       const { error } = await service
         .from("revenue_cancelled_nights")
-        .insert(cancelPayload.slice(i, i + 500));
+        .upsert(cancelPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date", ignoreDuplicates: true });
       if (error) errors.push(`cancelled nights insert: ${error.message}`);
     }
 
@@ -2044,7 +2044,7 @@ serve(async (req) => {
       for (let i = 0; i < lostPayload.length; i += 500) {
         const { error } = await service
           .from("revenue_cancelled_nights")
-          .insert(lostPayload.slice(i, i + 500));
+          .upsert(lostPayload.slice(i, i + 500), { onConflict: "hotel_id,res_id,room_key,stay_date", ignoreDuplicates: true });
         if (error) errors.push(`lost nights insert: ${error.message}`);
       }
     }
@@ -2102,14 +2102,18 @@ serve(async (req) => {
   const missingPriceDays = Array.from(perDate.values()).filter((s) => s.unpriced > 0).length;
   if (invalidSnapshots.length > 0) softNotes.push(`KPI validation: ${invalidSnapshots.length} days have sales above commercial inventory or zero inventory`);
   if (missingPriceDays > 0) softNotes.push(`KPI validation: ${missingPriceDays} days contain missing room prices; verify in Previo`);
-  if (!resErrors.length && invalidSnapshots.length === 0) {
-    for (let i = 0; i < snapshots.length; i += 500) {
+  // Overbooked dates are a genuine Previo discrepancy, not a reason to suppress all dates.
+  // Preserve the true sold/available values (>100% occupancy flags an issue for review).
+  const publishableSnapshots = snapshots.filter((s) => s.rooms_available > 0);
+  if (publishableSnapshots.length === 0) errors.push("snapshot validation: no date has positive inventory");
+  if (!resErrors.length && publishableSnapshots.length > 0) {
+    for (let i = 0; i < publishableSnapshots.length; i += 500) {
       const { error } = await service
         .from("revenue_daily_snapshots")
-        .insert(snapshots.slice(i, i + 500));
+        .insert(publishableSnapshots.slice(i, i + 500));
       if (error) errors.push(`snapshot insert: ${error.message}`);
     }
-    const pickupRows = snapshots.map((snapshot) => {
+    const pickupRows = publishableSnapshots.map((snapshot) => {
       const movement = movementByDate.get(snapshot.stay_date) ?? { gained: 0, lost: 0 };
       return {
         hotel_id: hotelId,
