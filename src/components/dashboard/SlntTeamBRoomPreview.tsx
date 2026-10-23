@@ -6,6 +6,13 @@ import { HoldButton } from '@/components/ui/hold-button';
 import { isSlntRtcReady, slntTeamBDisplayGroup, type SlntTeamBCardRoom } from '@/lib/slntTeamBQueue';
 import { slntTeamBRoomInstructions, type SlntRoomCardDetails } from '@/lib/slntTeamBRoomPresentation';
 
+export type SlntIncomingArrival = {
+  room_id: string;
+  status: 'confirmed' | 'guest_list' | 'not_found' | 'unverified' | 'conflict';
+  arrival_date: string | null;
+  guest_count: number | null;
+};
+
 export type SlntTeamBPreviewItem = SlntTeamBCardRoom & SlntRoomCardDetails & {
   room_id: string;
   room_name: string | null;
@@ -32,6 +39,9 @@ type Props = {
   managerView: boolean;
   startedAt?: string | null;
   duration?: string | null;
+  incoming?: SlntIncomingArrival | null;
+  incomingStatus?: 'loading' | 'verified' | 'unavailable';
+  incomingAsOf?: string | null;
   onStart: () => void;
   onOpen: () => void;
 };
@@ -46,7 +56,8 @@ function localTime(iso: string, hu: boolean) {
  * AssignedRoomCard AFTER claiming, while showing its actionable instructions
  * BEFORE the cleaner starts. The atomic claim RPC remains authoritative. */
 export function SlntTeamBRoomPreview({
-  item, date, hu, userId, busy, managerView, startedAt, duration, onStart, onOpen,
+  item, date, hu, userId, busy, managerView, startedAt, duration,
+  incoming, incomingStatus = 'loading', incomingAsOf, onStart, onOpen,
 }: Props) {
   const checkout = item.is_checkout_room;
   const rtcReady = checkout && isSlntRtcReady(item, date);
@@ -162,7 +173,35 @@ export function SlntTeamBRoomPreview({
         )}
         {checkout && <div className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100" data-training="slnt-checkout-guest-count">
           <p className="text-sm font-extrabold">{hu ? 'Távozó vendégek' : 'Guests checking out'}: {item.guest_count != null ? item.guest_count : (hu ? 'Nem ismert' : 'Unknown')}</p>
-          <p className="mt-1 text-xs">{hu ? 'Érkező vendégek száma: nincs megerősítve a jelenlegi PMS-adatokban.' : 'Incoming guest count: not confirmed in current PMS data.'}</p>
+          <div className="mt-1 text-xs" data-training="slnt-incoming-guests" aria-live="polite">
+            {incomingStatus === 'loading' && (
+              <p>{hu ? 'Következő foglalás ellenőrzése a Previóban…' : 'Checking the next assigned reservation in Previo…'}</p>
+            )}
+            {incomingStatus === 'unavailable' && (
+              <p>{hu ? 'Érkező vendégszám nem ellenőrizhető. Frissítsd a Previo-adatokat.' : 'Incoming guest count cannot be verified. Refresh Previo data.'}</p>
+            )}
+            {incomingStatus === 'verified' && incoming?.status === 'confirmed' && incoming.guest_count != null && (
+              <p className="font-bold">{hu ? 'Következő érkezés' : 'Next assigned arrival'}: {incoming.guest_count} {hu ? 'vendég' : incoming.guest_count === 1 ? 'guest' : 'guests'} · {incoming.arrival_date} · {hu ? 'Previo által megerősítve' : 'Confirmed in Previo'}</p>
+            )}
+            {incomingStatus === 'verified' && incoming?.status === 'guest_list' && incoming.guest_count != null && (
+              <p>{hu ? 'Következő érkezés' : 'Next assigned arrival'}: {incoming.guest_count} {hu ? 'vendégadat' : 'guest records'} · {incoming.arrival_date} · {hu ? 'A teljes létszám nem igazolt' : 'Total occupancy not verified'}</p>
+            )}
+            {incomingStatus === 'verified' && incoming?.status === 'not_found' && (
+              <p>{hu ? 'Nincs megerősített foglalás ehhez a szobához a következő 30 napban.' : 'No confirmed booking assigned to this room within the next 30 days.'}</p>
+            )}
+            {incomingStatus === 'verified' && incoming?.status === 'unverified' && (
+              <p>{hu ? 'Érkező foglalás van, de a vendégszám nem igazolható.' : 'An incoming reservation exists, but its guest count is unverified.'}{incoming.arrival_date ? ' · ' + incoming.arrival_date : ''}</p>
+            )}
+            {incomingStatus === 'verified' && incoming?.status === 'conflict' && (
+              <p className="font-semibold">{hu ? 'Több foglalás tartozik ugyanahhoz a szobához — vezetői ellenőrzés szükséges.' : 'Conflicting reservations assigned to this room — manager review required.'}</p>
+            )}
+            {incomingStatus === 'verified' && !incoming && (
+              <p>{hu ? 'Ehhez a szobához nincs ellenőrzött Previo-hozzárendelés.' : 'No verified Previo room mapping is available.'}</p>
+            )}
+            {incomingStatus === 'verified' && incomingAsOf && incoming?.status !== 'unverified' && (
+              <p className="mt-1 opacity-75">{hu ? 'Previo ellenőrizve' : 'Previo checked'}: {localTime(incomingAsOf, hu)}</p>
+            )}
+          </div>
           {!service.bedInstruction && <p className="mt-1 text-xs">{hu ? 'Ágyelrendezés: nincs külön utasítás megadva.' : 'Bed configuration: no specific instruction recorded.'}</p>}
         </div>}
 
