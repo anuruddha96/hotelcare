@@ -9,8 +9,9 @@ const HOTEL = "slnt-group";
 const ORG = "slnt";
 const EXPECTED_ACCOUNTS = new Set(["782407", "783103"]);
 const LOOKAHEAD_DAYS = 30;
-const PAGE_SIZE = 200;
-const MAX_PAGES = 20;
+// XML Previo documents <limit> pagination only for fulltext searches.
+ // Bound ordinary check-in searches by small date windows instead.
+const CHUNK_DAYS = 5;
 const ALLOWED_ROLES = new Set([
   "housekeeping", "housekeeper", "manager", "housekeeping_manager",
   "supervisor", "admin", "top_management", "top_management_manager",
@@ -144,19 +145,22 @@ serve(async req => {
       const gathered = new Map<string, Arrival[]>();
       try {
         const creds = loadPrevioCredentials(account.credentials_secret_name);
-        for (let page = 0; page < MAX_PAGES; page++) {
-          const offset = page * PAGE_SIZE;
-          const extraXml = `<term><from>${today}</from><to>${until}</to></term><limit><offset>${offset}</offset><limit>${PAGE_SIZE}</limit></limit>`;
+        for (let from = today; from < until; from = addDays(from, CHUNK_DAYS)) {
+          const next = addDays(from, CHUNK_DAYS);
+          const to = next < until ? next : until;
+          // Query arrivals rather than all overlaps: the outgoing guest is
+          // not the arriving guest, and Previo fulltext-only pagination is
+          // not applicable to date-based reservation searches.
+          const extraXml = `<term><from>${from}</from><to>${to}</to><termType>check-in</termType></term>`;
           const upstream = await callPrevioXml({ method: "searchReservations", creds,
             pmsHotelId: String(account.pms_hotel_id), extraXml });
           if (!upstream.ok) throw new Error("Incomplete Previo reservation response");
-          const parsed = parsePage(upstream.text, today, until);
+          const parsed = parsePage(upstream.text, from, to);
+          if (parsed.rawCount > 1000) throw new Error("Unexpected Previo response size for a five-day arrival window");
           for (const [externalId, entries] of parsed.arrivals) {
             if (!gathered.has(externalId)) gathered.set(externalId, []);
             gathered.get(externalId)!.push(...entries);
           }
-          if (parsed.rawCount < PAGE_SIZE) break;
-          if (page === MAX_PAGES - 1) throw new Error("Previo result exceeded safe pagination limit");
         }
         for (const row of mapped) results.push(chooseArrival(row.room_id, gathered.get(row.external_room_id)));
       } catch (error) {
