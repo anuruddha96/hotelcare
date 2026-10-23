@@ -1927,6 +1927,70 @@ serve(async (req) => {
       errors.push(`loss diff: ${(e as Error).message}`);
     }
 
+    // Previo can transiently omit an already-recorded reservation-night and
+    // report it again on the next read. This is NOT another cancellation.
+    // The durable loss ledger is authoritative for whether the disappearance
+    // has already been counted in pickup.
+    if (lostNights.length > 0) {
+      const knownLossKeys = new Set<string>();
+      let ledgerComplete = true;
+      const pageSize = 1000;
+      for (let offset = 0; offset < 100000; offset += pageSize) {
+        const { data: prior, error: ledgerErr } = await service
+          .from("revenue_cancelled_nights")
+          .select("id,res_id,room_key,stay_date")
+          .eq("hotel_id", hotelId)
+          .gte("stay_date", from)
+          .lte("stay_date", replaceTo)
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (ledgerErr) {
+          errors.push(`loss ledger read: ${ledgerErr.message}`);
+          ledgerComplete = false;
+          break;
+        }
+        for (const row of prior ?? []) {
+          knownLossKeys.add(`${row.res_id}|${row.room_key}|${row.stay_date}`);
+        }
+        if ((prior ?? []).length < pageSize) break;
+        if (offset + pageSize >= 100000) {
+          ledgerComplete = false;
+          errors.push("loss ledger read: safety pagination limit reached");
+        }
+      }
+
+      if (!ledgerComplete) {
+        // Do not invent loss movement if its durable history cannot be checked.
+        for (const movement of movementByDate.values()) movement.lost = 0;
+        lostNights.length = 0;
+        softNotes.push("pickup loss withheld because cancellation history is unavailable");
+      } else {
+        const seenThisRun = new Set<string>();
+        const freshLosses: typeof lostNights = [];
+        const previouslySeenByDate = new Map<string, number>();
+        for (const lost of lostNights) {
+          const key = `${lost.res_id}|${lost.room_key}|${lost.stay_date}`;
+          if (knownLossKeys.has(key) || seenThisRun.has(key)) {
+            previouslySeenByDate.set(lost.stay_date, (previouslySeenByDate.get(lost.stay_date) ?? 0) + 1);
+          } else {
+            seenThisRun.add(key);
+            freshLosses.push(lost);
+          }
+        }
+        for (const [date, repeated] of previouslySeenByDate) {
+          const movement = movementByDate.get(date);
+          if (!movement) continue;
+          movement.lost = Math.max(0, movement.lost - repeated);
+          if (movement.gained === 0 && movement.lost === 0) movementByDate.delete(date);
+        }
+        const previouslyRecorded = lostNights.length - freshLosses.length;
+        lostNights.splice(0, lostNights.length, ...freshLosses);
+        if (previouslyRecorded) {
+          softNotes.push(`pickup: ignored ${previouslyRecorded} previously-recorded disappeared room-night(s), avoiding repeated phantom cancellations`);
+        }
+      }
+    }
+
     // Full replace for the horizon so cancellations disappear immediately.
     const { error: delErr } = await service
       .from("revenue_booking_nights")
