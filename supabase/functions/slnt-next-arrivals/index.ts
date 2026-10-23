@@ -46,7 +46,7 @@ function todayBudapest(): string {
 function readCount(raw: string): Pick<Arrival, "count" | "count_source"> {
   // Previo allows guest identities to be omitted. Never manufacture a one-person booking.
   const declared = ["numGuest", "numOfGuests", "persons", "pax"].map(tag => grab(raw, tag))
-    .find(v => v != null && /^\\d+$/.test(v));
+    .find(v => v != null && /^\d+$/.test(v));
   if (declared !== undefined) {
     const n = Number(declared);
     if (n > 0 && n <= 100) return { count: n, count_source: "declared" };
@@ -70,7 +70,7 @@ function parsePage(xml: string, from: string, to: string) {
     if (![2, 3].includes(statusId)) continue;
     const object = grab(raw, "object") ?? "";
     const physicalId = grab(object, "objId") ?? grab(raw, "objId");
-    if (!physicalId || !/^\\d+$/.test(physicalId)) continue;
+    if (!physicalId || !/^\d+$/.test(physicalId)) continue;
     const { count, count_source } = readCount(raw);
     const key = grab(raw, "comId") || [grab(raw, "resId") ?? "", physicalId, arrival].join(":");
     const item: Arrival = { arrival_date: arrival, count, count_source, key };
@@ -102,7 +102,7 @@ serve(async req => {
   if (!url || !anon || !service) return respond({ ok: false, error: "Service not configured" }, 503);
 
   try {
-    const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\\s+/i, "");
+    const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
     if (!token) return respond({ ok: false, error: "Unauthorized" }, 401);
     const auth = createClient(url, anon, { auth: { persistSession: false } });
     const { data: authUser, error: authError } = await auth.auth.getUser(token);
@@ -132,7 +132,7 @@ serve(async req => {
     if (mappingsError || !mappings) return respond({ ok: false, error: "Room mappings unavailable" }, 503);
     const byAccount = new Map<string, typeof mappings>();
     for (const mapping of mappings) {
-      if (!mapping.pms_account_id || !mapping.external_room_id || !/^\\d+$/.test(mapping.external_room_id)) continue;
+      if (!mapping.pms_account_id || !mapping.external_room_id || !/^\d+$/.test(mapping.external_room_id)) continue;
       if (!byAccount.has(mapping.pms_account_id)) byAccount.set(mapping.pms_account_id, []);
       byAccount.get(mapping.pms_account_id)!.push(mapping);
     }
