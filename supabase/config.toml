@@ -288,3 +288,7 @@ verify_jwt = false
 # Manual manager emails use signed-in top-management JWTs and check hotel scope.
 [functions.maintenance-notify-manager]
 verify_jwt = true
+
+# Authenticated SLNT-only physical-room upcoming guest-count lookup.
+[functions.slnt-next-arrivals]
+verify_jwt = true
