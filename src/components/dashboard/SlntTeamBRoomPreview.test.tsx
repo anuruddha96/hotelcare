@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { SlntTeamBRoomPreview, type SlntTeamBPreviewItem } from './SlntTeamBRoomPreview';
+import { SlntTeamBRoomPreview, type SlntTeamBPreviewItem, type SlntIncomingArrival } from './SlntTeamBRoomPreview';
 
 const today = '2026-10-22';
 const base: SlntTeamBPreviewItem = {
@@ -13,9 +13,11 @@ const base: SlntTeamBPreviewItem = {
   assignment_id: null, assigned_to: null, assignment_status: null, supervisor_approved: false,
 };
 
-const show = (item: SlntTeamBPreviewItem = base, hu = false) => render(
+const show = (item: SlntTeamBPreviewItem = base, hu = false, incoming?: SlntIncomingArrival | null,
+  incomingStatus: 'loading' | 'verified' | 'unavailable' = 'loading') => render(
   <SlntTeamBRoomPreview
     item={item} date={today} hu={hu} userId="cleaner-1" managerView={false} busy={false}
+    incoming={incoming} incomingStatus={incomingStatus} incomingAsOf="2026-10-22T08:00:00Z"
     onStart={vi.fn()} onOpen={vi.fn()}
   />
 );
@@ -70,5 +72,37 @@ describe('SLNT Team B optional stayover cards', () => {
     expect(container.querySelector('[data-room-state="waiting-rtc"]')).toBeInTheDocument();
     expect(screen.getByText(/Cannot start — waiting for checkout/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Start Cleaning/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('SLNT exact-room next arrival details', () => {
+  const checkout = { ...base, is_checkout_room: true, pms_metadata: {
+    pmsSyncDate: today, scheduledDepartureToday: true, readyToClean: true, readyToCleanDate: today,
+    checkedOutToday: true,
+  } };
+  it('displays an explicit Previo count with room-specific date and source', () => {
+    show(checkout, false, { room_id: 'room-1', status: 'confirmed', arrival_date: today, guest_count: 3 }, 'verified');
+    expect(screen.getByText(/Next assigned arrival: 3 guests/)).toBeInTheDocument();
+    expect(screen.getByText(/Confirmed in Previo/)).toBeInTheDocument();
+    expect(screen.getByText(/Guests checking out: 2/)).toBeInTheDocument();
+  });
+  it('does not label a partial guest listing as confirmed occupancy', () => {
+    show(checkout, false, { room_id: 'room-1', status: 'guest_list', arrival_date: today, guest_count: 2 }, 'verified');
+    expect(screen.getByText(/Total occupancy not verified/)).toBeInTheDocument();
+    expect(screen.queryByText(/Confirmed in Previo/)).not.toBeInTheDocument();
+  });
+  it('shows a bounded no-booking statement only for a verified lookup', () => {
+    show(checkout, false, { room_id: 'room-1', status: 'not_found', arrival_date: null, guest_count: null }, 'verified');
+    expect(screen.getByText(/No confirmed booking assigned.*next 30 days/)).toBeInTheDocument();
+  });
+  it('fails closed on missing API data', () => {
+    show(checkout, false, null, 'unavailable');
+    expect(screen.getByText(/Incoming guest count cannot be verified/)).toBeInTheDocument();
+    expect(screen.queryByText(/No confirmed booking assigned/)).not.toBeInTheDocument();
+  });
+  it('preserves Hungarian checkout labels and matching incoming count', () => {
+    show(checkout, true, { room_id: 'room-1', status: 'confirmed', arrival_date: today, guest_count: 4 }, 'verified');
+    expect(screen.getByText(/Következő érkezés: 4 vendég/)).toBeInTheDocument();
+    expect(screen.getByText(/Previo által megerősítve/)).toBeInTheDocument();
   });
 });
