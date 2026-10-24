@@ -489,6 +489,17 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     const physicalName = String(mappings.find((m: any) =>
       String(m.hotelcare_room_id || "") === pair.id)?.pms_room_name || "").trim().toLowerCase();
     const freshReservation = richByLabel.get(physicalName);
+    // A new authoritative overnight snapshot must not inherit yesterday's NS?
+    // label from the metadata spread. Preserve a fresh, explicit status-8
+    // no-show, but clear outdated inference when the room is in today's
+    // occupied-night manifest. For Ottofiori retain its special reconciliation
+    // unless Previo positively confirms check-in/out.
+    const confirmedInHouse = [3, 5, 6, 9].includes(Number(freshReservation?.RawReservationStatusId));
+    if (freshReservation?.IsNoShow !== true && (!ottofiori || confirmedInHouse)) {
+      metadata.isNoShow = false;
+      metadata.noShowSource = null;
+      if (!ottofiori || confirmedInHouse) metadata.notArrived = false;
+    }
     const previoCheckedOut = freshReservation?.CheckedOut === true
       && freshReservation?.DepartureDate === date;
     const checkoutStampedToday = old.checkedOutToday === true
