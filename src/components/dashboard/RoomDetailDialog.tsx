@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
-import { matchingRoomNoteHistory, formatBudapestNoteTimestamp } from '@/lib/roomNoteProvenance';
+import { matchingRoomNoteHistory, describeRoomNoteTimestamp } from '@/lib/roomNoteProvenance';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { 
@@ -78,7 +78,8 @@ interface RoomNoteHistoryEntry {
   content: string;
   created_at: string;
   created_by: string;
-  created_by_name: string;
+  created_by_name: string | null;
+  source?: 'manual' | 'system_change' | 'room_created' | 'first_seen';
 }
 
 interface RoomDetailDialogProps {
@@ -124,7 +125,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
   const fetchRoomNoteHistory = useCallback(async (roomId: string) => {
     try {
-      const { data, error } = await (supabase as any).rpc('get_room_note_history', {
+      const { data, error } = await (supabase as any).rpc('get_room_note_provenance', {
         p_room_id: roomId,
         p_limit: 5,
       });
@@ -718,7 +719,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                       : (() => {
                           const saved = matchingRoomNoteHistory(lastPersistedNotesRef.current, noteHistory);
                           return saved
-                            ? 'Entered: ' + formatBudapestNoteTimestamp(saved.created_at) + ' (Budapest) · ' + (saved.created_by_name || 'Unknown user')
+                            ? describeRoomNoteTimestamp(saved)
                             : 'Note date/time not recorded';
                         })()}
                   </div>
@@ -731,9 +732,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                           <div key={entry.id} className="rounded-md bg-background border px-3 py-2">
                             <div className="text-sm whitespace-pre-wrap break-words">{entry.content}</div>
                             <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
-                              <span>{entry.created_by_name || 'Unknown user'}</span>
-                              <span>•</span>
-                              <span>{formatBudapestNoteTimestamp(entry.created_at)} (Budapest)</span>
+                              <span>{describeRoomNoteTimestamp(entry)}</span>
                             </div>
                           </div>
                         ))}
