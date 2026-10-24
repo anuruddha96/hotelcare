@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatBudapestNoteTimestamp,
+  describeRoomNoteTimestamp,
   isNoteFromBudapestToday,
   matchingRoomNoteHistory,
   type RoomNoteHistoryEntry,
@@ -25,6 +26,20 @@ describe('room note provenance', () => {
 
   it('normalizes spacing without changing note content', () => {
     expect(matchingRoomNoteHistory(' check  2 small towels\n', history)?.id).toBe('new');
+  });
+
+  it('ignores operational service markers when matching a saved note', () => {
+    expect(matchingRoomNoteHistory('[ROOM_CLEANING] [COLLECT_EXTRA_TOWELS] check 2 small towels', history)?.id).toBe('new');
+    expect(matchingRoomNoteHistory('[ROOM_CLEANING]', history)).toBeNull();
+  });
+
+  it('never presents a first-observed legacy timestamp as the original entry date', () => {
+    const observed = { ...history[0], source: 'first_seen' as const };
+    expect(describeRoomNoteTimestamp(observed)).toContain('First observed:');
+    expect(describeRoomNoteTimestamp(observed)).toContain('original entry time unknown');
+    const system = { ...history[0], source: 'system_change' as const };
+    expect(describeRoomNoteTimestamp(system)).toContain('System update:');
+    expect(describeRoomNoteTimestamp(history[0])).toContain('Entered:');
   });
 
   it('uses Budapest civil time, including seasonal daylight savings', () => {

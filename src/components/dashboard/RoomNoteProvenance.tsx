@@ -4,6 +4,7 @@ import { Clock3, History, UserRound } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import {
   formatBudapestNoteTimestamp,
+  describeRoomNoteTimestamp,
   isNoteFromBudapestToday,
   matchingRoomNoteHistory,
   type RoomNoteHistoryEntry,
@@ -53,7 +54,7 @@ export function RoomNoteProvenance({
   const { data = [], isPending, isError } = useQuery({
     queryKey: ['room-note-provenance', roomId, roomNotes],
     queryFn: async (): Promise<RoomNoteHistoryEntry[]> => {
-      const { data: rows, error } = await (supabase as any).rpc('get_room_note_history', {
+      const { data: rows, error } = await (supabase as any).rpc('get_room_note_provenance', {
         p_room_id: roomId,
         p_limit: 5,
       });
@@ -73,7 +74,6 @@ export function RoomNoteProvenance({
 
   const current = matchingRoomNoteHistory(roomNotes, data);
   const currentTimestamp = current ? formatBudapestNoteTimestamp(current.created_at, language) : '';
-  const author = current?.created_by_name?.trim() || (hu ? 'Ismeretlen szerző' : 'Unknown author');
   const isOlder = current && !isNoteFromBudapestToday(current.created_at);
   const statusText = draftChanged
     ? (hu ? 'Nem mentett módosítások · az időpont a legutóbb mentett megjegyzéshez tartozik' : 'Unsaved changes · time refers to the last saved note')
@@ -83,7 +83,7 @@ export function RoomNoteProvenance({
         ? (hu ? 'A megjegyzés előzményei nem érhetők el' : 'Note history unavailable')
         : !current || !currentTimestamp
           ? (hu ? 'A megjegyzés pontos időpontja nem ismert' : 'Note date/time not recorded')
-          : (hu ? 'Rögzítve: ' : 'Entered: ') + currentTimestamp + ' · ' + author;
+          : describeRoomNoteTimestamp(current, language);
 
   return (
     <div ref={holderRef} className="mt-2 text-xs text-slate-600 dark:text-slate-300" aria-live="polite">
@@ -112,8 +112,7 @@ export function RoomNoteProvenance({
               {data.map((entry) => (
                 <li key={entry.id} className="border-b border-slate-100 pb-2 last:border-0 last:pb-0">
                   <p className="font-semibold">
-                    {formatBudapestNoteTimestamp(entry.created_at, language) || (hu ? 'Ismeretlen időpont' : 'Unknown date')}
-                    {' · '}{entry.created_by_name || (hu ? 'Ismeretlen szerző' : 'Unknown author')}
+                    {describeRoomNoteTimestamp(entry, language)}
                   </p>
                   <p className="mt-0.5 whitespace-pre-wrap break-words">{entry.content}</p>
                 </li>
