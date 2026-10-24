@@ -172,7 +172,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     const schedule = () => {
       if (cancelled || document.hidden) return;
       if (timer !== undefined) window.clearTimeout(timer);
-      timer = window.setTimeout(() => { timer = undefined; void poll(); },
+      timer = (window.setTimeout as any)(() => { timer = undefined; void poll(); },
         activeJob ? 3_000 : 60_000);
     };
     const poll = async () => {

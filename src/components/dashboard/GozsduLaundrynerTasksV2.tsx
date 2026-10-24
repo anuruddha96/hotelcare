@@ -121,7 +121,7 @@ export function GozsduLaundrynerTasksV2() {
       if (registryComplete && snapshotUsable) {
         try {
           const roster = reconcileGozsduPmsRoster(managerRooms, registry, (snapshotResponse.data || []) as GozsduPmsRow[], workDate);
-          for (const [roomId, entry] of roster.byRoom) nextManagerBuckets.set(roomId, entry.bucket);
+          for (const [roomId, entry] of roster.byRoom) nextManagerBuckets.set(roomId, entry.bucket as never);
         } catch (error) {
           console.warn('[GozsduLaundryner] verified PMS roster could not be reconciled; using current room metadata fallback', error);
         }

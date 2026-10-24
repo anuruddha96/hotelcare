@@ -148,7 +148,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
       // During a noisy PMS sync, hundreds of UPDATEs must produce at most one
       // coalesced request per five seconds, not one query bundle per row.
       const delay = Math.max(150, 5_000 - (Date.now() - lastRefreshStartedAt));
-      refreshTimer = window.setTimeout(() => {
+      refreshTimer = (window.setTimeout as any)(() => {
         refreshTimer = null;
         void refresh();
       }, delay);
