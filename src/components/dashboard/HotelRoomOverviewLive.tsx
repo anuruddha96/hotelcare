@@ -980,6 +980,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   // Manually mark / unmark a room as a no-show for today.
   const setManualNoShow = async (room: RoomData, value: boolean) => {
+    const meta = (room.pms_metadata || {}) as Record<string, any>;
+    if (value) {
+      const statusId = Number(meta.reservationStatusId);
+      const arrivalDate = String(meta.arrivalDate || '').slice(0, 10);
+      // Staff may confirm a missed arrival for a Reserved reservation, but
+      // cannot invent a no-show for unsold or future-arrival inventory, or
+      // override a positive Previo check-in / checkout.
+      if (![1, 2, 8].includes(statusId) || !arrivalDate || arrivalDate > selectedDate) {
+        throw new Error('No-show requires an arrived-by-today, unoccupied PMS reservation. Verify this room with reception.');
+      }
+    }
     const nowIso = new Date().toISOString();
     await mergeRoomMetadata(room, value
       ? {
@@ -987,12 +998,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           manual_no_show_at: nowIso,
           manual_no_show_by: profile?.full_name || profile?.id || null,
           isNoShow: true,
+          noShowSource: 'manager_manual',
         }
       : {
           manual_no_show: false,
           manual_no_show_at: nowIso,
           manual_no_show_by: profile?.full_name || profile?.id || null,
           isNoShow: false,
+          noShowSource: null,
         });
     await supabase.from('pms_change_events').insert({
       hotel_id: (await resolveCanonicalHotelId(room.hotel || hotelName)) || room.hotel || hotelName,
@@ -1552,7 +1565,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       const next = !isPmsNoShow(room);
                       await setManualNoShow(room, next);
                       toast.success(`Room ${room.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
-                    } catch { toast.error('Failed to update no-show'); }
+                    } catch (error) { toast.error(error instanceof Error ? error.message : 'Failed to update no-show'); }
                     finally { setActionLoading(null); }
                   }}
                 >
