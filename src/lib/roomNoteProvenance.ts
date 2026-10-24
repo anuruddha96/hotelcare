@@ -4,10 +4,13 @@ export type RoomNoteHistoryEntry = {
   created_at: string;
   created_by: string | null;
   created_by_name: string | null;
+  source?: 'manual' | 'system_change' | 'room_created' | 'first_seen';
 };
 
 const normalizeNote = (value: string | null | undefined): string =>
-  String(value || '').replace(/\r\n/g, '\n').trim().replace(/\s+/g, ' ');
+  String(value || '')
+    .replace(/\[(?:COLLECT_EXTRA_TOWELS|ROOM_CLEANING)\]/g, '')
+    .replace(/\r\n/g, '\n').trim().replace(/\s+/g, ' ');
 
 /**
  * Room timestamps belong to the exact persisted note, never to a room's
@@ -44,4 +47,31 @@ export function isNoteFromBudapestToday(value: string, now: Date = new Date()): 
     timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(at);
   return day(date) === day(now);
+}
+
+/** Describe what the timestamp actually proves; baseline observation is not an entry date. */
+export function describeRoomNoteTimestamp(
+  entry: RoomNoteHistoryEntry,
+  language = 'en',
+): string {
+  const date = formatBudapestNoteTimestamp(entry.created_at, language);
+  if (!date) return language === 'hu' ? 'Ismeretlen időpont' : 'Unknown date/time';
+  const hu = language === 'hu';
+  if (entry.source === 'first_seen') {
+    return hu
+      ? `Először észlelve: ${date} · az eredeti rögzítés időpontja ismeretlen`
+      : `First observed: ${date} · original entry time unknown`;
+  }
+  if (entry.source === 'system_change') {
+    return hu
+      ? `Rendszer általi módosítás: ${date}`
+      : `System update: ${date}`;
+  }
+  if (entry.source === 'room_created') {
+    return hu
+      ? `A szobarekord létrehozásakor rögzítve: ${date}`
+      : `Recorded when room was created: ${date}`;
+  }
+  const author = entry.created_by_name?.trim() || (hu ? 'Ismeretlen szerző' : 'Unknown author');
+  return hu ? `Rögzítve: ${date} · ${author}` : `Entered: ${date} · ${author}`;
 }
