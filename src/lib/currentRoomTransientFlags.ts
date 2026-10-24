@@ -1,4 +1,4 @@
-import { isMikaDowntownProperty } from '../../supabase/functions/_shared/previoNoShowInference';
+import { isMikaDowntownProperty, hasOccupancyEvidence } from '../../supabase/functions/_shared/previoNoShowInference';
 
 export interface DailyTransientRoomFlagsInput {
   is_dnd?: boolean | null;
@@ -60,6 +60,9 @@ export function isNoShowForBusinessDate(
 ): boolean {
   const meta = room.pms_metadata || {};
   if (meta.isNoShow !== true) return false;
+  // A checked-in / occupied guest is never a no-show, whatever the stale flag
+  // says. Previo status 8 alone is not occupancy, so it still shows.
+  if (meta.manual_no_show !== true && hasOccupancyEvidence(meta as Record<string, any>)) return false;
   // Discard legacy inferred Mika flags immediately on the live room board.
   // An explicit manager no-show or Previo status 8 remains authoritative.
   if (isMikaDowntownProperty(hotelName)
