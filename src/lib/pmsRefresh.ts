@@ -697,8 +697,17 @@ export async function runPmsRefresh(
       // snaps straight back into Checkout Rooms on the next refresh.
       const manualDailyOverride = existingMetadata?.manual_daily === true
         || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
+      // A no-show belongs to a reservation, not permanently to a room.
+      // If today's arrival replaces an earlier reservation on this physical
+      // room, do not let the previous guest's manual NS override the new one.
+      const replacedPriorNoShow = !!row.ArrivalDate && String(row.ArrivalDate) === today
+        && !!existingMetadata?.arrivalDate
+        && String(existingMetadata.arrivalDate).slice(0, 10) < today
+        && !!row.ReservationId
+        && String(existingMetadata?.reservationId ?? "") !== String(row.ReservationId);
       const manualNoShowOverride = existingMetadata?.manual_no_show === true
-        && getDateOnly(existingMetadata?.manual_no_show_at) === today;
+        && getDateOnly(existingMetadata?.manual_no_show_at) === today
+        && !replacedPriorNoShow;
       // Reception may confirm the guest actually arrived even if Previo is
       // still Reserved. Respect today's explicit correction for inference only
       // (never override Previo's confirmed status-8 no-show).
@@ -822,6 +831,12 @@ export async function runPmsRefresh(
           ...(row.PmsHotelId ? { pms_hotel_id: row.PmsHotelId } : {}),
         },
       };
+
+      if (replacedPriorNoShow) {
+        for (const key of ["manual_no_show", "manual_no_show_at", "manual_no_show_by"]) {
+          delete updateData.pms_metadata[key];
+        }
+      }
 
       if (reservationDataAuthoritative) {
         // A booked date range is not proof of a physical check-in. Previo's
