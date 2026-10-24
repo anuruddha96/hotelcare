@@ -226,8 +226,8 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     // the SAME immutable physical PMS room, even when a snapshot exists.
     const verifiedNoShow = physicalRoomMatch
       && live.IsNoShow === true && live.Occupied === "No"
-      && (live.NoShowSource === "previo_status_8"
-        || live.NoShowSource === "inferred_never_checked_in")
+      && live.NoShowSource === "previo_status_8"
+      && Number(live.RawReservationStatusId) === 8
       && live.CheckedOut !== true && live.IsCheckoutRoom !== true;
     // Previo's overnight occupied-night overview can omit a room scheduled to
     // depart today, particularly when a different booking arrives today.
@@ -251,7 +251,8 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
         && availability.status === "operating"
         && !!mappedName && liveName === mappedName;
       rehydratedNoShow = sameMappedOperatingRoom
-        && (meta.isNoShow === true || statusId === 8)
+        && (statusId === 8 || (meta.manual_no_show === true
+          && String(meta.manual_no_show_at || "").slice(0, 10) === date))
         && meta.isCancelled !== true
         && meta.occupiedToday !== true
         && meta.checkedOutToday !== true;
@@ -489,6 +490,19 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     const physicalName = String(mappings.find((m: any) =>
       String(m.hotelcare_room_id || "") === pair.id)?.pms_room_name || "").trim().toLowerCase();
     const freshReservation = richByLabel.get(physicalName);
+    // A new authoritative overnight snapshot must not inherit yesterday's NS?
+    // label from the metadata spread. Preserve a fresh, explicit status-8
+    // no-show, but clear outdated inference when the room is in today's
+    // occupied-night manifest. For Ottofiori retain its special reconciliation
+    // unless Previo positively confirms check-in/out.
+    const confirmedInHouse = [3, 5, 6, 9].includes(Number(freshReservation?.RawReservationStatusId));
+    const confirmedPrevioNoShow = Number(freshReservation?.RawReservationStatusId) === 8
+      && freshReservation?.IsNoShow === true;
+    if (!confirmedPrevioNoShow && (!ottofiori || confirmedInHouse)) {
+      metadata.isNoShow = false;
+      metadata.noShowSource = null;
+      if (!ottofiori || confirmedInHouse) metadata.notArrived = false;
+    }
     const previoCheckedOut = freshReservation?.CheckedOut === true
       && freshReservation?.DepartureDate === date;
     const checkoutStampedToday = old.checkedOutToday === true

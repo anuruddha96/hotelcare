@@ -179,10 +179,19 @@ describe("PMS housekeeping classification", () => {
       IsNoShow: true, NoShowSource: "inferred_never_checked_in",
       "Night / Total": "2/2",
     }, "2026-10-15");
-    expect(result.isNoShow).toBe(true);
-    expect(result.isDailyRoom).toBe(false);
+    expect(result.isNoShow).toBe(false);
+    expect(result.isDailyRoom).toBe(true);
     expect(result.isCheckoutRoom).toBe(false);
-    expect(result.isStayThrough).toBe(false);
+  });
+
+  it("does not trust a stale inferred flag on a Reserved mid-stay guest", () => {
+    const classified = classifyPmsHousekeepingRow({
+      Occupied: "No", ArrivalDate: "2026-10-23", DepartureDate: "2026-10-30",
+      RawReservationStatusId: 2, IsNoShow: true,
+      NoShowSource: "inferred_never_checked_in", "Night / Total": "2/7",
+    }, "2026-10-24");
+    expect(classified.isNoShow).toBe(false);
+    expect(classified.isDailyRoom).toBe(true);
   });
 
   it("restores a guest after confirmed check-in despite an old no-show hint", () => {
@@ -215,9 +224,15 @@ describe("Previo property check-in evidence", () => {
     const evidence = [...Array.from({ length: 67 }, () => checked(3)),
       ...Array.from({ length: 3 }, () => checked(9)), checked(2)];
     expect(propertyReliablyTracksPrevioCheckIns(evidence, "2026-10-15")).toBe(true);
+    // Property-wide check-in quality is an advisory only; one missed
+    // reservation status update after one night is not a no-show.
     expect(isStaleUnarrivedPrevioReservation({
-      statusId: 2, arrivalDate: "2026-10-14", departureDate: "2026-10-16",
+      statusId: 2, arrivalDate: "2026-10-14", departureDate: "2026-10-17",
       businessDate: "2026-10-15", propertyTracksCheckIns: true, extensionLinked: false,
+    })).toBe(false);
+    expect(isStaleUnarrivedPrevioReservation({
+      statusId: 2, arrivalDate: "2026-10-14", departureDate: "2026-10-17",
+      businessDate: "2026-10-16", propertyTracksCheckIns: true, extensionLinked: false,
     })).toBe(true);
   });
   it("does not infer no-shows at hotels without reliable check-in practices", () => {

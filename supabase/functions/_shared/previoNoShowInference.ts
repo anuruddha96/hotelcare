@@ -1,6 +1,6 @@
-// Conservative property-level evidence for a reservation that remains unarrived
-// after its scheduled arrival. This only affects HotelCare housekeeping buckets:
-// it never changes a reservation status in Previo.
+// Advisory signal that an unarrived reservation needs reception verification.
+// It is NEVER sufficient to classify a room as a no-show or prove vacancy;
+// only explicit Previo status 8 or a manager-confirmed absence can do that.
 export interface PrevioCheckInEvidence {
   statusId: number;
   arrivalDate: string | null;
@@ -63,9 +63,8 @@ export function hasOccupancyEvidence(meta: Record<string, any> | null | undefine
 }
 
 
-// Mika Downtown exposes occupied stayovers whose reservation status may remain
-// "Reserved". A property-wide check-in ratio is not room-level proof of a
-// no-show. Only Previo status 8 or an explicit manager action can mark NS here.
+// Mika Downtown often has delayed status updates; retain the property
+// identifier for older compatibility paths that rely on it.
 export function isMikaDowntownProperty(...identifiers: Array<string | null | undefined>): boolean {
   return identifiers.some((identifier) => {
     const key = String(identifier ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -73,10 +72,10 @@ export function isMikaDowntownProperty(...identifiers: Array<string | null | und
   });
 }
 
-// Browser compatibility guard for a stale edge-function deployment: recover
-// active Mika stayovers from its *inferred* flag, never from Previo status 8.
-// This does not modify the PMS reservation or manufacture a checkout event.
-export function normalizeMikaInferredNoShowRow<T extends Record<string, any>>(
+// Browser compatibility guard for an older deployed edge function across ALL
+// Previo properties: discard an inferred no-show while retaining reservation
+// dates. An inference is not a confirmed absence; do not modify Previo itself.
+export function normalizeInferredNoShowRow<T extends Record<string, any>>(
   row: T,
   businessDate: string,
   fallbackGuestCount: number | null = null,
@@ -101,3 +100,6 @@ export function normalizeMikaInferredNoShowRow<T extends Record<string, any>>(
     } : {}),
   } as T;
 }
+
+// Backwards-compatible export for older callers and Mika-specific tests.
+export const normalizeMikaInferredNoShowRow = normalizeInferredNoShowRow;

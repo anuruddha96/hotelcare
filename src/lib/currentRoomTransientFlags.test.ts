@@ -54,6 +54,8 @@ describe('daily transient housekeeping flags', () => {
     expect(isNoShowForBusinessDate({
       pms_metadata: {
         isNoShow: true,
+        reservationStatusId: 8,
+        noShowSource: 'previo_status_8',
         pmsSyncDate: '2026-09-24',
       },
     }, '2026-09-24')).toBe(true);
@@ -85,7 +87,7 @@ describe('Mika Downtown inferred no-show display guard', () => {
   it('keeps a wrongly inferred SUITE 1/3 in Daily at Mika only', () => {
     expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'Hotel Mika Downtown')).toBe(false);
     expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'mika-downtown')).toBe(false);
-    expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'Hotel Memories Budapest')).toBe(true);
+    expect(isNoShowForBusinessDate(suspected, '2026-10-22', 'Hotel Memories Budapest')).toBe(false);
   });
   it('preserves explicit Previo no-shows and manager decisions', () => {
     expect(isNoShowForBusinessDate({
@@ -104,6 +106,29 @@ describe('Memories no-show evidence rules (rooms 110/125, 24 Oct 2026)', () => {
       isNoShow: true, noShowSource: 'inferred_never_checked_in', reservationStatusId: 3,
       occupiedToday: true, pmsSyncDate: '2026-10-24' } }, '2026-10-24', 'Hotel Memories Budapest')).toBe(false);
   });
+  it('room 110 remains Daily: late Reserved status is not no-show proof', () => {
+    expect(isNoShowForBusinessDate({ pms_metadata: {
+      isNoShow: true, noShowSource: 'inferred_never_checked_in',
+      reservationStatusId: 2, arrivalDate: '2026-10-23',
+      departureDate: '2026-10-30', pmsSyncDate: '2026-10-24',
+    } }, '2026-10-24', 'Hotel Memories Budapest')).toBe(false);
+  });
+  it('manager may confirm an unarrived Reserved room, but never a checked-in guest', () => {
+    const meta = { isNoShow: true, noShowSource: 'manager_manual',
+      manual_no_show: true, manual_no_show_at: '2026-10-24T08:20:00+02:00',
+      occupiedToday: true, pmsSyncDate: '2026-10-24', reservationStatusId: 2 };
+    expect(isNoShowForBusinessDate({ pms_metadata: meta }, '2026-10-24')).toBe(true);
+    expect(isNoShowForBusinessDate({ pms_metadata: { ...meta, reservationStatusId: 3 } },
+      '2026-10-24')).toBe(false);
+  });
+  it('today new arrival cannot inherit an earlier reservation no-show', () => {
+    expect(isNoShowForBusinessDate({ pms_metadata: {
+      isNoShow: false, noShowSource: null, arrivalToday: true,
+      arrivalDate: '2026-10-24', reservationStatusId: 2,
+      pmsSyncDate: '2026-10-24',
+    } }, '2026-10-24')).toBe(false);
+  });
+
   it('explicit Previo status 8 still shows', () => {
     expect(isNoShowForBusinessDate({ pms_metadata: {
       isNoShow: true, noShowSource: 'previo_status_8', reservationStatusId: 8, pmsSyncDate: '2026-10-24' } },

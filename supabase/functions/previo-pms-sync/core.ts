@@ -998,11 +998,12 @@ serve(async (req) => {
         propertyTracksCheckIns,
         extensionLinked: continuity.extensionLinked,
       });
-      const isNoShow = !!res && !isCheckedIn
-        && (isNoShowStatus(res.statusId) || inferredNoShow);
-      const noShowSource = isNoShow
-        ? inferredNoShow ? "inferred_never_checked_in" : "previo_status_8"
-        : null;
+      // A reserved booking whose arrival date has passed is NOT proof that
+      // the guest failed to arrive. Many front desks update check-in status
+      // later than the guest's physical arrival. Keep that case as an
+      // advisory only; never place it in the operational no-show bucket.
+      const isNoShow = !!res && !isCheckedIn && isNoShowStatus(res.statusId);
+      const noShowSource = isNoShow ? "previo_status_8" : null;
 
 
       const isNotArrived = !!res && isArrival && !isCancelled && !isNoShow && !isCheckedIn;
@@ -1080,6 +1081,8 @@ serve(async (req) => {
         IsCheckoutRoom: !isNoShow && !isCancelled && isCheckoutRoom,
         IsNoShow: isNoShow,
         NoShowSource: noShowSource,
+        // Never treat a heuristic as a confirmed absence or vacancy.
+        NeedsCheckInVerification: inferredNoShow,
 
         IsCancelled: isCancelled,
         NotArrived: isNotArrived,

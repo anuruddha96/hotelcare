@@ -88,7 +88,11 @@ export const classifyPmsHousekeepingRow = (
   // Still protect a genuine checked-in guest or an explicit occupied signal.
   const hasOccupancyToday = occupiedYes(row.Occupied)
     || rawStatusId === 3 || rawStatusId === 5;
-  const isNoShow = (rawStatusId === 8 || row.IsNoShow === true) && !hasOccupancyToday;
+  // A synthetic "suspected" flag is NOT a PMS-confirmed no-show. Older edge
+  // deployments could set IsNoShow from elapsed arrival dates alone.
+  const isNoShow = (rawStatusId === 8
+    || (row.IsNoShow === true && row.NoShowSource !== "inferred_never_checked_in"))
+    && !hasOccupancyToday;
   const inactiveReservation = isCancelled || isNoShow;
 
   // The dated reservation is authoritative for the requested Budapest workday.

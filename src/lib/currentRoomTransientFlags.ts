@@ -1,4 +1,4 @@
-import { isMikaDowntownProperty, hasOccupancyEvidence } from '../../supabase/functions/_shared/previoNoShowInference';
+import { hasOccupancyEvidence } from '../../supabase/functions/_shared/previoNoShowInference';
 
 export interface DailyTransientRoomFlagsInput {
   is_dnd?: boolean | null;
@@ -60,19 +60,25 @@ export function isNoShowForBusinessDate(
 ): boolean {
   const meta = room.pms_metadata || {};
   if (meta.isNoShow !== true) return false;
-  // A checked-in / occupied guest is never a no-show, whatever the stale flag
-  // says. Previo status 8 alone is not occupancy, so it still shows.
-  if (meta.manual_no_show !== true && hasOccupancyEvidence(meta as Record<string, any>)) return false;
-  // Discard legacy inferred Mika flags immediately on the live room board.
-  // An explicit manager no-show or Previo status 8 remains authoritative.
-  if (isMikaDowntownProperty(hotelName)
-    && meta.noShowSource === 'inferred_never_checked_in'
-    && meta.manual_no_show !== true
-    && Number(meta.reservationStatusId) !== 8) return false;
+  // A check-in or actual checkout is positive evidence of arrival.
+  // Date-derived occupiedToday alone cannot veto a reception-confirmed
+  // absence when Previo still calls the booking "Reserved".
+  if ([3, 5, 6, 9].includes(Number(meta.reservationStatusId))) return false;
+  const manuallyMarkedToday = meta.manual_no_show === true
+    && budapestDateOf(meta.manual_no_show_at) === businessDate;
+  if (meta.manual_no_show === true) return manuallyMarkedToday;
+  // For PMS-inferred/confirmed flags without a manager override, additional
+  // occupancy evidence always wins.
+  if (hasOccupancyEvidence(meta as Record<string, any>)) return false;
+  if (meta.manual_no_show === false
+    && budapestDateOf(meta.manual_no_show_at) === businessDate) return false;
 
-  if (meta.manual_no_show === true) {
-    return budapestDateOf(meta.manual_no_show_at) === businessDate;
-  }
+  // No-shows require affirmative evidence, not a prior arrival date or a
+  // high property-wide check-in ratio. This also protects the board when an
+  // older sync deployment has persisted "inferred_never_checked_in".
+  if (meta.noShowSource === 'inferred_never_checked_in') return false;
+  if (Number(meta.reservationStatusId) !== 8
+    && meta.noShowSource !== 'previo_status_8') return false;
 
   return meta.pmsSyncDate === businessDate || meta.lastPmsRefreshDate === businessDate;
 }

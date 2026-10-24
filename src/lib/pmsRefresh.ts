@@ -10,7 +10,7 @@ import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
 import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "@/lib/previoHousekeepingNote";
 import { normalizeUnitName, isTechnicalRow, buildUnitResolver, isSlntInactiveOperationalUnit, isSlntWorkbookActiveUnit } from "@/lib/slntUnitMapping";
-import { isMikaDowntownProperty, normalizeMikaInferredNoShowRow } from "../../supabase/functions/_shared/previoNoShowInference";
+import { normalizeInferredNoShowRow } from "../../supabase/functions/_shared/previoNoShowInference";
 import { reconcileContinuousStay } from "@/lib/stayContinuity";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
@@ -607,11 +607,9 @@ export async function runPmsRefresh(
       }
 
 
-      // A stale edge deployment can still send inferred Mika no-shows.
-      // Recover current stayovers until the corrected edge sync is deployed.
-      if (isMikaDowntownProperty(...hotelKeys)) {
-        row = normalizeMikaInferredNoShowRow(row, today, room.guest_count);
-      }
+      // Normalize inferred no-show flags from an older edge deployment for
+      // every Previo venue, not just Mika. Inference cannot prove absence.
+      row = normalizeInferredNoShowRow(row, today, room.guest_count);
       const classification = classifyPmsHousekeepingRow(row, today);
       const departureParsed = classification.departureTime;
       const isScheduledDeparture = classification.isScheduledDeparture;
@@ -699,7 +697,17 @@ export async function runPmsRefresh(
       // snaps straight back into Checkout Rooms on the next refresh.
       const manualDailyOverride = existingMetadata?.manual_daily === true
         || (existingMetadata && "manual_checkout" in existingMetadata && existingMetadata.manual_checkout === false);
-      const manualNoShowOverride = existingMetadata?.manual_no_show === true;
+      // A no-show belongs to a reservation, not permanently to a room.
+      // If today's arrival replaces an earlier reservation on this physical
+      // room, do not let the previous guest's manual NS override the new one.
+      const replacedPriorNoShow = !!row.ArrivalDate && String(row.ArrivalDate) === today
+        && !!existingMetadata?.arrivalDate
+        && String(existingMetadata.arrivalDate).slice(0, 10) < today
+        && !!row.ReservationId
+        && String(existingMetadata?.reservationId ?? "") !== String(row.ReservationId);
+      const manualNoShowOverride = existingMetadata?.manual_no_show === true
+        && getDateOnly(existingMetadata?.manual_no_show_at) === today
+        && !replacedPriorNoShow;
       // Reception may confirm the guest actually arrived even if Previo is
       // still Reserved. Respect today's explicit correction for inference only
       // (never override Previo's confirmed status-8 no-show).
@@ -824,9 +832,23 @@ export async function runPmsRefresh(
         },
       };
 
+      if (replacedPriorNoShow) {
+        for (const key of ["manual_no_show", "manual_no_show_at", "manual_no_show_by"]) {
+          delete updateData.pms_metadata[key];
+        }
+      }
+
       if (reservationDataAuthoritative) {
-        updateData.guest_count = nextGuestCount;
-        updateData.guest_nights_stayed = (classification.isNoShow && !managerClearedSuspectedNoShow)
+        // A booked date range is not proof of a physical check-in. Previo's
+        // positive check-in / checkout statuses and validated continuations
+        // override any manual or older inferred no-show.
+        const positivePmsPresence = [3, 5, 6, 9].includes(Number(row.RawReservationStatusId ?? row.ReservationStatusId))
+          || stayContinuity.linkedExtension || stayContinuity.managerConfirmedContinuation;
+        const effectiveNoShow = !positivePmsPresence
+          && !managerClearedSuspectedNoShow
+          && (manualNoShowOverride || classification.isNoShow);
+        updateData.guest_count = effectiveNoShow ? 0 : nextGuestCount;
+        updateData.guest_nights_stayed = effectiveNoShow
           || classification.isNotArrived || classification.isCancelled ? 0 : guestNightsStayed;
         // Checkout cleans always include a full towel + linen change, so never
         // carry the separate "towel change required" flag on those rooms.
@@ -847,48 +869,47 @@ export async function runPmsRefresh(
         updateData.pms_metadata.guestIdentityStrength = row.GuestIdentityStrength ?? existingMetadata?.guestIdentityStrength ?? "none";
         updateData.pms_metadata.arrivalDate = row.ArrivalDate ?? existingMetadata?.arrivalDate ?? null;
         updateData.pms_metadata.departureDate = row.DepartureDate ?? existingMetadata?.departureDate ?? null;
-        updateData.pms_metadata.currentNight = (classification.isNoShow && !managerClearedSuspectedNoShow)
+        updateData.pms_metadata.currentNight = effectiveNoShow
           || classification.isNotArrived || classification.isCancelled ? 0 : guestNightsStayed || null;
         updateData.pms_metadata.totalNights = guestTotalNights || null;
         if (stayContinuity.continuousStay) {
           updateData.pms_metadata.continuousStay = stayContinuity.continuousStay;
         }
-        // A manager's manual no-show mark for today wins over the PMS snapshot —
-        // but only while the PMS shows no occupancy. Once the guest is in-house
-        // (PMS says occupied / mid-stay), the no-show flag is cleared.
-        const pmsShowsOccupancy = classification.isDailyRoom
-          || classification.isStayThrough
-          || effectiveCheckoutFlag;
-        updateData.pms_metadata.isNoShow = !pmsShowsOccupancy
-          && !managerClearedSuspectedNoShow
-          && (manualNoShowOverride || classification.isNoShow);
-        updateData.pms_metadata.noShowSource = updateData.pms_metadata.isNoShow
-          ? (row.NoShowSource ?? (manualNoShowOverride ? "manager_manual" : "previo_status_8"))
+        // Date-derived Occupied=Yes is NOT physical occupancy: allow a dated
+        // manager-confirmed absence on a still-Reserved booking. A true PMS
+        // check-in/checkout or verified continuation always clears it.
+        updateData.pms_metadata.isNoShow = effectiveNoShow;
+        updateData.pms_metadata.noShowSource = effectiveNoShow
+          ? (manualNoShowOverride ? "manager_manual" : "previo_status_8")
           : null;
 
         updateData.pms_metadata.isCancelled = classification.isCancelled;
 
         // Arrival today (vacant room expecting a guest) — neither checkout nor
         // a daily stayover; surfaced in its own Arrivals bucket in Team View.
-        updateData.pms_metadata.arrivalToday = !effectiveCheckoutFlag
+        updateData.pms_metadata.arrivalToday = !effectiveNoShow && !effectiveCheckoutFlag
           && !stayContinuity.managerConfirmedContinuation
           && !stayContinuity.linkedExtension
           && (
             !!row.Arrival || (!!row.ArrivalDate && String(row.ArrivalDate) === today)
           );
-        updateData.pms_metadata.occupiedToday = classification.isDailyRoom
+        updateData.pms_metadata.occupiedToday = !effectiveNoShow && (
+          classification.isDailyRoom
           || managerClearedSuspectedNoShow
           || stayContinuity.managerConfirmedContinuation
-          || (stayContinuity.linkedExtension && !classification.isCancelled && !classification.isNoShow);
+          || (stayContinuity.linkedExtension && !classification.isCancelled)
+        );
         // Arrival that has not checked in yet — shown as "Not checked in" in
         // the Arrivals bucket. Never treated as a no-show on its own.
         updateData.pms_metadata.notArrived = !effectiveCheckoutFlag
           && !updateData.pms_metadata.isNoShow
           && classification.isNotArrived;
-        updateData.pms_metadata.stayThroughToday = classification.isStayThrough
+        updateData.pms_metadata.stayThroughToday = !effectiveNoShow && (
+          classification.isStayThrough
           || managerClearedSuspectedNoShow
           || stayContinuity.managerConfirmedContinuation
-          || stayContinuity.linkedExtension;
+          || stayContinuity.linkedExtension
+        );
 
         if (stayContinuity.resetForDifferentGuest) {
           // A strongly identified different guest invalidates today's manual
