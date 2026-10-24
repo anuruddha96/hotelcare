@@ -162,6 +162,23 @@ describe('Previo continuous stay resolver', () => {
     expect(result.turnoverConfidence).toBe('ambiguous');
   });
 
+  it('uses a new current-day arrival instead of yesterday\'s no-show reservation', () => {
+    const oldNoShow = candidate({
+      reservationId: 'no-show-23', arrivalDate: '2026-10-23',
+      departureDate: '2026-10-26', statusId: 8,
+    });
+    const newArrival = candidate({
+      reservationId: 'arrival-24', arrivalDate: '2026-10-24',
+      departureDate: '2026-10-27', statusId: 2,
+      guestKeys: ['strong:new-guest'], guestIdentityStrength: 'strong',
+    });
+    const result = resolvePrevioContinuousStay([oldNoShow, newArrival], '2026-10-24');
+    expect(result.effective?.reservationId).toBe('arrival-24');
+    expect(result.effective?.arrivalDate).toBe('2026-10-24');
+    expect(result.effective?.statusId).toBe(2);
+    expect(result.extensionLinked).toBe(false);
+  });
+
   it('ignores cancelled and no-show segments', () => {
     const result = resolvePrevioContinuousStay([
       candidate({ reservationId:'A', arrivalDate:'2026-10-02', departureDate:'2026-10-07', statusId:6 }),
