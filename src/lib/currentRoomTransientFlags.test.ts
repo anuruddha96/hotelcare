@@ -97,3 +97,16 @@ describe('Mika Downtown inferred no-show display guard', () => {
     }, '2026-10-22', 'Hotel Mika Downtown')).toBe(true);
   });
 });
+
+describe('Memories no-show evidence rules (rooms 110/125, 24 Oct 2026)', () => {
+  it('a checked-in room (status 3) with a stale inferred flag is not a no-show', () => {
+    expect(isNoShowForBusinessDate({ pms_metadata: {
+      isNoShow: true, noShowSource: 'inferred_never_checked_in', reservationStatusId: 3,
+      occupiedToday: true, pmsSyncDate: '2026-10-24' } }, '2026-10-24', 'Hotel Memories Budapest')).toBe(false);
+  });
+  it('explicit Previo status 8 still shows', () => {
+    expect(isNoShowForBusinessDate({ pms_metadata: {
+      isNoShow: true, noShowSource: 'previo_status_8', reservationStatusId: 8, pmsSyncDate: '2026-10-24' } },
+      '2026-10-24', 'Hotel Memories Budapest')).toBe(true);
+  });
+});
