@@ -46,7 +46,7 @@ DROP TRIGGER IF EXISTS trg_hc_capture_system_room_note_provenance ON public.room
 CREATE TRIGGER trg_hc_capture_system_room_note_provenance
  AFTER INSERT OR UPDATE OF notes ON public.rooms
  FOR EACH ROW EXECUTE FUNCTION public.hc_capture_system_room_note_provenance();
-REVOKE ALL ON FUNCTION public.hc_capture_system_room_note_provenance() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.hc_capture_system_room_note_provenance() FROM PUBLIC, anon, authenticated;
 
 -- Baseline missing current-note audit evidence from actual historical snapshots
 -- when available. An observation is not proof of who entered a note or when.
@@ -119,5 +119,5 @@ BEGIN
  LIMIT LEAST(GREATEST(coalesce(p_limit, 5), 1), 5);
 END;
 $function$;
-REVOKE ALL ON FUNCTION public.get_room_note_provenance(uuid, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_room_note_provenance(uuid, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_room_note_provenance(uuid, integer) TO authenticated;
