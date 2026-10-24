@@ -112,8 +112,7 @@ export function RoomNoteProvenance({
               {data.map((entry) => (
                 <li key={entry.id} className="border-b border-slate-100 pb-2 last:border-0 last:pb-0">
                   <p className="font-semibold">
-                    {formatBudapestNoteTimestamp(entry.created_at, language) || (hu ? 'Ismeretlen időpont' : 'Unknown date')}
-                    {' · '}{entry.created_by_name || (hu ? 'Ismeretlen szerző' : 'Unknown author')}
+                    {describeRoomNoteTimestamp(entry, language)}
                   </p>
                   <p className="mt-0.5 whitespace-pre-wrap break-words">{entry.content}</p>
                 </li>
