@@ -60,13 +60,16 @@ export function isNoShowForBusinessDate(
 ): boolean {
   const meta = room.pms_metadata || {};
   if (meta.isNoShow !== true) return false;
-  // Fresh in-house evidence wins even over an old manager/manual NS flag.
-  // Do not use room guest_count as proof: it may be only the booked capacity.
-  if (hasOccupancyEvidence(meta as Record<string, any>)) return false;
-
+  // A check-in or actual checkout is positive evidence of arrival.
+  // Date-derived occupiedToday alone cannot veto a reception-confirmed
+  // absence when Previo still calls the booking "Reserved".
+  if ([3, 5, 6, 9].includes(Number(meta.reservationStatusId))) return false;
   const manuallyMarkedToday = meta.manual_no_show === true
     && budapestDateOf(meta.manual_no_show_at) === businessDate;
   if (meta.manual_no_show === true) return manuallyMarkedToday;
+  // For PMS-inferred/confirmed flags without a manager override, additional
+  // occupancy evidence always wins.
+  if (hasOccupancyEvidence(meta as Record<string, any>)) return false;
   if (meta.manual_no_show === false
     && budapestDateOf(meta.manual_no_show_at) === businessDate) return false;
 
