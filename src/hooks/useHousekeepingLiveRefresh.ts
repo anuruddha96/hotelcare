@@ -37,7 +37,7 @@ export function useHousekeepingLiveRefresh(
         do {
           queued = false;
           await refreshRef.current();
-        } while (active && (queued as boolean) && !document.hidden && navigator.onLine !== false);
+        } while (active && (queued as boolean) && !document.hidden && (navigator.onLine as boolean) !== false);
       } catch (error) {
         // Leave the screen usable; the next tick or focus event will retry.
         console.warn('[Housekeeping] Background refresh failed', error);

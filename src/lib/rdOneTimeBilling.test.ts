@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveRdOneTimePackage } from "../../supabase/functions/_shared/rdOneTimeBilling";
+// @ts-ignore edge module typed for Deno
 import type { BillingSettings } from "../../supabase/functions/_shared/billing";
 import type { FixedAgreement, AgreementEntitlement, ModuleOverrideRow } from "../../supabase/functions/_shared/billingOverrides";
 
