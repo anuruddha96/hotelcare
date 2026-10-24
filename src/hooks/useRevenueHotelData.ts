@@ -151,6 +151,9 @@ function waitForBrowserIdle(timeout = 900): Promise<void> {
 }
 
 export interface RevenueHotelData {
+  excludedRoomTypeIds?: any;
+  inventoryMismatch?: any;
+  configuredRooms?: any;
   loading: boolean;
   error: string | null;
   today: string;

@@ -39,8 +39,27 @@ export function isStaleUnarrivedPrevioReservation(input: {
   return propertyTracksCheckIns
     && !extensionLinked
     && (statusId === 1 || statusId === 2)
-    && !!arrivalDate && arrivalDate < businessDate
+    && !!arrivalDate && arrivalDate < previousBusinessDate(businessDate)
     && !!departureDate && departureDate >= businessDate;
+}
+
+// Reception often records Previo check-ins late, so one unrecorded night is
+// not enough to suspect a no-show; inference starts on day 2 after arrival.
+function previousBusinessDate(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Any positive occupancy evidence overrides every no-show flag. */
+export function hasOccupancyEvidence(meta: Record<string, any> | null | undefined, guestCount?: number | null): boolean {
+  if (!meta) return false;
+  const status = Number(meta.reservationStatusId);
+  return [3, 5, 6, 9].includes(status)
+    || meta.occupiedToday === true
+    || meta.pmsOccupancyStatus === 'stayover'
+    || meta.stayThroughToday === true
+    || (typeof guestCount === 'number' && guestCount > 0 && meta.noShowSource === 'inferred_never_checked_in');
 }
 
 

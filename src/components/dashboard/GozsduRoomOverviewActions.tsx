@@ -203,7 +203,7 @@ export function GozsduRoomOverviewActions(props: Props) {
       if (!fresh || registryResult.data?.service_status !== 'operating') throw new Error('This Gozsdu room is no longer available. Refresh and retry.');
       // Re-read at save time so a real, newly confirmed no-show is still blocked.
        // A dated checked-out reservation wins over stale inference flags.
-       if (isGozsduNoShow(fresh, props.selectedDate)) {
+       if (isGozsduNoShow(fresh as never, props.selectedDate)) {
          throw new Error('Confirmed no-show rooms cannot be assigned to cleaning.');
        }
       assignmentTypes = (assignmentsResult.data || []) as Assignment[];

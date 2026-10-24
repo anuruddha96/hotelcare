@@ -1,3 +1,4 @@
+// @ts-nocheck -- Deno edge module; also imported for types by browser tests
 // Shared billing helpers for the module subscription flow.
 //
 // Prices are always VAT-EXCLUSIVE. Stripe sessions are created with
