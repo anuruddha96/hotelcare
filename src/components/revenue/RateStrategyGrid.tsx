@@ -2368,6 +2368,8 @@ export default function RateStrategyGrid({
     ? Math.max(1, Math.min(5, eventBands.reduce((max, band) => Math.max(max, band.lane + 1), 0)))
     : 1;
 
+  const EVENT_ROW_H = showEventBand ? EVENT_LANE_COUNT * EVENT_LANE_H : ROW_H;
+
   /**
    * Single-day events do not need a stable horizontal lane across dates. Give
    * them the vertical space that remains after the continuous multi-day pills
@@ -3566,61 +3568,56 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
-                {/* Events — long-running events remain one continuous pill across
-                    their full visible date span. Lanes are compacted upward and
-                    only the lanes currently needed are rendered (maximum five). */}
+                {/* Events — one frozen label and one continuous full-height timeline.
+                    Multi-day pills span dates; up to five lanes share this row. */}
       {eventBands.length > 0 && (
-        <div className="shrink-0 border-b-2 border-b-foreground/20 bg-card">
-          {Array.from({ length: EVENT_LANE_COUNT }, (_, lane) => (
-            <div
-              key={`event-physical-lane-${lane}`}
-              className="flex shrink-0 border-b border-border/40 bg-card last:border-b-0"
-              style={{ height: showEventBand ? EVENT_LANE_H : ROW_H, minHeight: showEventBand ? EVENT_LANE_H : ROW_H }}
+        <div
+          data-rate-event-row="true"
+          className="flex shrink-0 border-b-2 border-b-foreground/20 bg-card"
+          style={{ height: EVENT_ROW_H, minHeight: EVENT_ROW_H }}
+        >
+          {/* One full-height frozen rail: event cards never paint through it while swiping. */}
+          <div
+            className="sticky left-0 z-40 flex shrink-0 items-start gap-1 border-r bg-card px-2 py-1 font-medium"
+            style={{ width: LEFT_W }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowEventBand((v) => !v)}
+              className="shrink-0 truncate text-left hover:text-primary"
+              title={showEventBand ? "Hide event names" : "Show event names"}
             >
-              <div
-                className="sticky left-0 z-40 flex shrink-0 items-center gap-1 border-r bg-card px-2 font-medium"
-                style={{ width: LEFT_W }}
-              >
-                {lane === 0 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setShowEventBand((v) => !v)}
-                      className="truncate text-left hover:text-primary"
-                      title={showEventBand ? "Hide event names" : "Show event names"}
-                    >
-                      {railed ? "Ev" : "Events"}
-                    </button>
-                    {!railed && (
-                      <span className="text-[10px] text-muted-foreground">{showEventBand ? "top 5" : "off"}</span>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <div
-                className="relative shrink-0 overflow-visible bg-card"
-                style={{ width: dates.length * CELL_W, height: showEventBand ? EVENT_LANE_H : ROW_H }}
-              >
-                <div className="absolute inset-0 flex">
-                  {dates.map((d, i) => (
-                    <button
-                      key={`${lane}-${d}`}
-                      type="button"
-                      onClick={() => setDemandDay(d)}
-                      aria-label={`Open events for ${d}`}
-                      className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dayEdge(d)}`}
-                      style={{ width: CELL_W }}
-                    />
-                  ))}
-                </div>
+              {railed ? "Ev" : "Events"}
+            </button>
+            {!railed && (
+              <span className="shrink-0 text-[10px] text-muted-foreground">{showEventBand ? "top 5" : "off"}</span>
+            )}
+          </div>
+          {/* All event cards share the same full-height positioning context. */}
+          <div
+            data-rate-event-timeline="true"
+            className="relative shrink-0 overflow-hidden bg-card"
+            style={{ width: dates.length * CELL_W, height: EVENT_ROW_H }}
+          >
+            <div className="absolute inset-0 flex">
+              {dates.map((d, i) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDemandDay(d)}
+                  aria-label={`Open events for ${d}`}
+                  className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dayEdge(d)}`}
+                  style={{ width: CELL_W }}
+                />
+              ))}
+            </div>
 
                 {/* Render each real event once across its complete visible date
                     span. The band builder already keeps no more than five
                     overlapping events and assigns a stable lane, so long-running
                     festivals/congresses remain one readable pill while unrelated
                     events keep their own space. */}
-                {showEventBand && lane === 0 && eventBands
+                {showEventBand && eventBands
                   .filter((band) => revenueEventBandColumnSpan(band) > 1)
                   .map((band) => {
                   const impact = String(band.event.impact || "").toLowerCase();
@@ -3681,7 +3678,7 @@ export default function RateStrategyGrid({
                 {/* Single-day events stay inside their own date column, but use
                     all vertical room not occupied by continuous multi-day pills.
                     More height progressively reveals more useful context. */}
-                {showEventBand && lane === 0 && singleDayEventLayouts.map(({ band, dateIndex, topLane, heightLanes }) => {
+                {showEventBand && singleDayEventLayouts.map(({ band, dateIndex, topLane, heightLanes }) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
                     ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
@@ -3746,9 +3743,7 @@ export default function RateStrategyGrid({
                     </button>
                   );
                 })}
-              </div>
-            </div>
-          ))}
+          </div>
         </div>
       )}
               </div>
