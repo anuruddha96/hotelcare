@@ -33,5 +33,5 @@ jobs:
       # skipping the SLNT-focused tests and production build.
       - run: bunx tsc --noEmit --project tsconfig.app.json
         continue-on-error: true
-      - run: bunx vitest run src/lib/slntSimplifiedHousekeeping.test.ts src/lib/slntTeamBQueue.test.ts
+      - run: bunx vitest run src/lib/slntSimplifiedHousekeeping.test.ts src/lib/slntTeamBQueue.test.ts src/components/dashboard/SlntTeamPoolSummary.test.tsx src/components/dashboard/SlntSimpleAvailabilityCalendar.test.tsx
       - run: bun run build
