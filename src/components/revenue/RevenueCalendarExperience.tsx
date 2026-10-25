@@ -127,10 +127,10 @@ const calendarCss = String.raw`
     line-height: 1 !important;
   }
 
-  /* Events are ranked per stay date and may show four compact chips. Keep
-     enough room for those signals while still bounding the sticky header. */
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) {
-    max-height: 72px !important;
+  /* Events use a single full-height rail and timeline, so never truncate
+     this row while vertically stacked event cards are visible. */
+  [data-rate-grid-scroll="true"] [data-rate-event-row="true"] {
+    max-height: none !important;
   }
 
   @media (min-width: 768px) {
