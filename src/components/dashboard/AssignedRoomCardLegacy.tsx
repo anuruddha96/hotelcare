@@ -108,9 +108,11 @@ interface AssignedRoomCardProps {
     } | null;
   };
   onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => void;
+  /** Manager instructions specific to this room, kept within its card border. */
+  roomNotices?: React.ReactNode;
 }
 
-export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCardProps) {
+export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: AssignedRoomCardProps) {
   const { t, language } = useTranslation();
   const { user, profile } = useAuth();
   const { toast: showToast } = useToast();
@@ -1116,6 +1118,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           </div>
         </div>
       </CardHeader>
+
+      {/* Room-specific manager notices must stay within this room card. */}
+      {roomNotices && <div className="space-y-2 px-4 pb-2 sm:px-6">{roomNotices}</div>}
 
       {/* === SPECIAL INSTRUCTIONS — Between header and content === */}
       {hasSpecialInstructions && (
