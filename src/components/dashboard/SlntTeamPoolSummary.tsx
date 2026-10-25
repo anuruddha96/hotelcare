@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clock3, Users, RefreshCw, CheckCircle2, ListChecks } from 'lucide-react';
+import { ArrowUpRight, BadgeCheck, CalendarClock, CheckCircle2, ClipboardCheck, Clock3, Hourglass, ListChecks, PlayCircle, RefreshCw, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -14,6 +14,71 @@ import { slntWorkSection } from '@/lib/slntTeamBQueue';
 
 type Room = SlntTeamBPreviewItem;
 type Staff = {id: string;full_name: string};
+
+const SUMMARY_FILTERS: SlntManagerFilter[] = [
+  'pending', 'working', 'done', 'awaiting', 'approved', 'ready', 'due', 'optional', 'waiting',
+];
+
+// Keep the nine existing room categories and click behavior; the visual treatment
+// makes each category recognizable at a glance, including on small touch screens.
+const TILE_STYLE: Record<SlntManagerFilter, {
+  Icon: typeof Clock3; surface: string; icon: string; metric: string;
+}> = {
+  pending: {
+    Icon: Clock3,
+    surface: 'border-amber-200 bg-gradient-to-br from-amber-50 to-orange-100/60 hover:border-amber-400 dark:border-amber-800/70 dark:from-amber-950/50 dark:to-orange-950/30',
+    icon: 'bg-amber-100 text-amber-700 dark:bg-amber-900/70 dark:text-amber-300',
+    metric: 'text-amber-950 dark:text-amber-100',
+  },
+  working: {
+    Icon: PlayCircle,
+    surface: 'border-blue-200 bg-gradient-to-br from-blue-50 to-sky-100/70 hover:border-blue-400 dark:border-blue-800/70 dark:from-blue-950/50 dark:to-sky-950/30',
+    icon: 'bg-blue-100 text-blue-700 dark:bg-blue-900/70 dark:text-blue-300',
+    metric: 'text-blue-950 dark:text-blue-100',
+  },
+  done: {
+    Icon: CheckCircle2,
+    surface: 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-green-100/70 hover:border-emerald-400 dark:border-emerald-800/70 dark:from-emerald-950/50 dark:to-green-950/30',
+    icon: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/70 dark:text-emerald-300',
+    metric: 'text-emerald-950 dark:text-emerald-100',
+  },
+  awaiting: {
+    Icon: ClipboardCheck,
+    surface: 'border-orange-200 bg-gradient-to-br from-orange-50 to-rose-100/60 hover:border-orange-400 dark:border-orange-800/70 dark:from-orange-950/50 dark:to-rose-950/30',
+    icon: 'bg-orange-100 text-orange-700 dark:bg-orange-900/70 dark:text-orange-300',
+    metric: 'text-orange-950 dark:text-orange-100',
+  },
+  approved: {
+    Icon: BadgeCheck,
+    surface: 'border-teal-200 bg-gradient-to-br from-teal-50 to-cyan-100/70 hover:border-teal-400 dark:border-teal-800/70 dark:from-teal-950/50 dark:to-cyan-950/30',
+    icon: 'bg-teal-100 text-teal-700 dark:bg-teal-900/70 dark:text-teal-300',
+    metric: 'text-teal-950 dark:text-teal-100',
+  },
+  ready: {
+    Icon: ShieldCheck,
+    surface: 'border-cyan-200 bg-gradient-to-br from-cyan-50 to-sky-100/70 hover:border-cyan-400 dark:border-cyan-800/70 dark:from-cyan-950/50 dark:to-sky-950/30',
+    icon: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/70 dark:text-cyan-300',
+    metric: 'text-cyan-950 dark:text-cyan-100',
+  },
+  due: {
+    Icon: CalendarClock,
+    surface: 'border-violet-200 bg-gradient-to-br from-violet-50 to-purple-100/70 hover:border-violet-400 dark:border-violet-800/70 dark:from-violet-950/50 dark:to-purple-950/30',
+    icon: 'bg-violet-100 text-violet-700 dark:bg-violet-900/70 dark:text-violet-300',
+    metric: 'text-violet-950 dark:text-violet-100',
+  },
+  optional: {
+    Icon: Sparkles,
+    surface: 'border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100/80 hover:border-slate-400 dark:border-slate-700 dark:from-slate-900/70 dark:to-slate-800/50',
+    icon: 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200',
+    metric: 'text-slate-900 dark:text-slate-100',
+  },
+  waiting: {
+    Icon: Hourglass,
+    surface: 'border-rose-200 bg-gradient-to-br from-rose-50 to-pink-100/70 hover:border-rose-400 dark:border-rose-800/70 dark:from-rose-950/50 dark:to-pink-950/30',
+    icon: 'bg-rose-100 text-rose-700 dark:bg-rose-900/70 dark:text-rose-300',
+    metric: 'text-rose-950 dark:text-rose-100',
+  },
+};
 
 /** Additive SLNT-only section. Existing property/PMS/room chips and individual
  * housekeeper cards are rendered before and after this component unchanged. */
@@ -93,24 +158,37 @@ export function SlntTeamPoolSummary({selectedDate,staff}:{
               'Rooms and cleaners will be mapped with SLNT management later. No Team A rooms have been allocated.'}
           </CardContent>
         </Card>
-        <Card data-training="slnt-team-b-summary">
+        <Card data-training="slnt-team-b-summary" className="min-w-0 border-sky-200/80 shadow-sm dark:border-sky-900/60">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center justify-between text-base gap-2">
+            <CardTitle className="flex min-w-0 flex-wrap items-center justify-between text-base gap-2">
               <span className="flex items-center gap-2"><Users className="h-4 w-4"/>{hu?'B csapat':'Team B'}</span>
-              <Badge>{hu?'Közös munkalista':'Shared pool'}</Badge>
+              <Badge className="bg-sky-500 text-white hover:bg-sky-600">{hu?'Közös munkalista':'Shared pool'}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {selectedDate!==today
               ? <p className="text-sm text-muted-foreground">{hu?'A közös lista a kiválasztott munkanapon aktiválódik.':'The shared pool activates on the selected workday.'}</p>
               : error ? <p role="alert" className="text-sm text-destructive">{error}</p>
-              : <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {(['pending','working','done','awaiting','approved','ready','due','optional','waiting'] as SlntManagerFilter[]).map(key=>
-                    <button key={key} type="button" data-training={'slnt-summary-'+key} onClick={()=>setSelected(key)}
-                      className="rounded-lg border bg-card p-2 text-left hover:border-primary hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary">
-                      <span className="block text-xl font-extrabold tabular-nums">{grouped[key].length}</span>
-                      <span className="text-xs font-medium text-muted-foreground">{labels[key]}</span>
-                    </button>)}
+              : <div className="grid min-w-0 grid-cols-2 gap-2.5 sm:grid-cols-3" data-training="slnt-team-b-status-grid">
+                  {SUMMARY_FILTERS.map(key => {
+                    const style = TILE_STYLE[key];
+                    const Icon = style.Icon;
+                    return (
+                      <button key={key} type="button" data-training={'slnt-summary-'+key}
+                        onClick={() => setSelected(key)}
+                        aria-label={[labels[key], grouped[key].length, hu ? 'szoba, részletek megnyitása' : 'rooms, view details'].join(' ')}
+                        className={'group flex min-h-[112px] min-w-0 flex-col rounded-xl border p-3 text-left shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-background ' + style.surface}>
+                        <span className="flex w-full items-start justify-between gap-1">
+                          <span className={'inline-flex rounded-lg p-2 ' + style.icon}>
+                            <Icon className="h-4 w-4" aria-hidden="true"/>
+                          </span>
+                          <ArrowUpRight className="h-4 w-4 text-muted-foreground/65 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden="true"/>
+                        </span>
+                        <span className={'mt-2 block text-2xl font-extrabold leading-none tabular-nums ' + style.metric}>{grouped[key].length}</span>
+                        <span className="mt-1 block break-words text-xs font-semibold leading-snug text-foreground/85">{labels[key]}</span>
+                      </button>
+                    );
+                  })}
                 </div>}
             {working.length>0&&<div className="border-t pt-2 space-y-1">
               <p className="font-medium text-sm flex items-center gap-1"><Clock3 className="h-3.5 w-3.5"/>{hu?'Jelenleg takarít':'Cleaning now'}</p>
