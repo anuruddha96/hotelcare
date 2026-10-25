@@ -76,11 +76,27 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
     return null;
   };
 
+  const renderAvailabilitySelect = (item: SlntWorkingDay, date: string, name: string) => (
+    <Select value={item.absence_kind || 'working'} disabled={!!busy || date < todayBudapest()}
+      onValueChange={value => void setAvailability(item, value)}>
+      <SelectTrigger className={compact ? 'h-11 w-full min-w-0 max-w-full text-sm' : 'h-11 w-full min-w-28 text-xs'}
+        aria-label={name + ' ' + date}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="working"><span className="inline-flex items-center gap-1"><Check className="h-3 w-3"/>{hu ? 'Dolgozik' : 'Working'}</span></SelectItem>
+        <SelectItem value="day_off">{hu ? 'Szabadnap' : 'Day off'}</SelectItem>
+        <SelectItem value="annual_leave">{hu ? 'Szabadság' : 'Annual leave'}</SelectItem>
+        <SelectItem value="sick_leave">{hu ? 'Betegszabadság' : 'Sick leave'}</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+
   return (
-    <Card data-training="slnt-availability-calendar">
-      <CardHeader className="pb-3 space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2 text-base">
+    <Card data-training="slnt-availability-calendar" className="min-w-0 max-w-full overflow-hidden border-border/80 shadow-sm">
+      <CardHeader className="min-w-0 space-y-2 px-3 pb-3 pt-4 sm:px-4">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex min-w-0 items-center gap-2 text-base">
             <Users className="h-4 w-4" />{hu ? 'B csapat — ki dolgozik?' : 'Team B — who is working?'}
           </CardTitle>
           <Badge variant="secondary">{compact
@@ -105,47 +121,92 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="min-w-0 space-y-3 px-3 pb-4 sm:px-4">
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         {!error && !loading && people.length === 0 && <p className="text-sm text-muted-foreground">
           {hu ? 'A B csapathoz még nincs aktív dolgozó hozzárendelve.' : 'No active members mapped to Team B.'}
         </p>}
-        <div className="overflow-x-auto" data-training="slnt-working-defaults">
-          <table className="w-full min-w-[420px] border-separate border-spacing-1 text-sm">
-            <thead><tr><th className="sticky left-0 bg-background min-w-28 text-left p-2">{hu ? 'Takarító' : 'Cleaner'}</th>
-              {dates.map(date => <th key={date} className="min-w-28 p-2 text-center">{format(local(date),'EEE d')}</th>)}
-            </tr></thead>
-            <tbody>{people.map(([id,name]) => <tr key={id}>
-              <th className="sticky left-0 bg-background text-left p-2 font-medium">{name}</th>
-              {dates.map(date => {
-                const item=byDay.get(id+':'+date);
-                if (!item) return <td key={date} className="p-1 text-muted-foreground">—</td>;
-                const current=item.absence_kind || 'working';
-                return <td key={date} className="p-1 align-top">
-                  <Select value={current} disabled={!!busy || date<todayBudapest()}
-                    onValueChange={v => void setAvailability(item,v)}>
-                    <SelectTrigger className="w-full min-w-28 h-11 text-xs" aria-label={`${name} ${date}`}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="working"><span className="inline-flex items-center gap-1"><Check className="h-3 w-3"/>{hu ? 'Dolgozik' : 'Working'}</span></SelectItem>
-                      <SelectItem value="day_off">{hu ? 'Szabadnap' : 'Day off'}</SelectItem>
-                      <SelectItem value="annual_leave">{hu ? 'Szabadság' : 'Annual leave'}</SelectItem>
-                      <SelectItem value="sick_leave">{hu ? 'Betegszabadság' : 'Sick leave'}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {date === todayBudapest() && item.is_working && activityLabel(item.activity_state) && (
-                    <p className={'mt-1 text-[11px] leading-snug ' +
-                      (item.activity_state === 'active' ? 'text-emerald-600 dark:text-emerald-400' :
-                      item.activity_state === 'inactive' ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground')}>
-                      {activityLabel(item.activity_state)}
+        {compact ? (
+          <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2" data-training="slnt-working-defaults">
+            {people.map(([id, name]) => {
+              const date = dates[0];
+              const item = byDay.get(id + ':' + date);
+              if (!item) return (
+                <div key={id} data-training="slnt-availability-person" className="min-w-0 rounded-xl border bg-muted/30 p-3">
+                  <p className="break-words text-sm font-semibold">{name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{hu ? 'Nincs beosztási adat' : 'Schedule unavailable'}</p>
+                </div>
+              );
+              const activity = item.is_working ? activityLabel(item.activity_state) : null;
+              return (
+                <div key={id} data-training="slnt-availability-person"
+                  className={'min-w-0 max-w-full rounded-xl border p-3 shadow-sm ' +
+                    (item.is_working
+                      ? 'border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-background dark:border-emerald-900/60 dark:from-emerald-950/30'
+                      : 'border-slate-200 bg-gradient-to-br from-slate-100/80 to-background dark:border-slate-700 dark:from-slate-900/40')}>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span aria-hidden="true" className={'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold ' +
+                      (item.is_working ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/70 dark:text-emerald-200' :
+                        'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200')}>
+                      {name.trim().charAt(0).toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-sm font-semibold leading-tight">{name}</p>
+                      <span className={'mt-1 inline-flex items-center gap-1 text-[11px] font-medium ' +
+                        (item.is_working ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-slate-300')}>
+                        <span aria-hidden="true" className={'h-1.5 w-1.5 rounded-full ' +
+                          (item.is_working ? 'bg-emerald-500' : 'bg-slate-400')}/>
+                        {item.is_working ? (hu ? 'Munkára beosztva' : 'Scheduled to work') : (hu ? 'Nem dolgozik' : 'Not working')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-3 min-w-0 space-y-1.5">
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      {hu ? 'Napi státusz' : 'Day status'} · {format(local(date), 'EEE d')}
                     </p>
+                    {renderAvailabilitySelect(item, date, name)}
+                  </div>
+                  {activity && (
+                    <div className={'mt-2 flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium ' +
+                      (item.activity_state === 'active' ? 'bg-sky-100/80 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200' :
+                        item.activity_state === 'inactive' ? 'bg-amber-100/80 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' :
+                        'bg-muted text-muted-foreground')}>
+                      <span aria-hidden="true" className={'h-1.5 w-1.5 shrink-0 rounded-full ' +
+                        (item.activity_state === 'active' ? 'bg-sky-500' :
+                          item.activity_state === 'inactive' ? 'bg-amber-500' : 'bg-slate-400')}/>
+                      <span className="min-w-0 break-words">{activity}</span>
+                    </div>
                   )}
-                </td>;
-              })}
-            </tr>)}</tbody>
-          </table>
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="max-w-full overflow-x-auto" data-training="slnt-working-defaults">
+            <table className="w-full min-w-[420px] border-separate border-spacing-1 text-sm">
+              <thead><tr><th className="sticky left-0 min-w-28 bg-background p-2 text-left">{hu ? 'Takarító' : 'Cleaner'}</th>
+                {dates.map(date => <th key={date} className="min-w-28 p-2 text-center">{format(local(date), 'EEE d')}</th>)}
+              </tr></thead>
+              <tbody>{people.map(([id, name]) => <tr key={id}>
+                <th className="sticky left-0 bg-background p-2 text-left font-medium">{name}</th>
+                {dates.map(date => {
+                  const item = byDay.get(id + ':' + date);
+                  if (!item) return <td key={date} className="p-1 text-muted-foreground">—</td>;
+                  return <td key={date} className="p-1 align-top">
+                    {renderAvailabilitySelect(item, date, name)}
+                    {date === todayBudapest() && item.is_working && activityLabel(item.activity_state) && (
+                      <p className={'mt-1 text-[11px] leading-snug ' +
+                        (item.activity_state === 'active' ? 'text-emerald-600 dark:text-emerald-400' :
+                        item.activity_state === 'inactive' ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground')}>
+                        {activityLabel(item.activity_state)}
+                      </p>
+                    )}
+                  </td>;
+                })}
+              </tr>)}</tbody>
+            </table>
+          </div>
+        )}
         {!compact && <p className="text-xs text-muted-foreground">
           {hu ? 'A beosztás automatikusan töltődik. 3 óra alkalmazásaktivitás nélkül a takarító inaktívként jelenik meg, amíg vissza nem tér. A szabadság és a jelenlét nem változik.'
             : 'Team membership pre-fills the schedule. After 3 hours without app activity, a cleaner shows as inactive until they return. This never changes approved leave or physical attendance.'}
