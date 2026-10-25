@@ -82,28 +82,26 @@
   white-space: nowrap !important;
 }
 
-/* Event names are useful, but three stacked lanes turn the fixed decision band
-   into a wall of text. Desktop keeps at most two clean lanes; all additional
-   events remain available by clicking the date / demand detail. */
+/* The Events band is one flex row: its frozen label spans the full height
+   of all visible event lanes while the date timeline alone clips event cards.
+   Do not cap this parent row or its sticky label (the JS computes its height). */
 [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8) {
-  height: 38px !important;
-  min-height: 38px !important;
-  max-height: 38px !important;
-  overflow: hidden !important;
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > [data-rate-event-row="true"] {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
 }
-
 [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8) > div:nth-child(2) {
-  overflow: hidden !important;
+  [data-rate-grid-scroll="true"] [data-rate-event-row="true"] > .sticky.left-0 {
+  z-index: 60 !important;
+  align-self: stretch;
+  background: hsl(var(--card)) !important;
 }
-
-/* Third event lane starts at 35px in RateStrategyGrid. It would otherwise
-   bleed below a compact Events row. */
 [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8)
-  > div:nth-child(2) > button[style*="top: 35px"] {
-  display: none !important;
+  [data-rate-grid-scroll="true"] [data-rate-event-timeline="true"] {
+  overflow: hidden !important;
+  isolation: isolate;
 }
 
 @media (max-width: 767px) {
@@ -145,32 +143,7 @@
     line-height: 8px !important;
   }
 
-  /* On phones one event lane is enough context. Additional overlapping events
-     remain discoverable by tapping the date/demand cell, without consuming the
-     room-rate area below. */
-  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8) {
-    height: 22px !important;
-    min-height: 22px !important;
-    max-height: 22px !important;
-  }
 
-  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8)
-    > div:nth-child(2) > button[style*="top: 19px"],
-  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8)
-    > div:nth-child(2) > button[style*="top: 35px"] {
-    display: none !important;
-  }
-
-  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8)
-    > div:nth-child(2) > button {
-    height: 14px !important;
-    max-width: calc(100% - 2px);
-    font-size: 8px !important;
-  }
 }
 
 /* Landscape phones deliberately stay denser, but the lanes must still be
