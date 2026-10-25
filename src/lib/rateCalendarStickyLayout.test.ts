@@ -16,10 +16,23 @@ describe('Rate & Pickup frozen summary rows', () => {
     const repair = layout.split('/* Root cause of the moving Demand + market / Events bands:')[1]
       ?.split('/* Every header metric')[0] ?? '';
     expect(repair).toContain('[data-hc-competitor-pricing-row="1"]');
-    expect(repair).toContain('.flex:nth-child(8)');
+    expect(repair).toContain('[data-rate-event-row="true"]');
     expect(repair).toContain('overflow: visible !important;');
-    // Event titles still stay clipped within the *date-band child*.
-    expect(legacy).toContain('> div:nth-child(2) {\n  overflow: hidden !important;');
+    // The scrollable date timeline clips event cards, not the sticky label's row.
+    expect(legacy).toContain('[data-rate-event-row="true"]');
+    expect(legacy).toContain('[data-rate-event-timeline="true"]');
+    expect(legacy).toMatch(/\[data-rate-event-timeline="true"\]\s*\{\s*overflow: hidden !important;/);
+    expect(legacy).toContain('align-self: stretch;');
+  });
+
+  it('renders one continuous event timeline and a full-height frozen label', () => {
+    const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
+    expect(component).toContain('data-rate-event-row="true"');
+    expect(component).toContain('data-rate-event-timeline="true"');
+    expect(component).toContain('const EVENT_ROW_H = showEventBand ? EVENT_LANE_COUNT * EVENT_LANE_H : ROW_H;');
+    expect(component).not.toContain('event-physical-lane-');
+    expect(legacy).not.toContain('Third event lane starts at 35px');
+    expect(legacy).not.toContain('one event lane is enough context');
   });
 
   it('preserves sticky positioning, opaque background and full rail width', () => {

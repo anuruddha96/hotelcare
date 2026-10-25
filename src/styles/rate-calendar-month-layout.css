@@ -139,11 +139,11 @@
    ancestor; iOS Safari then scrolls the frozen left label away with dates.
    Keep row wrappers overflow-visible, and clip only their date contents (the
    existing row-separation rules already clip the individual market buttons
-   and the events date-band div). This also preserves event-bar hit targets. */
+   and the event timeline). This also preserves event-bar hit targets. */
 [data-training="revenue-grid"][data-rate-calendar-v2="true"]
   [data-hc-competitor-pricing-row="1"],
 [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8) {
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > [data-rate-event-row="true"] {
   overflow: visible !important;
 }
 
