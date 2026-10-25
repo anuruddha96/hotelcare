@@ -201,12 +201,16 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
         })
     : null;
 
-  return <div className={`space-y-2${isGozsduRoom ? ' gozsdu-housekeeper-card' : ''}${isCheckoutClean ? ' checkout-housekeeper-card' : ''}`}>
+  // A manager update shown between cards looks like part of the *previous*
+  // room. Pass all room-specific notices into the card itself instead.
+  const hasRoomNotices = (gozsduOverride && gozsduOverride.bucket !== 'other')
+    || !!activeManagerTypeNotice || plannedRoomNotes.length > 0;
+  const roomNotices = hasRoomNotices ? <>
     {gozsduOverride && gozsduOverride.bucket !== 'other' && <div role="status" className="rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs font-semibold">
       Manager cleaning plan: {gozsduOverride.bucket === 'checkout' ? 'Checkout cleaning' : gozsduOverride.service === 'change_room' ? 'Full cleaning / complete textile change' : 'Towel change'}
     </div>}
     {activeManagerTypeNotice && <div role="status" aria-live="polite" className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
-      <p className="text-xs font-bold uppercase tracking-wide">Manager update</p>
+      <p className="text-xs font-bold uppercase tracking-wide">{language === 'hu' ? 'Vezetői módosítás' : 'Manager update'} · {language === 'hu' ? 'Szoba' : 'Room'} {roomForDisplay?.room_number || '—'}</p>
       {activeManagerTypeNotice.to === 'daily' ? <>
         <p className="mt-1 text-sm font-bold">Guest staying — Daily service</p>
         <p className="mt-1 text-sm"><strong>Required today:</strong> {managerRequiredService || 'Daily service'}</p>
@@ -230,7 +234,9 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
         </div>
       </div>
     </div>}
-    <ExistingAssignedRoomCard {...props} assignment={{ ...displayAssignment, rooms: roomForDisplay }} />
+  </> : null;
+  return <div className={`space-y-2${isGozsduRoom ? ' gozsdu-housekeeper-card' : ''}${isCheckoutClean ? ' checkout-housekeeper-card' : ''}`}>
+    <ExistingAssignedRoomCard {...props} assignment={{ ...displayAssignment, rooms: roomForDisplay }} roomNotices={roomNotices} />
     {room && canEditBedSetup && props.assignment.status !== 'completed' && <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-2 dark:border-blue-900 dark:bg-blue-950/20">
       <Button type="button" variant="outline" size="sm" className="w-full justify-start border-blue-300 text-blue-900 dark:text-blue-200" aria-expanded={bedSetupOpen} onClick={() => setBedSetupOpen((value) => !value)}>
         <BedDouble className="mr-2 h-4 w-4" />{bedSetupOpen ? 'Hide bed setup' : 'Edit bed setup'}
