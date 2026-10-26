@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
+import { dndRetryTimeLabel, getDndRetryWindow } from '@/lib/dndRetryPolicy';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
 import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
@@ -88,6 +89,14 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const [savingNoCleaning, setSavingNoCleaning] = useState(false);
   const [secondDndOpen, setSecondDndOpen] = useState(false);
   const [savingSecondDnd, setSavingSecondDnd] = useState(false);
+  const [dndClock, setDndClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (assignment.status !== 'dnd_pending_retry') return;
+    const timer = window.setInterval(() => setDndClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [assignment.status]);
+  const dndRetry = getDndRetryWindow(assignment.dnd_first_attempt_at, new Date(dndClock));
+  const nextDndTime = dndRetry.availableAt ? dndRetryTimeLabel(dndRetry.availableAt, language) : null;
   const [translatedCarryInstruction, setTranslatedCarryInstruction] = useState<string | null>(null);
   const [translatingCarryInstruction, setTranslatingCarryInstruction] = useState(false);
 
@@ -203,6 +212,10 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
 
   const finalizeSecondDnd = async () => {
     if (savingSecondDnd) return;
+    if (!getDndRetryWindow(assignment.dnd_first_attempt_at).allowed) {
+      toast.warning(language === 'hu' ? `Térj vissza később: ${nextDndTime ?? '14:00'}.` : `Come back later for the second DND attempt: ${nextDndTime ?? '2:00 PM'}.`);
+      return;
+    }
     setSavingSecondDnd(true);
     try {
       const now = new Date().toISOString();
@@ -273,17 +286,24 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-orange-900 dark:text-orange-100 leading-relaxed">
-              Please check the door again. If the DND sign is still there, use the large button below and take a fresh door photo. This sends the room to the supervisor for approval.
+              {dndRetry.allowed
+                ? (language === 'hu' ? 'Most újra ellenőrizheted az ajtót. Ha még mindig kint van a DND jelzés, készíts új fotót.' : 'Now revisit the door. If the DND sign is still there, take a new photo for supervisor approval.')
+                : (language === 'hu'
+                  ? `Az első és második DND-ellenőrzés nem történhet egyszerre. Térj vissza ${nextDndTime ?? 'később'} után. A második ellenőrzés legkésőbb 14:00-kor elérhető.`
+                  : `Do not take both DND photos at once. Return at ${nextDndTime ?? 'a later time'} for a genuine second visit (available no later than 2:00 PM).`)}
             </p>
             <Button
               size="lg"
-              onClick={() => setSecondDndOpen(true)}
-              disabled={savingSecondDnd}
+              onClick={() => {
+                if (dndRetry.allowed) setSecondDndOpen(true);
+                else toast.warning(language === 'hu' ? `A második DND-fotó csak ${nextDndTime ?? 'később'} után készíthető.` : `Second DND photo is too early. Please come back at ${nextDndTime ?? 'a later time'}.`);
+              }}
+              disabled={savingSecondDnd || !dndRetry.allowed}
               className="w-full min-h-14 bg-orange-600 hover:bg-orange-700 text-white text-base font-bold whitespace-normal shadow-sm"
               data-training="memories-dnd-second-attempt-button"
             >
               <BellOff className="h-5 w-5 mr-2 shrink-0" />
-              DND still on door → Take 2nd attempt photo
+              {dndRetry.allowed ? 'DND still on door → Take 2nd attempt photo' : `Second attempt locked · ${nextDndTime ?? 'Later'}`}
             </Button>
             <p className="text-xs text-orange-800 dark:text-orange-200 text-center">
               If the DND sign has been removed, use “Start” on the room card below instead.
