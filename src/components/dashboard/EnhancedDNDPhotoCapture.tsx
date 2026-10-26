@@ -184,9 +184,16 @@ export function EnhancedDNDPhotoCapture({
       else if (!blob.type.startsWith('image/')) toast.error('Please select an image file.');
       return;
     }
-    if (photoSavedThisVisit.current || !(await ensureSecondVisitDue())) return;
+    // Acquire the lock before any asynchronous eligibility read so two fast
+    // taps cannot insert two images for the same door visit.
+    if (photoSavedThisVisit.current) return;
     savingRef.current = true;
     setSaving(true);
+    if (!(await ensureSecondVisitDue())) {
+      savingRef.current = false;
+      setSaving(false);
+      return;
+    }
     stopCamera();
     setCameraError('');
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
