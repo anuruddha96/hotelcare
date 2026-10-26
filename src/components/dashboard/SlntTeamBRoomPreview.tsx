@@ -171,38 +171,39 @@ export function SlntTeamBRoomPreview({
             </div>
           </div>
         )}
-        {checkout && <div className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100" data-training="slnt-checkout-guest-count">
-          <p className="text-sm font-extrabold">{hu ? 'Távozó vendégek' : 'Guests checking out'}: {item.guest_count != null ? item.guest_count : (hu ? 'Nem ismert' : 'Unknown')}</p>
-          <div className="mt-1 text-xs" data-training="slnt-incoming-guests" aria-live="polite">
-            {incomingStatus === 'loading' && (
-              <p>{hu ? 'Következő foglalás ellenőrzése a Previóban…' : 'Checking the next assigned reservation in Previo…'}</p>
-            )}
-            {incomingStatus === 'unavailable' && (
-              <p>{hu ? 'Érkező vendégszám nem ellenőrizhető. Frissítsd a Previo-adatokat.' : 'Incoming guest count cannot be verified. Refresh Previo data.'}</p>
-            )}
-            {incomingStatus === 'verified' && incoming?.status === 'confirmed' && incoming.guest_count != null && (
-              <p className="font-bold">{hu ? 'Következő érkezés' : 'Next assigned arrival'}: {incoming.guest_count} {hu ? 'vendég' : incoming.guest_count === 1 ? 'guest' : 'guests'} · {incoming.arrival_date} · {hu ? 'Previo által megerősítve' : 'Confirmed in Previo'}</p>
-            )}
-            {incomingStatus === 'verified' && incoming?.status === 'guest_list' && incoming.guest_count != null && (
-              <p>{hu ? 'Következő érkezés' : 'Next assigned arrival'}: {incoming.guest_count} {hu ? 'vendégadat' : 'guest records'} · {incoming.arrival_date} · {hu ? 'A teljes létszám nem igazolt' : 'Total occupancy not verified'}</p>
-            )}
-            {incomingStatus === 'verified' && incoming?.status === 'not_found' && (
-              <p>{hu ? 'Nincs megerősített foglalás ehhez a szobához a következő 30 napban.' : 'No confirmed booking assigned to this room within the next 30 days.'}</p>
-            )}
-            {incomingStatus === 'verified' && incoming?.status === 'unverified' && (
-              <p>{hu ? 'Érkező foglalás van, de a vendégszám nem igazolható.' : 'An incoming reservation exists, but its guest count is unverified.'}{incoming.arrival_date ? ' · ' + incoming.arrival_date : ''}</p>
-            )}
-            {incomingStatus === 'verified' && incoming?.status === 'conflict' && (
-              <p className="font-semibold">{hu ? 'Több foglalás tartozik ugyanahhoz a szobához — vezetői ellenőrzés szükséges.' : 'Conflicting reservations assigned to this room — manager review required.'}</p>
-            )}
-            {incomingStatus === 'verified' && !incoming && (
-              <p>{hu ? 'Ehhez a szobához nincs ellenőrzött Previo-hozzárendelés.' : 'No verified Previo room mapping is available.'}</p>
-            )}
-            {incomingStatus === 'verified' && incomingAsOf && incoming?.status !== 'unverified' && (
-              <p className="mt-1 opacity-75">{hu ? 'Previo ellenőrizve' : 'Previo checked'}: {localTime(incomingAsOf, hu)}</p>
+        {checkout && <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100"
+          data-training="slnt-checkout-guest-count">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="font-semibold">
+              {hu ? 'Távozó' : 'Checkout'}: {item.guest_count == null ? '?' : item.guest_count}
+              {item.guest_count == null ? '' : (hu ? ' vendég' : item.guest_count === 1 ? ' guest' : ' guests')}
+            </span>
+            <span className="min-w-0 font-medium" data-training="slnt-incoming-guests" aria-live="polite">
+              {incomingStatus === 'loading' && (hu ? 'Érkezés: ellenőrzés…' : 'Arrival: checking…')}
+              {incomingStatus === 'unavailable' && (hu ? 'Érkezés: nem ellenőrizhető' : 'Arrival: unverified')}
+              {incomingStatus === 'verified' && incoming?.status === 'confirmed' && incoming.guest_count != null && (
+                <>{hu ? 'Érkezés' : 'Arrival'} {incoming.arrival_date === date ? (hu ? 'ma' : 'today') : incoming.arrival_date}: {incoming.guest_count} {hu ? 'vendég' : incoming.guest_count === 1 ? 'guest' : 'guests'} · {hu ? 'Previo ✓' : 'Previo verified ✓'}</>
+              )}
+              {incomingStatus === 'verified' && incoming?.status === 'guest_list' && incoming.guest_count != null && (
+                <>{hu ? 'Érkezés' : 'Arrival'} {incoming.arrival_date === date ? (hu ? 'ma' : 'today') : incoming.arrival_date}: {incoming.guest_count} {hu ? 'rögzített · létszám nem igazolt' : 'listed · total unverified'}</>
+              )}
+              {incomingStatus === 'verified' && incoming?.status === 'not_found' &&
+                (hu ? 'Nincs igazolt érkezés a következő 30 napban' : 'No verified arrival in next 30 days')}
+              {incomingStatus === 'verified' && incoming?.status === 'unverified' &&
+                (hu ? 'Érkezés: létszám nem igazolt' : 'Arrival: count unverified')}
+              {incomingStatus === 'verified' && incoming?.status === 'conflict' &&
+                (hu ? 'Ütköző érkezések · vezetői ellenőrzés' : 'Arrival conflict · manager review')}
+              {incomingStatus === 'verified' && !incoming &&
+                (hu ? 'Érkezés: nincs ellenőrzött szobakapcsolat' : 'Arrival: room mapping unverified')}
+            </span>
+            {incomingStatus === 'verified' && incomingAsOf && (
+              <span className="inline-flex items-center text-sky-700 dark:text-sky-300"
+                title={(hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu)}
+                aria-label={(hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu)}>
+                <Info className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
             )}
           </div>
-          {!service.bedInstruction && <p className="mt-1 text-xs">{hu ? 'Ágyelrendezés: nincs külön utasítás megadva.' : 'Bed configuration: no specific instruction recorded.'}</p>}
         </div>}
 
         {/* Mirrors the prominent RD hotel instruction boxes for actionable

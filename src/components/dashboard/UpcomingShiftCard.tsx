@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
 import { useSlntTeamAEnabled } from '@/hooks/useSlntTeamAEnabled';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import { SlntTeamBMySchedule } from './SlntTeamBMySchedule';
 import { useTranslation } from '@/hooks/useTranslation';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
@@ -34,11 +35,32 @@ export function UpcomingShiftCard() {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState('');
+  const [teamBMember, setTeamBMember] = useState<boolean | null>(null);
+  const [teamBError, setTeamBError] = useState('');
   const slnt = isSlnt(orgSlug ?? profile?.organization_slug);
   const from = slnt ? todayBudapest() : format(new Date(), 'yyyy-MM-dd');
   const to = format(addDays(dateOf(from), 13), 'yyyy-MM-dd');
 
+  useEffect(() => {
+    let active = true;
+    if (!slnt || !simplifiedReady || !user?.id) {
+      setTeamBMember(false);
+      setTeamBError('');
+      return;
+    }
+    setTeamBMember(null);
+    void (async () => {
+      const { data, error: failure } = await (supabase as any).rpc('slnt_is_team_b_member');
+      if (!active) return;
+      if (failure) { setTeamBError(failure.message); setTeamBMember(null); }
+      else { setTeamBError(''); setTeamBMember(data === true); }
+    })();
+    return () => { active = false; };
+  }, [slnt, simplifiedReady, user?.id]);
+
   const refresh = useCallback(async (isActive: () => boolean = () => true) => {
+    // Team B uses virtual working days and explicit absences, never published-shift rows.
+    if (slnt && simplifiedReady && teamBMember !== false) return;
     if (!venuesEnabled || !user?.id) { if (isActive()) setShifts([]); return; }
     setLoading(true);
     setError('');
@@ -71,10 +93,12 @@ export function UpcomingShiftCard() {
     } catch (cause) {
       if (isActive()) { setShifts([]); setError(cause instanceof Error ? cause.message : 'Could not load your shifts.'); }
     } finally { if (isActive()) setLoading(false); }
-  }, [venuesEnabled, user?.id, profile?.organization_slug, profile?.assigned_hotel, slnt, from, to, simplifiedEnabled]);
+  }, [venuesEnabled, user?.id, profile?.organization_slug, profile?.assigned_hotel, slnt, from, to, simplifiedEnabled, simplifiedReady, teamBMember]);
 
   useEffect(() => { let active = true; void refresh(() => active); return () => { active = false; }; }, [refresh]);
   if (!venuesEnabled) return null;
+  if (slnt && simplifiedReady && teamBMember === true) return <SlntTeamBMySchedule />;
+  if (slnt && simplifiedReady && teamBMember === null) return <Card className="w-full"><CardContent className="p-3 text-sm text-muted-foreground" role={teamBError ? 'alert' : 'status'}>{teamBError || (language === 'hu' ? 'Beosztás ellenőrzése…' : 'Checking Team B schedule…')}</CardContent></Card>;
 
   // Preserve the existing compact card for all tenants other than SLNT.
   if (!slnt) return <Card className="w-full max-w-md mx-auto"><CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><CalendarDays className="h-4 w-4" />Upcoming schedule</CardTitle></CardHeader><CardContent className="space-y-2">
