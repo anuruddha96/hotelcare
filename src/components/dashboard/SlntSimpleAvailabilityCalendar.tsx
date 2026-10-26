@@ -29,7 +29,8 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dates = useMemo(() => Array.from({ length: compact ? 14 : 7 }, (_, i) => dayPlus(compact ? todayBudapest() : week, i)), [week,compact]);
+  const today = todayBudapest();
+  const dates = useMemo(() => Array.from({ length: compact ? 14 : 7 }, (_, i) => dayPlus(compact ? today : week, i)), [week, compact, today]);
   const refresh = useCallback(async () => {
     setLoading(true);
     const args = { p_start: dates[0], p_end: dates[dates.length - 1] };
@@ -100,9 +101,16 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
           <CardTitle className="flex min-w-0 items-center gap-2 text-sm font-semibold">
             <Users className="h-4 w-4" />{hu ? 'B csapat — ki dolgozik?' : 'Team B — who is working?'}
           </CardTitle>
-          <Badge variant="secondary">{compact
-            ? (hu ? 'Tervezett: ' : 'Scheduled: ') + working + '/' + total
-            : hu ? 'Alapértelmezés: dolgozik' : 'Default: working'}</Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge variant="secondary">{compact
+              ? (hu ? 'Ma: ' : 'Today: ') + working + '/' + total
+              : hu ? 'Alapértelmezés: dolgozik' : 'Default: working'}</Badge>
+            {compact && <Button type="button" size="sm" variant="ghost" className="h-7 w-7 p-0"
+              title={hu ? 'Frissítés' : 'Refresh'} aria-label={hu ? 'Frissítés' : 'Refresh'}
+              disabled={loading} onClick={() => void refresh()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>}
+          </div>
         </div>
         {!compact && <p className="text-xs text-muted-foreground">{hu
           ? 'A napi szobák közösek. A munkabeosztás alapértelmezésben aktív; a mai alkalmazáshasználat külön jelenik meg. A meglévő szobamunkát át kell adni a szabadnap előtt.'
@@ -112,15 +120,15 @@ export function SlntSimpleAvailabilityCalendar({ compact = false, onSaved }: {
           {hu ? '14 nap · zöld = dolgozik · szürke = szabadnap · kattints a módosításhoz' : 'Next 14 days · green = working · grey = off · tap a day to change'}
           <span className="ml-2">{hu ? 'Online ma' : 'Online today'}: {online}{inactive > 0 ? ' · '+(hu ? 'Inaktív' : 'Inactive')+': '+inactive : ''}</span>
         </p>}
-        <div className={compact ? 'flex justify-end' : 'flex items-center gap-2 justify-between'}>
-          {!compact && <div className="flex items-center gap-1">
+        {!compact && <div className="flex items-center gap-2 justify-between">
+          <div className="flex items-center gap-1">
             <Button size="sm" variant="outline" onClick={() => setWeek(dayPlus(week,-7))}><CalendarDays className="h-3.5 w-3.5 mr-1"/>{hu ? 'Előző' : 'Previous'}</Button>
             <Button size="sm" variant="outline" onClick={() => setWeek(dayPlus(week,7))}>{hu ? 'Következő' : 'Next'}</Button>
-          </div>}
-          <Button size="sm" variant="ghost" onClick={() => { if (!compact) setWeek(format(startOfWeek(local(todayBudapest()), { weekStartsOn: 1 }), 'yyyy-MM-dd')); void refresh(); }} disabled={loading}>
+          </div>
+          <Button size="sm" variant="ghost" onClick={() => { setWeek(format(startOfWeek(local(today), { weekStartsOn: 1 }), 'yyyy-MM-dd')); void refresh(); }} disabled={loading}>
             <RefreshCw className="h-4 w-4 mr-1"/>{hu ? 'Frissítés' : 'Refresh'}
           </Button>
-        </div>
+        </div>}
       </CardHeader>
       <CardContent className="min-w-0 space-y-2 px-3 pb-3 sm:px-4">
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
