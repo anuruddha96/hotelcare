@@ -78,31 +78,56 @@ describe('SLNT Team B optional stayover cards', () => {
 describe('SLNT exact-room next arrival details', () => {
   const checkout = { ...base, is_checkout_room: true, pms_metadata: {
     pmsSyncDate: today, scheduledDepartureToday: true, readyToClean: true, readyToCleanDate: today,
-    checkedOutToday: true,
+    checkedOutToday: true, arrivalDate: '2026-10-20', departureDate: today,
   } };
-  it('shows a concise verified Previo count and room-specific date', () => {
-    show(checkout, false, { room_id: 'room-1', status: 'confirmed', arrival_date: today, guest_count: 3 }, 'verified');
-    expect(screen.getByText(/Arrival today: 3 guests/)).toBeInTheDocument();
-    expect(screen.getByText(/Previo verified/)).toBeInTheDocument();
-    expect(screen.getByText(/Checkout: 2 guests/)).toBeInTheDocument();
+  it('prominently highlights the next arrival guest count and hides outgoing stay dates', () => {
+    const { container } = show(checkout, false,
+      { room_id: 'room-1', status: 'confirmed', arrival_date: today, guest_count: 3 }, 'verified');
+    expect(container.querySelector('[data-training="slnt-incoming-count-highlight"]'))
+      .toHaveTextContent('Arrival today: 3 guests');
+    expect(container.querySelector('[data-training="slnt-incoming-count-highlight"]'))
+      .toHaveClass('bg-sky-600');
+    expect(container.querySelector('[data-training="slnt-checkout-guest-count"]'))
+      .toHaveTextContent('Checkout: 2 guests');
+    expect(screen.queryByText(/Arrival: 2026-10-20/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Departure: 2026-10-22/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/total unverified/i)).not.toBeInTheDocument();
   });
-  it('does not label a partial guest listing as confirmed occupancy', () => {
-    show(checkout, false, { room_id: 'room-1', status: 'guest_list', arrival_date: today, guest_count: 2 }, 'verified');
-    expect(screen.getByText(/total unverified/)).toBeInTheDocument();
-    expect(screen.queryByText(/Previo verified/)).not.toBeInTheDocument();
+  it('displays guest-list counts without an alarming warning or mislabelling them as declared totals', () => {
+    const { container } = show(checkout, false,
+      { room_id: 'room-1', status: 'guest_list', arrival_date: today, guest_count: 1 }, 'verified');
+    expect(container.querySelector('[data-training="slnt-incoming-count-highlight"]'))
+      .toHaveTextContent('Arrival today: 1 guest');
+    expect(screen.queryByText(/total unverified/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Based on Previo guest listing')).toBeInTheDocument();
+  });
+  it('distinguishes an arrival on a different date', () => {
+    const { container } = show(checkout, false,
+      { room_id: 'room-1', status: 'confirmed', arrival_date: '2026-10-27', guest_count: 2 }, 'verified');
+    expect(container.querySelector('[data-training="slnt-incoming-count-highlight"]'))
+      .toHaveTextContent(/Arrival.*27 Oct.*2 guests/);
+    expect(container.querySelector('[data-training="slnt-incoming-count-highlight"]'))
+      .not.toHaveTextContent('Arrival today');
   });
   it('shows a bounded no-booking statement only for a verified lookup', () => {
-    show(checkout, false, { room_id: 'room-1', status: 'not_found', arrival_date: null, guest_count: null }, 'verified');
-    expect(screen.getByText(/No verified arrival in next 30 days/)).toBeInTheDocument();
+    const { container } = show(checkout, false,
+      { room_id: 'room-1', status: 'not_found', arrival_date: null, guest_count: null }, 'verified');
+    expect(screen.getByText(/No confirmed arrival within 30 days/)).toBeInTheDocument();
+    expect(container.querySelector('[data-training="slnt-incoming-count-highlight"]')).not.toBeInTheDocument();
   });
-  it('fails closed on missing API data', () => {
-    show(checkout, false, null, 'unavailable');
-    expect(screen.getByText(/Arrival: unverified/)).toBeInTheDocument();
-    expect(screen.queryByText(/No confirmed booking assigned/)).not.toBeInTheDocument();
+  it('fails closed when Previo lookup fails rather than showing a stale count', () => {
+    const { container } = show(checkout, false, null, 'unavailable');
+    expect(screen.getByText(/Arrival data unavailable/)).toBeInTheDocument();
+    expect(container.querySelector('[data-training="slnt-incoming-count-highlight"]')).not.toBeInTheDocument();
   });
-  it('preserves Hungarian checkout labels and matching incoming count', () => {
-    show(checkout, true, { room_id: 'room-1', status: 'confirmed', arrival_date: today, guest_count: 4 }, 'verified');
-    expect(screen.getByText(/Érkezés ma: 4 vendég/)).toBeInTheDocument();
-    expect(screen.getByText(/Previo ✓/)).toBeInTheDocument();
+  it('keeps outgoing stay dates for non-checkout stayover rooms', () => {
+    show(base);
+    expect(screen.getByText(/Arrival: 2026-10-20 · Departure: 2026-10-24/)).toBeInTheDocument();
+  });
+  it('preserves Hungarian arrival wording and verified guest counts', () => {
+    const { container } = show(checkout, true,
+      { room_id: 'room-1', status: 'confirmed', arrival_date: today, guest_count: 4 }, 'verified');
+    expect(container.querySelector('[data-training="slnt-incoming-count-highlight"]'))
+      .toHaveTextContent('Érkezés ma: 4 vendég');
   });
 });
