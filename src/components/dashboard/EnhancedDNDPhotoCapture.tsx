@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
+import { dndRetryTimeLabel, getDndRetryWindow } from '@/lib/dndRetryPolicy';
 import { toast } from 'sonner';
 
 interface EnhancedDNDPhotoCaptureProps {
@@ -67,6 +68,7 @@ export function EnhancedDNDPhotoCapture({
   const streamRef = useRef<MediaStream | null>(null);
   const cameraRequestRef = useRef(0);
   const openRef = useRef(open);
+  const photoSavedThisVisit = useRef(false);
   const savingRef = useRef(false);
   const localUrlsRef = useRef<Set<string>>(new Set());
   openRef.current = open;
@@ -84,6 +86,7 @@ export function EnhancedDNDPhotoCapture({
     if (!open) return;
     let active = true;
     setPhotos([]);
+    photoSavedThisVisit.current = false;
     setCameraError('');
     if (assignmentId) {
       void supabase.from('dnd_photos').select('photo_url')
@@ -111,8 +114,35 @@ export function EnhancedDNDPhotoCapture({
     };
   }, [open, assignmentId, stopCamera]);
 
+  // The server will recheck on insert. This additional live read prevents a
+  // stale tab, deep-link or saved gallery photo from skipping the revisit.
+  const ensureSecondVisitDue = async (): Promise<boolean> => {
+    if (attemptNumber < 2) return true;
+    if (!assignmentId) {
+      toast.error('Cannot verify the DND second visit. Refresh your room list.');
+      return false;
+    }
+    const { data, error } = await supabase.from('room_assignments')
+      .select('status, assignment_type, assignment_date, dnd_first_attempt_at, dnd_attempt_count')
+      .eq('id', assignmentId).maybeSingle();
+    if (error || !data || data.status !== 'dnd_pending_retry' ||
+      data.assignment_type !== 'daily_cleaning' || data.assignment_date !== todayBudapest() ||
+      (data.dnd_attempt_count ?? 0) !== 1) {
+      toast.warning('DND retry is not ready. Refresh the room card before returning.');
+      return false;
+    }
+    const state = getDndRetryWindow(data.dnd_first_attempt_at);
+    if (!state.allowed) {
+      const time = state.availableAt ? dndRetryTimeLabel(state.availableAt) : 'later today';
+      toast.warning(`Too early for the second DND photo. Please revisit the door at ${time}.`, { duration: 6000 });
+      return false;
+    }
+    return true;
+  };
+
   const startCamera = async () => {
-    if (savingRef.current) return;
+    if (savingRef.current || photoSavedThisVisit.current) return;
+    if (!(await ensureSecondVisitDue())) return;
     setCameraError('');
     if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
       setCameraError('The browser cannot provide a live camera preview. Use Phone camera or Choose photo below.');
@@ -154,6 +184,7 @@ export function EnhancedDNDPhotoCapture({
       else if (!blob.type.startsWith('image/')) toast.error('Please select an image file.');
       return;
     }
+    if (photoSavedThisVisit.current || !(await ensureSecondVisitDue())) return;
     savingRef.current = true;
     setSaving(true);
     stopCamera();
@@ -183,6 +214,7 @@ export function EnhancedDNDPhotoCapture({
         throw recordError;
       }
       recordSaved = true;
+      photoSavedThisVisit.current = true;
       setPhotos(previous => previous.map(photo => photo.id === id
         ? { id, url: publicUrl, saved: true } : photo));
       URL.revokeObjectURL(localUrl);
@@ -197,13 +229,19 @@ export function EnhancedDNDPhotoCapture({
       }
       toast.success(t('photoCapture.photoSavedSuccess'));
       onPhotoUploaded?.();
+      // One new doorway photo is evidence of one visit. End this capture
+      // session rather than allowing a second upload in the same visit.
+      onOpenChange(false);
     } catch (error) {
       console.error('DND photo save error:', error);
       if (!recordSaved) {
         setPhotos(previous => previous.filter(photo => photo.id !== id));
         URL.revokeObjectURL(localUrl);
         localUrlsRef.current.delete(localUrl);
-        toast.error('Photo was not saved. Please try again.');
+        const message = String((error as { message?: string })?.message ?? '');
+        toast.error(message.includes('DND_RETRY_TOO_EARLY')
+          ? 'Too early for the second DND photo. Please revisit later.'
+          : 'Photo was not saved. Please try again.');
       } else {
         toast.error('Photo saved, but the room DND status was not updated. Please notify a manager.');
       }
@@ -216,7 +254,7 @@ export function EnhancedDNDPhotoCapture({
   const handlePicker = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = ''; // Allow selecting the same file again after a failure.
-    if (file) void savePhoto(file);
+    if (file && !photoSavedThisVisit.current) void savePhoto(file);
   };
 
   const capturePhoto = () => {
@@ -264,7 +302,7 @@ export function EnhancedDNDPhotoCapture({
           <div className="p-4 space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium">{t('photoCapture.progress')}: {savedCount} {t('photoCapture.photoCaptured')}</span>
+                <span className="text-sm font-medium">{attemptNumber >= 2 ? 'Second DND visit' : 'First DND visit'} · {t('photoCapture.progress')}: {savedCount} {t('photoCapture.photoCaptured')}</span>
                 <Badge className={savedCount ? 'bg-green-500' : ''}>
                   <CheckCircle className="h-3 w-3 mr-1" />
                   {savedCount ? t('photoCapture.saved') : t('photoCapture.noPhotos')}
@@ -277,6 +315,11 @@ export function EnhancedDNDPhotoCapture({
                 <AlertTriangle className="h-4 w-4 shrink-0" />{t('photoCapture.takeClearPhoto')}
               </p>
             </div>
+            {attemptNumber >= 2 && (
+              <div role="status" className="rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-950">
+                This must be a <strong>new visit</strong> after the waiting period. If the DND sign has been removed, close this window and start cleaning instead.
+              </div>
+            )}
             {cameraError && (
               <div role="alert" className="p-3 rounded-lg border border-amber-400 bg-amber-50 text-sm text-amber-950">
                 <p>{cameraError}</p>
