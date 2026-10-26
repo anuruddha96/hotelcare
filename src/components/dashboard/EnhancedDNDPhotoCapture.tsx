@@ -55,7 +55,7 @@ export function EnhancedDNDPhotoCapture({
   attemptNumber = 1, onPhotoUploaded,
 }: EnhancedDNDPhotoCaptureProps) {
   const { user } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [showCamera, setShowCamera] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
@@ -317,7 +317,9 @@ export function EnhancedDNDPhotoCapture({
             </div>
             {attemptNumber >= 2 && (
               <div role="status" className="rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-950">
-                This must be a <strong>new visit</strong> after the waiting period. If the DND sign has been removed, close this window and start cleaning instead.
+                {language === 'hu'
+                  ? 'Ez egy későbbi, új ajtóellenőrzés. Ha a DND jelzést eltávolították, zárd be ezt az ablakot, és kezdd el a takarítást.'
+                  : 'This must be a new, later door visit. If the DND sign has been removed, close this window and start cleaning instead.'}
               </div>
             )}
             {cameraError && (
@@ -369,10 +371,12 @@ export function EnhancedDNDPhotoCapture({
                 onClick={() => { stopCamera(); nativeCameraRef.current?.click(); }}>
                 <Smartphone className="h-5 w-5 mr-2" />Phone camera (recommended)
               </Button>
-              <Button type="button" variant="outline" size="lg" disabled={saving}
-                onClick={() => { stopCamera(); galleryRef.current?.click(); }}>
-                <ImagePlus className="h-5 w-5 mr-2" />Choose photo from phone
-              </Button>
+              {attemptNumber < 2 && (
+                <Button type="button" variant="outline" size="lg" disabled={saving}
+                  onClick={() => { stopCamera(); galleryRef.current?.click(); }}>
+                  <ImagePlus className="h-5 w-5 mr-2" />Choose photo from phone
+                </Button>
+              )}
             </div>
             <input aria-label="Take DND photo using phone camera" ref={nativeCameraRef} type="file"
               accept="image/*" capture="environment" onChange={handlePicker} className="hidden" />
