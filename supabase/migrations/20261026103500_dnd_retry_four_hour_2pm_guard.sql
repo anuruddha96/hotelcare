@@ -135,6 +135,10 @@ BEFORE UPDATE OF status, is_dnd, dnd_first_attempt_at, dnd_attempt_count
 ON public.room_assignments FOR EACH ROW
 EXECUTE FUNCTION public.hc_guard_dnd_assignment_second_visit();
 
-REVOKE EXECUTE ON FUNCTION public.hc_dnd_retry_ready_at(timestamptz) FROM PUBLIC, anon, authenticated;
+-- The invoker-mode DND triggers call this pure function on behalf of
+-- housekeepers. It must remain executable by authenticated users, without
+-- making the other trigger functions callable through RPC.
+REVOKE EXECUTE ON FUNCTION public.hc_dnd_retry_ready_at(timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hc_dnd_retry_ready_at(timestamptz) TO authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.hc_guard_dnd_photo_second_visit() FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.hc_guard_dnd_assignment_second_visit() FROM PUBLIC, anon, authenticated;
