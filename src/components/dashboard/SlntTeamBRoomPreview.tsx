@@ -197,10 +197,11 @@ export function SlntTeamBRoomPreview({
             <span className="min-w-0" data-training="slnt-incoming-guests">
               {hasIncomingCount && incoming && <span data-training="slnt-incoming-count-highlight"
                 className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md bg-sky-600 px-3 py-1.5 text-white shadow-sm dark:bg-sky-700">
-                <span className="text-xs font-semibold">{arrivalLabel(incoming.arrival_date, date, hu)}:</span>
-                <strong className="text-base font-extrabold leading-none">
-                  {incoming.guest_count} {hu ? 'vendég' : incoming.guest_count === 1 ? 'guest' : 'guests'}
-                </strong>
+                <span className="text-xs font-semibold">
+                  {arrivalLabel(incoming.arrival_date, date, hu)}: <strong className="ml-1 text-base font-extrabold leading-none">
+                    {incoming.guest_count} {hu ? 'vendég' : incoming.guest_count === 1 ? 'guest' : 'guests'}
+                  </strong>
+                </span>
                 {incoming.status === 'guest_list' && <Info className="h-3.5 w-3.5 text-white/80"
                   title={hu ? 'Previo vendéglista szerinti létszám. A foglalás teljes létszáma eltérhet.' :
                     'Count from the Previo guest list; a separate declared reservation total was not available.'}
