@@ -28,6 +28,26 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, "&#039;");
 }
 
+function formatLocalCutoff(cutoffAt: string, timezone: string): string {
+  const date = new Date(cutoffAt);
+  if (Number.isNaN(date.getTime())) return "the cutoff";
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "UTC",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(date) + " UTC";
+  }
+}
+
 type AlertRow = {
   id: string;
   organization_slug: string;
@@ -122,7 +142,8 @@ Deno.serve(async (req) => {
     const hotelName = hotelNameById.get(first.hotel_id) || first.hotel_id;
     const setting = settingByKey.get(`${first.organization_slug}|${first.hotel_id}`);
     const timezone = setting?.timezone || "Europe/Budapest";
-    const cutoffTime = String(setting?.inactivity_alert_time || "08:45:00").slice(0, 5);
+    // The saved alert cutoff is authoritative; live settings can differ from the trigger. 
+    const cutoffTime = formatLocalCutoff(first.cutoff_at, timezone);
     const recipients = [...new Set(rows.flatMap((row) => row.recipients || []))];
 
     const people = rows.map((row) => {
@@ -134,37 +155,76 @@ Deno.serve(async (req) => {
       };
     });
 
-    const listHtml = people
-      .map((person) => `
-        <tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb"><strong>${escapeHtml(person.name)}</strong>${person.email ? `<br><span style="color:#6b7280;font-size:12px">${escapeHtml(person.email)}</span>` : ""}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${person.assignment_count}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb">No HotelCare activity by ${escapeHtml(cutoffTime)}</td>
-        </tr>`)
-      .join("");
+    const staffCount = people.length;
+    const roomCount = people.reduce((sum, person) => sum + person.assignment_count, 0);
+    const cutoffTimes = [...new Set(people.map((person) => formatLocalCutoff(person.cutoff_at, timezone)))];
+    const sameCutoff = cutoffTimes.length === 1;
+    const timeLabel = sameCutoff ? cutoffTime : "their individual cutoff times";
+    const timezoneLabel = timezone === "Europe/Budapest" ? "Budapest time" : timezone;
+    const dateLabel = new Intl.DateTimeFormat("en-GB", {
+      day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
+    }).format(new Date(`${first.work_date}T12:00:00Z`));
 
-    const namesText = people
-      .map((person) => `- ${person.name}: ${person.assignment_count} assigned room${person.assignment_count === 1 ? "" : "s"}; no HotelCare activity by ${cutoffTime}`)
-      .join("\n");
+    const listHtml = people.map((person) => `
+      <tr>
+        <td style="padding:15px 16px;border-bottom:1px solid #e9edf2">
+          <div style="font-size:15px;font-weight:700;color:#152033">${escapeHtml(person.name)}</div>
+          <div style="font-size:13px;line-height:20px;color:#526174;margin-top:3px">
+            ${person.assignment_count} room${person.assignment_count === 1 ? "" : "s"} assigned${sameCutoff ? "" : ` · Cutoff ${escapeHtml(formatLocalCutoff(person.cutoff_at, timezone))}`}
+          </div>
+        </td>
+      </tr>`).join("");
 
-    const subject = `[Hotel Care] Housekeeping activity alert – ${hotelName} – ${first.work_date}`;
+    const subject = `[HotelCare] No activity from ${staffCount} housekeeper${staffCount === 1 ? "" : "s"} · ${hotelName}`;
+    const plainRows = people.map((person) =>
+      `- ${person.name}: ${person.assignment_count} assigned room${person.assignment_count === 1 ? "" : "s"}${sameCutoff ? "" : ` (cutoff ${formatLocalCutoff(person.cutoff_at, timezone)})`}`
+    ).join("\\n");
+    const heading = `${staffCount} housekeeper${staffCount === 1 ? "" : "s"} need${staffCount === 1 ? "s" : ""} a check-in`;
+    const explanation = `No HotelCare activity recorded by ${timeLabel} (${timezoneLabel}).`;
     const html = `
-      <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#111827">
-        <div style="padding:18px 20px;background:#111827;color:#fff;border-radius:12px 12px 0 0">
-          <div style="font-size:12px;opacity:.75;text-transform:uppercase;letter-spacing:.08em">Hotel Care · Housekeeping</div>
-          <h2 style="margin:6px 0 0;font-size:20px">Housekeeper activity check</h2>
-        </div>
-        <div style="padding:20px;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 12px 12px">
-          <p style="margin-top:0"><strong>${escapeHtml(hotelName)}</strong> · ${escapeHtml(first.work_date)}</p>
-          <p>The following housekeeper${people.length === 1 ? " was" : "s were"} assigned rooms this morning but had no HotelCare activity recorded by <strong>${escapeHtml(cutoffTime)}</strong> (${escapeHtml(timezone)}).</p>
-          <table style="width:100%;border-collapse:collapse;margin:16px 0">
-            <thead><tr style="background:#f9fafb"><th style="padding:9px 12px;text-align:left">Housekeeper</th><th style="padding:9px 12px">Rooms</th><th style="padding:9px 12px;text-align:left">Status</th></tr></thead>
-            <tbody>${listHtml}</tbody>
-          </table>
-          <p style="margin-bottom:0;color:#6b7280;font-size:12px">HotelCare considers a staff member active if a housekeeping heartbeat, HotelCare attendance check-in, or room-start action was recorded by the cutoff. This alert is sent once per late housekeeper/day.</p>
-        </div>
+      <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">
+        ${escapeHtml(heading)} · ${roomCount} room${roomCount === 1 ? "" : "s"} assigned · ${escapeHtml(hotelName)}
+      </div>
+      <div style="margin:0;padding:24px 12px;background:#f4f6fa;font-family:Arial,Helvetica,sans-serif;color:#152033">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:580px;margin:0 auto;border-collapse:separate">
+          <tr><td style="padding:18px 22px;background:#111c2e;border-radius:12px 12px 0 0">
+            <div style="font-size:12px;color:#c2cee0;font-weight:700;letter-spacing:1px">HOTELCARE · HOUSEKEEPING</div>
+            <div style="font-size:22px;line-height:29px;font-weight:700;color:#ffffff;margin-top:7px">Activity alert</div>
+          </td></tr>
+          <tr><td style="padding:23px 22px 24px;background:#ffffff;border:1px solid #e6eaf1;border-top:0;border-radius:0 0 12px 12px">
+            <div style="font-size:13px;color:#526174;line-height:20px">${escapeHtml(hotelName)} · ${escapeHtml(dateLabel)}</div>
+            <h1 style="margin:13px 0 12px;font-size:22px;line-height:29px;color:#152033">${escapeHtml(heading)}</h1>
+            <div style="padding:12px 14px;border-left:4px solid #dd9b2b;background:#fff7e8;border-radius:4px;font-size:14px;line-height:21px;color:#5c441f">
+              ${escapeHtml(explanation)}
+            </div>
+            <div style="font-size:13px;font-weight:700;color:#526174;margin:24px 0 8px">
+              ${staffCount} staff member${staffCount === 1 ? "" : "s"} · ${roomCount} assigned room${roomCount === 1 ? "" : "s"}
+            </div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e6eaf1;border-radius:9px;border-collapse:separate;border-spacing:0">
+              ${listHtml}
+            </table>
+            <p style="margin:22px 0 16px;font-size:14px;line-height:22px;color:#334155">
+              <strong>Next step:</strong> Check with the housekeeper${staffCount === 1 ? "" : "s"} and confirm they can access HotelCare.
+            </p>
+            <a href="https://my.hotelcare.app" style="display:inline-block;padding:12px 18px;background:#1f4d8f;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;border-radius:7px">Open HotelCare</a>
+            <p style="margin:24px 0 0;padding-top:15px;border-top:1px solid #edf0f4;font-size:12px;line-height:19px;color:#64748b">
+              This alert means activity was not recorded in HotelCare; it does not confirm the person is absent from work.
+            </p>
+          </td></tr>
+        </table>
       </div>`;
-    const text = `Hotel Care housekeeping activity alert\n${hotelName} · ${first.work_date}\n\n${namesText}\n\nCutoff timezone: ${timezone}`;
+    const text = `HotelCare housekeeping activity alert
+${hotelName} · ${dateLabel}
+
+${heading}
+${explanation}
+
+${plainRows}
+
+Next step: Check with the housekeeper${staffCount === 1 ? "" : "s"} and confirm they can access HotelCare.
+Open HotelCare: https://my.hotelcare.app
+
+This alert does not confirm the person is absent from work.`;
 
     const send = await sendEmail({
       admin: admin as any,
