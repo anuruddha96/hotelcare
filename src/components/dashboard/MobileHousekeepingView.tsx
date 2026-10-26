@@ -22,6 +22,7 @@ import { getLocalDateString } from '@/lib/utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { todayBudapest } from '@/lib/budapestTime';
+import { getDndRetryWindow } from '@/lib/dndRetryPolicy';
 import { getHousekeepingCarryForward, isPortfolioCarryForwardHotel } from '@/lib/housekeepingCarryForward';
 
 interface Assignment {
@@ -203,27 +204,15 @@ export function MobileHousekeepingView() {
       // stayover policy: ready checkout > towel change > explicit clean request
       // > optional daily door-check > waiting checkout. Other hotels keep the
       // existing generic priority behavior unchanged.
-      // Auto-unlock DND retries: at/after 14:30, or when no other rooms remain active
-      try {
-        const nowD = new Date();
-        const isAfterCutoff = nowD.getHours() > 14 || (nowD.getHours() === 14 && nowD.getMinutes() >= 30);
-        const hasOtherActive = assignmentsData.some((a: any) =>
-          a.status === 'assigned' || a.status === 'in_progress'
-        );
-        const lockedRetries = assignmentsData.filter((a: any) =>
-          a.status === 'dnd_pending_retry' && !a.dnd_retry_unlocked_at
-        );
-        if (lockedRetries.length > 0 && (isAfterCutoff || !hasOtherActive)) {
-          const nowIso = nowD.toISOString();
-          await supabase
-            .from('room_assignments')
-            .update({ dnd_retry_unlocked_at: nowIso } as any)
-            .in('id', lockedRetries.map((r: any) => r.id));
-          lockedRetries.forEach((r: any) => { r.dnd_retry_unlocked_at = nowIso; });
-        }
-      } catch (unlockErr) {
-        console.warn('DND retry unlock check failed:', unlockErr);
-      }
+      // Compute the 4-hour / 14:00 door-revisit window from the original
+      // evidence. No client-side write can prematurely unlock a second photo.
+      const nowD = new Date();
+      assignmentsData = assignmentsData.map((item: any) => ({
+        ...item,
+        dnd_retry_unlocked_at: item.status === 'dnd_pending_retry'
+          ? (getDndRetryWindow(item.dnd_first_attempt_at, nowD).allowed ? nowD.toISOString() : null)
+          : item.dnd_retry_unlocked_at,
+      }));
 
       assignmentsData.sort((a, b) => {
         const getBucket = (x: any): number => {

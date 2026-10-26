@@ -41,6 +41,7 @@ import { RoomDetailDialog } from './RoomDetailDialog';
 import { RoomNoteProvenance } from './RoomNoteProvenance';
 import { DNDPhotoDialog } from './DNDPhotoDialog';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
+import { dndRetryTimeLabel, getDndRetryWindow } from '@/lib/dndRetryPolicy';
 
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { TowelChangeOnlyDialog } from './TowelChangeOnlyDialog';
@@ -136,6 +137,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
   const [lostFoundDialogOpen, setLostFoundDialogOpen] = useState(false);
   const [currentPhotos, setCurrentPhotos] = useState<string[]>(assignment.completion_photos || []);
   const [isRetrievingDND, setIsRetrievingDND] = useState(false);
+  const [dndClock, setDndClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (assignment.status !== 'dnd_pending_retry') return;
+    const timer = window.setInterval(() => setDndClock(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [assignment.status]);
+  const dndRetry = getDndRetryWindow(assignment.dnd_first_attempt_at, new Date(dndClock));
+  const nextDndTime = dndRetry.availableAt ? dndRetryTimeLabel(dndRetry.availableAt, language) : null;
   const [noServiceDialogOpen, setNoServiceDialogOpen] = useState(false);
   const [noServiceLoading, setNoServiceLoading] = useState(false);
   const [noServiceConsent, setNoServiceConsent] = useState(false);
@@ -307,11 +316,16 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
     setLoading(true);
     try {
       const now = new Date().toISOString();
-      const currentAttempts = assignment.dnd_attempt_count ?? 0;
+      const currentAttempts = assignment.status === 'dnd_pending_retry'
+        ? Math.max(1, assignment.dnd_attempt_count ?? 0)
+        : (assignment.dnd_attempt_count ?? 0);
       const nextAttempt = currentAttempts + 1;
       const isSecondAttempt = nextAttempt >= 2;
 
       if (isSecondAttempt) {
+        if (!getDndRetryWindow(assignment.dnd_first_attempt_at).allowed) {
+          throw new Error('DND second attempt is not yet due. Return later.');
+        }
         // Second (or later) DND attempt → send to manager approval
         const { error: assignmentError } = await supabase
           .from('room_assignments')
@@ -1337,15 +1351,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
             <div className="rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800 px-3 py-2 text-sm text-orange-900 dark:text-orange-200 space-y-2">
               <div className="font-semibold">{t('dnd.secondAttemptTitle')} — {t('common.room') || 'Room'} {assignment.rooms?.room_number}</div>
               <div className="text-xs">
-                {assignment.dnd_retry_unlocked_at
-                  ? t('dnd.retryNowHint')
-                  : t('dnd.retryLaterHint')}
+                {dndRetry.allowed
+                  ? (language === 'hu' ? 'A második ajtóellenőrzés most elvégezhető.' : 'Second door check available now.')
+                  : (language === 'hu'
+                    ? `Térj vissza később. Második DND-fotó ${nextDndTime ? `${nextDndTime} után` : 'az első próbálkozás után'} készíthető (legkésőbb 14:00-kor).`
+                    : `Return later. Second DND photo available ${nextDndTime ? `at ${nextDndTime}` : 'after the first attempt'} (no later than 2:00 PM).`)}
               </div>
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setEnhancedDndPhotoDialogOpen(true)}
-                className="w-full border-orange-400 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+                onClick={() => {
+                  if (dndRetry.allowed) setEnhancedDndPhotoDialogOpen(true);
+                  else toast.warning(language === 'hu' ? `Még nem esedékes. Térj vissza ${nextDndTime ?? 'később'} után.` : `Too early for a second DND photo. Return at ${nextDndTime ?? 'a later time'}.`);
+                }}
+                aria-disabled={!dndRetry.allowed}
+                className={`w-full border-orange-400 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/40 ${!dndRetry.allowed ? 'opacity-65 cursor-not-allowed' : ''}`}
               >
                 <AlertTriangle className="h-4 w-4 mr-1" />
                 {t('dnd.stillDndSendSupervisor')}
@@ -1539,7 +1559,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
                   {canUseDnd && (
                     <button
                       type="button"
-                      onClick={() => setEnhancedDndPhotoDialogOpen(true)}
+                      aria-disabled={assignment.status === 'dnd_pending_retry' && !dndRetry.allowed}
+                      onClick={() => {
+                        if (assignment.status === 'dnd_pending_retry' && !dndRetry.allowed) {
+                          toast.warning(`Second DND attempt available at ${nextDndTime ?? 'a later time'}.`);
+                          return;
+                        }
+                        setEnhancedDndPhotoDialogOpen(true);
+                      }}
                       className={`${tileBase} border-border`}
                       data-training="dnd-button"
                     >
@@ -1909,7 +1936,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         roomId={assignment.room_id}
         assignmentId={assignment.id}
-        attemptNumber={(assignment.dnd_attempt_count ?? 0) + 1}
+        attemptNumber={assignment.status === 'dnd_pending_retry' ? 2 : (assignment.dnd_attempt_count ?? 0) + 1}
         onPhotoUploaded={markAsDND}
       />
 

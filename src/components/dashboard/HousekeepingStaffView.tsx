@@ -23,6 +23,7 @@ import { getLocalDateString } from '@/lib/utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { todayBudapest } from '@/lib/budapestTime';
+import { getDndRetryWindow } from '@/lib/dndRetryPolicy';
 import { getHousekeepingCarryForward, isPortfolioCarryForwardHotel } from '@/lib/housekeepingCarryForward';
 
 interface Assignment {
@@ -211,27 +212,16 @@ export function HousekeepingStaffView() {
       // Show ALL assignments including checkout rooms not ready
       // Checkout rooms will display a "waiting for checkout" indicator
 
-      // Auto-unlock DND retries: at/after 14:30, or when no other rooms remain active
-      try {
-        const now = new Date();
-        const isAfterCutoff = now.getHours() > 14 || (now.getHours() === 14 && now.getMinutes() >= 30);
-        const hasOtherActive = assignmentsData.some((a: any) =>
-          a.status === 'assigned' || a.status === 'in_progress'
-        );
-        const lockedRetries = assignmentsData.filter((a: any) =>
-          a.status === 'dnd_pending_retry' && !a.dnd_retry_unlocked_at
-        );
-        if (lockedRetries.length > 0 && (isAfterCutoff || !hasOtherActive)) {
-          const nowIso = now.toISOString();
-          await supabase
-            .from('room_assignments')
-            .update({ dnd_retry_unlocked_at: nowIso } as any)
-            .in('id', lockedRetries.map((r: any) => r.id));
-          lockedRetries.forEach((r: any) => { r.dnd_retry_unlocked_at = nowIso; });
-        }
-      } catch (unlockErr) {
-        console.warn('DND retry unlock check failed:', unlockErr);
-      }
+      // Presentation-only eligibility. Never unlock just because other rooms
+      // are finished, and never trust old dnd_retry_unlocked_at values.
+      // The database separately enforces the same waiting period.
+      const now = new Date();
+      assignmentsData = assignmentsData.map((item: any) => ({
+        ...item,
+        dnd_retry_unlocked_at: item.status === 'dnd_pending_retry'
+          ? (getDndRetryWindow(item.dnd_first_attempt_at, now).allowed ? now.toISOString() : null)
+          : item.dnd_retry_unlocked_at,
+      }));
 
 
       // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
