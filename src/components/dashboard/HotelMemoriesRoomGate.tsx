@@ -298,7 +298,8 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
                 if (dndRetry.allowed) setSecondDndOpen(true);
                 else toast.warning(language === 'hu' ? `A második DND-fotó csak ${nextDndTime ?? 'később'} után készíthető.` : `Second DND photo is too early. Please come back at ${nextDndTime ?? 'a later time'}.`);
               }}
-              disabled={savingSecondDnd || !dndRetry.allowed}
+              disabled={savingSecondDnd}
+              aria-disabled={!dndRetry.allowed}
               className="w-full min-h-14 bg-orange-600 hover:bg-orange-700 text-white text-base font-bold whitespace-normal shadow-sm"
               data-training="memories-dnd-second-attempt-button"
             >
