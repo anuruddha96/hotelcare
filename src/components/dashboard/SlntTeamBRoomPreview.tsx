@@ -52,6 +52,17 @@ function localTime(iso: string, hu: boolean) {
   }).format(new Date(iso));
 }
 
+function arrivalLabel(arrivalDate: string | null, serviceDate: string, hu: boolean) {
+  if (!arrivalDate) return hu ? 'Következő érkezés' : 'Next arrival';
+  if (arrivalDate === serviceDate) return hu ? 'Érkezés ma' : 'Arrival today';
+  const parsed = new Date(arrivalDate + 'T12:00:00Z');
+  const formatted = Number.isNaN(parsed.getTime()) ? arrivalDate
+    : new Intl.DateTimeFormat(hu ? 'hu-HU' : 'en-GB', {
+      timeZone: 'UTC', day: 'numeric', month: 'short', weekday: 'short',
+    }).format(parsed);
+  return (hu ? 'Érkezés ' : 'Arrival ') + formatted;
+}
+
 /** SLNT-only unclaimed shared-pool room card. Reuses the full HotelCare
  * AssignedRoomCard AFTER claiming, while showing its actionable instructions
  * BEFORE the cleaner starts. The atomic claim RPC remains authoritative. */
@@ -74,6 +85,8 @@ export function SlntTeamBRoomPreview({
   const meta = item.pms_metadata || {};
   const arrival = typeof meta.arrivalDate === 'string' ? meta.arrivalDate : null;
   const departure = typeof meta.departureDate === 'string' ? meta.departureDate : null;
+  const hasIncomingCount = incomingStatus === 'verified' && incoming?.guest_count != null
+    && (incoming.status === 'confirmed' || incoming.status === 'guest_list');
 
   // Keep checkout and due-service colors strong. Optional stayovers are visually
   // quieter WITHOUT dimming or disabling the start action or critical notes.
@@ -171,38 +184,45 @@ export function SlntTeamBRoomPreview({
             </div>
           </div>
         )}
-        {checkout && <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100"
-          data-training="slnt-checkout-guest-count">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <span className="font-semibold">
-              {hu ? 'Távozó' : 'Checkout'}: {item.guest_count == null ? '?' : item.guest_count}
-              {item.guest_count == null ? '' : (hu ? ' vendég' : item.guest_count === 1 ? ' guest' : ' guests')}
+        {checkout && <div data-training="slnt-checkout-guest-count"
+          className="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
+          <div className="flex flex-wrap items-center gap-2" aria-live="polite">
+            <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+              {hu ? 'Távozó' : 'Checkout'}: <strong className="font-bold">
+                {item.guest_count == null ? '?' : item.guest_count}{item.guest_count == null ? ''
+                  : (hu ? ' vendég' : item.guest_count === 1 ? ' guest' : ' guests')}
+              </strong>
             </span>
-            <span className="min-w-0 font-medium" data-training="slnt-incoming-guests" aria-live="polite">
-              {incomingStatus === 'loading' && (hu ? 'Érkezés: ellenőrzés…' : 'Arrival: checking…')}
-              {incomingStatus === 'unavailable' && (hu ? 'Érkezés: nem ellenőrizhető' : 'Arrival: unverified')}
-              {incomingStatus === 'verified' && incoming?.status === 'confirmed' && incoming.guest_count != null && (
-                <>{hu ? 'Érkezés' : 'Arrival'} {incoming.arrival_date === date ? (hu ? 'ma' : 'today') : incoming.arrival_date}: {incoming.guest_count} {hu ? 'vendég' : incoming.guest_count === 1 ? 'guest' : 'guests'} · {hu ? 'Previo ✓' : 'Previo verified ✓'}</>
-              )}
-              {incomingStatus === 'verified' && incoming?.status === 'guest_list' && incoming.guest_count != null && (
-                <>{hu ? 'Érkezés' : 'Arrival'} {incoming.arrival_date === date ? (hu ? 'ma' : 'today') : incoming.arrival_date}: {incoming.guest_count} {hu ? 'rögzített · létszám nem igazolt' : 'listed · total unverified'}</>
-              )}
+            {hasIncomingCount && <span aria-hidden="true" className="text-sky-500">→</span>}
+            <span className="min-w-0" data-training="slnt-incoming-guests">
+              {hasIncomingCount && incoming && <span data-training="slnt-incoming-count-highlight"
+                className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md bg-sky-600 px-3 py-1.5 text-white shadow-sm dark:bg-sky-700">
+                <span className="text-xs font-semibold">
+                  {arrivalLabel(incoming.arrival_date, date, hu)}: <strong className="ml-1 text-base font-extrabold leading-none">
+                    {incoming.guest_count} {hu ? 'vendég' : incoming.guest_count === 1 ? 'guest' : 'guests'}
+                  </strong>
+                </span>
+                {incoming.status === 'guest_list' && <Info className="h-3.5 w-3.5 text-white/80"
+                  title={hu ? 'Previo vendéglista szerinti létszám. A foglalás teljes létszáma eltérhet.' :
+                    'Count from the Previo guest list; a separate declared reservation total was not available.'}
+                  aria-label={hu ? 'Previo vendéglista alapján' : 'Based on Previo guest listing'} />}
+              </span>}
+              {incomingStatus === 'loading' && <span className="text-xs text-muted-foreground">{hu ? 'Érkezés ellenőrzése…' : 'Checking arrival…'}</span>}
+              {incomingStatus === 'unavailable' && <span className="text-xs text-amber-700 dark:text-amber-300">
+                {hu ? 'Érkezési adatok nem elérhetők' : 'Arrival data unavailable'}
+              </span>}
               {incomingStatus === 'verified' && incoming?.status === 'not_found' &&
-                (hu ? 'Nincs igazolt érkezés a következő 30 napban' : 'No verified arrival in next 30 days')}
+                <span className="text-xs text-muted-foreground">{hu ? 'Nincs igazolt érkezés 30 napon belül' : 'No confirmed arrival within 30 days'}</span>}
               {incomingStatus === 'verified' && incoming?.status === 'unverified' &&
-                (hu ? 'Érkezés: létszám nem igazolt' : 'Arrival: count unverified')}
+                <span className="text-xs text-amber-700 dark:text-amber-300">{hu ? 'Érkező vendégszám nem ismert' : 'Incoming guest count unavailable'}</span>}
               {incomingStatus === 'verified' && incoming?.status === 'conflict' &&
-                (hu ? 'Ütköző érkezések · vezetői ellenőrzés' : 'Arrival conflict · manager review')}
+                <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">{hu ? 'Ütköző foglalások · vezetői ellenőrzés' : 'Conflicting arrivals · manager review'}</span>}
               {incomingStatus === 'verified' && !incoming &&
-                (hu ? 'Érkezés: nincs ellenőrzött szobakapcsolat' : 'Arrival: room mapping unverified')}
+                <span className="text-xs text-amber-700 dark:text-amber-300">{hu ? 'Szobahozzárendelés nem ellenőrzött' : 'Room mapping unavailable'}</span>}
             </span>
-            {incomingStatus === 'verified' && incomingAsOf && (
-              <span className="inline-flex items-center text-sky-700 dark:text-sky-300"
-                title={(hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu)}
-                aria-label={(hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu)}>
-                <Info className="h-3.5 w-3.5" aria-hidden="true" />
-              </span>
-            )}
+            {incomingStatus === 'verified' && incomingAsOf && <Info className="h-3.5 w-3.5 text-sky-700 dark:text-sky-300"
+              title={(hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu)}
+              aria-label={(hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu)} />}
           </div>
         </div>}
 
@@ -258,14 +278,14 @@ export function SlntTeamBRoomPreview({
           <MapPin className="h-3.5 w-3.5" />
           {item.floor_number != null && <span>{hu ? 'Emelet' : 'Floor'} {item.floor_number} · </span>}
           <span>{item.room_number}</span>
-          {item.guest_count != null && <span>· {item.guest_count} {hu ? 'vendég' : item.guest_count === 1 ? 'guest' : 'guests'}</span>}
+          {!checkout && item.guest_count != null && <span>· {item.guest_count} {hu ? 'vendég' : item.guest_count === 1 ? 'guest' : 'guests'}</span>}
           {item.room_status && (
             <Badge variant="outline" className="ml-auto text-xs">
               {item.room_status === 'dirty' ? (hu ? 'Takarítandó' : 'Dirty') : item.room_status}
             </Badge>
           )}
         </div>
-        {(arrival || departure) && <p className={'text-xs ' + (optionalUnstarted
+        {!checkout && (arrival || departure) && <p className={'text-xs ' + (optionalUnstarted
           ? 'text-slate-500 dark:text-slate-400' : 'text-muted-foreground')}>
           {arrival ? (hu ? 'Érkezés: ' : 'Arrival: ') + arrival : ''}
           {arrival && departure ? ' · ' : ''}
