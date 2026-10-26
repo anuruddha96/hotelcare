@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
     const hotelName = hotelNameById.get(first.hotel_id) || first.hotel_id;
     const setting = settingByKey.get(`${first.organization_slug}|${first.hotel_id}`);
     const timezone = setting?.timezone || "Europe/Budapest";
-    // The saved alert cutoff is authoritative; live settings can differ from the trigger. 
+    // The saved alert cutoff is authoritative; live settings can differ from the trigger.
     const cutoffTime = formatLocalCutoff(first.cutoff_at, timezone);
     const recipients = [...new Set(rows.flatMap((row) => row.recipients || []))];
 
@@ -178,7 +178,7 @@ Deno.serve(async (req) => {
     const subject = `[HotelCare] No activity from ${staffCount} housekeeper${staffCount === 1 ? "" : "s"} · ${hotelName}`;
     const plainRows = people.map((person) =>
       `- ${person.name}: ${person.assignment_count} assigned room${person.assignment_count === 1 ? "" : "s"}${sameCutoff ? "" : ` (cutoff ${formatLocalCutoff(person.cutoff_at, timezone)})`}`
-    ).join("\\n");
+    ).join("\n");
     const heading = `${staffCount} housekeeper${staffCount === 1 ? "" : "s"} need${staffCount === 1 ? "s" : ""} a check-in`;
     const explanation = `No HotelCare activity recorded by ${timeLabel} (${timezoneLabel}).`;
     const html = `
