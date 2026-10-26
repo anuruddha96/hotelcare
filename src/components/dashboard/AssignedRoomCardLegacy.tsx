@@ -316,7 +316,9 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
     setLoading(true);
     try {
       const now = new Date().toISOString();
-      const currentAttempts = assignment.dnd_attempt_count ?? 0;
+      const currentAttempts = assignment.status === 'dnd_pending_retry'
+        ? Math.max(1, assignment.dnd_attempt_count ?? 0)
+        : (assignment.dnd_attempt_count ?? 0);
       const nextAttempt = currentAttempts + 1;
       const isSecondAttempt = nextAttempt >= 2;
 
@@ -1362,8 +1364,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
                   if (dndRetry.allowed) setEnhancedDndPhotoDialogOpen(true);
                   else toast.warning(language === 'hu' ? `Még nem esedékes. Térj vissza ${nextDndTime ?? 'később'} után.` : `Too early for a second DND photo. Return at ${nextDndTime ?? 'a later time'}.`);
                 }}
-                disabled={!dndRetry.allowed}
-                className="w-full border-orange-400 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/40"
+                aria-disabled={!dndRetry.allowed}
+                className={`w-full border-orange-400 text-orange-900 dark:text-orange-100 hover:bg-orange-100 dark:hover:bg-orange-900/40 ${!dndRetry.allowed ? 'opacity-65 cursor-not-allowed' : ''}`}
               >
                 <AlertTriangle className="h-4 w-4 mr-1" />
                 {t('dnd.stillDndSendSupervisor')}
@@ -1557,7 +1559,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
                   {canUseDnd && (
                     <button
                       type="button"
-                      disabled={assignment.status === 'dnd_pending_retry' && !dndRetry.allowed}
+                      aria-disabled={assignment.status === 'dnd_pending_retry' && !dndRetry.allowed}
                       onClick={() => {
                         if (assignment.status === 'dnd_pending_retry' && !dndRetry.allowed) {
                           toast.warning(`Second DND attempt available at ${nextDndTime ?? 'a later time'}.`);
@@ -1934,7 +1936,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         roomId={assignment.room_id}
         assignmentId={assignment.id}
-        attemptNumber={(assignment.dnd_attempt_count ?? 0) + 1}
+        attemptNumber={assignment.status === 'dnd_pending_retry' ? 2 : (assignment.dnd_attempt_count ?? 0) + 1}
         onPhotoUploaded={markAsDND}
       />
 
