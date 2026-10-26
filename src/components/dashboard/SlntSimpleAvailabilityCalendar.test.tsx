@@ -29,7 +29,7 @@ describe('SLNT Team B 14-day availability', () => {
     await waitFor(() => expect(container.querySelectorAll('[data-training="slnt-availability-person"]')).toHaveLength(2));
     expect(container.querySelector('table')).toBeInTheDocument();
     expect(container.querySelectorAll('thead th')).toHaveLength(15);
-    expect(screen.getByText('Scheduled: 1/2')).toBeInTheDocument();
+    expect(screen.getByText('Today: 1/2')).toBeInTheDocument();
     expect(screen.getByText('Not yet online today')).toBeInTheDocument();
     const future = screen.getByRole('button', { name: 'Imre 2026-10-26: Working' });
     expect(future).toBeEnabled();
