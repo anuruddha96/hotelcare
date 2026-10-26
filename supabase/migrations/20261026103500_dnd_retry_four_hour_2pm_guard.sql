@@ -31,6 +31,8 @@ DECLARE
   first_at timestamptz;
   eligible_at timestamptz;
 BEGIN
+  -- The client may not backdate either visit to bypass the waiting rule.
+  NEW.created_at := clock_timestamp();
   IF NEW.attempt_number IS NULL OR NEW.attempt_number <= 1 THEN
     RETURN NEW;
   END IF;
