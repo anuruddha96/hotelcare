@@ -29,9 +29,8 @@ export function SlntTeamBMySchedule() {
   const to = format(addDays(dateOf(from), 13), 'yyyy-MM-dd');
   const refresh = useCallback(async () => {
     if (!user?.id) return;
-    setLoading(true);
-    const { data, error: failure } = await supabase
-      .from('slnt_team_b_days_off' as any)
+    const { data, error: failure } = await (supabase as any)
+      .from('slnt_team_b_days_off')
       .select('work_date,absence_kind')
       .eq('user_id', user.id)
       .gte('work_date', from)
@@ -87,7 +86,7 @@ export function SlntTeamBMySchedule() {
       </p>}
       {!loading && !error && days.slice(0, expanded ? 14 : 3).map(day => {
         const kind = absent.get(day);
-        return <div key={day} className={'flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ' +
+        return <div key={day} data-training="slnt-my-scheduled-day" className={'flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ' +
           (!kind ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/60 dark:bg-emerald-950/20' : 'bg-muted/40')}>
           <span className="text-sm font-medium">{format(dateOf(day), hu ? 'MMM d., EEEE' : 'EEE, MMM d',
             hu ? { locale: huLocale } : {})}{day === from ? (hu ? ' · Ma' : ' · Today') : ''}</span>
