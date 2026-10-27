@@ -5,6 +5,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { todayBudapest } from "@/lib/budapestTime";
+import { isHotelMemoriesBudapest } from "@/lib/hotel-memories-housekeeping";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
@@ -987,7 +988,11 @@ export async function runPmsRefresh(
             );
             if (reconciled.changed) updateData.notes = reconciled.notes;
           }
-        } else {
+        } else if (!isHotelMemoriesBudapest(room.hotel)) {
+          // Previo's reservation/housekeeping text is not a manager-authored
+          // instruction. Never reinsert an old PMS note into HMB rooms.notes
+          // after a manager has cleared it. Preserve existing manual notes and
+          // service flags; PMS text remains available in pms_metadata.
           const currentFlags = parseRoomFlags((room as any).notes ?? null);
           updateData.notes = buildRoomNotes(
             {
