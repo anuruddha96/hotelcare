@@ -15,7 +15,7 @@ describe('Hotel Memories room note origin isolation', () => {
     expect(isHotelMemoriesBudapest('Hotel Mika Downtown')).toBe(false);
   });
   it('does not overwrite a manager note with Previo text during HMB refresh', () => {
-    expect(pms).toContain('} else if (!isHotelMemoriesBudapest(room.hotel)) {');
+    expect(pms).not.toContain('updateData.notes =');
     expect(pms).toContain('updateData.pms_metadata.noteInternal = housekeepingNote ?? null');
   });
   it('shows only authentic staff edits in operational note history', () => {
@@ -24,7 +24,7 @@ describe('Hotel Memories room note origin isolation', () => {
     expect(provenance).not.toContain("rpc('get_room_note_provenance'");
   });
   it('keeps HMB reception view-only for shared instructions', () => {
-    expect(hub).toContain('const canWriteNotes = canManage || (!isMemories && isReception);');
+    expect(hub).toContain('const canWriteNotes = canManage;');
   });
   it('blocks unverified text injection while preserving planned notes and service flags', () => {
     expect(guard).toContain('v_user IS NULL OR v_pms_changed');
