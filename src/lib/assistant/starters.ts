@@ -31,7 +31,7 @@ const RECEPTION: StarterPrompt[] = [
   { label: "Today's arrivals", prompt: "Who arrives today?" },
   { label: "Departures", prompt: "How many departures do we have today?" },
   { label: "Rooms ready", prompt: "Which rooms are ready for arrival?" },
-  { label: "Report a room issue", prompt: "I need to report a problem in a room." },
+  { label: "Prepare bed setup", prompt: "Room 108 beds together." },
 ];
 
 const REVENUE: StarterPrompt[] = [
@@ -56,8 +56,8 @@ const MANAGER: StarterPrompt[] = [
 ];
 
 const ADMIN: StarterPrompt[] = [
-  { label: "Needs attention", prompt: "What needs my attention today across the properties?" },
-  { label: "Sync status", prompt: "Is the PMS synchronisation healthy?" },
+  { label: "Send housekeeping items", prompt: "Please send 3 extra towels to room 202." },
+  { label: "Change room bed setup", prompt: "Room 108 beds together." },
   { label: "Access requests", prompt: "Are there any pending assistant access requests?" },
   { label: "Help me use Hotel Care", prompt: "Show me how to use Hotel Care." },
 ];
