@@ -773,13 +773,13 @@ export async function runPmsRefresh(
       }
       const housekeepingNote = reservationDataAuthoritative && verifiedSlntNoteTarget ? cleanSyncedHousekeepingNote(row) : null;
       if (reservationDataAuthoritative && housekeepingNote) {
-        changeFields.push({ field: "Housekeeping note", before: "-", after: housekeepingNote, category: "note" });
+        changeFields.push({ field: isHotelMemoriesBudapest(room.hotel) ? "Previo source note (not shared)" : "Housekeeping note", before: "-", after: housekeepingNote, category: "note" });
       }
 
       // Auto-detect bed configuration only from Previo's dedicated
       // housekeeping/reception operational note. Never infer from OTA booking
       // blobs or partner room-category labels.
-      const inferredBed = housekeepingNote ? inferBedConfigFromNote(housekeepingNote) : null;
+      // HMB bed setup is manager-owned too: never treat an old reservation\n      // note such as “single bed” as today's approved configuration.\n      const inferredBed = !isHotelMemoriesBudapest(room.hotel) && housekeepingNote\n        ? inferBedConfigFromNote(housekeepingNote) : null;
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
       const storedInferredValue = existingMetadata?.inferredBedConfig?.value as string | null | undefined;
       // Treat the stored auto-inferred marker as still valid only if the
