@@ -314,8 +314,19 @@ export function useNotifications() {
             const newRecord = payload.new as any;
             const oldRecord = payload.old as any;
 
+            // Under RLS, Realtime UPDATE old rows may contain only the primary key.
+            // A completed room edited hours later must not look like a NEW
+            // completion. Accept a real before/after transition, or evidence
+            // that completed_at was written with this very database event.
+            const committedAt = Date.parse(payload.commit_timestamp || '');
+            const completedAt = Date.parse(newRecord.completed_at || '');
+            const isFreshCompletion = oldRecord.status != null
+              ? oldRecord.status !== 'completed'
+              : Number.isFinite(committedAt) && Number.isFinite(completedAt)
+                && Math.abs(committedAt - completedAt) < 30_000;
+
             if (
-              oldRecord.status !== 'completed' &&
+              isFreshCompletion &&
               newRecord.status === 'completed' &&
               canReceiveHousekeepingOperationalNotifications(profile?.role) &&
               await isRoomInActiveHotel(newRecord.room_id)
