@@ -58,7 +58,7 @@ BEGIN
   SELECT coalesce(enabled, false) INTO v_unlimited FROM public.assistant_unlimited_users
     WHERE user_id = _user_id;
   v_unlimited := coalesce(v_unlimited, false)
-    OR v_role = 'admin' OR public.is_super_admin(_user_id);
+    OR v_role = 'admin' OR coalesce(public.is_super_admin(_user_id), false);
   SELECT count(*)::integer INTO v_used FROM public.assistant_monthly_message_usage
     WHERE user_id = _user_id AND month_start = v_month;
   IF EXISTS (SELECT 1 FROM public.assistant_monthly_message_usage
@@ -93,7 +93,7 @@ BEGIN
   SELECT role::text INTO v_role FROM public.profiles WHERE id = v_user AND deleted_at IS NULL;
   IF v_role IS NULL THEN RAISE EXCEPTION 'Active user required'; END IF;
   SELECT coalesce(enabled,false) INTO v_unlimited FROM public.assistant_unlimited_users WHERE user_id=v_user;
-  v_unlimited := coalesce(v_unlimited,false) OR v_role='admin' OR public.is_super_admin(v_user);
+  v_unlimited := coalesce(v_unlimited,false) OR v_role='admin' OR coalesce(public.is_super_admin(v_user), false);
   SELECT count(*)::integer INTO v_used FROM public.assistant_monthly_message_usage
     WHERE user_id=v_user AND month_start=v_month;
   RETURN jsonb_build_object('used',v_used,'unlimited',v_unlimited,
