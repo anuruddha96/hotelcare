@@ -11,9 +11,9 @@ describe('housekeeping photo compression safety', () => {
     expect(fitHousekeepingImage(800, 600)).toEqual({ width: 800, height: 600 });
   });
 
-  it('does not damage guided workflow skip markers', async () => {
-    const placeholder = new Blob(['<svg />'], { type: 'image/svg+xml' });
-    await expect(compressHousekeepingPhoto(placeholder)).resolves.toBe(placeholder);
+  it('rejects SVG submitted as user photo (guided skip markers bypass compression explicitly)', async () => {
+    const arbitrarySvg = new Blob(['<svg />'], { type: 'image/svg+xml' });
+    await expect(compressHousekeepingPhoto(arbitrarySvg)).rejects.toThrow('Only raster image');
   });
 
   it('does not re-encode already-small JPEGs', async () => {
@@ -22,6 +22,6 @@ describe('housekeeping photo compression safety', () => {
   });
 
   it('rejects non-image uploads', async () => {
-    await expect(compressHousekeepingPhoto(new Blob(['x'], { type: 'text/plain' }))).rejects.toThrow('Only image files');
+    await expect(compressHousekeepingPhoto(new Blob(['x'], { type: 'text/plain' }))).rejects.toThrow('Only raster image');
   });
 });
