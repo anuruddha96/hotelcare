@@ -182,9 +182,10 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const canManage = hasManagerPowers(profile?.role) || role === 'supervisor';
   const isReception = role === 'reception';
   const canOpen = canManage || isReception;
-  // HMB operational instructions are manager/supervisor-authored only.
-  // Reception may view them but must not publish or clear them.
-  const canWriteNotes = canManage || (!isMemories && isReception);
+  // Every hotel's shared instructions are authored by a manager/supervisor.
+  // Reception's non-note operations remain available under their own gates.
+  const canWriteNotes = canManage;
+  const canCommunicate = canManage || (!isMemories && isReception);
   const canManualGozsduRtc = isGozsdu && (canManage || isReception);
   const readOnlyForPast = selectedDate !== todayBudapest();
   const textileChangeLabel = isGozsduCourtHotel(hotelName) ? 'Complete Textile Change' : 'Change Room';
@@ -1302,6 +1303,18 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         />
       </section>
 
+      {canManage && (selection.pmsMetadata?.slntPrevioHousekeepingNote || selection.pmsMetadata?.noteInternal) && (
+        <section className="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-sm text-amber-950">
+          <p className="font-semibold">Previo source note — not manager-approved</p>
+          <p className="mt-1 whitespace-pre-wrap break-words">
+            {String(selection.pmsMetadata.slntPrevioHousekeepingNote || selection.pmsMetadata.noteInternal)}
+          </p>
+          <p className="mt-2 text-xs text-amber-800">
+            Unverified PMS information{selection.pmsMetadata.pmsSyncDate ? ` · snapshot ${selection.pmsMetadata.pmsSyncDate}` : ''}.
+            It is not sent as a manager instruction. Review it before entering any required instruction above.
+          </p>
+        </section>
+      )}
       {selection.roomId && (
         <RoomPlannedNotesCalendar
           roomId={selection.roomId}
@@ -1312,7 +1325,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         />
       )}
 
-      {!isMemories && selection.roomId && canWriteNotes && (
+      {!isMemories && selection.roomId && canCommunicate && (
         <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
           <RoomCommunicationPanel
             assignmentId={selection.assignmentId || ''}
