@@ -82,7 +82,7 @@ export function RoomNoteProvenance({
       : isError
         ? (hu ? 'A megjegyzés előzményei nem érhetők el' : 'Note history unavailable')
         : !current || !currentTimestamp
-          ? (hu ? 'Nincs igazolt munkatársi bejegyzés. Vezetői ellenőrzés szükséges.' : 'No verified staff entry for this note. Manager review required.')
+          ? (hu ? 'Az utolsó öt változás között nincs egyező munkatársi bejegyzés. Az eredeti időpont nem igazolt.' : 'No matching staff edit in the last five changes. Original entry time unverified.')
           : describeRoomNoteTimestamp(current, language);
 
   return (
