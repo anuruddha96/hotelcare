@@ -774,9 +774,8 @@ export async function runPmsRefresh(
       }
 
       // A PMS note may be stale or belong to an earlier reservation.
-      // Never convert it into an approved bed setup without a manager action.
-      // Retain previous inference metadata only for safe checkout cleanup.
-      const inferredBed = null;
+      // Never turn it into an approved bed setup; previous inference metadata
+      // remains available for safe checkout cleanup.
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
       const storedInferredValue = existingMetadata?.inferredBedConfig?.value as string | null | undefined;
       // Treat the stored auto-inferred marker as still valid only if the
@@ -784,16 +783,6 @@ export async function runPmsRefresh(
       // since edited bed_configuration to something else, the row is
       // manager-owned and must not be overwritten or cleared by PMS refresh.
       const currentWasAutoInferred = !!storedInferredValue && !!currentBedConfig && storedInferredValue === currentBedConfig;
-      const shouldSetBedConfig = !!inferredBed && (!currentBedConfig || currentWasAutoInferred);
-      if (shouldSetBedConfig) {
-        changeFields.push({
-          field: "Bed config (auto from housekeeping note)",
-          before: currentBedConfig ?? "-",
-          after: `${inferredBed!.value} (from housekeeping note)`,
-          category: "note",
-        });
-      }
-
 
       proposedChanges.push({
         roomKey: `id:${room.id}`,
@@ -936,15 +925,12 @@ export async function runPmsRefresh(
         }
 
 
-        if (!inferredBed) {
-          delete updateData.pms_metadata.inferredBedConfig;
-          // The stay that the bed setup belonged to is over: once PMS confirms
-          // the guest departed, reset the bed configuration to default even if
-          // a manager had set it manually (same lifecycle as minibar).
-          if (currentWasAutoInferred || isCheckedOut) {
-            updateData.bed_configuration = null;
-            delete updateData.pms_metadata.manualBedConfig;
-          }
+        // Clear stale automatic inference metadata without interpreting fresh
+        // guest notes as today's human-approved bed instructions.
+        delete updateData.pms_metadata.inferredBedConfig;
+        if (currentWasAutoInferred || isCheckedOut) {
+          updateData.bed_configuration = null;
+          delete updateData.pms_metadata.manualBedConfig;
         }
         if (isCheckedOut) {
           updateData.pms_metadata.readyToClean = true;
@@ -976,18 +962,8 @@ export async function runPmsRefresh(
       // confirms the guest has checked out.
       if (reservationDataAuthoritative) {
         updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
-        // All hotels: the read-only PMS metadata holds Previo instructions,
-        // never the human-authored shared notes. Do not clear or replace a
-        // manager's note on refresh, including the SLNT account-qualified case.
-        // Managers may separately approve and enter verified instructions.
-      }
-      if (shouldSetBedConfig && inferredBed) {
-        updateData.bed_configuration = inferredBed.value;
-        updateData.pms_metadata.inferredBedConfig = {
-          value: inferredBed.value,
-          keyword: inferredBed.matchedKeyword,
-          at: new Date().toISOString(),
-        };
+        // All hotels: PMS notes stay in source metadata and cannot silently
+        // clear or replace a manager's shared instructions (including SLNT).
       }
 
       // Emit pms_change_events for material changes.
