@@ -5,11 +5,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { todayBudapest } from "@/lib/budapestTime";
-import { isHotelMemoriesBudapest } from "@/lib/hotel-memories-housekeeping";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
-import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
-import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
-import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "@/lib/previoHousekeepingNote";
+import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote } from "@/lib/previoHousekeepingNote";
 import { normalizeUnitName, isTechnicalRow, buildUnitResolver, isSlntInactiveOperationalUnit, isSlntWorkbookActiveUnit } from "@/lib/slntUnitMapping";
 import { normalizeInferredNoShowRow } from "../../supabase/functions/_shared/previoNoShowInference";
 import { reconcileContinuousStay } from "@/lib/stayContinuity";
@@ -773,16 +770,13 @@ export async function runPmsRefresh(
       }
       const housekeepingNote = reservationDataAuthoritative && verifiedSlntNoteTarget ? cleanSyncedHousekeepingNote(row) : null;
       if (reservationDataAuthoritative && housekeepingNote) {
-        changeFields.push({ field: isHotelMemoriesBudapest(room.hotel) ? "Previo source note (not shared)" : "Housekeeping note", before: "-", after: housekeepingNote, category: "note" });
+        changeFields.push({ field: "Previo source note (unverified, not shared)", before: "-", after: housekeepingNote, category: "note" });
       }
 
-      // Auto-detect bed configuration only from Previo's dedicated
-      // housekeeping/reception operational note. Never infer from OTA booking
-      // blobs or partner room-category labels.
-      // HMB bed setup is manager-owned too: never treat an old reservation
-      // note such as “single bed” as today's approved configuration.
-      const inferredBed = !isHotelMemoriesBudapest(room.hotel) && housekeepingNote
-        ? inferBedConfigFromNote(housekeepingNote) : null;
+      // A PMS note may be stale or belong to an earlier reservation.
+      // Never convert it into an approved bed setup without a manager action.
+      // Retain previous inference metadata only for safe checkout cleanup.
+      const inferredBed = null;
       const currentBedConfig = (room as any).bed_configuration as string | null | undefined;
       const storedInferredValue = existingMetadata?.inferredBedConfig?.value as string | null | undefined;
       // Treat the stored auto-inferred marker as still valid only if the
@@ -982,29 +976,10 @@ export async function runPmsRefresh(
       // confirms the guest has checked out.
       if (reservationDataAuthoritative) {
         updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
-        if (isSlntRoom) {
-          // Only the account-qualified mapped room may receive a Previo note.
-          // Never clear/overwrite a manager's own free-text instructions.
-          if (verifiedSlntNoteTarget) {
-            const reconciled = reconcileSlntPrevioRoomNote(
-              room.notes, existingMetadata?.slntPrevioHousekeepingNote, housekeepingNote,
-            );
-            if (reconciled.changed) updateData.notes = reconciled.notes;
-          }
-        } else if (!isHotelMemoriesBudapest(room.hotel)) {
-          // Previo's reservation/housekeeping text is not a manager-authored
-          // instruction. Never reinsert an old PMS note into HMB rooms.notes
-          // after a manager has cleared it. Preserve existing manual notes and
-          // service flags; PMS text remains available in pms_metadata.
-          const currentFlags = parseRoomFlags((room as any).notes ?? null);
-          updateData.notes = buildRoomNotes(
-            {
-              collectExtraTowels: currentFlags.collectExtraTowels,
-              roomCleaning: currentFlags.roomCleaning,
-            },
-            housekeepingNote ?? "",
-          ) || null;
-        }
+        // All hotels: the read-only PMS metadata holds Previo instructions,
+        // never the human-authored shared notes. Do not clear or replace a
+        // manager's note on refresh, including the SLNT account-qualified case.
+        // Managers may separately approve and enter verified instructions.
       }
       if (shouldSetBedConfig && inferredBed) {
         updateData.bed_configuration = inferredBed.value;
