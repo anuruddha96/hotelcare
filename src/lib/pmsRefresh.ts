@@ -6,13 +6,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { todayBudapest } from "@/lib/budapestTime";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
-import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote } from "@/lib/previoHousekeepingNote";
+import { pickPrevioHousekeepingNote } from "@/lib/previoHousekeepingNote";
 import { normalizeUnitName, isTechnicalRow, buildUnitResolver, isSlntInactiveOperationalUnit, isSlntWorkbookActiveUnit } from "@/lib/slntUnitMapping";
 import { normalizeInferredNoShowRow } from "../../supabase/functions/_shared/previoNoShowInference";
 import { reconcileContinuousStay } from "@/lib/stayContinuity";
 
-const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
-const RESERVATION_NOTE_BLOB = /Booking\.com|Partner'?s room name|Commission note|Virtual [Cc]redit [Cc]ard|Cancellation Policy|Payment description|Payout type|Total price|Deposit Policy|Syst[ée]m\s*-/i;
 const MANUAL_ROOM_OVERRIDE_KEYS = [
   "manual_checkout", "manual_checkout_at", "manual_checkout_by",
   "manual_daily", "manual_daily_at", "manual_daily_by",
@@ -423,14 +421,12 @@ export async function runPmsRefresh(
           .in("hotel", hotelKeys)
           .eq("is_dnd", true);
 
-        // 2. Strip stale manual bucket overrides + stale note prefixes from
-        //    yesterday so today's PMS refresh can classify the room fresh.
-        //    Same-day manual moves are unaffected (they're written after this
-        //    block runs). We only touch rooms whose PMS metadata is older than
-        //    today.
+        // 2. Reset previous-day PMS classification markers only. Shared
+        //    room instructions are staff-owned across every venue: even the
+        //    cleanup path must never automatically rewrite or clear them.
         const { data: staleRooms } = await supabase
           .from("rooms")
-          .select("id, notes, pms_metadata, is_checkout_room")
+          .select("id, pms_metadata, is_checkout_room")
           .in("hotel", hotelKeys);
         const cleanupUpdates: Array<Promise<any>> = [];
         for (const r of staleRooms ?? []) {
@@ -439,11 +435,7 @@ export async function runPmsRefresh(
             : null;
           const oldSyncDate = meta?.pmsSyncDate ?? meta?.lastPmsRefreshDate ?? null;
           const isStale = !oldSyncDate || oldSyncDate < today;
-          const currentNotes = (r as any).notes as string | null;
-          const hasOtaBlob = !!currentNotes && RESERVATION_NOTE_BLOB.test(currentNotes);
-          // Process rooms that are stale OR still carry an OTA blob from a
-          // pre-fix refresh — we must scrub the blob now regardless of date.
-          if (!isStale && !hasOtaBlob) continue;
+          if (!isStale) continue;
 
           const patch: Record<string, any> = {};
           if (isStale && meta) {
@@ -464,28 +456,6 @@ export async function runPmsRefresh(
             }
           }
 
-          const notes = (r as any).notes as string | null;
-          if (notes) {
-            let cleanedNotes: string | null = notes;
-            if (STALE_NOTE_PREFIXES.test(cleanedNotes)) {
-              cleanedNotes = cleanedNotes.replace(STALE_NOTE_PREFIXES, "").trim();
-            }
-            // Also strip Previo OTA reservation blobs that older refreshes
-            // may have written into rooms.notes. Preserve any operational
-            // (Recepce/Kuchyně/Housekeeping) sections if present.
-            if (cleanedNotes && RESERVATION_NOTE_BLOB.test(cleanedNotes)) {
-              const flags = parseRoomFlags(cleanedNotes);
-              const rescued = extractHousekeepingSectionsFromRawNote(flags.cleanNotes);
-              cleanedNotes = buildRoomNotes(
-                {
-                  collectExtraTowels: flags.collectExtraTowels,
-                  roomCleaning: flags.roomCleaning,
-                },
-                rescued ?? "",
-              ) || null;
-            }
-            if (cleanedNotes !== notes) patch.notes = cleanedNotes || null;
-          }
           if (Object.keys(patch).length > 0) {
             patch.updated_at = new Date().toISOString();
             cleanupUpdates.push(
@@ -498,7 +468,7 @@ export async function runPmsRefresh(
         if (cleanupUpdates.length) await Promise.all(cleanupUpdates);
 
         console.log(
-          `[pmsRefresh] New-day reset for hotel ${hotelId} (last refresh ${lastRefresh ?? "never"}): DND cleared, ${cleanupUpdates.length} rooms cleaned of stale manual overrides / notes`,
+          `[pmsRefresh] New-day reset for hotel ${hotelId} (last refresh ${lastRefresh ?? "never"}): DND cleared, ${cleanupUpdates.length} rooms reset to current-day classification`,
         );
       }
     } catch (e) {
