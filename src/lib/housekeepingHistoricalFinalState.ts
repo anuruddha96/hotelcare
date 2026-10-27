@@ -1,3 +1,9 @@
+import {
+  effectiveCarryServiceFlags,
+  getActionableHousekeepingCarryForward,
+  type HousekeepingCarryForward,
+} from './housekeepingCarryForward';
+
 export interface HistoricalHousekeepingRowLike {
   towel_change_required?: boolean | null;
   linen_change_required?: boolean | null;
@@ -52,5 +58,48 @@ export function resolveHistoricalHousekeepingState(row: HistoricalHousekeepingRo
     assignmentNotes: text(final.assignment_notes) ?? row.assignment_notes ?? null,
     managerInstruction: text(final.manager_instruction_text),
     finalized: Boolean(row.final_state),
+  };
+}
+
+
+/**
+ * Historical HMB cards describe the work that was DUE on their business day.
+ * A normal T in the saved PMS schedule must not hide an unresolved Change Room
+ * carried from the previous day's DND/No Service. Read only dated assignment
+ * evidence; never mutate the original snapshot, schedule or PMS flags.
+ */
+export function resolveHistoricalMemoriesService(
+  snapshot: HistoricalHousekeepingRowLike,
+  assignment: { previous_day_context?: unknown; service_result?: string | null } | null,
+  options: { hotel: string; businessDate: string; isCheckout: boolean; isNoShow?: boolean },
+): ReturnType<typeof resolveHistoricalHousekeepingState> & {
+  towel: boolean;
+  changeRoom: boolean;
+  carryForward: HousekeepingCarryForward | null;
+} {
+  const saved = resolveHistoricalHousekeepingState(snapshot);
+  const memoriesHotel = ['hotel memories budapest', 'memories budapest', 'memories-budapest']
+    .includes(options.hotel.trim().toLowerCase());
+  const dateTimestamp = /^\d{4}-\d{2}-\d{2}$/.test(options.businessDate)
+    ? Date.parse(`${options.businessDate}T12:00:00Z`) : NaN;
+  const previousDate = Number.isFinite(dateTimestamp)
+    ? new Date(dateTimestamp - 86_400_000).toISOString().slice(0, 10)
+    : null;
+  const candidate = memoriesHotel && previousDate && !options.isCheckout && !options.isNoShow
+    ? getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
+    : null;
+  const carryForward = candidate?.propertyId === 'memories-budapest'
+    && candidate.sourceBusinessDate === previousDate ? candidate : null;
+  const effective = effectiveCarryServiceFlags({
+    towelChangeRequired: saved.towel || saved.scheduledTowel,
+    linenChangeRequired: saved.changeRoom || saved.scheduledChangeRoom,
+    carryForward,
+    isCheckout: options.isCheckout,
+  });
+  return {
+    ...saved,
+    towel: effective.towelChangeRequired,
+    changeRoom: effective.linenChangeRequired,
+    carryForward,
   };
 }

@@ -7,7 +7,7 @@ import { BedDouble, ChevronDown, EyeOff, Hotel, Loader2, MapPin, AlertTriangle }
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { assigneeLabel } from '@/lib/staffNames';
 import { parseRoomFlags } from '@/lib/room-service-flags';
-import { resolveHistoricalHousekeepingState } from '@/lib/housekeepingHistoricalFinalState';
+import { resolveHistoricalMemoriesService } from '@/lib/housekeepingHistoricalFinalState';
 import { historicalDndState, isBudapestBusinessDate, selectSavedSnapshot, type HistoricalDndState } from '@/lib/historicalDndStatus';
 import { hasMemoriesHistoricalRoomTypeConflict, isMemoriesHistoricalCheckout } from '@/lib/memoriesHistoricalRoomType';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -38,6 +38,7 @@ type DatedAssignment = {
   supervisor_approved: boolean | null; supervisor_approved_at: string | null;
   assignment_type: string; started_at: string | null; completed_at: string | null;
   service_result: string | null;
+  previous_day_context: unknown;
 };
 type DndEvidence = { id: string; assignment_id: string | null; marked_at: string; attempt_number: number | null };
 type Task = { id: string; task_name: string; task_type: string; assigned_to: string; status: string };
@@ -120,7 +121,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         let warning: string | null = null;
         if (roomIds.length) {
           const assignmentRes = await supabase.from('room_assignments')
-            .select('id,room_id,assignment_date,status,is_dnd,dnd_attempt_count,supervisor_approved,supervisor_approved_at,assignment_type,started_at,completed_at,service_result')
+            .select('id,room_id,assignment_date,status,is_dnd,dnd_attempt_count,supervisor_approved,supervisor_approved_at,assignment_type,started_at,completed_at,service_result,previous_day_context')
             .in('room_id', roomIds).eq('assignment_date', selectedDate);
           if (assignmentRes.error) {
             warning = 'Assignment verification unavailable; DND statuses rely only on the saved snapshot.';
@@ -211,11 +212,14 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         : row.assignment_status === 'in_progress' || row.room_status === 'in_progress' ? 'in_progress'
           : row.room_status === 'out_of_order' ? 'out_of_order'
             : row.room_status === 'clean' ? 'approved' : 'dirty';
-    const saved = resolveHistoricalHousekeepingState(row);
+    const saved = resolveHistoricalMemoriesService(row, room.assignment, {
+      hotel: row.hotel, businessDate: selectedDate,
+      isCheckout: room.checkout, isNoShow: isNoShow(row),
+    });
     const flags = parseRoomFlags(saved.roomNotes);
     const noService = saved.hadNoService;
-    const towel = !room.checkout && (saved.towel || saved.scheduledTowel);
-    const linen = !room.checkout && (saved.changeRoom || saved.scheduledChangeRoom);
+    const towel = saved.towel;
+    const linen = saved.changeRoom;
     const name = assigneeLabel(staffMap, row.assigned_to);
     const size = sizeLabel(row.room_size_sqm);
     const config = bedLabel(row.bed_configuration);
@@ -228,7 +232,8 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         <button type="button" onClick={() => setSelectedRoomId(row.room_id)}
           className={`relative rounded border-2 px-2 py-1 text-xs font-bold min-w-[40px] text-center ${COLORS[status]} ${room.dnd === 'active' ? 'ring-2 ring-purple-500 ring-offset-1' : ''} ${room.dnd === 'conflict' ? 'ring-2 ring-red-500 ring-offset-1' : ''}`}
           title={[`Room ${row.room_number}`, row.assignment_status ? `Assignment: ${row.assignment_status}` : null,
-            label, name ? `Assigned: ${name}` : null, 'Read-only saved history – click for details'].filter(Boolean).join(' · ')}>
+            label, saved.carryForward ? `Carried ${saved.changeRoom ? 'Change Room' : 'Towel'} from ${saved.carryForward.originalDueDate}` : null,
+            name ? `Assigned: ${name}` : null, 'Read-only saved history – click for details'].filter(Boolean).join(' · ')}>
           {row.room_number}
           {noShow && <span className="ml-0.5 px-0.5 rounded text-[9px] bg-red-600 text-white">NS</span>}
           {row.pms_metadata?.notArrived && row.pms_metadata?.occupiedToday !== true && !noShow && <span className="ml-0.5 px-0.5 rounded text-[9px] bg-slate-500 text-white">NA</span>}
@@ -291,6 +296,12 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
   };
 
   const selectedRoom = rooms.find(room => room.snapshot.room_id === selectedRoomId);
+  const selectedService = selectedRoom ? resolveHistoricalMemoriesService(
+    selectedRoom.snapshot, selectedRoom.assignment, {
+      hotel: selectedRoom.snapshot.hotel, businessDate: selectedDate,
+      isCheckout: selectedRoom.checkout, isNoShow: isNoShow(selectedRoom.snapshot),
+    },
+  ) : null;
   if (loading) return <Card><CardContent className="flex items-center gap-2 py-8 text-sm"><Loader2 className="h-4 w-4 animate-spin" />Loading saved housekeeping history…</CardContent></Card>;
   if (error) return <Card className="border-red-300"><CardContent className="py-6 text-sm text-red-700">{error}</CardContent></Card>;
 
@@ -351,6 +362,16 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
                   This dated record confirms that service was scheduled, not that towels or linen were physically changed.
                   Completion and supervisor approval are recorded separately.</p>
               )}
+              {selectedService?.carryForward && (
+                <p className="rounded border border-orange-300 bg-orange-50 p-2 text-orange-950 dark:bg-orange-950/20 dark:text-orange-200">
+                  <strong>Service due including missed-service carry:</strong>{' '}
+                  {selectedService.changeRoom ? 'Change Room (full room cleaning)' : 'Towel change'}.
+                  {' '}Carried after {selectedService.carryForward.reason === 'dnd' ? 'DND' : 'No Service'}
+                  {' '}on {selectedService.carryForward.sourceBusinessDate}; originally due
+                  {' '}{selectedService.carryForward.originalDueDate}.
+                  {' '}This is the outstanding required service, not confirmation it was performed.
+                </p>
+              )}
               <p><strong>DND verification:</strong> {selectedRoom.dnd === 'none'
                 ? 'No DND event verified for this date.' : selectedRoom.dnd === 'earlier'
                   ? 'DND encounter recorded on this date; not shown as an active block on an approved room.'
@@ -359,7 +380,9 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
               {selectedRoom.dnd === 'none' && selectedRoom.snapshot.had_dnd &&
                 <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">The raw snapshot has had_dnd=true, but this date’s assignment has no recorded DND attempt. A previous-day flag can carry into the midnight capture; it is not counted as a DND event for {selectedDate}.</p>}
               <p><strong>Cleaning started:</strong> {localTime(selectedRoom.assignment?.started_at || selectedRoom.snapshot.assignment_started_at)}</p>
-              <p><strong>Cleaning finished:</strong> {localTime(selectedRoom.assignment?.completed_at || selectedRoom.snapshot.assignment_completed_at)}</p>
+              <p><strong>{selectedRoom.evidence.length > 0 && selectedRoom.assignment?.service_result !== 'cleaned'
+                ? 'Assignment closed (cleaning not verified)' : 'Cleaning finished'}:</strong>{' '}
+                {localTime(selectedRoom.assignment?.completed_at || selectedRoom.snapshot.assignment_completed_at)}</p>
               <p><strong>Approved at:</strong> {localTime(selectedRoom.assignment?.supervisor_approved_at)}</p>
               <p><strong>Verified DND photos on this assignment/date:</strong> {selectedRoom.evidence.length}</p>
               {selectedRoom.evidence.map(photo => <p key={photo.id} className="pl-3 text-xs">Attempt {photo.attempt_number ?? '?'} — {localTime(photo.marked_at)}</p>)}
