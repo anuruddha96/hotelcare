@@ -182,7 +182,9 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const canManage = hasManagerPowers(profile?.role) || role === 'supervisor';
   const isReception = role === 'reception';
   const canOpen = canManage || isReception;
-  const canWriteNotes = canManage || isReception;
+  // HMB operational instructions are manager/supervisor-authored only.
+  // Reception may view them but must not publish or clear them.
+  const canWriteNotes = canManage || (!isMemories && isReception);
   const canManualGozsduRtc = isGozsdu && (canManage || isReception);
   const readOnlyForPast = selectedDate !== todayBudapest();
   const textileChangeLabel = isGozsduCourtHotel(hotelName) ? 'Complete Textile Change' : 'Change Room';
