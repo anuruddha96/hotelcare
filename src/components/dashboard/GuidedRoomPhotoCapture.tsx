@@ -11,6 +11,7 @@ import { ArrowLeft, ArrowRight, Camera, Check, CheckCircle, ImagePlus, RotateCcw
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { compressHousekeepingPhoto } from '@/lib/housekeepingPhotoCompression';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
@@ -194,8 +195,11 @@ export function GuidedRoomPhotoCapture({
   const upload = async (category: Category, blob: Blob, suffix: string, extension: string, contentType: string) => {
     if (!user?.id) throw new Error('Sign in required');
     const safeRoom = roomNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const path = `${user.id}/${safeRoom}/${category}_${suffix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}.${extension}`;
-    const result = await supabase.storage.from('room-photos').upload(path, blob, { contentType, cacheControl: '3600', upsert: false });
+    const optimized = contentType === 'image/svg+xml' ? blob : await compressHousekeepingPhoto(blob);
+    const savedType = optimized.type || contentType;
+    const savedExtension = savedType === 'image/jpeg' ? 'jpg' : extension;
+    const path = `${user.id}/${safeRoom}/${category}_${suffix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}.${savedExtension}`;
+    const result = await supabase.storage.from('room-photos').upload(path, optimized, { contentType: savedType, cacheControl: '3600', upsert: false });
     if (result.error) throw result.error;
     return supabase.storage.from('room-photos').getPublicUrl(result.data.path).data.publicUrl;
   };
