@@ -6,6 +6,7 @@ import { Camera, Upload, X, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { compressHousekeepingPhoto } from '@/lib/housekeepingPhotoCompression';
 import { toast } from 'sonner';
 
 interface ImageCaptureDialogProps {
@@ -127,12 +128,12 @@ export function ImageCaptureDialog({
 
     setIsUploading(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${assignmentId}/${Date.now()}.${fileExt}`;
+      const optimized = await compressHousekeepingPhoto(file);
+      const fileName = `${assignmentId}/${Date.now()}.jpg`;
       
       const { data, error } = await supabase.storage
         .from('dnd-photos')
-        .upload(fileName, file);
+        .upload(fileName, optimized, { contentType: 'image/jpeg', cacheControl: '3600', upsert: false });
 
       if (error) throw error;
 
