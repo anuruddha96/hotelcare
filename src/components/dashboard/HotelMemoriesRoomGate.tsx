@@ -11,6 +11,8 @@ import { toast } from 'sonner';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
 import { dndRetryTimeLabel, getDndRetryWindow } from '@/lib/dndRetryPolicy';
+import { effectiveCarryServiceFlags } from '@/lib/housekeepingCarryForward';
+import { isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
 import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
@@ -120,12 +122,22 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const carryForwardCopy = carryForward
     ? getCarryForwardHousekeeperCopy(carryForward)
     : null;
-  const hasTowelRequest = !!assignment.rooms?.towel_change_required
-    || carryForward?.serviceType === 'towel_change';
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: assignment.rooms?.towel_change_required,
+    linenChangeRequired: assignment.rooms?.linen_change_required,
+    carryForward,
+    isCheckout,
+    forceTowelOnly: isMemories && !!carryForward && isMemoriesFinalOccupiedNight(
+      assignment.rooms?.pms_metadata, assignment.assignment_date || todayBudapest(),
+    ),
+  });
+  // An outstanding Change Room includes towels: never present simultaneous
+  // separate T + C instructions when the same guest has missed a full clean.
+  const hasTowelRequest = effectiveService.towelChangeRequired;
   const hasCleanRequest = roomFlags.roomCleaning
     || greenBoardReleased
     || initialGreenRequest
-    || carryForward?.serviceType === 'full_clean';
+    || effectiveService.linenChangeRequired;
   const isOptionalDaily =
     isMemories &&
     isDaily &&
@@ -340,13 +352,11 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
                 // Carry-forward requirements are assignment-scoped. They must
                 // behave like today's T/C instructions without rewriting the
                 // live room mirror or leaking into another guest's stay.
-                towel_change_required:
-                  !!assignment.rooms.towel_change_required
-                  || carryForward?.serviceType === 'towel_change',
-                linen_change_required:
-                  !!assignment.rooms.linen_change_required
-                  || carryForward?.serviceType === 'full_clean',
-                notes: (shouldShowGreenBoardAsCleanRequest || carryForward?.serviceType === 'full_clean')
+                towel_change_required: effectiveService.towelChangeRequired,
+                linen_change_required: effectiveService.linenChangeRequired,
+                // A carried C is a scheduled obligation, NOT a new guest
+                // cleaning request: do not invent a green-door card.
+                notes: shouldShowGreenBoardAsCleanRequest
                   ? toggleFlag(assignment.rooms.notes ?? null, 'ROOM_CLEANING', true)
                   : assignment.rooms.notes,
               }
