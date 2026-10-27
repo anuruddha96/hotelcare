@@ -136,6 +136,7 @@ function buildTools(
   authHeader: string,
   supabaseUrl: string,
   pageHotelId: string | null,
+  question: string,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -1237,8 +1238,21 @@ function buildTools(
       execute: async ({ kind, input }) => {
         if (!directActions.includes(kind as any)) return { ok: false, error: "Not authorized for this action." };
         const raw = (input ?? {}) as Record<string, unknown>;
-        const requestedHotel = typeof raw.hotelId === "string" && raw.hotelId.trim()
-          ? raw.hotelId : pageHotelId || profile.assigned_hotel;
+        if (kind === "adjust_revenue_prices" &&
+          /\b(increase|raise|higher|up)\b/i.test(question) && Number(raw.deltaEur) < 0) {
+          return { ok: false, error: "You requested an increase with a negative amount. Did you mean decrease by €2? No prices were changed." };
+        }
+        if (kind === "adjust_revenue_prices" &&
+          /\b(decrease|reduce|lower|cut|down)\b/i.test(question) && Number(raw.deltaEur) > 0) {
+          return { ok: false, error: "You requested a decrease with a positive adjustment. No prices were changed." };
+        }
+        if (pageHotelId && typeof raw.hotelId === "string" &&
+            ![pageHotelId].includes(raw.hotelId) &&
+            !hotels.some(h => h.hotel_id === pageHotelId && h.hotel_name === raw.hotelId)) {
+          return { ok: false, error: "This chat is focused on a different hotel. Select the intended hotel screen before making a change." };
+        }
+        const requestedHotel = pageHotelId || profile.assigned_hotel ||
+          (typeof raw.hotelId === "string" ? raw.hotelId : null);
         const selected = resolve(requestedHotel || null);
         if (selected.length !== 1) return { ok: false, error: "Please select one hotel before making a change." };
         const validated = validateAction(kind, { ...raw, hotelId: selected[0] });
@@ -1755,7 +1769,7 @@ WEB SEARCH — for facts not stored in Hotel Care
 - Each user gets ${WEB_SEARCH_FREE_DAILY} free questions with web search per day. If a search result carries a billing note saying the question is charged, end your answer with one short line telling the user this question costs €${EXTRA_QUESTION_PRICE_EUR}. Otherwise never mention billing.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null),
+      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
