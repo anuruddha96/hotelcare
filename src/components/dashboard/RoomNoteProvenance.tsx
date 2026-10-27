@@ -54,7 +54,7 @@ export function RoomNoteProvenance({
   const { data = [], isPending, isError } = useQuery({
     queryKey: ['room-note-provenance', roomId, roomNotes],
     queryFn: async (): Promise<RoomNoteHistoryEntry[]> => {
-      const { data: rows, error } = await (supabase as any).rpc('get_room_note_provenance', {
+      const { data: rows, error } = await (supabase as any).rpc('get_room_note_history', {
         p_room_id: roomId,
         p_limit: 5,
       });
@@ -82,7 +82,7 @@ export function RoomNoteProvenance({
       : isError
         ? (hu ? 'A megjegyzés előzményei nem érhetők el' : 'Note history unavailable')
         : !current || !currentTimestamp
-          ? (hu ? 'A megjegyzés pontos időpontja nem ismert' : 'Note date/time not recorded')
+          ? (hu ? 'Nincs igazolt munkatársi bejegyzés. Vezetői ellenőrzés szükséges.' : 'No verified staff entry for this note. Manager review required.')
           : describeRoomNoteTimestamp(current, language);
 
   return (

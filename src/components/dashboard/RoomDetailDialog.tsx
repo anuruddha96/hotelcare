@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { DNDPhotosViewer } from './DNDPhotosViewer';
 import { isNoMinibarRoom } from '@/lib/gozsduNoMinibar';
 
@@ -105,6 +106,8 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const { t } = useTranslation();
   const { profile } = useAuth();
   const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, room?.hotel);
+  const canEditRoomNote = !isHotelMemoriesBudapest(room?.hotel)
+    || hasManagerPowers(profile?.role) || profile?.role === 'supervisor';
   const [loading, setLoading] = useState(false);
   const [notesSaveState, setNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [noteHistory, setNoteHistory] = useState<RoomNoteHistoryEntry[]>([]);
@@ -125,7 +128,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
   const fetchRoomNoteHistory = useCallback(async (roomId: string) => {
     try {
-      const { data, error } = await (supabase as any).rpc('get_room_note_provenance', {
+      const { data, error } = await (supabase as any).rpc('get_room_note_history', {
         p_room_id: roomId,
         p_limit: 5,
       });
@@ -695,7 +698,8 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                           ? 'text-emerald-600'
                           : 'text-muted-foreground'
                     }`}>
-                      {notesSaveState === 'saving'
+                      {!canEditRoomNote ? 'Manager/supervisor edit only'
+                        : notesSaveState === 'saving'
                         ? 'Saving automatically…'
                         : notesSaveState === 'saved'
                           ? 'Saved automatically'
@@ -706,6 +710,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                   </div>
                   <Textarea
                     value={roomNotes}
+                    disabled={!canEditRoomNote}
                     onChange={(e) => scheduleNotesAutosave(e.target.value)}
                     onBlur={flushNotesAutosave}
                     placeholder="Add room notes..."
