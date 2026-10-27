@@ -28,7 +28,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
-import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { DNDPhotosViewer } from './DNDPhotosViewer';
 import { isNoMinibarRoom } from '@/lib/gozsduNoMinibar';
 
@@ -106,8 +105,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const { t } = useTranslation();
   const { profile } = useAuth();
   const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, room?.hotel);
-  const canEditRoomNote = !isHotelMemoriesBudapest(room?.hotel)
-    || hasManagerPowers(profile?.role) || profile?.role === 'supervisor';
+  const canEditRoomNote = hasManagerPowers(profile?.role) || profile?.role === 'supervisor';
   const [loading, setLoading] = useState(false);
   const [notesSaveState, setNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [noteHistory, setNoteHistory] = useState<RoomNoteHistoryEntry[]>([]);
@@ -352,7 +350,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   };
 
   const handleSaveNotes = useCallback(async (nextNotes: string, showErrorToast = false) => {
-    if (!room) return false;
+    if (!room || !canEditRoomNote) return false;
 
     setNotesSaveState('saving');
     try {
@@ -386,7 +384,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       }
       return false;
     }
-  }, [room, fetchRoomNoteHistory, onRoomUpdated]);
+  }, [room, canEditRoomNote, fetchRoomNoteHistory, onRoomUpdated]);
 
   const scheduleNotesAutosave = (nextNotes: string) => {
     setRoomNotes(nextNotes);
