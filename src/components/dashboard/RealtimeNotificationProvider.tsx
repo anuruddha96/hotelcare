@@ -208,6 +208,23 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
   useEffect(() => {
     if (!user?.id) return;
 
+    // Realtime UPDATE old rows contain only the primary key under RLS. Never
+    // interpret a missing old.status as a change: initialize the user's known
+    // ticket statuses once, and only notify for genuine future transitions.
+    const knownTicketStatuses = new Map<string, string>();
+    let ticketStatusSnapshotReady = false;
+    void supabase.from('tickets')
+      .select('id,status')
+      .eq('created_by', user.id)
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn('Could not baseline ticket statuses for notifications', error);
+          return;
+        }
+        for (const row of data || []) knownTicketStatuses.set(row.id, row.status);
+        ticketStatusSnapshotReady = true;
+      });
+
     // Browser/PWA notification for a specific room. The normal notification
     // hook is still used for the audible/in-app toast, but we deliberately send
     // the system notification ourselves so it can carry a room deep link.
@@ -401,6 +418,26 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
       'top_management_manager',
     ]);
 
+    // Baseline pending approvals too. They should only produce a fresh alert
+    // on a new transition into review, not on every later ticket autosave.
+    const knownPendingApprovalIds = new Set<string>();
+    let approvalsSnapshotReady = false;
+    if (profile?.organization_slug && profile?.role && maintenanceApprovalRoles.has(profile.role)) {
+      void supabase.from('tickets')
+        .select('id')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('department', 'maintenance')
+        .eq('pending_supervisor_approval', true)
+        .then(({ data, error }) => {
+          if (error) {
+            console.warn('Could not baseline maintenance approvals', error);
+            return;
+          }
+          for (const row of data || []) knownPendingApprovalIds.add(row.id);
+          approvalsSnapshotReady = true;
+        });
+    }
+
     const channels = [
       ...(profile?.role && maintenanceApprovalRoles.has(profile.role) ? [
         supabase
@@ -414,18 +451,19 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
               ...(profile?.organization_slug ? { filter: `organization_slug=eq.${profile.organization_slug}` } : {}),
             },
             (payload: any) => {
-              if (
-                payload.new.organization_slug === profile?.organization_slug &&
-                payload.new.pending_supervisor_approval === true &&
-                payload.old.pending_supervisor_approval !== true &&
-                payload.new.department === 'maintenance'
-              ) {
-                showNotification(
-                  t('notifications.maintenanceReview'),
-                  'info',
-                  t('notifications.maintenanceApproval')
-                );
+              const row = payload.new;
+              if (!approvalsSnapshotReady || row?.organization_slug !== profile?.organization_slug || row.department !== 'maintenance') return;
+              if (row.pending_supervisor_approval !== true) {
+                knownPendingApprovalIds.delete(row.id);
+                return;
               }
+              if (knownPendingApprovalIds.has(row.id)) return;
+              knownPendingApprovalIds.add(row.id);
+              showNotification(
+                t('notifications.maintenanceReview'),
+                'info',
+                t('notifications.maintenanceApproval')
+              );
             }
           )
           .subscribe()
@@ -460,9 +498,13 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
             filter: `created_by=eq.${user.id}`
           },
           (payload) => {
-            if (payload.new.status !== payload.old.status) {
+            if (!ticketStatusSnapshotReady || !payload.new?.id) return;
+            const previousStatus = knownTicketStatuses.get(payload.new.id);
+            const nextStatus = payload.new.status;
+            knownTicketStatuses.set(payload.new.id, nextStatus);
+            if (previousStatus !== undefined && previousStatus !== nextStatus) {
               showNotification(
-                t('notifications.ticketStatusChanged').replace('{status}', payload.new.status),
+                t('notifications.ticketStatusChanged').replace('{status}', nextStatus),
                 'info',
                 t('notifications.ticketUpdateLabel')
               );
