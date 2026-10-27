@@ -93,6 +93,8 @@ function normalizeMessages(value: unknown): UIMessage[] | null {
 
 function detectRequestedScope(question: string): Scope | null {
   const q = question.toLowerCase();
+  // A guest room-item instruction can be entered by both reception and housekeeping.
+  if (/\b(towels?|pillows?|blankets?|baby cot|extra amenities|beds? together|beds? separated|guest request)\b/.test(q)) return null;
   if (/\b(adr|revpar|revenue|rate|price|pickup|occupancy|min.?stay)\b/.test(q)) return "revenue";
   if (/\b(clean|cleaning|housekeep|dirty room|inspected room|assignment)\b/.test(q)) return "housekeeping";
   if (/\b(maintenance|ticket|repair|broken|sla|overdue issue)\b/.test(q)) return "maintenance";
