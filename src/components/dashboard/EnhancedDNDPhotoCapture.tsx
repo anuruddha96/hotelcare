@@ -25,16 +25,7 @@ interface EnhancedDNDPhotoCaptureProps {
 
 type Photo = { id: string; url: string; saved: boolean };
 
-// The native input picker can launch Android's camera even when getUserMedia
-// preview is unavailable. A second picker allows a photo from the gallery.
-// Both options must use precisely the same DND evidence/save path.
-function fileExtension(mime: string): string {
-  if (mime === 'image/png') return 'png';
-  if (mime === 'image/webp') return 'webp';
-  if (mime === 'image/heic') return 'heic';
-  if (mime === 'image/heif') return 'heif';
-  return 'jpg';
-}
+// DND evidence is normalized to JPEG at upload; camera and picker share the same path.
 
 function cameraMessage(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
