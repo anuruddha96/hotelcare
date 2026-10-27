@@ -45,8 +45,9 @@ function encodeJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
  * retries for detailed photos. Never silently uploads an uncompressible file.
  */
 export async function compressHousekeepingPhoto(file: Blob): Promise<Blob> {
-  if (file.type === 'image/svg+xml') return file; // Only guided skip markers.
-  if (!file.type.startsWith('image/')) throw new Error('Only image files can be uploaded');
+  // Skip markers are handled separately by the guided workflow; never let
+  // arbitrary SVG files be uploaded under a JPEG extension/content type.
+  if (!file.type.startsWith('image/') || file.type === 'image/svg+xml') throw new Error('Only raster image files can be uploaded');
   if (file.type === 'image/jpeg' && file.size <= 500 * 1024) return file;
 
   const image = await decodeImage(file);
