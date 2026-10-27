@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type ChatStatus, type UIMessage } from "ai";
-import { Flag, Loader2, Mic, MicOff, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
+import { CheckCircle2, Flag, Loader2, Mic, MicOff, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
 import {
   Conversation,
@@ -20,6 +20,8 @@ import {
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAssistantContext } from "@/hooks/useAssistantContext";
@@ -217,6 +219,13 @@ function ChatSession({
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
   const [draft, setDraft] = useState("");
+  const [modelTier, setModelTier] = useState<"auto" | "fast" | "balanced" | "deep">("auto");
+  const [usage, setUsage] = useState<{ used: number; remaining: number | null; unlimited: boolean; resets_on?: string } | null>(null);
+  const refreshUsage = useCallback(async () => {
+    const { data, error } = await (supabase as any).rpc("assistant_monthly_status");
+    if (!error && data) setUsage(data);
+  }, []);
+  useEffect(() => { void refreshUsage(); }, [refreshUsage]);
   const [failed, setFailed] = useState<string | null>(null);
   const [analysisElapsedMs, setAnalysisElapsedMs] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -235,10 +244,10 @@ function ChatSession({
           return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {};
         },
         prepareSendMessagesRequest: ({ messages }) => ({
-          body: { messages, thread_id: threadId, language, page, capabilities },
+          body: { messages, thread_id: threadId, language, page, capabilities, model_tier: profile?.role === "admin" ? modelTier : "auto" },
         }),
       }),
-    [threadId, language, page, capabilities],
+    [threadId, language, page, capabilities, modelTier, profile?.role],
   );
 
   const { messages, sendMessage, regenerate, status, stop } = useChat<AssistantUiMessage>({
@@ -246,8 +255,8 @@ function ChatSession({
     messages: initialMessages,
     transport,
     onError: () => {
-      // Technical detail stays in the server logs; the user gets a plain line.
-      setFailed("I couldn’t finish that just now.");
+      void refreshUsage();
+      setFailed("I couldn’t complete that request. If your monthly allowance is exhausted, it resets on the 1st.");
     },
     onFinish: async ({ message, isAbort }) => {
       if (isAbort && user && !cancelSavedRef.current) {
@@ -267,6 +276,7 @@ function ChatSession({
         if (error) console.error("Failed to persist stopped assistant reply", error);
       }
       onThreadUpdated();
+      void refreshUsage();
       window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
     },
   });
@@ -312,7 +322,7 @@ function ChatSession({
 
   const submit = async ({ text }: { text: string }) => {
     const value = text.trim();
-    if (!value || status === "submitted" || status === "streaming") return;
+    if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return;
     setDraft("");
     setFailed(null);
     lastQuestionRef.current = value;
@@ -432,6 +442,20 @@ function ChatSession({
                       const toolName = part.type === "dynamic-tool" ? toolPart.toolName : part.type.slice(5);
                       const key = `${message.id}-${partIndex}`;
 
+                      if (toolName === "execute_action" && toolPart.output?.ok === true) {
+                        return (
+                          <div key={key} className="mt-2 flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-xs">
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                            <div><p className="font-semibold">Completed by HotelCare AI Operator</p>
+                              <p className="mt-1">{String(toolPart.output.summary)}</p>
+                              {toolPart.output.actor && <p className="mt-1 text-muted-foreground">Requested by {String(toolPart.output.actor)}</p>}
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (toolName === "execute_action" && toolPart.output?.ok === false) {
+                        return <p key={key} className="mt-2 text-xs text-destructive">Not completed: {String(toolPart.output.error || "Action not verified.")}</p>;
+                      }
                       if (isAutomationProposal(toolPart.output)) {
                         return <AutomationChangeCard key={`${key}-proposal`} proposal={toolPart.output} />;
                       }
@@ -507,7 +531,7 @@ function ChatSession({
                     <Sparkles className="h-4 w-4 animate-pulse" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Deep analysis</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">HotelCare AI Operator</p>
                     <Shimmer className="text-sm font-medium">{analysisLabel}</Shimmer>
                   </div>
                 </div>
@@ -533,12 +557,35 @@ function ChatSession({
       </Conversation>
 
       <div className="shrink-0 border-t bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        <PromptInput onSubmit={submit} className="rounded-xl bg-background shadow-sm">
+        <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] text-muted-foreground">
+          <span>HotelCare AI Operator · {page.hotelId || profile?.assigned_hotel || "Select a hotel"}</span>
+          {usage && <span>{usage.unlimited ? "Unlimited messages" : `${usage.used}/20 messages this month`}</span>}
+        </div>
+        {profile?.role === "admin" && (
+          <div className="mb-2 flex items-center gap-2 px-2">
+            <span className="text-xs text-muted-foreground">AI model</span>
+            <Select value={modelTier} onValueChange={(value) => setModelTier(value as typeof modelTier)}>
+              <SelectTrigger className="h-8 w-[195px] rounded-lg text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto · cost optimized</SelectItem>
+                <SelectItem value="fast">Fast · simple tasks</SelectItem>
+                <SelectItem value="balanced">Balanced · operational tasks</SelectItem>
+                <SelectItem value="deep">Deep · complex analysis</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {usage && !usage.unlimited && usage.remaining === 0 && (
+          <p role="status" className="mb-2 rounded-lg bg-muted px-3 py-2 text-xs">
+            Your 20 monthly messages are used. Your allowance resets on the 1st. Administrators have been notified.
+          </p>
+        )}
+        <PromptInput onSubmit={submit} className="rounded-2xl bg-background shadow-sm">
           <PromptInputTextarea
             ref={textareaRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask anything…"
+            placeholder="Ask HotelCare to do something…"
             rows={1}
             enterKeyHint="send"
             autoCapitalize="sentences"
@@ -584,7 +631,7 @@ function ChatSession({
               className="h-10 w-10 rounded-full"
               status={status as ChatStatus}
               onStop={() => void stop()}
-              disabled={!generating && !draft.trim()}
+              disabled={!generating && (!draft.trim() || Boolean(usage && !usage.unlimited && usage.remaining === 0))}
             />
           </PromptInputFooter>
         </PromptInput>
