@@ -32,8 +32,11 @@ describe('Hotel Memories missed-service carry-forward contract', () => {
   it('renders a short action for housekeepers and dated lineage for managers', () => {
     expect(gate).toContain('getMemoriesCarryForwardService');
     expect(gate).toContain('getCarryForwardHousekeeperCopy');
-    expect(gate).toContain("carryForward?.serviceType === 'towel_change'");
-    expect(gate).toContain("carryForward?.serviceType === 'full_clean'");
+    // The shared effective-service resolver enforces C-over-T precedence;
+    // do not re-introduce the old independent OR expressions in the room card.
+    expect(gate).toContain('effectiveCarryServiceFlags');
+    expect(gate).toContain('towel_change_required: effectiveService.towelChangeRequired');
+    expect(gate).toContain('linen_change_required: effectiveService.linenChangeRequired');
     expect(manager).toContain('Missed service · yesterday');
     expect(manager).toContain('CalendarClock');
     expect(manager).toContain('getCarryForwardManagerCopy');

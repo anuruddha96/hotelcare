@@ -10,7 +10,7 @@ import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
-import { getCarryForwardManagerCopy } from '@/lib/housekeepingCarryForward';
+import { effectiveCarryServiceFlags, getCarryForwardManagerCopy } from '@/lib/housekeepingCarryForward';
 import {
   getMemoriesCarryForwardService,
   hasMemoriesGreenBoardRequest,
@@ -120,6 +120,12 @@ const getWorkClass = (assignment: AssignmentRow): WorkClass => {
     return { bucket: 0, label: 'In progress now', shortLabel: 'IN PROGRESS', tone: 'blue' };
   }
   if (assignment.status === 'completed') {
+    // A supervisor can approve a *DND attempt* without verifying a cleaning.
+    // Do not report that outcome as a completed clean.
+    if ((assignment.is_dnd === true || Number(assignment.dnd_attempt_count || 0) > 0)
+        && assignment.service_result !== 'cleaned') {
+      return { bucket: 8, label: 'DND recorded; cleaning unverified', shortLabel: 'DND LOGGED', tone: 'purple' };
+    }
     return { bucket: 8, label: 'Completed', shortLabel: 'DONE', tone: 'emerald' };
   }
   if (assignment.status === 'dnd_pending_retry') {
@@ -139,11 +145,19 @@ const getWorkClass = (assignment: AssignmentRow): WorkClass => {
   if (checkout && assignment.ready_to_clean) {
     return { bucket: 1, label: 'Checkout priority', shortLabel: '1 · CHECKOUT', tone: 'orange' };
   }
-  if (!checkout && (room?.towel_change_required || carryForward?.serviceType === 'towel_change')) {
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: room?.towel_change_required,
+    linenChangeRequired: room?.linen_change_required,
+    carryForward,
+    isCheckout: checkout,
+    forceTowelOnly: !!carryForward
+      && isMemoriesFinalOccupiedNight(room?.pms_metadata, todayBudapest()),
+  });
+  if (!checkout && effectiveService.towelChangeRequired) {
     return { bucket: 2, label: 'Towel-change priority', shortLabel: '2 · TOWEL', tone: 'blue' };
   }
-  if (!checkout && (flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean')) {
-    return { bucket: 3, label: 'Explicit clean request', shortLabel: '3 · CLEAN REQUEST', tone: 'emerald' };
+  if (!checkout && (effectiveService.linenChangeRequired || flags.roomCleaning || greenBoardRequest)) {
+    return { bucket: 3, label: 'Required full clean / clean request', shortLabel: '3 · FULL CLEAN', tone: 'emerald' };
   }
   if (!checkout && assignment.assignment_type === 'daily_cleaning') {
     return { bucket: 4, label: 'Optional daily · check door', shortLabel: '4 · OPTIONAL', tone: 'emerald' };
@@ -181,12 +195,18 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
     : null;
   const finalNightTowelCarry = !!carryForward
     && isMemoriesFinalOccupiedNight(room.pms_metadata, todayBudapest());
-  const effectiveTowel = !checkout && (
-    finalNightTowelCarry || !!room.towel_change_required || carryForward?.serviceType === 'towel_change'
-  );
-  const effectiveFullClean = !checkout && !finalNightTowelCarry && (
-    !!room.linen_change_required || carryForward?.serviceType === 'full_clean'
-  );
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: room.towel_change_required,
+    linenChangeRequired: room.linen_change_required,
+    carryForward,
+    isCheckout: checkout,
+    forceTowelOnly: finalNightTowelCarry,
+  });
+  const effectiveTowel = effectiveService.towelChangeRequired;
+  const effectiveFullClean = effectiveService.linenChangeRequired;
+  const dndOutcomeWithoutVerifiedClean = assignment.status === 'completed'
+    && (assignment.is_dnd === true || Number(assignment.dnd_attempt_count || 0) > 0)
+    && assignment.service_result !== 'cleaned';
   const optionalDaily = workClass.bucket === 4 && !checkout && assignment.assignment_type === 'daily_cleaning';
   const managerNote = managerVisibleRoomNote(room.notes);
   const managerInstruction = String(assignment.manager_instruction_text || '').trim();
@@ -221,7 +241,9 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
           </div>
           <div className="flex max-w-full flex-wrap justify-end gap-1">
             <Badge variant="outline" className={toneClasses(workClass.tone)}>{workClass.shortLabel}</Badge>
-            <Badge variant="outline">{STATUS_LABELS[assignment.status] || assignment.status.replace(/_/g, ' ')}</Badge>
+            <Badge variant="outline">{dndOutcomeWithoutVerifiedClean
+              ? 'DND task closed · no clean verified'
+              : STATUS_LABELS[assignment.status] || assignment.status.replace(/_/g, ' ')}</Badge>
             <Badge variant="secondary">{priorityLabel(assignment.priority)} priority</Badge>
           </div>
         </div>
@@ -236,6 +258,7 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
           {nights && <Badge variant="outline">🌙 Night {nights}</Badge>}
           {declined && <Badge variant="outline">No Service</Badge>}
           {assignment.status === 'dnd_pending_retry' && <Badge variant="outline">🔕 DND retry</Badge>}
+          {dndOutcomeWithoutVerifiedClean && <Badge variant="outline">🔕 DND recorded · cleaning unverified</Badge>}
         </div>
 
         {optionalDaily && (

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   effectiveCarryServiceFlags,
   getCarryForwardHousekeeperCopy,
@@ -158,5 +159,53 @@ describe('portfolio housekeeping carry-forward', () => {
       isCheckout: false,
       forceTowelOnly: false,
     })).toEqual({ towelChangeRequired: false, linenChangeRequired: true });
+  });
+});
+
+
+describe('Hotel Memories C-over-T precedence across both live views', () => {
+  it('prioritizes an unresolved original C over the natural T scheduled on 26 October', () => {
+    const c = getHousekeepingCarryForward({ carry_forward: {
+      active: true, property_id: 'memories-budapest',
+      service_type: 'full_clean', reason: 'dnd',
+      source_business_date: '2026-10-25', original_due_date: '2026-10-24',
+      attempt_count: 2,
+    } });
+    expect(effectiveCarryServiceFlags({
+      towelChangeRequired: true, linenChangeRequired: false,
+      carryForward: c, isCheckout: false,
+    })).toEqual({ towelChangeRequired: false, linenChangeRequired: true });
+  });
+
+  it('preserves final-night towel-only, checkout, and no carried service', () => {
+    const c = getHousekeepingCarryForward({ carry_forward: {
+      active: true, property_id: 'memories-budapest',
+      service_type: 'full_clean', reason: 'dnd',
+      source_business_date: '2026-10-26', original_due_date: '2026-10-24',
+    } });
+    expect(effectiveCarryServiceFlags({
+      towelChangeRequired: true, linenChangeRequired: false,
+      carryForward: c, forceTowelOnly: true,
+    })).toEqual({ towelChangeRequired: true, linenChangeRequired: false });
+    expect(effectiveCarryServiceFlags({
+      towelChangeRequired: true, linenChangeRequired: false,
+      carryForward: c, isCheckout: true,
+    })).toEqual({ towelChangeRequired: false, linenChangeRequired: false });
+    expect(effectiveCarryServiceFlags({
+      towelChangeRequired: true, linenChangeRequired: false,
+      carryForward: null, isCheckout: false,
+    })).toEqual({ towelChangeRequired: true, linenChangeRequired: false });
+  });
+
+  it('routes the manager and housekeeper presentations through the common precedence rule', () => {
+    const manager = readFileSync('src/components/dashboard/HotelMemoriesManagerRoomOverview.tsx', 'utf8');
+    const gate = readFileSync('src/components/dashboard/HotelMemoriesRoomGate.tsx', 'utf8');
+    expect(manager).toContain('const effectiveService = effectiveCarryServiceFlags({');
+    expect(manager).toContain('if (!checkout && effectiveService.towelChangeRequired)');
+    expect(manager).toContain('const effectiveFullClean = effectiveService.linenChangeRequired');
+    expect(gate).toContain('const effectiveService = effectiveCarryServiceFlags({');
+    expect(gate).toContain('towel_change_required: effectiveService.towelChangeRequired');
+    expect(gate).toContain('linen_change_required: effectiveService.linenChangeRequired');
+    expect(gate).toContain('notes: shouldShowGreenBoardAsCleanRequest');
   });
 });
