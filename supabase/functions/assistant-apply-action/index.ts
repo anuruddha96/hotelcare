@@ -298,7 +298,7 @@ Deno.serve(async (req) => {
     }
     if (!result.ok) return json({ error: result.error }, 400);
 
-    const actorFirstName = String(profile.nickname || profile.full_name || "").trim().split(/\s+/)[0] || "Staff member";
+    const actorFirstName = String(profile.full_name || profile.nickname || "").trim().split(/\s+/)[0] || "Staff member";
     const { error: auditError } = await service.from("assistant_audit_log").insert({
       user_id: userData.user.id,
       organization_slug: profile.organization_slug,
