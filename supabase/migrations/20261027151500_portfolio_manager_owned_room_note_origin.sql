@@ -1,5 +1,5 @@
 -- Safeguard shared operational room notes at every HotelCare property.
--- Hotel Memories retains its already-deployed dedicated guard and daily expiry.
+-- Hotel Memories retains its dedicated guard and valid daily note expiry.
 -- This does not modify existing records, room assignments, scheduled notes,
 -- Previo source metadata, or immutable provenance/audit history.
 CREATE OR REPLACE FUNCTION public.hc_portfolio_require_human_room_note_origin()
@@ -12,15 +12,10 @@ DECLARE
   v_old_base text;
   v_new_base text;
   v_original_human_text text;
+  v_is_memories boolean := lower(btrim(coalesce(NEW.hotel,''))) IN
+    ('hotel memories budapest','memories budapest','memories-budapest');
+  v_today date := (statement_timestamp() AT TIME ZONE 'Europe/Budapest')::date;
 BEGIN
-  -- HMB already has a tailored note guard with a deliberate overnight expiry
-  -- policy. Keep that established lifecycle untouched.
-  IF lower(btrim(coalesce(NEW.hotel,''))) IN
-    ('hotel memories budapest','memories budapest','memories-budapest')
-  THEN
-    RETURN NEW;
-  END IF;
-
   -- Compare only the editable human text, excluding scheduled/approved
   -- calendar shadows and the independent operational service markers.
   v_old_base := public.room_note_history_text(replace(
@@ -30,6 +25,17 @@ BEGIN
     coalesce(NEW.notes,''), coalesce(NEW.hotelcare_planned_note_shadow,''), ''
   ));
   IF v_new_base IS NOT DISTINCT FROM v_old_base THEN RETURN NEW; END IF;
+
+  -- HMB has a documented next-business-day expiry for dated human notes.
+  -- Preserve this narrow intentional cleanup; a PMS sync does not qualify.
+  IF v_is_memories AND v_new_base = ''
+     AND OLD.memories_manual_note_date IS NOT NULL
+     AND OLD.memories_manual_note_date < v_today
+     AND NEW.memories_manual_note_date IS NULL
+     AND NEW.pms_metadata IS NOT DISTINCT FROM OLD.pms_metadata
+  THEN
+    RETURN NEW;
+  END IF;
 
   -- A PMS refresh, scheduled worker or background service is never the
   -- human editor. Protect the previous note whether a job tries to insert,
