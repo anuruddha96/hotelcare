@@ -1600,7 +1600,7 @@ Deno.serve(async (req) => {
 
     const monthlyActor = {
       userId: userData.user.id, email: userData.user.email ?? null,
-      firstName: String(profile.nickname || profile.full_name || "").trim().split(/\s+/)[0],
+      firstName: String(profile.full_name || profile.nickname || "").trim().split(/\s+/)[0],
       role: profile.role, hotelId: profile.assigned_hotel, organizationSlug: profile.organization_slug,
     };
     const messageId = String(latest?.id ?? "");
