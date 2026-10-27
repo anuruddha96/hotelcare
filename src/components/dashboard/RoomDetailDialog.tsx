@@ -125,7 +125,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
   const fetchRoomNoteHistory = useCallback(async (roomId: string) => {
     try {
-      const { data, error } = await (supabase as any).rpc('get_room_note_provenance', {
+      const { data, error } = await (supabase as any).rpc('get_room_note_history', {
         p_room_id: roomId,
         p_limit: 5,
       });
