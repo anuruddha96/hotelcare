@@ -80,9 +80,10 @@ export function resolveHistoricalMemoriesService(
   const saved = resolveHistoricalHousekeepingState(snapshot);
   const memoriesHotel = ['hotel memories budapest', 'memories budapest', 'memories-budapest']
     .includes(options.hotel.trim().toLowerCase());
-  const validDate = /^\\d{4}-\\d{2}-\\d{2}$/.test(options.businessDate);
-  const previousDate = validDate
-    ? new Date(Date.parse(`${options.businessDate}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10)
+  const dateTimestamp = /^\d{4}-\d{2}-\d{2}$/.test(options.businessDate)
+    ? Date.parse(`${options.businessDate}T12:00:00Z`) : NaN;
+  const previousDate = Number.isFinite(dateTimestamp)
+    ? new Date(dateTimestamp - 86_400_000).toISOString().slice(0, 10)
     : null;
   const candidate = memoriesHotel && previousDate && !options.isCheckout && !options.isNoShow
     ? getActionableHousekeepingCarryForward(assignment?.previous_day_context, assignment)
