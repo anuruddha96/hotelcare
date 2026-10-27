@@ -11,7 +11,10 @@ export type AssistantActionKind =
   | "assign_room_cleaning"
   | "update_ticket_status"
   | "set_min_stay"
-  | "edit_revenue_prices";
+  | "edit_revenue_prices"
+  | "create_guest_request"
+  | "set_bed_configuration"
+  | "adjust_revenue_prices";
 
 export type ActionField = { label: string; value: string };
 
@@ -54,6 +57,9 @@ const ACTION_ROLES: Record<AssistantActionKind, string[]> = {
   // publishing endpoints. The assistant never widens those permissions.
   set_min_stay: REVENUE_WRITE_ROLES,
   edit_revenue_prices: REVENUE_WRITE_ROLES,
+  adjust_revenue_prices: REVENUE_WRITE_ROLES,
+  create_guest_request: [...MANAGER_ROLES, "reception", "front_office", "housekeeping"],
+  set_bed_configuration: [...MANAGER_ROLES, "reception", "front_office"],
 };
 
 export const ACTION_LABEL: Record<AssistantActionKind, string> = {
@@ -62,6 +68,9 @@ export const ACTION_LABEL: Record<AssistantActionKind, string> = {
   update_ticket_status: "Change a ticket's status",
   set_min_stay: "Set Revenue calendar minimum stay and publish it to Previo",
   edit_revenue_prices: "Edit Revenue calendar prices through the safe Previo publishing queue",
+  adjust_revenue_prices: "Adjust verified Revenue calendar prices by a fixed euro amount",
+  create_guest_request: "Send a guest room-item request to housekeeping",
+  set_bed_configuration: "Update room bed setup for housekeeping",
 };
 
 export function actionsForRole(role: string | null | undefined): AssistantActionKind[] {
@@ -224,6 +233,52 @@ export function validateAction(
   const hotelId = text(raw.hotelId, 120);
   if (!hotelId) return fail("Name the property this action applies to");
 
+  if (kind === "create_guest_request") {
+    const roomNumber = text(raw.roomNumber, 40);
+    const requestType = text(raw.requestType, 30) || "other";
+    const quantities = Number(raw.quantity ?? 1);
+    const detail = text(raw.detail, 500);
+    const labels: Record<string, string> = {
+      extra_towels: "Extra towels", extra_pillow: "Extra pillow", blanket: "Blanket",
+      baby_cot: "Baby cot", iron: "Iron", amenities: "Extra amenities", other: "Other request",
+    };
+    if (!roomNumber) return fail("Specify the room number.");
+    if (!labels[requestType]) return fail("Select an available guest request type.");
+    if (!Number.isInteger(quantities) || quantities < 1 || quantities > 20) return fail("Quantity must be 1–20.");
+    return { ok: true, action: {
+      kind: "create_guest_request", hotelId, title: "Guest room request",
+      input: { hotelId, roomNumber, requestType, quantity: quantities, detail },
+      fields: [{ label: "Room", value: roomNumber }, { label: "Items", value: `${labels[requestType]} ×${quantities}` }],
+    } };
+  }
+
+  if (kind === "set_bed_configuration") {
+    const roomNumber = text(raw.roomNumber, 40);
+    const configuration = text(raw.configuration, 50);
+    const values = ["Double Bed", "Twin Beds", "Twin Beds Separated", "Single Bed", "Baby Bed", "Sofa Bed", "Extra Cot Added"];
+    if (!roomNumber) return fail("Specify the room number.");
+    if (!values.includes(configuration)) return fail("Choose a supported bed setup; for beds together, use Double Bed.");
+    return { ok: true, action: {
+      kind: "set_bed_configuration", hotelId, title: "Update bed setup",
+      input: { hotelId, roomNumber, configuration },
+      fields: [{ label: "Room", value: roomNumber }, { label: "Bed setup", value: configuration }],
+    } };
+  }
+
+  if (kind === "adjust_revenue_prices") {
+    const from = validIsoDate(raw.fromDate);
+    const to = validIsoDate(raw.toDate);
+    const delta = Number(raw.deltaEur);
+    const dates = from && to ? expandDateRange(from, to, 7) : null;
+    if (!dates || dates.some(d => d < budapestToday())) return fail("Use an exact future date range of 1–7 days.");
+    if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 20) return fail("Use a whole euro adjustment between -20 and +20.");
+    return { ok: true, action: {
+      kind: "adjust_revenue_prices", hotelId, title: "Adjust daily prices",
+      input: { hotelId, fromDate: from, toDate: to, deltaEur: delta },
+      fields: [{ label: "Dates", value: displayDateSet(dates) }, { label: "Change", value: `${delta > 0 ? "+" : ""}${delta} EUR per eligible price cell` }],
+    } };
+  }
+
   if (kind === "create_ticket") {
     const title = text(raw.title, 200);
     const description = text(raw.description, 2000);
@@ -368,6 +423,86 @@ export async function executeAction(
 ): Promise<{ ok: true; summary: string; recordId?: string } | { ok: false; error: string }> {
   const org = ctx.organizationSlug;
   const hotelKeys = [...new Set([ctx.hotelId, ctx.hotelName].filter(Boolean))] as string[];
+
+  if (action.kind === "create_guest_request" || action.kind === "set_bed_configuration") {
+    const roomNumber = String(action.input.roomNumber ?? "");
+    const { data: rooms, error: roomError } = await service.from("rooms")
+      .select("id,room_number,hotel,bed_configuration")
+      .eq("organization_slug", org).in("hotel", hotelKeys).eq("room_number", roomNumber).limit(2);
+    if (roomError) return fail(`Room lookup failed: ${roomError.message}`);
+    if (!rooms?.length) return fail(`Room ${roomNumber} was not found at this property.`);
+    if (rooms.length !== 1) return fail("Room number is ambiguous within this hotel; no action was taken.");
+    const room = rooms[0];
+
+    if (action.kind === "set_bed_configuration") {
+      const configuration = String(action.input.configuration);
+      if (room.bed_configuration === configuration)
+        return { ok: true, recordId: room.id, summary: `Room ${roomNumber} already has ${configuration} selected. No change needed.` };
+      // Optimistic compare-and-swap: never overwrite a change made by a manager mid-request.
+      let update = service.from("rooms").update({ bed_configuration: configuration })
+        .eq("id", room.id).eq("organization_slug", org);
+      update = room.bed_configuration === null ? update.is("bed_configuration", null)
+        : update.eq("bed_configuration", room.bed_configuration);
+      const { data: changed, error } = await update.select("id,bed_configuration").maybeSingle();
+      if (error) return fail(`Bed setup was not saved: ${error.message}`);
+      if (!changed || changed.bed_configuration !== configuration)
+        return fail("The room changed during this request. Refresh its current setup before retrying.");
+      return { ok: true, recordId: room.id,
+        summary: `Room ${roomNumber}: bed setup saved as ${configuration} for housekeeping.` };
+    }
+
+    const type = String(action.input.requestType);
+    const quantity = Number(action.input.quantity);
+    const labels: Record<string, string> = {
+      extra_towels: "Extra towels", extra_pillow: "Extra pillow", blanket: "Blanket",
+      baby_cot: "Baby cot", iron: "Iron", amenities: "Extra amenities", other: "Other request",
+    };
+    const day = budapestToday(), now = new Date().toISOString();
+    const { data: assignments, error: assignmentError } = await service.from("room_assignments")
+      .select("id,assigned_to,status,created_at").eq("room_id", room.id)
+      .eq("assignment_date", day).neq("status", "cancelled")
+      .order("created_at", { ascending: false }).limit(10);
+    if (assignmentError) return fail("Could not verify today's room assignment; the request was not sent.");
+    const assigned = assignments?.find((a: any) => a.assigned_to && a.status !== "completed")
+      ?? assignments?.find((a: any) => a.assigned_to) ?? null;
+    let workerName: string | null = null, attendanceStatus: string | null = null, active = false;
+    if (assigned?.assigned_to) {
+      const [{ data: person }, { data: attendance, error: attendanceError }] = await Promise.all([
+        service.from("profiles").select("full_name,nickname,organization_slug,deleted_at")
+          .eq("id", assigned.assigned_to).maybeSingle(),
+        service.from("staff_attendance").select("status,check_out_time")
+          .eq("user_id", assigned.assigned_to).eq("work_date", day)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      if (person && person.organization_slug === org && !person.deleted_at) {
+        workerName = person.nickname || person.full_name || "Assigned housekeeper";
+        if (!attendanceError && attendance) {
+          attendanceStatus = attendance.status ?? null;
+          active = !attendance.check_out_time && ["checked_in", "on_break"].includes(attendance.status);
+        }
+      }
+    }
+    const payload = {
+      version: 1, workDate: day, requestType: type, label: labels[type],
+      quantity, requiresReturn: !["amenities", "other"].includes(type),
+      status: "requested", detail: String(action.input.detail ?? ""),
+      events: [{ status: "requested", actorId: ctx.userId, at: now }],
+      targetAssignmentId: assigned?.id ?? null,
+      targetHousekeeperId: assigned?.assigned_to ?? null,
+      targetHousekeeperName: workerName,
+      targetAttendanceStatus: attendanceStatus,
+      targetWasActive: active,
+    };
+    const { data: saved, error } = await service.from("housekeeping_notes").insert({
+      room_id: room.id, assignment_id: assigned?.id ?? null, note_type: "guest_request",
+      content: JSON.stringify(payload), created_by: ctx.userId, is_resolved: false,
+    }).select("id").single();
+    if (error || !saved) return fail(`Guest request was not recorded: ${error?.message ?? "Unknown error"}`);
+    return { ok: true, recordId: saved.id,
+      summary: `${labels[type]} ×${quantity} recorded for room ${roomNumber}. ${active
+        ? `Routed to ${workerName}'s active housekeeping view; delivery has not yet been confirmed.`
+        : "No active assigned housekeeper could be verified; the request is saved, but an immediate notification is not confirmed."}` };
+  }
 
   if (action.kind === "create_ticket") {
     const { title, description, roomNumber, priority, department } = action.input as Record<string, string>;
