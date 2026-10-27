@@ -15,6 +15,7 @@ import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assista
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
 import { selectAssistantModel, classifyAssistantQuestion } from "../_shared/aiModelPolicy.ts";
 import { logAiUsage } from "../_shared/aiBudget.ts";
+import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
 
 
 type Profile = {
@@ -23,6 +24,8 @@ type Profile = {
   assigned_hotel: string | null;
   organization_slug: string | null;
   preferred_language: string | null;
+  full_name?: string | null;
+  nickname?: string | null;
 };
 
 type Scope = "revenue" | "housekeeping" | "maintenance" | "reception" | "finance";
@@ -130,6 +133,9 @@ function buildTools(
   hotels: AssistantHotel[],
   capabilities: Capabilities,
   openAiKey: string,
+  authHeader: string,
+  supabaseUrl: string,
+  pageHotelId: string | null,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -1208,11 +1214,49 @@ function buildTools(
 
   }
 
-  const availableActions = actionsForRole(profile.role).filter((kind) =>
-    kind === "assign_room_cleaning" ? scopes.has("housekeeping") : scopes.has("maintenance") || scopes.has("housekeeping"),
-  );
+  const availableActions = actionsForRole(profile.role).filter((kind) => {
+    if (["set_min_stay", "edit_revenue_prices", "adjust_revenue_prices"].includes(kind)) return scopes.has("revenue");
+    if (["create_guest_request", "set_bed_configuration"].includes(kind)) return scopes.has("reception") || scopes.has("housekeeping");
+    if (kind === "assign_room_cleaning") return scopes.has("housekeeping");
+    return scopes.has("maintenance") || scopes.has("housekeeping") || scopes.has("reception");
+  });
 
   if (availableActions.length) {
+    // Models only supply structured inputs. This endpoint runs all authorization,
+    // freshness and property checks again with the signed-in user's JWT.
+    const directActions = availableActions.filter(kind =>
+      ["create_guest_request", "set_bed_configuration", "create_ticket", "update_ticket_status", "adjust_revenue_prices"].includes(kind));
+    if (directActions.length) tools.execute_action = tool({
+      description: `Perform an explicitly requested HotelCare action NOW. For guest items, use create_guest_request with requestType (extra_towels / extra_pillow / blanket / baby_cot / iron / amenities / other), roomNumber and quantity. For beds together, use set_bed_configuration with configuration 'Double Bed'. For a whole-euro relative price change use adjust_revenue_prices with fromDate, toDate and signed deltaEur. NEVER act on ambiguous instructions, invented room numbers, dates, or a hotel not selected. Only claim completion on ok:true. Available: ${directActions.join(", ")}.`,
+      inputSchema: jsonSchema<{ kind: string; input: Record<string, unknown> }>({
+        type: "object", properties: {
+          kind: { type: "string", enum: directActions },
+          input: { type: "object", additionalProperties: true },
+        }, required: ["kind", "input"], additionalProperties: false,
+      }),
+      execute: async ({ kind, input }) => {
+        if (!directActions.includes(kind as any)) return { ok: false, error: "Not authorized for this action." };
+        const raw = (input ?? {}) as Record<string, unknown>;
+        const requestedHotel = typeof raw.hotelId === "string" && raw.hotelId.trim()
+          ? raw.hotelId : pageHotelId || profile.assigned_hotel;
+        const selected = resolve(requestedHotel || null);
+        if (selected.length !== 1) return { ok: false, error: "Please select one hotel before making a change." };
+        const validated = validateAction(kind, { ...raw, hotelId: selected[0] });
+        if (!validated.ok) return { ok: false, error: validated.error };
+        const response = await fetch(`${supabaseUrl}/functions/v1/assistant-apply-action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHeader },
+          body: JSON.stringify({ kind, input: validated.action.input }),
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) {
+          return { ok: false, error: String(result?.error || "HotelCare did not confirm the change.") };
+        }
+        return { ok: true, status: "completed", summary: result.summary,
+          hotelId: selected[0], recordId: result.recordId ?? null,
+          actor: result.actorFirstName ?? null };
+      },
+    });
     tools.propose_action = tool({
       description:
         `Propose an operational change for the user to confirm. This DOES NOT change anything: it returns a confirmation card and the user taps Confirm. Available actions: ${availableActions
