@@ -871,16 +871,9 @@ Deno.serve(async (req) => {
       content: String(row.content ?? "").slice(0, 5000),
     }));
 
-    const { data: reservation, error: reserveError } = profile.role === "admin"
-      ? { data: { allowed: true, usage_id: null }, error: null }
-      : await db.rpc("reserve_assistant_premium_question", {
-      _user_id: authData.user.id,
-      _organization_slug: targetOrgSlug,
-      _thread_id: threadId,
-      _model: PREMIUM_MODEL,
-    });
-    if (reserveError) return json({ error: `Could not reserve deep-analysis capacity: ${reserveError.message}` }, 500);
-
+    // The unified 20-message monthly allowance replaces the old 5/day deep-chat
+    // billing gate. Do not demand paid credits for a message already permitted.
+    const reservation = { allowed: true, usage_id: null };
     if (!reservation?.allowed) {
       const answer = "This needs a deeper analysis. You’ve used today’s 5 included deep-analysis questions. Add credits to continue — purchased credits stay in your account until you use them.";
       if (!samePendingQuestion) {
