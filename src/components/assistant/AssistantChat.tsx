@@ -446,7 +446,7 @@ function ChatSession({
                         return (
                           <div key={key} className="mt-2 flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-xs">
                             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                            <div><p className="font-semibold">Completed by HotelCare AI Operator</p>
+                            <div><p className="font-semibold">{toolPart.output.status === "queued" ? "Queued by HotelCare AI Operator" : toolPart.output.status === "recorded" ? "Recorded by HotelCare AI Operator" : "Completed by HotelCare AI Operator"}</p>
                               <p className="mt-1">{String(toolPart.output.summary)}</p>
                               {toolPart.output.actor && <p className="mt-1 text-muted-foreground">Requested by {String(toolPart.output.actor)}</p>}
                             </div>
