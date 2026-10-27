@@ -2,7 +2,7 @@
 -- Reporting dates use Budapest business time, including daylight saving transitions.
 CREATE TABLE IF NOT EXISTS public.assistant_monthly_message_usage (
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  message_id uuid NOT NULL,
+  message_id text NOT NULL,
   month_start date NOT NULL,
   organization_slug text,
   input_tokens integer NOT NULL DEFAULT 0,
@@ -43,7 +43,7 @@ CREATE POLICY assistant_alerts_admin_read ON public.assistant_usage_alert_events
 -- Called from Edge Functions with a verified user session. Serializes concurrent tabs
 -- so two simultaneous sends cannot both consume slot #20.
 CREATE OR REPLACE FUNCTION public.reserve_assistant_monthly_message(
-  _user_id uuid, _message_id uuid, _organization_slug text
+  _user_id uuid, _message_id text, _organization_slug text
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   v_month date := date_trunc('month', now() AT TIME ZONE 'Europe/Budapest')::date;
@@ -77,8 +77,8 @@ BEGIN
     'used', v_used + 1, 'limit', CASE WHEN v_unlimited THEN NULL ELSE 20 END,
     'remaining', CASE WHEN v_unlimited THEN NULL ELSE greatest(0,19-v_used) END);
 END; $$;
-REVOKE ALL ON FUNCTION public.reserve_assistant_monthly_message(uuid,uuid,text) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.reserve_assistant_monthly_message(uuid,uuid,text) TO service_role;
+REVOKE ALL ON FUNCTION public.reserve_assistant_monthly_message(uuid,text,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.reserve_assistant_monthly_message(uuid,text,text) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.assistant_monthly_status()
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
