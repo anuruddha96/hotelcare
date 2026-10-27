@@ -1266,7 +1266,7 @@ function buildTools(
         if (!response.ok || !result?.ok) {
           return { ok: false, error: String(result?.error || "HotelCare did not confirm the change.") };
         }
-        return { ok: true, status: "completed", summary: result.summary,
+        return { ok: true, status: kind === "adjust_revenue_prices" ? "queued" : kind === "create_guest_request" ? "recorded" : "completed", summary: result.summary,
           hotelId: selected[0], recordId: result.recordId ?? null,
           actor: result.actorFirstName ?? null };
       },
