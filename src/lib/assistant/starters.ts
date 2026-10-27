@@ -28,7 +28,7 @@ const MAINTENANCE: StarterPrompt[] = [
 ];
 
 const RECEPTION: StarterPrompt[] = [
-  { label: "Today's arrivals", prompt: "Who arrives today?" },
+  { label: "Send guest items", prompt: "Please send 3 extra towels to room 202." },
   { label: "Departures", prompt: "How many departures do we have today?" },
   { label: "Rooms ready", prompt: "Which rooms are ready for arrival?" },
   { label: "Prepare bed setup", prompt: "Room 108 beds together." },
