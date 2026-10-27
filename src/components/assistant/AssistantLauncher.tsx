@@ -133,12 +133,12 @@ export default function AssistantLauncher() {
           "bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4",
           "touch-manipulation select-none cursor-pointer active:scale-[0.98] duration-75",
         )}
-        aria-label="Open the Hotel Care Assistant"
+        aria-label="Open HotelCare AI Operator"
       >
         <span className="pointer-events-none flex h-10 w-10 items-center justify-center rounded-full bg-background shadow-sm">
           <img src={hotelCareMark} alt="" className="pointer-events-none h-7 w-7" />
         </span>
-        <span className="pointer-events-none hidden sm:inline">Ask</span>
+        <span className="pointer-events-none hidden sm:inline">AI Operator</span>
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
@@ -156,18 +156,18 @@ export default function AssistantLauncher() {
                 }
               : undefined
           }
-          className="w-full sm:max-w-[480px] p-3 flex flex-col gap-2 h-[100dvh] max-h-[100dvh] overflow-hidden
+          className="w-full sm:max-w-[680px] p-3 flex flex-col gap-2 h-[100dvh] max-h-[100dvh] overflow-hidden
                      pt-[max(0.75rem,env(safe-area-inset-top))] pb-0
                      duration-150 data-[state=open]:duration-150"
         >
-          <SheetTitle className="sr-only">Hotel Care Assistant</SheetTitle>
-          <SheetDescription className="sr-only">Role-aware assistant for Hotel Care</SheetDescription>
+          <SheetTitle className="sr-only">HotelCare AI Operator</SheetTitle>
+          <SheetDescription className="sr-only">Ask HotelCare to complete tasks, check operations and update permitted information</SheetDescription>
           <div className="flex items-center gap-2 pr-10 pt-1">
             <div className="flex items-center gap-2">
               <img src={hotelCareMark} alt="Hotel Care" className="h-8 w-8 rounded-lg" />
               <div className="leading-tight">
-                <p className="text-sm font-semibold">Hotel Care Assistant</p>
-                <p className="text-[11px] text-muted-foreground">Ask anything about your work</p>
+                <p className="text-sm font-semibold">HotelCare AI Operator</p>
+                <p className="text-[11px] text-muted-foreground">Ask, act and get a verified result</p>
               </div>
             </div>
             <button
@@ -177,6 +177,12 @@ export default function AssistantLauncher() {
             >
               <Flag className="h-3.5 w-3.5" /> Report
             </button>
+            {profile.role === "admin" && (
+              <Button size="sm" variant="outline" className="h-7 text-[11px]"
+                onClick={() => { setOpen(false); navigate(`/${profile.organization_slug}/assistant-insights`); }}>
+                Actions & usage
+              </Button>
+            )}
             {profile.role === "admin" && (
               <button
                 type="button"
