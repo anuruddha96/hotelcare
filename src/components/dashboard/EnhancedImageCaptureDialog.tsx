@@ -8,6 +8,7 @@ import { Camera, Upload, X, CheckCircle, DoorOpen, Bath, Bed, Coffee } from 'luc
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { compressHousekeepingPhoto } from '@/lib/housekeepingPhotoCompression';
 import { toast } from 'sonner';
 
 interface EnhancedImageCaptureDialogProps {
@@ -191,12 +192,13 @@ export function EnhancedImageCaptureDialog({
       }
 
       for (const photo of categorizedPhotos) {
+        const optimized = await compressHousekeepingPhoto(photo.blob);
         // Include category name in filename for easy identification
         const fileName = `${user.id}/${roomNumber}/${photo.category}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
         
         const { data, error } = await supabase.storage
           .from('room-photos')
-          .upload(fileName, photo.blob, {
+          .upload(fileName, optimized, {
             contentType: 'image/jpeg',
             cacheControl: '3600',
             upsert: false
