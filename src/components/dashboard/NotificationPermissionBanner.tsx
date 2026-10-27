@@ -55,7 +55,7 @@ export function NotificationPermissionBanner() {
       if (hotelKeys.length) existingQuery = existingQuery.in('hotel', hotelKeys);
       const { data: existingRows } = await existingQuery;
       for (const row of existingRows || []) {
-        if (row.assigned_to === user.id && row.status !== 'completed') assignedSeen.add(row.id);
+        if (row.assigned_to === user.id) assignedSeen.add(row.id); // Baseline all historic tickets: no false 'new assignment' on later updates.
         if (row.pending_supervisor_approval === true) pendingSeen.add(row.id);
         if (row.assigned_to === user.id && row.supervisor_approved === true) approvedSeen.add(row.id);
       }
@@ -121,8 +121,7 @@ export function NotificationPermissionBanner() {
     preferencesLoaded && // Preferences must be loaded
     !bannerDismissed && // User hasn't dismissed the banner
     !preferences.banner_permanently_hidden && // User hasn't permanently hidden
-    !preferences.browser_notifications_enabled && // User hasn't enabled notifications
-    notificationPermission !== 'granted'; // Browser hasn't granted permission
+    (!preferences.browser_notifications_enabled || notificationPermission !== 'granted'); // Permission and opt-in must BOTH be enabled
 
   const handleEnableNotifications = async () => {
     setIsRequesting(true);
@@ -142,10 +141,14 @@ export function NotificationPermissionBanner() {
       const granted = await requestNotificationPermission();
       if (granted) {
         // Save preference to database - this permanently hides banner
-        await updatePreferences({ 
+        const pushReady = await updatePreferences({ 
           browser_notifications_enabled: true,
           banner_permanently_hidden: true 
         });
+        if (!pushReady) {
+          console.error('HotelCare notification preference saved but Web Push registration failed; please retry.');
+          return;
+        }
         // Dismiss banner locally too
         dismissBanner();
         // Play a test sound to confirm
