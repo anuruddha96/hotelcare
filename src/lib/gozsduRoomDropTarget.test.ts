@@ -19,8 +19,8 @@ describe('Gozsdu room overview drag destinations', () => {
 
   it('accepts a drop on a room chip or empty space inside the target group', () => {
     const target = section('Daily rooms');
-    expect(gozsduDropBucket(target.querySelector('[data-room-id]'))).toBe('service');
-    expect(gozsduDropBucket(target.querySelector('div:last-child'))).toBe('service');
+    expect(gozsduDropBucket(target.querySelector('[data-room-id]'))).toBe('daily');
+    expect(gozsduDropBucket(target.querySelector('div:last-child'))).toBe('daily');
     target.remove();
   });
 
