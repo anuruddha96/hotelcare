@@ -13,7 +13,8 @@ export interface HistoricalHousekeepingRowLike {
   room_notes?: string | null;
   assignment_notes?: string | null;
   final_state?: Record<string, unknown> | null;
-  scheduled_service_due?: { towel?: boolean; change_room?: boolean; first_observed_at?: string } | null;
+  scheduled_service_due?: { towel?: boolean; change_room?: boolean; first_observed_at?: string; business_date?: string; stay_night?: string; reservation_id?: string; source?: string } | null;
+  pms_metadata?: Record<string, unknown> | null;
 }
 
 function bool(value: unknown): boolean | null {
@@ -78,6 +79,25 @@ export function resolveHistoricalMemoriesService(
   carryForward: HousekeepingCarryForward | null;
 } {
   const saved = resolveHistoricalHousekeepingState(snapshot);
+  // The PMS can briefly carry yesterday's stay-night value into a new morning.
+  // Verify the actual calendar night and reservation before using dated duties.
+  const due = snapshot.scheduled_service_due;
+  const metadata = (snapshot.final_state?.pms_metadata_at_close || snapshot.pms_metadata || {}) as Record<string, unknown>;
+  const arrivalDate = typeof metadata.arrivalDate === 'string' ? metadata.arrivalDate : null;
+  const expectedNight = arrivalDate && /^\d{4}-\d{2}-\d{2}$/.test(arrivalDate)
+    && /^\d{4}-\d{2}-\d{2}$/.test(options.businessDate)
+    ? Math.round((Date.parse(options.businessDate + 'T12:00:00Z') - Date.parse(arrivalDate + 'T12:00:00Z')) / 86_400_000) + 1
+    : null;
+  const datedDueIsValid = !due || (
+    (!due.business_date || due.business_date === options.businessDate)
+    && (due.source !== 'same_day_verified_room_duty' || (
+      due.business_date === options.businessDate
+      && expectedNight !== null
+      && due.stay_night !== undefined
+      && Number(due.stay_night) === expectedNight
+      && (!due.reservation_id || !metadata.reservationId || due.reservation_id === String(metadata.reservationId))
+    ))
+  );
   const memoriesHotel = ['hotel memories budapest', 'memories budapest', 'memories-budapest']
     .includes(options.hotel.trim().toLowerCase());
   const dateTimestamp = /^\d{4}-\d{2}-\d{2}$/.test(options.businessDate)
@@ -91,13 +111,15 @@ export function resolveHistoricalMemoriesService(
   const carryForward = candidate?.propertyId === 'memories-budapest'
     && candidate.sourceBusinessDate === previousDate ? candidate : null;
   const effective = effectiveCarryServiceFlags({
-    towelChangeRequired: saved.towel || saved.scheduledTowel,
-    linenChangeRequired: saved.changeRoom || saved.scheduledChangeRoom,
+    towelChangeRequired: saved.towel || (datedDueIsValid && saved.scheduledTowel),
+    linenChangeRequired: saved.changeRoom || (datedDueIsValid && saved.scheduledChangeRoom),
     carryForward,
     isCheckout: options.isCheckout,
   });
   return {
     ...saved,
+    scheduledTowel: datedDueIsValid && saved.scheduledTowel,
+    scheduledChangeRoom: datedDueIsValid && saved.scheduledChangeRoom,
     towel: effective.towelChangeRequired,
     changeRoom: effective.linenChangeRequired,
     carryForward,
