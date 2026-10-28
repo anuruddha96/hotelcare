@@ -102,6 +102,19 @@ export function ApprovalHistoryView() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState('housekeeping');
   const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
+  // Approved history can contain dozens of rooms. Do not mount a
+  // CompletionDataView (six database reads) for every history card on load.
+  // Evidence remains available on demand without changing the records.
+  const [expandedEvidenceIds, setExpandedEvidenceIds] = useState<Set<string>>(() => new Set());
+
+  const toggleEvidence = (id: string) => {
+    setExpandedEvidenceIds(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   useEffect(() => {
     fetchApprovedAssignments();
@@ -509,12 +522,35 @@ export function ApprovalHistoryView() {
                       </div>
                     )}
 
-                    <CompletionDataView
-                      assignmentId={assignment.id}
-                      roomId={assignment.room_id}
-                      assignmentDate={assignment.assignment_date}
-                      housekeeperId={assignment.assigned_to}
-                    />
+                    {/* Load detailed evidence only when the manager requests
+                        it. Unexpanded history rows must not issue per-room
+                        completion_photos/linen/minibar/maintenance queries. */}
+                    <div className="space-y-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-expanded={expandedEvidenceIds.has(assignment.id)}
+                        aria-controls={`completion-evidence-${assignment.id}`}
+                        onClick={() => toggleEvidence(assignment.id)}
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        {t('completion.capturedData')}
+                        <span className="ml-2 text-muted-foreground">
+                          {expandedEvidenceIds.has(assignment.id) ? '−' : '+'}
+                        </span>
+                      </Button>
+                      {expandedEvidenceIds.has(assignment.id) && (
+                        <div id={`completion-evidence-${assignment.id}`}>
+                          <CompletionDataView
+                            assignmentId={assignment.id}
+                            roomId={assignment.room_id}
+                            assignmentDate={assignment.assignment_date}
+                            housekeeperId={assignment.assigned_to}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               ))}
