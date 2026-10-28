@@ -29,7 +29,7 @@ export default function AssistantPage() {
   const organizationSlug = profile?.organization_slug ?? null;
 
   useEffect(() => {
-    document.title = "Hotel Care Assistant";
+    document.title = "HotelCare AI Operator";
   }, []);
 
   useEffect(() => {
@@ -75,8 +75,8 @@ export default function AssistantPage() {
         </Button>
         <img src={hotelCareMark} alt="Hotel Care" className="h-9 w-9 rounded-lg" />
         <div>
-          <h1 className="text-lg font-semibold leading-tight">Hotel Care Assistant</h1>
-          <p className="text-xs text-muted-foreground">Answers stay inside your role and your property.</p>
+          <h1 className="text-lg font-semibold leading-tight">HotelCare AI Operator</h1>
+          <p className="text-xs text-muted-foreground">Your HotelCare operations partner · actions are verified and role-controlled.</p>
         </div>
         <Button size="sm" variant="ghost" className="ml-auto gap-1.5" onClick={() => setReportOpen(true)}>
           <Flag className="h-3.5 w-3.5" /> Report a problem

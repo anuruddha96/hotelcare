@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { createOpenAI } from "npm:@ai-sdk/openai@4";
 import { streamText } from "npm:ai@7";
 import { logAiUsage } from "../_shared/aiBudget.ts";
+import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
 import { MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
 
 const CORS = {
@@ -52,6 +53,13 @@ function isComplexQuestion(question: string): boolean {
   const hotelTopic = /\b(sales?|sold|bookings?|booked|pickup|pace|revenue|adr|revpar|occupancy|rates?|prices?|pricing|demand|automation|housekeep|cleaning|rooms?|maintenance|tickets?|repair|arrival|departure|check.?in|check.?out|breakfast|reservation|operations?)\b/.test(q);
   const problemSolving = /\b(why|what can (?:i|we)|what should (?:i|we)|should (?:i|we)|how can (?:i|we)|recommend|recommendation|strategy|analyse|analyze|analysis|investigate|root cause|problem|issue|complaint|wrong|low|weak|not much|underperform|declin|drop|improv|optim|fix|explain|compare|reason|plan|action)\b/.test(q);
   return (hotelTopic && problemSolving) || (question.length >= 320 && hotelTopic);
+}
+
+/** A direct operational instruction must never be swallowed by read-only analysis routing. */
+function isOperationalWrite(question: string): boolean {
+  return /\b(send|bring|deliver|add|record|prepare|put|set|change|make|create|assign|increase|decrease|reduce|lower|raise)\b/i.test(question)
+    && /\b(towels?|pillows?|beds?|room|guest request|ticket|price|rates?|minimum stay)\b/i.test(question)
+    && !/\b(should|would|recommend|why|what if)\b/i.test(question);
 }
 
 function requestedScope(question: string): Scope | null {
@@ -780,7 +788,7 @@ Deno.serve(async (req) => {
   const threadId = typeof body?.thread_id === "string" ? body.thread_id : "";
   if (!question || !threadId) return json({ error: "A valid thread and question are required" }, 400);
 
-  if (!isComplexQuestion(question)) {
+  if (isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep")) {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/assistant-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: authHeader },
@@ -797,7 +805,9 @@ Deno.serve(async (req) => {
     db.from("assistant_threads").select("id,user_id,organization_slug").eq("id", threadId).eq("user_id", authData.user.id).maybeSingle(),
   ]);
   if (!profile) return json({ error: "Profile not found" }, 403);
+  if (body?.model_tier === "deep" && profile.role !== "admin") return json({ error: "Only administrators may select the Deep model." }, 403);
   if (!thread) return json({ error: "Conversation not found" }, 404);
+  if (thread.organization_slug && thread.organization_slug !== profile.organization_slug && !profile.is_super_admin) return json({ error: "Conversation is outside your organization" }, 403);
 
   const page = body?.page && typeof body.page === "object" ? body.page : null;
   const requestedOrgSlug = typeof page?.organizationSlug === "string" ? page.organizationSlug.trim() : "";
@@ -829,6 +839,16 @@ Deno.serve(async (req) => {
     hotels = [{ hotel_id: profile.assigned_hotel, hotel_name: profile.assigned_hotel }];
   }
 
+  const messageId = String(latest?.id ?? "");
+  const monthlyActor = {
+    userId: authData.user.id, email: authData.user.email ?? null,
+    firstName: "", role: profile.role, hotelId: profile.assigned_hotel,
+    organizationSlug: targetOrgSlug,
+  };
+  const quota = await reserveMonthlyMessage(db, monthlyActor, messageId);
+  if (!quota.allowed) return json({ error: "Your 20 monthly HotelCare Assistant messages have been used. The allowance resets on the 1st.", quota }, 429);
+  if (quota.duplicate) return json({ error: "This message was already submitted. Check your conversation first." }, 409);
+
   let finalize: ((success: boolean) => Promise<void>) | null = null;
 
   try {
@@ -851,14 +871,9 @@ Deno.serve(async (req) => {
       content: String(row.content ?? "").slice(0, 5000),
     }));
 
-    const { data: reservation, error: reserveError } = await db.rpc("reserve_assistant_premium_question", {
-      _user_id: authData.user.id,
-      _organization_slug: targetOrgSlug,
-      _thread_id: threadId,
-      _model: PREMIUM_MODEL,
-    });
-    if (reserveError) return json({ error: `Could not reserve deep-analysis capacity: ${reserveError.message}` }, 500);
-
+    // The unified 20-message monthly allowance replaces the old 5/day deep-chat
+    // billing gate. Do not demand paid credits for a message already permitted.
+    const reservation = { allowed: true, usage_id: null };
     if (!reservation?.allowed) {
       const answer = "This needs a deeper analysis. You’ve used today’s 5 included deep-analysis questions. Add credits to continue — purchased credits stay in your account until you use them.";
       if (!samePendingQuestion) {
@@ -876,9 +891,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    const usageId = String(reservation.usage_id);
+    const usageId = reservation.usage_id ? String(reservation.usage_id) : null;
     let finalized = false;
     finalize = async (success: boolean) => {
+      if (!usageId) return;
       if (finalized) return;
       finalized = true;
       const { error } = await db.rpc("finalize_assistant_premium_question", { _usage_id: usageId, _success: success });
@@ -958,6 +974,8 @@ Never expose table names, database fields, internal ids, tools, model names, quo
       ] as any,
       abortSignal: req.signal,
       onFinish: async ({ totalUsage }) => {
+        await recordAssistantTokenUsage(db, monthlyActor, messageId, PREMIUM_MODEL,
+          totalUsage?.inputTokens ?? 0, totalUsage?.outputTokens ?? 0);
         await logAiUsage(db, {
           organizationSlug: targetOrgSlug,
           hotelId: context?.properties?.length === 1 ? context.properties[0].id : null,
@@ -1012,12 +1030,14 @@ Never expose table names, database fields, internal ids, tools, model names, quo
       },
       onError: (error) => {
         if (finalize) runInBackground(finalize(false));
+        runInBackground(refundMonthlyMessage(db, authData.user.id, messageId));
         console.error("premium assistant stream failed", error);
         return "The deep analysis could not finish. Your allowance has been returned; please try again.";
       },
     });
   } catch (error) {
     if (finalize) await finalize(false);
+    await refundMonthlyMessage(db, authData.user.id, messageId);
     if (error instanceof DOMException && error.name === "AbortError") return json({ error: "Request cancelled" }, 499);
     console.error("assistant-chat-router premium error", error);
     return json({ error: error instanceof Error ? error.message : "Deep analysis failed" }, 500);

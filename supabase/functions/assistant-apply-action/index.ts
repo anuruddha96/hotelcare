@@ -185,6 +185,41 @@ async function applyPriceEdit(params: {
   };
 }
 
+// Derive relative prices from the published calendar, never from model-generated numbers.
+async function applyRelativePrices(params: {
+  service: any; supabaseUrl: string; authHeader: string; hotelId: string;
+  organizationSlug: string | null; input: Record<string, unknown>;
+}): Promise<AppliedResult> {
+  const from = String(params.input.fromDate), to = String(params.input.toDate);
+  const delta = Number(params.input.deltaEur);
+  if (/increase|raise/i.test(String(params.input.intent ?? "")) && delta < 0)
+    return { ok: false, error: "Increase by a negative amount is ambiguous. Say 'decrease by €2' to confirm the direction." };
+  const { data, error } = await params.service.from("revenue_published_payloads")
+    .select("payload,sync_completed_at").eq("hotel_id", params.hotelId).maybeSingle();
+  if (error || !Array.isArray(data?.payload?.rates) || !data.payload.rates.length)
+    return { ok: false, error: "Could not verify published rate cells; no price change was made." };
+  const selected = data.payload.rates.filter((r: any) =>
+    String(r.stay_date) >= from && String(r.stay_date) <= to);
+  if (!selected.length) return { ok: false, error: "No verified rate cells exist for those dates." };
+  if (selected.length > 200) return { ok: false,
+    error: `The range contains ${selected.length} rate cells. Narrow the room types or dates before editing.` };
+  const changes = [];
+  for (const r of selected) {
+    const oldPrice = Number(r.price);
+    const newPrice = Math.round(oldPrice + delta);
+    if (!Number.isFinite(oldPrice) || oldPrice <= 0 || newPrice <= 0) {
+      return { ok: false, error: "A price could not be safely adjusted. No changes were queued." };
+    }
+    changes.push({
+      stay_date: r.stay_date, room_type_name: r.room_type_name, occupancy: r.occupancy,
+      obk_id: r.obk_id, old_price: oldPrice, new_price: newPrice,
+    });
+  }
+  // The existing helper re-checks prices for staleness and hands them to the
+  // authenticated queue, retaining floor/ladder/manual-hold controls.
+  return applyPriceEdit({ ...params, input: { changes } });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -212,7 +247,7 @@ Deno.serve(async (req) => {
 
     const { data: profile, error: profileError } = await service
       .from("profiles")
-      .select("id,role,assigned_hotel,organization_slug")
+      .select("id,role,assigned_hotel,organization_slug,full_name,nickname")
       .eq("id", userData.user.id)
       .is("deleted_at", null)
       .single();
@@ -227,7 +262,12 @@ Deno.serve(async (req) => {
     if (!hotel) return json({ error: "That property is outside your access" }, 403);
 
     let result: AppliedResult;
-    if (validated.action.kind === "set_min_stay") {
+    if (validated.action.kind === "adjust_revenue_prices") {
+      result = await applyRelativePrices({
+        service, supabaseUrl, authHeader, hotelId: hotel.hotel_id,
+        organizationSlug: profile.organization_slug, input: validated.action.input,
+      });
+    } else if (validated.action.kind === "set_min_stay") {
       result = await applyMinStay({
         supabaseUrl,
         authHeader,
@@ -258,19 +298,20 @@ Deno.serve(async (req) => {
     }
     if (!result.ok) return json({ error: result.error }, 400);
 
+    const actorFirstName = String(profile.full_name || profile.nickname || "").trim().split(/\s+/)[0] || "Staff member";
     const { error: auditError } = await service.from("assistant_audit_log").insert({
       user_id: userData.user.id,
       organization_slug: profile.organization_slug,
       hotel_id: hotel.hotel_id,
       role: profile.role,
-      question: `Applied assistant action ${validated.action.kind}: ${result.summary}`,
+      question: `HotelCare Operations Assistant · ${actorFirstName}: ${validated.action.kind} — ${result.summary}`,
       refused: false,
       scopes_used: [`action:${validated.action.kind}`],
       model: "assistant-apply-action",
     });
     if (auditError) console.error("assistant action audit failed", auditError);
 
-    return json({ ok: true, summary: result.summary, recordId: result.recordId ?? null });
+    return json({ ok: true, summary: result.summary, recordId: result.recordId ?? null, actorFirstName, assistant: "HotelCare Operations Assistant" });
   } catch (error) {
     console.error("assistant-apply-action error", error);
     return json({ error: error instanceof Error ? error.message : "Request failed" }, 500);

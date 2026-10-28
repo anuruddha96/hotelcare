@@ -15,6 +15,7 @@ import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assista
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
 import { selectAssistantModel, classifyAssistantQuestion } from "../_shared/aiModelPolicy.ts";
 import { logAiUsage } from "../_shared/aiBudget.ts";
+import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
 
 
 type Profile = {
@@ -23,6 +24,8 @@ type Profile = {
   assigned_hotel: string | null;
   organization_slug: string | null;
   preferred_language: string | null;
+  full_name?: string | null;
+  nickname?: string | null;
 };
 
 type Scope = "revenue" | "housekeeping" | "maintenance" | "reception" | "finance";
@@ -90,6 +93,8 @@ function normalizeMessages(value: unknown): UIMessage[] | null {
 
 function detectRequestedScope(question: string): Scope | null {
   const q = question.toLowerCase();
+  // A guest room-item instruction can be entered by both reception and housekeeping.
+  if (/\b(towels?|pillows?|blankets?|baby cot|extra amenities|beds? together|beds? separated|guest request)\b/.test(q)) return null;
   if (/\b(adr|revpar|revenue|rate|price|pickup|occupancy|min.?stay)\b/.test(q)) return "revenue";
   if (/\b(clean|cleaning|housekeep|dirty room|inspected room|assignment)\b/.test(q)) return "housekeeping";
   if (/\b(maintenance|ticket|repair|broken|sla|overdue issue)\b/.test(q)) return "maintenance";
@@ -130,6 +135,10 @@ function buildTools(
   hotels: AssistantHotel[],
   capabilities: Capabilities,
   openAiKey: string,
+  authHeader: string,
+  supabaseUrl: string,
+  pageHotelId: string | null,
+  question: string,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -1208,11 +1217,62 @@ function buildTools(
 
   }
 
-  const availableActions = actionsForRole(profile.role).filter((kind) =>
-    kind === "assign_room_cleaning" ? scopes.has("housekeeping") : scopes.has("maintenance") || scopes.has("housekeeping"),
-  );
+  const availableActions = actionsForRole(profile.role).filter((kind) => {
+    if (["set_min_stay", "edit_revenue_prices", "adjust_revenue_prices"].includes(kind)) return scopes.has("revenue");
+    if (["create_guest_request", "set_bed_configuration"].includes(kind)) return scopes.has("reception") || scopes.has("housekeeping");
+    if (kind === "assign_room_cleaning") return scopes.has("housekeeping");
+    return scopes.has("maintenance") || scopes.has("housekeeping") || scopes.has("reception");
+  });
 
   if (availableActions.length) {
+    // Models only supply structured inputs. This endpoint runs all authorization,
+    // freshness and property checks again with the signed-in user's JWT.
+    const directActions = availableActions.filter(kind =>
+      ["create_guest_request", "set_bed_configuration", "create_ticket", "update_ticket_status", "adjust_revenue_prices"].includes(kind));
+    if (directActions.length) tools.execute_action = tool({
+      description: `Perform an explicitly requested HotelCare action NOW. For guest items, use create_guest_request with requestType (extra_towels / extra_pillow / blanket / baby_cot / iron / amenities / other), roomNumber and quantity. For beds together, use set_bed_configuration with configuration 'Double Bed'. For a whole-euro relative price change use adjust_revenue_prices with fromDate, toDate and signed deltaEur. NEVER act on ambiguous instructions, invented room numbers, dates, or a hotel not selected. Only claim completion on ok:true. Available: ${directActions.join(", ")}.`,
+      inputSchema: jsonSchema<{ kind: string; input: Record<string, unknown> }>({
+        type: "object", properties: {
+          kind: { type: "string", enum: directActions },
+          input: { type: "object", additionalProperties: true },
+        }, required: ["kind", "input"], additionalProperties: false,
+      }),
+      execute: async ({ kind, input }) => {
+        if (!directActions.includes(kind as any)) return { ok: false, error: "Not authorized for this action." };
+        const raw = (input ?? {}) as Record<string, unknown>;
+        if (kind === "adjust_revenue_prices" &&
+          /\b(increase|raise|higher|up)\b/i.test(question) && Number(raw.deltaEur) < 0) {
+          return { ok: false, error: "You requested an increase with a negative amount. Did you mean decrease by €2? No prices were changed." };
+        }
+        if (kind === "adjust_revenue_prices" &&
+          /\b(decrease|reduce|lower|cut|down)\b/i.test(question) && Number(raw.deltaEur) > 0) {
+          return { ok: false, error: "You requested a decrease with a positive adjustment. No prices were changed." };
+        }
+        if (pageHotelId && typeof raw.hotelId === "string" &&
+            ![pageHotelId].includes(raw.hotelId) &&
+            !hotels.some(h => h.hotel_id === pageHotelId && h.hotel_name === raw.hotelId)) {
+          return { ok: false, error: "This chat is focused on a different hotel. Select the intended hotel screen before making a change." };
+        }
+        const requestedHotel = pageHotelId || profile.assigned_hotel ||
+          (typeof raw.hotelId === "string" ? raw.hotelId : null);
+        const selected = resolve(requestedHotel || null);
+        if (selected.length !== 1) return { ok: false, error: "Please select one hotel before making a change." };
+        const validated = validateAction(kind, { ...raw, hotelId: selected[0] });
+        if (!validated.ok) return { ok: false, error: validated.error };
+        const response = await fetch(`${supabaseUrl}/functions/v1/assistant-apply-action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHeader },
+          body: JSON.stringify({ kind, input: validated.action.input }),
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.ok) {
+          return { ok: false, error: String(result?.error || "HotelCare did not confirm the change.") };
+        }
+        return { ok: true, status: kind === "adjust_revenue_prices" ? "queued" : kind === "create_guest_request" ? "recorded" : "completed", summary: result.summary,
+          hotelId: selected[0], recordId: result.recordId ?? null,
+          actor: result.actorFirstName ?? null };
+      },
+    });
     tools.propose_action = tool({
       description:
         `Propose an operational change for the user to confirm. This DOES NOT change anything: it returns a confirmation card and the user taps Confirm. Available actions: ${availableActions
@@ -1516,7 +1576,7 @@ Deno.serve(async (req) => {
     const [{ data: profile, error: profileError }, { data: thread, error: threadError }] = await Promise.all([
       service
         .from("profiles")
-        .select("id,role,assigned_hotel,organization_slug,preferred_language")
+        .select("id,role,assigned_hotel,organization_slug,preferred_language,full_name,nickname")
         .eq("id", userData.user.id)
         .is("deleted_at", null)
         .single(),
@@ -1537,6 +1597,16 @@ Deno.serve(async (req) => {
     if (thread.organization_slug && thread.organization_slug !== profile.organization_slug) {
       return json({ error: "Conversation is outside your current organization" }, 403);
     }
+
+    const monthlyActor = {
+      userId: userData.user.id, email: userData.user.email ?? null,
+      firstName: String(profile.full_name || profile.nickname || "").trim().split(/\s+/)[0],
+      role: profile.role, hotelId: profile.assigned_hotel, organizationSlug: profile.organization_slug,
+    };
+    const messageId = String(latest?.id ?? "");
+    const quota = await reserveMonthlyMessage(service, monthlyActor, messageId);
+    if (!quota.allowed) return json({ error: "Your 20 monthly HotelCare Assistant messages have been used. Your allowance resets on the 1st of next month.", quota }, 429);
+    if (quota.duplicate) return json({ error: "This message was already submitted. Check your chat history before retrying." }, 409);
 
     // Fair-use guard: bounded number of assistant turns per user per 5 minutes.
     const windowStart = new Date(Date.now() - 5 * 60_000).toISOString();
@@ -1635,8 +1705,12 @@ Deno.serve(async (req) => {
 
     const openai = createOpenAI({ apiKey: openAiKey });
     // Everyday questions use Luna or Terra; deep analysis is separately routed to Sol.
-    const modelId = selectAssistantModel(question, Deno.env.get("OPENAI_STANDARD_MODEL"));
-    const routine = classifyAssistantQuestion(question) === "routine";
+    // Explicit model tier is an administrator setting; users never choose raw model IDs.
+    const tier = profile.role === "admin" ? String(body?.model_tier ?? "auto") : "auto";
+    const modelId = tier === "fast" ? (Deno.env.get("OPENAI_ROUTINE_MODEL") || "gpt-5.6-luna")
+      : tier === "balanced" ? (Deno.env.get("OPENAI_STANDARD_MODEL") || "gpt-5.6-terra")
+      : selectAssistantModel(question, Deno.env.get("OPENAI_STANDARD_MODEL"));
+    const routine = tier === "fast" || (tier !== "balanced" && classifyAssistantQuestion(question) === "routine");
     const hotels = await resolveAssistantHotels(service, profile as Profile);
     const revenueBrain = scopes.has("revenue")
       ? `
@@ -1650,7 +1724,7 @@ Always say which hotel, date range and currency your numbers refer to.`
       : "";
     const result = streamText({
       model: openai.responses(modelId),
-      system: `You are the Hotel Care Assistant, an expert hotel operations and revenue copilot inside the Hotel Care app.
+      system: `You are HotelCare Operations Assistant, the company’s action-capable operations assistant inside HotelCare.app.
 Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
 The authenticated user's role is ${profile.role}. Their organization is ${profile.organization_slug ?? "none"}.
 Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).join("; ") || "none"}. Never mention or read any other organization or property.
@@ -1682,7 +1756,10 @@ OPERATIONAL READS
 
 GUIDANCE AND ACTIONS
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
-- Operational changes (raise a ticket, assign a room, move a ticket's status): read the current state, then call propose_action. It only creates a confirmation card the user taps Confirm on — never say the change is done.
+- For explicitly requested, supported routine actions (extra towels, room items, beds, maintenance tickets, ticket updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
+- For room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
+- Contradictory directions such as "increase by -2" must be clarified before any change.
+- Roles and hotel boundaries are enforced server-side. A user without top-management/admin privileges cannot change rates.
 - Unavailable tools are unavailable because of authorization. Say access is required, without speculating about the data. Never reveal another organization, hotel, venue, guest identity, credential or staff pay.
 - For Hotel Care usage questions, use the workflow reference tool. For general (non Hotel Care) knowledge you already know confidently, answer normally.
 
@@ -1694,7 +1771,7 @@ WEB SEARCH — for facts not stored in Hotel Care
 - Each user gets ${WEB_SEARCH_FREE_DAILY} free questions with web search per day. If a search result carries a billing note saying the question is charged, end your answer with one short line telling the user this question costs €${EXTRA_QUESTION_PRICE_EUR}. Otherwise never mention billing.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey),
+      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
@@ -1702,6 +1779,8 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
 
       abortSignal: req.signal,
       onFinish: async ({ totalUsage }) => {
+        await recordAssistantTokenUsage(service, monthlyActor, messageId, modelId,
+          totalUsage?.inputTokens ?? 0, totalUsage?.outputTokens ?? 0);
         await logAiUsage(service, {
           organizationSlug: profile.organization_slug,
           hotelId: profile.assigned_hotel,
@@ -1768,6 +1847,7 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
         if (auditError) console.error("assistant audit failed", auditError);
       },
       onError: (error) => {
+        void refundMonthlyMessage(service, userData.user.id, messageId);
         console.error("assistant stream failed", error);
         return error instanceof Error ? error.message : "The assistant could not complete the response";
       },
