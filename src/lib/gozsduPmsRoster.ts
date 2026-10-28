@@ -36,6 +36,10 @@ const day = (date: string | null | undefined) => date && /^\d{4}-\d{2}-\d{2}$/.t
 export function isGozsduAwaitingArrival(room: LocalRoom, selectedDate: string): boolean {
   const pms = room.pms_metadata;
   if (!pms || pms.pmsSyncDate !== selectedDate || pms.arrivalToday !== true) return false;
+  // Previo can retain arrivalToday=true after the actual arrival date. This
+  // stale flag caused occupied 3/N stayovers (e.g. 410 and 3B-4/T/1) to appear
+  // under Awaiting Arrival, hiding manager-requested service from cleaners.
+  if (pms.arrivalDate && pms.arrivalDate !== selectedDate) return false;
   const statusId = Number(pms.reservationStatusId);
   return Number.isFinite(statusId)
     && ![7, 8, 9].includes(statusId)
@@ -160,7 +164,8 @@ export function reconcileGozsduPmsRoster(
     const noShow = String(row.status || '').toLowerCase() === 'no_show' || isGozsduNoShow(room, selectedDate);
     const isCheckout = !noShow && (row.departure_date === selectedDate || row.status === 'departing'
       || String(row.housekeeping_dep || '').toUpperCase() === 'DEP');
-    const awaitingArrival = !isCheckout && !noShow && isGozsduAwaitingArrival(room, selectedDate);
+    const awaitingArrival = !isCheckout && !noShow && row.arrival_date === selectedDate
+      && isGozsduAwaitingArrival(room, selectedDate);
     const night = selected - arrival + 1;
     const totalNights = departure - arrival;
     const registryEntry = registry.find(entry => entry.room_id === roomId)!;
