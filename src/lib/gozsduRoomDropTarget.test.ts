@@ -10,14 +10,15 @@ function section(heading: string): HTMLElement {
 }
 
 describe('Gozsdu room overview drag destinations', () => {
-  it('recognizes the three operational cleaning groups', () => {
+  it('recognizes all four operational cleaning groups', () => {
     expect(gozsduBucketFromHeading('Checkout Rooms')).toBe('checkout');
+    expect(gozsduBucketFromHeading('Daily rooms')).toBe('daily');
     expect(gozsduBucketFromHeading('Second-day service rooms')).toBe('service');
     expect(gozsduBucketFromHeading('Other rooms')).toBe('other');
   });
 
   it('accepts a drop on a room chip or empty space inside the target group', () => {
-    const target = section('Second-day service rooms');
+    const target = section('Daily rooms');
     expect(gozsduDropBucket(target.querySelector('[data-room-id]'))).toBe('service');
     expect(gozsduDropBucket(target.querySelector('div:last-child'))).toBe('service');
     target.remove();
