@@ -8,7 +8,7 @@ const room = { id: 'room-411', room_number: 'internal-411', pms_metadata: {} as 
 const registry = [{ room_id: room.id, pms_room_name: '1BBALC-411', service_status: 'operating' }];
 const snapshot = [{ room_label: '1BBALC-411', room_number: '411', arrival_date: '2026-09-16', departure_date: '2026-09-20', status: 'ongoing', housekeeping_dep: null, captured_at: '2026-09-18T08:45:00Z' }];
 
-function withOverride(bucket: 'checkout' | 'service' | 'other', service: 'none' | 'towel_change' | 'change_room' = 'none', day = date) {
+function withOverride(bucket: 'checkout' | 'daily' | 'service' | 'other', service: 'none' | 'towel_change' | 'change_room' = 'none', day = date) {
   return {
     ...room,
     pms_metadata: {
@@ -28,6 +28,24 @@ describe('Gozsdu manual housekeeping sections', () => {
   it('lets a manager move a service room into checkout without changing PMS stay dates', () => {
     const result = reconcileGozsduPmsRoster([withOverride('checkout')], registry, snapshot, date, now);
     expect(result.byRoom.get(room.id)).toMatchObject({ bucket: 'checkout', service: 'none', night: 3, totalNights: 4 });
+  });
+
+  it('allows a direct checkout-to-daily stayover move without changing the PMS checkout date', () => {
+    const departing = [{ ...snapshot[0], departure_date: date, status: 'departing', housekeeping_dep: 'DEP' }];
+    const moved = reconcileGozsduPmsRoster([withOverride('daily')], registry, departing, date, now);
+    expect(moved.byRoom.get(room.id)).toMatchObject({ bucket: 'daily', service: 'none' });
+  });
+
+  it('makes a manager-requested towel service visible when the PMS still says awaiting arrival', () => {
+    const arrivalRoom = withOverride('service', 'towel_change');
+    arrivalRoom.pms_metadata = {
+      ...arrivalRoom.pms_metadata,
+      pmsSyncDate: date, arrivalToday: true, notArrived: true,
+      reservationStatusId: 2, isNoShow: false, checkedOutToday: false, scheduledDepartureToday: false,
+    };
+    const arrival = [{ ...snapshot[0], arrival_date: date, departure_date: '2026-09-21' }];
+    const moved = reconcileGozsduPmsRoster([arrivalRoom], registry, arrival, date, now);
+    expect(moved.byRoom.get(room.id)).toMatchObject({ bucket: 'service', service: 'towel_change' });
   });
 
   it('moves an otherwise unscheduled room into second-day cleaning for a missed cleaning', () => {
