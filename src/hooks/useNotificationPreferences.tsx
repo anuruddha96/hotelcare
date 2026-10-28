@@ -95,6 +95,10 @@ export function useNotificationPreferences() {
         return false;
       }
 
+      // Keep the UI in sync even if Web Push registration fails. Otherwise a
+      // saved opt-in can look disabled, leaving staff unable to diagnose it.
+      setPreferences(prev => ({ ...prev, ...updates }));
+
       if (updates.browser_notifications_enabled === false) {
         try {
           await removePushSubscription();
@@ -107,14 +111,14 @@ export function useNotificationPreferences() {
         && Notification.permission === 'granted'
       ) {
         try {
-          await ensurePushSubscription();
+          const subscription = await ensurePushSubscription();
+          if (!subscription) throw new Error('Web Push endpoint not registered');
         } catch (pushError) {
           console.error('Could not register background notification subscription:', pushError);
           return false;
         }
       }
 
-      setPreferences(prev => ({ ...prev, ...updates }));
       return true;
     } catch (error) {
       console.error('Error updating notification preferences:', error);
