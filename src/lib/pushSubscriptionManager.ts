@@ -26,8 +26,11 @@ export function isWebPushSupported(): boolean {
     && 'PushManager' in window;
 }
 
-export async function ensurePushSubscription(): Promise<PushSubscription | null> {
-  if (!isWebPushSupported()) return null;
+/** A successful call means this browser's endpoint is persisted on the server. */
+export async function ensurePushSubscription(options: { forceRenew?: boolean } = {}): Promise<PushSubscription | null> {
+  if (!isWebPushSupported()) {
+    throw new Error('Web Push is unavailable. On iPhone, open HotelCare from the installed Home Screen app (iOS 16.4+), not a browser bookmark.');
+  }
   if (Notification.permission !== 'granted') return null;
 
   // Browser permission alone is not enough to opt a user back in after they
@@ -44,9 +47,18 @@ export async function ensurePushSubscription(): Promise<PushSubscription | null>
   if (preferenceError) throw preferenceError;
   if (preference?.browser_notifications_enabled !== true) return null;
 
-  await serviceWorkerManager.register();
+  const registeredWorker = await serviceWorkerManager.register();
+  if (!registeredWorker) throw new Error('HotelCare could not start its service worker.');
   const registration = await navigator.serviceWorker.ready;
   let subscription = await registration.pushManager.getSubscription();
+
+  // Opt-in manual repair: an iOS Home Screen reinstall can leave a revoked
+  // subscription locally cached even after Apple rejects the endpoint.
+  if (options.forceRenew && subscription) {
+    const unsubscribed = await subscription.unsubscribe();
+    if (!unsubscribed) throw new Error('Could not renew this device subscription.');
+    subscription = null;
+  }
 
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
