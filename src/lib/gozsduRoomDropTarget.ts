@@ -4,6 +4,7 @@ import type { GozsduRoomBucket } from './gozsduRoomBucketOverride';
 export function gozsduBucketFromHeading(heading: string | null | undefined): GozsduRoomBucket | null {
   switch (heading?.trim()) {
     case 'Checkout Rooms': return 'checkout';
+    case 'Daily rooms': return 'daily';
     case 'Second-day service rooms': return 'service';
     case 'Other rooms': return 'other';
     default: return null;

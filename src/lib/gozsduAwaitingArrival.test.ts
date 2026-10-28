@@ -59,6 +59,40 @@ describe('Gozsdu awaiting-arrival classification', () => {
     expect(isGozsduAwaitingArrival({ id: 'empty', room_number: 'empty' }, date)).toBe(false);
   });
 
+  it('does not classify a live day-three stayover as awaiting arrival when arrivalToday is stale', () => {
+    const stale = {
+      id: 'occupied-410',
+      room_number: '410',
+      pms_metadata: {
+        ...arrivalMetadata,
+        arrivalDate: '2026-09-20',
+        pmsSyncDate: date,
+        arrivalToday: true,
+        notArrived: false,
+        occupiedToday: true,
+        reservationStatusId: 3,
+      },
+    };
+    expect(isGozsduAwaitingArrival(stale, date)).toBe(false);
+    const entry = [{ room_id: stale.id, pms_room_name: '1BBALC-410', service_status: 'operating' }];
+    const overnight = [{
+      room_label: '1BBALC-410',
+      room_number: '410',
+      arrival_date: '2026-09-20',
+      departure_date: '2026-09-26',
+      status: 'ongoing',
+      housekeeping_dep: null,
+      captured_at,
+    }];
+    const result = reconcileGozsduPmsRoster([stale], entry, overnight, date, now);
+    expect(result.byRoom.get(stale.id)).toMatchObject({
+      bucket: 'service',
+      service: 'towel_change',
+      night: 3,
+      totalNights: 6,
+    });
+  });
+
   it('preserves incomplete-coverage protection for missing rooms without explicit same-day arrival evidence', () => {
     const unknown = rooms.map(room => room.id === 'arrival-0'
       ? { ...room, pms_metadata: { ...room.pms_metadata, arrivalToday: false } } : room);

@@ -2,7 +2,7 @@ import { getGozsduHousekeepingCycle, GOZSDU_COURT_HOTEL_ID } from './gozsdu-hous
 import { isGozsduAwaitingArrival, isGozsduNoShow, isGozsduVerifiedUnsold, type GozsduRosterEntry } from './gozsduPmsRoster';
 import { readGozsduRoomOverride } from './gozsduRoomBucketOverride';
 
-export type GozsduOperationalBucket = 'checkout' | 'service' | 'arrival' | 'other' | 'noshow' | 'vacant';
+export type GozsduOperationalBucket = 'checkout' | 'daily' | 'service' | 'arrival' | 'other' | 'noshow' | 'vacant';
 
 export type GozsduOperationalRoom = {
   id: string;
@@ -78,17 +78,18 @@ export function resolveGozsduOperationalBucket(
   selectedDate: string,
   verified?: Pick<GozsduRosterEntry, 'bucket'> | null,
 ): GozsduOperationalBucket {
+  // A confirmed no-show is never turned into a cleaning task. For all other
+  // states, a dated manager cleaning plan overrides the PMS-derived board
+  // category WITHOUT changing actual reservation/occupancy facts in Previo.
+  if (verified?.bucket === 'noshow' || isGozsduNoShow(room, selectedDate)) return 'noshow';
+  const override = readGozsduRoomOverride(room.pms_metadata, selectedDate);
+  if (override) return override.bucket;
   if (verified?.bucket) return verified.bucket;
-
-  if (isGozsduNoShow(room, selectedDate)) return 'noshow';
   const hasActiveCheckout = assignment?.assignment_type === 'checkout_cleaning'
     && assignment.status === 'in_progress';
   if (isGozsduAwaitingArrival(room, selectedDate) && !hasActiveCheckout) return 'arrival';
   if (isGozsduVerifiedUnsold(room, selectedDate)) return 'vacant';
   if (fallbackCheckout(room, assignment, selectedDate)) return 'checkout';
-  const override = readGozsduRoomOverride(room.pms_metadata, selectedDate);
-  if (override?.bucket === 'service') return 'service';
-  if (override?.bucket === 'other') return 'other';
   // Preserve active housekeeping and laundry plans when the optional PMS room
   // metadata feed has not yet been refreshed; never infer a booking from it.
   if (fallbackServiceDue(room)) return 'service';

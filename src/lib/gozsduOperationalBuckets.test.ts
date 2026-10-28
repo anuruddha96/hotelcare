@@ -45,6 +45,16 @@ describe('Gozsdu shared operational bucket authority', () => {
     expect(buckets.filter(value => value === 'other')).toHaveLength(16);
   });
 
+  it('keeps a dated manager plan when the verified PMS says arrival or checkout', () => {
+    const value = room('manual', 'gozsdu-court', 3, 5);
+    value.pms_metadata.hotelcareHousekeepingOverrides = {
+      '2026-09-28': { date: '2026-09-28', bucket: 'daily', service: 'none', reason: 'Manager requested', changedBy: 'manager', changedAt: '2026-09-28T08:00:00Z' },
+    };
+    expect(resolveGozsduOperationalBucket(value, undefined, '2026-09-28', { bucket: 'arrival' })).toBe('daily');
+    expect(resolveGozsduOperationalBucket(value, undefined, '2026-09-28', { bucket: 'checkout' })).toBe('daily');
+    expect(resolveGozsduOperationalBucket(value, undefined, '2026-09-28', { bucket: 'noshow' })).toBe('noshow');
+  });
+
   it('always lets the verified manager roster override fallback metadata', () => {
     const value = room('verified', 'gozsdu-court', 3, 5);
     expect(resolveGozsduOperationalBucket(value, undefined, '2026-09-28', { bucket: 'other' })).toBe('other');
