@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock, Pause } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { todayBudapest } from '@/lib/budapestTime';
 
 interface BreakPeriod {
   start: string;
@@ -23,7 +24,7 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
   // Check current attendance status
   useEffect(() => {
     const checkAttendanceStatus = async () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayBudapest();
       const { data } = await supabase
         .from('staff_attendance')
         .select('status, break_started_at')
@@ -35,13 +36,11 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
         setIsOnBreak(true);
         // Check if we need to add this break period to our tracking
         const currentBreakStart = data.break_started_at;
-        const existingBreak = breakPeriods.find(bp => 
-          bp.start === currentBreakStart && !bp.end
+        setBreakPeriods(prev =>
+          prev.some(bp => bp.start === currentBreakStart)
+            ? prev
+            : [...prev, { start: currentBreakStart }]
         );
-        
-        if (!existingBreak) {
-          setBreakPeriods(prev => [...prev, { start: currentBreakStart }]);
-        }
       } else {
         setIsOnBreak(false);
       }
@@ -65,20 +64,20 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
           if (newData?.status === 'on_break' && newData.break_started_at) {
             setIsOnBreak(true);
             // Add new break period if not already tracked
-            const existingBreak = breakPeriods.find(bp => 
-              bp.start === newData.break_started_at && !bp.end
+            setBreakPeriods(prev =>
+              prev.some(bp => bp.start === newData.break_started_at)
+                ? prev
+                : [...prev, { start: newData.break_started_at }]
             );
-            if (!existingBreak) {
-              setBreakPeriods(prev => [...prev, { start: newData.break_started_at }]);
-            }
           } else if (newData?.status === 'checked_in' && newData.break_ended_at) {
             setIsOnBreak(false);
             // Close the current break period
-            setBreakPeriods(prev => 
-              prev.map(bp => 
-                !bp.end && bp.start ? { ...bp, end: newData.break_ended_at } : bp
-              )
-            );
+            setBreakPeriods(prev => {
+              if (!prev.some(bp => !bp.end)) return prev;
+              return prev.map(bp =>
+                !bp.end ? { ...bp, end: newData.break_ended_at } : bp
+              );
+            });
           }
         }
       )
@@ -87,7 +86,7 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId, breakPeriods]);
+  }, [userId]);
 
   // Calculate total break time
   useEffect(() => {
@@ -132,22 +131,34 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
     return () => clearInterval(interval);
   }, [startedAt, totalBreakTime]);
 
-  // Update room assignment with break periods when component unmounts or break changes
+  // Persist only when a break starts or ends. The display timer updates every
+  // second, but writing every second created a costly, redundant UPDATE storm
+  // (including the room_assignments audit/performance triggers).
   useEffect(() => {
-    const updateBreakPeriods = async () => {
-      await supabase
+    if (breakPeriods.length === 0) return;
+
+    const nowMs = Date.now();
+    const breakSeconds = breakPeriods.reduce((total, period) => {
+      const startMs = Date.parse(period.start);
+      const endMs = period.end ? Date.parse(period.end) : nowMs;
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return total;
+      return total + Math.max(0, Math.floor((endMs - startMs) / 1000));
+    }, 0);
+
+    const saveBreakPeriods = async () => {
+      const { error } = await supabase
         .from('room_assignments')
         .update({
           break_periods: JSON.stringify(breakPeriods),
-          total_break_time_minutes: Math.floor(totalBreakTime / 60)
+          total_break_time_minutes: Math.floor(breakSeconds / 60)
         })
         .eq('id', assignmentId);
+
+      if (error) console.error('Failed to persist housekeeping break periods', error);
     };
 
-    if (breakPeriods.length > 0) {
-      updateBreakPeriods();
-    }
-  }, [breakPeriods, totalBreakTime, assignmentId]);
+    void saveBreakPeriods();
+  }, [breakPeriods, assignmentId]);
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
