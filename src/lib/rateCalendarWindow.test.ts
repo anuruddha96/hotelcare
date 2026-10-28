@@ -37,4 +37,23 @@ describe("bounded rate-calendar navigation", () => {
     expect(requiredCalendarHorizon("2026-09-22", "2029-12")).toBe(365);
     expect(() => calendarWindow("2026-09-22", "2026-13")).toThrow();
   });
+  it("reveals exactly three read-only dates without shortening the next 30 nights", () => {
+    const dates = calendarWindow("2026-10-20", null, true);
+    expect(dates).toHaveLength(33);
+    expect(dates.slice(0, 3)).toEqual(["2026-10-17", "2026-10-18", "2026-10-19"]);
+    expect(dates[3]).toBe("2026-10-20");
+    expect(dates.at(-1)).toBe("2026-11-18");
+    expect(requiredCalendarHorizon("2026-10-20", null)).toBe(30);
+  });
+
+  it("supports three historical dates within and across current month boundaries", () => {
+    const current = calendarWindow("2026-10-20", "2026-10", true);
+    expect(current.slice(0, 4)).toEqual(["2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20"]);
+    expect(current.at(-1)).toBe("2026-10-31");
+
+    const crossover = calendarWindow("2027-01-02", "2027-01", true);
+    expect(crossover.slice(0, 4)).toEqual(["2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"]);
+    expect(calendarWindow("2027-01-02", "2027-02", true)[0]).toBe("2027-02-01");
+  });
+
 });

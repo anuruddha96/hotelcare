@@ -41,6 +41,8 @@ import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECE
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
+import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
+import { useHistoricalRoomRates } from "@/hooks/useHistoricalRoomRates";
 import { allocateRevenueSingleDayEventSlots, buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
@@ -403,6 +405,9 @@ export default function RateStrategyGrid({
    * month and squeezes its columns so all 28-31 days fit without scrolling.
    */
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const historyRevealed = showHistory && (!monthFilter || monthFilter === today.slice(0, 7));
+  const historical = useHistoricalRoomRates(hotelId, today, historyRevealed);
   const [viewportW, setViewportW] = useState(0);
   useEffect(() => {
     const el = scrollRef.current;
@@ -466,25 +471,11 @@ export default function RateStrategyGrid({
 
   const LEFT_W = railed ? RAIL_W : leftW;
 
-  /**
-   * Column width. Normally it follows the reader's zoom; in one-month view it
-   * shrinks (never below a legible 34px) so the whole month fits on screen.
-   */
-  const MIN_MONTH_CELL_W = 34;
-  const CELL_W = useMemo(() => {
-    const avail = viewportW - LEFT_W - 2;
-    if (avail <= 0) return ZOOM_CELL_W;
-    if (monthFilter) {
-      const [y, m] = monthFilter.split("-").map(Number);
-      const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-      return Math.max(MIN_MONTH_CELL_W, Math.floor(avail / daysInMonth));
-    }
-    // Fill the actual calendar viewport on wide screens. Do not cap at the
-    // zoom width: that cap was the reason half of an ultrawide card stayed blank.
-    // On phones/tablets the normal zoom width still wins and horizontal scroll remains.
-    const visibleCount = 30;
-    return Math.max(ZOOM_CELL_W, Math.floor(avail / visibleCount));
-  }, [monthFilter, viewportW, LEFT_W, ZOOM_CELL_W]);
+  /** Keep all month and rolling date columns identical in size. */
+  const CELL_W = useMemo(
+    () => rateCalendarColumnWidth(viewportW, LEFT_W, ZOOM_CELL_W),
+    [viewportW, LEFT_W, ZOOM_CELL_W],
+  );
 
   /**
    * Font scale follows the actual column width (zoom and month-fit both
@@ -764,7 +755,7 @@ export default function RateStrategyGrid({
   }, []);
 
 
-  const allDates = useMemo(() => calendarWindow(today, monthFilter), [today, monthFilter]);
+  const allDates = useMemo(() => calendarWindow(today, monthFilter, historyRevealed), [today, monthFilter, historyRevealed]);
 
   /**
    * Header dots follow the SAME stretch of time as the pickup row above them.
@@ -850,13 +841,14 @@ export default function RateStrategyGrid({
 
   /** Open the day tool for an explicit set of dates. */
   const openDayTool = useCallback((picked: string[]) => {
-    if (picked.length === 0) return;
+    const editable = picked.filter((date) => canEditCalendarDate(date, today, canEditRates));
+    if (editable.length === 0) return;
     setDayTypes(new Set());
     setDayRange(1);
     setDayResult(null);
-    setSelDates(new Set(picked));
-    setDayTool(picked[0]);
-  }, []);
+    setSelDates(new Set(editable));
+    setDayTool(editable[0]);
+  }, [today, canEditRates]);
 
   /**
    * Dates currently drawn in the header (filters applied). Dragging must only
@@ -1152,13 +1144,14 @@ export default function RateStrategyGrid({
       if (!byDate) { byDate = new Map(); byOcc.set(occ, byDate); }
       byDate.set(date, price);
     };
-    for (const r of rates) put(r.obk_id, r.occupancy, r.stay_date, Number(r.price));
+    for (const r of rates) if (r.stay_date >= today) put(r.obk_id, r.occupancy, r.stay_date, Number(r.price));
+    for (const r of historical.ratesByCell.values()) if (r.stay_date < today) put(r.obk_id, r.occupancy, r.stay_date, Number(r.price));
     for (const [key, price] of optimistic) {
       const [obk, occ, date] = key.split("|");
       if (obk && date) put(obk, Number(occ), date, price);
     }
     return m;
-  }, [rates, optimistic]);
+  }, [rates, historical.ratesByCell, optimistic, today]);
 
   // Once the reloaded Previo rates match what we showed optimistically, the
   // overlay has nothing left to say.
@@ -1177,9 +1170,24 @@ export default function RateStrategyGrid({
 
   const metricByDate = useMemo(() => {
     const m = new Map<string, DayMetrics>();
-    for (const x of metrics) m.set(x.stay_date, x);
+    for (const x of metrics) if (x.stay_date >= today) m.set(x.stay_date, x);
+    for (const x of historical.kpisByDate.values()) {
+      if (x.stay_date >= today) continue;
+      const sold = Number(x.rooms_sold) || 0;
+      const available = Number(x.rooms_available) || 0;
+      m.set(x.stay_date, {
+        stay_date: x.stay_date, roomsSold: sold, roomsAvailable: available,
+        occupancyPct: x.occupancy_pct == null ? 0 : Number(x.occupancy_pct),
+        revenueEur: 0, adrEur: x.adr_eur == null ? null : Number(x.adr_eur),
+        revparEur: x.revpar_eur == null ? null : Number(x.revpar_eur),
+        roomsLeft: Math.max(0, available - sold),
+        newBookings: 0, cancelledBookings: 0, newRevenueEur: 0,
+        lostRevenueEur: 0, roomsLost: 0, baselineAvailable: false,
+        netPickup: null, pickupGained: 0, pickupLost: 0, hasData: true,
+      });
+    }
     return m;
-  }, [metrics]);
+  }, [metrics, historical.kpisByDate, today]);
 
   // What availability would be with no manual PMS override: physical rooms
   // minus booked room-nights. Comparing this with Previo's native rooms-for-
@@ -2143,6 +2151,7 @@ export default function RateStrategyGrid({
     const { data: auth } = await supabase.auth.getUser();
     const start = dates.indexOf(edit.stay_date);
     const targetDates = (start >= 0 ? dates.slice(start, start + applyDays) : [edit.stay_date])
+      .filter((d) => canEditCalendarDate(d, today, canEditRates))
       .filter((d) =>
         applyWeekdays === "all" ? true :
         applyWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
@@ -2249,6 +2258,7 @@ export default function RateStrategyGrid({
     const shapedSet = dayMode === "set" && keepShape && Number.isFinite(target) && target > 0;
 
     for (const d of dayToolDates) {
+      if (!canEditCalendarDate(d, today, canEditRates)) continue;
       // A fixed price prices the cheapest cell of the day; the rest of the day
       // keeps its shape, so room and guest differences survive the edit.
       const shaped = shapedSet
@@ -2268,7 +2278,7 @@ export default function RateStrategyGrid({
       }
     }
     return out;
-  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext, dayMode, dayValue, dayRound, keepShape, guestStep]);
+  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext, dayMode, dayValue, dayRound, keepShape, guestStep, today, canEditRates]);
 
 
   /** Publish every change the day tool previews. */
@@ -2317,6 +2327,7 @@ export default function RateStrategyGrid({
     for (const r of allRows) {
       if (r.kind !== "rate" || !r.obk) continue;
       for (const d of allDates) {
+        if (d < today) continue;
         const p = priceMap.get(r.obk)?.get(r.occ)?.get(d);
         if (rateTone(p, thresholds).severity === "critical") {
           count += 1;
@@ -2326,7 +2337,7 @@ export default function RateStrategyGrid({
       }
     }
     return { count, dateKeys, rowKeys };
-  }, [allRows, allDates, priceMap, thresholds]);
+  }, [allRows, allDates, priceMap, thresholds, today]);
 
   const suspicious = flagged.count;
 
@@ -2342,11 +2353,12 @@ export default function RateStrategyGrid({
     return map;
   }, [nights]);
   const dates = useMemo(() => allDates.filter((d) => {
-    if (monthFilter && !d.startsWith(monthFilter)) return false;
+    if (monthFilter && !d.startsWith(monthFilter) && !(historyRevealed && d < today)) return false;
+    if (d < today) return historyRevealed;
     if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
     if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
-  }), [allDates, monthFilter, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
+  }), [allDates, monthFilter, historyRevealed, today, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
 
 
   /**
@@ -2419,10 +2431,11 @@ export default function RateStrategyGrid({
 
   const selectMonth = useCallback((value: string | null) => {
     setMonthFilter(value);
+    if (value && value !== today.slice(0, 7)) setShowHistory(false);
     setPickedDates(new Set());
     setSelDates(new Set());
     requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
-  }, []);
+  }, [today]);
 
   // A month that falls outside a newly narrowed range must not hide everything.
   useEffect(() => {
@@ -3078,6 +3091,19 @@ export default function RateStrategyGrid({
             >
               Next 30 days
             </Button>
+            {(!monthFilter || monthFilter === today.slice(0, 7)) && (
+              <Button type="button" size="sm" variant={historyRevealed ? "secondary" : "outline"}
+                className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                aria-pressed={historyRevealed}
+                title={historyRevealed ? "Hide read-only historical dates" : "Reveal previous three dates (read-only)"}
+                onClick={() => {
+                  setShowHistory((visible) => !visible);
+                  requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
+                }}>
+                <History className="h-3.5 w-3.5" />
+                {historyRevealed ? "Hide history" : "Previous 3 days"}
+              </Button>
+            )}
             {monthChips.map((m) => (
               <div key={m.value} className="contents">
                 <Button
@@ -3107,6 +3133,11 @@ export default function RateStrategyGrid({
           {loading && (
             <div role="status" className="flex items-center gap-1.5 border-b px-3 py-1 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" /> Loading selected calendar dates…
+            </div>
+          )}
+          {historyRevealed && (historical.loading || historical.error) && (
+            <div role="status" className="border-b px-3 py-1 text-xs text-muted-foreground">
+              {historical.loading ? "Loading recorded Previo prices for the previous three dates…" : "Historical prices could not be loaded; no prices have been estimated."}
             </div>
           )}
 
@@ -3179,12 +3210,22 @@ export default function RateStrategyGrid({
                     // represented here — automation included.
                     const dayOrigins = headerOriginsByDate.get(d) ?? [];
 
+                    if (d < today) return (
+                      <div key={d} aria-label={d + " · historical, read-only"}
+                        title={d + " · Historical prices (read-only)"}
+                        className="flex shrink-0 flex-col items-center justify-center border-r border-border/70 bg-muted/65 text-muted-foreground"
+                        style={{ width: CELL_W, height: DAY_H }}>
+                        <span style={{ fontSize: fz(10) }}>{formatWeekday(d)}</span>
+                        <span className="font-bold tabular-nums" style={{ fontSize: fz(12) }}>{formatDay(d)}</span>
+                        <span style={{ fontSize: fz(8) }}>Past · locked</span>
+                      </div>
+                    );
                     const dayButton = (
                       <button
                         key={d}
                         type="button"
                         data-date={d}
-                        disabled={!canEditRates}
+                        disabled={!canEditCalendarDate(d, today, canEditRates)}
                         onPointerDown={(e) => {
                           if (e.pointerType === "touch") return;
                           if (!canEditRates || multiMode) return;
@@ -3495,17 +3536,17 @@ export default function RateStrategyGrid({
                       <button
                         key={d}
                         type="button"
-                        disabled={!canEditRates || busy}
+                        disabled={!canEditCalendarDate(d, today, canEditRates) || busy}
                         onPointerDown={(e) => {
-                          if (!canEditRates) return;
+                          if (!canEditCalendarDate(d, today, canEditRates)) return;
                           e.currentTarget.releasePointerCapture?.(e.pointerId);
                           beginMinDrag(i);
                         }}
-                        onPointerEnter={() => extendMinDrag(i)}
+                        onPointerEnter={() => { if (d >= today) extendMinDrag(i); }}
                         onClick={() => {
                           // A drag that covered more than one date opens the range tool instead.
                           if (minRange) return;
-                          if (canEditRates) setRestrictionEdit({ key, value: String(nights ?? 1) });
+                          if (canEditCalendarDate(d, today, canEditRates)) setRestrictionEdit({ key, value: String(nights ?? 1) });
                         }}
                         title={nights && nights > 1
                           ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change, drag for a range" : ""}`
@@ -3838,9 +3879,9 @@ export default function RateStrategyGrid({
                         <button
                           key={d}
                           type="button"
-                          disabled={!canEditRates || busy || left === undefined || unpricedKind}
+                          disabled={!canEditCalendarDate(d, today, canEditRates) || busy || left === undefined || unpricedKind}
                           onClick={() => {
-                            if (!canEditRates || busy || left === undefined || unpricedKind) return;
+                            if (!canEditCalendarDate(d, today, canEditRates) || busy || left === undefined || unpricedKind) return;
                             setInventoryEditor({
                               date: d,
                               rawName: row.rawName,
@@ -3904,6 +3945,22 @@ export default function RateStrategyGrid({
                           style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {value === null ? eur(null) : priceLabel(value)}
+                        </div>
+                      );
+                    }
+                    if (d < today) {
+                      const saved = row.obk ? historical.ratesByCell.get(historicalRateKey(row.obk, row.occ, d)) : undefined;
+                      const historicalPrice = saved ? Number(saved.price) : null;
+                      const detail = saved
+                        ? `Last recorded Previo price for ${d} · captured ${new Date(saved.captured_at).toLocaleString()}`
+                        : historical.loading ? `Loading historical price for ${d}` : `No saved historical Previo rate for ${d}`;
+                      return (
+                        <div key={d} role="cell"
+                          aria-label={`${row.roomTypeName} · ${d} · ${historicalPrice === null ? "No recorded price" : eur(historicalPrice)} · read-only`}
+                          title={detail}
+                          className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground"
+                          style={{ width: CELL_W, fontSize: fz(12) }}>
+                          {historicalPrice === null ? (historical.loading ? "…" : "—") : priceLabel(historicalPrice)}
                         </div>
                       );
                     }
