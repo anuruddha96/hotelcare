@@ -270,8 +270,8 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
       playNotificationSound();
       toast.success('Test push queued to your devices. Check your iPhone Lock Screen or Notification Center.', { duration: 7000 });
     } catch (error) {
-      setPushStatus('error');
-      setPushStatusError(error instanceof Error ? error.message : 'Push test failed');
+      // A rate limit, network error, or server queue failure does not revoke
+      // this device's registered subscription. Keep device health separate.
       toast.error(error instanceof Error ? error.message : 'Push test failed');
     } finally {
       setIsTestingPush(false);
