@@ -88,48 +88,32 @@ export function PausableTimerComponent({ assignmentId, startedAt, userId }: Paus
     };
   }, [userId]);
 
-  // Calculate total break time
+  // Keep the on-screen timer live with one interval. Never persist inside
+  // the tick: this component may be mounted for several room cards at once.
   useEffect(() => {
-    const calculateBreakTime = () => {
-      let total = 0;
-      const now = new Date();
-      
-      breakPeriods.forEach(period => {
-        const start = new Date(period.start);
-        const end = period.end ? new Date(period.end) : now;
-        total += Math.floor((end.getTime() - start.getTime()) / 1000);
-      });
-      
-      setTotalBreakTime(total);
-    };
+    const updateTimer = () => {
+      const nowMs = Date.now();
+      const breakSeconds = breakPeriods.reduce((total, period) => {
+        const startMs = Date.parse(period.start);
+        const endMs = period.end ? Date.parse(period.end) : nowMs;
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return total;
+        return total + Math.max(0, Math.floor((endMs - startMs) / 1000));
+      }, 0);
+      setTotalBreakTime(breakSeconds);
 
-    calculateBreakTime();
-    const interval = setInterval(calculateBreakTime, 1000);
-    return () => clearInterval(interval);
-  }, [breakPeriods]);
-
-  // Update timer
-  useEffect(() => {
-    const updateElapsed = () => {
-      const startTime = new Date(startedAt).getTime();
-      const now = Date.now();
-      let totalElapsed = Math.floor((now - startTime) / 1000);
-
-      // Safety guard against bad client clocks / stale data: if the stored
-      // start time is in the future or absurdly old (> 12h), don't display
-      // a wildly wrong timer — clamp to 0 so the UI doesn't lie.
+      const startMs = Date.parse(startedAt);
+      let totalElapsed = Math.floor((nowMs - startMs) / 1000);
+      // Invalid or stale room timestamps must not display misleading durations.
       if (!Number.isFinite(totalElapsed) || totalElapsed < 0 || totalElapsed > 12 * 60 * 60) {
         totalElapsed = 0;
       }
-
-      // Subtract break time from total elapsed time
-      setElapsed(Math.max(0, totalElapsed - totalBreakTime));
+      setElapsed(Math.max(0, totalElapsed - breakSeconds));
     };
 
-    updateElapsed();
-    const interval = setInterval(updateElapsed, 1000);
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [startedAt, totalBreakTime]);
+  }, [breakPeriods, startedAt]);
 
   // Persist only when a break starts or ends. The display timer updates every
   // second, but writing every second created a costly, redundant UPDATE storm
