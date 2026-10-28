@@ -13,8 +13,9 @@ export async function reportAssistantIssue(params: {
   severity?: string;
   threadId?: string | null;
   page: AssistantPageContext;
-}): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.functions.invoke("assistant-save-abort", {
+  diagnostics?: { error?: string | null };
+}): Promise<{ ok: boolean; emailed?: boolean; id?: string; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("assistant-save-abort", {
     body: {
       type: "issue_report",
       title: params.title.slice(0, 200),
@@ -26,6 +27,7 @@ export async function reportAssistantIssue(params: {
       thread_id: params.threadId ?? null,
       context: {
         route: params.page.route,
+        hotel_id: params.page.hotelId,
         module: params.page.module,
         tab: params.page.tab,
         entity_type: params.page.entityType,
@@ -33,10 +35,16 @@ export async function reportAssistantIssue(params: {
         device: params.page.device,
         language: params.page.language,
       },
+      diagnostics: {
+        error: params.diagnostics?.error?.slice(0, 700) ?? null,
+        user_agent: typeof navigator !== "undefined" ? navigator.userAgent.slice(0, 400) : null,
+        client_time: new Date().toISOString(),
+      },
     },
   });
-  if (error) return { ok: false, error: "Could not send the report just now." };
-  return { ok: true };
+  if (error) return { ok: false, error: "Could not submit the report. Please try again." };
+  if (!data?.ok || !data?.id) return { ok: false, error: String(data?.error ?? "Report was not saved.") };
+  return { ok: true, id: String(data.id), emailed: data.emailed === true };
 }
 
 /** Thumbs up / down on an answer. Stored for the admin insights page. */
