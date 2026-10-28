@@ -7,6 +7,7 @@ import { CheckCircle, X } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { RESOLVABLE_MAINTENANCE_STATUSES } from '@/lib/maintenanceLifecycle';
 import { toast } from 'sonner';
 
 interface MaintenanceResolutionDialogProps {
@@ -43,9 +44,11 @@ export function MaintenanceResolutionDialog({
     setIsSubmitting(true);
 
     try {
-      // Guard against a stale dialog resolving an issue that another technician
-      // has already resolved. Supabase updates that match zero rows are not errors,
-      // so select the updated id and treat an empty result as a lifecycle conflict.
+      // Resolve only issues that are still in an active lifecycle state. This
+      // prevents a stale dialog from reopening/overwriting a ticket that another
+      // technician has already closed, cancelled, or otherwise moved out of the
+      // actionable workflow. Supabase zero-row updates are not errors, so select
+      // the updated id and treat an empty result as a lifecycle conflict.
       const { data, error } = await supabase
         .from('maintenance_issues')
         .update({
@@ -55,7 +58,7 @@ export function MaintenanceResolutionDialog({
           resolution_text: resolutionText.trim()
         })
         .eq('id', issueId)
-        .neq('status', 'resolved')
+        .in('status', [...RESOLVABLE_MAINTENANCE_STATUSES])
         .is('resolved_at', null)
         .select('id');
 
@@ -63,8 +66,8 @@ export function MaintenanceResolutionDialog({
 
       if (!data?.length) {
         toast.error(isHungarian
-          ? 'Ezt a hibát közben már lezárták. A lista frissült.'
-          : 'This issue was already resolved by someone else. The list has been refreshed.');
+          ? 'A hiba állapota közben megváltozott. A lista frissült.'
+          : 'This issue changed status while you were working. The list has been refreshed.');
         setResolutionText('');
         onResolved();
         onOpenChange(false);
