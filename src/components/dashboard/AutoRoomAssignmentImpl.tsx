@@ -158,6 +158,7 @@ interface SavedState {
   maintenanceHoldRoomIds?: string[];
   savedAt: number;
   lockedRoomIds?: string[];
+  sectionTaskOwners?: Array<[string, string]>;
 }
 
 const isCheckoutLike = (room: RoomForAssignment): boolean =>
@@ -977,6 +978,7 @@ export function AutoRoomAssignment({
           setMaintenanceHoldRoomIds(new Set(data.maintenanceHoldRoomIds || []));
           setRestoredFromSave(true);
           setLockedRoomIds(new Set(data.lockedRoomIds || []));
+           setSectionTaskOwners(new Map(data.sectionTaskOwners || []));
           setStep('preview');
         } else {
           localStorage.removeItem(saveKey);
@@ -1025,12 +1027,13 @@ export function AutoRoomAssignment({
       maintenanceHoldRoomIds: Array.from(maintenanceHoldRoomIds),
       savedAt: Date.now(),
       lockedRoomIds: Array.from(lockedRoomIds),
+      sectionTaskOwners: Array.from(sectionTaskOwners),
     };
     try {
       localStorage.setItem(saveKey, JSON.stringify(data));
     } catch {
     }
-  }, [open, saveKey, isGozsdu, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds, lockedRoomIds]);
+  }, [open, saveKey, isGozsdu, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds, lockedRoomIds, sectionTaskOwners]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1246,6 +1249,9 @@ export function AutoRoomAssignment({
     }
     pushHistory(assignmentPreviews);
     setAssignmentPreviews(previews);
+    // Freeze public-area owners at deliberate generation; moving one room must not shuffle areas.
+    setSectionTaskOwners(new Map(assignSectionTasksToStaff(previews, sectionTaskTemplates)
+      .map(task => [task.id, fixedAreaOwners.get(task.id) || task.staff_id] as [string, string])));
     if (staffPoolChanged) {
       setLockedRoomIds(new Set(enforcedLocks));
       setSectionTaskOwners(nextSectionTaskOwners);
@@ -1901,8 +1907,8 @@ export function AutoRoomAssignment({
         {rtc && <span className="rounded bg-green-600 px-0.5 text-[8px] font-extrabold text-white">RTC</span>}
         {held && <span className="rounded bg-red-600 px-0.5 text-[8px] font-extrabold text-white">HOLD</span>}
         {room.room_category && <span className="text-[9px] opacity-70">{getCategoryShortName(room.room_category)}</span>}
-        {needsTowelChange(room) && <span className="text-[9px] font-bold text-blue-600">T</span>}
-        {needsLinenChange(room) && <span className="text-[9px] font-bold text-orange-600">C</span>}
+        {needsTowelChange(room) && <span aria-label="Towel change" title="Towel change" className="rounded bg-blue-700 px-1.5 py-0.5 text-[12px] font-black leading-none text-white shadow-sm">T</span>}
+        {needsLinenChange(room) && <span aria-label="Change room" title="Change room" className="rounded bg-orange-600 px-1.5 py-0.5 text-[12px] font-black leading-none text-white shadow-sm">C</span>}
         {room.bed_configuration && <span className="text-[9px] opacity-70">🛏️{room.bed_configuration.slice(0, 6)}</span>}
       </motion.div>
     );
@@ -2212,14 +2218,14 @@ export function AutoRoomAssignment({
                       >
                         <div className="border-b bg-muted/40 px-2 py-1.5">
                           <div className="flex items-center justify-between gap-1"><span className="min-w-0 truncate text-xs font-semibold">{preview.staffName}</span><Button type="button" size="sm" variant={bulkDestinationStaffId === preview.staffId ? 'default' : 'outline'} aria-pressed={bulkDestinationStaffId === preview.staffId} className="h-6 shrink-0 px-1 text-[9px]" onClick={event => { event.stopPropagation(); setBulkDestinationStaffId(preview.staffId); }}>{bulkDestinationStaffId === preview.staffId ? `✓ ${nt('assignHere')}` : nt('assignHere')}</Button>{exceedsShift && <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />}</div>
-                          <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>{checkouts.length}co · {unsold.length}u · {daily.length}d · {mappedTasks.length} areas</span><span>{formatMinutesToTime(totalWithAreas)}</span></div>
+                          <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium sm:text-xs"><span><strong className="text-foreground">{checkouts.length}</strong> Checkouts</span>{unsold.length > 0 && <span><strong className="text-foreground">{unsold.length}</strong> Unsold</span>}<span><strong className="text-foreground">{daily.length}</strong> Daily</span><span><strong className="text-foreground">{mappedTasks.length}</strong> Public Areas</span></span><span>{formatMinutesToTime(totalWithAreas)}</span></div>
                           <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted"><div className={`h-full ${exceedsShift ? 'bg-destructive' : workload > 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${workload}%` }} /></div>
                         </div>
                         <div className="flex-1 space-y-1.5 overflow-y-auto p-1.5">
-                          {checkouts.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.checkouts')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(checkouts.map(room => room.id)); }}>{checkouts.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
-                          {unsold.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-[9px] uppercase tracking-wide text-violet-700 dark:text-violet-300">{nt('unsoldNow')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(unsold.map(room => room.id)); }}>{unsold.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(unsold).map(group => <div key={`unsold-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
-                          {daily.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.daily')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(daily.map(room => room.id)); }}>{daily.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
-                          {mappedTasks.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{nt('publicAreas')}</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => renderPublicAreaChip(task, preview.staffId))}</div></div>}
+                          {checkouts.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-xs font-extrabold uppercase tracking-wide text-foreground">{t('autoAssign.checkouts')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(checkouts.map(room => room.id)); }}>{checkouts.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {unsold.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-xs font-extrabold uppercase tracking-wide text-violet-700 dark:text-violet-300">{nt('unsoldNow')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(unsold.map(room => room.id)); }}>{unsold.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(unsold).map(group => <div key={`unsold-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {daily.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-xs font-extrabold uppercase tracking-wide text-foreground">{t('autoAssign.daily')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(daily.map(room => room.id)); }}>{daily.every(room => bulkSelectedRoomIds.has(room.id)) ? nt('deselectAll') : nt('selectAll')}</button></div>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {mappedTasks.length > 0 && <div><p className="mb-1 text-xs font-extrabold uppercase tracking-wide text-foreground">{nt('publicAreas')}</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => renderPublicAreaChip(task, preview.staffId))}</div></div>}
                           {preview.rooms.length === 0 && mappedTasks.length === 0 && <div className={`rounded border border-dashed p-3 text-center text-[10px] text-muted-foreground ${isDragOver ? 'border-primary bg-primary/5' : ''}`}>{nt('dropHere')}</div>}
                         </div>
                       </motion.div>
