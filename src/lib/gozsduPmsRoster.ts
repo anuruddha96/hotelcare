@@ -12,7 +12,7 @@ export type GozsduPmsRow = {
   business_date?: string | null;
 };
 export type GozsduRosterEntry = {
-  bucket: 'checkout' | 'service' | 'other' | 'noshow' | 'arrival' | 'vacant';
+  bucket: 'checkout' | 'daily' | 'service' | 'other' | 'noshow' | 'arrival' | 'vacant';
   incomingToday?: boolean;
   evidence?: 'night_snapshot' | 'day_arrival' | 'next_day_arrival' | 'explicit_checkout' | 'verified_unsold' | 'confirmed_no_show';
   service: GozsduHousekeepingService;
@@ -166,13 +166,14 @@ export function reconcileGozsduPmsRoster(
     const registryEntry = registry.find(entry => entry.room_id === roomId)!;
     const computedService = isCheckout || noShow || awaitingArrival || registryEntry.service_status !== 'operating'
       ? 'none' : getGozsduHousekeepingCycle({ currentNight: night, totalNights, isCheckout }).service;
-    // Manual cleaning plans are date-scoped and do not modify PMS stay facts.
-    // Never turn a no-show, same-day arrival or unavailable room into an operational task.
-    const override = !noShow && !awaitingArrival && registryEntry.service_status === 'operating'
+    // Manual housekeeping plans are separate from the PMS reservation state.
+    // An explicit dated plan may move an arrival/checkout to cleaning, but a
+    // confirmed no-show or an unavailable room is always protected.
+    const override = !noShow && registryEntry.service_status === 'operating'
       ? readGozsduRoomOverride(room.pms_metadata, selectedDate) : null;
-    const service = override?.service ?? computedService;
+    const service = override ? override.service : computedService;
     byRoom.set(roomId, {
-      bucket: noShow ? 'noshow' : isCheckout ? 'checkout' : awaitingArrival ? 'arrival' : override?.bucket ?? (service !== 'none' ? 'service' : 'other'),
+      bucket: noShow ? 'noshow' : override?.bucket ?? (isCheckout ? 'checkout' : awaitingArrival ? 'arrival' : service !== 'none' ? 'service' : 'other'),
       service, night, totalNights, leavesTomorrow: row.departure_date === nextDate,
       incomingToday: incoming.has(roomId), evidence: noShow ? 'confirmed_no_show' : 'night_snapshot',
     });
@@ -196,9 +197,11 @@ export function reconcileGozsduPmsRoster(
       const missing = missingGozsduPmsRooms(registry, snapshots);
       throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local). Missing from selected-day PMS: ${missing.join(', ')}. Their operating status is unchanged; booking and occupancy are UNKNOWN until verified in Previo.`);
     }
+    const manual = !noShow && entry.service_status === 'operating'
+      ? readGozsduRoomOverride(room.pms_metadata, selectedDate) : null;
     byRoom.set(entry.room_id, {
-      bucket: noShow ? 'noshow' : arrival ? 'arrival' : checkout ? 'checkout' : 'vacant',
-      service: 'none',
+      bucket: noShow ? 'noshow' : manual?.bucket ?? (arrival ? 'arrival' : checkout ? 'checkout' : 'vacant'),
+      service: manual?.service ?? 'none',
       night: unsold ? 0 : 1,
       totalNights: unsold ? 0 : fromTomorrow
         ? Math.max(1, day(incoming.get(entry.room_id)?.departure_date) - selected)
