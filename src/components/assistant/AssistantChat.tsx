@@ -227,6 +227,7 @@ function ChatSession({
   }, []);
   useEffect(() => { void refreshUsage(); }, [refreshUsage]);
   const [failed, setFailed] = useState<string | null>(null);
+  const failureDetailsRef = useRef<string | null>(null);
   const [analysisElapsedMs, setAnalysisElapsedMs] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cancelSavedRef = useRef(false);
@@ -254,9 +255,13 @@ function ChatSession({
     id: threadId,
     messages: initialMessages,
     transport,
-    onError: () => {
+    onError: (error) => {
       void refreshUsage();
-      setFailed("I couldn’t complete that request. If your monthly allowance is exhausted, it resets on the 1st.");
+      failureDetailsRef.current = error instanceof Error ? error.message.slice(0, 700) : String(error).slice(0, 700);
+      const quotaFailure = /monthly (?:allowance|message|quota)|message limit reached/i.test(failureDetailsRef.current);
+      setFailed(quotaFailure
+        ? "Your monthly message allowance has been reached. It resets on the 1st."
+        : "The assistant could not process this request. No action has been confirmed.");
     },
     onFinish: async ({ message, isAbort }) => {
       if (isAbort && user && !cancelSavedRef.current) {
@@ -343,9 +348,11 @@ function ChatSession({
       severity: "normal",
       threadId,
       page,
+      diagnostics: { error: failureDetailsRef.current },
     });
-    if (result.ok) toast.success("Thanks — this has been sent to the Hotel Care team.");
-    else toast.error(result.error ?? "Could not send the report just now.");
+    if (!result.ok) toast.error(result.error ?? "Could not save the report.");
+    else if (result.emailed) toast.success("Report saved and emailed to administrators.");
+    else toast.warning("Report saved as " + result.id + ", but email delivery could not be confirmed.");
   };
 
   const generating = status === "submitted" || status === "streaming";
@@ -541,7 +548,7 @@ function ChatSession({
 
           {failed && (
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5">
-              <p className="text-sm">{failed} Please try again in a moment.</p>
+              <p className="text-sm">{failed}</p>
               <div className="mt-2 flex gap-2">
                 <Button size="sm" variant="secondary" onClick={() => void retryLastQuestion()}>
                   Try again
@@ -577,7 +584,7 @@ function ChatSession({
         )}
         {usage && !usage.unlimited && usage.remaining === 0 && (
           <p role="status" className="mb-2 rounded-lg bg-muted px-3 py-2 text-xs">
-            Your 20 monthly messages are used. Your allowance resets on the 1st. Administrators have been notified.
+            Your 20 monthly messages are used. Your allowance resets on the 1st.
           </p>
         )}
         <PromptInput onSubmit={submit} className="rounded-2xl bg-background shadow-sm">
@@ -594,29 +601,28 @@ function ChatSession({
           />
           <PromptInputFooter>
             <PromptInputTools>
-              {supported && (
-                <PromptInputButton
-                  tooltip={
-                    dictation === "recording"
-                      ? "Stop and transcribe"
-                      : dictation === "transcribing"
-                        ? "Writing your words…"
-                        : "Speak your question"
-                  }
-                  variant={dictation === "recording" ? "default" : "ghost"}
-                  onClick={toggle}
-                  disabled={dictation === "transcribing"}
-                  aria-label={dictation === "recording" ? "Stop dictation" : "Dictate"}
-                >
-                  {dictation === "transcribing" ? (
-                    <Loader2 className="animate-spin" />
-                  ) : dictation === "recording" ? (
-                    <MicOff />
-                  ) : (
-                    <Mic />
-                  )}
-                </PromptInputButton>
-              )}
+              <PromptInputButton
+                tooltip={
+                  !supported ? "Microphone input requires browser permission and a secure connection"
+                  : dictation === "recording" ? "Stop recording and transcribe"
+                  : dictation === "transcribing" ? "Transcribing your recording…"
+                  : "Record a message and convert speech to text"
+                }
+                variant={dictation === "recording" ? "default" : "outline"}
+                onClick={toggle}
+                disabled={dictation === "transcribing"}
+                aria-label={dictation === "recording" ? "Stop and transcribe voice input" : "Start voice-to-text"}
+                className="h-9 rounded-full border px-3 text-xs font-medium gap-2"
+              >
+                {dictation === "transcribing" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : dictation === "recording" ? (
+                  <MicOff className="h-4 w-4" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
+                <span>{dictation === "recording" ? "Stop & transcribe" : dictation === "transcribing" ? "Transcribing…" : "Voice to text"}</span>
+              </PromptInputButton>
               {dictation === "recording" && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Listening…
