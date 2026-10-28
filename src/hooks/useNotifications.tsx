@@ -67,12 +67,26 @@ export function useNotifications() {
       return false;
     }
     if (Notification.permission === 'granted') {
-      try {
-        await ensurePushSubscription();
-      } catch (error) {
-        console.warn('Notification permission is granted but Web Push registration failed:', error);
+      // A user can grant iOS permission but still have HotelCare notifications
+      // disabled in account settings. Let the explicit Enable action save that
+      // preference FIRST; trying to subscribe before opt-in is a no-op.
+      const { data: preference, error: preferenceError } = await supabase
+        .from('notification_preferences')
+        .select('browser_notifications_enabled')
+        .eq('user_id', user?.id || '')
+        .maybeSingle();
+      if (preferenceError) {
+        console.error('Could not check notification preference:', preferenceError);
+        return false;
       }
-      return true;
+      if (preference?.browser_notifications_enabled !== true) return true;
+      try {
+        return !!(await ensurePushSubscription());
+      } catch (error) {
+        console.warn('iOS push permission granted, but device registration failed:', error);
+        toast.error('Notifications are allowed, but this device is not registered. Open Settings → Notifications to repair.');
+        return false;
+      }
     }
     if (Notification.permission === 'denied') {
       console.log('Notifications are blocked by user');
@@ -91,18 +105,23 @@ export function useNotifications() {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
 
-      if (user?.id && permission !== 'default') {
-        await supabase
+      if (user?.id && permission === 'granted') {
+        // Persist the opt-in BEFORE calling ensurePushSubscription: the
+        // subscription manager intentionally rejects opted-out users.
+        const { error: saveError } = await supabase
           .from('notification_preferences')
-          .upsert({
-            user_id: user.id,
-            browser_notifications_enabled: permission === 'granted'
-          });
+          .upsert({ user_id: user.id, browser_notifications_enabled: true }, { onConflict: 'user_id' });
+        if (saveError) {
+          console.error('Could not save HotelCare notification opt-in:', saveError);
+          toast.error('Notifications were allowed, but HotelCare could not save your preference.');
+          return false;
+        }
       }
 
       if (permission === 'granted') {
         try {
-          await ensurePushSubscription();
+          const subscription = await ensurePushSubscription();
+          if (!subscription) throw new Error('Device push registration was not completed');
         } catch (error) {
           console.error('Could not enable HotelCare background notifications:', error);
           toast.error('Notification permission was granted, but this device could not be registered for background notifications.');
