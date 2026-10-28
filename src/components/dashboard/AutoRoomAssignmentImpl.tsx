@@ -159,6 +159,7 @@ interface SavedState {
   savedAt: number;
   lockedRoomIds?: string[];
   sectionTaskOwners?: Array<[string, string]>;
+  publishedRoomOwners?: Array<[string, string]>;
 }
 
 const isCheckoutLike = (room: RoomForAssignment): boolean =>
@@ -290,6 +291,7 @@ export function AutoRoomAssignment({
   const hotelKeysRef = useRef<string[]>([]);
   const managerHotelRef = useRef<string>('');
   const draftRestoredRef = useRef(false);
+  const restoredPublishedOwnersRef = useRef<Array<[string, string]> | null>(null);
   const laundryCommitRef = useRef(laundryDutyCommitRevision);
   const roomSectionsRef = useRef<Map<string, { id: string; name: string }>>(new Map());
 
@@ -823,8 +825,24 @@ export function AutoRoomAssignment({
       existingAssignmentsRef.current = new Map(existingRows.map(row => [row.room_id, row]));
       setDirtyRooms(workingRooms);
 
-      // The published assignment always outranks an old browser preview.
-      if (!preserveDraft || (!isNextDayPlanning && existingRows.length > 0)) {
+      // A manager's unfinished local edits survive closing/reopening ONLY when
+      // the exact published owners are unchanged and work has not started.
+      // If another user updated live work, the database takes priority.
+      const sortedOwners = (rows: Array<[string, string]>) =>
+        [...rows].sort(([roomA], [roomB]) => roomA.localeCompare(roomB));
+      const publishedOwners = sortedOwners(existingRows.map(row => [row.room_id, row.assigned_to]));
+      const savedPublishedOwners = restoredPublishedOwnersRef.current;
+      const canRestorePublishedDraft = preserveDraft
+        && !!savedPublishedOwners
+        && !isNextDayPlanning
+        && !existingRows.some(row => isProtectedLiveAssignment(row.status))
+        && JSON.stringify(publishedOwners) === JSON.stringify(sortedOwners(savedPublishedOwners));
+
+      if (preserveDraft && existingRows.length > 0 && !canRestorePublishedDraft && !isNextDayPlanning) {
+        localStorage.removeItem(saveKey);
+        toast.info('The published morning plan has changed or cleaning has started. The live assignments were loaded to protect staff work.');
+      }
+      if (!preserveDraft || (!isNextDayPlanning && existingRows.length > 0 && !canRestorePublishedDraft)) {
         if (existingRows.length > 0) {
           setEditingExistingAssignments(true);
           setSelectedStaffIds(selectedFromDb);
@@ -962,6 +980,7 @@ export function AutoRoomAssignment({
     setPlanningExplanation('');
 
     let restored = false;
+    restoredPublishedOwnersRef.current = null;
     try {
       const carryForwardMarkerKey = `hk_carry_forward_v1_${profile?.organization_slug || 'unknown'}_${profile?.assigned_hotel || 'unknown'}_${selectedDate}`;
       const hasTaggedCarryForwardDraft = isGozsdu && localStorage.getItem(carryForwardMarkerKey) !== null;
@@ -979,6 +998,7 @@ export function AutoRoomAssignment({
           setRestoredFromSave(true);
           setLockedRoomIds(new Set(data.lockedRoomIds || []));
            setSectionTaskOwners(new Map(data.sectionTaskOwners || []));
+           restoredPublishedOwnersRef.current = data.publishedRoomOwners || null;
           setStep('preview');
         } else {
           localStorage.removeItem(saveKey);
@@ -1028,6 +1048,7 @@ export function AutoRoomAssignment({
       savedAt: Date.now(),
       lockedRoomIds: Array.from(lockedRoomIds),
       sectionTaskOwners: Array.from(sectionTaskOwners),
+      publishedRoomOwners: Array.from(existingAssignmentsRef.current.values()).map(row => [row.room_id, row.assigned_to]),
     };
     try {
       localStorage.setItem(saveKey, JSON.stringify(data));
@@ -1254,7 +1275,6 @@ export function AutoRoomAssignment({
       .map(task => [task.id, fixedAreaOwners.get(task.id) || task.staff_id] as [string, string])));
     if (staffPoolChanged) {
       setLockedRoomIds(new Set(enforcedLocks));
-      setSectionTaskOwners(nextSectionTaskOwners);
       setPublicAreaAssignments(previous => new Map(
         [...previous].filter(([, staffId]) => cleaningStaffIds.has(staffId)),
       ));
