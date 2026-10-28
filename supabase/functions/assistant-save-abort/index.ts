@@ -25,80 +25,115 @@ async function handleIssueReport(service: any, userId: string, body: any) {
   if (title.length < 3) return json({ error: "A short title is required" }, 400);
   const description = String(body?.description ?? "").slice(0, 4000);
   const aiSummary = body?.ai_summary ? String(body.ai_summary).slice(0, 4000) : null;
-  const category = String(body?.category ?? "other").slice(0, 40);
+  const category = ["wrong_data", "assistant", "bug", "access", "idea", "other"].includes(body?.category)
+    ? body.category : "other";
   const severity = SEVERITIES.includes(body?.severity) ? body.severity : "normal";
-  const threadId = typeof body?.thread_id === "string" ? body.thread_id : null;
-  const context = body?.context && typeof body.context === "object" ? body.context : {};
+  const context = body?.context && typeof body.context === "object" && !Array.isArray(body.context)
+    ? body.context : {};
+  const diagnostics = body?.diagnostics && typeof body.diagnostics === "object" && !Array.isArray(body.diagnostics)
+    ? body.diagnostics : {};
+  const scalar = (value: unknown, max = 300) =>
+    String(value ?? "").replace(/Bearer\s+[\w.-]+/gi, "Bearer [redacted]").slice(0, max);
 
-  const { data: profile } = await service
+  const { data: profile, error: profileError } = await service
     .from("profiles")
     .select("id,full_name,email,role,assigned_hotel,organization_slug")
-    .eq("id", userId)
-    .maybeSingle();
+    .eq("id", userId).is("deleted_at", null).maybeSingle();
+  if (profileError || !profile) return json({ error: "Active staff profile required" }, 403);
 
-  const { data: report, error: insertError } = await service
-    .from("assistant_issue_reports")
-    .insert({
-      user_id: userId,
-      thread_id: threadId,
-      organization_slug: profile?.organization_slug ?? null,
-      hotel_id: profile?.assigned_hotel ?? null,
-      role: profile?.role ?? null,
-      title,
-      description,
-      ai_summary: aiSummary,
-      category,
-      severity,
-      context,
-      status: "open",
-    })
-    .select("id,created_at")
-    .single();
-  if (insertError) {
-    console.error("issue report insert failed", insertError);
-    return json({ error: "Could not save the report" }, 500);
+  // Never attach an issue to another employee's conversation.
+  const requestedThread = typeof body?.thread_id === "string" && /^[\da-f-]{36}$/i.test(body.thread_id)
+    ? body.thread_id : null;
+  let threadId: string | null = null;
+  if (requestedThread) {
+    const { data: ownedThread } = await service.from("assistant_threads")
+      .select("id").eq("id", requestedThread).eq("user_id", userId).maybeSingle();
+    if (ownedThread) threadId = requestedThread;
   }
 
-  const to = Deno.env.get("ASSISTANT_ISSUE_EMAIL");
-  let emailed = false;
-  if (to) {
-    const rows: [string, string][] = [
-      ["Reported by", `${profile?.full_name ?? "Unknown"} (${profile?.email ?? "no email"})`],
-      ["Role", profile?.role ?? "unknown"],
-      ["Property", profile?.assigned_hotel ?? "unassigned"],
-      ["Organization", profile?.organization_slug ?? "unknown"],
-      ["Severity", severity],
-      ["Category", category],
-      ["Page", String((context as any).route ?? "unknown")],
-      ["Device", String((context as any).device ?? "unknown")],
-    ];
-    const html = `
-      <h2>${escapeHtml(title)}</h2>
-      <table cellpadding="4" style="font:14px/1.5 system-ui,sans-serif;border-collapse:collapse">
-        ${rows.map(([k, v]) => `<tr><td><b>${escapeHtml(k)}</b></td><td>${escapeHtml(v)}</td></tr>`).join("")}
-      </table>
-      <h3>What happened</h3>
-      <p style="font:14px/1.6 system-ui,sans-serif;white-space:pre-wrap">${escapeHtml(description || "—")}</p>
-      ${aiSummary ? `<h3>Assistant summary</h3><p style="font:14px/1.6 system-ui,sans-serif;white-space:pre-wrap">${escapeHtml(aiSummary)}</p>` : ""}
-      <p style="font:12px system-ui,sans-serif;color:#667">Report ${report.id} · ${report.created_at}</p>`;
-    const result = await sendEmail({
+  // Map to the EXISTING production assistant_issue_reports schema.
+  const { data: report, error: insertError } = await service.from("assistant_issue_reports").insert({
+    user_id: userId,
+    thread_id: threadId,
+    organization_slug: profile.organization_slug ?? null,
+    hotel_id: scalar(context.hotel_id || profile.assigned_hotel, 100) || null,
+    title,
+    user_description: description,
+    ai_summary: aiSummary,
+    category,
+    severity,
+    current_route: scalar(context.route, 500) || null,
+    module: scalar(context.module, 80) || null,
+    tab: scalar(context.tab, 120) || null,
+    entity_type: scalar(context.entity_type, 100) || null,
+    entity_id: scalar(context.entity_id, 200) || null,
+    device: scalar(context.device, 250) || null,
+    app_language: scalar(context.language, 20) || null,
+    status: "open",
+  }).select("id,created_at").single();
+  if (insertError || !report) {
+    console.error("assistant issue report database insert failed", insertError);
+    return json({ error: "The report could not be saved. Please retry." }, 500);
+  }
+
+  const { data: adminProfiles, error: adminError } = await service.from("profiles")
+    .select("email").eq("organization_slug", profile.organization_slug ?? "")
+    .eq("role", "admin").is("deleted_at", null).limit(100);
+  if (adminError) console.error("assistant issue admin lookup failed", adminError.message);
+  const recipients = [...new Set([
+    "anuruddha.dharmasena@gmail.com",
+    ...(adminProfiles ?? []).map((admin: any) => String(admin.email ?? "").trim()),
+  ].filter(Boolean))];
+
+  const rows: [string, string][] = [
+    ["Report reference", scalar(report.id)],
+    ["Reported (UTC)", scalar(report.created_at)],
+    ["Reported by", scalar(profile.full_name, 200)],
+    ["Reporter email", scalar(profile.email, 200)],
+    ["User ID", userId],
+    ["Role", scalar(profile.role)],
+    ["Hotel", scalar(context.hotel_id || profile.assigned_hotel)],
+    ["Organization", scalar(profile.organization_slug)],
+    ["Priority", severity],
+    ["Category", category],
+    ["Page", scalar(context.route, 500)],
+    ["Module / tab", scalar(context.module) + " / " + scalar(context.tab)],
+    ["Entity", scalar(context.entity_type) + " / " + scalar(context.entity_id)],
+    ["Conversation ID", threadId ?? "None"],
+    ["Device", scalar(context.device)],
+    ["Browser", scalar(diagnostics.user_agent, 400)],
+    ["Client timestamp", scalar(diagnostics.client_time)],
+    ["Technical error", scalar(diagnostics.error, 700) || "Not provided"],
+  ];
+  const html = "<h2>HotelCare problem report: " + escapeHtml(title) + "</h2>" +
+    "<table cellpadding=\"5\" style=\"font:14px/1.5 system-ui,sans-serif;border-collapse:collapse\">" +
+    rows.map(([key, value]) => "<tr><td><b>" + escapeHtml(key) + "</b></td><td>" +
+      escapeHtml(value || "—") + "</td></tr>").join("") + "</table>" +
+    "<h3>What happened / request</h3><p style=\"white-space:pre-wrap\">" +
+    escapeHtml(description || "—") + "</p>" +
+    (aiSummary ? "<h3>Assistant summary</h3><p style=\"white-space:pre-wrap\">" +
+      escapeHtml(aiSummary) + "</p>" : "");
+
+  try {
+    const sent = await sendEmail({
       admin: service,
-      organizationSlug: profile?.organization_slug ?? null,
-      to: [to],
-      subject: `[Hotel Care] ${String(severity).toUpperCase()} — ${title}`.slice(0, 120),
+      organizationSlug: profile.organization_slug ?? null,
+      to: recipients,
+      subject: ("[HotelCare] " + severity.toUpperCase() + " · " + title).slice(0, 120),
       html,
+      text: rows.map(([key, value]) => key + ": " + value).join("\n") +
+        "\n\nWhat happened:\n" + description,
     });
-    emailed = Boolean(result.ok);
-    if (!result.ok) console.error("issue report email failed", result.error);
-    if (emailed) {
-      await service
-        .from("assistant_issue_reports")
-        .update({ emailed_at: new Date().toISOString() })
-        .eq("id", report.id);
+    if (!sent.ok) {
+      console.error("assistant issue email delivery failed", {
+        report_id: report.id, error: sent.error, recipient_count: recipients.length,
+      });
     }
+    return json({ ok: true, id: report.id, emailed: sent.ok === true });
+  } catch (error) {
+    console.error("assistant issue email transport exception", { report_id: report.id, error });
+    return json({ ok: true, id: report.id, emailed: false });
   }
-
-  return json({ ok: true, id: report.id, emailed });
 }
 
 Deno.serve(async (req) => {
