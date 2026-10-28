@@ -78,7 +78,8 @@ export default function ReportProblemDialog({
       toast.error(result.error ?? "Could not send the report just now.");
       return;
     }
-    toast.success("Thanks — this has been sent to the Hotel Care team.");
+    if (result.emailed) toast.success("Report saved and emailed to HotelCare administrators.");
+    else toast.warning("Report saved (reference " + result.id + "), but the administrator email could not be confirmed.");
     setTitle("");
     setDescription("");
     setCategory("wrong_data");
@@ -94,7 +95,7 @@ export default function ReportProblemDialog({
             <Flag className="h-4 w-4" /> Report a problem
           </DialogTitle>
           <DialogDescription>
-            Your report goes straight to the Hotel Care team with the page you are on.
+            Your report will be saved and emailed to HotelCare administrators with the page and technical context.
           </DialogDescription>
         </DialogHeader>
 

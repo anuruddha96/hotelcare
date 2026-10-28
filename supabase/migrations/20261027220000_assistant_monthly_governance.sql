@@ -32,6 +32,7 @@ ALTER TABLE public.assistant_usage_alert_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.assistant_usage_alert_events FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.assistant_usage_alert_events TO authenticated;
 GRANT ALL ON public.assistant_usage_alert_events TO service_role;
+DROP POLICY IF EXISTS assistant_alerts_admin_read ON public.assistant_usage_alert_events;
 CREATE POLICY assistant_alerts_admin_read ON public.assistant_usage_alert_events
   FOR SELECT TO authenticated USING (
     (public.is_super_admin(auth.uid()) OR public.get_user_role(auth.uid())::text
