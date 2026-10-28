@@ -9,6 +9,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { ensurePushSubscription } from '@/lib/pushSubscriptionManager';
 
 export function NotificationPermissionBanner() {
   const { requestNotificationPermission, notificationPermission, ensureAudioUnlocked, playNotificationSound, showNotification } = useNotifications();
@@ -18,6 +19,7 @@ export function NotificationPermissionBanner() {
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const [pushIssue, setPushIssue] = useState('');
 
 
   useEffect(() => {
@@ -115,13 +117,32 @@ export function NotificationPermissionBanner() {
     (navigator as any).standalone === true);
   const isIOSNonStandalone = isIOSSafari && !isStandalone;
 
+  useEffect(() => {
+    if (!user?.id || !preferencesLoaded || !preferences.browser_notifications_enabled) {
+      setPushIssue('');
+      return;
+    }
+    if (notificationPermission !== 'granted') return;
+    let cancelled = false;
+    void ensurePushSubscription().then((subscription) => {
+      if (!cancelled) setPushIssue(subscription ? '' : 'This device is not registered for push notifications.');
+    }).catch((error) => {
+      if (!cancelled) setPushIssue(error instanceof Error ? error.message : 'Background push registration failed.');
+    });
+    return () => { cancelled = true; };
+  }, [user?.id, preferencesLoaded, preferences.browser_notifications_enabled, notificationPermission]);
+
   // Determine if we should show the banner
   const shouldShowBanner = 
     user?.id && // User must be logged in
     preferencesLoaded && // Preferences must be loaded
-    !bannerDismissed && // User hasn't dismissed the banner
-    !preferences.banner_permanently_hidden && // User hasn't permanently hidden
-    (!preferences.browser_notifications_enabled || notificationPermission !== 'granted'); // Permission and opt-in must BOTH be enabled
+    (
+      // Staff who opted in but have broken iOS registration must see the repair
+      // warning even if they dismissed an older permission banner.
+      (preferences.browser_notifications_enabled && (!!pushIssue || isIOSNonStandalone)) ||
+      (!bannerDismissed && !preferences.banner_permanently_hidden &&
+        (!preferences.browser_notifications_enabled || notificationPermission !== 'granted'))
+    );
 
   const handleEnableNotifications = async () => {
     setIsRequesting(true);
@@ -136,6 +157,22 @@ export function NotificationPermissionBanner() {
       return;
     }
 
+    // Existing iOS permission may be granted while its APNs endpoint is stale.
+    // Allow a direct, intentional re-enrollment instead of re-requesting iOS permission.
+    if (preferences.browser_notifications_enabled && notificationPermission === 'granted' && pushIssue) {
+      try {
+        const subscription = await ensurePushSubscription({ forceRenew: true });
+        if (!subscription) throw new Error('Device registration was not completed.');
+        setPushIssue('');
+        dismissBanner();
+      } catch (error) {
+        setPushIssue(error instanceof Error ? error.message : 'Could not repair push on this device.');
+      } finally {
+        setIsRequesting(false);
+      }
+      return;
+    }
+
     // Request browser permission
     try {
       const granted = await requestNotificationPermission();
@@ -146,9 +183,11 @@ export function NotificationPermissionBanner() {
           banner_permanently_hidden: true 
         });
         if (!pushReady) {
+          setPushIssue('Permission granted, but this device is not registered. Open Settings → Notifications to repair.');
           console.error('HotelCare notification preference saved but Web Push registration failed; please retry.');
           return;
         }
+        setPushIssue('');
         // Dismiss banner locally too
         dismissBanner();
         // Play a test sound to confirm
@@ -223,6 +262,12 @@ export function NotificationPermissionBanner() {
               </div>
             )}
 
+            {!!pushIssue && (
+              <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">
+                Background notifications unavailable: {pushIssue} Open Settings → Notifications to check or repair this iPhone.
+              </p>
+            )}
+
             {/* Don't show again checkbox */}
             <div className="flex items-center gap-2 mt-3">
               <Checkbox 
@@ -256,7 +301,7 @@ export function NotificationPermissionBanner() {
                 disabled={isRequesting}
                 className="text-xs bg-orange-600 hover:bg-orange-700 text-white"
               >
-                {isRequesting ? '...' : t('notifications.enable')}
+                {isRequesting ? '...' : pushIssue && notificationPermission === 'granted' ? 'Repair notifications' : t('notifications.enable')}
               </Button>
             )}
             {isIOSNonStandalone && (
