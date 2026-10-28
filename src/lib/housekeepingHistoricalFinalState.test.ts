@@ -94,6 +94,29 @@ describe('Hotel Memories historical missed-service evidence', () => {
   };
   const options = { hotel: 'Hotel Memories Budapest', businessDate, isCheckout: false };
 
+  it('rejects room 002 stale night-three towel duty on 27 Oct when final T is false', () => {
+    const result = resolveHistoricalMemoriesService({
+      towel_change_required: false,
+      final_state: { towel_change_required_for_assignment: false,
+        pms_metadata_at_close: { arrivalDate: '2026-10-24', reservationId: '113308653' } },
+      scheduled_service_due: { towel: true, business_date: '2026-10-27', stay_night: '3',
+        reservation_id: '113308653', source: 'same_day_verified_room_duty' },
+    }, null, { hotel: 'Hotel Memories Budapest', businessDate: '2026-10-27', isCheckout: false });
+    expect(result).toMatchObject({ towel: false, scheduledTowel: false, changeRoom: false });
+  });
+
+  it('keeps a verified calendar-night service and rejects evidence from another date', () => {
+    const row = {
+      towel_change_required: false,
+      final_state: { towel_change_required_for_assignment: false,
+        pms_metadata_at_close: { arrivalDate: '2026-10-24', reservationId: '113308653' } },
+      scheduled_service_due: { towel: true, business_date: '2026-10-26', stay_night: '3',
+        reservation_id: '113308653', source: 'same_day_verified_room_duty' },
+    };
+    expect(resolveHistoricalMemoriesService(row, null, options).towel).toBe(true);
+    expect(resolveHistoricalMemoriesService(row, null, { ...options, businessDate: '2026-10-27' }).towel).toBe(false);
+  });
+
   it('shows C instead of natural T for room 147 on 26 Oct after repeated DND', () => {
     const result = resolveHistoricalMemoriesService(historicalT, fullCarry, options);
     expect(result.changeRoom).toBe(true);
