@@ -515,7 +515,18 @@ export function Dashboard() {
                 {Array.from({ length: 6 }).map((_, i) => <div key={i} className="rounded-lg border p-4 space-y-3"><div className="flex items-center justify-between gap-2"><div className="h-4 w-32 rounded bg-muted animate-pulse" /><div className="h-5 w-16 rounded-full bg-muted animate-pulse" /></div><div className="h-3 w-full rounded bg-muted animate-pulse" /><div className="h-3 w-2/3 rounded bg-muted animate-pulse" /><div className="flex gap-2 pt-1"><div className="h-6 w-20 rounded bg-muted animate-pulse" /><div className="h-6 w-14 rounded bg-muted animate-pulse" /></div></div>)}
               </div>
             ) : filteredTickets.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">{searchQuery || statusFilter !== 'work' || priorityFilter !== 'all' ? (t('tickets.noMatchFilters') || 'No tickets match your filters') : t('tickets.noResults')}</div>
+              <div className="flex flex-col items-center gap-3 py-8 text-center text-muted-foreground">
+                {statusFilter === 'work' && counts.work === 0 && counts.done > 0 && !searchQuery.trim() && priorityFilter === 'all' ? (
+                  <>
+                    <p>{language === 'hu' ? 'Ebben a hotelben nincs aktív karbantartási hiba.' : 'There are no active maintenance issues for this hotel.'}</p>
+                    <Button variant="outline" onClick={() => setStatusFilter('done')}>
+                      {language === 'hu' ? `${counts.done} befejezett hiba megtekintése` : `View ${counts.done} completed issues`}
+                    </Button>
+                  </>
+                ) : (
+                  <p>{searchQuery || statusFilter !== 'work' || priorityFilter !== 'all' ? (t('tickets.noMatchFilters') || 'No tickets match your filters') : t('tickets.noResults')}</p>
+                )}
+              </div>
             ) : (
               <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                 {filteredTickets.map((ticket, idx) => <div key={ticket.id} data-training={idx === 0 ? 'ticket-row' : undefined}><TicketCard ticket={ticket} onClick={() => setSelectedTicket(ticket)} onUpdated={() => void fetchTickets()} /></div>)}
