@@ -62,7 +62,6 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
   const { user, profile } = useAuth();
   const {
     showNotification,
-    requestNotificationPermission,
     notificationPermission,
   } = useNotifications();
   const { t } = useTranslation();
@@ -260,11 +259,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
 
       if (!('Notification' in window)) return;
 
-      let granted = notificationPermission === 'granted';
-      if (!granted && notificationPermission === 'default') {
-        granted = await requestNotificationPermission();
-      }
-      if (!granted) return;
+      // Background events cannot ask for permission: opt-in belongs to a tap
+      // on Enable notifications in the banner or Settings.
+      if (notificationPermission !== 'granted') return;
 
       const targetUrl = new URL(window.location.href);
       targetUrl.searchParams.set('tab', 'housekeeping');
@@ -547,7 +544,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
         if (channel) supabase.removeChannel(channel);
       });
     };
-  }, [user?.id, profile?.role, profile?.organization_slug, showNotification, requestNotificationPermission, notificationPermission, t]);
+  }, [user?.id, profile?.role, profile?.organization_slug, showNotification, notificationPermission, t]);
 
   const dismissHighlightedMessage = () => {
     if (highlightedRoomMessage?.element) {

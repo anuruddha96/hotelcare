@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Bell, BellOff, Smartphone, X } from 'lucide-react';
+import { Bell, BellOff, Settings, X } from 'lucide-react';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -10,16 +10,17 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { ensurePushSubscription } from '@/lib/pushSubscriptionManager';
+import { getNotificationEnvironment, openNotificationSettings } from '@/lib/notificationPlatform';
 
 export function NotificationPermissionBanner() {
   const { requestNotificationPermission, notificationPermission, ensureAudioUnlocked, playNotificationSound, showNotification } = useNotifications();
   const { preferences, preferencesLoaded, updatePreferences, bannerDismissed, dismissBanner } = useNotificationPreferences();
   const { t, language } = useTranslation();
   const { user, profile } = useAuth();
-  const [showIOSInstructions, setShowIOSInstructions] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [pushIssue, setPushIssue] = useState('');
+  const device = getNotificationEnvironment();
 
 
   useEffect(() => {
@@ -108,213 +109,131 @@ export function NotificationPermissionBanner() {
     };
   }, [user?.id, profile?.organization_slug, profile?.assigned_hotel, profile?.role, language, showNotification]);
 
-  // Detect iOS Safari (not standalone)
-  const isIOSSafari = typeof navigator !== 'undefined' && 
-    /iPad|iPhone|iPod/.test(navigator.userAgent) && 
-    !(window as any).MSStream;
-  const isStandalone = typeof window !== 'undefined' && 
-    ((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || 
-    (navigator as any).standalone === true);
-  const isIOSNonStandalone = isIOSSafari && !isStandalone;
-
   useEffect(() => {
-    if (!user?.id || !preferencesLoaded || !preferences.browser_notifications_enabled) {
+    if (!user?.id || !preferencesLoaded || !preferences.browser_notifications_enabled
+      || notificationPermission !== 'granted' || !device.canRequest) {
       setPushIssue('');
       return;
     }
-    if (notificationPermission !== 'granted') return;
     let cancelled = false;
     void ensurePushSubscription().then((subscription) => {
-      if (!cancelled) setPushIssue(subscription ? '' : 'This device is not registered for push notifications.');
+      if (!cancelled) setPushIssue(subscription ? '' : 'registration');
     }).catch((error) => {
-      if (!cancelled) setPushIssue(error instanceof Error ? error.message : 'Background push registration failed.');
+      console.warn('Could not register background notifications:', error);
+      if (!cancelled) setPushIssue('registration');
     });
     return () => { cancelled = true; };
-  }, [user?.id, preferencesLoaded, preferences.browser_notifications_enabled, notificationPermission]);
+  }, [user?.id, preferencesLoaded, preferences.browser_notifications_enabled, notificationPermission, device.canRequest]);
 
-  // Determine if we should show the banner
-  const shouldShowBanner = 
-    user?.id && // User must be logged in
-    preferencesLoaded && // Preferences must be loaded
-    (
-      // Staff who opted in but have broken iOS registration must see the repair
-      // warning even if they dismissed an older permission banner.
-      (preferences.browser_notifications_enabled && (!!pushIssue || isIOSNonStandalone)) ||
-      (!bannerDismissed && !preferences.banner_permanently_hidden &&
-        (!preferences.browser_notifications_enabled || notificationPermission !== 'granted'))
-    );
+  // Explicit dismissal wins for EVERY warning, including iOS installation and
+  // failed push registration. Those were previously outside the dismissal guard.
+  const shouldShowBanner = user?.id && preferencesLoaded
+    && !bannerDismissed && !preferences.banner_permanently_hidden
+    && (!preferences.browser_notifications_enabled || notificationPermission !== 'granted'
+      || !!pushIssue || !device.canRequest);
+  const needsSettings = !device.canRequest || notificationPermission === 'denied';
 
   const handleEnableNotifications = async () => {
-    setIsRequesting(true);
-
-    // Ensure audio can play on iOS (must be inside user gesture)
-    try { ensureAudioUnlocked(); } catch {}
-
-    // If iOS non-standalone, show instructions instead of trying to request
-    if (isIOSNonStandalone) {
-      setShowIOSInstructions(true);
-      setIsRequesting(false);
+    if (needsSettings) {
+      openNotificationSettings();
       return;
     }
-
-    // Existing iOS permission may be granted while its APNs endpoint is stale.
-    // Allow a direct, intentional re-enrollment instead of re-requesting iOS permission.
-    if (preferences.browser_notifications_enabled && notificationPermission === 'granted' && pushIssue) {
-      try {
+    if (isRequesting) return;
+    setIsRequesting(true);
+    // Audio and the native permission request must start inside this tap.
+    ensureAudioUnlocked();
+    try {
+      if (pushIssue && notificationPermission === 'granted') {
         const subscription = await ensurePushSubscription({ forceRenew: true });
         if (!subscription) throw new Error('Device registration was not completed.');
-        setPushIssue('');
-        dismissBanner();
-      } catch (error) {
-        setPushIssue(error instanceof Error ? error.message : 'Could not repair push on this device.');
-      } finally {
-        setIsRequesting(false);
-      }
-      return;
-    }
-
-    // Request browser permission
-    try {
-      const granted = await requestNotificationPermission();
-      if (granted) {
-        // Save preference to database - this permanently hides banner
-        const pushReady = await updatePreferences({ 
-          browser_notifications_enabled: true,
-          banner_permanently_hidden: true 
-        });
-        if (!pushReady) {
-          setPushIssue('Permission granted, but this device is not registered. Open Settings → Notifications to repair.');
-          console.error('HotelCare notification preference saved but Web Push registration failed; please retry.');
+      } else {
+        const granted = await requestNotificationPermission();
+        if (!granted) {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+            openNotificationSettings();
+          } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            setPushIssue('registration');
+          }
           return;
         }
-        setPushIssue('');
-        // Dismiss banner locally too
-        dismissBanner();
-        // Play a test sound to confirm
-        try { playNotificationSound(); } catch {}
-      } else if (notificationPermission === 'denied') {
-        // Show instructions for denied state
-        setShowIOSInstructions(true);
       }
+      const pushReady = await updatePreferences({ browser_notifications_enabled: true });
+      if (!pushReady) {
+        setPushIssue('registration');
+        return;
+      }
+      setPushIssue('');
+      dismissBanner();
+      playNotificationSound();
     } catch (error) {
-      console.error('Error requesting notification permission:', error);
+      console.error('Error enabling notifications:', error);
+      setPushIssue('registration');
     } finally {
       setIsRequesting(false);
     }
   };
 
-  const handleDismiss = async () => {
-    // If checkbox is checked, save to database permanently
-    if (dontShowAgain) {
-      await updatePreferences({ banner_permanently_hidden: true });
-    }
+  const handleDismiss = () => {
+    // Hide immediately, even while the network is slow or saving fails.
     dismissBanner();
+    if (dontShowAgain) void updatePreferences({ banner_permanently_hidden: true });
   };
 
-  if (!shouldShowBanner) {
-    return null;
-  }
+  if (!shouldShowBanner) return null;
 
   return (
-    <Card className="mb-4 border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20">
+    <Card className="mb-4 border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20"
+      role="region" aria-labelledby="notification-permission-title">
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0">
-            {notificationPermission === 'denied' ? (
-              <BellOff className="h-5 w-5 text-orange-600" />
-            ) : (
-              <Bell className="h-5 w-5 text-orange-600" />
-            )}
-          </div>
-          
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-medium text-orange-800 dark:text-orange-200">
+          {notificationPermission === 'denied'
+            ? <BellOff className="mt-1 h-5 w-5 shrink-0 text-orange-600" aria-hidden="true" />
+            : <Bell className="mt-1 h-5 w-5 shrink-0 text-orange-600" aria-hidden="true" />}
+          <div className="min-w-0 flex-1">
+            <h3 id="notification-permission-title" className="text-sm font-medium text-orange-800 dark:text-orange-200">
               {t('notifications.enableTitle')}
             </h3>
             <p className="mt-1 text-sm text-orange-700 dark:text-orange-300">
-              {t('notifications.enableDescription')}
+              {t('notificationSetup.description')}
             </p>
-            
-            {/* iOS instructions or denied state instructions */}
-            {(showIOSInstructions || isIOSNonStandalone) && (
-              <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
-                <div className="flex items-center gap-2">
-                  <Smartphone className="h-4 w-4 text-blue-600" />
-                  <span className="text-xs font-medium text-blue-800 dark:text-blue-200">
-                    {isIOSNonStandalone 
-                      ? t('notifications.iosInstructions')
-                      : t('notifications.deniedInstructions')}
-                  </span>
-                </div>
-                <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                  {isIOSNonStandalone 
-                    ? t('notifications.iosSteps')
-                    : t('notifications.deniedSteps')}
-                </p>
-              </div>
+            {device.needsInstall && (
+              <p className="mt-2 text-sm text-orange-800 dark:text-orange-200">{t('notificationSetup.iosBrowser')}</p>
             )}
-
-            {notificationPermission === 'denied' && !isIOSNonStandalone && (
-              <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-200 dark:border-red-800">
-                <p className="text-xs text-red-700 dark:text-red-300">
-                  {t('notifications.deniedInstructions')}
-                </p>
-              </div>
-            )}
-
             {!!pushIssue && (
-              <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300">
-                Background notifications unavailable: {pushIssue} Open Settings → Notifications to check or repair this iPhone.
-              </p>
+              <p role="status" className="mt-2 text-sm text-red-700 dark:text-red-300">{t('notificationSetup.failed')}</p>
             )}
-
-            {/* Don't show again checkbox */}
-            <div className="flex items-center gap-2 mt-3">
-              <Checkbox 
-                id="dont-show-notifications"
-                checked={dontShowAgain}
-                onCheckedChange={(checked) => setDontShowAgain(checked === true)}
-              />
-              <label 
-                htmlFor="dont-show-notifications" 
-                className="text-xs text-muted-foreground cursor-pointer"
-              >
-                {t('notifications.dontShowAgain')}
-              </label>
-            </div>
           </div>
-          
-          <div className="flex gap-2 flex-shrink-0">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleDismiss}
-              className="text-xs h-8 w-8 p-0"
-              title={t('common.dismiss')}
-            >
-              <X className="h-4 w-4" />
+          <Button type="button" variant="ghost" size="icon" onClick={handleDismiss}
+            className="h-11 w-11 shrink-0" aria-label={t('notifications.dismiss')}>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <Checkbox id="dont-show-notifications" checked={dontShowAgain}
+            onCheckedChange={(checked) => setDontShowAgain(checked === true)} />
+          <label htmlFor="dont-show-notifications" className="cursor-pointer py-1 text-xs text-muted-foreground">
+            {t('notifications.dontShowAgain')}
+          </label>
+        </div>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Button type="button" onClick={handleEnableNotifications} disabled={isRequesting}
+            className="h-auto min-h-11 whitespace-normal bg-orange-600 px-3 py-2 text-white hover:bg-orange-700">
+            {isRequesting ? t('notificationSetup.enabling')
+              : device.needsInstall ? t('notificationSetup.install')
+              : needsSettings ? t('notificationSetup.settings')
+              : pushIssue && notificationPermission === 'granted' ? t('notificationSetup.repair')
+              : t('notificationSetup.enable')}
+          </Button>
+          {!needsSettings && (
+            <Button type="button" variant="outline" onClick={openNotificationSettings}
+              className="h-auto min-h-11 whitespace-normal px-3 py-2">
+              <Settings className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+              {t('notificationSetup.settings')}
             </Button>
-            {notificationPermission !== 'denied' && !isIOSNonStandalone && (
-              <Button
-                size="sm"
-                onClick={handleEnableNotifications}
-                disabled={isRequesting}
-                className="text-xs bg-orange-600 hover:bg-orange-700 text-white"
-              >
-                {isRequesting ? '...' : pushIssue && notificationPermission === 'granted' ? 'Repair notifications' : t('notifications.enable')}
-              </Button>
-            )}
-            {isIOSNonStandalone && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleDismiss}
-                className="text-xs"
-              >
-                {t('common.gotIt')}
-              </Button>
-            )}
-          </div>
+          )}
+          <Button type="button" variant="ghost" onClick={handleDismiss} className="min-h-11">
+            {t('notifications.gotIt')}
+          </Button>
         </div>
       </CardContent>
     </Card>

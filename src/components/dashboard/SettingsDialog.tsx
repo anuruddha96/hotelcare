@@ -17,7 +17,9 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { useTranslation } from '@/hooks/useTranslation';
 import { BrowserLocationHelpDialog } from './BrowserLocationHelpDialog';
-import { ensurePushSubscription, isWebPushSupported } from '@/lib/pushSubscriptionManager';
+import { ensurePushSubscription } from '@/lib/pushSubscriptionManager';
+import { getNotificationEnvironment } from '@/lib/notificationPlatform';
+import { NotificationSetupHelp } from './NotificationSetupHelp';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -30,7 +32,8 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
   const { profile } = useAuth();
   const { t } = useTranslation();
   const { requestNotificationPermission, notificationPermission, playNotificationSound, ensureAudioUnlocked } = useNotifications();
-  const { preferences, updatePreferences, clearBannerDismissal } = useNotificationPreferences();
+  const { preferences, updatePreferences, dismissBanner } = useNotificationPreferences();
+  const device = getNotificationEnvironment();
   const [isLoading, setIsLoading] = useState(false);
   const [isTogglingNotifications, setIsTogglingNotifications] = useState(false);
   const [pushStatus, setPushStatus] = useState<'checking' | 'ready' | 'disabled' | 'error'>('checking');
@@ -159,7 +162,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
   // A user's iPhone may have permission but no active Apple Push endpoint.
   useEffect(() => {
     if (!open || activeTab !== 'notifications') return;
-    if (!preferences.browser_notifications_enabled || notificationPermission !== 'granted') {
+    if (!preferences.browser_notifications_enabled || notificationPermission !== 'granted' || !device.canRequest) {
       setPushStatus('disabled');
       return;
     }
@@ -175,13 +178,13 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
       setPushStatusError(error instanceof Error ? error.message : 'Could not register this device.');
     });
     return () => { cancelled = true; };
-  }, [open, activeTab, preferences.browser_notifications_enabled, notificationPermission]);
+  }, [open, activeTab, preferences.browser_notifications_enabled, notificationPermission, device.canRequest]);
 
   const handleRepairPush = async () => {
     setIsRepairingPush(true);
     try {
       if (notificationPermission !== 'granted') {
-        toast.error('Allow HotelCare notifications in iPhone Settings first.');
+        toast.error(t('notificationSetup.failed'));
         return;
       }
       if (!preferences.browser_notifications_enabled) {
@@ -192,6 +195,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
       if (!subscription) throw new Error('The phone did not create a push subscription.');
       setPushStatus('ready');
       setPushStatusError('');
+      dismissBanner();
       toast.success('This device was registered again. Send a test push to verify delivery.');
     } catch (error) {
       setPushStatus('error');
@@ -209,23 +213,27 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
       ensureAudioUnlocked();
 
       if (enabled) {
+        if (!device.canRequest || notificationPermission === 'denied') {
+          toast.info(t(device.needsInstall ? 'notificationSetup.iosBrowser' : 'notificationSetup.failed'));
+          return;
+        }
         // Request permission first
         const granted = await requestNotificationPermission();
         if (granted) {
           const registered = await updatePreferences({ browser_notifications_enabled: true });
           if (!registered) {
             setPushStatus('error');
-            setPushStatusError('iOS permission was allowed, but the device is not registered. Use Repair Device below.');
+            setPushStatusError(t('notificationSetup.failed'));
             toast.error('Permission granted, but background push registration failed.');
           } else {
             setPushStatus('ready');
             setPushStatusError('');
-            clearBannerDismissal();
+            dismissBanner();
             toast.success('Device registered for HotelCare push notifications.');
           }
         } else {
           setPushStatus('error');
-          setPushStatusError('Push permission or registration is unavailable. On iPhone, open the installed Home Screen app.');
+          setPushStatusError(t('notificationSetup.failed'));
           toast.error('HotelCare could not enable background push on this device.');
         }
       } else {
@@ -268,7 +276,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
         throw new Error(issue);
       }
       playNotificationSound();
-      toast.success('Test push queued to your devices. Check your iPhone Lock Screen or Notification Center.', { duration: 7000 });
+      toast.success('Test push queued to your devices. Check your device’s notification center.', { duration: 7000 });
     } catch (error) {
       // A rate limit, network error, or server queue failure does not revoke
       // this device's registered subscription. Keep device health separate.
@@ -371,6 +379,14 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                <NotificationSetupHelp permission={notificationPermission} />
+                {device.canRequest && notificationPermission !== 'denied'
+                  && (notificationPermission !== 'granted' || !preferences.browser_notifications_enabled) && (
+                  <Button type="button" className="h-auto min-h-11 w-full whitespace-normal py-2"
+                    disabled={isTogglingNotifications} onClick={() => void handleToggleBrowserNotifications(true)}>
+                    {isTogglingNotifications ? t('notificationSetup.enabling') : t('notificationSetup.enable')}
+                  </Button>
+                )}
                 {/* Browser Notifications Toggle */}
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
@@ -387,7 +403,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
                   <Switch
                     checked={preferences.browser_notifications_enabled && notificationPermission === 'granted'}
                     onCheckedChange={handleToggleBrowserNotifications}
-                    disabled={isTogglingNotifications || notificationPermission === 'denied'}
+                    disabled={isTogglingNotifications || notificationPermission === 'denied' || !device.canRequest}
                   />
                 </div>
 
@@ -419,16 +435,8 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
                       : 'Device is not ready for push notifications'}
                   </p>
                   {pushStatus === 'error' && <p className="text-xs text-destructive">{pushStatusError}</p>}
-                  {!isWebPushSupported() && (
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
-                      On iPhone, install via Share → Add to Home Screen, then open HotelCare from that icon (not a Safari tab). Requires iOS 16.4 or newer.
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Allow HotelCare in iPhone Settings → Notifications. Focus and Silent mode may also affect what you see.
-                  </p>
                   <Button type="button" variant="outline" size="sm"
-                    disabled={isRepairingPush || notificationPermission !== 'granted'}
+                    disabled={isRepairingPush || notificationPermission !== 'granted' || !device.canRequest}
                     onClick={handleRepairPush}
                     className="w-full">
                     {isRepairingPush ? 'Repairing…' : 'Repair / re-register this device'}
@@ -444,7 +452,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab, focusTarget }: 
                     {isTestingPush ? 'Sending…' : 'Send real push test'}
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    The test is sent only to your own registered devices. A successful request means the test was queued, not that iOS displayed it. Check your phone to confirm.
+                    The test is sent only to your own registered devices. A successful request means the test was queued. Check your device to confirm delivery.
                   </p>
                 </div>
               </CardContent>
