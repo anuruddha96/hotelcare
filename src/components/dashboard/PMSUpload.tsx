@@ -1433,13 +1433,6 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
     checkPrevioEnabled();
   }, [selectedHotel, userRole]);
 
-  // Request notification permission on component mount
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
-
   return (
     <Card>
       <CardHeader>

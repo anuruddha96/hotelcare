@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
 import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
+import { notificationSetupTranslations } from '@/lib/notification-setup-translations';
 import { pmsTranslations } from '@/lib/pms-translations';
 import { highlightedTranslations } from '@/lib/highlighted-translations';
 import { screenTranslations } from '@/lib/screen-translations';
@@ -4168,6 +4169,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...flattenBundle(additionalTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(expandedTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(notificationTranslations[lang as keyof typeof notificationTranslations] as Record<string, unknown> | undefined),
+  ...flattenBundle(notificationSetupTranslations[lang]),
   ...flattenBundle(dashboardTranslations[lang as keyof typeof dashboardTranslations] as Record<string, unknown> | undefined),
   ...flattenBundle(pmsTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(highlightedTranslations[lang] as Record<string, unknown> | undefined),

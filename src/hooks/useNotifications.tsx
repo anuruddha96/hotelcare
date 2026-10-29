@@ -5,6 +5,7 @@ import { useAuth } from './useAuth';
 import { useTranslation } from './useTranslation';
 import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
 import { ensurePushSubscription } from '@/lib/pushSubscriptionManager';
+import { getNotificationEnvironment } from '@/lib/notificationPlatform';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import {
   canReceiveHousekeepingOperationalNotifications,
@@ -50,6 +51,38 @@ export function useNotifications() {
     }
   }, []);
 
+  // Each screen has its own hook instance. Refresh them after a system prompt
+  // and when returning from iOS / Android Settings; no page reload is required.
+  useEffect(() => {
+    const refreshPermission = () => {
+      setNotificationPermission(typeof Notification === 'undefined' ? 'default' : Notification.permission);
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshPermission(); };
+    refreshPermission();
+    window.addEventListener('focus', refreshPermission);
+    window.addEventListener('pageshow', refreshPermission);
+    window.addEventListener('hc:notification-permission-changed', refreshPermission);
+    document.addEventListener('visibilitychange', onVisible);
+    let disposed = false;
+    let permissionStatus: PermissionStatus | undefined;
+    // Not all Safari versions expose notification permissions through this API.
+    if (navigator.permissions?.query) {
+      void navigator.permissions.query({ name: 'notifications' as PermissionName }).then(status => {
+        if (disposed) return;
+        permissionStatus = status;
+        status.addEventListener('change', refreshPermission);
+      }).catch(() => { /* Focus / visibility listeners are the fallback. */ });
+    }
+    return () => {
+      disposed = true;
+      window.removeEventListener('focus', refreshPermission);
+      window.removeEventListener('pageshow', refreshPermission);
+      window.removeEventListener('hc:notification-permission-changed', refreshPermission);
+      document.removeEventListener('visibilitychange', onVisible);
+      permissionStatus?.removeEventListener('change', refreshPermission);
+    };
+  }, []);
+
   // Existing users may already have granted browser notification permission from
   // the old foreground-only implementation. Attach the missing PushManager
   // subscription automatically the next time they open HotelCare.
@@ -62,11 +95,17 @@ export function useNotifications() {
   }, [user?.id]);
 
   const requestNotificationPermission = useCallback(async () => {
+    const device = getNotificationEnvironment();
+    if (!device.canRequest) {
+      toast.info(t(device.needsInstall ? 'notificationSetup.iosBrowser' : 'notificationSetup.unsupported'));
+      return false;
+    }
     if (!('Notification' in window)) {
       console.log('Browser does not support notifications');
       return false;
     }
     if (Notification.permission === 'granted') {
+      setNotificationPermission('granted');
       // A user can grant iOS permission but still have HotelCare notifications
       // disabled in account settings. Let the explicit Enable action save that
       // preference FIRST; trying to subscribe before opt-in is a no-op.
@@ -89,21 +128,16 @@ export function useNotifications() {
       }
     }
     if (Notification.permission === 'denied') {
+      setNotificationPermission('denied');
       console.log('Notifications are blocked by user');
       return false;
     }
 
     try {
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true;
-      if (isIOS && !isStandalone) {
-        toast.info(t('notifications.iosInstructions'));
-        setNotificationPermission('default');
-        return false;
-      }
-
+      // Keep this before any await: WebKit / Firefox require the button's gesture.
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
+      window.dispatchEvent(new Event('hc:notification-permission-changed'));
 
       if (user?.id && permission === 'granted') {
         // Persist the opt-in BEFORE calling ensurePushSubscription: the
@@ -251,15 +285,8 @@ export function useNotifications() {
     const brandedTitle = title ? `Hotel Care · ${title}` : 'Hotel Care';
     if (title && notificationPermission === 'granted') {
       await showBrowserNotification(brandedTitle, message);
-    } else if (notificationPermission === 'default' && title) {
-      try {
-        const granted = await requestNotificationPermission();
-        if (granted) await showBrowserNotification(brandedTitle, message);
-      } catch (error) {
-        console.log('Failed to request notification permission:', error);
-      }
     }
-  }, [playNotificationSound, showBrowserNotification, notificationPermission, requestNotificationPermission]);
+  }, [playNotificationSound, showBrowserNotification, notificationPermission]);
 
   // Personal room assignments still reach housekeepers/staff, but executive
   // roles are explicitly excluded even if a room is accidentally assigned to
