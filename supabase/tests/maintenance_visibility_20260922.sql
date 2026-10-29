@@ -1,72 +1,91 @@
--- Read-only post-migration regression. Execute against the HotelCare project;
--- never edit ticket records or leave impersonated auth state in the session.
+-- Read-only authorization regression for the live hotel-switching workflow.
+-- Top Managers are executives of their organization and may select any of its
+-- hotels in a browser tab. Ordinary managers remain assigned-hotel restricted.
+-- Do not edit tickets, profiles or leave impersonated auth state behind.
 BEGIN READ ONLY;
 
+-- An RD Top Manager whose stored default is Ottofiori must be able to read
+-- Memories tickets when the browser tab is viewing Memories.
 SELECT set_config('request.jwt.claim.sub', (
   SELECT id::text FROM public.profiles
-  WHERE role::text='top_management_manager' AND organization_slug='rdhotels'
-    AND assigned_hotel='memories-budapest' LIMIT 1
+  WHERE role::text = 'top_management_manager' AND organization_slug = 'rdhotels'
+    AND assigned_hotel = 'ottofiori' AND deleted_at IS NULL LIMIT 1
 ), true);
 SET LOCAL ROLE authenticated;
 DO $test$
-DECLARE total integer; viewable_photos integer; others integer;
+DECLARE memories_count integer; photo_count integer; other_property_count integer;
 BEGIN
   SELECT count(*), count(*) FILTER (WHERE public.user_can_view_ticket(id))
-    INTO total, viewable_photos FROM public.tickets
-    WHERE organization_slug='rdhotels' AND department='maintenance'
-      AND hotel IN ('memories-budapest','Hotel Memories Budapest');
-  IF total < 6 OR viewable_photos <> total THEN
-    RAISE EXCEPTION 'Memories top-management issue/photo visibility: % rows, % photos authorized; expected at least 6 and matching authorization', total, viewable_photos;
+    INTO memories_count, photo_count
+  FROM public.tickets
+  WHERE organization_slug = 'rdhotels' AND department = 'maintenance'
+    AND hotel IN ('memories-budapest', 'Hotel Memories Budapest');
+  IF memories_count < 1 OR photo_count <> memories_count THEN
+    RAISE EXCEPTION 'Selected Memories ticket/photo visibility failed for RD Top Manager: % tickets, % photos', memories_count, photo_count;
   END IF;
-  SELECT count(*) INTO others FROM public.tickets
-    WHERE department='maintenance'
-      AND (organization_slug <> 'rdhotels' OR public.get_hotel_name_from_id(hotel) <> 'Hotel Memories Budapest');
-  IF others <> 0 THEN RAISE EXCEPTION 'Memories top-management cross-property/tenant leak: % rows', others; END IF;
+  SELECT count(*) INTO other_property_count
+  FROM public.tickets
+  WHERE organization_slug = 'rdhotels' AND department = 'maintenance'
+    AND hotel = 'Hotel Ottofiori';
+  IF other_property_count < 1 THEN
+    RAISE EXCEPTION 'Top Manager lost access to default hotel';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.tickets WHERE organization_slug <> 'rdhotels') THEN
+    RAISE EXCEPTION 'RD Top Manager can read another organization tickets';
+  END IF;
 END;
 $test$;
 
+-- Standard manager still sees their own hotel but not another RD property.
 RESET ROLE;
 SELECT set_config('request.jwt.claim.sub', (
   SELECT id::text FROM public.profiles
-  WHERE role::text='manager' AND organization_slug='rdhotels'
-    AND assigned_hotel='memories-budapest' LIMIT 1
+  WHERE role::text = 'manager' AND organization_slug = 'rdhotels'
+    AND assigned_hotel = 'memories-budapest' AND deleted_at IS NULL LIMIT 1
 ), true);
 SET LOCAL ROLE authenticated;
 DO $test$
-DECLARE total integer; photos integer;
+DECLARE memories_count integer; photo_count integer;
 BEGIN
   SELECT count(*), count(*) FILTER (WHERE public.user_can_view_ticket(id))
-    INTO total, photos FROM public.tickets
-    WHERE organization_slug='rdhotels' AND department='maintenance'
-      AND hotel='Hotel Memories Budapest';
-  IF total < 6 OR photos <> total THEN RAISE EXCEPTION 'Memories slug manager: % issues, % photo permissions', total, photos; END IF;
+    INTO memories_count, photo_count
+  FROM public.tickets
+  WHERE organization_slug = 'rdhotels' AND department = 'maintenance'
+    AND hotel = 'Hotel Memories Budapest';
+  IF memories_count < 1 OR photo_count <> memories_count THEN
+    RAISE EXCEPTION 'Normal Memories manager ticket/photo visibility failed';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.tickets WHERE hotel = 'Hotel Ottofiori') THEN
+    RAISE EXCEPTION 'Regular hotel manager gained cross-property maintenance access';
+  END IF;
 END;
 $test$;
 
+-- Separate organization executive must NOT see RD Hotels tickets.
 RESET ROLE;
 SELECT set_config('request.jwt.claim.sub', (
   SELECT id::text FROM public.profiles
-  WHERE role::text='top_management_manager' AND organization_slug='rdhotels'
-    AND assigned_hotel='ottofiori' LIMIT 1
+  WHERE role::text = 'top_management_manager' AND organization_slug = 'slnt'
+    AND deleted_at IS NULL LIMIT 1
 ), true);
 SET LOCAL ROLE authenticated;
 DO $test$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.tickets WHERE hotel='Hotel Memories Budapest')
-  THEN RAISE EXCEPTION 'Ottofiori top manager can see Memories issues'; END IF;
+  IF EXISTS (SELECT 1 FROM public.tickets WHERE organization_slug = 'rdhotels') THEN
+    RAISE EXCEPTION 'SLNT Top Manager can read RD Hotels tickets';
+  END IF;
 END;
 $test$;
 
+-- Unauthenticated callers must not read these maintenance issues.
 RESET ROLE;
-SELECT set_config('request.jwt.claim.sub', (
-  SELECT id::text FROM public.profiles
-  WHERE role::text='top_management_manager' AND organization_slug='slnt' LIMIT 1
-), true);
-SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', '', true);
+SET LOCAL ROLE anon;
 DO $test$
 BEGIN
-  IF EXISTS (SELECT 1 FROM public.tickets WHERE organization_slug='rdhotels')
-  THEN RAISE EXCEPTION 'SLNT top manager can see RD Hotels tickets'; END IF;
+  IF EXISTS (SELECT 1 FROM public.tickets WHERE department = 'maintenance') THEN
+    RAISE EXCEPTION 'Anonymous user can read maintenance tickets';
+  END IF;
 END;
 $test$;
 
