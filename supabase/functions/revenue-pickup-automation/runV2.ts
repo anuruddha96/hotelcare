@@ -1198,6 +1198,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const increases = decisions.filter((d) => d.direction === "increase" && (mode !== "live" ? !d.blocked : queuedDates.has(d.stayDate))).length;
     const decreases = decisions.filter((d) => d.direction === "decrease" && (mode !== "live" ? !d.blocked : queuedDates.has(d.stayDate))).length;
     const held = decisions.length - increases - decreases;
+    // The queue safety gate can reject a whole date after simulation. Only
+    // count cells in a real push run whose date survived that gate.
+    const queuedCellCount = pushRunId
+      ? payload.filter((cell) => queuedDates.has(String(cell.stay_date))).length
+      : 0;
 
     await finish({
       status: budgetHit ? "timed_out" : "completed",
@@ -1205,7 +1210,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       dates_increased: increases,
       dates_decreased: decreases,
       dates_held: held,
-      cells_queued: payload.length,
+      cells_queued: queuedCellCount,
       // The delivery batch this run produced, so the activity feed can show
       // real Previo outcomes instead of "queued and hope".
       push_run_id: pushRunId,
@@ -1238,8 +1243,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const runStatus = budgetHit ? "Run reached its time limit" : "Run completed";
     const delivery = mode === "shadow" || dryRun
       ? `Shadow test only — ${simulatedCells} price cell${simulatedCells === 1 ? " was" : "s were"} simulated and none were sent to Previo.`
-      : payload.length > 0
-        ? `${payload.length} price cell${payload.length === 1 ? " was" : "s were"} queued for Previo.`
+      : queuedCellCount > 0
+        ? `${queuedCellCount} price cell${queuedCellCount === 1 ? " was" : "s were"} queued for Previo.`
         : "No prices needed to be sent to Previo.";
     const ladderNote = ladderRepairs.length > 0
       ? ` Guest-price ladder diagnostics found ${ladderRepairs.length} proposed adjustment${ladderRepairs.length === 1 ? "" : "s"}; automatic ladder repair is safety-blocked, so none were sent to Previo.`
@@ -1268,7 +1273,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       increases,
       decreases,
       held,
-      cells_queued: payload.length,
+      cells_queued: queuedCellCount,
       cells_simulated: simulatedCells,
       ladder_repairs: 0,
       ladder_repairs_suppressed: ladderRepairs.length,
