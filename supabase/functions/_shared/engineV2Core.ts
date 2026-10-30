@@ -367,6 +367,8 @@ export interface DecisionInput {
 
 export interface DecisionSettings {
   now: Date;
+  /** Use saved window caps/waits even when fill mode chooses the intent. */
+  respectConfiguredWindows?: boolean;
   paceBands: PaceBand[];
   windowRules: WindowRule[];
   marketValidation: MarketValidation;
@@ -695,7 +697,7 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   const fill = settings.fill?.enabled ? settings.fill : null;
   const inFillWindow = fill != null && input.daysOut <= Math.max(0, fill.windowDays);
   const baseWin = windowFor(input.daysOut, settings.windowRules);
-  const win = inFillWindow ? fillWindowRule(baseWin) : baseWin;
+  const win = inFillWindow && !settings.respectConfiguredWindows ? fillWindowRule(baseWin) : baseWin;
   const paceTarget = paceTargetFor(input.daysOut, settings.paceBands);
   const gap = paceTarget != null && input.occupancyPct != null
     ? Math.round((input.occupancyPct - paceTarget) * 10) / 10
