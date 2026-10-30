@@ -908,7 +908,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         const month = directorMonths.get(stayDate.slice(0, 7));
         const target = Number(rule.monthly_adr_targets?.[stayDate.slice(0, 7)] ?? rule.adr_target_eur ?? 140);
         const neededRooms = month ? Math.max(0, Math.ceil((month.sold + month.left) * 0.95) - month.sold) : 0;
-        input.dataStale = !occ.capturedAt || (!pmsPreflightConfirmed && now.getTime() - Date.parse(occ.capturedAt) > 6 * 3_600_000);
+        // revenue_latest_snapshots deliberately returns captured_date/rn, not
+        // captured_at. Freshness comes from this run's successful PMS probe;
+        // absence of a field outside that RPC contract is not stale evidence.
+        input.dataStale = !pmsPreflightConfirmed || occ.pct == null || occ.sold == null || occ.left == null;
         decision = decideRevenueDirector(input, settings, {
           targetAdr: target, minimumAdr: 130, projectedAdr: projectedHotelAdr,
           requiredRemainingAdr: month && neededRooms > 0 ? Math.max(0, (target * (month.sold + neededRooms) - month.revenue) / neededRooms) : null,
