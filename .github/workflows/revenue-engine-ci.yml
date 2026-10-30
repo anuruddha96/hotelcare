@@ -4,13 +4,15 @@ on:
   push:
     branches: [main]
     paths:
-      - 'supabase/functions/_shared/engineV2*.ts'
+      - 'supabase/functions/_shared/engineV2*'
+      - 'supabase/functions/revenue-pickup-automation/runV2.ts'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
       - '.github/workflows/revenue-engine-ci.yml'
   pull_request:
     paths:
-      - 'supabase/functions/_shared/engineV2*.ts'
+      - 'supabase/functions/_shared/engineV2*'
+      - 'supabase/functions/revenue-pickup-automation/runV2.ts'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
       - '.github/workflows/revenue-engine-ci.yml'
@@ -28,3 +30,8 @@ jobs:
           deno-version: v2.x
       - name: Run Revenue Engine V2 regression tests
         run: deno test supabase/functions/_shared/engineV2*_test.ts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify revenue director and publication budgets
+        run: node --test supabase/functions/_shared/engineV2*.test.mjs

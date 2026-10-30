@@ -54,6 +54,7 @@ import {
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
 import { loadGuestStep, maxGuestGapFor, repairLadder } from "../_shared/rateSafety.ts";
 import { effectiveDateColumnBounds } from "../_shared/engineV2DateColumnLockstep.ts";
+import { decideRevenueDirector, committedMovement, MOVEMENT_HISTORY_STATUSES } from "../_shared/engineV2RevenueDirector.ts";
 
 
 
@@ -222,6 +223,21 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
   };
 
   try {
+    let pmsPreflightConfirmed = false;
+    // Ottofiori must price the current book, including cancellations, rather
+    // than wait for a UI visit or the nightly full rate refresh. Probe mode
+    // refreshes reservations/occupancy without reconciling or editing rates.
+    if (rule.hotel_id === "ottofiori") {
+      const response = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/previo-revenue-sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
+        body: JSON.stringify({ hotelId: rule.hotel_id, horizonDays, mode: "automation_probe" }),
+      });
+      if (!response.ok) throw new Error(`Ottofiori PMS preflight failed (${response.status}); no price decisions published.`);
+      const result = await response.json();
+      if (result.success !== true || result.error || result.errors?.length) throw new Error("Ottofiori PMS preflight did not confirm fresh reservation data; publication held.");
+      pmsPreflightConfirmed = true;
+    }
     // ---- 1. Refresh the discovery ledger ----------------------------------
     // Every booking night in the horizon gets a permanent "first seen" stamp.
     // A booking is only pickup on the run that first records it, so a full
@@ -237,7 +253,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // Stale data must never become a price change.
     const freshest = nights.reduce<number>((max, n) => Math.max(max, Date.parse(n.captured_at ?? "") || 0), 0);
     const dataAgeHours = freshest > 0 ? (now.getTime() - freshest) / 3_600_000 : null;
-    if (dataAgeHours != null && dataAgeHours > 6) {
+    if (!pmsPreflightConfirmed && dataAgeHours != null && dataAgeHours > 6) {
       await finish({ status: "stopped_stale_data", failure_reason: `Booking data is ${Math.round(dataAgeHours)}h old.` });
       await notifyRun({
         severity: "warning",
@@ -307,7 +323,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .gte("stay_date", today).lte("stay_date", horizonDate)
         .gte("captured_at", since(48)).order("stay_date").range(f, t)),
       deps.pagedAll((f, t) => admin.from("revenue_date_decisions")
-        .select("stay_date, direction, movement, created_at").eq("hotel_id", rule.hotel_id)
+        .select("stay_date, direction, movement, created_at, status").eq("hotel_id", rule.hotel_id)
+        .in("status", [...MOVEMENT_HISTORY_STATUSES])
         .gte("stay_date", today).neq("direction", "hold")
         .gte("created_at", since(96)).order("created_at", { ascending: false }).range(f, t)),
       // Manual protection: manager locks (hard) and ordinary human price edits
@@ -321,8 +338,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       admin.from("revenue_event_applications").select("event_key, stay_date")
         .eq("hotel_id", rule.hotel_id).gte("stay_date", today),
       admin.from("demand_events")
-        .select("id, title, city, venue, event_date, end_date, expected_impact, confidence, approved")
-        .eq("hotel_id", rule.hotel_id).gte("end_date", today).lte("event_date", horizonDate),
+        .select("id, title, city, venue, event_date, end_date, expected_impact, confidence, approved, url")
+        .eq("hotel_id", rule.hotel_id)
+        .or(`end_date.gte.${today},and(end_date.is.null,event_date.gte.${today})`).lte("event_date", horizonDate),
       admin.from("room_types")
         .select("name, num_rooms, is_sellable, counts_toward_inventory, base_price_eur, min_price_eur, max_price_eur")
         .eq("hotel_id", rule.hotel_id),
@@ -500,7 +518,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
 
     const occByDate = new Map<string, {
-      pct: number | null; sold: number | null; left: number | null; revenue: number | null;
+      pct: number | null; sold: number | null; left: number | null; revenue: number | null; capturedAt?: string;
     }>();
     const prevOccByDate = new Map<string, number | null>();
     const snapshotRows = (unwrap(snapshotRes) as any[])
@@ -518,6 +536,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       const revenue = Number(row.revenue_eur);
       const adr = Number(row.adr_eur);
       occByDate.set(row.stay_date, {
+        capturedAt: row.captured_at,
         pct,
         sold: Number.isFinite(sold) ? sold : null,
         left: Number.isFinite(available) && Number.isFinite(sold) ? Math.max(0, available - sold) : null,
@@ -548,6 +567,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const lastDecisionByDate = new Map<string, { direction: string; at: string }>();
     const lastDecreaseByDate = new Map<string, string>();
     for (const row of decisionHistory) {
+      if (!committedMovement(row)) continue;
       if (!lastDecisionByDate.has(row.stay_date)) {
         lastDecisionByDate.set(row.stay_date, { direction: row.direction, at: row.created_at });
       }
@@ -605,6 +625,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // Events: approved, confident, readable, deduplicated, once per date.
     const appliedKeys = new Set(unwrap(appliedEventsRes).map((r: any) => `${r.event_key}|${r.stay_date}`));
     const eventUplift = new Map<string, { key: string; uplift: number }>();
+    const confirmedHighEvents = new Set<string>();
     const seenEventKeys = new Set<string>();
     for (const ev of unwrap(eventsRes) as any[]) {
       if (ev.approved === false) continue;
@@ -618,6 +639,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d.setUTCDate(d.getUTCDate() + 1)) {
         const stayDate = d.toISOString().slice(0, 10);
         if (stayDate < today || stayDate > horizonDate) continue;
+        // Applied events remain demand context after their one-time uplift.
+        if (impact === "high" && Number(ev.confidence ?? 0) >= 0.8 && ev.url) confirmedHighEvents.add(stayDate);
         const key = eventKeyOf(ev, stayDate);
         if (seenEventKeys.has(key)) continue;      // duplicate listing of one event
         if (appliedKeys.has(`${key}|${stayDate}`)) continue; // already paid for
@@ -779,6 +802,29 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       : { byMonth: {}, floors: {}, frozenMonths: [] as string[] };
     const frozenMonths = new Set(monthGuard.frozenMonths);
 
+    // ADR is managed across the hotel: strong nights can fund soft shoulders.
+    // Calculate the remaining realised ADR need at 95% terminal occupancy,
+    // instead of forcing the same rolling seven-day floor onto every date.
+    const directorMonths = new Map<string, { sold: number; left: number; revenue: number }>();
+    let projectedRevenue = 0;
+    let projectedRooms = 0;
+    for (const [date, facts] of occByDate) {
+      if (dayDiff(today, date) > 93) continue;
+      const sold = facts.sold ?? 0;
+      const left = facts.left ?? 0;
+      const ref = (byDate.get(date) ?? []).filter((c) => c.occupancy === 2 && typeAvail.left(c.room_type_name, c.obk_id, date) !== 0)
+        .sort((a, b) => a.price - b.price)[0];
+      const month = date.slice(0, 7);
+      const totals = directorMonths.get(month) ?? { sold: 0, left: 0, revenue: 0 };
+      totals.sold += sold; totals.left += left; totals.revenue += facts.revenue ?? 0;
+      directorMonths.set(month, totals);
+      if (ref || left === 0) {
+        projectedRevenue += (facts.revenue ?? 0) + left * (ref?.price ?? 0) * netFactor;
+        projectedRooms += sold + left;
+      }
+    }
+    const projectedHotelAdr = projectedRooms > 0 ? projectedRevenue / projectedRooms : null;
+
 
 
     // ---- 3. One decision per stay date -------------------------------------
@@ -857,7 +903,20 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       };
 
 
-      const decision = decideDate(input, settings);
+      let decision: Decision;
+      if (rule.hotel_id === "ottofiori") {
+        const month = directorMonths.get(stayDate.slice(0, 7));
+        const target = Number(rule.monthly_adr_targets?.[stayDate.slice(0, 7)] ?? rule.adr_target_eur ?? 140);
+        const neededRooms = month ? Math.max(0, Math.ceil((month.sold + month.left) * 0.95) - month.sold) : 0;
+        input.dataStale = !occ.capturedAt || (!pmsPreflightConfirmed && now.getTime() - Date.parse(occ.capturedAt) > 6 * 3_600_000);
+        decision = decideRevenueDirector(input, settings, {
+          targetAdr: target, minimumAdr: 130, projectedAdr: projectedHotelAdr,
+          requiredRemainingAdr: month && neededRooms > 0 ? Math.max(0, (target * (month.sold + neededRooms) - month.revenue) / neededRooms) : null,
+          netRateFactor: netFactor, confirmedHighEvent: confirmedHighEvents.has(stayDate),
+        });
+      } else {
+        decision = decideDate(input, settings);
+      }
       decisions.push(decision);
       const wasBlocked = decision.blocked;
       if (wasBlocked) skipReasons[decision.reason] = (skipReasons[decision.reason] ?? 0) + 1;
@@ -996,7 +1055,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
 
 
-      const status = decision.blocked ? "held" : (mode === "live" ? "queued" : "shadow");
+      const status = decision.blocked ? "held" : (mode === "live" && !dryRun ? "queued" : "shadow");
       decisionRows.push({
         run_id: runId,
         hotel_id: rule.hotel_id,
@@ -1169,7 +1228,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates).eq("status", "queued");
       // Record event uplifts so an event can never lift the same date twice.
       const eventApplications = decisions
-        .filter((d) => queuedDates.has(d.stayDate) && eventUplift.has(d.stayDate))
+        .filter((d) => queuedDates.has(d.stayDate) && d.reason.includes("+event") && eventUplift.has(d.stayDate))
         .map((d) => ({
           hotel_id: rule.hotel_id,
           organization_slug: rule.organization_slug ?? "",
