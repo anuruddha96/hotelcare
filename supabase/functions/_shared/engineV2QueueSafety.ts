@@ -47,3 +47,41 @@ export function incompleteInsertDates<T extends EngineV2IntentRef>(
   }
   return affected;
 }
+
+/** A demand-led V2 decision must move EVERY mapped price by exactly one
+ * whole-euro amount. Historical room hierarchy inversions are neither fixed
+ * nor deepened by adding the same amount to every cell. Do not let a second
+ * safety pass rewrite a single child price behind the date decision's back.
+ */
+export type EngineV2MoveCell = EngineV2IntentRef & {
+  obk_id?: string | null;
+  old_price: unknown;
+  new_price: unknown;
+};
+
+export function validEngineV2DateMovement(
+  cells: readonly EngineV2MoveCell[],
+  manifest?: { movement?: unknown; expected_cells?: unknown } | null,
+): boolean {
+  const delta = Number(manifest?.movement);
+  const expected = Number(manifest?.expected_cells);
+  if (!Number.isInteger(delta) || delta === 0 || !Number.isInteger(expected) || expected < 1 || cells.length !== expected) {
+    return false;
+  }
+  const keys = new Set<string>();
+  for (const cell of cells) {
+    const oldPrice = Number(cell.old_price);
+    const newPrice = Number(cell.new_price);
+    const guestCount = Number(cell.occupancy);
+    const obk = String(cell.obk_id ?? "").trim();
+    if (!obk || !Number.isInteger(guestCount) || guestCount < 1 ||
+        !Number.isInteger(oldPrice) || !Number.isInteger(newPrice) ||
+        oldPrice <= 0 || newPrice <= 0 || newPrice - oldPrice !== delta) {
+      return false;
+    }
+    const key = `${cell.stay_date}|${obk}|${cell.room_type_name}|${guestCount}`;
+    if (keys.has(key)) return false;
+    keys.add(key);
+  }
+  return true;
+}

@@ -48,10 +48,10 @@ import {
   farOutFloorTopUp,
   farOutFloorTopUpText,
 } from "../_shared/pricingRules.ts";
-import { enforceRateSafety, loadGuestStep, repairLadder } from "../_shared/rateSafety.ts";
+import { enforceRateSafety, partitionByExactRateMappings, loadGuestStep, repairLadder } from "../_shared/rateSafety.ts";
 import { runEngineV2 } from "./runV2.ts";
 import { checkOttofioriMarkdownBudget, MARKDOWN_BUDGET_STATUSES } from "../_shared/engineV2DateBudget.ts";
-import { publishableEngineV2Intents, incompleteInsertDates } from "../_shared/engineV2QueueSafety.ts";
+import { publishableEngineV2Intents, incompleteInsertDates, validEngineV2DateMovement } from "../_shared/engineV2QueueSafety.ts";
 
 
 
@@ -442,18 +442,32 @@ async function queueIntents(
     }
     const safeDates: Array<Record<string, unknown>> = [];
     for (const [stayDate, rows] of byDate) {
-      const safe = await enforceRateSafety(admin, rule.hotel_id, rows as any[]);
+      // Engine V2's date movement is immutable. The generic safety layer can
+      // mutate an existing pending cell in place while repairing room hierarchy
+      // (e.g. €130→€133 becomes €130→€137). That breaks the entire 13-cell
+      // lockstep publisher and caused repeated Ottofiori failures on 31 Oct.
+      // Only check exact PMS mappings here: a uniform addition preserves the
+      // existing occupancy ladder and room-type order without altering either.
+      const mapped = rule.hotel_id === "ottofiori"
+        ? await partitionByExactRateMappings(admin, rule.hotel_id, rows as any[])
+        : null;
+      const safe = mapped
+        ? { changes: mapped.mapped, repairs: [], dropped: mapped.unmapped }
+        : await enforceRateSafety(admin, rule.hotel_id, rows as any[]);
+      const manifest = context.dateManifest[stayDate] as {
+        decision_id?: string | null; movement?: number; expected_cells?: number;
+      } | undefined;
       const changedShape = safe.repairs.length > 0 || safe.dropped.length > 0 || safe.changes.length !== rows.length;
-      if (!changedShape) {
+      const invalidMovement = rule.hotel_id === "ottofiori" && !validEngineV2DateMovement(rows as any[], manifest);
+      if (!changedShape && !invalidMovement) {
         safeDates.push(...rows);
         continue;
       }
-      const manifest = context.dateManifest[stayDate] as { decision_id?: string | null } | undefined;
       if (manifest?.decision_id) {
         await admin.from("revenue_date_decisions").update({
           status: "held",
           decision_reason: "date_integrity",
-          reason_detail: "Held: this date required an individual mapping or ladder repair, so no price from the date was sent.",
+          reason_detail: "Held: missing exact PMS mapping or a non-uniform whole-date price movement; no price from the date was sent.",
         }).eq("id", manifest.decision_id);
       }
       delete context.dateManifest[stayDate];
