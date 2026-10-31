@@ -372,6 +372,8 @@ export interface DecisionSettings {
   paceBands: PaceBand[];
   windowRules: WindowRule[];
   marketValidation: MarketValidation;
+  /** Opt-in €1 market-value tests on soft dates; never synthetic hourly churn. */
+  microPriceTests?: boolean;
   /** Smallest movement worth publishing, in whole euros. */
   minMovementEur: number;
   /** A date may not reverse direction inside this many hours. */
@@ -413,6 +415,7 @@ export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBand
   windowRules: OTTOFIORI_WINDOW_RULES,
   marketValidation: DEFAULT_MARKET_VALIDATION,
   minMovementEur: 3,
+  microPriceTests: false,
   directionChangeHours: 6,
   cancellationWaitMinutes: 60,
   soldOutOccupancyPct: 98,
@@ -739,6 +742,33 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   let intent = inFillWindow
     ? fillIntent(input, win, gap, settings)
     : windowIntent(input, win, gap, settings);
+
+
+  // Optional, evidence-backed €1 price test. Never manufacture hourly rate
+  // churn: a test requires soft pace, a demonstrably high rate versus a fresh
+  // comparable market sample, and no recent reservation. Every downstream
+  // cancellation, manual-edit, cooldown, depth, budget, and price floor still
+  // applies to this ordinary one-euro markdown.
+  if (intent.raw === 0 && settings.microPriceTests === true
+    && input.daysOut >= 8 && input.daysOut <= 93
+    && gap != null && gap <= -4
+    && input.occupancyPct != null && input.occupancyPct < 80
+    && input.roomsRemaining != null && input.roomsRemaining >= 6
+    && Math.max(0, input.pickup24h - input.cancellations24h) === 0
+    && input.cancellations24h === 0
+    && (input.hoursSinceLastPickup == null
+      || input.hoursSinceLastPickup >= Math.max(72, settings.bookedDateBrakeHours ?? 72))
+    && input.market.median != null && input.market.median > 0
+    && input.market.sampleSize >= settings.marketValidation.min_competitors
+    && input.market.ageHours != null
+    && input.market.ageHours <= settings.marketValidation.max_age_hours
+    && current >= Math.ceil(input.market.median * 1.12)) {
+    intent = {
+      raw: -1,
+      reason: "market_value_test",
+      detail: `Measured €1 price test: ${Math.abs(gap)} points behind occupancy pace, ${input.roomsRemaining} rooms left, reference €${current} versus fresh comparable median €${Math.round(input.market.median)}; no recent pickup. Stop at normal safety limits, recover only on real demand.`,
+    };
+  }
 
   // --- ADR-first overrides ---------------------------------------------------
   // 1. Hard ADR stop. A cell sitting under the rate the hotel must load to bank
