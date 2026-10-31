@@ -30,7 +30,7 @@ import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
-import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys, buildHotelRoomsRealtimeFilter } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { compareRoomAuthority, createOverviewLoadGuard } from '@/lib/roomOverviewAuthority';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
@@ -348,42 +348,71 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     };
   }, []);
 
-  // Auto-refresh: realtime subscription on rooms/assignments + visibility-aware polling
-  // Ensures stale checkout flags clear from the UI as soon as the PMS poll updates the DB.
+  // Live changes are restricted to this hotel's canonical + legacy room keys.
+  // Keep the 60s visible-tab reconciliation for missed DELETEs, reconnects and PMS changes.
   useEffect(() => {
     let cancelled = false;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let refreshInFlight = false;
+    let refreshQueued = false;
 
     const safeFetch = () => {
       if (cancelled || document.hidden) return;
-      fetchData(true); // silent: no loading skeleton, no blink
+      if (refreshInFlight) {
+        refreshQueued = true;
+        return;
+      }
+      refreshInFlight = true;
+      void Promise.resolve(fetchDataRef.current(true))
+        .catch((error) => { console.error('Room overview refresh failed', error); })
+        .finally(() => {
+          refreshInFlight = false;
+          // Coalesce bursts into one follow-up, instead of overlapping five
+          // expensive room/assignment/summary requests per Realtime event.
+          if (refreshQueued) {
+            refreshQueued = false;
+            safeFetch();
+          }
+        });
     };
 
-    // Realtime: any change to rooms or today's assignments triggers a refetch (debounced)
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleRefetch = () => {
+      if (cancelled || document.hidden) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(safeFetch, 500);
     };
 
-    const channel = supabase
-      .channel(`room-overview-${hotelName}-${selectedDate}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (payload: any) => {
-        const rowHotel = payload?.new?.hotel ?? payload?.old?.hotel;
-        if (!rowHotel || rowHotel === hotelName) scheduleRefetch();
-        else {
-          void resolveHotelKeys(hotelName).then(keys => {
-            if ((keys.length ? keys : [hotelName]).includes(rowHotel)) scheduleRefetch();
-          });
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, scheduleRefetch)
-      .subscribe();
+    const subscribeToHotel = (keys: string[]) => {
+      if (cancelled) return;
+      channel = supabase
+        .channel('room-overview-' + hotelName + '-' + selectedDate)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'rooms',
+            filter: buildHotelRoomsRealtimeFilter(keys),
+          },
+          scheduleRefetch,
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'room_assignments', filter: 'assignment_date=eq.' + selectedDate },
+          scheduleRefetch,
+        )
+        .subscribe();
+    };
 
-    // Polling fallback every 60s while tab is visible
+    // Resolve aliases once, not on every unrelated room UPDATE. Fallback to
+    // the selected key if the lookup is temporarily unavailable.
+    void resolveHotelKeys(hotelName)
+      .then((keys) => subscribeToHotel(keys.length ? keys : [hotelName]))
+      .catch(() => subscribeToHotel([hotelName]));
+
     pollTimer = setInterval(safeFetch, 60_000);
-
-    // Refresh immediately when the tab becomes visible again
     const onVisible = () => { if (!document.hidden) safeFetch(); };
     document.addEventListener('visibilitychange', onVisible);
 
@@ -391,7 +420,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
       if (debounceTimer) clearTimeout(debounceTimer);
-      supabase.removeChannel(channel);
+      if (channel) void supabase.removeChannel(channel);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [selectedDate, hotelName]);
