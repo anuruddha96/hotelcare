@@ -916,6 +916,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           targetAdr: target, minimumAdr: 130, projectedAdr: projectedHotelAdr,
           requiredRemainingAdr: month && neededRooms > 0 ? Math.max(0, (target * (month.sold + neededRooms) - month.revenue) / neededRooms) : null,
           netRateFactor: netFactor, confirmedHighEvent: confirmedHighEvents.has(stayDate),
+          microPriceTestEnabled: Number(rule.min_movement_eur) === 1,
         });
       } else {
         decision = decideDate(input, settings);
