@@ -74,3 +74,48 @@ test('sold out dates do not change; sparse competitor evidence cannot drive an u
   assert.equal(decideRevenueDirector(input({occupancyPct:100,roomsRemaining:0}),settings,context).reason,'sold_out');
   assert.equal(decideRevenueDirector(input({market:{median:500,sampleSize:1,ageHours:1}}),settings,context).direction,'decrease');
 });
+
+test('opt-in €1 test responds to an overpriced soft date without synthetic churn', () => {
+  const candidate = input({
+    daysOut: 35, occupancyPct: 56, roomsSold: 12, roomsRemaining: 9,
+    currentPrice: 185, campaignStartPrice: 185, recentPeakPrice: 185,
+    hoursSinceLastPickup: 80,
+    market: { median: 150, sampleSize: 4, ageHours: 3 },
+  });
+  const enabled = { ...settings, minMovementEur: 1, maxMarkdownsPerDay: 2 };
+  assert.equal(decideRevenueDirector(candidate, enabled, context).reason, 'on_pace');
+  const testMove = decideRevenueDirector(candidate, enabled, { ...context, microPriceTestEnabled: true });
+  assert.equal(testMove.direction, 'decrease');
+  assert.equal(testMove.movement, -1);
+  assert.equal(testMove.reason, 'revenue_director_fill');
+  assert.match(testMove.reasonDetail, /Measured €1 price test/);
+});
+test('€1 test respects market quality, demand evidence, safety and high events', () => {
+  const candidate = input({
+    daysOut: 35, occupancyPct: 56, roomsSold: 12, roomsRemaining: 9,
+    currentPrice: 185, campaignStartPrice: 185, recentPeakPrice: 185,
+    hoursSinceLastPickup: 80,
+    market: { median: 150, sampleSize: 4, ageHours: 3 },
+  });
+  const enabled = { ...settings, minMovementEur: 1, maxMarkdownsPerDay: 2 };
+  const allow = { ...context, microPriceTestEnabled: true };
+  const noTests = [
+    { market: { median: 150, sampleSize: 1, ageHours: 3 } },
+    { market: { median: 150, sampleSize: 4, ageHours: 90 } },
+    { currentPrice: 160 },
+    { pickup24h: 1 },
+    { hoursSinceLastPickup: 3 },
+    { markdownsToday: 2 },
+    { lastCancellationAt: '2026-10-30T09:30:00Z' },
+    { manualHoldUntil: '2026-10-31T10:00:00Z', holdKind: 'hard' },
+    { movedUpTodayEur: 5 },
+    { occupancyPct: 90, roomsRemaining: 2 },
+  ];
+  for (const patch of noTests) {
+    const decision = decideRevenueDirector({ ...candidate, ...patch }, enabled, allow);
+    assert.notEqual(decision.reasonDetail.includes('Measured €1 price test') && decision.direction === 'decrease', true, JSON.stringify(patch));
+  }
+  assert.notEqual(
+    decideRevenueDirector(candidate, enabled, { ...allow, confirmedHighEvent: true }).direction, 'decrease'
+  );
+});

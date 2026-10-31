@@ -8,6 +8,8 @@ export interface RevenueDirectorContext {
   requiredRemainingAdr: number | null;
   netRateFactor: number;
   confirmedHighEvent: boolean;
+  /** Explicit Ottofiori-only, live-config opt-in for measured €1 tests. */
+  microPriceTestEnabled?: boolean;
 }
 
 /** Only delivered/currently committed proposals consume a cooldown. */
@@ -47,6 +49,7 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
     respectConfiguredWindows: true,
     fill: { ...settings.fill!, enabled: true, windowDays: 93, maxTotalDropPct: settings.fill?.maxTotalDropPct ?? 20 },
     raiseOnAnyPickup: true,
+    microPriceTests: context.microPriceTestEnabled === true && !context.confirmedHighEvent,
     occupancyLiftEnabled: strong,
     occupancyLiftLadder: strong
       ? [{ min_occupancy_pct: 90, min_days_out: 0, pct: 3, min_eur: 5 }, ...(settings.occupancyLiftLadder ?? [])]
