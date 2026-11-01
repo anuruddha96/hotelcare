@@ -43,14 +43,16 @@ AS $capture$
 BEGIN
   -- The source is updated during sync; distinguish meaningful changes from
   -- periodic unchanged refreshes to minimize writes and WAL.
-  IF TG_OP = 'UPDATE' AND (
-    old.value_eur, old.arrival_date, old.checkout_date, old.room_nights,
-    old.source_name, old.kind
-  ) IS NOT DISTINCT FROM (
-    new.value_eur, new.arrival_date, new.checkout_date, new.room_nights,
-    new.source_name, new.kind
-  ) THEN
-    RETURN new;
+  IF TG_OP = 'UPDATE' THEN
+    IF (
+      old.value_eur, old.arrival_date, old.checkout_date, old.room_nights,
+      old.source_name, old.kind
+    ) IS NOT DISTINCT FROM (
+      new.value_eur, new.arrival_date, new.checkout_date, new.room_nights,
+      new.source_name, new.kind
+    ) THEN
+      RETURN new;
+    END IF;
   END IF;
   INSERT INTO public.revenue_booking_value_observations (
     hotel_id,organization_slug,reservation_fingerprint,room_fingerprint,
