@@ -40,7 +40,7 @@ import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/ra
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
-import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
+import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
 import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
 import { useHistoricalRoomRates } from "@/hooks/useHistoricalRoomRates";
 import { allocateRevenueSingleDayEventSlots, buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
@@ -405,11 +405,18 @@ export default function RateStrategyGrid({
    * month and squeezes its columns so all 28-31 days fit without scrolling.
    */
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
-  // Keep the previous three read-only nights visible by default. They are
-  // separate from the 30 future dates and are loaded from saved Previo data.
-  const [showHistory, setShowHistory] = useState(true);
-  const historyRevealed = showHistory && (!monthFilter || monthFilter === today.slice(0, 7));
-  const historical = useHistoricalRoomRates(hotelId, today, historyRevealed);
+  // Only the last three nights load by default; selecting a historical month
+  // replaces those columns with one read-only archived month on explicit demand.
+  const [historyMonth, setHistoryMonth] = useState<string | null>(null);
+  const [historyPickerOpen, setHistoryPickerOpen] = useState(false);
+  const historyRevealed = !historyMonth && (!monthFilter || monthFilter === today.slice(0, 7));
+  const historical = useHistoricalRoomRates(hotelId, today, !!historyMonth || historyRevealed, historyMonth);
+  const displayedEventsByDate = useMemo(() => {
+    if (!historyMonth && !historyRevealed) return eventsByDate;
+    const combined = new Map(eventsByDate ?? []);
+    for (const [date, archived] of historical.eventsByDate) combined.set(date, archived);
+    return combined;
+  }, [eventsByDate, historical.eventsByDate, historyMonth, historyRevealed]);
   const [viewportW, setViewportW] = useState(0);
   useEffect(() => {
     const el = scrollRef.current;
@@ -757,7 +764,7 @@ export default function RateStrategyGrid({
   }, []);
 
 
-  const allDates = useMemo(() => calendarWindow(today, monthFilter, historyRevealed), [today, monthFilter, historyRevealed]);
+  const allDates = useMemo(() => historyMonth ? historicalMonthDates(today, historyMonth) : calendarWindow(today, monthFilter, historyRevealed), [today, historyMonth, monthFilter, historyRevealed]);
 
   /**
    * Header dots follow the SAME stretch of time as the pickup row above them.
@@ -2355,12 +2362,13 @@ export default function RateStrategyGrid({
     return map;
   }, [nights]);
   const dates = useMemo(() => allDates.filter((d) => {
+    if (historyMonth) return d < today; // always show all recorded/calendar days in historical mode
     if (monthFilter && !d.startsWith(monthFilter) && !(historyRevealed && d < today)) return false;
     if (d < today) return historyRevealed;
     if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
     if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
-  }), [allDates, monthFilter, historyRevealed, today, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
+  }), [allDates, historyMonth, monthFilter, historyRevealed, today, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
 
 
   /**
@@ -2369,8 +2377,8 @@ export default function RateStrategyGrid({
    * their full duration and keeps the five strongest overlapping events.
    */
   const eventBands = useMemo(
-    () => buildRevenueEventBands(dates, eventsByDate, 5),
-    [dates, eventsByDate],
+    () => buildRevenueEventBands(dates, displayedEventsByDate, 5),
+    [dates, displayedEventsByDate],
   );
 
   // Multi-day events keep one stable lane for their whole visible span so the
@@ -2430,8 +2438,10 @@ export default function RateStrategyGrid({
   // Navigation is independent of fetched dates: display twelve future month
   // choices without eagerly loading their rate data.
   const monthChips = useMemo(() => nextCalendarMonths(today), [today]);
+  const archiveMonths = useMemo(() => historicalCalendarMonths(today), [today]);
 
   const selectMonth = useCallback((value: string | null) => {
+    setHistoryMonth(null);
     setMonthFilter(value);
     setPickedDates(new Set());
     setSelDates(new Set());
@@ -2457,7 +2467,7 @@ export default function RateStrategyGrid({
     const score = (event: DemandEventDetail) => scoreRevenueEvent(event);
     for (const d of dates) {
       const unique: DemandEventDetail[] = [];
-      for (const event of eventsByDate?.get(d) ?? []) {
+      for (const event of displayedEventsByDate?.get(d) ?? []) {
         const duplicateIndex = unique.findIndex((existing) =>
           sameRevenueEvent(
             { ...existing, start: existing.start ?? d, end: existing.end ?? d },
@@ -2476,7 +2486,7 @@ export default function RateStrategyGrid({
       ));
     }
     return out;
-  }, [eventsByDate, dates]);
+  }, [displayedEventsByDate, dates]);
 
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
@@ -3086,25 +3096,47 @@ export default function RateStrategyGrid({
           <div className="flex items-center gap-1 overflow-x-auto border-b px-2 py-1.5" aria-label="Rate calendar date navigation">
             <Button
               size="sm"
-              variant={monthFilter ? "ghost" : "default"}
+              variant={monthFilter || historyMonth ? "ghost" : "default"}
               className="h-7 shrink-0 px-2 text-[11px]"
               onClick={() => selectMonth(null)}
             >
               Next 30 days
             </Button>
-            {(!monthFilter || monthFilter === today.slice(0, 7)) && (
-              <Button type="button" size="sm" variant={historyRevealed ? "secondary" : "outline"}
-                className="h-7 shrink-0 gap-1 px-2 text-[11px]"
-                aria-pressed={historyRevealed}
-                title={historyRevealed ? "Hide read-only historical dates" : "Reveal previous three dates (read-only)"}
-                onClick={() => {
-                  setShowHistory((visible) => !visible);
-                  requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
-                }}>
-                <History className="h-3.5 w-3.5" />
-                {historyRevealed ? "Hide history" : "Previous 3 days"}
-              </Button>
-            )}
+            <Popover open={historyPickerOpen} onOpenChange={setHistoryPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" size="sm" variant={historyMonth ? "default" : "secondary"}
+                  className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                  aria-label="Browse archived months, last two years"
+                  title="Browse read-only historical prices and events; months load only when selected">
+                  <History className="h-3.5 w-3.5" />
+                  {historyMonth ? archiveMonths.find(m => m.value === historyMonth)?.label : "History · select month"}
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56 p-2" sideOffset={6}>
+                <p className="px-2 pb-2 text-xs text-muted-foreground">Saved prices, occupancy and events. Select a month to load it.</p>
+                <div className="max-h-72 overflow-y-auto" aria-label="Historical months">
+                  {archiveMonths.map(m => (
+                    <Button key={m.value} type="button" variant={historyMonth === m.value ? "secondary" : "ghost"}
+                      size="sm" className="mb-0.5 w-full justify-start text-xs"
+                      onClick={() => {
+                        setHistoryMonth(m.value);
+                        setMonthFilter(null);
+                        setHistoryPickerOpen(false);
+                        setPickedDates(new Set());
+                        setSelDates(new Set());
+                        requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
+                      }}>
+                      {m.label}
+                    </Button>
+                  ))}
+                </div>
+                <Button type="button" variant="outline" size="sm" className="mt-2 w-full text-xs"
+                  onClick={() => { selectMonth(null); setHistoryPickerOpen(false); }}>
+                  Back to next 30 days
+                </Button>
+              </PopoverContent>
+            </Popover>
             {monthChips.map((m) => (
               <div key={m.value} className="contents">
                 <Button
@@ -3136,9 +3168,9 @@ export default function RateStrategyGrid({
               <Loader2 className="h-3 w-3 animate-spin" /> Loading selected calendar dates…
             </div>
           )}
-          {historyRevealed && (historical.loading || historical.error) && (
+          {(historyRevealed || historyMonth) && (historical.loading || historical.error || (historyMonth && !historical.hasRecords)) && (
             <div role="status" className="border-b px-3 py-1 text-xs text-muted-foreground">
-              {historical.loading ? "Loading recorded Previo prices for the previous three dates…" : "Historical prices could not be loaded; no prices have been estimated."}
+              {historical.loading ? "Loading saved historical data…" : historical.error ? "Archived data could not be loaded. No values have been estimated." : "No saved data is available for this month."}
             </div>
           )}
 
@@ -3857,6 +3889,11 @@ export default function RateStrategyGrid({
 
                   {dates.map((d, i) => {
                     if (row.kind === "group") {
+                      if (d < today) return (
+                        <div key={d} title={`${d} · room-type inventory was not recorded separately`}
+                          className="flex shrink-0 items-center justify-center bg-muted/45 text-muted-foreground border-r"
+                          style={{ width: CELL_W, fontSize: fz(11) }}>—</div>
+                      );
                       const units = row.units;
                       const cell = `${row.rawName}|${d}`;
                       const override = invOverride.get(cell);
