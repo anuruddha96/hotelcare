@@ -41,3 +41,28 @@ export function requiredCalendarHorizon(today: string, month: string | null): nu
   const days = Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000) + 1;
   return Math.max(RATE_CALENDAR_DAYS, Math.min(365, days));
 }
+
+
+/** Inclusive two-year history: the current month plus 24 prior month choices.
+ * The actual archive retention boundary is enforced per day. */
+export function historicalCalendarMonths(today: string) {
+  const [year, month] = today.slice(0, 7).split("-").map(Number);
+  return Array.from({ length: 25 }, (_, index) => {
+    const d = new Date(Date.UTC(year, month - 1 - index, 1));
+    const value = d.toISOString().slice(0, 7);
+    const label = d.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+    return { value, label };
+  });
+}
+
+/** Historic months stop at yesterday, never mix in live/editable dates,
+ * and never exceed the same two-year retention period as the database. */
+export function historicalMonthDates(today: string, month: string): string[] {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return [];
+  const [year, monthNum, day] = today.split("-").map(Number);
+  const lowerDate = new Date(Date.UTC(year - 2, monthNum - 1, day)).toISOString().slice(0, 10);
+  const start = `${month}-01`;
+  const end = [monthEnd(month), addDays(today, -1)].sort()[0];
+  if (start > end || end < lowerDate) return [];
+  return dateRange(start < lowerDate ? lowerDate : start, end);
+}
