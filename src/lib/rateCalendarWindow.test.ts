@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "./rateCalendarWindow";
+import { canEditCalendarDate } from "./rateCalendarPresentation";
 
 describe("bounded rate-calendar navigation", () => {
   it("opens on exactly 30 dates, inclusive, even across months", () => {
@@ -55,5 +56,17 @@ describe("bounded rate-calendar navigation", () => {
     expect(crossover.slice(0, 4)).toEqual(["2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"]);
     expect(calendarWindow("2027-01-02", "2027-02", true)[0]).toBe("2027-02-01");
   });
+
+  it("opens on the prior three nights across October–November without changing the 30-night future horizon", () => {
+    const today = "2026-11-01";
+    const dates = calendarWindow(today, null, true);
+    expect(dates).toHaveLength(33);
+    expect(dates.slice(0, 4)).toEqual(["2026-10-29", "2026-10-30", "2026-10-31", today]);
+    expect(dates.at(-1)).toBe("2026-11-30");
+    expect(requiredCalendarHorizon(today, null)).toBe(30);
+    expect(dates.slice(0, 3).every(date => !canEditCalendarDate(date, today, true))).toBe(true);
+    expect(canEditCalendarDate(today, today, true)).toBe(true);
+  });
+
 
 });
