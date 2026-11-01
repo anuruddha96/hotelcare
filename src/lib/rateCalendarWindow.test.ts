@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "./rateCalendarWindow";
+import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "./rateCalendarWindow";
 import { canEditCalendarDate } from "./rateCalendarPresentation";
 
 describe("bounded rate-calendar navigation", () => {
@@ -66,6 +66,26 @@ describe("bounded rate-calendar navigation", () => {
     expect(requiredCalendarHorizon(today, null)).toBe(30);
     expect(dates.slice(0, 3).every(date => !canEditCalendarDate(date, today, true))).toBe(true);
     expect(canEditCalendarDate(today, today, true)).toBe(true);
+  });
+
+
+  it("provides 25 historical month choices covering the previous two years without loading prices", () => {
+    const months = historicalCalendarMonths("2026-11-01");
+    expect(months).toHaveLength(25);
+    expect(months[0]).toEqual({ value: "2026-11", label: "November 2026" });
+    expect(months.at(-1)?.value).toBe("2024-11");
+  });
+
+  it("historical month includes only past, read-only dates and respects retention", () => {
+    const dates = historicalMonthDates("2026-11-18", "2026-11");
+    expect(dates).toHaveLength(17);
+    expect(dates[0]).toBe("2026-11-01");
+    expect(dates.at(-1)).toBe("2026-11-17");
+    expect(historicalMonthDates("2026-11-01", "2026-11")).toEqual([]);
+    expect(historicalMonthDates("2026-11-18", "2026-10")).toHaveLength(31);
+    expect(historicalMonthDates("2026-11-18", "2024-10")).toEqual([]);
+    expect(historicalMonthDates("2026-11-18", "2025-99")).toEqual([]);
+    expect(historicalMonthDates("2026-11-18", "2026-12")).toEqual([]);
   });
 
 
