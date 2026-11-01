@@ -3484,7 +3484,7 @@ export default function RateStrategyGrid({
                             {signedInventoryDelta(manual)}
                           </span>
                         )}
-                        {units > 0 && (
+                        {units > 0 && left !== null && (
                           <span className="mt-0.5 h-1 w-8 rounded-full bg-muted overflow-hidden">
                             <span
                               className="block h-full bg-primary/60"
