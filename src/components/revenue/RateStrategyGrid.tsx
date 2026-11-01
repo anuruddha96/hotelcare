@@ -405,7 +405,9 @@ export default function RateStrategyGrid({
    * month and squeezes its columns so all 28-31 days fit without scrolling.
    */
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
+  // Keep the previous three read-only nights visible by default. They are
+  // separate from the 30 future dates and are loaded from saved Previo data.
+  const [showHistory, setShowHistory] = useState(true);
   const historyRevealed = showHistory && (!monthFilter || monthFilter === today.slice(0, 7));
   const historical = useHistoricalRoomRates(hotelId, today, historyRevealed);
   const [viewportW, setViewportW] = useState(0);
@@ -2431,7 +2433,6 @@ export default function RateStrategyGrid({
 
   const selectMonth = useCallback((value: string | null) => {
     setMonthFilter(value);
-    if (value && value !== today.slice(0, 7)) setShowHistory(false);
     setPickedDates(new Set());
     setSelDates(new Set());
     requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
@@ -3423,16 +3424,19 @@ export default function RateStrategyGrid({
                   </div>
                   {dates.map((d, i) => {
                     const m = metricByDate.get(d);
-                    const pct = m?.occupancyPct ?? 0;
-                    const tone = occupancyTone2(pct, thresholds);
+                    const pct = m?.occupancyPct ?? null;
+                    const tone = pct === null || !Number.isFinite(pct) ? null : occupancyTone2(pct, thresholds);
+                    const recorded = d < today ? historical.kpisByDate.get(d) : null;
                     return (
                       <div
                         key={d}
-                        title={`${m?.roomsSold ?? 0} / ${m?.roomsAvailable ?? 0} rooms · ${tone.label}`}
-                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
+                        title={m
+                          ? `${m.roomsSold} / ${m.roomsAvailable} rooms · ${tone?.label ?? "occupancy unavailable"}${recorded ? ` · recorded ${new Date(recorded.captured_at).toLocaleString()}` : ""}`
+                          : `${d} · no recorded occupancy data`}
+                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone?.className || dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W, fontSize: fz(12), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
-                        {pct ? `${Math.round(pct)}%` : "—"}
+                        {pct === null || !Number.isFinite(pct) ? "—" : `${Math.round(pct)}%`}
                       </div>
                     );
                   })}
@@ -3454,7 +3458,7 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     const m = metricByDate.get(d);
                     const units = m?.roomsAvailable ?? 0;
-                    const left = houseLeftByDate.get(d) ?? m?.roomsLeft ?? 0;
+                    const left = houseLeftByDate.get(d) ?? m?.roomsLeft ?? null;
                     const manual = houseManualAdjustmentByDate.get(d) ?? 0;
                     const closedNotFull = units > 0 && left === 0 && (m?.roomsSold ?? 0) < units;
                     const manualDetails = houseManualAdjustmentDetailsByDate.get(d) ?? [];
@@ -3464,11 +3468,13 @@ export default function RateStrategyGrid({
                     return (
                       <div
                         key={d}
-                        title={`${left} of ${units} rooms available for booking on ${d}. ${m?.roomsSold ?? 0} booked; ${closedNotFull ? "some physical rooms are closed/not priced rather than occupied" : "physical occupancy is counted separately"}${manualDetailLabel ? ` · Previo inventory adjustment: ${manualDetailLabel}` : ""}`}
-                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
+                        title={m && left !== null
+                          ? `${left} of ${units} rooms available for booking on ${d}. ${m.roomsSold} booked; ${d < today ? "based on saved same-day occupancy snapshot" : closedNotFull ? "some physical rooms are closed/not priced rather than occupied" : "physical occupancy is counted separately"}${manualDetailLabel ? ` · Previo inventory adjustment: ${manualDetailLabel}` : ""}`
+                          : `${d} · no recorded inventory data`}
+                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${left === null ? "text-muted-foreground" : leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
-                        <span className="leading-none">{units ? (closedNotFull ? "Closed" : left === 0 ? "Sold out" : left) : "—"}</span>
+                        <span className="leading-none">{units && left !== null ? (closedNotFull ? "Closed" : left === 0 ? "Sold out" : left) : "—"}</span>
                         {manual !== 0 && (
                           <span
                             className="absolute right-1 top-0.5 font-semibold text-destructive"
@@ -3478,7 +3484,7 @@ export default function RateStrategyGrid({
                             {signedInventoryDelta(manual)}
                           </span>
                         )}
-                        {units > 0 && (
+                        {units > 0 && left !== null && (
                           <span className="mt-0.5 h-1 w-8 rounded-full bg-muted overflow-hidden">
                             <span
                               className="block h-full bg-primary/60"
