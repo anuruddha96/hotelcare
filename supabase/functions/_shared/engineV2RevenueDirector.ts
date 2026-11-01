@@ -30,8 +30,11 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
     reason, reasonDetail: detail, capApplied: null, blocked: true,
   });
   if (input.daysOut === 0) return legacyDecision(input, settings);
-  if (input.manualHoldUntil && Date.parse(input.manualHoldUntil) > settings.now.getTime()) {
-    return hold(input.holdKind === "hard" ? "manual_lock" : "manual_hold", "A manager price remains protected until its recorded expiry.");
+  // Hard manager locks are absolute. Soft manual-edit holds instead go to
+  // coreDecision, which protects markdowns but permits a genuine pickup-led
+  // increase. Returning here for both kinds suppressed even safe increases.
+  if (input.holdKind === "hard" && input.manualHoldUntil && Date.parse(input.manualHoldUntil) > settings.now.getTime()) {
+    return hold("manual_lock", "A manager locked this date; no automatic changes are permitted.");
   }
   if (input.occupancyPct == null || input.roomsRemaining == null) return hold("no_occupancy", "Fresh occupancy and remaining-room evidence are required.");
   const netPickup = Math.max(0, input.pickup24h - input.cancellations24h);

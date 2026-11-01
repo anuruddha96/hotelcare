@@ -38,6 +38,22 @@ test('a 90% night with fresh pickup yields upward inside cancellation window', (
   const d = decideRevenueDirector(input({daysOut:4,occupancyPct:90.5,roomsSold:19,roomsRemaining:2,pickup24h:2}),settings,context);
   assert.equal(d.direction,'increase');
 });
+test('genuine pickup may yield during a soft price hold without overriding hard locks', () => {
+  const protectedUntil = '2026-10-31T10:00:00Z';
+  const booking = { daysOut: 4, occupancyPct: 90.5, roomsSold: 19, roomsRemaining: 2, pickup24h: 2 };
+  const soft = decideRevenueDirector(input({ ...booking, manualHoldUntil: protectedUntil, holdKind: 'soft' }), settings, context);
+  assert.equal(soft.direction, 'increase', JSON.stringify(soft));
+  assert.ok(soft.movement > 0);
+  const unchanged = decideRevenueDirector(input({
+    manualHoldUntil: protectedUntil, holdKind: 'soft', pickup24h: 0,
+  }), settings, context);
+  assert.equal(unchanged.direction, 'hold');
+  assert.equal(unchanged.reason, 'manual_hold');
+  const hard = decideRevenueDirector(input({ ...booking, manualHoldUntil: protectedUntil, holdKind: 'hard' }), settings, context);
+  assert.equal(hard.direction, 'hold');
+  assert.equal(hard.reason, 'manual_lock');
+});
+
 test('scarce final-week inventory is never automatically discounted', () => {
   const d = decideRevenueDirector(input({daysOut:4,occupancyPct:95.2,roomsSold:20,roomsRemaining:1}),settings,context);
   assert.notEqual(d.direction,'decrease');

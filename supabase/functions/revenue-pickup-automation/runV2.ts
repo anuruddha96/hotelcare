@@ -1317,13 +1317,24 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       : gate.phase === "live" && gate.paused
         ? ` Automation returned to shadow mode${gate.reason ? `: ${gate.reason}` : "."}`
         : "";
+    // Explain repeated zero-movement runs using the actual date decision ledger.
+    // These are informative holds, not failed Previo publishes; do not present
+    // them as confirmed price changes.
+    const holdExplanation = increases + decreases === 0 && held > 0
+      ? Object.entries(skipReasons)
+        .filter(([, count]) => typeof count === "number" && count > 0)
+        .sort((a, b) => Number(b[1]) - Number(a[1]))
+        .slice(0, 3)
+        .map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`)
+        .join(", ")
+      : "";
     await notifyRun({
       severity: budgetHit ? "warning" : "info",
       pickups: decisions.filter((d) => d.reason.includes("pickup")).length,
       actions: increases + decreases,
       pushed: 0,
       failed: budgetHit ? 1 : 0,
-      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${ladderNote}${activation}`,
+      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${holdExplanation ? ` Top holds: ${holdExplanation}.` : ""}${ladderNote}${activation}`,
     });
 
     return {
