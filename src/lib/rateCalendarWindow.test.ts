@@ -89,4 +89,14 @@ describe("bounded rate-calendar navigation", () => {
   });
 
 
+  it("starts November 2 with October 30, 31 and November 1 visible, while today remains editable", () => {
+    const today = "2026-11-02";
+    const dates = calendarWindow(today, null, true);
+    expect(dates).toHaveLength(33);
+    expect(dates.slice(0, 4)).toEqual(["2026-10-30", "2026-10-31", "2026-11-01", today]);
+    expect(dates.at(-1)).toBe("2026-12-01");
+    expect(dates.slice(0, 3).every(date => !canEditCalendarDate(date, today, true))).toBe(true);
+    expect(canEditCalendarDate(today, today, true)).toBe(true);
+  });
+
 });
