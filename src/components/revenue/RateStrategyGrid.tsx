@@ -226,6 +226,10 @@ function dayEdge(d: string): string {
   if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40";
   return "border-l border-l-border/40";
 }
+/** High-contrast vertical guide for the current Budapest date. */
+function dateColumnEdge(d: string, today: string): string {
+  return d === today ? "border-x-2 border-x-sky-500/70" : dayEdge(d);
+}
 
 /** Zebra shading so a long row of numbers stays trackable.
  *  Friday + Saturday get the stronger weekend fill; Sunday stays visibly
@@ -409,6 +413,7 @@ export default function RateStrategyGrid({
   // replaces those columns with one read-only archived month on explicit demand.
   const [historyMonth, setHistoryMonth] = useState<string | null>(null);
   const [historyPickerOpen, setHistoryPickerOpen] = useState(false);
+  // Always show the previous three read-only nights in the default rolling view.
   const historyRevealed = !historyMonth && (!monthFilter || monthFilter === today.slice(0, 7));
   const historical = useHistoricalRoomRates(hotelId, today, !!historyMonth || historyRevealed, historyMonth);
   const displayedEventsByDate = useMemo(() => {
@@ -2492,6 +2497,28 @@ export default function RateStrategyGrid({
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
     : allRows;
 
+  // On iOS Safari and installed PWAs, restoring a saved horizontal grid offset
+  // can conceal the historical columns even though they were loaded.
+  const hasGridRows = rows.length > 0;
+  useLayoutEffect(() => {
+    const grid = scrollRef.current;
+    if (!grid || !hasGridRows) return;
+    grid.scrollLeft = 0;
+    setVisibleMonth(formatMonth(dates[0] ?? today));
+  }, [hotelId, today, monthFilter, historyMonth, hasGridRows]);
+
+  const scrollToToday = () => {
+    if (historyMonth || monthFilter) {
+      setHistoryMonth(null);
+      setMonthFilter(null);
+      setPickedDates(new Set());
+      setSelDates(new Set());
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ left: 3 * CELL_W, behavior: "smooth" });
+    }));
+  };
+
   /* ---- Free cell-range selection (any room types × any dates) ---- */
 
 
@@ -3092,6 +3119,20 @@ export default function RateStrategyGrid({
           </div>
         ) : (
           <div className="relative">
+          {/* Current date stays visible in the toolbar even when offscreen in the grid. */}
+          <div className="flex items-center justify-between gap-2 border-b px-2 py-1">
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+              {historyMonth ? "Saved month · read-only" : monthFilter && monthFilter !== today.slice(0, 7) ? "Selected future month" : "Previous 3 days shown automatically"}
+            </span>
+            <Button type="button" size="sm" variant="outline"
+              className="h-7 shrink-0 gap-1 border-sky-500/60 bg-sky-50 px-2 text-[11px] font-semibold text-sky-800 hover:bg-sky-100 dark:bg-sky-950/50 dark:text-sky-100"
+              title={`Go to today, ${today} (Budapest date)`}
+              aria-label={`Go to today, ${today}`}
+              onClick={scrollToToday}>
+              <CalendarRange className="h-3.5 w-3.5" />
+              Today · {formatWeekday(today)} {formatDay(today)}
+            </Button>
+          </div>
           {/* Explicit navigation: no infinite load, no hidden extra columns. */}
           <div className="flex items-center gap-1 overflow-x-auto border-b px-2 py-1.5" aria-label="Rate calendar date navigation">
             <Button
@@ -3287,15 +3328,19 @@ export default function RateStrategyGrid({
                           if (!canEditRates || multiMode) return;
                           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDayTool([d]); }
                         }}
-                        title={canEditRates ? (multiMode ? `Tap to add ${d} to the selection` : `Change every price on ${d}`) : d}
-                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                        title={d === today ? `TODAY · ${d} · ${canEditRates ? "Tap to edit today's prices" : "Current Budapest date"}` : canEditRates ? (multiMode ? `Tap to add ${d} to the selection` : `Change every price on ${d}`) : d}
+                        aria-current={d === today ? "date" : undefined}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/25" : d === today ? "bg-sky-100 text-sky-950 dark:bg-sky-900/70 dark:text-sky-50" : dayBg(d, i)} ${dateColumnEdge(d, today)} ${d === today ? "ring-2 ring-inset ring-sky-600" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                         style={{ width: CELL_W, height: DAY_H , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${DAY_H}px` }}
                       >
 
-                        <span className={weekendLabelTone(d)} style={{ fontSize: fz(10) }}>
+                        <span className={d === today ? "font-bold text-sky-800 dark:text-sky-100" : weekendLabelTone(d)} style={{ fontSize: fz(10) }}>
                           {formatWeekday(d)}
                         </span>
                         <span className="font-semibold tabular-nums" style={{ fontSize: fz(12) }}>{formatDay(d)}</span>
+                        {d === today && (
+                          <span className="rounded bg-sky-700 px-1 text-[8px] font-bold leading-tight text-white">TODAY</span>
+                        )}
                         {dayOrigins.length > 0 && (
                           <span
                             className="absolute bottom-0 left-1/2 flex h-3 w-6 -translate-x-1/2 cursor-pointer items-end justify-center gap-[2px]"
@@ -3426,7 +3471,7 @@ export default function RateStrategyGrid({
                         title={pickup === null
                           ? `${d} · pickup not available yet`
                           : `${d} · net ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} in, ${lost} out, counted over ${pickupWindowLabel(pickupWindowDays).toLowerCase()}${latestLabel ? ` · last movement ${latestLabel}` : ""}${isAutomationWindow ? "" : " · the automation reacts to the last 48 hours, so this window can disagree with the purple dots"}`}
-                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
+                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(11), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
@@ -3465,7 +3510,7 @@ export default function RateStrategyGrid({
                         title={m
                           ? `${m.roomsSold} / ${m.roomsAvailable} rooms · ${tone?.label ?? "occupancy unavailable"}${recorded ? ` · recorded ${new Date(recorded.captured_at).toLocaleString()}` : ""}`
                           : `${d} · no recorded occupancy data`}
-                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone?.className || dayBg(d, i)} ${dayEdge(d)}`}
+                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone?.className || dayBg(d, i)} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(12), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         {pct === null || !Number.isFinite(pct) ? "—" : `${Math.round(pct)}%`}
@@ -3503,7 +3548,7 @@ export default function RateStrategyGrid({
                         title={m && left !== null
                           ? `${left} of ${units} rooms available for booking on ${d}. ${m.roomsSold} booked; ${d < today ? "based on saved same-day occupancy snapshot" : closedNotFull ? "some physical rooms are closed/not priced rather than occupied" : "physical occupancy is counted separately"}${manualDetailLabel ? ` · Previo inventory adjustment: ${manualDetailLabel}` : ""}`
                           : `${d} · no recorded inventory data`}
-                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${left === null ? "text-muted-foreground" : leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
+                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${left === null ? "text-muted-foreground" : leftTone(left, units)} ${dayBg(d, i)} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
                         <span className="leading-none">{units && left !== null ? (closedNotFull ? "Closed" : left === 0 ? "Sold out" : left) : "—"}</span>
@@ -3550,7 +3595,7 @@ export default function RateStrategyGrid({
                     const inDrag = !!minDrag && i >= Math.min(minDrag.a, minDrag.b) && i <= Math.max(minDrag.a, minDrag.b);
                     if (editing) {
                       return (
-                        <div key={d} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)}`} style={{ width: CELL_W }}>
+                        <div key={d} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dateColumnEdge(d, today)}`} style={{ width: CELL_W }}>
                           <input
                             autoFocus
                             type="number"
@@ -3591,7 +3636,7 @@ export default function RateStrategyGrid({
                           : `${d} · no minimum stay${canEditRates ? " — tap to set one, drag for a range" : ""}`}
                         className={`flex items-center justify-center shrink-0 tabular-nums ${
                           nights && nights > 1 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-muted-foreground"
-                        } ${dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""} ${
+                        } ${dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:bg-accent/60" : ""} ${
                           inDrag ? "ring-1 ring-inset ring-primary bg-primary/15" : ""
                         }`}
                         style={{ width: CELL_W, fontSize: fz(10), touchAction: canEditRates ? "pan-y" : undefined }}
@@ -3630,7 +3675,7 @@ export default function RateStrategyGrid({
                         title={evs.length
                           ? `${demandLine}\n\nEvents:\n${evs.map(e => `• ${e.title} (${e.impact} impact)`).join("\n")}\n\nClick for details`
                           : `${demandLine}\n\nClick for details`}
-                        className={`relative flex items-center justify-center shrink-0 font-semibold hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, height: "100%", fontSize: fz(10) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
                         {dem ? DEMAND_SHORT[dem.band] : "·"}
@@ -3685,7 +3730,7 @@ export default function RateStrategyGrid({
                   type="button"
                   onClick={() => setDemandDay(d)}
                   aria-label={`Open events for ${d}`}
-                  className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dayEdge(d)}`}
+                  className={`h-full shrink-0 hover:bg-primary/5 ${dayBg(d, i)} ${dateColumnEdge(d, today)}`}
                   style={{ width: CELL_W }}
                 />
               ))}
@@ -3941,7 +3986,7 @@ export default function RateStrategyGrid({
                             : left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : `${row.typeName} · ${left === 0 ? "sold out" : `${left} of ${units} left`} on ${d}${calculated !== undefined ? ` · automatic ${calculated}` : ""}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}${left === 0 && closedAt != null ? ` · last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
-                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
+                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dateColumnEdge(d, today)}`}
                           style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : unpricedKind ? (
@@ -3984,7 +4029,7 @@ export default function RateStrategyGrid({
                         <div
                           key={d}
                           title={value === null ? `${d} · no data` : `${d} · ${eur(value)}`}
-                          className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${dayBg(d, i)} ${dayEdge(d)}`}
+                          className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${dayBg(d, i)} ${dateColumnEdge(d, today)}`}
                           style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {value === null ? eur(null) : priceLabel(value)}
@@ -4153,7 +4198,7 @@ export default function RateStrategyGrid({
                            place the cell's story is told, so the browser
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                          style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
 
                       >
