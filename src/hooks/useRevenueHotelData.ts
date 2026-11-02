@@ -427,6 +427,56 @@ export function useRevenueHotelData(
     return () => window.clearInterval(timer);
   }, [hotelId, refreshAvailability]);
 
+  // Previo can publish new prices while the calendar stays open. Availability
+  // has its own lightweight poll; rates also need freshness detection, otherwise
+  // a previously opened grid can keep showing the last cached price indefinitely.
+  // Poll only the timestamp (one small row), and re-fetch the full grid *only*
+  // when the server has published a newer, reconciled revenue payload.
+  const publishedRefreshQueuedRef = useRef(false);
+  useEffect(() => {
+    if (!hotelId) return;
+    let disposed = false;
+    let checking = false;
+
+    const checkPublishedFreshness = async () => {
+      if (checking || document.visibilityState === "hidden") return;
+      checking = true;
+      try {
+        const { data, error } = await (supabase as any)
+          .from("revenue_sync_state")
+          .select("last_success_at")
+          .eq("hotel_id", hotelId)
+          .maybeSingle();
+        if (error || disposed || currentHotelRef.current !== hotelId) return;
+
+        const publishedAt = data?.last_success_at as string | undefined;
+        if (
+          !publishedAt || !lastSyncAt ||
+          Date.parse(publishedAt) <= Date.parse(lastSyncAt) ||
+          publishedRefreshQueuedRef.current
+        ) return;
+
+        // Preserve edits in progress; collapse consecutive checks into one
+        // pending refresh while a pricing editor is open.
+        publishedRefreshQueuedRef.current = true;
+        runWhenRevenueEditorsClosed(() => {
+          publishedRefreshQueuedRef.current = false;
+          if (!disposed && currentHotelRef.current === hotelId) void runLoad();
+        });
+      } catch {
+        // A failed timestamp poll must not remove previously verified prices.
+      } finally {
+        checking = false;
+      }
+    };
+
+    const timer = window.setInterval(() => { void checkPublishedFreshness(); }, 60_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [hotelId, lastSyncAt, runLoad]);
+
   useEffect(() => {
     if (!hotelId) return;
     const onResume = () => {
