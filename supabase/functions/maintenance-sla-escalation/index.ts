@@ -358,6 +358,23 @@ Deno.serve(async (req) => {
     const rows = (data || []) as unknown as MaintenanceTicket[];
     scanned += rows.length;
 
+    // A successful notification is permanent in claim_maintenance_escalation_event:
+    // the unique key is (ticket_id, escalation_level). Avoid trying to claim
+    // already-sent events individually on every minute of an overdue ticket.
+    // If this lookup fails, retain the RPC's existing authoritative safety gate.
+    const alreadySent = new Set<string>();
+    if (rows.length) {
+      const { data: sentEvents, error: sentError } = await admin
+        .from('maintenance_escalation_events')
+        .select('ticket_id,escalation_level')
+        .in('ticket_id', rows.map(row => row.id))
+        .in('escalation_level', [1, 2])
+        .eq('status', 'sent')
+        .limit(1000);
+      if (sentError) console.warn('Escalation deduplication lookup failed; falling back to claim RPC', sentError.message);
+      else for (const event of sentEvents || []) alreadySent.add(`${event.ticket_id}:${event.escalation_level}`);
+    }
+
     for (const ticket of rows) {
       const setting = settingFor(ticket, (settings || []) as EscalationSetting[], (hotels || []) as Array<{ hotel_id: string; hotel_name: string }>);
       if (!setting || !setting.email_enabled) continue;
@@ -374,6 +391,7 @@ Deno.serve(async (req) => {
 
       for (const candidate of candidates) {
         if (candidate.at.getTime() > now.getTime() || candidate.recipients.length === 0) continue;
+        if (alreadySent.has(`${ticket.id}:${candidate.level}`)) continue;
         const { data: claimId, error: claimError } = await admin.rpc('claim_maintenance_escalation_event', {
           p_ticket_id: ticket.id,
           p_organization_slug: ticket.organization_slug,

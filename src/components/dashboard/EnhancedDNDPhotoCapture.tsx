@@ -8,6 +8,7 @@ import { AlertTriangle, Camera, CheckCircle, DoorOpen, ImagePlus, Smartphone } f
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { compressHousekeepingPhoto } from '@/lib/housekeepingPhotoCompression';
 import { todayBudapest } from '@/lib/budapestTime';
 import { dndRetryTimeLabel, getDndRetryWindow } from '@/lib/dndRetryPolicy';
 import { toast } from 'sonner';
@@ -24,16 +25,7 @@ interface EnhancedDNDPhotoCaptureProps {
 
 type Photo = { id: string; url: string; saved: boolean };
 
-// The native input picker can launch Android's camera even when getUserMedia
-// preview is unavailable. A second picker allows a photo from the gallery.
-// Both options must use precisely the same DND evidence/save path.
-function fileExtension(mime: string): string {
-  if (mime === 'image/png') return 'png';
-  if (mime === 'image/webp') return 'webp';
-  if (mime === 'image/heic') return 'heic';
-  if (mime === 'image/heif') return 'heif';
-  return 'jpg';
-}
+// DND evidence is normalized to JPEG at upload; camera and picker share the same path.
 
 function cameraMessage(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
@@ -200,11 +192,12 @@ export function EnhancedDNDPhotoCapture({
     const localUrl = URL.createObjectURL(blob);
     localUrlsRef.current.add(localUrl);
     setPhotos(previous => [...previous, { id, url: localUrl, saved: false }]);
-    const path = `${user.id}/${roomNumber}/dnd_door_${id}.${fileExtension(blob.type)}`;
+    const path = `${user.id}/${roomNumber}/dnd_door_${id}.jpg`;
     let recordSaved = false;
     try {
+      const optimized = await compressHousekeepingPhoto(blob);
       const { data, error: uploadError } = await supabase.storage.from('dnd-photos')
-        .upload(path, blob, { contentType: blob.type, cacheControl: '3600', upsert: false });
+        .upload(path, optimized, { contentType: 'image/jpeg', cacheControl: '3600', upsert: false });
       if (uploadError) throw uploadError;
       const publicUrl = supabase.storage.from('dnd-photos').getPublicUrl(data.path).data.publicUrl;
       const { error: recordError } = await supabase.from('dnd_photos').insert({
