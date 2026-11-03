@@ -990,10 +990,12 @@ function buildTools(
         // same arrival shows up under several rows. Dedupe by stay.
         const snapshotQuery = service
           .from("daily_overview_snapshots")
-          .select("hotel_id,business_date,room_label,room_number,arrival_date,departure_date,status,pax,breakfast")
+          .select("hotel_id,business_date,room_label,room_number,arrival_date,departure_date,status,pax,breakfast,captured_at,source")
           .eq("organization_slug", orgSlug)
           .in("hotel_id", ids)
-          .or(`arrival_date.eq.${target},departure_date.eq.${target},business_date.eq.${target}`)
+          .eq("business_date", target)
+          .eq("source", "previo")
+          .order("captured_at", { ascending: false })
           .limit(4000);
         const breakfastQuery = service
           .from("breakfast_roster")
@@ -1009,17 +1011,39 @@ function buildTools(
           .in("hotel_id", ids)
           .or(`check_in_date.eq.${target},check_out_date.eq.${target}`)
           .limit(2000);
-        const [snapshots, breakfast, reservations] = await Promise.all([
+        const historyQuery = service.from("pms_sync_history")
+          .select("hotel_id,sync_status,created_at")
+          .in("hotel_id", ids).eq("sync_type", "reservations")
+          .order("created_at", { ascending: false }).limit(100);
+        const [snapshots, breakfast, reservations, history] = await Promise.all([
           snapshotQuery,
           breakfastQuery,
           reservationsQuery,
+          historyQuery,
         ]);
         if (snapshots.error) throw new Error(`PMS overview lookup failed: ${snapshots.error.message}`);
         if (breakfast.error) throw new Error(`Breakfast lookup failed: ${breakfast.error.message}`);
+        if (reservations.error) throw new Error(`Reservations lookup failed: ${reservations.error.message}`);
+        if (history.error) throw new Error(`Reservation sync status unavailable: ${history.error.message}`);
 
+        // The daily-overview table retains historical observations. Keep the
+        // latest captured batch for EACH hotel on this exact business date.
+        // An older point-in-time observation is not live Previo evidence.
+        const latestByHotel = new Map<string, string>();
+        for (const row of snapshots.data ?? []) {
+          const old = latestByHotel.get(row.hotel_id);
+          if (!old || row.captured_at > old) latestByHotel.set(row.hotel_id, row.captured_at);
+        }
+        const nowMs = Date.now();
+        const freshRows = (snapshots.data ?? []).filter((row: any) => {
+          const last = latestByHotel.get(row.hotel_id);
+          const capture = Date.parse(row.captured_at || "");
+          return row.captured_at === last && Number.isFinite(capture)
+            && capture <= nowMs + 60_000 && nowMs - capture <= 4 * 60 * 60 * 1000;
+        });
         const seen = new Set<string>();
         const stays: any[] = [];
-        for (const row of snapshots.data ?? []) {
+        for (const row of freshRows) {
           const key = [row.hotel_id, row.room_label ?? row.room_number, row.arrival_date, row.departure_date].join("|");
           if (seen.has(key)) continue;
           seen.add(key);
@@ -1042,28 +1066,47 @@ function buildTools(
             .sort((a, b) => String(a.room).localeCompare(String(b.room)));
         const pax = (rows: any[]) => rows.reduce((sum, s) => sum + (Number(s.pax) || 0), 0);
 
-        const reservationRows = reservations.error ? [] : (reservations.data ?? []);
+        const imported = (reservations.data ?? []).filter((row: any) =>
+          ["pending", "confirmed", "checked_in", "checked_out"].includes(row.status));
+        const latestImportByHotel = new Map<string, any>();
+        for (const entry of history.data ?? []) {
+          if (!latestImportByHotel.has(entry.hotel_id)) latestImportByHotel.set(entry.hotel_id, entry);
+        }
+        // A successful ROOM sync does not validate RESERVATIONS. Never turn
+        // months-old bookings into a confident tomorrow-arrivals answer.
+        const freshReservationImport = ids.length > 0 && ids.every((id) => {
+          const item = latestImportByHotel.get(id);
+          const timestamp = Date.parse(item?.created_at ?? "");
+          return item?.sync_status === "success" && Number.isFinite(timestamp)
+            && timestamp <= nowMs && nowMs - timestamp <= 24 * 60 * 60 * 1000;
+        });
+        const hasFreshSnapshot = freshRows.length > 0 && ids.every(id => latestByHotel.has(id));
+        const fromReservations = !hasFreshSnapshot && freshReservationImport;
+        const verified = hasFreshSnapshot || fromReservations;
         return {
           date: target,
           hotels: ids,
-          source: stays.length > 0 ? "previo_daily_overview" : "reservations_table",
-          arrivals: stays.length > 0 ? arrivals.length : reservationRows.filter((r: any) => r.check_in_date === target).length,
-          arrivalGuests: pax(arrivals),
-          departures:
-            stays.length > 0 ? departures.length : reservationRows.filter((r: any) => r.check_out_date === target).length,
-          departureGuests: pax(departures),
-          inHouseRooms: inHouse.length,
-          inHouseGuests: pax(inHouse),
-          arrivalRooms: brief(arrivals).slice(0, 60),
-          departureRooms: brief(departures).slice(0, 60),
+          verified,
+          source: hasFreshSnapshot ? "previo_daily_overview_exact_date"
+            : fromReservations ? "recent_previo_reservation_import" : "unverified",
+          arrivals: hasFreshSnapshot ? arrivals.length
+            : fromReservations ? imported.filter((r: any) => r.check_in_date === target).length : null,
+          arrivalGuests: hasFreshSnapshot ? pax(arrivals) : null,
+          departures: hasFreshSnapshot ? departures.length
+            : fromReservations ? imported.filter((r: any) => r.check_out_date === target).length : null,
+          departureGuests: hasFreshSnapshot ? pax(departures) : null,
+          inHouseRooms: hasFreshSnapshot ? inHouse.length : null,
+          inHouseGuests: hasFreshSnapshot ? pax(inHouse) : null,
+          arrivalRooms: hasFreshSnapshot ? brief(arrivals).slice(0, 60) : [],
+          departureRooms: hasFreshSnapshot ? brief(departures).slice(0, 60) : [],
           breakfastCount: (breakfast.data ?? []).reduce(
             (sum: number, row: any) => sum + (Number(row.breakfast_count) || 0),
             0,
           ),
-          note:
-            stays.length === 0
-              ? "No PMS daily-overview rows for this date — the nightly Previo sync may not have run yet, so counts may be incomplete."
-              : null,
+          note: hasFreshSnapshot
+            ? "These are exact-date PMS daily-overview observations, not independently identified reservation records."
+            : fromReservations ? "Counts use the most recently successful Previo reservation import; individual room details are unavailable from this source."
+            : "Arrival and departure counts unavailable: no fresh Previo daily overview for the selected date and no successful reservation import within 24 hours. Do not report older HotelCare bookings as current.",
         };
       }
     }
