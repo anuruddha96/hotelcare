@@ -79,6 +79,7 @@ import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
 import { isPotentialCheckoutRoom } from '@/lib/nextDayHousekeepingSnapshot';
+import type { OttofioriNightForecast } from '@/lib/ottofioriNextDayForecast';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
@@ -130,6 +131,8 @@ interface AutoRoomAssignmentProps {
   onAssignmentCreated: (roomCount?: number, staffCount?: number) => void;
   planningMode?: 'live' | 'next-day';
   pmsSyncedAt?: string | null;
+  /** Provided only for Ottofiori next-day preparation; null = not verified. */
+  nightForecast?: OttofioriNightForecast | null;
   laundryDutyIds?: readonly string[];
   laundryDutyCommitRevision?: number;
   includeCleanRoomsByDefault?: boolean;
@@ -216,6 +219,7 @@ export function AutoRoomAssignment({
   onAssignmentCreated,
   planningMode = 'live',
   pmsSyncedAt = null,
+  nightForecast,
   laundryDutyIds = EMPTY_LAUNDRY_DUTY,
   laundryDutyCommitRevision = 0,
   includeCleanRoomsByDefault = false,
@@ -2069,9 +2073,31 @@ export function AutoRoomAssignment({
                 <div className={`grid ${isNextDayPlanning ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-3 rounded-lg bg-muted p-3`}>
                   <div className="text-center"><p className="text-2xl font-bold">{effectiveRooms.length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.totalRooms')}</p></div>
                   <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(room => isCheckoutLike(room) && !isPotentialCheckoutRoom(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
-                  {isNextDayPlanning && <div className="text-center"><p className="text-2xl font-bold text-violet-600">{effectiveRooms.filter(isPotentialCheckoutRoom).length}</p><p className="text-xs text-muted-foreground">{nt('unsoldNow')}</p></div>}
+                  {isNextDayPlanning && <div className="text-center">
+                    <p className="text-2xl font-bold text-violet-600">{nightForecast !== undefined
+                      ? (nightForecast?.nightUnbooked ?? '—')
+                      : effectiveRooms.filter(isPotentialCheckoutRoom).length}</p>
+                    <p className="text-xs text-muted-foreground">{nightForecast !== undefined ? `Unbooked ${selectedDate} night` : nt('unsoldNow')}</p>
+                  </div>}
                   <div className="text-center"><p className="text-2xl font-bold text-blue-600">{effectiveRooms.filter(room => !isCheckoutLike(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.daily')}</p></div>
                 </div>
+
+                {isNextDayPlanning && nightForecast !== undefined && (
+                  <div role={nightForecast ? 'status' : 'alert'} className={nightForecast
+                    ? 'rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:bg-sky-950/30 dark:text-sky-100'
+                    : 'rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100'}>
+                    {nightForecast ? (
+                      <>
+                        <p className="font-semibold">Previo {selectedDate} night · {nightForecast.checkIns} check-ins · {nightForecast.nightBooked} booked · {nightForecast.nightUnbooked} unbooked</p>
+                        <p className="mt-1 text-xs">Arriving rooms: {nightForecast.checkInRooms.join(', ') || 'None'}.
+                          The {effectiveRooms.length} rooms above are the morning housekeeping workload, based on guests occupying the previous night.
+                          Unbooked rooms tonight may still need checkout cleaning this morning.</p>
+                      </>
+                    ) : (
+                      <p>Selected-night arrivals and availability could not be independently verified from matching Previo snapshots. The morning housekeeping counts are not an occupancy forecast. Refresh PMS before relying on tonight’s inventory.</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 rounded-lg bg-blue-50 p-3 text-sm dark:bg-blue-950/30">
                   <Clock className="h-4 w-4 text-blue-600" />

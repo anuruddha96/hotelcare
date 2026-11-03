@@ -25,6 +25,10 @@ import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isVerifiedSparseTomorrowSnapshot } from '@/lib/nextDayPmsGateCoverage';
 import {
+  buildOttofioriNightForecast, nextMorningDate,
+  type OttofioriNightForecast,
+} from '@/lib/ottofioriNextDayForecast';
+import {
   ensureTomorrowPmsSnapshot,
   type TomorrowPmsProgressEvent,
   type TomorrowPmsProgressPhase,
@@ -201,6 +205,9 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
   const [stage, setStage] = useState<Stage>('checking');
   const [snapshot, setSnapshot] = useState<TomorrowSnapshotState | null>(null);
   const [summary, setSummary] = useState<PmsDaySummary | null>(null);
+  // Undefined for other properties; null means Ottofiori's night occupancy
+  // could not be independently established from the paired dated snapshots.
+  const [nightForecast, setNightForecast] = useState<OttofioriNightForecast | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [pmsProgress, setPmsProgress] = useState<TomorrowPmsProgressEvent>({
@@ -299,13 +306,49 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         capturedAt: result.capturedAt,
       } : null);
 
+      let confirmedNightForecast: OttofioriNightForecast | null = null;
+      if (canonicalHotelId === 'ottofiori' && resolvedSummary) {
+        const nextMorning = nextMorningDate(expectedTomorrow);
+        const [morningResult, nextMorningResult] = await Promise.all([
+          (supabase as any).from('daily_overview_snapshots')
+            .select('room_number,arrival_date,departure_date,captured_at')
+            .eq('organization_slug', profile.organization_slug)
+            .eq('hotel_id', canonicalHotelId)
+            .eq('business_date', expectedTomorrow).eq('source', 'previo'),
+          (supabase as any).from('daily_overview_snapshots')
+            .select('room_number,arrival_date,departure_date,captured_at')
+            .eq('organization_slug', profile.organization_slug)
+            .eq('hotel_id', canonicalHotelId)
+            .eq('business_date', nextMorning).eq('source', 'previo'),
+        ]);
+        if (morningResult.error || nextMorningResult.error) {
+          console.warn('[Ottofiori night forecast] PMS night evidence unavailable',
+            morningResult.error || nextMorningResult.error);
+        } else {
+          confirmedNightForecast = buildOttofioriNightForecast({
+            selectedDate: expectedTomorrow,
+            physicalRoomCount: result.roomCount,
+            housekeepingMorning: morningResult.data || [],
+            followingMorning: nextMorningResult.data || [],
+          });
+        }
+      }
+      if (current !== generation.current) return;
+
+      setNightForecast(confirmedNightForecast);
       setSummary(resolvedSummary);
       setSnapshot(result);
       setStage('ready');
 
       if (resolvedSummary) {
+        const dayDescription = `${resolvedSummary.checkoutCount} check-outs · ${resolvedSummary.dailyCount} stay-overs`;
+        const nightDescription = canonicalHotelId === 'ottofiori'
+          ? confirmedNightForecast
+            ? ` · ${confirmedNightForecast.checkIns} check-ins · ${confirmedNightForecast.nightBooked} booked ${expectedTomorrow} night · ${confirmedNightForecast.nightUnbooked} unbooked tonight`
+            : ' · next-night occupancy not verified'
+          : ` · ${resolvedSummary.totalRows} morning housekeeping rooms`;
         toast.success(
-          `PMS ${resolvedSummary.date}: ${resolvedSummary.checkoutCount} check-outs · ${resolvedSummary.dailyCount} stay-overs${resolvedSummary.otherCount ? ` · ${resolvedSummary.otherCount} other` : ''} · ${resolvedSummary.totalRows} booked rooms`,
+          `PMS ${resolvedSummary.date}: ${dayDescription}${nightDescription}`,
           { id: `next-day-pms-${canonicalHotelId}-${resolvedSummary.date}` },
         );
       }
@@ -314,6 +357,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       console.error('[NextDayAutoRoomAssignmentGate] PMS preparation failed:', cause);
       setSnapshot(null);
       setSummary(null);
+      setNightForecast(null);
       setError(cause instanceof Error ? cause.message : String(cause));
       setStage('error');
     }
@@ -326,6 +370,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       setStage('checking');
       setSnapshot(null);
       setSummary(null);
+      setNightForecast(null);
       setError(null);
       setElapsedSeconds(0);
       setPmsProgress({ phase: 'checking-cache', attempt: 1, maxAttempts: 3 });
@@ -353,6 +398,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       <AutoRoomAssignmentImpl
         {...props}
         planningMode="next-day"
+        nightForecast={profile?.assigned_hotel?.toLowerCase().includes('ottofiori') ? nightForecast : undefined}
         pmsSyncedAt={summary?.capturedAt || snapshot.capturedAt}
       />
     );
