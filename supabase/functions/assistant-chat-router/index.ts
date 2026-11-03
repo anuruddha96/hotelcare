@@ -753,13 +753,52 @@ async function buildContext(db: any, profile: any, hotels: any[], question: stri
 
   if (scope === "reception") {
     const ids = picked.map((h) => h.hotel_id);
-    const { data } = await db.from("daily_overview_snapshots")
-      .select("hotel_id,business_date,room_label,room_number,arrival_date,departure_date,status,pax,breakfast")
+    // Always interpret relative days in the hotel's timezone. The old query
+    // combined several business dates, so tomorrow's arrivals could be
+    // described using yesterday's or today's room observations.
+    const dateMatch = question.match(/\b20\d{2}-\d{2}-\d{2}\b/);
+    const explicitDate = dateMatch?.[0];
+    const validDate = explicitDate && !Number.isNaN(Date.parse(`${explicitDate}T12:00:00Z`))
+      ? explicitDate : null;
+    const nextDay = /\b(tomorrow|next day|following day|holnap|demain)\b/i.test(question);
+    const requestedDate = validDate ?? (nextDay ? addDays(today, 1) : today);
+    const { data, error } = await db.from("daily_overview_snapshots")
+      .select("hotel_id,business_date,room_label,room_number,arrival_date,departure_date,status,pax,breakfast,captured_at")
       .eq("organization_slug", profile.organization_slug)
       .in("hotel_id", ids)
-      .or(`arrival_date.eq.${today},departure_date.eq.${today},business_date.eq.${today}`)
+      .eq("business_date", requestedDate)
+      .eq("source", "previo")
+      .order("captured_at", { ascending: false })
       .limit(1500);
-    context.reception = data ?? [];
+    if (error) {
+      context.reception = [];
+      context.reception_quality = {
+        business_date: requestedDate, verified: false,
+        note: "Previo daily-overview read failed; do not report arrival or departure counts.",
+      };
+    } else {
+      const latestByHotel = new Map<string, string>();
+      for (const row of data ?? []) {
+        const last = latestByHotel.get(row.hotel_id);
+        if (!last || row.captured_at > last) latestByHotel.set(row.hotel_id, row.captured_at);
+      }
+      const nowMs = Date.now();
+      const fresh = (data ?? []).filter((row: any) => {
+        const ts = Date.parse(row.captured_at || "");
+        return row.captured_at === latestByHotel.get(row.hotel_id)
+          && Number.isFinite(ts) && ts <= nowMs + 60_000
+          && nowMs - ts <= 4 * 60 * 60 * 1000;
+      });
+      const coveredHotels = new Set(fresh.map((row: any) => row.hotel_id));
+      context.reception = fresh;
+      context.reception_quality = {
+        business_date: requestedDate, source: "previo_daily_overview_exact_date",
+        verified: ids.length > 0 && ids.every((id) => coveredHotels.has(id)),
+        covered_hotels: [...coveredHotels],
+        requested_hotels: ids,
+        note: "Counts are exact-date daily-overview observations, not independently verified booking IDs. If verified is false, do not give a definitive check-in count or use stale reservation records.",
+      };
+    }
   }
 
   return context;
@@ -922,7 +961,7 @@ Deno.serve(async (req) => {
 
 CURRENT HOTELCARE CONTEXT is authoritative for this turn and OVERRIDES earlier assistant messages. If an earlier answer claimed data was unavailable but current context contains it, ignore the old claim.
 
-Use Europe/Budapest time exactly. For revenue language:
+Use Europe/Budapest time exactly. For reception/arrival questions, use reception_quality.business_date and only the rows from that exact business date. If reception_quality.verified is false, explain that the arrival count cannot be verified; never mix dates or invent a count from stale bookings. For revenue language:
 - “sales today”, “sold today”, “bookings today” normally means reservations/booking units CREATED today.
 - “sold for today”, “occupancy today” means rooms sold for today’s STAY date.
 - Never replace exact same-day sales with a rolling 48-hour pickup number.
