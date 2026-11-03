@@ -4,7 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { callPrevioXml, hasPrevioCredentials, loadPrevioCredentials, resolvePrevioSecretName } from "../_shared/previoCredentials.ts";
-import { addDays, mapPrevioStatus, parsePrevioReservations, type PrevioReservationRow } from "../_shared/previoReservations.ts";
+import { addDays, isReservationOwnedByImportChunk, mapPrevioStatus, parsePrevioReservations, type PrevioReservationRow } from "../_shared/previoReservations.ts";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 const roles = new Set(["admin", "manager", "reception", "front_office", "top_management", "top_management_manager"]);
@@ -143,6 +143,10 @@ serve(async req => {
         accountReceived += rows.length;
         received += rows.length;
         for (const row of rows) {
+          // Overlapping Previo searches return ongoing stays in more than one
+          // chunk. Import each source booking from its arrival-owning chunk.
+          // Never paper over conflicting duplicates inside a single chunk.
+          if (!isReservationOwnedByImportChunk(row.arrivalDate, from, to, from === window.from)) continue;
           if (row.arrivalDate >= row.departureDate || !row.sourceRef) {
             errors.push("Previo returned an invalid reservation date or reference");
             await writeHistory("failed");
