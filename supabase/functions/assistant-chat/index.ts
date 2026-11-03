@@ -1080,7 +1080,7 @@ function buildTools(
           return item?.sync_status === "success" && Number.isFinite(timestamp)
             && timestamp <= nowMs && nowMs - timestamp <= 24 * 60 * 60 * 1000;
         });
-        const hasFreshSnapshot = freshRows.length > 0 && ids.every(id => latestByHotel.has(id));
+        const hasFreshSnapshot = ids.length > 0 && ids.every(id => freshRows.some((row: any) => row.hotel_id === id));
         const fromReservations = !hasFreshSnapshot && freshReservationImport;
         const verified = hasFreshSnapshot || fromReservations;
         return {
