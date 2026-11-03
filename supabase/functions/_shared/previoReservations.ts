@@ -210,6 +210,27 @@ export function parsePrevioReservations(xml: string): PrevioReservationRow[] {
 }
 
 /**
+ * A searchReservations range is a stay-overlap search: an extended stay may
+ * appear in two adjacent chunks even though it is a single reservation.
+ * Assign each booking to the chunk containing its ARRIVAL date. The first
+ * chunk also admits bookings already in house at the start of the requested
+ * import horizon. This prevents a duplicate booking with changed metadata in
+ * an adjacent response from aborting the entire reservation refresh.
+ *
+ * Conflicting duplicate IDs within their owner chunk still fail closed.
+ */
+export function isReservationOwnedByImportChunk(
+  arrivalDate: string,
+  chunkFrom: string,
+  chunkTo: string,
+  firstChunk: boolean,
+): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(arrivalDate)
+    && arrivalDate < chunkTo
+    && (firstChunk || arrivalDate >= chunkFrom);
+}
+
+/**
  * Map a Previo statusId to a HotelCare reservation status. Only the two
  * status ids proven in existing code (7 = cancelled, 8 = no-show) are mapped
  * to terminal states; everything else is treated as a live confirmed booking.

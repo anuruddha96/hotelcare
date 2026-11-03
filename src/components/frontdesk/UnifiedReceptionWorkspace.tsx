@@ -14,7 +14,7 @@ import { CreateReservationDialog } from '@/components/reservations/CreateReserva
 import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
 import { useTranslation } from '@/hooks/useTranslation';
-import { getLocalDateString } from '@/lib/utils';
+import { todayBudapest, tomorrowBudapest } from '@/lib/budapestTime';
 import { auditReceptionSnapshots, type ReceptionSnapshot } from '@/lib/receptionSnapshotAudit';
 import { reservationGuestLabel, reservationSearchText, RESERVATION_STATUS_COLORS } from '@/lib/reservations';
 
@@ -83,7 +83,9 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewMode>('planner');
   const [createOpen, setCreateOpen] = useState(false);
-  const today = getLocalDateString();
+  const today = todayBudapest();
+  const tomorrow = tomorrowBudapest();
+  const isOttofiori = hotelId?.toLowerCase() === 'ottofiori';
   const keysKey = hotelKeys.join('|');
 
   const fetchAll = useCallback(async () => {
@@ -162,6 +164,9 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const upcomingOnline = useMemo(() => reservations
     .filter((row) => row.check_in_date > today && ['pending', 'confirmed'].includes(row.status) && !['walk_in', 'direct', 'phone', 'email'].includes(String(row.source || '')))
     .sort((a, b) => String(a.check_in_date).localeCompare(String(b.check_in_date))).slice(0, 20), [reservations, today]);
+  const tomorrowCheckIns = useMemo(() => reservations.filter((row) =>
+    row.check_in_date === tomorrow && ['pending', 'confirmed'].includes(row.status),
+  ), [reservations, tomorrow]);
   const lastImportTime = importHistory?.created_at ? Date.parse(importHistory.created_at) : NaN;
   const importStale = !Number.isFinite(lastImportTime) || lastImportTime > Date.now() || Date.now() - lastImportTime > 24 * 60 * 60 * 1000 || importHistory?.sync_status !== 'success';
 
@@ -205,6 +210,12 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </div>
       </details>}
 
+    {isOttofiori && !loadingData && !loadError && importStale && (
+      <div role="alert" className="rounded-md border border-amber-400/60 bg-amber-50/70 dark:bg-amber-950/20 p-3 text-xs space-y-1">
+        <p className="font-semibold">Tomorrow check-ins ({tomorrow}) are not verified against Previo.</p>
+        <p>HotelCare has {tomorrowCheckIns.length} older reservation records for this date, but the latest reservation import has not succeeded. Do not use this number as tomorrow’s arrivals. Use Sync now above, and verify the guest list in Previo until the import succeeds.</p>
+      </div>
+    )}
     <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label="HotelCare records only; not validated against Previo">
       {[
         { label: t('pms.fd.arrivalsRemaining'), value: arrivals.length, icon: LogIn },
@@ -231,7 +242,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         <SideSection title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation} />
         <SideSection title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation} />
         <SideSection title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
-        <SideSection title={t('pms.unified.futureReservations')} icon={CalendarDays} items={upcomingOnline} onOpen={openReservation} />
+        {isOttofiori && <SideSection title={`Tomorrow check-ins · ${tomorrow}${importStale ? ' · unverified' : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
+        <SideSection title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
     </div>
     <CreateReservationDialog open={createOpen} onOpenChange={setCreateOpen} onSuccess={() => { setCreateOpen(false); void fetchAll(); }} />
