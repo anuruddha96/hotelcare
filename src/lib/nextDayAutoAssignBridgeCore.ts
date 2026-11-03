@@ -15,6 +15,7 @@ import {
   type RoomForAssignment,
 } from '@/lib/roomAssignmentAlgorithm';
 import { splitSharedDuration } from '@/lib/nextDayHousekeepingShared';
+import { buildOttofioriNightForecast, nextMorningDate } from '@/lib/ottofioriNextDayForecast';
 
 export const TOMORROW_PMS_REUSE_MS = 15 * 60 * 1000;
 
@@ -250,6 +251,26 @@ async function findReusableSnapshot(args: {
   // incorrectly requiring snapshotRows.length === roomCount.
   if (!roomCount || snapshotRows.length === 0 || capturedTimes.length !== snapshotRows.length
     || snapshotRows.length > roomCount) return null;
+
+  // Ottofiori: tomorrow's housekeeping roster shows LAST NIGHT'S occupancy.
+  // Reuse it only when the following morning snapshot (tomorrow night's stays
+  // and arrivals) was captured in the same Previo batch and reconciles.
+  if (args.hotelId === 'ottofiori') {
+    const { data: nextMorning, error: nightError } = await (supabase as any)
+      .from('daily_overview_snapshots')
+      .select('room_number,arrival_date,departure_date,captured_at')
+      .eq('organization_slug', args.organizationSlug)
+      .eq('hotel_id', args.hotelId)
+      .eq('business_date', nextMorningDate(args.selectedDate))
+      .eq('source', 'previo');
+    if (nightError || !buildOttofioriNightForecast({
+      selectedDate: args.selectedDate,
+      physicalRoomCount: roomCount,
+      housekeepingMorning: snapshotRows,
+      followingMorning: nextMorning || [],
+      maxAgeMs: TOMORROW_PMS_REUSE_MS,
+    })) return null;
+  }
   if (args.hotelId === GOZSDU_COURT_HOTEL_ID) {
     const [todayResult, registryResult] = await Promise.all([
       (supabase as any).from('daily_overview_snapshots').select('room_label,departure_date,captured_at')
@@ -307,11 +328,12 @@ export async function ensureTomorrowPmsSnapshot(
   }
 
   const includePreviousDay = args.hotelId === GOZSDU_COURT_HOTEL_ID;
+  const includeNightForecast = args.hotelId === 'ottofiori';
   const overviewData = await invokeTomorrowDailyOverviewWithRetry({
     ...args,
     fromDate: includePreviousDay ? addIsoDays(args.selectedDate, -1) : args.selectedDate,
-    toDate: addIsoDays(args.selectedDate, 1),
-    days: includePreviousDay ? 2 : 1,
+    toDate: addIsoDays(args.selectedDate, includeNightForecast ? 2 : 1),
+    days: includePreviousDay || includeNightForecast ? 2 : 1,
   });
 
   emitTomorrowPmsProgress(args.onProgress, 'validating-snapshot');
