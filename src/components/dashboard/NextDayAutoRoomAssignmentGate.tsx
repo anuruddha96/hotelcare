@@ -344,7 +344,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         const dayDescription = `${resolvedSummary.checkoutCount} check-outs · ${resolvedSummary.dailyCount} stay-overs`;
         const nightDescription = canonicalHotelId === 'ottofiori'
           ? confirmedNightForecast
-            ? ` · ${confirmedNightForecast.checkIns} check-ins · ${confirmedNightForecast.nightBooked} booked Nov 4 night · ${confirmedNightForecast.nightUnbooked} unbooked tonight`
+            ? ` · ${confirmedNightForecast.checkIns} check-ins · ${confirmedNightForecast.nightBooked} booked ${expectedTomorrow} night · ${confirmedNightForecast.nightUnbooked} unbooked tonight`
             : ' · next-night occupancy not verified'
           : ` · ${resolvedSummary.totalRows} morning housekeeping rooms`;
         toast.success(
