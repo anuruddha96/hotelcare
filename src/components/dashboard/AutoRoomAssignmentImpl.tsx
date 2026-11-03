@@ -2088,13 +2088,13 @@ export function AutoRoomAssignment({
                     : 'rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100'}>
                     {nightForecast ? (
                       <>
-                        <p className="font-semibold">Previo ${selectedDate} night · {nightForecast.checkIns} check-ins · {nightForecast.nightBooked} booked · {nightForecast.nightUnbooked} unbooked</p>
+                        <p className="font-semibold">Previo {selectedDate} night · {nightForecast.checkIns} check-ins · {nightForecast.nightBooked} booked · {nightForecast.nightUnbooked} unbooked</p>
                         <p className="mt-1 text-xs">Arriving rooms: {nightForecast.checkInRooms.join(', ') || 'None'}.
                           The {effectiveRooms.length} rooms above are the morning housekeeping workload, based on guests occupying the previous night.
                           Unbooked rooms tonight may still need checkout cleaning this morning.</p>
                       </>
                     ) : (
-                      <p>Nov 4 night arrivals and availability could not be independently verified from matching Previo snapshots. The morning housekeeping counts are not an occupancy forecast. Refresh PMS before relying on tonight’s inventory.</p>
+                      <p>Selected-night arrivals and availability could not be independently verified from matching Previo snapshots. The morning housekeeping counts are not an occupancy forecast. Refresh PMS before relying on tonight’s inventory.</p>
                     )}
                   </div>
                 )}
