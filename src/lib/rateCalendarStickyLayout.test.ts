@@ -39,7 +39,7 @@ describe('Rate & Pickup frozen summary rows', () => {
     expect(summary).toContain('Occupancy');
     expect(summary).toContain('Left to sell');
     expect(summary).not.toContain('data-rate-event-row="true"');
-    expect(component).toMatch(/<\/div>\s*\{\/\* Everything below the key metrics scrolls normally/);
+    expect(component).toContain('The rate plan and events stay in natural document flow.');
     expect(component.indexOf('data-rate-event-row="true"')).toBeGreaterThan(stickyEnd);
     expect(component).toContain('data-rate-event-timeline="true"');
     expect(component).toContain('const EVENT_ROW_H = showEventBand ? EVENT_LANE_COUNT * EVENT_LANE_H : ROW_H;');
@@ -66,6 +66,39 @@ describe('Portrait and landscape freeze the four summary metrics', () => {
     expect(component).toContain('/* The four key metric rows must remain frozen even when the phone rotates. */');
     expect(layout).toContain('> div > [data-rate-event-row="true"]');
     expect(legacy).toContain('> div > [data-rate-event-row="true"]');
+  });
+});
+
+describe('Compositor-native frozen summary, no per-frame vertical transforms', () => {
+  it('puts one interactive summary in a page-sticky wrapper outside the rate body scroller', () => {
+    const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
+    const wrapper = component.indexOf('data-rate-grid-native-sticky="true"');
+    const surface = component.indexOf('data-rate-grid-sticky-surface="true"', wrapper);
+    const headerPane = component.indexOf('data-rate-grid-header-scroll="true"', surface);
+    const summary = component.indexOf('ref={stickyHeaderRef}', headerPane);
+    const body = component.indexOf('ref={scrollRef}', summary);
+    const events = component.indexOf('data-rate-event-row="true"', body);
+    expect(wrapper).toBeGreaterThan(0);
+    expect(surface).toBeGreaterThan(wrapper);
+    expect(headerPane).toBeGreaterThan(surface);
+    expect(summary).toBeGreaterThan(headerPane);
+    expect(body).toBeGreaterThan(summary);
+    expect(events).toBeGreaterThan(body);
+    expect(component).toContain('style={{ top: expanded ? 0 : stickyAppHeaderH }}');
+    expect(component).not.toContain('rateCalendarPagePinOffset');
+    expect(component).not.toContain('summary.style.transform');
+    expect(component).not.toContain('window.addEventListener("scroll", schedule');
+  });
+
+  it('synchronizes horizontal panning without changing the page vertical scroll', () => {
+    const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
+    expect(component).toContain('header.scrollLeft = body.scrollLeft');
+    expect(component).toContain('body.scrollLeft = header.scrollLeft');
+    expect(component).toContain('height: expanded ? (availGridH');
+    expect(component).toContain(': "auto"');
+    const visual = readFileSync('src/styles/revenue-grid-performance.css', 'utf8');
+    expect(visual).toContain('max-height: none !important');
+    expect(visual).toContain('overscroll-behavior-y: auto !important');
   });
 });
 
