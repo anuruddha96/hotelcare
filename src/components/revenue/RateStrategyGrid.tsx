@@ -1087,7 +1087,7 @@ export default function RateStrategyGrid({
       if (frame) window.cancelAnimationFrame(frame);
       summary.style.removeProperty("transform");
     };
-  }, [expanded, hotelId, rows.length, dates.length, zoom, railed, historyMonth, monthFilter]);
+  }, [expanded, hotelId, zoom, railed, historyMonth, monthFilter]);
 
   useEffect(() => {
     if (!expanded) return;
