@@ -86,7 +86,7 @@
    of all visible event lanes while the date timeline alone clips event cards.
    Do not cap this parent row or its sticky label (the JS computes its height). */
 [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > [data-rate-event-row="true"] {
+  [data-rate-grid-scroll="true"] > div > [data-rate-event-row="true"] {
   height: auto !important;
   min-height: 0 !important;
   max-height: none !important;
