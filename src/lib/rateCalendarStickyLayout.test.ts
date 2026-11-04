@@ -69,8 +69,8 @@ describe('Portrait and landscape freeze the four summary metrics', () => {
   });
 });
 
-describe('Compositor-native frozen summary, no per-frame vertical transforms', () => {
-  it('puts one interactive summary in a page-sticky wrapper outside the rate body scroller', () => {
+describe('Reliable fixed frozen summary without per-frame movement', () => {
+  it('keeps one interactive summary outside the vertically scrolling rate body', () => {
     const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
     const wrapper = component.indexOf('data-rate-grid-native-sticky="true"');
     const surface = component.indexOf('data-rate-grid-sticky-surface="true"', wrapper);
@@ -84,10 +84,16 @@ describe('Compositor-native frozen summary, no per-frame vertical transforms', (
     expect(summary).toBeGreaterThan(headerPane);
     expect(body).toBeGreaterThan(summary);
     expect(events).toBeGreaterThan(body);
-    expect(component).toContain('style={{ top: expanded ? 0 : stickyAppHeaderH }}');
+    expect(component).toContain('ref={stickyPlaceholderRef}');
+    expect(component).toContain('ref={stickySurfaceRef}');
+    expect(component).toContain('shouldPinRateSummary({');
+    expect(component).toContain('surface.style.position = "fixed"');
+    expect(component).toContain('placeholder.style.height =');
+    expect(component).toContain('if (top !== lastTop)');
+    expect(component).not.toContain('stickyAppHeaderH');
     expect(component).not.toContain('rateCalendarPagePinOffset');
     expect(component).not.toContain('summary.style.transform');
-    expect(component).not.toContain('window.addEventListener("scroll", schedule');
+    expect(component).toContain('window.addEventListener("scroll", schedule, { passive: true })');
   });
 
   it('synchronizes horizontal panning without changing the page vertical scroll', () => {
