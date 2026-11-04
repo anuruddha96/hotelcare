@@ -5045,7 +5045,7 @@ export default function RateStrategyGrid({
 
             <div className="space-y-2">
               <div className="space-y-1">
-                <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Increase · EUR</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Increase · {getRevenueCurrency().code}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -5067,7 +5067,7 @@ export default function RateStrategyGrid({
               </div>
 
               <div className="space-y-1">
-                <div className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">Decrease · EUR</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">Decrease · {getRevenueCurrency().code}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
