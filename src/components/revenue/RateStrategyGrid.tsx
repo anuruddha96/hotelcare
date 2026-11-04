@@ -2563,7 +2563,8 @@ export default function RateStrategyGrid({
       if (!surface.isConnected || !lastRateRow.isConnected) return;
 
       const anchor = placeholder.getBoundingClientRect();
-      const appHeaderBottom = Math.max(0, globalHeader?.getBoundingClientRect().bottom ?? 0);
+      // offsetHeight is stable while Safari collapses/expands its browser bar.
+      const appHeaderBottom = Math.max(0, globalHeader?.offsetHeight ?? 0);
       const height = surface.getBoundingClientRect().height;
       const lastRateBottom = lastRateRow.getBoundingClientRect().bottom;
       const active = shouldPinRateSummary({
@@ -2588,8 +2589,8 @@ export default function RateStrategyGrid({
       // During ordinary vertical scrolling these values stay constant, so no
       // styles are written and the fixed summary cannot shake or catch up.
       const top = Math.ceil(appHeaderBottom);
-      const left = Math.round(anchor.left * 100) / 100;
-      const width = Math.round(anchor.width * 100) / 100;
+      const left = Math.round(anchor.left);
+      const width = Math.round(anchor.width);
       if (top !== lastTop) { surface.style.top = `${top}px`; lastTop = top; }
       if (left !== lastLeft) { surface.style.left = `${left}px`; lastLeft = left; }
       if (width !== lastWidth) { surface.style.width = `${width}px`; lastWidth = width; }
