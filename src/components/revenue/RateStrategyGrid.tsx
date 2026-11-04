@@ -4,11 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound, Eye } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -4986,25 +4987,27 @@ export default function RateStrategyGrid({
 
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
 
-        <DialogContent style={{ pointerEvents: "auto" }} className="flex h-[90dvh] max-h-[90dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:h-auto sm:max-h-[85dvh] sm:w-full sm:max-w-lg sm:p-6">
-          <DialogHeader>
-            <DialogTitle className="text-base">
+        <DialogContent style={{ pointerEvents: "auto" }} className="flex h-[92dvh] max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-3 overflow-hidden rounded-2xl border bg-background p-4 text-foreground shadow-2xl sm:h-[86dvh] sm:max-h-[86dvh] sm:w-[min(92vw,960px)] sm:max-w-[960px] sm:p-6">
+          <DialogHeader className="shrink-0 border-b pb-3 pr-8 text-left">
+            <DialogTitle className="text-lg leading-snug text-foreground">
               {selDates.size > 1
                 ? `Change prices for ${dayToolDates.length} selected date${dayToolDates.length === 1 ? "" : "s"}${
                     dayToolDates.length > 1 ? ` (${dayToolDates[0]} … ${dayToolDates[dayToolDates.length - 1]})` : ""
                   }`
                 : `Change prices for ${dayTool}`}
             </DialogTitle>
-
+            <DialogDescription className="text-xs sm:text-sm">
+              Choose an adjustment, check the affected rates, then publish to Previo.
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
-
-            <div className="grid grid-cols-2 gap-2">
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain text-sm md:grid-cols-2 md:gap-5 md:overflow-hidden">
+            <div className="min-w-0 space-y-4 pb-3 md:min-h-0 md:overflow-y-auto md:pr-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">What to do</label>
                 <Select value={dayMode} onValueChange={(v) => setDayMode(v as typeof dayMode)}>
-                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-10 border-border bg-background text-sm font-medium text-foreground"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="percent">Change by %</SelectItem>
                     <SelectItem value="amount">Change by amount</SelectItem>
@@ -5034,21 +5037,27 @@ export default function RateStrategyGrid({
                   value={dayValue}
                   disabled={dayMode === "round"}
                   onChange={(e) => setDayValue(e.target.value)}
-                  className="h-9 text-xs"
+                  className="h-10 border-border bg-background text-sm font-medium text-foreground"
+                  aria-label={dayMode === "percent" ? "Percentage change" : "Price adjustment amount"}
                 />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Increase</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Increase · {getRevenueCurrency().code}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
                       key={`up-${n}`}
                       size="sm"
                       variant={dayMode === "amount" && dayValue === String(n) ? "default" : "outline"}
-                      className="h-8 min-w-[58px] text-[11px]"
+                      className={cn(
+                        "h-9 min-w-[54px] rounded-lg px-2 text-xs font-semibold",
+                        dayMode === "amount" && dayValue === String(n)
+                          ? "ring-2 ring-primary/50 ring-offset-1 ring-offset-background"
+                          : "border-emerald-500/40 bg-emerald-500/5 text-emerald-800 hover:bg-emerald-500/15 dark:text-emerald-200",
+                      )}
                       onClick={() => { setDayMode("amount"); setDayValue(String(n)); }}
                     >
                       +{n}
@@ -5058,14 +5067,19 @@ export default function RateStrategyGrid({
               </div>
 
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">Decrease</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">Decrease · {getRevenueCurrency().code}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
                       key={`down-${n}`}
                       size="sm"
                       variant={dayMode === "amount" && dayValue === String(-n) ? "default" : "outline"}
-                      className="h-8 min-w-[58px] text-[11px]"
+                      className={cn(
+                        "h-9 min-w-[54px] rounded-lg px-2 text-xs font-semibold",
+                        dayMode === "amount" && dayValue === String(-n)
+                          ? "ring-2 ring-primary/50 ring-offset-1 ring-offset-background"
+                          : "border-rose-500/40 bg-rose-500/5 text-rose-800 hover:bg-rose-500/15 dark:text-rose-200",
+                      )}
                       onClick={() => { setDayMode("amount"); setDayValue(String(-n)); }}
                     >
                       −{n}
@@ -5075,8 +5089,8 @@ export default function RateStrategyGrid({
               </div>
 
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Percent · {getRevenueCurrency().code} amounts above
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Percentage presets · {getRevenueCurrency().code} amounts above
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {[
@@ -5089,7 +5103,7 @@ export default function RateStrategyGrid({
                       key={p.label}
                       size="sm"
                       variant={dayMode === "percent" && dayValue === p.value ? "default" : "outline"}
-                      className="h-8 text-[11px]"
+                      className={cn("h-9 rounded-lg px-3 text-xs font-semibold", dayMode === "percent" && dayValue === p.value ? "ring-2 ring-primary/50 ring-offset-1 ring-offset-background" : "border-border bg-background text-foreground")}
                       onClick={() => { setDayMode("percent"); setDayValue(p.value); }}
                     >
                       {p.label}
@@ -5111,7 +5125,7 @@ export default function RateStrategyGrid({
                   disabled={selDates.size > 1}
                   onValueChange={(v) => setDayRange(Number(v))}
                 >
-                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-10 border-border bg-background text-sm font-medium text-foreground"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {[1, 3, 7, 14, 30, 60, 90].map((n) => (
                       <SelectItem key={n} value={String(n)}>{n === 1 ? "This day" : `${n} days`}</SelectItem>
@@ -5123,7 +5137,7 @@ export default function RateStrategyGrid({
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Which days</label>
                 <Select value={dayWeekdays} onValueChange={(v) => setDayWeekdays(v as typeof dayWeekdays)}>
-                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-10 border-border bg-background text-sm font-medium text-foreground"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All days</SelectItem>
                     <SelectItem value="weekend">Weekends only</SelectItem>
@@ -5134,7 +5148,7 @@ export default function RateStrategyGrid({
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Round to</label>
                 <Select value={String(dayRound)} onValueChange={(v) => setDayRound(Number(v))}>
-                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-10 border-border bg-background text-sm font-medium text-foreground"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {[1, 5, 10, 100, 500, 1000].map((n) => (
                       <SelectItem key={n} value={String(n)}>{n === 1 ? "Whole number" : n}</SelectItem>
@@ -5154,7 +5168,7 @@ export default function RateStrategyGrid({
                       key={name}
                       size="sm"
                       variant={on ? "default" : "outline"}
-                      className="h-7 text-[11px]"
+                      className={cn("h-8 rounded-lg text-xs", !on && "bg-background text-foreground")}
                       onClick={() => setDayTypes((prev) => {
                         const next = new Set(prev);
                         if (on) next.delete(name); else next.add(name);
@@ -5168,12 +5182,18 @@ export default function RateStrategyGrid({
               </div>
             </div>
 
-            <div className="rounded-md border bg-muted/30 p-2 text-xs">
-              <p className="font-medium mb-1">
+            </div>
+            <div className="min-w-0 space-y-3 pb-2 md:min-h-0 md:overflow-y-auto md:pl-1">
+            <div className="rounded-xl border bg-muted/20 p-3 text-xs">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-foreground">Price change preview</h3>
+                <span className="rounded-full bg-background px-2 py-1 font-semibold tabular-nums text-foreground">{dayToolChanges.length} rates</span>
+              </div>
+              <p className="font-medium mb-2 text-foreground">
                 {dayToolChanges.length} price{dayToolChanges.length === 1 ? "" : "s"} will change
                 {dayToolDates.length > 1 ? ` across ${dayToolDates.length} days` : ""}
               </p>
-              <div className="max-h-52 overflow-y-auto space-y-1.5">
+              <div className="max-h-[38dvh] space-y-2 overflow-y-auto pr-1 md:max-h-[49dvh]">
                 {(() => {
                   const groups = new Map<string, typeof dayToolChanges>();
                   for (const c of dayToolChanges) {
@@ -5227,11 +5247,12 @@ export default function RateStrategyGrid({
                 )}
               </div>
             )}
+            </div>
           </div>
 
-          <DialogFooter className="mt-3 flex-none gap-2 border-t bg-background pt-3 sm:border-0 sm:pt-0">
-            <Button variant="ghost" onClick={() => setDayTool(null)}>Cancel</Button>
-            <Button onClick={() => void applyDayTool("push")} disabled={saving || dayToolChanges.length === 0}>
+          <DialogFooter className="shrink-0 flex-row items-center justify-end gap-2 border-t bg-background pt-3">
+            <Button variant="outline" className="min-w-[90px] text-foreground" onClick={() => setDayTool(null)}>Cancel</Button>
+            <Button className="min-w-[150px] font-semibold" onClick={() => void applyDayTool("push")} disabled={saving || dayToolChanges.length === 0}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
               {dayResult?.failed ? "Retry" : "Update"} {dayToolChanges.length} price{dayToolChanges.length === 1 ? "" : "s"}
             </Button>
