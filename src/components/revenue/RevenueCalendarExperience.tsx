@@ -274,10 +274,11 @@ const calendarCss = String.raw`
     font-size: 10px !important;
   }
 
+  /* The four key metric rows must remain frozen even when the phone rotates. */
   [data-rate-calendar-device="mobile-landscape"]
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 {
-    position: relative !important;
-    top: auto !important;
+    position: sticky !important;
+    top: 0 !important;
   }
 
   [data-rate-calendar-device="mobile-landscape"]
@@ -289,9 +290,9 @@ const calendarCss = String.raw`
 
   [data-rate-calendar-device="mobile-landscape"]
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(2) {
-    position: sticky !important;
-    top: 0 !important;
-    z-index: 55 !important;
+    position: relative !important;
+    top: auto !important;
+    z-index: 3 !important;
     height: 30px !important;
     min-height: 30px !important;
   }
