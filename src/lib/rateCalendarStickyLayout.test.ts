@@ -112,6 +112,25 @@ describe('Reliable fixed frozen summary without per-frame movement', () => {
   });
 });
 
+describe('Mobile summary dimensions and rate-row visibility', () => {
+  it('keeps fixed mobile summary compact and prevents Pickup from growing to 100px', () => {
+    const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
+    const css = readFileSync('src/styles/rate-calendar-month-layout.css', 'utf8');
+    expect(component).toContain('"--rate-month-height"');
+    expect(component).toContain('"--rate-day-height"');
+    expect(component).toContain('"--rate-metric-height"');
+    expect(component).toContain('PU {isAutomationWindow ? "48h"');
+    expect(css).toContain('[data-rate-grid-sticky-surface="true"]');
+    expect(css).toContain('height: var(--rate-metric-height) !important;');
+    expect(css).toContain('max-height: var(--rate-metric-height) !important;');
+    expect(css).toContain('max-height: var(--rate-day-height) !important;');
+    expect(css).toContain('font-size: 10px !important;');
+    expect(css).toContain('white-space: nowrap !important;');
+    expect(css).toContain('-webkit-text-size-adjust: 100%;');
+    expect(css).toContain('overflow-wrap: normal !important;');
+  });
+});
+
 describe('Month selection is not covered by the old sticky MONTH arrow', () => {
   it('moves the descriptive heading outside the month scroller', () => {
     const heading = layout.split('/* The original MONTH arrow')[1]
