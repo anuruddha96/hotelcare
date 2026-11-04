@@ -4068,13 +4068,13 @@ export default function RateStrategyGrid({
                             <>
                               <span>{hu ? "Elfogyott" : "Sold out"}</span>
                               {closedAt != null && (
-                                <span className="font-semibold opacity-80 inline-flex items-center gap-0.5" style={{ fontSize: fz(9) }}>
+                                <span className="font-semibold opacity-80 inline-flex max-w-full min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap" style={{ fontSize: fz(9) }}>
                         {priceLabel(closedAt)}
                         {soldOcc != null && (
                           <>
-                            <span className="opacity-60">·</span>
-                            <UsersRound className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-                            <span>{soldOcc}</span>
+                            <span className="hidden opacity-60 sm:inline">·</span>
+                            <UsersRound className="hidden h-2.5 w-2.5 shrink-0 sm:inline" aria-hidden="true" />
+                            <span className="hidden sm:inline">{soldOcc}</span>
                           </>
                         )}
                       </span>
