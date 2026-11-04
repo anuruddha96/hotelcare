@@ -65,8 +65,17 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   // on a soft night with a rise, and do not cut below the guest who just booked.
   if (!strong && netPickup > 0) return hold("pickup_conversion_hold", `${netPickup} net pickup in 24h with ${input.occupancyPct}% occupancy: hold the converting offer and watch velocity.`);
   if (strong && decision.direction === "decrease") return hold("strong_demand_protected", "High occupancy or scarce remaining inventory protects ADR; wait for genuine renewed pickup before another yield move.");
-  if (decision.direction === "decrease" && context.confirmedHighEvent && input.occupancyPct >= 60) {
-    return hold("event_demand_protected", "A confirmed major event and established occupancy protect this date from a no-pickup markdown.");
+  // The January 2027 advance-loading campaign is Sunday–Thursday only. Its
+  // fill markdowns must never leak onto Friday/Saturday, where the owner wants
+  // weekend demand and event nights protected for yield.
+  if (decision.direction === "decrease" && input.stayDate >= "2027-01-01" && input.stayDate <= "2027-01-31") {
+    const weekday = new Date(`${input.stayDate}T00:00:00Z`).getUTCDay();
+    if (weekday === 5 || weekday === 6) {
+      return hold("january_weekend_loading_excluded", "January advance-loading excludes Friday and Saturday; hold the weekend offer for demand and event review.");
+    }
+  }
+  if (decision.direction === "decrease" && context.confirmedHighEvent) {
+    return hold("event_demand_protected", "A confirmed major event protects this date from a no-pickup markdown; demand evidence may still support a later yield increase.");
   }
   if (decision.direction === "decrease" && input.daysOut > 7
     && context.projectedAdr != null && context.projectedAdr < context.minimumAdr
