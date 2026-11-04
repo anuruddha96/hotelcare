@@ -113,6 +113,8 @@ describe("RevenueCalendarExperience", () => {
   });
 
   it("keeps repeated vertical swipes inside a portrait grid until the final rate plan", async () => {
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 844, configurable: true });
     const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
     render(<RevenueCalendarExperience />);
     const card = document.createElement("div");
