@@ -44,7 +44,6 @@ import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelec
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
 import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
 import { shouldAllowRateCalendarEdgePan, shouldResetRateCalendarViewport } from "@/lib/rateCalendarScroll";
-import { rateCalendarPagePinOffset } from "@/lib/rateCalendarPagePin";
 import { useHistoricalRoomRates } from "@/hooks/useHistoricalRoomRates";
 import { allocateRevenueSingleDayEventSlots, buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
@@ -458,6 +457,28 @@ export default function RateStrategyGrid({
   const [dragging, setDragging] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
+  const headerScrollRef = useRef<HTMLDivElement>(null);
+  const [stickyAppHeaderH, setStickyAppHeaderH] = useState(0);
+
+  // ResizeObserver runs only when the global header changes height. Vertical
+  // scrolling never needs to measure or move the rate-grid summary.
+  useLayoutEffect(() => {
+    const appHeader = document.querySelector<HTMLElement>("header.sticky.top-0");
+    if (!appHeader) return;
+    const update = () => {
+      const next = Math.ceil(appHeader.getBoundingClientRect().height);
+      setStickyAppHeaderH((previous) => previous === next ? previous : next);
+    };
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
+    observer?.observe(appHeader);
+    window.addEventListener("resize", update, { passive: true });
+    update();
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
 
   // The browser can preserve/adjust this nested scroller when hotel/event data
   // changes. Because Events grows above the room rows after data arrives, scroll
@@ -998,96 +1019,30 @@ export default function RateStrategyGrid({
   /** Full-screen pricing mode — the calendar and nothing else. */
   const [expanded, setExpanded] = useState(false);
 
-  /**
-   * Stretch the calendar down to the bottom of the viewport so as many
-   * room-type rows as possible are visible without scrolling the page.
-   * Measured from the grid's actual position, so it adapts to any header
-   * height, zoom level or screen size. Falls back to a vh height until
-   * measured (first paint).
-   */
+  // Fullscreen mode alone needs a bounded vertical scroller. The ordinary
+  // calendar remains full-height and uses the page's native vertical scrolling.
   const [availGridH, setAvailGridH] = useState<number | null>(null);
   useLayoutEffect(() => {
+    if (!expanded) {
+      setAvailGridH(null);
+      return;
+    }
     const measure = () => {
-      const el = scrollRef.current;
-      if (!el) return;
-      const top = el.getBoundingClientRect().top;
+      const pane = scrollRef.current;
+      if (!pane) return;
       const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-      const next = Math.max(320, Math.floor(viewportHeight - top - 8));
-      setAvailGridH((prev) => (prev === next ? prev : next));
+      const next = Math.max(200, Math.floor(viewportHeight - pane.getBoundingClientRect().top - 8));
+      setAvailGridH((prev) => prev === next ? prev : next);
     };
     const frame = window.requestAnimationFrame(measure);
-    window.addEventListener("resize", measure);
-    window.visualViewport?.addEventListener("resize", measure);
+    window.addEventListener("resize", measure, { passive: true });
+    window.visualViewport?.addEventListener("resize", measure, { passive: true });
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", measure);
       window.visualViewport?.removeEventListener("resize", measure);
     };
-  });
-
-  // Normal mode uses native page scrolling (one vertical scroll surface).
-  // The horizontally pannable calendar cannot use CSS sticky against the page:
-  // overflow-x:auto also makes it a vertical scroll containing block. Translate
-  // the REAL React summary to the position directly below the app header instead
-  // of cloning a non-interactive header or trapping vertical swipes.
-  useLayoutEffect(() => {
-    const pane = scrollRef.current;
-    const summary = stickyHeaderRef.current;
-    const grid = gridRef.current;
-    if (!pane || !summary || !grid || expanded) {
-      if (summary) summary.style.removeProperty("transform");
-      return;
-    }
-
-    let frame = 0;
-    let previous = "";
-    const update = () => {
-      frame = 0;
-      if (!pane.isConnected || !summary.isConnected) return;
-
-      const paneTop = pane.getBoundingClientRect().top;
-      const appHeader = document.querySelector<HTMLElement>("header.sticky.top-0");
-      const stickyTop = Math.max(0, appHeader?.getBoundingClientRect().bottom ?? 0);
-      const rateRows = grid.querySelectorAll<HTMLElement>('[data-rate-grid-row-kind="rate"]');
-      const lastRateRow = rateRows.item(rateRows.length - 1);
-      if (!lastRateRow) return;
-
-      const offset = rateCalendarPagePinOffset({
-        paneTop,
-        stickyTop,
-        summaryHeight: summary.getBoundingClientRect().height,
-        lastRateBottom: lastRateRow.getBoundingClientRect().bottom,
-      });
-      const next = offset > 0 ? `translate3d(0, ${offset}px, 0)` : "";
-      if (previous !== next) {
-        summary.style.transform = next;
-        previous = next;
-      }
-    };
-    const schedule = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(update);
-    };
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
-    observer?.observe(pane);
-    observer?.observe(grid);
-    observer?.observe(summary);
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule, { passive: true });
-    window.visualViewport?.addEventListener("scroll", schedule, { passive: true });
-    window.visualViewport?.addEventListener("resize", schedule, { passive: true });
-    schedule();
-
-    return () => {
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-      window.visualViewport?.removeEventListener("scroll", schedule);
-      window.visualViewport?.removeEventListener("resize", schedule);
-      observer?.disconnect();
-      if (frame) window.cancelAnimationFrame(frame);
-      summary.style.removeProperty("transform");
-    };
-  }, [expanded, hotelId, zoom, railed, historyMonth, monthFilter]);
+  }, [expanded]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -1987,9 +1942,24 @@ export default function RateStrategyGrid({
   useEffect(() => () => { if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current); }, []);
 
 
+  // The summary and prices have separate horizontal panes so the summary can
+  // remain CSS-sticky to the PAGE. Only scrollLeft is synchronized on user
+  // horizontal gestures; there are no per-frame vertical transforms.
+  function onHeaderScroll() {
+    const header = headerScrollRef.current;
+    const body = scrollRef.current;
+    if (!header || !body || Math.abs(body.scrollLeft - header.scrollLeft) < 0.5) return;
+    body.scrollLeft = header.scrollLeft;
+  }
+
   /** Update visible month and navigation arrows without changing date range. */
   const scrollRaf = useRef<number | null>(null);
   function onScroll() {
+    const body = scrollRef.current;
+    const header = headerScrollRef.current;
+    if (body && header && Math.abs(header.scrollLeft - body.scrollLeft) >= 0.5) {
+      header.scrollLeft = body.scrollLeft;
+    }
     if (scrollRaf.current !== null) return;
     scrollRaf.current = requestAnimationFrame(() => {
       scrollRaf.current = null;
@@ -2507,6 +2477,12 @@ export default function RateStrategyGrid({
 
     return layouts;
   }, [dates, eventBands, EVENT_LANE_COUNT]);
+
+  useLayoutEffect(() => {
+    if (scrollRef.current && headerScrollRef.current) {
+      headerScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
+    }
+  }, [hotelId, historyMonth, monthFilter, zoom, railed]);
 
   // Navigation is independent of fetched dates: display twelve future month
   // choices without eagerly loading their rate data.
@@ -3286,17 +3262,27 @@ export default function RateStrategyGrid({
             </div>
           )}
 
-          <div
-            ref={scrollRef}
-            onScroll={onScroll}
-            className={`relative overflow-auto overscroll-x-contain ${dragging || cellDragging ? "select-none" : ""}`}
-            style={{ fontSize: fz(11), height: availGridH != null ? availGridH : expanded ? "calc(100dvh - 190px)" : isMobile ? "68dvh" : "72dvh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined, overflowAnchor: "none" } as React.CSSProperties}
-
-          >
-
-            <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
-              {/* ---- Frozen decision summary: dates, pickup, occupancy and rooms left. ---- */}
-              <div ref={stickyHeaderRef} data-rate-sticky-summary="true" className="sticky top-0 z-30 bg-card">
+          {/* The outer wrapper is the page-level sticky containing block.
+              Its height includes the rate grid, so the frozen summary releases
+              naturally after the final rate-plan section. The two x-scrollers
+              are synchronized without moving either element on vertical scroll. */}
+          <div data-rate-grid-native-sticky="true" className="relative">
+            <div
+              data-rate-grid-sticky-surface="true"
+              className="sticky z-30 bg-card"
+              style={{ top: expanded ? 0 : stickyAppHeaderH }}
+            >
+              <div
+                ref={headerScrollRef}
+                data-rate-grid-header-scroll="true"
+                data-rate-grid-scroll="true"
+                onScroll={onHeaderScroll}
+                className="relative overflow-x-auto overflow-y-hidden"
+                style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch", overscrollBehaviorX: "contain" }}
+              >
+                <div style={{ width: LEFT_W + dates.length * CELL_W }}>
+                  {/* ---- Native sticky decision summary ---- */}
+                  <div ref={stickyHeaderRef} data-rate-sticky-summary="true" className="sticky top-0 z-30 bg-card">
                 {/* Month band + the corner control for the frozen column */}
                 <div className="flex bg-muted/70 backdrop-blur" style={{ height: MONTH_H }}>
                   <div
@@ -3644,9 +3630,19 @@ export default function RateStrategyGrid({
                     );
                   })}
                 </div>
-
               </div>
+            </div>
+          </div>
+          </div>
 
+          {/* The rate plan and events stay in natural document flow. */}
+          <div
+            ref={scrollRef}
+            onScroll={onScroll}
+            className={`relative overflow-auto overscroll-x-contain ${dragging || cellDragging ? "select-none" : ""}`}
+            style={{ fontSize: fz(11), height: expanded ? (availGridH ?? "calc(100dvh - 190px)") : "auto", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined, overflowAnchor: "none" } as React.CSSProperties}
+          >
+            <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
               {/* Everything below the key metrics scrolls normally, including Events. */}
                 {/* Minimum stay — editable, written straight to Previo */}
                 <div className="flex border-b bg-card" style={{ height: ROW_H }}>
@@ -4415,7 +4411,7 @@ export default function RateStrategyGrid({
             </button>
 
           </div>
-
+          </div>
 
         )}
       </CardContent>
