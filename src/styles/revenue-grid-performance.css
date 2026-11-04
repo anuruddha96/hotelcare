@@ -196,3 +196,17 @@
     display: none;
   }
 }
+
+/* One vertical scroll surface for the ordinary Rate & Pickup page. The compact
+   height limits made iOS and desktop move the whole calendar out of view before
+   all rate plans had been read. Keep native horizontal panning, but let the
+   document scroll the full-height table; the real decision header follows the
+   page until the last rate-plan row (see RateStrategyGrid). Expanded mode still
+   uses its own bounded scroller. */
+[data-training="revenue-grid"]:not(.fixed) [data-rate-grid-scroll="true"].overscroll-x-contain {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overscroll-behavior-y: auto !important;
+  scrollbar-gutter: auto;
+}
