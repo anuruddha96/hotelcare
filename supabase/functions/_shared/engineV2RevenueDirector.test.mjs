@@ -77,15 +77,15 @@ test('major event with established demand protects ADR without automatic event-o
   assert.notEqual(decideRevenueDirector(input({pendingEventUplift:10}),settings,{...context,confirmedHighEvent:true}).direction,'increase');
 });
 test('confirmed major events protect soft nights from fill markdowns', () => {
-  const d = decideRevenueDirector(input({stayDate:'2027-01-30',daysOut:92,occupancyPct:9.5,roomsSold:2,roomsRemaining:19}),settings,{...context,confirmedHighEvent:true});
+  const d = decideRevenueDirector(input({stayDate:'2027-01-30',daysOut:92,occupancyPct:9.5,roomsSold:2,roomsRemaining:19,hoursSinceLastPickup:200}),settings,{...context,confirmedHighEvent:true});
   assert.equal(d.direction,'hold'); assert.equal(d.reason,'event_demand_protected');
 });
 test('January advance loading excludes Friday and Saturday but permits Sunday to Thursday', () => {
   for (const stayDate of ['2027-01-29','2027-01-30']) {
-    const d = decideRevenueDirector(input({stayDate,daysOut:90,occupancyPct:9.5,roomsSold:2,roomsRemaining:19}),settings,context);
+    const d = decideRevenueDirector(input({stayDate,daysOut:90,occupancyPct:9.5,roomsSold:2,roomsRemaining:19,hoursSinceLastPickup:200}),settings,context);
     assert.equal(d.direction,'hold',stayDate); assert.equal(d.reason,'january_weekend_loading_excluded',stayDate);
   }
-  const sunday = decideRevenueDirector(input({stayDate:'2027-01-31',daysOut:91,occupancyPct:9.5,roomsSold:2,roomsRemaining:19}),settings,context);
+  const sunday = decideRevenueDirector(input({stayDate:'2027-01-31',daysOut:91,occupancyPct:9.5,roomsSold:2,roomsRemaining:19,hoursSinceLastPickup:200}),settings,context);
   assert.equal(sunday.direction,'decrease');
 });
 test('poor projected ADR prevents weak-price markdowns further out', () => {
