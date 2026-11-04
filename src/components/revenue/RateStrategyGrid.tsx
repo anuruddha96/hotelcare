@@ -3225,8 +3225,8 @@ export default function RateStrategyGrid({
           >
 
             <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
-              {/* ---- Sticky header: month, dates and the day metrics ---- */}
-              <div ref={stickyHeaderRef} className="relative z-30">
+              {/* ---- Frozen decision summary: dates, pickup, occupancy and rooms left. ---- */}
+              <div ref={stickyHeaderRef} data-rate-sticky-summary="true" className="sticky top-0 z-30 bg-card">
                 {/* Month band + the corner control for the frozen column */}
                 <div className="flex bg-muted/70 backdrop-blur" style={{ height: MONTH_H }}>
                   <div
@@ -3575,6 +3575,9 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
+              </div>
+
+              {/* Everything below the key metrics scrolls normally, including Events. */}
                 {/* Minimum stay — editable, written straight to Previo */}
                 <div className="flex border-b bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
@@ -3871,8 +3874,6 @@ export default function RateStrategyGrid({
           </div>
         </div>
       )}
-              </div>
-
 
               {/* ---- Room-type / metric rows ---- */}
               {/* The first room header must be an ordinary in-flow row. Keeping

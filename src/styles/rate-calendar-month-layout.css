@@ -143,7 +143,7 @@
 [data-training="revenue-grid"][data-rate-calendar-v2="true"]
   [data-hc-competitor-pricing-row="1"],
 [data-training="revenue-grid"][data-rate-calendar-v2="true"]
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > [data-rate-event-row="true"] {
+  [data-rate-grid-scroll="true"] > div > [data-rate-event-row="true"] {
   overflow: visible !important;
 }
 

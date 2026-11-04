@@ -17,9 +17,7 @@ const GRID_CARD = '[data-training="revenue-grid"]';
 const GRID_SCROLL = ".relative.overflow-auto.overscroll-x-contain";
 const MOBILE_QUERY = "(max-width: 767px)";
 const COARSE_POINTER_QUERY = "(pointer: coarse)";
-const QUICK_SWIPE_MS = 700;
 const AXIS_LOCK_PX = 8;
-const SWIPE_MIN_PX = 28;
 const SCROLL_IDLE_MS = 120;
 
 const calendarCss = String.raw`
@@ -274,10 +272,11 @@ const calendarCss = String.raw`
     font-size: 10px !important;
   }
 
+  /* The four key metric rows must remain frozen even when the phone rotates. */
   [data-rate-calendar-device="mobile-landscape"]
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 {
-    position: relative !important;
-    top: auto !important;
+    position: sticky !important;
+    top: 0 !important;
   }
 
   [data-rate-calendar-device="mobile-landscape"]
@@ -289,9 +288,9 @@ const calendarCss = String.raw`
 
   [data-rate-calendar-device="mobile-landscape"]
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(2) {
-    position: sticky !important;
-    top: 0 !important;
-    z-index: 55 !important;
+    position: relative !important;
+    top: auto !important;
+    z-index: 3 !important;
     height: 30px !important;
     min-height: 30px !important;
   }
@@ -311,8 +310,10 @@ const calendarCss = String.raw`
     font-size: 10px !important;
   }
 
+  /* The Events lane moved out of the frozen metrics; keep the existing
+     landscape-space saving rule targeting its new in-flow location. */
   [data-rate-calendar-device="mobile-landscape"]
-    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) {
+    [data-rate-grid-scroll="true"] > div > [data-rate-event-row="true"] {
     display: none !important;
   }
 
@@ -330,7 +331,6 @@ type GestureState = {
   startY: number;
   lastY: number;
   axis: "x" | "y" | null;
-  escapeToPage: boolean;
 };
 
 function findScrollPane(card: HTMLElement): HTMLElement | null {
@@ -394,20 +394,15 @@ export function RevenueCalendarExperience() {
       if (gestureCleanups.has(pane)) return;
 
       let state: GestureState | null = null;
-      let lastVerticalGestureAt = 0;
 
       const onTouchStart = (event: TouchEvent) => {
         if (!isPhoneViewport() || event.touches.length !== 1) return;
         const touch = event.touches[0];
-        const landscape = deviceMode() === "mobile-landscape";
         state = {
           startX: touch.clientX,
           startY: touch.clientY,
           lastY: touch.clientY,
           axis: null,
-          // In portrait, a second fast vertical swipe means "leave the grid".
-          // Landscape is intentionally different because its grid is shallow.
-          escapeToPage: !landscape && Date.now() - lastVerticalGestureAt < QUICK_SWIPE_MS,
         };
       };
 
@@ -432,24 +427,15 @@ export function RevenueCalendarExperience() {
         const wantsPageUp = fingerDelta < 0;
         const boundaryEscape = (atBottom && wantsPageDown) || (atTop && wantsPageUp);
 
-        if (state.escapeToPage || boundaryEscape) {
+        // Never redirect a second quick swipe to the page while rates remain.
+        // Exit only after reaching the first or last rate-plan row.
+        if (boundaryEscape) {
           event.preventDefault();
           if (fingerDelta) window.scrollBy({ top: fingerDelta, left: 0, behavior: "auto" });
         }
       };
 
-      const finishGesture = (event?: TouchEvent) => {
-        if (!state) return;
-        const touch = event?.changedTouches?.[0];
-        const endX = touch?.clientX ?? state.startX;
-        const endY = touch?.clientY ?? state.lastY;
-        const dx = endX - state.startX;
-        const dy = endY - state.startY;
-        if ((state.axis === "y" || Math.abs(dy) > Math.abs(dx)) && Math.abs(dy) >= SWIPE_MIN_PX) {
-          lastVerticalGestureAt = Date.now();
-        }
-        state = null;
-      };
+      const finishGesture = () => { state = null; };
 
       pane.addEventListener("touchstart", onTouchStart, { passive: true });
       pane.addEventListener("touchmove", onTouchMove, { passive: false });
