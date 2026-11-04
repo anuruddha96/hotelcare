@@ -3633,6 +3633,7 @@ export default function RateStrategyGrid({
               </div>
             </div>
           </div>
+          </div>
 
           {/* The rate plan and events stay in natural document flow. */}
           <div
