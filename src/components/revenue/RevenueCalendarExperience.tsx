@@ -310,8 +310,10 @@ const calendarCss = String.raw`
     font-size: 10px !important;
   }
 
+  /* The Events lane moved out of the frozen metrics; keep the existing
+     landscape-space saving rule targeting its new in-flow location. */
   [data-rate-calendar-device="mobile-landscape"]
-    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) {
+    [data-rate-grid-scroll="true"] > div > [data-rate-event-row="true"] {
     display: none !important;
   }
 
