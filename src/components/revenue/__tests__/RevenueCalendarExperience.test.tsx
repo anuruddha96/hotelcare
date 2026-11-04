@@ -112,6 +112,33 @@ describe("RevenueCalendarExperience", () => {
     expect(scrollBy).toHaveBeenCalled();
   });
 
+  it("keeps repeated vertical swipes inside a portrait grid until the final rate plan", async () => {
+    const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
+    render(<RevenueCalendarExperience />);
+    const card = document.createElement("div");
+    card.setAttribute("data-training", "revenue-grid");
+    const pane = document.createElement("div");
+    pane.className = "relative overflow-auto overscroll-x-contain";
+    Object.defineProperty(pane, "clientHeight", { value: 300, configurable: true });
+    Object.defineProperty(pane, "scrollHeight", { value: 1600, configurable: true });
+    pane.scrollTop = 350;
+    card.appendChild(pane);
+    document.body.appendChild(card);
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(card.dataset.rateCalendarDevice).toBe("mobile-portrait");
+    pane.dispatchEvent(touch("touchstart", 100, 240));
+    pane.dispatchEvent(touch("touchmove", 100, 180));
+    pane.dispatchEvent(touch("touchend", 100, 180));
+    pane.dispatchEvent(touch("touchstart", 100, 240));
+    pane.dispatchEvent(touch("touchmove", 100, 180));
+
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
   it("keeps repeated vertical swipes inside a rotated phone grid until a boundary", async () => {
     Object.defineProperty(window, "innerWidth", { value: 844, configurable: true });
     Object.defineProperty(window, "innerHeight", { value: 390, configurable: true });
