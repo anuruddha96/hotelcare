@@ -43,6 +43,7 @@ import RateCellHistory from "@/components/revenue/RateCellHistory";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
 import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
+import { shouldAllowRateCalendarEdgePan, shouldResetRateCalendarViewport } from "@/lib/rateCalendarScroll";
 import { useHistoricalRoomRates } from "@/hooks/useHistoricalRoomRates";
 import { allocateRevenueSingleDayEventSlots, buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
@@ -1965,11 +1966,9 @@ export default function RateStrategyGrid({
 
 
   /**
-   * Edge auto-scroll: a mouse user without a horizontal wheel can simply move
-   * the pointer near the left/right (or top/bottom) edge of the calendar and
-   * it glides that way. The speed is eased towards its target instead of being
-   * applied straight away, and fractional pixels are carried between frames,
-   * so the movement reads as one continuous glide rather than a stutter.
+   * Edge panning is available only during an intentional date/cell selection
+   * drag. Merely hovering near a calendar edge must never move prices out of
+   * view, especially while live pickup or rate data is refreshing.
    */
   const edgeVec = useRef({ x: 0, y: 0 });      // target velocity, px/frame
   const edgeVel = useRef({ x: 0, y: 0 });      // eased velocity actually applied
@@ -1983,10 +1982,6 @@ export default function RateStrategyGrid({
     const ZONE = 110;     // px from the edge where the pull starts
     const MAX = 22;       // px per frame at the very edge
     const EASE = 0.18;    // how quickly the real speed catches the target
-
-    const stop = () => {
-      edgeVec.current = { x: 0, y: 0 };
-    };
 
     const hardStop = () => {
       edgeVec.current = { x: 0, y: 0 };
@@ -2026,12 +2021,14 @@ export default function RateStrategyGrid({
     };
 
     const onMove = (e: PointerEvent) => {
-      if (e.pointerType !== "mouse") return;
+      if (!shouldAllowRateCalendarEdgePan(e.pointerType, selecting, cellDraggingRef.current)) {
+        hardStop();
+        return;
+      }
       const r = el.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-      // Resting on an arrow means the user wants to steer by hand: the
-      // automatic edge glide stands down until the pointer leaves it.
-      if (!inside || manualNav.current) { stop(); kick(); return; }
+      // The drag or navigation control owns movement, never an idle cursor.
+      if (!inside || manualNav.current) { hardStop(); return; }
 
       // Smooth ramp (ease-in-out) so entering the zone does not jolt.
       const ramp = (d: number) => {
@@ -2053,19 +2050,24 @@ export default function RateStrategyGrid({
       else if (e.clientY < r.top + ZONE && canUp) y = -ramp(e.clientY - r.top);
 
       edgeVec.current = { x, y };
-      kick();
+      if (x || y) kick();
+      else hardStop();
     };
 
     window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointerup", hardStop);
+    window.addEventListener("pointercancel", hardStop);
     window.addEventListener("blur", hardStop);
-    el.addEventListener("pointerleave", stop);
+    el.addEventListener("pointerleave", hardStop);
     return () => {
       window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", hardStop);
+      window.removeEventListener("pointercancel", hardStop);
       window.removeEventListener("blur", hardStop);
-      el.removeEventListener("pointerleave", stop);
+      el.removeEventListener("pointerleave", hardStop);
       hardStop();
     };
-  }, [isMobile, LEFT_W]);
+  }, [isMobile, LEFT_W, selecting]);
 
 
 
@@ -2498,12 +2500,15 @@ export default function RateStrategyGrid({
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
     : allRows;
 
-  // On iOS Safari and installed PWAs, restoring a saved horizontal grid offset
-  // can conceal the historical columns even though they were loaded.
+  // Only deliberate hotel/date-view navigation resets the horizontal viewport.
+  // Briefly empty rows during a background refresh must NOT snap the reader back.
   const hasGridRows = rows.length > 0;
+  const lastViewportKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const grid = scrollRef.current;
-    if (!grid || !hasGridRows) return;
+    const viewportKey = [hotelId ?? "", today, monthFilter ?? "", historyMonth ?? ""].join("|");
+    if (!grid || !shouldResetRateCalendarViewport(lastViewportKeyRef.current, viewportKey, hasGridRows)) return;
+    lastViewportKeyRef.current = viewportKey;
     grid.scrollLeft = 0;
     setVisibleMonth(formatMonth(dates[0] ?? today));
   }, [hotelId, today, monthFilter, historyMonth, hasGridRows]);
