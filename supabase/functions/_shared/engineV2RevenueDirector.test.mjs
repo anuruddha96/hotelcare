@@ -77,7 +77,7 @@ test('major event with established demand protects ADR without automatic event-o
   assert.notEqual(decideRevenueDirector(input({pendingEventUplift:10}),settings,{...context,confirmedHighEvent:true}).direction,'increase');
 });
 test('confirmed major events protect soft nights from fill markdowns', () => {
-  const d = decideRevenueDirector(input({stayDate:'2027-01-30',daysOut:92,occupancyPct:9.5,roomsSold:2,roomsRemaining:19,hoursSinceLastPickup:200}),settings,{...context,confirmedHighEvent:true});
+  const d = decideRevenueDirector(input({stayDate:'2027-01-25',daysOut:87,occupancyPct:9.5,roomsSold:2,roomsRemaining:19,hoursSinceLastPickup:200}),settings,{...context,confirmedHighEvent:true});
   assert.equal(d.direction,'hold'); assert.equal(d.reason,'event_demand_protected');
 });
 test('January advance loading excludes Friday and Saturday but permits Sunday to Thursday', () => {
