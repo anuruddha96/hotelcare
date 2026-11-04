@@ -28,6 +28,19 @@ describe('Rate & Pickup frozen summary rows', () => {
   it('renders one continuous event timeline and a full-height frozen label', () => {
     const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
     expect(component).toContain('data-rate-event-row="true"');
+    // Events must be outside the frozen summary. Only month/date/pickup/
+    // occupancy/rooms-left stay visible while vertical rate rows scroll.
+    const stickyStart = component.indexOf('ref={stickyHeaderRef}');
+    const stickyEnd = component.indexOf('{/* Minimum stay', stickyStart);
+    const summary = component.slice(stickyStart, stickyEnd);
+    expect(summary).toContain('data-rate-sticky-summary="true"');
+    expect(summary).toContain('className="sticky top-0 z-30 bg-card"');
+    expect(summary).toContain('Pickup ·');
+    expect(summary).toContain('Occupancy');
+    expect(summary).toContain('Left to sell');
+    expect(summary).not.toContain('data-rate-event-row="true"');
+    expect(component).toMatch(/<\/div>\s*\{\/\* Everything below the key metrics scrolls normally/);
+    expect(component.indexOf('data-rate-event-row="true"')).toBeGreaterThan(stickyEnd);
     expect(component).toContain('data-rate-event-timeline="true"');
     expect(component).toContain('const EVENT_ROW_H = showEventBand ? EVENT_LANE_COUNT * EVENT_LANE_H : ROW_H;');
     expect(component).not.toContain('event-physical-lane-');
@@ -43,6 +56,16 @@ describe('Rate & Pickup frozen summary rows', () => {
     expect(rail).toContain('flex-shrink: 0 !important;');
     expect(rail).toContain('z-index: 60 !important;');
     expect(rail).toContain('background-color: hsl(var(--card)) !important;');
+  });
+});
+
+describe('Portrait and landscape freeze the four summary metrics', () => {
+  it('keeps sticky header in portrait and rotated phones', () => {
+    const component = readFileSync('src/components/revenue/RevenueCalendarExperience.tsx', 'utf8');
+    expect(component).toContain('position: sticky !important;');
+    expect(component).toContain('/* The four key metric rows must remain frozen even when the phone rotates. */');
+    expect(layout).toContain('> div > [data-rate-event-row="true"]');
+    expect(legacy).toContain('> div > [data-rate-event-row="true"]');
   });
 });
 
