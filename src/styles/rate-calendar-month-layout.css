@@ -8,9 +8,8 @@
     min-width: 0;
   }
 
-  [data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
-    max-height: min(90dvh, calc(100dvh - 108px)) !important;
-  }
+  /* Natural page height is deliberate; desktop uses the same pinned summary
+     as iPhone, rather than hiding rates inside a second vertical scrollbar. */
 }
 
 [data-training="revenue-grid"] {
