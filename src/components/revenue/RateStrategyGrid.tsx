@@ -44,6 +44,7 @@ import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelec
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
 import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
 import { shouldAllowRateCalendarEdgePan, shouldResetRateCalendarViewport } from "@/lib/rateCalendarScroll";
+import { shouldPinRateSummary } from "@/lib/rateCalendarStickyBoundary";
 import { useHistoricalRoomRates } from "@/hooks/useHistoricalRoomRates";
 import { allocateRevenueSingleDayEventSlots, buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
@@ -458,26 +459,8 @@ export default function RateStrategyGrid({
   const gridRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
-  const [stickyAppHeaderH, setStickyAppHeaderH] = useState(0);
-
-  // ResizeObserver runs only when the global header changes height. Vertical
-  // scrolling never needs to measure or move the rate-grid summary.
-  useLayoutEffect(() => {
-    const appHeader = document.querySelector<HTMLElement>("header.sticky.top-0");
-    if (!appHeader) return;
-    const update = () => {
-      const next = Math.ceil(appHeader.getBoundingClientRect().height);
-      setStickyAppHeaderH((previous) => previous === next ? previous : next);
-    };
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : null;
-    observer?.observe(appHeader);
-    window.addEventListener("resize", update, { passive: true });
-    update();
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, []);
+  const stickySurfaceRef = useRef<HTMLDivElement>(null);
+  const stickyPlaceholderRef = useRef<HTMLDivElement>(null);
 
 
   // The browser can preserve/adjust this nested scroller when hotel/event data
@@ -1043,6 +1026,98 @@ export default function RateStrategyGrid({
       window.visualViewport?.removeEventListener("resize", measure);
     };
   }, [expanded]);
+
+  // CSS sticky can be silently trapped by overflow ancestors on Safari and
+  // Chrome. Keep the same interactive summary in document flow, then pin it
+  // using position:fixed ONLY at the entry boundary. Never translate/reposition
+  // the header on individual scroll frames: iOS inertia remains compositor-owned.
+  useLayoutEffect(() => {
+    if (expanded) return; // Fullscreen keeps its existing nested sticky layout.
+    const placeholder = stickyPlaceholderRef.current;
+    const surface = stickySurfaceRef.current;
+    const grid = gridRef.current;
+    if (!placeholder || !surface || !grid) return;
+
+    const globalHeader = document.querySelector<HTMLElement>("header.sticky.top-0");
+    const rateRows = grid.querySelectorAll<HTMLElement>('[data-rate-grid-row-kind="rate"]');
+    const lastRateRow = rateRows.item(rateRows.length - 1);
+    if (!lastRateRow) return;
+
+    let pinned = false;
+    let frame = 0;
+    let lastTop = NaN;
+    let lastLeft = NaN;
+    let lastWidth = NaN;
+
+    const unpin = () => {
+      if (!pinned) return;
+      pinned = false;
+      surface.style.removeProperty("position");
+      surface.style.removeProperty("top");
+      surface.style.removeProperty("left");
+      surface.style.removeProperty("width");
+      surface.style.removeProperty("z-index");
+      surface.style.removeProperty("box-shadow");
+      placeholder.style.removeProperty("height");
+    };
+
+    const update = () => {
+      frame = 0;
+      if (!surface.isConnected || !lastRateRow.isConnected) return;
+
+      const anchor = placeholder.getBoundingClientRect();
+      const appHeaderBottom = Math.max(0, globalHeader?.getBoundingClientRect().bottom ?? 0);
+      const height = surface.getBoundingClientRect().height;
+      const lastRateBottom = lastRateRow.getBoundingClientRect().bottom;
+      const active = shouldPinRateSummary({
+        anchorTop: anchor.top,
+        appHeaderBottom,
+        lastRateBottom,
+        summaryHeight: height,
+      });
+      if (!active) { unpin(); return; }
+
+      if (!pinned) {
+        // Reserve exactly the original space before fixing the real React DOM.
+        // Avoids moving price rows / changing scrollY when the header activates.
+        placeholder.style.height = `${Math.ceil(height)}px`;
+        surface.style.position = "fixed";
+        surface.style.zIndex = "45";
+        surface.style.boxShadow = "0 2px 6px -5px hsl(var(--foreground) / 0.25)";
+        pinned = true;
+      }
+
+      // Horizontal layout and app-header dimensions change only on resize.
+      // During ordinary vertical scrolling these values stay constant, so no
+      // styles are written and the fixed summary cannot shake or catch up.
+      const top = Math.ceil(appHeaderBottom);
+      const left = Math.round(anchor.left * 100) / 100;
+      const width = Math.round(anchor.width * 100) / 100;
+      if (top !== lastTop) { surface.style.top = `${top}px`; lastTop = top; }
+      if (left !== lastLeft) { surface.style.left = `${left}px`; lastLeft = left; }
+      if (width !== lastWidth) { surface.style.width = `${width}px`; lastWidth = width; }
+    };
+
+    const schedule = () => {
+      if (!frame) frame = window.requestAnimationFrame(update);
+    };
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+    observer?.observe(placeholder);
+    observer?.observe(grid);
+    if (globalHeader) observer?.observe(globalHeader);
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule, { passive: true });
+    window.visualViewport?.addEventListener("resize", schedule, { passive: true });
+    schedule();
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      observer?.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+      unpin();
+    };
+  }, [expanded, hotelId, reviewOnly, dates.length, rows.length, zoom, railed, historyMonth, monthFilter]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -3267,11 +3342,12 @@ export default function RateStrategyGrid({
               naturally after the final rate-plan section. The two x-scrollers
               are synchronized without moving either element on vertical scroll. */}
           <div data-rate-grid-native-sticky="true" className="relative">
-            <div
-              data-rate-grid-sticky-surface="true"
-              className="sticky z-30 bg-card"
-              style={{ top: expanded ? 0 : stickyAppHeaderH }}
-            >
+            <div ref={stickyPlaceholderRef} data-rate-grid-sticky-placeholder="true">
+              <div
+                ref={stickySurfaceRef}
+                data-rate-grid-sticky-surface="true"
+                className={expanded ? "sticky top-0 z-30 bg-card" : "relative z-30 bg-card"}
+              >
               <div
                 ref={headerScrollRef}
                 data-rate-grid-header-scroll="true"
@@ -3632,6 +3708,7 @@ export default function RateStrategyGrid({
                 </div>
               </div>
             </div>
+          </div>
           </div>
           </div>
 
