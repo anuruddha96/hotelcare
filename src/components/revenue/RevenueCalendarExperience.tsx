@@ -396,6 +396,9 @@ export function RevenueCalendarExperience() {
       let state: GestureState | null = null;
 
       const onTouchStart = (event: TouchEvent) => {
+        // The regular calendar scrolls with the page. Let Safari handle touch
+        // momentum natively; the gesture handoff is only for expanded mode.
+        if (!pane.closest(GRID_CARD)?.classList.contains("fixed")) return;
         if (!isPhoneViewport() || event.touches.length !== 1) return;
         const touch = event.touches[0];
         state = {

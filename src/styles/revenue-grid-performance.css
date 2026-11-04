@@ -196,3 +196,30 @@
     display: none;
   }
 }
+
+/* One vertical scroll surface for the ordinary Rate & Pickup page. The compact
+   height limits made iOS and desktop move the whole calendar out of view before
+   all rate plans had been read. Keep native horizontal panning, but let the
+   document scroll the full-height table; the real decision header follows the
+   page until the last rate-plan row (see RateStrategyGrid). Expanded mode still
+   uses its own bounded scroller. */
+[data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overscroll-behavior-y: auto !important;
+  scrollbar-gutter: auto;
+}
+
+/* Keep grouped-room availability readable at narrow date-column widths.
+   The full sold-out price and guest count remain in each button's title. */
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] [data-rate-grid-row-kind="group"] > button {
+    overflow: hidden !important;
+  }
+  [data-training="revenue-grid"] [data-rate-grid-row-kind="group"] > button > span {
+    max-width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+  }
+}

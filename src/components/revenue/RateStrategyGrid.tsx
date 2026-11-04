@@ -44,6 +44,7 @@ import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelec
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
 import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
 import { shouldAllowRateCalendarEdgePan, shouldResetRateCalendarViewport } from "@/lib/rateCalendarScroll";
+import { rateCalendarPagePinOffset } from "@/lib/rateCalendarPagePin";
 import { useHistoricalRoomRates } from "@/hooks/useHistoricalRoomRates";
 import { allocateRevenueSingleDayEventSlots, buildRevenueEventBands, revenueEventBandColumnSpan, sameRevenueEvent, scoreRevenueEvent } from "@/lib/revenueEventBands";
 
@@ -1023,6 +1024,70 @@ export default function RateStrategyGrid({
       window.visualViewport?.removeEventListener("resize", measure);
     };
   });
+
+  // Normal mode uses native page scrolling (one vertical scroll surface).
+  // The horizontally pannable calendar cannot use CSS sticky against the page:
+  // overflow-x:auto also makes it a vertical scroll containing block. Translate
+  // the REAL React summary to the position directly below the app header instead
+  // of cloning a non-interactive header or trapping vertical swipes.
+  useLayoutEffect(() => {
+    const pane = scrollRef.current;
+    const summary = stickyHeaderRef.current;
+    const grid = gridRef.current;
+    if (!pane || !summary || !grid || expanded) {
+      if (summary) summary.style.removeProperty("transform");
+      return;
+    }
+
+    let frame = 0;
+    let previous = "";
+    const update = () => {
+      frame = 0;
+      if (!pane.isConnected || !summary.isConnected) return;
+
+      const paneTop = pane.getBoundingClientRect().top;
+      const appHeader = document.querySelector<HTMLElement>("header.sticky.top-0");
+      const stickyTop = Math.max(0, appHeader?.getBoundingClientRect().bottom ?? 0);
+      const rateRows = grid.querySelectorAll<HTMLElement>('[data-rate-grid-row-kind="rate"]');
+      const lastRateRow = rateRows.item(rateRows.length - 1);
+      if (!lastRateRow) return;
+
+      const offset = rateCalendarPagePinOffset({
+        paneTop,
+        stickyTop,
+        summaryHeight: summary.getBoundingClientRect().height,
+        lastRateBottom: lastRateRow.getBoundingClientRect().bottom,
+      });
+      const next = offset > 0 ? `translate3d(0, ${offset}px, 0)` : "";
+      if (previous !== next) {
+        summary.style.transform = next;
+        previous = next;
+      }
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(update);
+    };
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+    observer?.observe(pane);
+    observer?.observe(grid);
+    observer?.observe(summary);
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule, { passive: true });
+    window.visualViewport?.addEventListener("scroll", schedule, { passive: true });
+    window.visualViewport?.addEventListener("resize", schedule, { passive: true });
+    schedule();
+
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      observer?.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
+      summary.style.removeProperty("transform");
+    };
+  }, [expanded, hotelId, zoom, railed, historyMonth, monthFilter]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -3888,6 +3953,7 @@ export default function RateStrategyGrid({
               {rows.map((row, rowIdx) => (
                 <div
                   key={row.key}
+                  data-rate-grid-row-kind={row.kind}
                   className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/95" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
                   style={{
                     height: rowH(row.kind),
@@ -4002,13 +4068,13 @@ export default function RateStrategyGrid({
                             <>
                               <span>{hu ? "Elfogyott" : "Sold out"}</span>
                               {closedAt != null && (
-                                <span className="font-semibold opacity-80 inline-flex items-center gap-0.5" style={{ fontSize: fz(9) }}>
+                                <span className="font-semibold opacity-80 inline-flex max-w-full min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap" style={{ fontSize: fz(9) }}>
                         {priceLabel(closedAt)}
                         {soldOcc != null && (
                           <>
-                            <span className="opacity-60">·</span>
-                            <UsersRound className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-                            <span>{soldOcc}</span>
+                            <span className="hidden opacity-60 sm:inline">·</span>
+                            <UsersRound className="hidden h-2.5 w-2.5 shrink-0 sm:inline" aria-hidden="true" />
+                            <span className="hidden sm:inline">{soldOcc}</span>
                           </>
                         )}
                       </span>
