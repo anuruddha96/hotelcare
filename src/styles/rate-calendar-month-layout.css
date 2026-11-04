@@ -163,3 +163,91 @@
     transition: none;
   }
 }
+
+
+/*
+ * Frozen rate summary — mobile Safari / desktop.
+ *
+ * The previous "height:auto !important" rules made the Pickup lane expand to
+ * its intrinsic minimum content height after the summary became position:fixed.
+ * Safari's text auto-sizing then inflated PU / Occ / Left, producing a ~100px
+ * Pickup lane that covered rate-plan prices. Force the same zoom-derived row
+ * dimensions in the normal and fixed states, with one-line labels.
+ *
+ * Scope narrowly: ordinary rate rows, Events and minimum stay must still
+ * size normally. Variables come from RateStrategyGrid's existing ROW_H / DAY_H.
+ */
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow: visible;
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex:first-child {
+  height: var(--rate-month-height) !important;
+  min-height: var(--rate-month-height) !important;
+  max-height: var(--rate-month-height) !important;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex:nth-child(2) {
+  height: var(--rate-day-height) !important;
+  min-height: var(--rate-day-height) !important;
+  max-height: var(--rate-day-height) !important;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex:nth-child(n+3) {
+  height: var(--rate-metric-height) !important;
+  min-height: var(--rate-metric-height) !important;
+  max-height: var(--rate-metric-height) !important;
+  box-sizing: border-box;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+/* Do not let the 46px collapsed room rail inflate or wrap onto 3 lines.
+   Fixed and in-flow headers must have identical measured height. */
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex > .sticky.left-0 {
+  flex-shrink: 0 !important;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding-inline: 4px !important;
+  font-size: 10px !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+  overflow-wrap: normal !important;
+  text-overflow: ellipsis;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex > .sticky.left-0 > span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap !important;
+}
+
+#root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+  [data-rate-sticky-summary="true"] > .flex:nth-child(n+3) > :not(.sticky.left-0) {
+  min-height: 0 !important;
+  max-height: 100%;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1 !important;
+}
+
+@media (max-width: 767px) {
+  #root [data-training="revenue-grid"] [data-rate-grid-sticky-surface="true"]
+    [data-rate-sticky-summary="true"] > .flex > .sticky.left-0 {
+    font-size: 10px !important;
+  }
+}
