@@ -2556,6 +2556,11 @@ export default function RateStrategyGrid({
       surface.style.removeProperty("z-index");
       surface.style.removeProperty("box-shadow");
       placeholder.style.removeProperty("height");
+      // All fixed-position styles were removed. Reset the comparison cache,
+      // otherwise re-entering with the same dimensions skips top/left/width.
+      lastTop = NaN;
+      lastLeft = NaN;
+      lastWidth = NaN;
     };
 
     const update = () => {
