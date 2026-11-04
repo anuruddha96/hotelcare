@@ -3364,7 +3364,16 @@ export default function RateStrategyGrid({
               >
                 <div style={{ width: LEFT_W + dates.length * CELL_W }}>
                   {/* ---- Native sticky decision summary ---- */}
-                  <div ref={stickyHeaderRef} data-rate-sticky-summary="true" className="sticky top-0 z-30 bg-card">
+                  <div
+                    ref={stickyHeaderRef}
+                    data-rate-sticky-summary="true"
+                    className="sticky top-0 z-30 bg-card"
+                    style={{
+                      "--rate-month-height": `${MONTH_H}px`,
+                      "--rate-day-height": `${DAY_H}px`,
+                      "--rate-metric-height": `${ROW_H}px`,
+                    } as React.CSSProperties}
+                  >
                 {/* Month band + the corner control for the frozen column */}
                 <div className="flex bg-muted/70 backdrop-blur" style={{ height: MONTH_H }}>
                   <div
@@ -3577,8 +3586,8 @@ export default function RateStrategyGrid({
                 <div className="flex border-b bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                     {railed ? (
-                      <span title={`Net pickup · ${pickupWindowLabel(pickupWindowDays)}`}>
-                        PU · {isAutomationWindow ? "48h" : pickupWindowDays <= 1 ? "today" : `${pickupWindowDays}d`}
+                      <span className="block min-w-0 truncate whitespace-nowrap text-[10px] leading-none" title={`Net pickup · ${pickupWindowLabel(pickupWindowDays)}`}>
+                        PU {isAutomationWindow ? "48h" : pickupWindowDays <= 1 ? "1d" : `${pickupWindowDays}d`}
                       </span>
                     ) : (
                       <>
@@ -3628,7 +3637,7 @@ export default function RateStrategyGrid({
                 {/* Occupancy */}
                 <div className="flex border-b bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
-                    {railed ? <span title="Occupancy">Occ</span> : (
+                    {railed ? <span className="block truncate whitespace-nowrap text-[10px] leading-none" title="Occupancy">Occ</span> : (
                       <>
                         Occupancy
                         <MetricInfo
@@ -3661,7 +3670,7 @@ export default function RateStrategyGrid({
                 {/* Left to sell — house level */}
                 <div className="flex border-b bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
-                    {railed ? <span title="Rooms left to sell">Left</span> : (
+                    {railed ? <span className="block truncate whitespace-nowrap text-[10px] leading-none" title="Rooms left to sell">Left</span> : (
                       <>
                         Left to sell
                         <MetricInfo
