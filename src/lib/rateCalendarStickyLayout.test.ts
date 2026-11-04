@@ -90,6 +90,10 @@ describe('Reliable fixed frozen summary without per-frame movement', () => {
     expect(component).toContain('surface.style.position = "fixed"');
     expect(component).toContain('placeholder.style.height =');
     expect(component).toContain('if (top !== lastTop)');
+    // Once the fixed header is released it must pin on a second entry.
+    expect(component).toContain('lastTop = NaN;');
+    expect(component).toContain('lastLeft = NaN;');
+    expect(component).toContain('lastWidth = NaN;');
     expect(component).not.toContain('stickyAppHeaderH');
     expect(component).not.toContain('rateCalendarPagePinOffset');
     expect(component).not.toContain('summary.style.transform');
