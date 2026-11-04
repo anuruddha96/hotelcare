@@ -223,3 +223,14 @@
     white-space: nowrap;
   }
 }
+
+/* The summary is independently horizontally pannable, but the whole sticky
+   SURFACE follows the browser's native vertical page scroll. Hide only its
+   scrollbar; never apply a transform/animation during the vertical gesture. */
+[data-training="revenue-grid"] [data-rate-grid-header-scroll="true"] {
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+[data-training="revenue-grid"] [data-rate-grid-header-scroll="true"]::-webkit-scrollbar {
+  display: none;
+}
