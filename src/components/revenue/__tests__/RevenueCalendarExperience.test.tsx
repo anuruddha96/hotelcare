@@ -106,13 +106,14 @@ describe("RevenueCalendarExperience", () => {
       await new Promise((resolve) => requestAnimationFrame(resolve));
     });
 
+    card.classList.add("fixed");
     pane.dispatchEvent(touch("touchstart", 100, 200));
     pane.dispatchEvent(touch("touchmove", 100, 150));
 
     expect(scrollBy).toHaveBeenCalled();
   });
 
-  it("keeps repeated vertical swipes inside a portrait grid until the final rate plan", async () => {
+  it("does not intercept vertical page swipes in the normal portrait calendar", async () => {
     Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
     Object.defineProperty(window, "innerHeight", { value: 844, configurable: true });
     const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
@@ -135,6 +136,7 @@ describe("RevenueCalendarExperience", () => {
     pane.dispatchEvent(touch("touchstart", 100, 240));
     pane.dispatchEvent(touch("touchmove", 100, 180));
     pane.dispatchEvent(touch("touchend", 100, 180));
+    // No nested-pane scroll handling runs without the expanded-mode class.
     pane.dispatchEvent(touch("touchstart", 100, 240));
     pane.dispatchEvent(touch("touchmove", 100, 180));
 
@@ -165,6 +167,7 @@ describe("RevenueCalendarExperience", () => {
     });
 
     expect(card.dataset.rateCalendarDevice).toBe("mobile-landscape");
+    card.classList.add("fixed");
 
     pane.dispatchEvent(touch("touchstart", 120, 240));
     pane.dispatchEvent(touch("touchmove", 120, 180));
