@@ -34,3 +34,12 @@ Pace targets: 100% by D-7; 90% at D8–14; 80% at D15–30; 65% at D31–60; 45%
 Run the revenue-director, date-budget, queue-safety and Ottofiori publication-guard Node tests. Existing all-13-cell publication integrity and PMS acceptance/confirmation distinctions remain. A queued change is not proof it was published; monitor push items and PMS refresh results. No reservation count, ranking improvement or 100% occupancy is guaranteed. Rate movement should respond to commercial evidence; arbitrary price oscillation is not a ranking strategy.
 
 The full PMS preflight has a 90-second timeout, then the planner has its own evaluation budget. Missing rate or occupancy evidence must hold prices rather than interpret unknown occupancy as empty.
+
+
+## Production verification
+
+The deployed planner and publisher were exercised on 5 November. A dry run checked 121 dates; 13 supported increases and 75 reductions passed simulation. Live cycles delivered all 13 mapped cells on 88 distinct stay dates, including arrival day. The initial four-date rejection from the old single-booking database guard was corrected with a narrow €1/€2 allowance and successfully retried through the normal engine. A second legacy 24-hour publisher hold was aligned with the saved four-hour soft-hold policy and hard locks.
+
+A fresh full Previo readback matched 1,136 of 1,144 latest intended prices. Eight prices across five dates (10, 11, 15 and 19 February; 4 March) were normalized upward by Previo where existing guest-count prices were inverted. Their authoritative PMS prices were retained and obsolete retry targets settled. This is a documented publication discrepancy, not an assertion that every requested price matched or that OTA display was independently verified.
+
+Validation: 63 local Node tests (including actual publisher-handler integration), pure-planner/publication TypeScript checks, publisher syntax parsing, and three transactional tests against the live publication trigger using temporary push items. No public price or booking row was changed by the database tests. Internal scheduler/trigger RPC execution is limited to the service role. The existing hourly AI supervisor was updated to follow this policy and to distinguish PMS acceptance from verified readback.

@@ -20,11 +20,9 @@ BEGIN
  original.target_price:=original.old_price+2;
  INSERT INTO pickup_publication_probe SELECT original.* RETURNING * INTO probe;
  IF probe.status<>'queued' THEN RAISE EXCEPTION 'A valid measured two-euro test was rejected: %',probe.error; END IF;
- DELETE FROM pickup_publication_probe;
  original.target_price:=original.old_price+3;
  INSERT INTO pickup_publication_probe SELECT original.* RETURNING * INTO probe;
  IF probe.status<>'failed' THEN RAISE EXCEPTION 'An unsupported three-euro jump was allowed'; END IF;
- DELETE FROM pickup_publication_probe;
  original.target_price:=original.old_price-2;
  INSERT INTO pickup_publication_probe SELECT original.* RETURNING * INTO probe;
  IF probe.status<>'failed' THEN RAISE EXCEPTION 'Opposite-direction child was allowed'; END IF;

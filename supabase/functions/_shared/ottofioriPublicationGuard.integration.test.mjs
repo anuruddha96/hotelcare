@@ -26,7 +26,7 @@ async function invoke(f) {
     insert(value){this.operation='insert';this.value=value;return this;}
     eq(){return this;} neq(){return this;} in(){return this;} is(){return this;}
     not(){return this;} gte(){return this;} lte(){return this;} order(){return this;}
-    limit(){return this;} maybeSingle(){return this;}
+    limit(){return this;} maybeSingle(){return this;} single(){return this;}
     then(resolve,reject){return Promise.resolve(this.result()).then(resolve,reject);}
     result(){
       if(this.operation!=='select'){writes.push({table:this.table,value:this.value});return {data:[],error:null};}
@@ -36,6 +36,7 @@ async function invoke(f) {
         case 'pms_accounts':return single([{is_active:true,pms_hotel_id:'786631'}]);
         case 'room_types':return single({organization_slug:'rdhotels'});
         case 'previo_rate_plan_mapping':return single([0,1,2,3,4].map(i=>({previo_room_type_id:`kind-${i}`,previo_rate_plan_id:'plan'})));
+        case 'revenue_pickup_automation_rules':return single({manual_hold_hours:4});
         case 'hotel_revenue_settings':return single({rate_write_method:'eqc:AvailRateUpdate',base_currency:'EUR'});
         case 'revenue_rate_drafts':
           return single(this.columns==='stay_date, decision_reason, status'?f.manual:f.drafts);
@@ -49,7 +50,7 @@ async function invoke(f) {
       }
     }
   }
-  const admin={from:table=>new Query(table),rpc:async()=>({data:true,error:null})};
+  const admin={from:table=>new Query(table),rpc:async(name)=>({data:name==='revenue_manual_hold_state'?f.manual:true,error:null})};
   const context=vm.createContext({
     Request,Response,crypto,console:{log(){},error(){}},URL,Date,Map,Set,Promise,setTimeout,
     createClient:()=>admin, loadPrevioCredentials:()=>({}),hasPrevioCredentials:()=>true,
@@ -84,7 +85,7 @@ test('actual publisher fails closed when durable decision read fails',async()=>{
   assert.equal(result.status,500);assert.equal(result.externalWrites,0);
 });
 test('actual publisher respects a newly protected manager date',async()=>{
-  const f=fixture();f.manual=[{stay_date:'2026-11-06',decision_reason:null,status:'pushed'}];
+  const f=fixture();f.manual=[{stay_date:'2026-11-06',hold_kind:'soft',hold_until:new Date().toISOString()}];
   const result=await invoke(f);
   assert.equal(result.body.code,'ottofiori_publication_blocked');assert.equal(result.externalWrites,0);
 });
