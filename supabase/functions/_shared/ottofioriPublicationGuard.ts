@@ -10,6 +10,8 @@ export interface PublicationDecision {
   direction: string;
   movement: number | string | null;
   cells_simulated: number | null;
+  pickup_24h?: number | null;
+  cancellations_24h?: number | null;
 }
 
 export interface PublicationDraft {
@@ -60,6 +62,7 @@ export function guardOttofioriPublication<T extends PublicationDraft>(params: {
   mappedCells: PublicationCell[];
   manifest: Record<string, { decision_id?: string | null; expected_cells?: number }> | null;
   protectedDates?: Set<string>;
+  hardLockedDates?: Set<string>;
 }): { allowed: T[]; blocked: Array<{ stayDate: string; reason: string; drafts: T[] }> } {
   if (params.hotelId !== "ottofiori") return { allowed: params.drafts, blocked: [] };
   const dates = new Map<string, T[]>();
@@ -81,8 +84,10 @@ export function guardOttofioriPublication<T extends PublicationDraft>(params: {
       reject("Whole date blocked: its stored pricing decision is missing, held, terminal or inconsistent.");
       continue;
     }
-    if (params.protectedDates?.has(stayDate)) {
-      reject("Whole date blocked: a human manager price is protected for 24 hours.");
+    const genuinePickupRise = decision?.direction === "increase"
+      && Number(decision.pickup_24h ?? 0) - Number(decision.cancellations_24h ?? 0) > 0;
+    if (params.hardLockedDates?.has(stayDate) || (params.protectedDates?.has(stayDate) && !genuinePickupRise)) {
+      reject("Whole date blocked: an active manager lock or protected human price prevents this movement.");
       continue;
     }
     const manifest = params.manifest?.[stayDate];

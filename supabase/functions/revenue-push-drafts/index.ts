@@ -472,31 +472,38 @@ Deno.serve(async (req) => {
     if (hotelId === "ottofiori" && drafts.some(isDecisionPublicationDraft)) {
       const dates = [...new Set(drafts.map((d: any) => d.stay_date))].sort();
       const decisionIds = [...new Set(drafts.map((d: any) => d.decision_id).filter(Boolean))];
-      const [decisionResult, mirrorResult, manualResult] = await Promise.all([
+      const [decisionResult, mirrorResult, manualResult, ruleResult] = await Promise.all([
         admin.from("revenue_date_decisions")
-          .select("id, hotel_id, stay_date, status, direction, movement, cells_simulated")
+          .select("id, hotel_id, stay_date, status, direction, movement, cells_simulated, pickup_24h, cancellations_24h")
           .eq("hotel_id", hotelId).in("id", decisionIds),
         admin.from("revenue_room_type_rates")
           .select("stay_date, obk_id, rate_plan_id, occupancy, price")
           .eq("hotel_id", hotelId).in("stay_date", dates).eq("source", "previo").limit(1001),
-        admin.from("revenue_rate_drafts")
-          .select("stay_date, decision_reason, status")
-          .eq("hotel_id", hotelId).in("stay_date", dates).eq("intent_source", "manual")
-          .gte("created_at", new Date(Date.now() - 24 * 3_600_000).toISOString()).limit(5001),
+        admin.rpc("revenue_manual_hold_state", {
+          p_hotel_id: hotelId, p_since: new Date(Date.now() - 24 * 3_600_000).toISOString(),
+          p_sources: ["cell-edit", "cell-selection", "day-tool", "bulk", "bulk-edit", "manual", "quick-adjust"],
+        }),
+        admin.from("revenue_pickup_automation_rules").select("manual_hold_hours")
+          .eq("hotel_id", hotelId).eq("organization_slug", "rdhotels").single(),
       ]);
-      if (decisionResult.error || mirrorResult.error || manualResult.error ||
+      if (decisionResult.error || mirrorResult.error || manualResult.error || ruleResult.error ||
           (mirrorResult.data?.length ?? 0) > 1000 || (manualResult.data?.length ?? 0) > 5000) {
         throw new Error("Ottofiori publication safety could not read a complete decision, rate or manager-hold state.");
       }
       const exactMaps = new Set(validMaps.map((m: any) => `${m.previo_room_type_id}|${m.previo_rate_plan_id}`));
-      const protectedDates = new Set<string>((manualResult.data ?? [])
-        .filter((d: any) => !String(d.decision_reason ?? "").startsWith("ai_") &&
-          !["failed", "superseded"].includes(d.status))
-        .map((d: any) => d.stay_date));
+      const holdHours = Math.max(0, Number(ruleResult.data.manual_hold_hours ?? 4));
+      const protectedDates = new Set<string>();
+      const hardLockedDates = new Set<string>();
+      for (const row of manualResult.data ?? []) {
+        const until = Date.parse(row.hold_until) + (row.hold_kind === "hard" ? 0 : holdHours * 3_600_000);
+        if (!Number.isFinite(until)) throw new Error("Invalid Ottofiori manager hold timestamp.");
+        if (until <= Date.now()) continue;
+        (row.hold_kind === "hard" ? hardLockedDates : protectedDates).add(row.stay_date);
+      }
       const guarded = guardOttofioriPublication({
         hotelId, drafts: drafts as any[], decisions: decisionResult.data ?? [],
         mappedCells: (mirrorResult.data ?? []).filter((r: any) => exactMaps.has(`${r.obk_id}|${r.rate_plan_id}`)),
-        manifest: pushRunMeta?.date_manifest ?? null, protectedDates,
+        manifest: pushRunMeta?.date_manifest ?? null, protectedDates, hardLockedDates,
       });
       for (const column of guarded.blocked) {
         const ids = column.drafts.map((d) => d.id);
