@@ -36,3 +36,7 @@ Each decision explains the quiet interval or fresh pickup count, occupancy, rema
 The earlier deployment moved 88 dates and a full Previo readback matched 1,136/1,144 intended prices; eight guest-count values were returned higher by Previo. Their authoritative values were retained and stale retry intents closed. Current decisions always start from fresh PMS values.
 
 Validation includes two-way rise→quiet→fall and fall→booking→rise sequences, repeated quiet reductions, old-booking expiry, consumed-booking demand protection, event/high-occupancy holds, floor/budget/manager controls and whole-date publisher integration tests.
+
+## Publisher integrity correction
+
+The final Ottofiori publisher now applies the measured single-booking safety rule before any Previo write. A date at or above 85% occupancy, or at least 50% occupied and ten points ahead of its saved lead-time pace target, is treated as strong occupancy rather than a soft date. The database item-status trigger uses the same definition, preventing a PMS-accepted whole-date change from being mislabeled as failed after delivery.
