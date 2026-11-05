@@ -17,6 +17,38 @@ export function committedMovement(row: { status?: string; movement?: unknown; di
     && row.direction !== "hold" && Math.abs(Number(row.movement)) > 0;
 }
 
+const AUTHORITATIVE_EVENT_HOSTS = [
+  "budapestarena.hu",
+  "mvm-dome.hu",
+  "hungexpo.hu",
+  "livenation.hu",
+  "iata.org",
+  "fashionweekhungary.com",
+] as const;
+
+/**
+ * A high label alone is not proof of citywide compression. Event-only markdown
+ * protection requires a human-curated event or an organizer/venue source.
+ */
+export function confirmedHighImpactEvent(row: {
+  expected_impact?: unknown;
+  confidence?: unknown;
+  approved?: unknown;
+  url?: unknown;
+  source?: unknown;
+}): boolean {
+  if (String(row.expected_impact ?? "").toLowerCase() !== "high"
+    || row.approved !== true || Number(row.confidence ?? 0) < 0.8
+    || typeof row.url !== "string" || !row.url.trim()) return false;
+  if (String(row.source ?? "").toLowerCase() === "manual") return true;
+  try {
+    const host = new URL(row.url).hostname.toLowerCase().replace(/^www\./, "");
+    return AUTHORITATIVE_EVENT_HOSTS.some((domain) => host === domain || host.endsWith("." + domain));
+  } catch {
+    return false;
+  }
+}
+
 /** Ottofiori's commercial planner. Core safety checks remain the final authority. */
 export function decideRevenueDirector(input: DecisionInput, settings: DecisionSettings, context: RevenueDirectorContext): Decision {
   const win = windowFor(input.daysOut, settings.windowRules);

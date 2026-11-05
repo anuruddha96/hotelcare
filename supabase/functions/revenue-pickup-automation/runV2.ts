@@ -55,7 +55,7 @@ import {
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
 import { loadGuestStep, maxGuestGapFor, repairLadder } from "../_shared/rateSafety.ts";
 import { effectiveDateColumnBounds } from "../_shared/engineV2DateColumnLockstep.ts";
-import { decideRevenueDirector, committedMovement, MOVEMENT_HISTORY_STATUSES } from "../_shared/engineV2RevenueDirector.ts";
+import { confirmedHighImpactEvent, decideRevenueDirector, committedMovement, MOVEMENT_HISTORY_STATUSES } from "../_shared/engineV2RevenueDirector.ts";
 
 
 
@@ -340,7 +340,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       admin.from("revenue_event_applications").select("event_key, stay_date")
         .eq("hotel_id", rule.hotel_id).gte("stay_date", today),
       admin.from("demand_events")
-        .select("id, title, city, venue, event_date, end_date, expected_impact, confidence, approved, url")
+        .select("id, title, city, venue, event_date, end_date, expected_impact, confidence, approved, url, source")
         .eq("hotel_id", rule.hotel_id)
         .or(`end_date.gte.${today},and(end_date.is.null,event_date.gte.${today})`).lte("event_date", horizonDate),
       admin.from("room_types")
@@ -643,7 +643,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         const stayDate = d.toISOString().slice(0, 10);
         if (stayDate < today || stayDate > horizonDate) continue;
         // Applied events remain demand context after their one-time uplift.
-        if (impact === "high" && ev.approved === true && Number(ev.confidence ?? 0) >= 0.8 && ev.url) confirmedHighEvents.add(stayDate);
+        if (confirmedHighImpactEvent(ev)) confirmedHighEvents.add(stayDate);
         const key = eventKeyOf(ev, stayDate);
         if (seenEventKeys.has(key)) continue;      // duplicate listing of one event
         if (appliedKeys.has(`${key}|${stayDate}`)) continue; // already paid for
