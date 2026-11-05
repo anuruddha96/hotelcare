@@ -27,6 +27,7 @@ import {
   type OccupancyLiftBand,
   DEFAULT_OCCUPANCY_LIFT_LADDER,
   type WindowRule,
+  windowFor,
 } from "../_shared/engineV2.ts";
 
 import {
@@ -402,6 +403,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const pickup1h = countIn(unspentLedger, "first_seen_at", 1);
     const pickup6h = countIn(unspentLedger, "first_seen_at", 6);
     const pickup24h = countIn(unspentLedger, "first_seen_at", 24);
+    const observedPickup6h = countIn(ledgerArr, "first_seen_at", 6);
     const pickup48h = countIn(ledgerArr, "first_seen_at", 48);
     const pickup7d = countIn(ledgerArr, "first_seen_at", 24 * 7);
     const lastPickupAt = new Map<string, string>();
@@ -858,6 +860,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       const last = lastDecisionByDate.get(stayDate);
       const prevOcc = prevOccByDate.get(stayDate) ?? null;
       const lastPickup = lastPickupAt.get(stayDate) ?? null;
+      const quietHours = windowFor(daysOut, settings.windowRules).no_pickup_wait_hours ?? 6;
+      const freshUnspent = new Set(unspentLedger
+        .filter((r: any) => r.stay_date === stayDate && r.first_seen_at >= since(quietHours))
+        .map((r: any) => String(r.reservation_id))).size;
 
       const input: DecisionInput = {
         stayDate,
@@ -871,6 +877,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         pickup24h: pickup24h.get(stayDate) ?? 0,
         pickup48h: pickup48h.get(stayDate) ?? 0,
         pickup7d: pickup7d.get(stayDate) ?? 0,
+        observedPickup6h: observedPickup6h.get(stayDate) ?? 0,
+        unspentPickupInQuietWindow: freshUnspent,
         cancellations24h: cancels24h.get(stayDate) ?? 0,
         hoursSinceLastPickup: lastPickup ? (now.getTime() - Date.parse(lastPickup)) / 3_600_000 : null,
         lastCancellationAt: lastCancel.get(stayDate) ?? null,
