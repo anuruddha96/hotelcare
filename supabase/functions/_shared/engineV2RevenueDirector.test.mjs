@@ -67,6 +67,12 @@ test('multiple final-week reductions stay inside one date daily euro cap',()=>{
  const d=decide({daysOut:4,markdownsToday:2,movedDownTodayEur:8,lastDecreaseAt:'2026-11-05T05:00:00Z'});
  assert.equal(d.direction,'decrease');assert.equal(d.movement,-2);
 });
+test('audit detail reports the applied reduction after the daily cap clips the request',()=>{
+ const d=decide({daysOut:90,movedDownTodayEur:5,hoursSinceLastPickup:48});
+ assert.equal(d.movement,-1);
+ assert.match(d.reasonDetail,/Test a lower offer by €1/);
+ assert.doesNotMatch(d.reasonDetail,/Test a lower offer by €2/);
+});
 test('no-pickup waits and far-date reduction frequency prevent hourly churn',()=>{
  assert.equal(decide({daysOut:90,hoursSinceLastPickup:5}).direction,'hold');
  assert.equal(decide({daysOut:90,lastDecreaseAt:'2026-11-05T10:00:00Z'}).direction,'hold');
