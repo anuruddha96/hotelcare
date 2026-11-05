@@ -12,6 +12,11 @@ export interface PublicationDecision {
   cells_simulated: number | null;
   pickup_24h?: number | null;
   cancellations_24h?: number | null;
+  occupancy_pct?: number | string | null;
+  pace_target_pct?: number | string | null;
+  rooms_remaining?: number | null;
+  days_out?: number | null;
+  decision_reason?: string | null;
 }
 
 export interface PublicationDraft {
@@ -90,6 +95,27 @@ export function guardOttofioriPublication<T extends PublicationDraft>(params: {
       reject("Whole date blocked: an active manager lock or protected human price prevents this movement.");
       continue;
     }
+    // Apply the same measured-pickup rule before the external PMS write.
+    // Strong early occupancy is not a soft date: it is at least 50% and ten
+    // points ahead of the saved lead-time pace target.
+    const occupancy = Number(decision?.occupancy_pct ?? 0);
+    const paceTarget = Number(decision?.pace_target_pct ?? 100);
+    const strongOccupancy = occupancy >= 85 ||
+      (occupancy >= 50 && Number.isFinite(paceTarget) && occupancy >= paceTarget + 10);
+    const netPickup24h = Math.max(0,
+      Number(decision?.pickup_24h ?? 0) - Number(decision?.cancellations_24h ?? 0));
+    const movement = Number(decision!.movement);
+    const singleBookingSoftRise = decision?.direction === "increase" &&
+      netPickup24h === 1 && !strongOccupancy &&
+      Number(decision?.rooms_remaining ?? 99) > 2;
+    const measuredSingleBookingLimit = Number(decision?.days_out ?? 999) <= 7 ? 1 : 2;
+    if (singleBookingSoftRise && !(
+      decision?.decision_reason === "revenue_director_yield" &&
+      movement > 0 && movement <= measuredSingleBookingLimit
+    )) {
+      reject("Whole date blocked before PMS write: one net booking with soft occupancy is not enough for this increase.");
+      continue;
+    }
     const manifest = params.manifest?.[stayDate];
     const cells = params.mappedCells.filter((c) => c.stay_date === stayDate);
     const mirror = new Map(cells.map((c) => [cellKey(c), c]));
@@ -104,7 +130,6 @@ export function guardOttofioriPublication<T extends PublicationDraft>(params: {
       reject("Whole date blocked: the exact mapped 13-cell price column is incomplete or duplicated.");
       continue;
     }
-    const movement = Number(decision!.movement);
     if (drafts.some((d) => {
       const old = Number(d.old_price);
       const target = Number(d.new_price);
