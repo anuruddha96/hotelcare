@@ -84,7 +84,7 @@ const handler = async (req: Request): Promise<Response> => {
     if (!email || !otp_code || !new_password) {
       return jsonResponse(400, "Email, OTP code, and new password are required");
     }
-    if (email.length > 254 || !/^[^@\s]+@[^@\s]+\\.[^@\s]+$/.test(email)
+    if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)
         || !/^\d{6}$/.test(otp_code) || new_password.length < 6
         || new_password.length > 1024) {
       return jsonResponse(400, "Invalid verification details");
