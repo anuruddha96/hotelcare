@@ -7,6 +7,49 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+
+// Module-level, best-effort short circuit. A shared DB gate below protects
+// multiple Edge Function instances; this cache avoids hitting it for floods.
+const recentAttempts = new Map<string, { count: number; endsAt: number }>();
+
+function localRateLimit(key: string, maximum: number, windowMs: number): number {
+  const now = Date.now();
+  if (recentAttempts.size > 4096) {
+    for (const [k, v] of recentAttempts) {
+      if (v.endsAt <= now) recentAttempts.delete(k);
+    }
+    if (recentAttempts.size > 4096) recentAttempts.clear();
+  }
+  const current = recentAttempts.get(key);
+  if (!current || current.endsAt <= now) {
+    recentAttempts.set(key, { count: 1, endsAt: now + windowMs });
+    return 0;
+  }
+  current.count += 1;
+  return current.count > maximum ? Math.max(1, Math.ceil((current.endsAt - now) / 1000)) : 0;
+}
+
+function jsonResponse(status: number, message: string, retryAfter?: number): Response {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...(retryAfter ? { "Retry-After": String(retryAfter) } : {}),
+      ...corsHeaders,
+    },
+  });
+}
+
+// HMAC keeps raw IPs and email addresses out of the persistent throttle table.
+async function opaqueRateKey(serviceKey: string, scope: string, value: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(serviceKey), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const result = await crypto.subtle.sign("HMAC", key, encoder.encode(`${scope}:${value}`));
+  return Array.from(new Uint8Array(result)).map((n) => n.toString(16).padStart(2, "0")).join("");
+}
+
 interface VerifyOTPRequest {
   email: string;
   otp_code: string;
@@ -18,21 +61,66 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return jsonResponse(405, "Method not allowed");
+  }
+  if (Number(req.headers.get("content-length") || 0) > 4096) {
+    return jsonResponse(413, "Request body too large");
+  }
+
+  // Only trust the Cloudflare-supplied connecting IP (not user-supplied X-Forwarded-For).
+  const clientIp = req.headers.get("cf-connecting-ip")?.trim() || "unknown";
+  const ipRetry = localRateLimit(`ip:${clientIp}`, 12, 60_000);
+  if (ipRetry) {
+    return jsonResponse(429, "Too many verification attempts. Please try again later.", ipRetry);
+  }
+
   try {
-    const { email, otp_code, new_password }: VerifyOTPRequest = await req.json();
+    const body: Partial<VerifyOTPRequest> = await req.json();
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const otp_code = typeof body?.otp_code === "string" ? body.otp_code.trim() : "";
+    const new_password = typeof body?.new_password === "string" ? body.new_password : "";
 
     if (!email || !otp_code || !new_password) {
-      return new Response(JSON.stringify({ error: "Email, OTP code, and new password are required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+      return jsonResponse(400, "Email, OTP code, and new password are required");
+    }
+    if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)
+        || !/^\d{6}$/.test(otp_code) || new_password.length < 6
+        || new_password.length > 1024) {
+      return jsonResponse(400, "Invalid verification details");
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
+    if (!supabaseUrl || !serviceKey) return jsonResponse(503, "Verification temporarily unavailable");
+    const emailKey = await opaqueRateKey(serviceKey, "email", email.toLowerCase());
+    const emailRetry = localRateLimit(`email:${emailKey}`, 5, 900_000);
+    if (emailRetry) {
+      return jsonResponse(429, "Too many verification attempts. Please try again later.", emailRetry);
+    }
+    const ipKey = await opaqueRateKey(serviceKey, "ip", clientIp);
+    const supabase = createClient(supabaseUrl, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
 
-    // Verify OTP
+    // Durable cross-instance gate. Fail closed if the protection isn't available.
+    const { data: gate, error: gateError } = await supabase.rpc("check_password_reset_attempt", {
+      p_ip_hash: ipKey,
+      p_email_hash: emailKey,
+    });
+    const decision = Array.isArray(gate) ? gate[0] : gate;
+    if (gateError || !decision || typeof decision.allowed !== "boolean") {
+      console.error("Password reset attempt gate unavailable", gateError?.message);
+      return jsonResponse(503, "Verification temporarily unavailable");
+    }
+    if (!decision.allowed) {
+      return jsonResponse(
+        429, "Too many verification attempts. Please try again later.",
+        Math.max(1, Number(decision.retry_after_seconds) || 900),
+      );
+    }
+
+    // Only a rate-limited request may reach the OTP lookup.
     const { data: otpRecord, error: otpError } = await supabase
       .from('password_reset_otps')
       .select('*')
