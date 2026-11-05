@@ -211,6 +211,8 @@ export function useRevenueHotelData(
 
   const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const requestVersionRef = useRef(0);
+  /** Only a successfully applied dataset advances the published refresh version. */
+  const successfulPublishedLoadsRef = useRef(0);
   /** Deduplicate only the SAME request; a larger horizon must supersede it. */
   const inFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
@@ -305,6 +307,7 @@ export function useRevenueHotelData(
 
       payloadRef.current = completedPayload;
       setPayload(completedPayload);
+      successfulPublishedLoadsRef.current += 1;
       if (normalisedRoomTypes.length > 0) {
         setRoomMetadata(normalisedRoomTypes);
         writeCachedRevenueRoomMetadata(cacheKey, normalisedRoomTypes);
@@ -426,6 +429,86 @@ export function useRevenueHotelData(
     const timer = window.setInterval(refresh, 15_000);
     return () => window.clearInterval(timer);
   }, [hotelId, refreshAvailability]);
+
+  // A manual price push refreshes revenue_published_payloads.updated_at,
+  // NOT revenue_sync_state.last_success_at / sync_completed_at. Watching only
+  // the full-sync timestamp leaves an already-open calendar stale after a push.
+  // Poll the one-row published version; never invoke a PMS sync or price write.
+  const publishedRefreshQueuedRef = useRef(false);
+  const lastPublishedVersionRef = useRef<{ hotelId: string; updatedAt: string | null }>({
+    hotelId: "", updatedAt: null,
+  });
+  useEffect(() => {
+    if (!hotelId || !organizationSlug) return;
+    let disposed = false;
+    let checking = false;
+
+    const checkPublishedFreshness = async () => {
+      if (checking || document.visibilityState === "hidden") return;
+      checking = true;
+      try {
+        const { data, error } = await (supabase as any)
+          .from("revenue_published_payloads")
+          .select("updated_at")
+          .eq("hotel_id", hotelId)
+          .eq("organization_slug", organizationSlug)
+          .maybeSingle();
+        if (error || disposed || currentHotelRef.current !== hotelId) return;
+
+        const updatedAt = data?.updated_at as string | undefined;
+        const version = updatedAt ? Date.parse(updatedAt) : NaN;
+        if (!Number.isFinite(version)) return;
+        if (lastPublishedVersionRef.current.hotelId !== hotelId) {
+          lastPublishedVersionRef.current = { hotelId, updatedAt: null };
+        }
+        const previous = lastPublishedVersionRef.current.updatedAt;
+        // The first check also detects a manual push newer than the last full
+        // sync, even if the tab was open before that push occurred.
+        const baseline = previous ?? lastSyncAt;
+        if (baseline && version <= Date.parse(baseline)) {
+          lastPublishedVersionRef.current.updatedAt = updatedAt;
+          return;
+        }
+        if (publishedRefreshQueuedRef.current) return;
+
+        // Never interrupt a price edit. A failed payload read remains eligible
+        // for the next poll rather than marking a version as already applied.
+        publishedRefreshQueuedRef.current = true;
+        runWhenRevenueEditorsClosed(() => {
+          if (disposed || currentHotelRef.current !== hotelId) {
+            publishedRefreshQueuedRef.current = false;
+            return;
+          }
+          const before = successfulPublishedLoadsRef.current;
+          void (async () => {
+            try {
+              await reload();
+              if (!disposed && currentHotelRef.current === hotelId &&
+                  successfulPublishedLoadsRef.current > before) {
+                lastPublishedVersionRef.current = { hotelId, updatedAt };
+              }
+            } finally {
+              publishedRefreshQueuedRef.current = false;
+            }
+          })();
+        });
+      } catch {
+        // Transient read errors must not clear the last verified rate grid.
+      } finally {
+        checking = false;
+      }
+    };
+
+    void checkPublishedFreshness();
+    const onVisible = () => { if (document.visibilityState === "visible") void checkPublishedFreshness(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(() => { void checkPublishedFreshness(); }, 60_000);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
+  }, [hotelId, organizationSlug, lastSyncAt, reload]);
 
   useEffect(() => {
     if (!hotelId) return;
