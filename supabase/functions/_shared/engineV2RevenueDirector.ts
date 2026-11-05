@@ -98,6 +98,12 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   effective.commercialIntent = { raw, reason, detail };
   const decision = coreDecision(effective, policy);
   if (!decision.blocked) {
+    if (reason === "quiet_demand_test" && decision.direction === "decrease" && decision.movement !== raw) {
+      decision.reasonDetail = decision.reasonDetail.replace(
+        `Test a lower offer by €${Math.abs(raw)}`,
+        `Test a lower offer by €${Math.abs(decision.movement)}`,
+      );
+    }
     decision.reason = decision.direction === "increase" ? "revenue_director_yield" : "revenue_director_fill";
     decision.reasonDetail += ` ${occ}% occupied versus ${pace ?? "unknown"}% pace; ${input.roomsRemaining} rooms left. Goal: 100% occupancy, sell early by D-7; monthly ADR target €${context.targetAdr}${context.requiredRemainingAdr == null ? "" : `, remaining ADR need €${Math.round(context.requiredRemainingAdr)}`}.`;
   }
