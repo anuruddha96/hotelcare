@@ -474,7 +474,7 @@ Deno.serve(async (req) => {
       const decisionIds = [...new Set(drafts.map((d: any) => d.decision_id).filter(Boolean))];
       const [decisionResult, mirrorResult, manualResult, ruleResult] = await Promise.all([
         admin.from("revenue_date_decisions")
-          .select("id, hotel_id, stay_date, status, direction, movement, cells_simulated, pickup_24h, cancellations_24h")
+          .select("id, hotel_id, stay_date, status, direction, movement, cells_simulated, pickup_24h, cancellations_24h, occupancy_pct, pace_target_pct, rooms_remaining, days_out, decision_reason")
           .eq("hotel_id", hotelId).in("id", decisionIds),
         admin.from("revenue_room_type_rates")
           .select("stay_date, obk_id, rate_plan_id, occupancy, price")

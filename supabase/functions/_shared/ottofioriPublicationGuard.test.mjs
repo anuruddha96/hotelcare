@@ -114,7 +114,8 @@ test('last-moment decision check catches a hold after preflight', () => {
 
 test('genuine pickup may lift a soft edit hold, while a hard manager lock always blocks', () => {
   const f=fixture(); f.protectedDates=new Set([date]);
-  Object.assign(f.decisions[0],{direction:'increase',movement:2,pickup_24h:1,cancellations_24h:0});
+  Object.assign(f.decisions[0],{direction:'increase',movement:2,pickup_24h:1,cancellations_24h:0,
+    occupancy_pct:40,pace_target_pct:65,rooms_remaining:4,days_out:54,decision_reason:'revenue_director_yield'});
   f.drafts.forEach(d=>{d.new_price=d.old_price+2;d.intent_source='automation_pickup';});
   assert.equal(guardOttofioriPublication(f).allowed.length,13);
   f.hardLockedDates=new Set([date]);blocked(f);
@@ -125,4 +126,26 @@ test('cancelled or absent pickup cannot override a protected manager price',()=>
     Object.assign(f.decisions[0],{direction:'increase',movement:2,pickup_24h,cancellations_24h:1});
     f.drafts.forEach(d=>{d.new_price=d.old_price+2;});blocked(f);
   }
+});
+
+test('single booking cannot publish an oversized rise on a soft date', () => {
+  const f = fixture();
+  Object.assign(f.decisions[0], {
+    direction: 'increase', movement: 4, pickup_24h: 1, cancellations_24h: 0,
+    occupancy_pct: 40, pace_target_pct: 65, rooms_remaining: 4, days_out: 54,
+    decision_reason: 'revenue_director_yield',
+  });
+  f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
+  const result = blocked(f);
+  assert.match(result.blocked[0].reason, /before PMS write/);
+});
+test('strong early occupancy can support the planner rise with one fresh booking', () => {
+  const f = fixture();
+  Object.assign(f.decisions[0], {
+    direction: 'increase', movement: 4, pickup_24h: 1, cancellations_24h: 0,
+    occupancy_pct: 81, pace_target_pct: 65, rooms_remaining: 4, days_out: 54,
+    decision_reason: 'revenue_director_yield',
+  });
+  f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
+  assert.equal(guardOttofioriPublication(f).allowed.length, 13);
 });

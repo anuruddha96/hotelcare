@@ -89,3 +89,16 @@ test('actual publisher respects a newly protected manager date',async()=>{
   const result=await invoke(f);
   assert.equal(result.body.code,'ottofiori_publication_blocked');assert.equal(result.externalWrites,0);
 });
+
+test('actual publisher blocks an oversized single-booking soft-date rise before Previo', async () => {
+  const f = fixture();
+  Object.assign(f.decisions[0], {
+    direction: 'increase', movement: 4, pickup_24h: 1, cancellations_24h: 0,
+    occupancy_pct: 40, pace_target_pct: 65, rooms_remaining: 4, days_out: 54,
+    decision_reason: 'revenue_director_yield',
+  });
+  f.drafts.forEach((d) => { d.new_price = d.old_price + 4; d.intent_source = 'automation_pickup'; });
+  const result = await invoke(f);
+  assert.equal(result.body.code, 'ottofiori_publication_blocked');
+  assert.equal(result.externalWrites, 0);
+});
