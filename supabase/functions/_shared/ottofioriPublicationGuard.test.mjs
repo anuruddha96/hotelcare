@@ -111,3 +111,18 @@ test('last-moment decision check catches a hold after preflight', () => {
   const f = fixture(); assert.equal(activePublicationDecision(f.decisions[0], date), true);
   f.decisions[0].status = 'held'; assert.equal(activePublicationDecision(f.decisions[0], date), false);
 });
+
+test('genuine pickup may lift a soft edit hold, while a hard manager lock always blocks', () => {
+  const f=fixture(); f.protectedDates=new Set([date]);
+  Object.assign(f.decisions[0],{direction:'increase',movement:2,pickup_24h:1,cancellations_24h:0});
+  f.drafts.forEach(d=>{d.new_price=d.old_price+2;d.intent_source='automation_pickup';});
+  assert.equal(guardOttofioriPublication(f).allowed.length,13);
+  f.hardLockedDates=new Set([date]);blocked(f);
+});
+test('cancelled or absent pickup cannot override a protected manager price',()=>{
+  for(const pickup_24h of [0,1]){
+    const f=fixture(); f.protectedDates=new Set([date]);
+    Object.assign(f.decisions[0],{direction:'increase',movement:2,pickup_24h,cancellations_24h:1});
+    f.drafts.forEach(d=>{d.new_price=d.old_price+2;});blocked(f);
+  }
+});

@@ -1,5 +1,4 @@
-import { decideDate as coreDecision, paceTargetFor, windowFor, type Decision, type DecisionInput, type DecisionSettings } from "./engineV2Core.ts";
-import { decideDate as legacyDecision } from "./engineV2.ts";
+import { decideDate as coreDecision, paceTargetFor, windowFor, pickupLadderFor, pickupStep, type Decision, type DecisionInput, type DecisionSettings } from "./engineV2Core.ts";
 
 export interface RevenueDirectorContext {
   targetAdr: number;
@@ -8,7 +7,6 @@ export interface RevenueDirectorContext {
   requiredRemainingAdr: number | null;
   netRateFactor: number;
   confirmedHighEvent: boolean;
-  /** Explicit Ottofiori-only, live-config opt-in for measured €1 tests. */
   microPriceTestEnabled?: boolean;
 }
 
@@ -19,74 +17,105 @@ export function committedMovement(row: { status?: string; movement?: unknown; di
     && row.direction !== "hold" && Math.abs(Number(row.movement)) > 0;
 }
 
-/** Ottofiori's ADR is a hotel KPI; it is not the minimum sell price of every night. */
+/** Ottofiori's commercial planner. Core safety checks remain the final authority. */
 export function decideRevenueDirector(input: DecisionInput, settings: DecisionSettings, context: RevenueDirectorContext): Decision {
+  const win = windowFor(input.daysOut, settings.windowRules);
   const pace = paceTargetFor(input.daysOut, settings.paceBands);
+  const gap = pace == null || input.occupancyPct == null ? null : input.occupancyPct - pace;
   const hold = (reason: string, detail: string): Decision => ({
-    stayDate: input.stayDate, daysOut: input.daysOut,
-    windowId: windowFor(input.daysOut, settings.windowRules).id,
+    stayDate: input.stayDate, daysOut: input.daysOut, windowId: win.id,
     direction: "hold", movement: 0, currentPrice: input.currentPrice, targetPrice: input.currentPrice,
-    paceTargetPct: pace, paceGapPct: pace == null || input.occupancyPct == null ? null : input.occupancyPct - pace,
-    reason, reasonDetail: detail, capApplied: null, blocked: true,
+    paceTargetPct: pace, paceGapPct: gap, reason, reasonDetail: detail, capApplied: null, blocked: true,
   });
-  if (input.daysOut === 0) return legacyDecision(input, settings);
-  // Hard manager locks are absolute. Soft manual-edit holds instead go to
-  // coreDecision, which protects markdowns but permits a genuine pickup-led
-  // increase. Returning here for both kinds suppressed even safe increases.
   if (input.holdKind === "hard" && input.manualHoldUntil && Date.parse(input.manualHoldUntil) > settings.now.getTime()) {
     return hold("manual_lock", "A manager locked this date; no automatic changes are permitted.");
   }
-  if (input.occupancyPct == null || input.roomsRemaining == null) return hold("no_occupancy", "Fresh occupancy and remaining-room evidence are required.");
-  const netPickup = Math.max(0, input.pickup24h - input.cancellations24h);
-  const strong = input.occupancyPct >= 85 || input.roomsRemaining <= 2
-    || (netPickup >= 2 && input.occupancyPct >= Math.max(50, (pace ?? 70) - 5));
   const effective: DecisionInput = {
-    ...input,
-    // A portfolio ADR deficit must not force an unsellable price on a soft night.
-    hardAdrFloor: null, adrFloor: null, monthFloor: null, monthMarkdownsFrozen: false,
-    // Events inform demand. They never add an unconditional repeated surcharge.
+    ...input, hardAdrFloor: null, adrFloor: null, monthFloor: null, monthMarkdownsFrozen: false,
     pendingEventUplift: 0,
   };
   const policy: DecisionSettings = {
-    ...settings,
-    respectConfiguredWindows: true,
-    fill: { ...settings.fill!, enabled: true, windowDays: 93, maxTotalDropPct: settings.fill?.maxTotalDropPct ?? 20 },
-    raiseOnAnyPickup: true,
-    microPriceTests: context.microPriceTestEnabled === true && !context.confirmedHighEvent,
-    occupancyLiftEnabled: strong,
-    occupancyLiftLadder: strong
-      ? [{ min_occupancy_pct: 90, min_days_out: 0, pct: 3, min_eur: 5 }, ...(settings.occupancyLiftLadder ?? [])]
-      : settings.occupancyLiftLadder,
+    ...settings, respectConfiguredWindows: true,
+    fill: { ...settings.fill!, enabled: true, windowDays: settings.fill?.windowDays ?? 120, maxTotalDropPct: settings.fill?.maxTotalDropPct ?? 25 },
+    occupancyLiftEnabled: false, microPriceTests: false,
+    // A cancelled room must be resold, especially after the free-cancellation deadline.
+    rebookWindowHours: Math.min(settings.rebookWindowHours ?? 12, input.daysOut <= 7 ? 2 : 12),
   };
-  let decision = coreDecision(effective, policy);
-  if (input.dataStale || decision.reason === "sold_out" || decision.reason === "no_price" || decision.reason.startsWith("bounds_")) return decision;
+  // Let core return the precise freshness, price, bounds and sold-out failures.
+  if (input.dataStale || input.currentPrice == null || input.minPrice == null || input.maxPrice == null
+    || input.roomsRemaining === 0 || (input.occupancyPct ?? 0) >= settings.soldOutOccupancyPct) {
+    return coreDecision(effective, policy);
+  }
+  if (input.occupancyPct == null || input.roomsRemaining == null) return hold("no_occupancy", "Fresh occupancy and remaining-room evidence are required.");
+  const current = input.currentPrice;
+  const occ = input.occupancyPct;
+  const pickup = Math.max(0, input.pickup24h - input.cancellations24h);
+  const fastPickup = input.pickup6h >= 2 && pickup >= 2;
+  const marketValid = input.market.median != null && input.market.median > 0
+    && input.market.sampleSize >= settings.marketValidation.min_competitors
+    && input.market.ageHours != null && input.market.ageHours <= settings.marketValidation.max_age_hours;
+  const anchor = input.anchorPrice != null && input.anchorPrice > 0 ? input.anchorPrice : null;
+  const strong = occ >= 85 || (input.daysOut > 7 && occ >= Math.max(50, (pace ?? 70) + 10));
+  const waited = win.no_pickup_wait_hours != null
+    && (input.hoursSinceLastPickup == null || input.hoursSinceLastPickup >= win.no_pickup_wait_hours);
+  let raw = 0;
+  let reason = "on_pace";
+  let detail = "The offer is on pace; wait for new demand evidence.";
 
-  // Pickup is already a successful conversion. Do not reward one isolated sale
-  // on a soft night with a rise, and do not cut below the guest who just booked.
-  if (!strong && netPickup > 0) return hold("pickup_conversion_hold", `${netPickup} net pickup in 24h with ${input.occupancyPct}% occupancy: hold the converting offer and watch velocity.`);
-  if (strong && decision.direction === "decrease") return hold("strong_demand_protected", "High occupancy or scarce remaining inventory protects ADR; wait for genuine renewed pickup before another yield move.");
-  // The January 2027 advance-loading campaign is Sunday–Thursday only. Its
-  // fill markdowns must never leak onto Friday/Saturday, where the owner wants
-  // weekend demand and event nights protected for yield.
-  if (decision.direction === "decrease" && input.stayDate >= "2027-01-01" && input.stayDate <= "2027-01-31") {
-    const weekday = new Date(`${input.stayDate}T00:00:00Z`).getUTCDay();
-    if (weekday === 5 || weekday === 6) {
-      return hold("january_weekend_loading_excluded", "January advance-loading excludes Friday and Saturday; hold the weekend offer for demand and event review.");
+  if (pickup > 0) {
+    const band = pickupLadderFor(input.daysOut, settings.pickupLadder ?? undefined);
+    raw = pickupStep(band, pickup, occ, settings.strongOccupancyPct ?? 85);
+    // One conversion on a soft date earns a small test, not a large price jump.
+    if (!strong && !fastPickup) raw = Math.min(raw, input.daysOut <= 7 ? 1 : 2);
+    reason = "pickup_yield";
+    detail = `${pickup} unconsumed net booking(s), ${input.pickup6h} in six hours: measured demand-led increase.`;
+  } else {
+    // Occupancy and major events set a finite asking target. Once reached,
+    // unchanged occupancy/event evidence cannot compound another hourly rise.
+    const yieldTarget = anchor == null ? null : Math.round(anchor * (strong
+      ? occ >= 90 ? 1.5 : occ >= 80 ? 1.35 : 1.2
+      : context.confirmedHighEvent && input.daysOut > 7 ? 1.2 : 1));
+    if ((strong || (context.confirmedHighEvent && input.daysOut > 7)) && yieldTarget != null && current < yieldTarget
+      && (input.daysOut > 7 || (input.hoursSinceLastPickup != null && input.hoursSinceLastPickup < 6))) {
+      raw = Math.min(yieldTarget - current, Math.max(2, Math.round(current * .03)));
+      reason = context.confirmedHighEvent ? "event_positioning" : "occupancy_positioning";
+      detail = `Position toward €${yieldTarget} from the seasonal anchor and ${context.confirmedHighEvent ? "confirmed event" : "early occupancy"}; no repeated surcharge above that target.`;
+    } else if (!waited) {
+      reason = "awaiting_no_pickup_window";
+      detail = `Observe ${win.no_pickup_wait_hours} hours without pickup before a reduction.`;
+    } else {
+      const behind = gap == null ? null : -gap;
+      // Every unsold final-week room remains eligible, including the last room.
+      // Further out, scarce inventory protects ADR unless the offer is overpriced.
+      const overpriced = marketValid && current > Math.ceil(input.market.median! * 1.12);
+      const weak = input.daysOut <= 7 || (behind != null && behind >= 5);
+      if ((weak && (!strong || input.daysOut <= 7)) || (!strong && overpriced && behind != null && behind >= 0)) {
+        const step = input.roomsRemaining <= 2 ? 1
+          : input.daysOut <= 2 ? (occ < 60 ? 6 : 4)
+          : input.daysOut <= 7 ? (occ < 70 ? 5 : 3)
+          : input.daysOut <= 30 ? (behind != null && behind >= 20 ? 5 : 3)
+          : (behind != null && behind >= 25 ? 4 : 2);
+        // Protect value with a seasonal reserve, not an unsellable portfolio ADR floor.
+        // A high event preserves a premium far out, but cannot freeze empty rooms forever.
+        const reserve = anchor == null ? input.minPrice : Math.max(input.minPrice,
+          Math.round(anchor * (input.daysOut <= 7 ? .8 : context.confirmedHighEvent ? 1.2 : .9)));
+        raw = -Math.max(0, Math.min(step, current - reserve));
+        reason = raw < 0 ? "pace_sell_down" : "value_reserve";
+        detail = raw < 0
+          ? `${input.roomsRemaining} rooms unsold, ${Math.round(behind ?? 0)} points behind pace; test a lower offer while preserving the €${reserve} seasonal reserve.`
+          : `The offer reached its €${reserve} seasonal reserve; require new market or demand evidence.`;
+      } else if (strong) {
+        reason = "strong_demand_protected";
+        detail = "Early occupancy supports the present rate; wait for fresh pickup before another yield step.";
+      }
     }
   }
-  if (decision.direction === "decrease" && context.confirmedHighEvent) {
-    return hold("event_demand_protected", "A confirmed major event protects this date from a no-pickup markdown; demand evidence may still support a later yield increase.");
-  }
-  if (decision.direction === "decrease" && input.daysOut > 7
-    && context.projectedAdr != null && context.projectedAdr < context.minimumAdr
-    && context.requiredRemainingAdr != null
-    && Number(input.currentPrice) * context.netRateFactor <= context.requiredRemainingAdr) {
-    return hold("portfolio_adr_budget", `Projected hotel ADR €${Math.round(context.projectedAdr)} is below €${context.minimumAdr}; this offer is already below the remaining ADR need. Protect it and harvest stronger nights.`);
-  }
+  if (raw === 0) return hold(reason, detail);
+  effective.commercialIntent = { raw, reason, detail };
+  const decision = coreDecision(effective, policy);
   if (!decision.blocked) {
-    const paceText = pace == null ? "pace unavailable" : `${input.occupancyPct}% occupied versus ${pace}% target`;
-    decision = { ...decision, reason: decision.direction === "increase" ? "revenue_director_yield" : "revenue_director_fill",
-      reasonDetail: `${decision.reasonDetail} ${paceText}; ${input.roomsRemaining} rooms left; ${netPickup} net pickup/24h. Sell-through goal 95–100% by D-7; hotel ADR target €${context.targetAdr}${context.requiredRemainingAdr == null ? "" : `, remaining ADR need €${Math.round(context.requiredRemainingAdr)}`}.` };
+    decision.reason = decision.direction === "increase" ? "revenue_director_yield" : "revenue_director_fill";
+    decision.reasonDetail += ` ${occ}% occupied versus ${pace ?? "unknown"}% pace; ${input.roomsRemaining} rooms left. Goal: 100% occupancy, sell early by D-7; monthly ADR target €${context.targetAdr}${context.requiredRemainingAdr == null ? "" : `, remaining ADR need €${Math.round(context.requiredRemainingAdr)}`}.`;
   }
   return decision;
 }

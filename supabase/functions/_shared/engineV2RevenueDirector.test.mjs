@@ -2,148 +2,83 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decideRevenueDirector, committedMovement } from './engineV2RevenueDirector.ts';
 import { DEFAULT_DECISION_SETTINGS } from './engineV2Core.ts';
-
-const now = new Date('2026-10-30T10:00:00Z');
 const settings = {
-  ...DEFAULT_DECISION_SETTINGS, now, minMovementEur: 2,
-  fill: { enabled: true, windowDays: 93, maxTotalDropPct: 20 },
-  paceBands: [
-    { min_days_out: 0, max_days_out: 7, target_occupancy_pct: 95 },
-    { min_days_out: 8, max_days_out: 14, target_occupancy_pct: 85 },
-    { min_days_out: 15, max_days_out: 30, target_occupancy_pct: 75 },
-    { min_days_out: 31, max_days_out: 60, target_occupancy_pct: 60 },
-    { min_days_out: 61, max_days_out: 93, target_occupancy_pct: 40 },
-  ],
+ ...DEFAULT_DECISION_SETTINGS, now:new Date('2026-11-05T12:00:00Z'),minMovementEur:1,
+ maxMarkdownsPerDay:4, maxMarkdownDepthPct:25, rebookWindowHours:12, bookedDateBrakeHours:12,
+ fill:{enabled:true,windowDays:120,maxTotalDropPct:25},
+ windowRules:[
+ {id:'w0_2',min_days_out:0,max_days_out:2,max_daily_decrease:12,max_daily_increase:12,no_pickup_wait_hours:2,min_hours_between_decreases:2,require_above_anchor:false},
+ {id:'w3_7',min_days_out:3,max_days_out:7,max_daily_decrease:10,max_daily_increase:15,no_pickup_wait_hours:4,min_hours_between_decreases:4,require_above_anchor:false},
+ {id:'w8_30',min_days_out:8,max_days_out:30,max_daily_decrease:6,max_daily_increase:18,no_pickup_wait_hours:8,min_hours_between_decreases:12,require_above_anchor:false},
+ {id:'w31_90',min_days_out:31,max_days_out:120,max_daily_decrease:4,max_daily_increase:22,no_pickup_wait_hours:24,min_hours_between_decreases:24,require_above_anchor:false}],
+ paceBands:[{min_days_out:0,max_days_out:7,target_occupancy_pct:100},{min_days_out:8,max_days_out:14,target_occupancy_pct:90},{min_days_out:15,max_days_out:30,target_occupancy_pct:80},{min_days_out:31,max_days_out:60,target_occupancy_pct:65},{min_days_out:61,max_days_out:120,target_occupancy_pct:45}]
 };
-const context = { targetAdr: 140, minimumAdr: 130, projectedAdr: 155, requiredRemainingAdr: 127, netRateFactor: .8, confirmedHighEvent: false };
-const input = (patch = {}) => ({
-  stayDate: '2026-11-09', daysOut: 10, currentPrice: 185, occupancyPct: 30, roomsSold: 6, roomsRemaining: 15,
-  pickup1h: 0, pickup6h: 0, pickup24h: 0, pickup48h: 0, pickup7d: 0, cancellations24h: 0,
-  hoursSinceLastPickup: 80, lastCancellationAt: null, lastDirection: null, lastDecisionAt: null, lastDecreaseAt: null,
-  movedUpTodayEur: 0, movedDownTodayEur: 0, manualHoldUntil: null, holdKind: null,
-  minPrice: 110, maxPrice: 500, adrFloor: 220, hardAdrFloor: 220, monthFloor: 220, monthMarkdownsFrozen: true,
-  anchorPrice: 160, crossed60Occupancy: false, pendingEventUplift: 0,
-  market: { median: null, sampleSize: 0, ageHours: null }, campaignStartPrice: 185, recentPeakPrice: 185, markdownsToday: 0,
-  ...patch,
+const context={targetAdr:140,minimumAdr:130,projectedAdr:155,requiredRemainingAdr:150,netRateFactor:.8,confirmedHighEvent:false};
+const input=(patch={})=>({stayDate:'2026-11-15',daysOut:10,currentPrice:185,occupancyPct:30,roomsSold:6,roomsRemaining:15,pickup1h:0,pickup6h:0,pickup24h:0,pickup48h:0,pickup7d:0,cancellations24h:0,hoursSinceLastPickup:80,lastCancellationAt:null,lastDirection:null,lastDecisionAt:null,lastDecreaseAt:null,movedUpTodayEur:0,movedDownTodayEur:0,manualHoldUntil:null,holdKind:null,minPrice:80,maxPrice:600,adrFloor:220,hardAdrFloor:220,monthFloor:220,monthMarkdownsFrozen:true,anchorPrice:160,crossed60Occupancy:false,pendingEventUplift:0,market:{median:null,sampleSize:0,ageHours:null},campaignStartPrice:185,recentPeakPrice:185,markdownsToday:0,...patch});
+const decide=(patch={},ctx={})=>decideRevenueDirector(input(patch),settings,{...context,...ctx});
+test('only committed movements consume budgets and cooldowns',()=>{
+ for(const status of ['held','shadow','superseded','failed'])assert.equal(committedMovement({status,direction:'decrease',movement:-6}),false);
+ for(const status of ['queued','accepted','confirmed','published','partial'])assert.equal(committedMovement({status,direction:'decrease',movement:-6}),true);
 });
-test('rejected and dry-run proposals cannot perpetually renew movement cooldowns', () => {
-  for (const status of ['held','shadow','superseded','failed']) assert.equal(committedMovement({ status, direction:'decrease', movement:-6 }), false);
-  for (const status of ['queued','accepted','confirmed','published','partial']) assert.equal(committedMovement({ status, direction:'decrease', movement:-6 }), true);
+test('same-day and every final-week unsold room can sell down after quiet period',()=>{
+ for(const daysOut of [0,1,4,7]) for(const roomsRemaining of [1,2,8]) {
+ const d=decide({daysOut,roomsRemaining,occupancyPct:roomsRemaining===1?95.2:71.4});
+ assert.equal(d.direction,'decrease',JSON.stringify({daysOut,roomsRemaining,d}));
+ }
 });
-test('soft night acts before D-7 despite a portfolio ADR floor above its price', () => {
-  const d = decideRevenueDirector(input(),settings,context);
-  assert.equal(d.direction,'decrease'); assert.ok(d.movement >= -15);
+test('same-day genuine pickup can increase even at high occupancy',()=>{
+ assert.equal(decide({daysOut:0,occupancyPct:95.2,roomsRemaining:1,pickup24h:1,pickup6h:1}).direction,'increase');
 });
-test('a 90% night with fresh pickup yields upward inside cancellation window', () => {
-  const d = decideRevenueDirector(input({daysOut:4,occupancyPct:90.5,roomsSold:19,roomsRemaining:2,pickup24h:2}),settings,context);
-  assert.equal(d.direction,'increase');
+test('one soft-date conversion earns a small uplift, fast pickup earns more',()=>{
+ assert.equal(decide({pickup24h:1,pickup6h:1}).movement,2);
+ assert.ok(decide({pickup24h:3,pickup6h:3}).movement>2);
+ assert.equal(decide({daysOut:2,pickup24h:1,pickup6h:1}).movement,1);
 });
-test('genuine pickup may yield during a soft price hold without overriding hard locks', () => {
-  const protectedUntil = '2026-10-31T10:00:00Z';
-  const booking = { daysOut: 4, occupancyPct: 90.5, roomsSold: 19, roomsRemaining: 2, pickup24h: 2 };
-  const soft = decideRevenueDirector(input({ ...booking, manualHoldUntil: protectedUntil, holdKind: 'soft' }), settings, context);
-  assert.equal(soft.direction, 'increase', JSON.stringify(soft));
-  assert.ok(soft.movement > 0);
-  const unchanged = decideRevenueDirector(input({
-    manualHoldUntil: protectedUntil, holdKind: 'soft', pickup24h: 0,
-  }), settings, context);
-  assert.equal(unchanged.direction, 'hold');
-  assert.equal(unchanged.reason, 'manual_hold');
-  const hard = decideRevenueDirector(input({ ...booking, manualHoldUntil: protectedUntil, holdKind: 'hard' }), settings, context);
-  assert.equal(hard.direction, 'hold');
-  assert.equal(hard.reason, 'manual_lock');
+test('consumed pickup cannot repeat an increase, while booked-price brake prevents immediate cut',()=>{
+ const d=decide({pickup24h:0,pickup6h:0,hoursSinceLastPickup:1,lastDirection:'increase',lastDecisionAt:'2026-11-05T11:00:00Z',movedUpTodayEur:2});
+ assert.equal(d.direction,'hold');
 });
-
-test('scarce final-week inventory is never automatically discounted', () => {
-  const d = decideRevenueDirector(input({daysOut:4,occupancyPct:95.2,roomsSold:20,roomsRemaining:1}),settings,context);
-  assert.notEqual(d.direction,'decrease');
+test('early occupancy positions toward a finite target and stops compounding',()=>{
+ const d=decide({daysOut:70,occupancyPct:60,roomsRemaining:8,currentPrice:160});
+ assert.equal(d.direction,'increase');
+ assert.equal(decide({daysOut:70,occupancyPct:60,roomsRemaining:8,currentPrice:192}).direction,'hold');
 });
-test('one booking on a soft date holds the offer without raising or undercutting', () => {
-  assert.equal(decideRevenueDirector(input({pickup24h:1}),settings,context).reason,'pickup_conversion_hold');
+test('confirmed event positions early once toward anchor premium; empty expensive event dates can reduce',()=>{
+ assert.equal(decide({daysOut:60,currentPrice:150},{confirmedHighEvent:true}).direction,'increase');
+ assert.equal(decide({daysOut:60,currentPrice:220},{confirmedHighEvent:true}).direction,'decrease');
+ assert.equal(decide({daysOut:60,currentPrice:192},{confirmedHighEvent:true}).direction,'hold');
+ assert.equal(decide({daysOut:4,currentPrice:160},{confirmedHighEvent:true}).direction,'decrease');
 });
-test('freshness, human locks, cancellation/rebooking and daily budgets still block', () => {
-  for (const patch of [
-    {dataStale:true},
-    {manualHoldUntil:'2026-10-31T10:00:00Z',holdKind:'hard'},
-    {manualHoldUntil:'2026-10-31T10:00:00Z',holdKind:'soft',pickup24h:3},
-    {lastCancellationAt:'2026-10-30T09:00:00Z'},
-    {markdownsToday:1},
-    {movedDownTodayEur:20},
-  ]) assert.equal(decideRevenueDirector(input(patch),settings,context).direction,'hold',JSON.stringify(patch));
+test('January weekends and full February are included in the rolling plan',()=>{
+ for(const [stayDate,daysOut] of [['2027-01-01',57],['2027-01-02',58],['2027-02-28',115]])
+ assert.equal(decide({stayDate,daysOut,occupancyPct:0,roomsRemaining:21}).direction,'decrease');
 });
-test('major event with established demand protects ADR without automatic event-only increases', () => {
-  const d = decideRevenueDirector(input({occupancyPct:65,roomsRemaining:7}),settings,{...context,confirmedHighEvent:true});
-  assert.equal(d.direction,'hold'); assert.equal(d.reason,'event_demand_protected');
-  assert.notEqual(decideRevenueDirector(input({pendingEventUplift:10}),settings,{...context,confirmedHighEvent:true}).direction,'increase');
+test('poor portfolio ADR does not freeze unsold dates; seasonal reserve stops dumping',()=>{
+ assert.equal(decide({currentPrice:180},{projectedAdr:120,requiredRemainingAdr:200}).direction,'decrease');
+ assert.equal(decide({currentPrice:144}).direction,'hold');
 });
-test('confirmed major events protect soft nights from fill markdowns', () => {
-  const d = decideRevenueDirector(input({stayDate:'2027-01-25',daysOut:87,occupancyPct:9.5,roomsSold:2,roomsRemaining:19,hoursSinceLastPickup:200}),settings,{...context,confirmedHighEvent:true});
-  assert.equal(d.direction,'hold'); assert.equal(d.reason,'event_demand_protected');
+test('freshness, bounds, sold-out inventory, manual locks and edit holds stay authoritative',()=>{
+ for(const patch of [{dataStale:true},{minPrice:null},{maxPrice:50},{roomsRemaining:0,occupancyPct:100},{manualHoldUntil:'2026-11-06T12:00:00Z',holdKind:'hard'},{manualHoldUntil:'2026-11-06T12:00:00Z',holdKind:'soft'}])
+ assert.equal(decide(patch).direction,'hold',JSON.stringify(patch));
+ assert.equal(decide({pickup24h:2,manualHoldUntil:'2026-11-06T12:00:00Z',holdKind:'soft'}).direction,'increase');
 });
-test('January advance loading excludes Friday and Saturday but permits Sunday to Thursday', () => {
-  for (const stayDate of ['2027-01-29','2027-01-30']) {
-    const d = decideRevenueDirector(input({stayDate,daysOut:90,occupancyPct:9.5,roomsSold:2,roomsRemaining:19,hoursSinceLastPickup:200}),settings,context);
-    assert.equal(d.direction,'hold',stayDate); assert.equal(d.reason,'january_weekend_loading_excluded',stayDate);
-  }
-  const sunday = decideRevenueDirector(input({stayDate:'2027-01-31',daysOut:91,occupancyPct:9.5,roomsSold:2,roomsRemaining:19,hoursSinceLastPickup:200}),settings,context);
-  assert.equal(sunday.direction,'decrease');
+test('budgets, cooldowns, campaign depth and cancellation protection remain effective',()=>{
+ for(const patch of [{markdownsToday:4},{movedDownTodayEur:6},{lastDecreaseAt:'2026-11-05T11:00:00Z'},{lastCancellationAt:'2026-11-05T11:30:00Z'},{lastDirection:'increase',lastDecisionAt:'2026-11-05T11:00:00Z'},{recentPeakPrice:250,campaignStartPrice:250}])
+ assert.equal(decide(patch).direction,'hold',JSON.stringify(patch));
+ assert.equal(decide({daysOut:2,lastCancellationAt:'2026-11-05T09:00:00Z'}).direction,'decrease');
 });
-test('poor projected ADR prevents weak-price markdowns further out', () => {
-  assert.equal(decideRevenueDirector(input({currentPrice:130,campaignStartPrice:130,recentPeakPrice:130}),settings,{...context,projectedAdr:120,requiredRemainingAdr:150}).reason,'portfolio_adr_budget');
+test('multiple final-week reductions stay inside one date daily euro cap',()=>{
+ const d=decide({daysOut:4,markdownsToday:2,movedDownTodayEur:8,lastDecreaseAt:'2026-11-05T05:00:00Z'});
+ assert.equal(d.direction,'decrease');assert.equal(d.movement,-2);
 });
-test('fill mode respects the actual far-out cap and waiting period', () => {
-  const farSettings = { ...settings, windowRules: [{id:'w31_90',min_days_out:61,max_days_out:93,max_daily_decrease:3,max_daily_increase:12,no_pickup_wait_hours:48,min_hours_between_decreases:48,require_above_anchor:false}] };
-  const night = input({daysOut:70,occupancyPct:0,roomsRemaining:21,hoursSinceLastPickup:72});
-  assert.equal(decideRevenueDirector(night,farSettings,context).movement,-3);
-  assert.equal(decideRevenueDirector({...night,hoursSinceLastPickup:30},farSettings,context).direction,'hold');
-  assert.equal(decideRevenueDirector({...night,lastDecreaseAt:'2026-10-29T00:00:00Z'},farSettings,context).direction,'hold');
+test('no-pickup waits and far-date reduction frequency prevent hourly churn',()=>{
+ assert.equal(decide({daysOut:90,hoursSinceLastPickup:10}).direction,'hold');
+ assert.equal(decide({daysOut:90,lastDecreaseAt:'2026-11-04T15:00:00Z'}).direction,'hold');
+ assert.equal(decide({daysOut:90,hoursSinceLastPickup:48}).movement,-2);
 });
-test('sold out dates do not change; sparse competitor evidence cannot drive an uplift', () => {
-  assert.equal(decideRevenueDirector(input({occupancyPct:100,roomsRemaining:0}),settings,context).reason,'sold_out');
-  assert.equal(decideRevenueDirector(input({market:{median:500,sampleSize:1,ageHours:1}}),settings,context).direction,'decrease');
-});
-
-test('opt-in €1 test responds to an overpriced soft date without synthetic churn', () => {
-  const candidate = input({
-    daysOut: 35, occupancyPct: 56, roomsSold: 12, roomsRemaining: 9,
-    currentPrice: 185, campaignStartPrice: 185, recentPeakPrice: 185,
-    hoursSinceLastPickup: 80,
-    market: { median: 150, sampleSize: 4, ageHours: 3 },
-  });
-  const enabled = { ...settings, minMovementEur: 1, maxMarkdownsPerDay: 2 };
-  assert.equal(decideRevenueDirector(candidate, enabled, context).reason, 'on_pace');
-  const testMove = decideRevenueDirector(candidate, enabled, { ...context, microPriceTestEnabled: true });
-  assert.equal(testMove.direction, 'decrease');
-  assert.equal(testMove.movement, -1);
-  assert.equal(testMove.reason, 'revenue_director_fill');
-  assert.match(testMove.reasonDetail, /Measured €1 price test/);
-});
-test('€1 test respects market quality, demand evidence, safety and high events', () => {
-  const candidate = input({
-    daysOut: 35, occupancyPct: 56, roomsSold: 12, roomsRemaining: 9,
-    currentPrice: 185, campaignStartPrice: 185, recentPeakPrice: 185,
-    hoursSinceLastPickup: 80,
-    market: { median: 150, sampleSize: 4, ageHours: 3 },
-  });
-  const enabled = { ...settings, minMovementEur: 1, maxMarkdownsPerDay: 2 };
-  const allow = { ...context, microPriceTestEnabled: true };
-  const noTests = [
-    { market: { median: 150, sampleSize: 1, ageHours: 3 } },
-    { market: { median: 150, sampleSize: 4, ageHours: 90 } },
-    { currentPrice: 160 },
-    { pickup24h: 1 },
-    { hoursSinceLastPickup: 3 },
-    { markdownsToday: 2 },
-    { lastCancellationAt: '2026-10-30T09:30:00Z' },
-    { manualHoldUntil: '2026-10-31T10:00:00Z', holdKind: 'hard' },
-    { movedUpTodayEur: 5 },
-    { occupancyPct: 90, roomsRemaining: 2 },
-  ];
-  for (const patch of noTests) {
-    const decision = decideRevenueDirector({ ...candidate, ...patch }, enabled, allow);
-    assert.notEqual(decision.reasonDetail.includes('Measured €1 price test') && decision.direction === 'decrease', true, JSON.stringify(patch));
-  }
-  assert.notEqual(
-    decideRevenueDirector(candidate, enabled, { ...allow, confirmedHighEvent: true }).direction, 'decrease'
-  );
+test('thin or stale competitor samples cannot trigger market tests',()=>{
+ const base={daysOut:35,occupancyPct:64,roomsRemaining:8,currentPrice:220};
+ for(const market of [{median:150,sampleSize:1,ageHours:1},{median:150,sampleSize:4,ageHours:90}])
+ assert.equal(decide({...base,market}).direction,'hold');
+ assert.equal(decide({...base,market:{median:150,sampleSize:4,ageHours:1}}).direction,'decrease');
 });
