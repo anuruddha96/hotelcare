@@ -37,9 +37,10 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   const policy: DecisionSettings = {
     ...settings, respectConfiguredWindows: true,
     fill: { ...settings.fill!, enabled: true, windowDays: settings.fill?.windowDays ?? 120, maxTotalDropPct: settings.fill?.maxTotalDropPct ?? 25 },
-    occupancyLiftEnabled: false, microPriceTests: false,
+    occupancyLiftEnabled: false, microPriceTests: false, allowSameDayReversal: true,
     // A cancelled room must be resold, especially after the free-cancellation deadline.
-    rebookWindowHours: Math.min(settings.rebookWindowHours ?? 12, input.daysOut <= 7 ? 2 : 12),
+    rebookWindowHours: Math.min(settings.rebookWindowHours ?? 4, input.daysOut <= 7 ? 2 : 4),
+    bookedDateBrakeHours: Math.min(settings.bookedDateBrakeHours ?? 4, win.no_pickup_wait_hours ?? 4),
   };
   // Let core return the precise freshness, price, bounds and sold-out failures.
   if (input.dataStale || input.currentPrice == null || input.minPrice == null || input.maxPrice == null
@@ -49,66 +50,49 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   if (input.occupancyPct == null || input.roomsRemaining == null) return hold("no_occupancy", "Fresh occupancy and remaining-room evidence are required.");
   const current = input.currentPrice;
   const occ = input.occupancyPct;
-  const pickup = Math.max(0, input.pickup24h - input.cancellations24h);
+  const quietHours = Math.max(1, win.no_pickup_wait_hours ?? 6);
+  const hoursQuiet = input.hoursSinceLastPickup;
+  const netUnspent = Math.max(0, input.pickup24h - input.cancellations24h);
+  const recentUnspent = input.unspentPickupInQuietWindow
+    ?? (hoursQuiet != null && hoursQuiet < quietHours ? netUnspent : 0);
+  const pickup = Math.min(netUnspent, Math.max(0, recentUnspent));
+  const observed6h = Math.max(0, input.observedPickup6h ?? input.pickup6h);
   const fastPickup = input.pickup6h >= 2 && pickup >= 2;
-  const marketValid = input.market.median != null && input.market.median > 0
-    && input.market.sampleSize >= settings.marketValidation.min_competitors
-    && input.market.ageHours != null && input.market.ageHours <= settings.marketValidation.max_age_hours;
-  const anchor = input.anchorPrice != null && input.anchorPrice > 0 ? input.anchorPrice : null;
   const strong = occ >= 85 || (input.daysOut > 7 && occ >= Math.max(50, (pace ?? 70) + 10));
-  const waited = win.no_pickup_wait_hours != null
-    && (input.hoursSinceLastPickup == null || input.hoursSinceLastPickup >= win.no_pickup_wait_hours);
+  const waited = hoursQuiet == null || hoursQuiet >= quietHours;
   let raw = 0;
-  let reason = "on_pace";
-  let detail = "The offer is on pace; wait for new demand evidence.";
+  let reason = "awaiting_no_pickup_window";
+  let detail = `Observe ${quietHours} hours without a new booking before reducing this offer.`;
 
   if (pickup > 0) {
     const band = pickupLadderFor(input.daysOut, settings.pickupLadder ?? undefined);
     raw = pickupStep(band, pickup, occ, settings.strongOccupancyPct ?? 85);
-    // One conversion on a soft date earns a small test, not a large price jump.
     if (!strong && !fastPickup) raw = Math.min(raw, input.daysOut <= 7 ? 1 : 2);
     reason = "pickup_yield";
-    detail = `${pickup} unconsumed net booking(s), ${input.pickup6h} in six hours: measured demand-led increase.`;
-  } else {
-    // Occupancy and major events set a finite asking target. Once reached,
-    // unchanged occupancy/event evidence cannot compound another hourly rise.
-    const yieldTarget = anchor == null ? null : Math.round(anchor * (strong
-      ? occ >= 90 ? 1.5 : occ >= 80 ? 1.35 : 1.2
-      : context.confirmedHighEvent && input.daysOut > 7 ? 1.2 : 1));
-    if ((strong || (context.confirmedHighEvent && input.daysOut > 7)) && yieldTarget != null && current < yieldTarget
-      && (input.daysOut > 7 || (input.hoursSinceLastPickup != null && input.hoursSinceLastPickup < 6))) {
-      raw = Math.min(yieldTarget - current, Math.max(2, Math.round(current * .03)));
-      reason = context.confirmedHighEvent ? "event_positioning" : "occupancy_positioning";
-      detail = `Position toward €${yieldTarget} from the seasonal anchor and ${context.confirmedHighEvent ? "confirmed event" : "early occupancy"}; no repeated surcharge above that target.`;
-    } else if (!waited) {
-      reason = "awaiting_no_pickup_window";
-      detail = `Observe ${win.no_pickup_wait_hours} hours without pickup before a reduction.`;
-    } else {
-      const behind = gap == null ? null : -gap;
-      // Every unsold final-week room remains eligible, including the last room.
-      // Further out, scarce inventory protects ADR unless the offer is overpriced.
-      const overpriced = marketValid && current > Math.ceil(input.market.median! * 1.12);
-      const weak = input.daysOut <= 7 || (behind != null && behind >= 5);
-      if ((weak && (!strong || input.daysOut <= 7)) || (!strong && overpriced && behind != null && behind >= 0)) {
-        const step = input.roomsRemaining <= 2 ? 1
-          : input.daysOut <= 2 ? (occ < 60 ? 6 : 4)
-          : input.daysOut <= 7 ? (occ < 70 ? 5 : 3)
-          : input.daysOut <= 30 ? (behind != null && behind >= 20 ? 5 : 3)
-          : (behind != null && behind >= 25 ? 4 : 2);
-        // Protect value with a seasonal reserve, not an unsellable portfolio ADR floor.
-        // A high event preserves a premium far out, but cannot freeze empty rooms forever.
-        const reserve = anchor == null ? input.minPrice : Math.max(input.minPrice,
-          Math.round(anchor * (input.daysOut <= 7 ? .8 : context.confirmedHighEvent ? 1.2 : .9)));
-        raw = -Math.max(0, Math.min(step, current - reserve));
-        reason = raw < 0 ? "pace_sell_down" : "value_reserve";
-        detail = raw < 0
-          ? `${input.roomsRemaining} rooms unsold, ${Math.round(behind ?? 0)} points behind pace; test a lower offer while preserving the €${reserve} seasonal reserve.`
-          : `The offer reached its €${reserve} seasonal reserve; require new market or demand evidence.`;
-      } else if (strong) {
-        reason = "strong_demand_protected";
-        detail = "Early occupancy supports the present rate; wait for fresh pickup before another yield step.";
-      }
-    }
+    detail = `${pickup} fresh unconsumed net booking(s) inside ${quietHours}h; ${observed6h} active booking(s) in six hours: demand-led increase, consumed once.`;
+  } else if (context.confirmedHighEvent) {
+    reason = "event_demand_protected";
+    detail = "A verified high-impact event protects this date; no markdown and no event-only repeated increase.";
+  } else if (strong) {
+    reason = "strong_demand_protected";
+    detail = `${occ}% occupancy supports the current offer; only a fresh booking can justify another increase.`;
+  } else if (observed6h >= 2) {
+    reason = "recent_pickup_protected";
+    detail = `${observed6h} active bookings in six hours protect the converting offer, including bookings already consumed for an increase.`;
+  } else if (waited) {
+    // Quiet demand is itself a reason to test a lower offer. Being nominally
+    // on pace or having raised earlier today must not freeze a soft date.
+    const behind = gap == null ? 0 : Math.max(0, -gap);
+    const step = input.roomsRemaining <= 2 ? 1
+      : input.daysOut <= 2 ? (occ < 60 ? 6 : 4)
+      : input.daysOut <= 7 ? (occ < 70 ? 5 : 3)
+      : input.daysOut <= 30 ? (behind >= 20 ? 4 : 2)
+      : 2;
+    raw = -Math.max(0, Math.min(step, current - input.minPrice));
+    reason = raw < 0 ? "quiet_demand_test" : "price_floor";
+    detail = raw < 0
+      ? `${hoursQuiet == null ? "No active booking in the observation history" : `No booking for ${Math.floor(hoursQuiet)}h`}; ${input.roomsRemaining} rooms unsold, ${occ}% occupied. Test a lower offer by €${Math.abs(raw)}; reassess conversion before another step. An earlier rise does not prohibit a later reduction.`
+      : "The offer is at its absolute hotel price floor; no further reduction is permitted.";
   }
   if (raw === 0) return hold(reason, detail);
   effective.commercialIntent = { raw, reason, detail };

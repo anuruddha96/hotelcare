@@ -305,6 +305,10 @@ export interface DecisionInput {
   pickup24h: number;
   pickup48h: number;
   pickup7d: number;
+  /** All active bookings, including ones whose increase was already consumed. */
+  observedPickup6h?: number;
+  /** Unconsumed active bookings inside this date's configured quiet window. */
+  unspentPickupInQuietWindow?: number;
   cancellations24h: number;
   /** Hours since the ledger last discovered a reservation for this date. */
   hoursSinceLastPickup: number | null;
@@ -380,6 +384,8 @@ export interface DecisionSettings {
   minMovementEur: number;
   /** A date may not reverse direction inside this many hours. */
   directionChangeHours: number;
+  /** Ottofiori's two-way policy may reverse after the normal quiet/cooldown checks. */
+  allowSameDayReversal?: boolean;
   /** Minutes to wait after a cancellation before a markdown is allowed. */
   cancellationWaitMinutes: number;
   /** Occupancy at or above which the date counts as effectively sold out. */
@@ -870,7 +876,7 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
         `This date has already been lowered ${input.markdownsToday} time(s) today; the limit is ${maxMarkdowns}.`,
       );
     }
-    if (Math.abs(input.movedUpTodayEur) > 0) {
+    if (Math.abs(input.movedUpTodayEur) > 0 && settings.allowSameDayReversal !== true) {
       return blocked("one_way_day", "This date went up earlier today; it is not cut back on the same day.");
     }
     if (win.min_hours_between_decreases > 0) {
