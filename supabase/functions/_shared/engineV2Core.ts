@@ -363,6 +363,8 @@ export interface DecisionInput {
   recentPeakPrice?: number | null;
   /** Automated markdowns already taken for this date in the local day. */
   markdownsToday?: number;
+  /** Internal commercial planner intent; all safety and publication guards still apply. */
+  commercialIntent?: { raw: number; reason: string; detail: string };
 }
 
 export interface DecisionSettings {
@@ -739,9 +741,9 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   }
 
   // --- Pickup is always evaluated before any markdown branch -----------------
-  let intent = inFillWindow
+  let intent: RawIntent = input.commercialIntent ?? (inFillWindow
     ? fillIntent(input, win, gap, settings)
-    : windowIntent(input, win, gap, settings);
+    : windowIntent(input, win, gap, settings));
 
 
   // Optional, evidence-backed €1 price test. Never manufacture hourly rate

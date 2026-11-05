@@ -224,20 +224,21 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
   try {
     let pmsPreflightConfirmed = false;
-    // Ottofiori must price the current book, including cancellations, rather
-    // than wait for a UI visit or the nightly full rate refresh. Probe mode
-    // refreshes reservations/occupancy without reconciling or editing rates.
+    // Refresh the published rate universe as well as reservations. Otherwise
+    // external PMS edits can be overwritten using yesterday's cached prices.
     if (rule.hotel_id === "ottofiori") {
       const response = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/previo-revenue-sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
-        body: JSON.stringify({ hotelId: rule.hotel_id, horizonDays, mode: "automation_probe" }),
+        body: JSON.stringify({ hotelId: rule.hotel_id, horizonDays, mode: "automation_full" }),
+        signal: AbortSignal.timeout(90_000),
       });
       if (!response.ok) throw new Error(`Ottofiori PMS preflight failed (${response.status}); no price decisions published.`);
       const result = await response.json();
-      if (result.success !== true || result.error || result.errors?.length) throw new Error("Ottofiori PMS preflight did not confirm fresh reservation data; publication held.");
+      if (result.success !== true || result.error || result.errors?.length || !(result.rates > 0)) throw new Error("Ottofiori PMS preflight did not confirm fresh reservations and published rates; publication held.");
       pmsPreflightConfirmed = true;
     }
+    const evaluationStartedAt = Date.now();
     // ---- 1. Refresh the discovery ledger ----------------------------------
     // Every booking night in the horizon gets a permanent "first seen" stamp.
     // A booking is only pickup on the run that first records it, so a full
@@ -640,7 +641,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         const stayDate = d.toISOString().slice(0, 10);
         if (stayDate < today || stayDate > horizonDate) continue;
         // Applied events remain demand context after their one-time uplift.
-        if (impact === "high" && Number(ev.confidence ?? 0) >= 0.8 && ev.url) confirmedHighEvents.add(stayDate);
+        if (impact === "high" && ev.approved === true && Number(ev.confidence ?? 0) >= 0.8 && ev.url) confirmedHighEvents.add(stayDate);
         const key = eventKeyOf(ev, stayDate);
         if (seenEventKeys.has(key)) continue;      // duplicate listing of one event
         if (appliedKeys.has(`${key}|${stayDate}`)) continue; // already paid for
@@ -838,7 +839,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     const dates = Array.from(byDate.keys()).sort();
     for (const stayDate of dates) {
-      if (Date.now() - startedAt > runBudgetMs) { budgetHit = true; break; }
+      if (Date.now() - evaluationStartedAt > runBudgetMs) { budgetHit = true; break; }
       const daysOut = dayDiff(today, stayDate);
       if (daysOut < 0 || daysOut > horizonDays) continue;
       const cells = byDate.get(stayDate)!;
@@ -1295,7 +1296,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       last_run_at: new Date(startedAt).toISOString(),
       last_evaluation_status: budgetHit ? "timed_out" : (mode === "live" ? "ok" : "shadow_ok"),
       last_evaluation_error: budgetHit ? "run budget exhausted" : null,
-      next_run_at: new Date(now.getTime() + Math.max(60, Number(rule.evaluation_interval_minutes || 60)) * 60_000).toISOString(),
+      next_run_at: new Date(now.getTime() + Math.max(rule.hotel_id === "ottofiori" ? 15 : 60, Number(rule.evaluation_interval_minutes || 60)) * 60_000).toISOString(),
     }).eq("id", rule.id);
 
     // ---- 5. Automatic activation gate / live watchdog ----------------------
