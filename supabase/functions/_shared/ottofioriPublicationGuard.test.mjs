@@ -126,3 +126,25 @@ test('cancelled or absent pickup cannot override a protected manager price',()=>
     f.drafts.forEach(d=>{d.new_price=d.old_price+2;});blocked(f);
   }
 });
+
+test('single booking cannot publish an oversized rise on a soft date', () => {
+  const f = fixture();
+  Object.assign(f.decisions[0], {
+    direction: 'increase', movement: 4, pickup_24h: 1, cancellations_24h: 0,
+    occupancy_pct: 40, pace_target_pct: 65, rooms_remaining: 4, days_out: 54,
+    decision_reason: 'revenue_director_yield',
+  });
+  f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
+  const result = blocked(f);
+  assert.match(result.blocked[0].reason, /before PMS write/);
+});
+test('strong early occupancy can support the planner rise with one fresh booking', () => {
+  const f = fixture();
+  Object.assign(f.decisions[0], {
+    direction: 'increase', movement: 4, pickup_24h: 1, cancellations_24h: 0,
+    occupancy_pct: 81, pace_target_pct: 65, rooms_remaining: 4, days_out: 54,
+    decision_reason: 'revenue_director_yield',
+  });
+  f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
+  assert.equal(guardOttofioriPublication(f).allowed.length, 13);
+});
