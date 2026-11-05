@@ -133,7 +133,7 @@ describe("useRevenueHotelData — executive resume", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     await waitFor(() => expect(result.current.extending).toBe(false));
     const initial = rpc.mock.calls.length;
-    const poll = intervalSpy.mock.calls.find(([, ms]) => ms === 60_000)?.[0] as (() => void) | undefined;
+    const poll = intervalSpy.mock.calls.filter(([, ms]) => ms === 60_000).at(-1)?.[0] as (() => void) | undefined;
     expect(poll).toBeTypeOf("function");
 
     publishedVersion.mockResolvedValue({
@@ -156,7 +156,7 @@ describe("useRevenueHotelData — executive resume", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     await waitFor(() => expect(result.current.extending).toBe(false));
     const initial = rpc.mock.calls.length;
-    const poll = intervalSpy.mock.calls.find(([, ms]) => ms === 60_000)?.[0] as (() => void) | undefined;
+    const poll = intervalSpy.mock.calls.filter(([, ms]) => ms === 60_000).at(-1)?.[0] as (() => void) | undefined;
     expect(poll).toBeTypeOf("function");
 
     const release = beginRevenueEdit("unsaved-gozsdu-rate");
