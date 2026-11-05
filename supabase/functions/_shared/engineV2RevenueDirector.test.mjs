@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decideRevenueDirector, committedMovement } from './engineV2RevenueDirector.ts';
+import { confirmedHighImpactEvent, decideRevenueDirector, committedMovement } from './engineV2RevenueDirector.ts';
 import { DEFAULT_DECISION_SETTINGS } from './engineV2Core.ts';
 const settings = {
  ...DEFAULT_DECISION_SETTINGS, now:new Date('2026-11-05T12:00:00Z'),minMovementEur:1,
@@ -37,6 +37,17 @@ test('one soft-date conversion earns a small uplift, fast pickup earns more',()=
 test('consumed pickup cannot repeat an increase, while booked-price brake prevents immediate cut',()=>{
  const d=decide({pickup24h:0,pickup6h:0,hoursSinceLastPickup:1,lastDirection:'increase',lastDecisionAt:'2026-11-05T11:00:00Z',movedUpTodayEur:2});
  assert.equal(d.direction,'hold');
+});
+test('only organizer, venue, or human-curated high events receive event-only protection',()=>{
+ const base={expected_impact:'high',confidence:.9,approved:true,source:'ai'};
+ assert.equal(confirmedHighImpactEvent({...base,url:'https://budapestarena.hu/events/manowar-world-tour-2027/'}),true);
+ assert.equal(confirmedHighImpactEvent({...base,url:'https://www.livenation.hu/en/tickets/wwe-road-to-royal-rumble'}),true);
+ assert.equal(confirmedHighImpactEvent({...base,source:'manual',url:'https://www.iata.org/en/events/slot-conference/'}),true);
+ assert.equal(confirmedHighImpactEvent({...base,url:'https://touristoffice.org/budapest-events/'}),false);
+ assert.equal(confirmedHighImpactEvent({...base,url:'https://www.eventworld.com/budapest/concerts/november'}),false);
+ assert.equal(confirmedHighImpactEvent({...base,url:'https://stayhappening.com/e/salsa-festival'}),false);
+ assert.equal(confirmedHighImpactEvent({...base,expected_impact:'medium',url:'https://hungexpo.hu/en/events/'}),false);
+ assert.equal(confirmedHighImpactEvent({...base,url:null}),false);
 });
 test('static occupancy and events cannot ratchet prices upward without fresh pickup',()=>{
  for(const currentPrice of [150,160,192,300]) {
