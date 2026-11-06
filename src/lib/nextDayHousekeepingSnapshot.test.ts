@@ -73,6 +73,22 @@ describe('next-day housekeeping selected-date snapshot', () => {
     expect([tomorrow.checkoutCount, tomorrow.dailyCount]).toEqual([11, 22]);
     expect(tomorrow.rooms.every(room => room.pms_metadata?.plannedHousekeepingDate === '2026-09-11')).toBe(true);
   });
+  it('clears old unsold markers when a Mika room receives a reservation', () => {
+    const room = {
+      ...baseRoom('rebooked', '101'),
+      pms_metadata: {
+        potentialCheckout: true, planningStatus: 'unsold_now',
+        unsoldAtPlanning: true, selectedDateSnapshotKind: 'potential_checkout',
+      },
+    };
+    const [booked] = buildSelectedDateHousekeepingWorkload(
+      [room], [snapshot('101', 'ongoing', '2026-09-08', '2026-09-12')], '2026-09-10',
+    ).rooms;
+    expect(booked.is_checkout_room).toBe(false);
+    expect(isPotentialCheckoutRoom(booked)).toBe(false);
+    expect(booked.pms_metadata?.unsoldAtPlanning).toBe(false);
+    expect(booked.pms_metadata?.planningStatus).toBe('booked');
+  });
   it('adds rooms missing from the reservation snapshot as assignable unsold planning rooms', () => {
     const rooms = [baseRoom('booked', '101'), baseRoom('vacant', '102')];
     const workload = buildSelectedDateHousekeepingWorkload(
