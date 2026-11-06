@@ -203,8 +203,8 @@ export function SlntTeamBRoomPreview({
                   </strong>
                 </span>
                 {incoming.status === 'guest_list' && <Info className="h-3.5 w-3.5 text-white/80"
-                  title={hu ? 'Previo vendéglista szerinti létszám. A foglalás teljes létszáma eltérhet.' :
-                    'Count from the Previo guest list; a separate declared reservation total was not available.'}
+                  {...({ title: hu ? 'Previo vendéglista szerinti létszám. A foglalás teljes létszáma eltérhet.' :
+                    'Count from the Previo guest list; a separate declared reservation total was not available.' } as Record<string, string>)}
                   aria-label={hu ? 'Previo vendéglista alapján' : 'Based on Previo guest listing'} />}
               </span>}
               {incomingStatus === 'loading' && <span className="text-xs text-muted-foreground">{hu ? 'Érkezés ellenőrzése…' : 'Checking arrival…'}</span>}
@@ -221,7 +221,7 @@ export function SlntTeamBRoomPreview({
                 <span className="text-xs text-amber-700 dark:text-amber-300">{hu ? 'Szobahozzárendelés nem ellenőrzött' : 'Room mapping unavailable'}</span>}
             </span>
             {incomingStatus === 'verified' && incomingAsOf && <Info className="h-3.5 w-3.5 text-sky-700 dark:text-sky-300"
-              title={(hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu)}
+              {...({ title: (hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu) } as Record<string, string>)}
               aria-label={(hu ? 'Previo ellenőrizve: ' : 'Previo checked: ') + localTime(incomingAsOf, hu)} />}
           </div>
         </div>}

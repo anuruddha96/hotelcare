@@ -42,7 +42,7 @@ describe('Gozsdu manual housekeeping sections', () => {
       ...arrivalRoom.pms_metadata,
       pmsSyncDate: date, arrivalToday: true, notArrived: true,
       reservationStatusId: 2, isNoShow: false, checkedOutToday: false, scheduledDepartureToday: false,
-    };
+    } as typeof arrivalRoom.pms_metadata;
     const arrival = [{ ...snapshot[0], arrival_date: date, departure_date: '2026-09-21' }];
     const moved = reconcileGozsduPmsRoster([arrivalRoom], registry, arrival, date, now);
     expect(moved.byRoom.get(room.id)).toMatchObject({ bucket: 'service', service: 'towel_change' });

@@ -219,10 +219,10 @@ export function runPreview(run: AutomationRunLike): string {
     const verified = run.run.cells_verified ?? 0;
     const accepted = run.run.cells_published ?? 0;
     const failed = run.run.cells_failed ?? 0;
-    if (failed > 0) return `${changed.toLocaleString()} dates changed · ${accepted.toLocaleString()} accepted · ${failed.toLocaleString()} failed`;
-    if (verified >= run.run.cells_queued && verified > 0) return `${changed.toLocaleString()} dates changed · ${verified.toLocaleString()} confirmed in Previo`;
-    if (accepted > 0) return `${changed.toLocaleString()} dates changed · ${accepted.toLocaleString()} accepted by Previo`;
-    return `${changed.toLocaleString()} dates changed · ${run.run.cells_queued.toLocaleString()} price cells queued`;
+    if (failed > 0) return `Failed: ${failed.toLocaleString()} prices not accepted · ${changed.toLocaleString()} dates`;
+    if (verified >= run.run.cells_queued && verified > 0) return `${changed.toLocaleString()} dates · ${verified.toLocaleString()} prices confirmed in Previo`;
+    if (accepted > 0) return `${changed.toLocaleString()} dates · ${accepted.toLocaleString()} prices sent to Previo`;
+    return `${changed.toLocaleString()} dates · ${run.run.cells_queued.toLocaleString()} prices sending to Previo…`;
   }
   const failed = run.failed_count ?? 0;
   if (failed > 0) return `${plural(failed, "price")} need attention`;
