@@ -99,7 +99,10 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   if (pickup > 0) {
     const band = pickupLadderFor(input.daysOut, settings.pickupLadder ?? undefined);
     raw = pickupStep(band, pickup, occ, settings.strongOccupancyPct ?? 85);
-    if (!strong && !fastPickup) raw = Math.min(raw, input.daysOut <= 7 ? 1 : 2);
+    // One conversion earns only the owner's small uplift even when occupancy
+    // is already strong. Several fresh bookings may use the saved ladder.
+    if (pickup === 1) raw = Math.min(raw, input.daysOut <= 7 ? 1 : 2);
+    else if (!strong && !fastPickup) raw = Math.min(raw, input.daysOut <= 7 ? 1 : 2);
     reason = "pickup_yield";
     detail = `${pickup} fresh unconsumed net booking(s) inside ${quietHours}h; ${observed6h} active booking(s) in six hours: demand-led increase, consumed once.`;
   } else if (context.confirmedHighEvent) {

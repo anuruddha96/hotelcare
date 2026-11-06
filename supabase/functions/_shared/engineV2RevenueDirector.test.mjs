@@ -34,6 +34,11 @@ test('one soft-date conversion earns a small uplift, fast pickup earns more',()=
  assert.ok(decide({pickup24h:3,pickup6h:3}).movement>2);
  assert.equal(decide({daysOut:2,pickup24h:1,pickup6h:1}).movement,1);
 });
+test('single-booking uplift cap applies even at high occupancy',()=>{
+ assert.equal(decide({daysOut:0,occupancyPct:90.5,roomsRemaining:2,pickup24h:1,pickup6h:1}).movement,1);
+ assert.equal(decide({daysOut:40,occupancyPct:90.5,roomsRemaining:2,pickup24h:1,pickup6h:1}).movement,2);
+ assert.ok(decide({daysOut:0,occupancyPct:90.5,roomsRemaining:2,pickup24h:3,pickup6h:3}).movement>1);
+});
 test('consumed pickup cannot repeat an increase, while booked-price brake prevents immediate cut',()=>{
  const d=decide({pickup24h:0,pickup6h:0,hoursSinceLastPickup:1,lastDirection:'increase',lastDecisionAt:'2026-11-05T11:00:00Z',movedUpTodayEur:2});
  assert.equal(d.direction,'hold');
