@@ -4,6 +4,16 @@ import { useAuth } from '@/hooks/useAuth';
 
 export interface AutomationChangeRow {
   stay_date: string;
+  /** The AI supervisor stores one reference-price change per stay date. */
+  date?: string | null;
+  delta?: number | null;
+  reference_before?: number | null;
+  reference_target?: number | null;
+  confidence?: number | null;
+  push_run_id?: string | null;
+  push_requested_count?: number | null;
+  push_accepted_count?: number | null;
+  push_failed_count?: number | null;
   room_type_name?: string | null;
   occupancy?: number | null;
   old_price?: number | null;
@@ -137,6 +147,24 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
           .in('id', runIds);
         for (const run of (runs ?? []) as AutomationRunSummary[]) runsById.set(run.id, run);
       }
+      // AI supervisor notifications store a date-level price change with a push
+      // run id, not the legacy per-room price fields. Resolve each run's current
+      // Previo outcome rather than trusting the status captured at insert time.
+      const pushIds = Array.from(new Set(list.flatMap((r) =>
+        Array.isArray(r.changes) ? r.changes.map((c: AutomationChangeRow) => c.push_run_id).filter(Boolean) : [],
+      ))) as string[];
+      const pushRunById = new Map<string, {
+        status: string; requested_count: number; accepted_count: number; failed_count: number;
+      }>();
+      if (pushIds.length > 0) {
+        const { data: pushRuns } = await supabase
+          .from('revenue_rate_push_runs')
+          .select('id, status, requested_count, accepted_count, failed_count')
+          .in('id', pushIds.slice(0, 200));
+        for (const push of (pushRuns ?? []) as Array<{
+          id: string; status: string; requested_count: number; accepted_count: number; failed_count: number;
+        }>) pushRunById.set(push.id, push);
+      }
       const readIds = new Set<string>();
       if (ids.length > 0) {
         const { data: reads } = await supabase
@@ -174,7 +202,31 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
             summary: r.summary ?? null,
             automation_run_id: r.automation_run_id ?? null,
             run: r.automation_run_id ? runsById.get(r.automation_run_id) ?? null : null,
-            changes: Array.isArray(r.changes) ? (r.changes as AutomationChangeRow[]) : [],
+            changes: Array.isArray(r.changes)
+              ? (r.changes as AutomationChangeRow[]).map((change) => {
+                const push = change.push_run_id ? pushRunById.get(change.push_run_id) : null;
+                if (!push) return change;
+                const requested = push.requested_count ?? 0;
+                const accepted = push.accepted_count ?? 0;
+                const failed = push.failed_count ?? 0;
+                const status = failed > 0
+                  ? 'failed'
+                  : requested > 0 && accepted >= requested
+                    ? 'accepted'
+                    : accepted > 0
+                      ? 'partially_accepted'
+                      : push.status === 'failed'
+                        ? 'failed'
+                        : 'queued';
+                return {
+                  ...change,
+                  status,
+                  push_requested_count: requested,
+                  push_accepted_count: accepted,
+                  push_failed_count: failed,
+                };
+              })
+              : [],
             read: readIds.has(r.id),
           };
         }),
