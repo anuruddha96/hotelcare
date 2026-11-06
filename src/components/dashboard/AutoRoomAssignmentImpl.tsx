@@ -41,7 +41,7 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
 import { reportClientError } from '@/lib/clientErrorReporter';
 import {
   AssignmentPreview,
@@ -106,6 +106,8 @@ import {
 } from '@/lib/autoAssignScheduleRoster';
 import {
   buildTomorrowAutoAssignRooms,
+  compatibleHousekeepingSnapshotTime,
+  ensureTomorrowPmsSnapshot,
   loadExistingNextDayPlan,
   saveApprovedNextDayAutoAssignPlan,
   type NextDayPlan,
@@ -1679,6 +1681,88 @@ export function AutoRoomAssignment({
     }
   };
 
+  const refreshTomorrowPlanForReview = async () => {
+    if (!isNextDayPlanning || !profile?.assigned_hotel || !profile.organization_slug) return;
+    setSubmitting(true);
+    try {
+      // The original preview may be hours old. Fetch the selected-date PMS again
+      // without changing today's live room state or saving tomorrow's assignments.
+      const canonicalHotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+      if (!canonicalHotelId) throw new Error('Hotel Mika PMS property could not be resolved.');
+      const refreshed = await ensureTomorrowPmsSnapshot({
+        organizationSlug: profile.organization_slug,
+        hotelId: canonicalHotelId,
+        selectedDate,
+        forceFresh: true,
+        refreshLiveRoomState: false,
+      });
+      if (!refreshed.authoritative) throw new Error('Tomorrow\'s Previo snapshot is not authoritative.');
+      const { data: roomRows, error: roomError } = await supabase.from('rooms')
+        .select('id,room_number,hotel,floor_number,room_size_sqm,room_capacity,is_checkout_room,pms_metadata,status,towel_change_required,linen_change_required,wing,elevator_proximity,room_category,bed_configuration,notes,checkout_time')
+        .eq('organization_slug', profile.organization_slug)
+        .in('hotel', hotelKeysRef.current);
+      if (roomError || !roomRows?.length) throw roomError || new Error('Hotel rooms could not be verified.');
+      const workload = await buildTomorrowAutoAssignRooms({
+        organizationSlug: profile.organization_slug,
+        hotelId: canonicalHotelId,
+        selectedDate,
+        roomRows: roomRows.map(addSectionContext),
+        pmsSyncedAt: refreshed.capturedAt,
+      });
+      if (workload.source !== 'selected-date'
+        || !compatibleHousekeepingSnapshotTime(refreshed.capturedAt, workload.capturedAt)) {
+        throw new Error('Previo data changed during refresh. Try again before approving.');
+      }
+
+      const latestRooms = workload.rooms;
+      const latestById = new Map(latestRooms.map(room => [room.id, room]));
+      const oldById = new Map(assignmentPreviews.flatMap(preview =>
+        preview.rooms.map(room => [room.id, room] as const)));
+      const changed = latestRooms.filter(room => {
+        const old = oldById.get(room.id);
+        return old && (isCheckoutLike(old) !== isCheckoutLike(room)
+          || isPotentialCheckoutRoom(old) !== isPotentialCheckoutRoom(room)
+          || !!old.towel_change_required !== !!room.towel_change_required
+          || !!old.linen_change_required !== !!room.linen_change_required);
+      }).map(room => room.room_number);
+      const held = new Set([...excludedRoomIds, ...maintenanceHoldRoomIds]);
+      const newlyNeeded = latestRooms.filter(room => !held.has(room.id) && !oldById.has(room.id))
+        .map(room => room.room_number);
+      const rebased = assignmentPreviews.map(preview => buildPreview(
+        preview.staffId,
+        preview.staffName,
+        preview.rooms.flatMap(room => {
+          const current = latestById.get(room.id);
+          return current && !held.has(room.id) ? [current] : [];
+        }),
+      ));
+
+      // Preserve selected cleaners, manual room owners and public-area choices.
+      // Never silently assign new rooms or approve a changed cleaning type.
+      setDirtyRooms(latestRooms);
+      setAssignmentPreviews(rebased);
+      setFairnessMetrics(computeFairnessMetrics(rebased));
+      setPreviewHistory([]);
+      setLockHistory([]);
+      setLockedRoomIds(previous => new Set([...previous].filter(id => latestById.has(id))));
+      setNextDayPmsSyncedAt(refreshed.capturedAt);
+      setTomorrowApprovalError(null);
+      setStep('preview');
+      setPlanningExplanation(newlyNeeded.length
+        ? `Previo added ${newlyNeeded.length} service room(s): ${newlyNeeded.slice(0, 5).join(', ')}. Regenerate the preview to allocate them before approval.`
+        : changed.length
+          ? `Previo changed cleaning requirements for ${changed.slice(0, 5).join(', ')}. Room owners are preserved; review the updated services and times before approval.`
+          : 'Latest Previo snapshot loaded. Review the room allocation before approval.');
+      toast.info('Tomorrow\'s Previo workload refreshed. Review the room assignments before approval.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not refresh tomorrow\'s PMS snapshot.';
+      setTomorrowApprovalError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleAssignPublicAreas = async () => {
     if (isNextDayPlanning) {
       if (!user || !profile?.organization_slug || !profile.assigned_hotel || !nextDayPmsSyncedAt) {
@@ -2360,7 +2444,14 @@ export function AutoRoomAssignment({
                 {isNextDayPlanning && tomorrowApprovalError && (
                   <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <div><strong>Tomorrow's plan was not approved.</strong><p className="mt-1 break-words">{tomorrowApprovalError}</p><p className="mt-1 text-xs">The preview is preserved. If Previo data changed, go back and regenerate it before trying again.</p></div>
+                    <div className="min-w-0 flex-1">
+                      <strong>Tomorrow's plan was not approved.</strong>
+                      <p className="mt-1 break-words">{tomorrowApprovalError}</p>
+                      <p className="mt-1 text-xs">No assignments were saved. Refresh Previo and review changed room services without losing your manual room owners or public-area selections.</p>
+                      <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => void refreshTomorrowPlanForReview()} disabled={submitting}>
+                        <RefreshCw className="mr-2 h-4 w-4" /> Refresh PMS &amp; review assignments
+                      </Button>
+                    </div>
                   </div>
                 )}
                 <div className="space-y-2">
