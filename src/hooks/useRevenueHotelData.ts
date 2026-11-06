@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   addDays,
   budapestToday,
+  DEFAULT_PICKUP_WINDOW_DAYS,
   type BookingNight,
   type CancelledNight,
   type DailySnapshot,
@@ -187,7 +188,7 @@ export function useRevenueHotelData(
   hotelId: string | null,
   organizationSlug: string | null,
   horizonDays = 30,
-  pickupWindowDays = 1,
+  pickupWindowDays = DEFAULT_PICKUP_WINDOW_DAYS,
 ): RevenueHotelData {
   const cacheKey = hotelId && organizationSlug ? `${organizationSlug}:${hotelId}` : null;
   const initialCache = cacheKey ? readAnyCache(cacheKey) : undefined;

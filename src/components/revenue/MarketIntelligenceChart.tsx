@@ -22,7 +22,7 @@ import {
 } from "recharts";
 import { Activity, BedDouble, Download, Percent, SlidersHorizontal, TrendingUp } from "lucide-react";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
-import { budapestToday, daysBetween, pickupWindowLabel, PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
+import { budapestToday, daysBetween, pickupWindowLabel, PICKUP_WINDOW_48H, DEFAULT_PICKUP_WINDOW_DAYS } from "@/lib/revenueAnalytics";
 import { money, currencySymbol } from "@/lib/revenueCurrency";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
@@ -61,9 +61,9 @@ const DESKTOP_RANGES = [
 
 type PeriodKey = "auto48" | "today" | "yesterday" | "week" | "month" | "custom";
 const PERIODS: Array<{ key: PeriodKey; label: string }> = [
-  { key: "auto48", label: "Last 48 hours (automation)" },
-  { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday + today" },
+  { key: "today", label: "Today" },
+  { key: "auto48", label: "Rolling 48h (automation)" },
   { key: "week", label: "This week (Mon–Sun)" },
   { key: "month", label: "This month" },
   { key: "custom", label: "Custom…" },
@@ -423,7 +423,7 @@ export default function MarketIntelligenceChart({
     return point;
   }), [metrics, days, demandByDate, marketData.marketByDate, marketData.ratesByCompetitor, portfolioBenchmarkByDate, visibleCompetitors, eventsByDate, prefs, baselineRate]);
 
-  const activeWindow = pickupWindowDays ?? PICKUP_WINDOW_48H;
+  const activeWindow = pickupWindowDays ?? DEFAULT_PICKUP_WINDOW_DAYS;
   const period = periodForWindow(activeWindow, customDays);
   const ranges = isMobile ? MOBILE_RANGES : DESKTOP_RANGES;
   const totalPickup = data.reduce((sum, d) => sum + d.pickup, 0);
