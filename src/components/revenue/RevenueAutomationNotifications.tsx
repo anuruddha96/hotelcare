@@ -61,7 +61,7 @@ const DIRECTION_FILTERS: Array<{ value: DirectionFilter; label: string }> = [
 export function RevenueAutomationNotifications() {
   const canSee = useCanSeeAutomationNotifications();
   const navigate = useNavigate();
-  const { items, unreadCount, markRead, markAllRead, loadDecisions } = useRevenueAutomationNotifications(canSee);
+  const { items, unreadCount, markRead, markAllRead, loadDecisions, reload } = useRevenueAutomationNotifications(canSee);
 
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<AutomationNotification | null>(null);
@@ -98,10 +98,18 @@ export function RevenueAutomationNotifications() {
     return () => window.clearTimeout(timer);
   }, [canSee, unreadCount, items]);
 
+  // Keep an open detail dialog in sync with freshly loaded push outcomes.
+  useEffect(() => {
+    if (!detail) return;
+    const fresh = items.find((item) => item.id === detail.id);
+    if (fresh && fresh !== detail) setDetail(fresh);
+  }, [items, detail]);
+
   if (!canSee) return null;
 
   const openDetail = (item: AutomationNotification) => {
     setDetail(item);
+    void reload(); // Pull the latest Previo push outcomes when opening older AI notifications.
     setDecisions([]);
     setDecisionsError(null);
     setDirectionFilter('all');
@@ -233,7 +241,7 @@ export function RevenueAutomationNotifications() {
             </DialogTitle>
             <DialogDescription>
               {detail
-                ? `${detail.run_source === 'automatic' ? (detail.notification_type === 'min_stay_automation' ? 'Minimum-stay automation' : 'Run automatically') : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
+                ? `${detail.source === 'ai' ? 'HotelCare AI supervisor' : detail.run_source === 'automatic' ? (detail.notification_type === 'min_stay_automation' ? 'Minimum-stay automation' : 'Run automatically') : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
                 : ''}
             </DialogDescription>
           </DialogHeader>
@@ -499,6 +507,62 @@ export function RevenueAutomationNotifications() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              ) : detail.changes.some((row) => row.date && row.reference_before != null) ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    AI price changes are shown by stay date. These are reference rates, not individual room/guest prices.
+                    The publishing status below comes from the linked Previo price-push runs.
+                  </p>
+                  {detail.changes.map((row, index) => {
+                    const before = row.reference_before ?? row.old_price;
+                    const after = row.reference_target ?? row.new_price;
+                    const delta = row.delta ?? (before != null && after != null ? after - before : null);
+                    const status = row.status ?? 'queued';
+                    const statusLabel = status === 'accepted'
+                      ? 'Accepted by Previo'
+                      : status === 'confirmed'
+                        ? 'Confirmed'
+                        : status === 'partially_accepted'
+                          ? 'Partly accepted'
+                          : status === 'failed' ? 'Needs attention' : 'Queued at last check';
+                    return (
+                      <div key={`${row.date ?? row.stay_date ?? 'date'}-${index}`} className="rounded-lg border p-3 space-y-2">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <span className="font-semibold text-sm tabular-nums">{row.date ?? row.stay_date ?? 'Date unavailable'}</span>
+                          <Badge
+                            variant={status === 'failed' ? 'destructive' : status === 'accepted' || status === 'confirmed' ? 'default' : 'secondary'}
+                            className="text-[10px]"
+                          >
+                            {statusLabel}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-sm tabular-nums">
+                          <span className="text-muted-foreground">{money(before, row.currency ?? detail.currency)}</span>
+                          <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+                          <strong>{money(after, row.currency ?? detail.currency)}</strong>
+                          {delta != null && Number.isFinite(Number(delta)) && (
+                            <span className={cn('ml-1 text-xs font-medium', delta < 0 ? 'text-emerald-600' : delta > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
+                              {delta > 0 ? '+' : ''}{money(delta, row.currency ?? detail.currency)}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-muted-foreground">(reference rate)</span>
+                        </div>
+                        {row.push_requested_count != null && (
+                          <p className="text-xs text-muted-foreground">
+                            {row.push_accepted_count ?? 0} of {row.push_requested_count} room/guest prices accepted by Previo
+                            {(row.push_failed_count ?? 0) > 0 ? ` · ${row.push_failed_count} failed` : ''}
+                          </p>
+                        )}
+                        {(row.reason || row.reason_detail) && (
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            <span className="font-medium text-foreground">Why: </span>
+                            {row.reason_detail ?? row.reason}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : detail.changes.length > 0 ? (
                 <div className="rounded-lg border overflow-x-auto">
