@@ -44,6 +44,8 @@ const nights = (value: number | null | undefined) => {
   return `${n} night${n === 1 ? '' : 's'}`;
 };
 
+const SOURCE_LABEL = { all: 'All', ai: 'AI', automation: 'Automation', manual: 'Manual' } as const;
+
 const CATCH_UP_DELAY_MS = 12_000;
 
 type DirectionFilter = 'all' | 'increase' | 'decrease' | 'hold';
@@ -69,6 +71,7 @@ export function RevenueAutomationNotifications() {
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all');
   const [reasonFilter, setReasonFilter] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<keyof typeof SOURCE_LABEL>('all');
   const welcomed = useRef(false);
 
   // One lightweight catch-up per session. Give the dashboard a quiet first
