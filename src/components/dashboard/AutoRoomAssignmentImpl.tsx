@@ -2447,7 +2447,7 @@ export function AutoRoomAssignment({
                     <div className="min-w-0 flex-1">
                       <strong>Tomorrow's plan was not approved.</strong>
                       <p className="mt-1 break-words">{tomorrowApprovalError}</p>
-                      <p className="mt-1 text-xs">No assignments were saved. Refresh Previo and review changed room services without losing your manual room owners or public-area selections.</p>
+                      <p className="mt-1 text-xs">The plan was not approved. Refresh Previo and review changed room services without losing your manual room owners or public-area selections.</p>
                       <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => void refreshTomorrowPlanForReview()} disabled={submitting}>
                         <RefreshCw className="mr-2 h-4 w-4" /> Refresh PMS &amp; review assignments
                       </Button>
