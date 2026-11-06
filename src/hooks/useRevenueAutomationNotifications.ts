@@ -32,6 +32,8 @@ export interface AutomationNotification {
   notification_type: string;
   run_source: 'manual' | 'automatic' | string;
   actor_name: string;
+  /** Who made the change: AI supervisor/assistant, scheduled automation, or a person. */
+  source: 'ai' | 'automation' | 'manual';
   created_at: string;
   pickups_count: number;
   actions_count: number;
@@ -158,7 +160,10 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
             organization_slug: r.organization_slug ?? null,
             notification_type: notificationType,
             run_source: r.run_source,
-            actor_name: r.run_source === 'automatic' ? automaticActor : r.actor_name,
+            actor_name: r.actor_name || (r.run_source === 'automatic' ? automaticActor : 'Manual run'),
+            source: /\b(ai|assistant|copilot)\b/i.test(String(r.actor_name ?? ''))
+              ? 'ai'
+              : r.run_source === 'automatic' ? 'automation' : 'manual',
             created_at: r.created_at,
             pickups_count: r.pickups_count ?? 0,
             actions_count: r.actions_count ?? 0,

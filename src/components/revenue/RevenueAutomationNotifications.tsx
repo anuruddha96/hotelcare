@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2, Search, FilterX } from 'lucide-react';
+import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2, Search, FilterX, Sparkles, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -122,6 +122,7 @@ export function RevenueAutomationNotifications() {
     return counts;
   }, {});
 
+  const shownItems = sourceFilter === 'all' ? items : items.filter((i) => i.source === sourceFilter);
   const term = search.trim().toLowerCase();
   const visibleDecisions = decisions.filter((row) => {
     if (directionFilter !== 'all' && row.direction !== directionFilter) return false;
@@ -154,11 +155,26 @@ export function RevenueAutomationNotifications() {
               </Button>
             )}
           </div>
+          <div className="flex gap-1 px-3 py-1.5 border-b overflow-x-auto">
+            {(['all', 'ai', 'automation', 'manual'] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setSourceFilter(f)}
+                className={cn(
+                  'h-6 px-2.5 rounded-full text-[11px] font-medium border shrink-0',
+                  sourceFilter === f ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground',
+                )}
+              >
+                {SOURCE_LABEL[f]}
+              </button>
+            ))}
+          </div>
           <div className="max-h-[380px] overflow-y-auto">
-            {items.length === 0 && (
+            {shownItems.length === 0 && (
               <p className="p-4 text-sm text-muted-foreground">No automation activity yet.</p>
             )}
-            {items.map((item) => {
+            {shownItems.map((item) => {
               const failed = item.failed_count > 0;
               const minStay = item.notification_type === 'min_stay_automation';
               return (
@@ -174,14 +190,19 @@ export function RevenueAutomationNotifications() {
                   <div className="flex items-center gap-2">
                     {failed ? (
                       <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                    ) : item.run_source === 'automatic' ? (
-                      <Bot className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    ) : item.source === 'ai' ? (
+                      <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+                    ) : item.source === 'automation' ? (
+                      <Settings2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     ) : (
                       <UserIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     )}
                     <span className="text-sm font-medium truncate">{item.hotel_name}</span>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-                      {minStay ? 'Minimum stay' : item.run_source === 'automatic' ? 'Pricing' : 'Manual'}
+                    <Badge
+                      variant={item.source === 'ai' ? 'default' : item.source === 'automation' ? 'secondary' : 'outline'}
+                      className="text-[10px] px-1.5 py-0 shrink-0"
+                    >
+                      {SOURCE_LABEL[item.source]}{minStay ? ' · Min stay' : ''}
                     </Badge>
                     <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
                       {relativeTime(item.created_at)}
@@ -190,7 +211,9 @@ export function RevenueAutomationNotifications() {
                   <p className={cn('mt-1 text-xs', failed ? 'text-destructive font-medium' : 'text-muted-foreground')}>
                     {runPreview(item)}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{item.actor_name}</p>
+                  {item.source === 'manual' && (
+                    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">By {item.actor_name}</p>
+                  )}
                 </button>
               );
             })}
