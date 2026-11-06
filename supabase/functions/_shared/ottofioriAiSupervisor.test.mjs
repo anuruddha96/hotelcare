@@ -7,6 +7,8 @@ test('AI observation outranks timer changes, expires, and releases for new picku
   assert.equal(observeAiPrice(policy,now,null),true);
   assert.equal(observeAiPrice(policy,now,'2026-11-06T13:00Z'),true);
   assert.equal(observeAiPrice(policy,now,'2026-11-06T14:01Z'),false);
+  assert.equal(observeAiPrice(policy,now,null,'2026-11-06T14:01Z'),false);
+  assert.equal(observeAiPrice(policy,now,null,'2026-11-06T13:00Z'),true);
   assert.equal(observeAiPrice(policy,new Date('2026-11-06T18:00Z'),null),false);
   assert.equal(observeAiPrice(null,now,null),false);
   assert.equal(observeAiPrice({...policy,valid_until:'invalid'},now,null),false);

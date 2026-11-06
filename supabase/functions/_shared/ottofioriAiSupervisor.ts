@@ -1,10 +1,11 @@
 export type AiObservation = { created_at: string; valid_until: string };
 
-/** A new genuine booking invalidates an AI observation; clock ticks do not. */
-export function observeAiPrice(policy: AiObservation | null | undefined, now: Date, lastPickupAt: string | null): boolean {
+/** New booking/cancellation evidence invalidates the AI observation; timer ticks do not. */
+export function observeAiPrice(policy: AiObservation | null | undefined, now: Date, lastPickupAt: string | null, lastCancellationAt: string | null = null): boolean {
   if (!policy || !Number.isFinite(Date.parse(policy.created_at)) || !Number.isFinite(Date.parse(policy.valid_until))) return false;
   return Date.parse(policy.created_at) <= now.getTime() && Date.parse(policy.valid_until) > now.getTime()
-    && !(lastPickupAt && Date.parse(lastPickupAt) > Date.parse(policy.created_at));
+    && !(lastPickupAt && Date.parse(lastPickupAt) > Date.parse(policy.created_at))
+    && !(lastCancellationAt && Date.parse(lastCancellationAt) > Date.parse(policy.created_at));
 }
 
 export interface AiDate {

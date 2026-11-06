@@ -938,10 +938,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       } else {
         decision = decideDate(input, settings);
       }
-      if (rule.hotel_id === "ottofiori" && observeAiPrice(aiPolicies.get(stayDate), now, lastPickup)) {
+      if (rule.hotel_id === "ottofiori" && observeAiPrice(aiPolicies.get(stayDate), now, lastPickup, lastCancel.get(stayDate) ?? null)) {
         decision = { ...decision, direction: "hold", movement: 0,
           targetPrice: input.currentPrice, blocked: true, reason: "ai_supervisor_observation",
-          reasonDetail: "The AI supervisor's current offer is being observed for up to four hours. A new genuine booking releases the fast engine to respond." };
+          reasonDetail: "The AI supervisor's current offer is being observed for up to four hours. A new genuine booking or cancellation releases the fast engine to respond." };
       }
       decisions.push(decision);
       const wasBlocked = decision.blocked;
