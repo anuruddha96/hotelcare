@@ -1559,7 +1559,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
                   {canUseDnd && (
                     <button
                       type="button"
-                      aria-disabled={assignment.status === 'dnd_pending_retry' && !dndRetry.allowed}
+                      aria-disabled={(assignment.status as string) === 'dnd_pending_retry' && !dndRetry.allowed}
                       onClick={() => {
                         if (assignment.status === 'dnd_pending_retry' && !dndRetry.allowed) {
                           toast.warning(`Second DND attempt available at ${nextDndTime ?? 'a later time'}.`);

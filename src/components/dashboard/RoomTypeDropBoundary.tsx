@@ -243,7 +243,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
     if (payload.sourceType !== 'checkout' && payload.sourceType !== 'daily') return;
     const gozsduBucket = isGozsdu ? gozsduDropBucket(event.target) : null;
     setPending({ roomId: payload.roomId, roomNumber: payload.roomNumber, from: payload.sourceType, to: target,
-      gozsduBucket: gozsduBucket || undefined });
+      gozsduBucket: (gozsduBucket || undefined) as never });
   };
 
   const confirm = async () => {

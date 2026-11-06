@@ -1,4 +1,6 @@
 // Engine V2 orchestrator.
+// deno-lint-ignore no-explicit-any
+declare const Deno: any;
 //
 // This is NOT a second pricing engine: it lives inside the same function, uses
 // the same lock, the same drafts table and the same background publisher. It
