@@ -18,17 +18,66 @@ export interface AiDate {
   market: { median: number | null; count: number; age_hours: number | null };
   engine_reason: string | null; high_event?: boolean;
   manager_hold_until?: string | null;
+  peer_signal?: PeerSignal;
+  last_ai_review_at?: string | null;
 }
 
-/** Bound the request, preserve every urgent date, then prioritize weak months. */
+export interface PeerMove {
+  hotel: string; at: string; age_h: number; direction: string; delta: number;
+  pct: number; confirmed: boolean; [key: string]: unknown;
+}
+export interface PeerSignal {
+  direction: 'increase' | 'decrease' | 'mixed' | 'none';
+  hotels: number; latest_at: string | null; peers: PeerMove[];
+}
+const PEER_HOTELS = new Set(['gozsdu-court','mika-downtown','memories-budapest']);
+
+/** Count hotels, never cells or confirmation retries, as independent evidence. */
+export function peerPriceSignal(raw: PeerMove[] = [], now: Date): PeerSignal {
+  const latest = new Map<string,PeerMove>();
+  for (const p of raw) {
+    const age = (now.getTime()-Date.parse(p.at))/3600_000;
+    if (!PEER_HOTELS.has(p.hotel) || p.confirmed!==true || !Number.isFinite(age) || age<0 || age>168
+      || !Number.isFinite(Number(p.pct)) || !Number.isFinite(Number(p.delta))) continue;
+    if (!latest.has(p.hotel) || Date.parse(p.at)>Date.parse(latest.get(p.hotel)!.at)) latest.set(p.hotel,{...p,age_h:Math.round(age*10)/10});
+  }
+  const peers=[...latest.values()].sort((a,b)=>a.hotel.localeCompare(b.hotel));
+  const fresh=peers.filter(p=>p.age_h<=48 && Math.abs(Number(p.pct))>=.5);
+  const up=fresh.filter(p=>p.direction==='increase' && Number(p.delta)>0 && Number(p.pct)>0).length;
+  const down=fresh.filter(p=>p.direction==='decrease' && Number(p.delta)<0 && Number(p.pct)<0).length;
+  const direction: PeerSignal['direction']=!fresh.length?'none':up===fresh.length?'increase':down===fresh.length?'decrease':'mixed';
+  return {direction,hotels:fresh.length,latest_at:fresh.map(p=>p.at).sort((a,b)=>Date.parse(b)-Date.parse(a))[0]??null,peers};
+}
+
+/** Preserve urgent dates, react to new peer edits, and rotate every arrival month. */
 export function selectAiDates(dates: AiDate[], now: Date, limit = 56): AiDate[] {
   const eligible = dates.filter(d => d.lead >= 0 && d.lead <= 120 && d.left != null && d.left > 0
     && d.occ != null && d.reference != null && d.reference > 0 && d.cells.length === 13
-    && d.captured_at != null && now.getTime() - Date.parse(d.captured_at) < 30 * 60_000);
-  const score = (d: AiDate) => d.lead <= 3 ? -1000 + d.lead
-    : (d.date.slice(5, 7) === '11' || d.date.slice(5, 7) === '01' ? 0 : 300)
-      + Number(d.occ) * 2 + d.lead / 10;
-  return eligible.sort((a,b) => score(a) - score(b) || a.date.localeCompare(b.date)).slice(0, limit);
+    && d.captured_at != null && now.getTime() - Date.parse(d.captured_at) >= 0
+    && now.getTime() - Date.parse(d.captured_at) < 30 * 60_000);
+  const reviewAt=(d:AiDate)=>d.last_ai_review_at?Date.parse(d.last_ai_review_at):0;
+  const ordered=[...eligible].sort((a,b)=>reviewAt(a)-reviewAt(b) || Number(a.occ)-Number(b.occ) || a.date.localeCompare(b.date));
+  const selected=new Map<string,AiDate>();
+  const add=(d:AiDate)=>{if(selected.size<limit)selected.set(d.date,d);};
+  eligible.filter(d=>d.lead<=3).sort((a,b)=>a.lead-b.lead).forEach(add);
+  // Reserve up to half the bounded review for fresh, not-yet-reviewed peer edits.
+  ordered.filter(d=>d.lead>3 && d.peer_signal?.latest_at
+    && Date.parse(d.peer_signal.latest_at)>reviewAt(d))
+    .sort((a,b)=>Number(b.peer_signal!.hotels)-Number(a.peer_signal!.hotels)
+      || Date.parse(b.peer_signal!.latest_at!)-Date.parse(a.peer_signal!.latest_at!) || a.date.localeCompare(b.date))
+    .slice(0,Math.max(0,Math.floor(limit/2)-selected.size)).forEach(add);
+  const months=[...new Set(ordered.map(d=>d.date.slice(0,7)))].sort();
+  // Round-robin prevents quiet January from excluding December or later months.
+  while(selected.size<Math.min(limit,eligible.length)) {
+    const before=selected.size;
+    const oldest=reviewAt(ordered.find(d=>!selected.has(d.date))!);
+    for(const month of months){
+      const next=ordered.find(d=>d.date.startsWith(month) && !selected.has(d.date) && reviewAt(d)===oldest);
+      if(next)add(next);
+    }
+    if(selected.size===before)break;
+  }
+  return [...selected.values()];
 }
 
 /** Reject malformed/unrequested dates before the independent database gate. */

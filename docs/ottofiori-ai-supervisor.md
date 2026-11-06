@@ -2,6 +2,16 @@
 
 Ottofiori has two coordinated decision layers. The frequent deterministic engine reacts to bookings and quiet periods. An independent OpenAI review evaluates the sales situation and can publish its own bounded price decisions, even when the normal engine is holding. Both use the existing complete 13-cell date-column publisher.
 
+## Learning from Ricsi's portfolio pricing
+
+The owner requested that Ricsi's changes at Gozsdu, Mika and Memories inform Ottofiori. `ottofiori_peer_context()` reads confirmed PMS price changes attributed to Ricsi, with the affected stay date, latest direction, median EUR/percentage change and earlier direction. The original push time determines freshness; repeated confirmations and room/guest cells do not become independent demand signals. Proposals, failed publications, unchanged prices and unrelated hotels are excluded. No guest data is included. The RPC is restricted to the service role.
+
+The reviewer receives each exact-date signal alongside the peer's occupancy, booked ADR, 48-hour pickup, available two-guest offer and data ages. Gozsdu uses its operating apartment inventory rather than raw snapshots containing non-operating units. Two or three independent hotels moving together within 48 hours carry more weight than one edit; older edits up to seven days provide context. Mixed directions and reversals require property-specific reasoning. A rate change alone does not prove a booking, event or citywide demand. Peer absolute rates and percentages are never copied mechanically, and an Ottofiori rise still requires genuine own-property pickup at the existing database gate.
+
+New peer edits receive priority in the next four-hour review. A bounded share of review slots remains available for all arrival months through D+120, including December. The oldest reviewed dates rotate first so empty January dates cannot indefinitely exclude December. The near-term four dates retain priority. Compact peer rows share a named column mapping to stay inside the existing 60,000-character input and spending bounds. Larger routine reviews use the normal model rather than failing an optional model-escalation size check. The reviewer records the signal evidence and reviewed months in `revenue_ai_insights`.
+
+Validation on 6 November found confirmed Ricsi edits across all 121 stay dates. For December, Ottofiori had 53.76% occupancy, EUR187.98 booked ADR and EUR101.06 RevPAR; Gozsdu's operating inventory showed 55.5%, EUR215.58 and EUR119.59. Mika's December mix included 149 suite nights at EUR263.94 versus its double/twin ADR of EUR165.39; Ottofiori's twin ADR was EUR184.20. These are booked room-mix differences, not evidence to raise every Ottofiori offer. Current manager actions included both Gozsdu cuts and Mika/Memories increases. A new `peer_signals` authenticated diagnostic returns the exact evidence without making a paid AI call or queueing prices.
+
 ## Incident and commercial changes
 
 The rules engine could consume small daily allowances early and then hold otherwise weak dates. Conflicting hotel and reference floors could also let one low guest-count price freeze an entire date column. The new supervisor makes independent, bounded decisions while retaining the existing atomic publication contract.

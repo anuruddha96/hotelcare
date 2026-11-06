@@ -38,6 +38,8 @@ jobs:
           deno-version: v2.x
       - name: Run Revenue Engine V2 regression tests
         run: deno test supabase/functions/_shared/engineV2*_test.ts
+      - name: Type-check Ottofiori AI supervisor
+        run: deno check --node-modules-dir=none supabase/functions/ottofiori-ai-supervisor/index.ts
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
