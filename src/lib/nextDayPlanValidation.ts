@@ -83,11 +83,17 @@ export function validateNextDayPlan(args: {
     return reject('The plan omits or duplicates rooms. Regenerate from the latest PMS snapshot.');
   for (const entry of planned) {
     const authoritative = expected.get(entry.room.id);
-    if (!authoritative || !selected.has(entry.owner) || checkout(authoritative) !== checkout(entry.room)
-      || isPotentialCheckoutRoom(authoritative) !== isPotentialCheckoutRoom(entry.room)
-      || !!authoritative.towel_change_required !== !!entry.room.towel_change_required
+    if (!authoritative)
+      return reject(`Room ${entry.room.room_number} is no longer in tomorrow's verified PMS workload. Refresh and review the plan.`);
+    if (!selected.has(entry.owner))
+      return reject(`Room ${entry.room.room_number} belongs to a cleaner who is no longer selected. Reassign it before approving.`);
+    if (checkout(authoritative) !== checkout(entry.room))
+      return reject(`Room ${authoritative.room_number} changed from ${checkout(entry.room) ? 'checkout' : 'stayover'} to ${checkout(authoritative) ? 'checkout' : 'stayover'} cleaning after the Previo refresh. Refresh and review before approving.`);
+    if (isPotentialCheckoutRoom(authoritative) !== isPotentialCheckoutRoom(entry.room))
+      return reject(`Room ${authoritative.room_number} changed between unsold and booked in Previo. Refresh and review before approving.`);
+    if (!!authoritative.towel_change_required !== !!entry.room.towel_change_required
       || !!authoritative.linen_change_required !== !!entry.room.linen_change_required)
-      return reject('The plan is stale, has an unauthorized owner, or a room cleaning type changed. Regenerate.');
+      return reject(`Room ${authoritative.room_number} has a changed towel/linen service requirement in Previo. Refresh and review before approving.`);
   }
   // A manager can move rooms after regeneration, so validate the actual plan
   // against the authoritative room minutes at approval, not a stale preview total.

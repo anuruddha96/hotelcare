@@ -69,6 +69,21 @@ describe('Next-day plan approval rejects invalid or cross-tenant data before wri
   it('rejects a checkout changed to daily after PMS refresh', () => {
     expect(valid({ expectedRooms: [{ ...first, is_checkout_room: false }, second] }).valid).toBe(false);
   });
+  it('identifies the exact room when a Mika booking changes service type before approval', () => {
+    const result = valid({ expectedRooms: [{ ...first, is_checkout_room: false }, second] });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/room 101.*checkout.*stayover.*Previo refresh/i);
+  });
+  it('identifies a room assigned to someone outside the selected cleaner roster', () => {
+    const result = valid({ previews: [{ ...validPreview, staffId: 'other', rooms: [first, second] }] });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/room 101.*no longer selected/i);
+  });
+  it('reports changed towel and linen requirements by room', () => {
+    const result = valid({ expectedRooms: [first, { ...second, towel_change_required: true }] });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toMatch(/room 102.*towel\/linen/i);
+  });
   it('rejects a potential checkout that became confirmed after PMS refresh', () => {
     const potential = {
       ...first,
