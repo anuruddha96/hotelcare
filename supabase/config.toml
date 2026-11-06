@@ -292,3 +292,7 @@ verify_jwt = true
 # Authenticated SLNT-only physical-room upcoming guest-count lookup.
 [functions.slnt-next-arrivals]
 verify_jwt = true
+
+# Checks a private Vault-backed worker secret, or a server-side service key.
+[functions.ottofiori-ai-supervisor]
+verify_jwt = false

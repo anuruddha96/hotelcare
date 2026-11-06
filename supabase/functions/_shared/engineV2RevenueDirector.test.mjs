@@ -23,8 +23,16 @@ test('only committed movements consume budgets and cooldowns',()=>{
 test('unprotected final-week rooms sell down; high occupancy is protected',()=>{
  for(const daysOut of [0,1,4,7]) {
  assert.equal(decide({daysOut,roomsRemaining:5,occupancyPct:71.4}).direction,'decrease');
- assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2}).direction,'hold');
+ assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,observedPickup6h:2}).direction,'hold');
  }
+});
+test('last four days can sell a quiet final room, while fresh demand and real events protect it',()=>{
+ for (const daysOut of [0,1,2,3]) {
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).movement,-1);
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:2}).direction,'hold');
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8},{confirmedHighEvent:true}).direction,'hold');
+ }
+ assert.equal(decide({daysOut:4,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).direction,'hold');
 });
 test('same-day genuine pickup can increase even at high occupancy',()=>{
  assert.equal(decide({daysOut:0,occupancyPct:95.2,roomsRemaining:1,pickup24h:1,pickup6h:1}).direction,'increase');

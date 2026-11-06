@@ -8,6 +8,10 @@ on:
       - 'supabase/functions/revenue-pickup-automation/runV2.ts'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
+      - 'supabase/functions/_shared/ottofioriAiSupervisor*'
+      - 'supabase/functions/_shared/ottofioriMarketDates*'
+      - 'supabase/functions/ottofiori-ai-supervisor/**'
+      - 'supabase/functions/ottofiori-market-scan/**'
       - '.github/workflows/revenue-engine-ci.yml'
   pull_request:
     paths:
@@ -15,6 +19,10 @@ on:
       - 'supabase/functions/revenue-pickup-automation/runV2.ts'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
+      - 'supabase/functions/_shared/ottofioriAiSupervisor*'
+      - 'supabase/functions/_shared/ottofioriMarketDates*'
+      - 'supabase/functions/ottofiori-ai-supervisor/**'
+      - 'supabase/functions/ottofiori-market-scan/**'
       - '.github/workflows/revenue-engine-ci.yml'
 
 permissions:
@@ -34,4 +42,4 @@ jobs:
         with:
           node-version: '24'
       - name: Verify revenue director and publication budgets
-        run: node --test supabase/functions/_shared/engineV2*.test.mjs
+        run: node --test supabase/functions/_shared/engineV2*.test.mjs supabase/functions/_shared/ottofioriAiSupervisor.test.mjs supabase/functions/_shared/ottofioriMarketDates.test.mjs

@@ -149,3 +149,12 @@ test('strong early occupancy can support the planner rise with one fresh booking
   f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
   assert.equal(guardOttofioriPublication(f).allowed.length, 13);
 });
+test('AI uses the identical measured single-booking limit at final publication',()=>{
+ for (const movement of [1,2,3]) {
+  const f=fixture();
+  Object.assign(f.decisions[0],{direction:'increase',movement,pickup_24h:1,cancellations_24h:0,
+    occupancy_pct:40,pace_target_pct:65,rooms_remaining:10,days_out:54,decision_reason:'ai_supervisor'});
+  f.drafts.forEach(d=>{d.new_price=d.old_price+movement;});
+  assert.equal(guardOttofioriPublication(f).allowed.length,movement<=2?13:0);
+ }
+});

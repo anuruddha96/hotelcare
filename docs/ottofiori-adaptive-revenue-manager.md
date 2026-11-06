@@ -1,10 +1,12 @@
-# Ottofiori two-way revenue manager — 5 November 2026
+# Ottofiori two-way revenue manager — 6 November 2026
 
 The owner's latest instruction supersedes the earlier automatic occupancy/event positioning policy: when a soft date has no booking for several hours, test a lower price; a fresh booking can justify a small increase; several recent bookings support a larger demand response. An earlier increase must not lock a date against reductions for the rest of the day. Protect verified high-impact events and dates with strong occupancy or recent pickup.
 
 ## Why the previous policy was unbalanced
 
 The 12:53 UTC run raised two dates and reduced none. Seventy-six dates were blocked by reduction-spacing rules. The previous policy used 12/24-hour spacing on distant dates, a same-day one-way rule, and upward positioning toward an occupancy/event anchor without fresh bookings. A separate seasonal reserve could hold soft prices even without current demand.
+
+The independent four-hour API layer and the current winter controls are documented in [Ottofiori AI supervision](ottofiori-ai-supervisor.md). Both layers now coordinate through the same lock, budgets and publisher.
 
 ## Current decisions
 
@@ -17,17 +19,16 @@ The 12:53 UTC run raised two dates and reduced none. Seventy-six dates were bloc
 
 | Arrival lead | Quiet period before reducing | Minimum time between reductions | Daily downward cap |
 |---|---:|---:|---:|
-| Today–2 days | 2h | 2h | €12 |
-| 3–7 days | 3h | 3h | €10 |
-| 8–14 days | 4h | 3h | €8 |
-| 15–30 days | 4h | 3h | €6 |
-| 31–120 days | 6h | 3h | €6 |
+| Today–3 days | 2h | 2h | €24 |
+| 4–7 days | 3h | 3h | €18 |
+| 8–30 days | 4h | 4h | €12 |
+| 31–120 days | 6h | 4h | €12 |
 
-High occupancy means at least 85%, or strong early occupancy of at least 50% and ten points above the saved lead-time pace target. The owner-requested protections take priority over a quiet-period markdown, including inside the last seven days.
+High occupancy means at least 85%, or strong early occupancy of at least 50% and ten points above the saved lead-time pace target. The next four days permit a €1 last-room rescue after four quiet hours and no booking in six hours; genuine demand and verified high events remain protected. The independent AI may test €1–2 on an otherwise event-protected date only under the strict weak-conversion conditions in its documentation.
 
 ## Controls and evidence
 
-Hard manager locks, the four-hour soft manual-edit hold, absolute hotel price bounds, whole-date/all-13-cell integrity, daily budgets, four-markdown daily count and 25% campaign/recent-peak depth guard remain. The ordinary booking brake is at most four hours and never longer than the configured quiet window. Cancellation/rebooking protection is at most two hours inside seven days and four hours further out, with the configured one-hour initial cancellation cooldown. Direction changes wait three hours, except fresh pickup can justify an earlier upward reversal. This opt-in same-day reversal policy is Ottofiori-only; other hotels retain their previous behavior.
+Hard manager locks, the four-hour soft manual-edit hold, explicit €80 floor / €500 ceiling, whole-date/all-13-cell integrity, daily budgets, six-markdown daily count and 25% campaign/recent-peak depth guard remain. The ordinary booking brake is at most four hours and never longer than the configured quiet window. Cancellation/rebooking protection is at most two hours inside seven days and four hours further out, with the configured one-hour initial cancellation cooldown. Direction changes wait three hours, except fresh pickup can justify an earlier upward reversal. This opt-in same-day reversal policy is Ottofiori-only; other hotels retain their previous behavior.
 
 Hotel/month ADR targets remain objectives across the portfolio of nights, not a per-night minimum imposed on empty dates. Existing targets remain November €140, December €155, January/February €130. The 100% occupancy objective cannot guarantee bookings; floor-bound dates require review of availability, restrictions, channel competitiveness and conversion rather than unlimited discounting.
 
