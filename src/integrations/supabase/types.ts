@@ -469,6 +469,39 @@ export type Database = {
           },
         ]
       }
+      assistant_monthly_message_usage: {
+        Row: {
+          created_at: string
+          estimated_cost_usd: number
+          input_tokens: number
+          message_id: string
+          month_start: string
+          organization_slug: string | null
+          output_tokens: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          estimated_cost_usd?: number
+          input_tokens?: number
+          message_id: string
+          month_start: string
+          organization_slug?: string | null
+          output_tokens?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          estimated_cost_usd?: number
+          input_tokens?: number
+          message_id?: string
+          month_start?: string
+          organization_slug?: string | null
+          output_tokens?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       assistant_paid_questions: {
         Row: {
           amount_eur: number
@@ -654,6 +687,39 @@ export type Database = {
           enabled?: boolean
           reason?: string | null
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      assistant_usage_alert_events: {
+        Row: {
+          alert_type: string
+          created_at: string
+          emailed_at: string | null
+          id: string
+          message: string
+          month_start: string
+          organization_slug: string | null
+          user_id: string
+        }
+        Insert: {
+          alert_type: string
+          created_at?: string
+          emailed_at?: string | null
+          id?: string
+          message: string
+          month_start: string
+          organization_slug?: string | null
+          user_id: string
+        }
+        Update: {
+          alert_type?: string
+          created_at?: string
+          emailed_at?: string | null
+          id?: string
+          message?: string
+          month_start?: string
+          organization_slug?: string | null
           user_id?: string
         }
         Relationships: []
@@ -7445,6 +7511,102 @@ export type Database = {
         }
         Relationships: []
       }
+      ottofiori_ai_price_policies: {
+        Row: {
+          created_at: string
+          decision_id: string | null
+          delta_eur: number
+          hotel_id: string
+          organization_slug: string
+          reason: string
+          review_id: string
+          stay_date: string
+          valid_until: string
+        }
+        Insert: {
+          created_at?: string
+          decision_id?: string | null
+          delta_eur: number
+          hotel_id?: string
+          organization_slug?: string
+          reason: string
+          review_id: string
+          stay_date: string
+          valid_until: string
+        }
+        Update: {
+          created_at?: string
+          decision_id?: string | null
+          delta_eur?: number
+          hotel_id?: string
+          organization_slug?: string
+          reason?: string
+          review_id?: string
+          stay_date?: string
+          valid_until?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ottofiori_ai_price_policies_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_date_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ottofiori_ai_price_policies_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "ottofiori_ai_review_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ottofiori_ai_review_runs: {
+        Row: {
+          decisions: Json | null
+          error: string | null
+          estimated_cost_usd: number
+          finished_at: string | null
+          id: string
+          model: string | null
+          outcomes: Json | null
+          pms_refreshed_at: string | null
+          slot: number
+          started_at: string
+          status: string
+          summary: string | null
+        }
+        Insert: {
+          decisions?: Json | null
+          error?: string | null
+          estimated_cost_usd?: number
+          finished_at?: string | null
+          id?: string
+          model?: string | null
+          outcomes?: Json | null
+          pms_refreshed_at?: string | null
+          slot: number
+          started_at?: string
+          status?: string
+          summary?: string | null
+        }
+        Update: {
+          decisions?: Json | null
+          error?: string | null
+          estimated_cost_usd?: number
+          finished_at?: string | null
+          id?: string
+          model?: string | null
+          outcomes?: Json | null
+          pms_refreshed_at?: string | null
+          slot?: number
+          started_at?: string
+          status?: string
+          summary?: string | null
+        }
+        Relationships: []
+      }
       parking_batches: {
         Row: {
           created_at: string
@@ -7791,6 +7953,30 @@ export type Database = {
           organization_slug?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      password_reset_attempt_limits: {
+        Row: {
+          attempt_count: number
+          blocked_until: string | null
+          key_hash: string
+          updated_at: string
+          window_started_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          blocked_until?: string | null
+          key_hash: string
+          updated_at?: string
+          window_started_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          blocked_until?: string | null
+          key_hash?: string
+          updated_at?: string
+          window_started_at?: string
         }
         Relationships: []
       }
@@ -9364,6 +9550,21 @@ export type Database = {
           },
         ]
       }
+      push_notification_self_tests: {
+        Row: {
+          last_sent_at: string
+          user_id: string
+        }
+        Insert: {
+          last_sent_at?: string
+          user_id: string
+        }
+        Update: {
+          last_sent_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       push_subscriptions: {
         Row: {
           auth: string
@@ -10437,6 +10638,108 @@ export type Database = {
             ]
           },
         ]
+      }
+      revenue_booking_value_observations: {
+        Row: {
+          approved_for_automated_training: boolean
+          booking_channel: string | null
+          booking_event_at: string | null
+          booking_kind: string
+          hotel_id: string
+          id: number
+          observation_origin: string
+          observed_at: string
+          observed_value_as_reported: number | null
+          organization_slug: string
+          reservation_fingerprint: string
+          room_fingerprint: string
+          room_nights: number | null
+          stay_from: string | null
+          stay_to: string | null
+        }
+        Insert: {
+          approved_for_automated_training?: boolean
+          booking_channel?: string | null
+          booking_event_at?: string | null
+          booking_kind: string
+          hotel_id: string
+          id?: never
+          observation_origin: string
+          observed_at?: string
+          observed_value_as_reported?: number | null
+          organization_slug: string
+          reservation_fingerprint: string
+          room_fingerprint: string
+          room_nights?: number | null
+          stay_from?: string | null
+          stay_to?: string | null
+        }
+        Update: {
+          approved_for_automated_training?: boolean
+          booking_channel?: string | null
+          booking_event_at?: string | null
+          booking_kind?: string
+          hotel_id?: string
+          id?: never
+          observation_origin?: string
+          observed_at?: string
+          observed_value_as_reported?: number | null
+          organization_slug?: string
+          reservation_fingerprint?: string
+          room_fingerprint?: string
+          room_nights?: number | null
+          stay_from?: string | null
+          stay_to?: string | null
+        }
+        Relationships: []
+      }
+      revenue_calendar_history_archive: {
+        Row: {
+          adr_eur: number | null
+          archived_at: string
+          captured_at: string | null
+          events: Json
+          hotel_id: string
+          occupancy_pct: number | null
+          organization_slug: string
+          rates: Json
+          revenue_eur: number | null
+          revpar_eur: number | null
+          rooms_available: number | null
+          rooms_sold: number | null
+          stay_date: string
+        }
+        Insert: {
+          adr_eur?: number | null
+          archived_at?: string
+          captured_at?: string | null
+          events?: Json
+          hotel_id: string
+          occupancy_pct?: number | null
+          organization_slug: string
+          rates?: Json
+          revenue_eur?: number | null
+          revpar_eur?: number | null
+          rooms_available?: number | null
+          rooms_sold?: number | null
+          stay_date: string
+        }
+        Update: {
+          adr_eur?: number | null
+          archived_at?: string
+          captured_at?: string | null
+          events?: Json
+          hotel_id?: string
+          occupancy_pct?: number | null
+          organization_slug?: string
+          rates?: Json
+          revenue_eur?: number | null
+          revpar_eur?: number | null
+          rooms_available?: number | null
+          rooms_sold?: number | null
+          stay_date?: string
+        }
+        Relationships: []
       }
       revenue_cancelled_nights: {
         Row: {
@@ -15036,6 +15339,101 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_intelligence_daily_quality: {
+        Row: {
+          adr_amount_raw: number | null
+          approved_for_automated_training: boolean | null
+          hotel_id: string | null
+          occupancy_pct: number | null
+          organization_slug: string | null
+          quality_flags: string[] | null
+          quality_status: string | null
+          recorded_event_count: number | null
+          recorded_rate_cells: number | null
+          reported_currency: string | null
+          revenue_amount_raw: number | null
+          revpar_amount_raw: number | null
+          rooms_available: number | null
+          rooms_sold: number | null
+          source_captured_at: string | null
+          stay_date: string | null
+        }
+        Relationships: []
+      }
+      revenue_intelligence_event_outcomes: {
+        Row: {
+          adr_amount_raw: number | null
+          approved_for_automated_training: boolean | null
+          event_causality_proven: boolean | null
+          event_title: string | null
+          evidence_url: string | null
+          hotel_id: string | null
+          occupancy_pct: number | null
+          organization_slug: string | null
+          quality_flags: string[] | null
+          quality_status: string | null
+          recorded_end_date: string | null
+          recorded_event_category: string | null
+          recorded_event_impact: string | null
+          recorded_event_venue: string | null
+          recorded_start_date: string | null
+          reported_currency: string | null
+          revenue_amount_raw: number | null
+          revpar_amount_raw: number | null
+          rooms_available: number | null
+          rooms_sold: number | null
+          stay_date: string | null
+          stay_year: number | null
+        }
+        Relationships: []
+      }
+      revenue_intelligence_monthly: {
+        Row: {
+          all_calendar_dates_present: boolean | null
+          approved_for_automated_training: boolean | null
+          archived_days: number | null
+          calendar_days_in_month: number | null
+          complete_provisional_month: boolean | null
+          hotel_id: string | null
+          missing_days: number | null
+          month_start: string | null
+          organization_slug: string | null
+          provisional_available_room_nights: number | null
+          provisional_days: number | null
+          provisional_revenue: number | null
+          provisional_sold_room_nights: number | null
+          provisional_weighted_adr: number | null
+          provisional_weighted_occupancy_pct: number | null
+          provisional_weighted_revpar: number | null
+          raw_available_nights_audit_only: number | null
+          raw_room_revenue_audit_only: number | null
+          raw_sold_nights_audit_only: number | null
+          recorded_event_day_mentions: number | null
+          reported_currency: string | null
+          review_days: number | null
+        }
+        Relationships: []
+      }
+      revenue_intelligence_pace_checkpoints: {
+        Row: {
+          approved_for_automated_training: boolean | null
+          available_room_nights: number | null
+          hotel_id: string | null
+          lead_days: number | null
+          observed_date: string | null
+          on_books_room_nights: number | null
+          organization_slug: string | null
+          quality_status: string | null
+          recorded_on_books_adr_raw: number | null
+          recorded_on_books_occupancy_pct: number | null
+          recorded_on_books_revenue_raw: number | null
+          recorded_on_books_revpar_raw: number | null
+          reported_currency: string | null
+          source_captured_at: string | null
+          stay_date: string | null
+        }
+        Relationships: []
+      }
       v_training_completion_by_role: {
         Row: {
           completed_users: number | null
@@ -15083,6 +15481,10 @@ export type Database = {
         Args: { p_assignment_id: string; p_path: string; p_photo_url: string }
         Returns: string[]
       }
+      archive_revenue_calendar_days: {
+        Args: { p_from: string; p_through: string }
+        Returns: number
+      }
       assign_housekeeping_section_tasks: {
         Args: {
           p_assigned_date: string
@@ -15099,6 +15501,7 @@ export type Database = {
         }
         Returns: string
       }
+      assistant_monthly_status: { Args: never; Returns: Json }
       billable_room_count: { Args: { _hotel_id: string }; Returns: number }
       billing_admin_save_all: {
         Args: {
@@ -15168,6 +15571,13 @@ export type Database = {
       capture_revenue_soldout_prices: {
         Args: { _hotel_id: string }
         Returns: undefined
+      }
+      check_password_reset_attempt: {
+        Args: { p_email_hash: string; p_ip_hash: string }
+        Returns: {
+          allowed: boolean
+          retry_after_seconds: number
+        }[]
       }
       claim_automation_lock: {
         Args: { p_hotel: string; p_stale_minutes?: number }
@@ -15987,6 +16397,8 @@ export type Database = {
         Args: { p_business_date: string; p_hotel: string; p_pms_metadata: Json }
         Returns: boolean
       }
+      hc_close_housekeeping_day_20: { Args: never; Returns: Json }
+      hc_dnd_retry_ready_at: { Args: { p_first: string }; Returns: string }
       hc_enqueue_system_anomaly: {
         Args: {
           p_details: Json
@@ -16223,6 +16635,11 @@ export type Database = {
         }
         Returns: boolean
       }
+      hotelcare_send_maintenance_activity_push: {
+        Args: { _actor_id?: string; _kind: string; _ticket_id: string }
+        Returns: number
+      }
+      hotelcare_test_my_push: { Args: never; Returns: Json }
       housekeeping_room_change_email_worker_secret: {
         Args: never
         Returns: string
@@ -16231,6 +16648,7 @@ export type Database = {
         Args: { p_rows: Json }
         Returns: number
       }
+      invoke_ottofiori_ai_supervisor: { Args: never; Returns: number }
       invoke_ottofiori_market_scan: {
         Args: { _force?: boolean }
         Returns: number
@@ -16313,6 +16731,19 @@ export type Database = {
         Args: { org_slug: string }
         Returns: boolean
       }
+      ottofiori_ai_apply: {
+        Args: {
+          p_delta: number
+          p_dry_run?: boolean
+          p_expected_cells: Json
+          p_reason: string
+          p_review_id: string
+          p_stay_date: string
+        }
+        Returns: Json
+      }
+      ottofiori_ai_context: { Args: { p_stay_date?: string }; Returns: Json }
+      ottofiori_peer_context: { Args: never; Returns: Json }
       parking_access_level: {
         Args: { _hotel_id: string; _organization_slug: string }
         Returns: string
@@ -17372,6 +17803,14 @@ export type Database = {
         }
         Returns: Json
       }
+      reserve_assistant_monthly_message: {
+        Args: {
+          _message_id: string
+          _organization_slug: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       reserve_assistant_premium_question: {
         Args: {
           _model: string
@@ -17815,6 +18254,7 @@ export type Database = {
         Returns: string[]
       }
       user_slnt_visible_venue_ids: { Args: { _uid: string }; Returns: string[] }
+      verify_otto_ai_worker: { Args: { p_secret: string }; Returns: boolean }
       verify_otto_market_worker_secret: {
         Args: { p_secret: string }
         Returns: boolean
