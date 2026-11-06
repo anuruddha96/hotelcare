@@ -23,6 +23,7 @@ import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
   PICKUP_WINDOW_48H,
+  DEFAULT_PICKUP_WINDOW_DAYS,
   pickupWindowLabel,
   pickupWindowStartMs,
 } from "@/lib/revenueAnalytics";
@@ -106,17 +107,15 @@ interface Props {
 
 
 const PICKUP_WINDOWS = [
-  // The engine's own window comes first: this is the only option whose numbers
-  // can be compared like-for-like with an automation change.
-  { value: PICKUP_WINDOW_48H, label: "Last 48 hours (automation)" },
+  { value: DEFAULT_PICKUP_WINDOW_DAYS, label: "Yesterday + today" },
   { value: 1, label: "Today" },
-  { value: 2, label: "Yesterday + today" },
   { value: 3, label: "Last 3 days" },
   { value: 7, label: "Last 7 days" },
   { value: 14, label: "Last 14 days" },
   { value: 30, label: "Last 30 days" },
   { value: 60, label: "Last 60 days" },
   { value: 90, label: "Last 90 days" },
+  { value: PICKUP_WINDOW_48H, label: "Rolling 48h (automation)" },
 ];
 
 /** Row geometry at 100% — the two panes must agree pixel for pixel. */
@@ -3108,26 +3107,63 @@ export default function RateStrategyGrid({
               {expanded ? "Close" : "Expand"}
             </Button>
 
+
+          </div>
+        </div>
+
+        {/* Separate pricing actions from analysis and display settings. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5" role="group" aria-label="Pickup and calendar display controls">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold text-foreground">{hu ? "Foglalásváltozás" : "Pickup period"}</span>
+            <Select value={String(pickupWindowDays)} onValueChange={(value) => onPickupWindowChange(Number(value))}>
+              <SelectTrigger aria-label={hu ? "Foglalásváltozás időszaka" : "Pickup period"} className="h-8 w-[200px] max-w-[65vw] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PICKUP_WINDOWS.map((option) => (
+                  <SelectItem key={option.value} value={String(option.value)}>
+                    {hu
+                      ? option.value === PICKUP_WINDOW_48H ? "Elmúlt 48 óra (automatizálás)"
+                        : option.value === DEFAULT_PICKUP_WINDOW_DAYS ? "Tegnap és ma"
+                        : option.value === 1 ? "Ma" : `Elmúlt ${option.value} nap`
+                      : option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="hidden lg:inline text-[11px] text-muted-foreground">
+              {isAutomationWindow
+                ? (hu ? "Gördülő 48 óra · automatizálás" : "Rolling 48h · automation")
+                : (hu ? "Budapesti naptári napok · éjféltől" : "Budapest calendar days · from midnight")}
+            </span>
+            <MetricInfo
+              title={hu ? "Foglalásváltozás időszaka" : "How pickup windows work"}
+              body={hu
+                ? "A Tegnap és ma nézet a két budapesti naptári napot mutatja éjféltől. A 48 órás automatizálási nézet folyamatosan visszaszámolt 48 óra; a két nézet eredménye eltérhet."
+                : "Yesterday + today counts booking gains and losses from the start of yesterday in Budapest time through now. The automation view uses a rolling 48-hour window, so the totals may differ. Changing this period also updates pickup figures in the KPI header and market chart."}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant={pickupOnly ? "default" : "outline"}
               className="h-8 text-xs"
+              aria-pressed={pickupOnly}
               onClick={() => setPickupOnly((value) => !value)}
             >
-              {pickupOnly ? "All dates" : "Dates with pickup"}
+              {pickupOnly ? (hu ? "Minden dátum" : "All dates") : (hu ? "Csak változással" : "Dates with pickup")}
             </Button>
-
-
-            <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
-              <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PICKUP_WINDOWS.map((p) => (
-                  <SelectItem key={p.value} value={String(p.value)}>Pickup: {p.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* Reading size — saved to the user's profile, not just this device. */}
-            <div className="flex items-center rounded-md border overflow-hidden">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs"
+              onClick={() => onPickupWindowChange(isAutomationWindow ? DEFAULT_PICKUP_WINDOW_DAYS : PICKUP_WINDOW_48H)}
+              title={hu ? "Naptári napok és automatizálási időszak összehasonlítása" : "Compare calendar days with the automation's rolling window"}
+            >
+              {isAutomationWindow ? (hu ? "Tegnap + ma" : "Yesterday + today") : (hu ? "48 óra (motor)" : "48h engine")}
+            </Button>
+            {/* Calendar zoom remains independent of the pickup period. */}
+            <div className="flex items-center overflow-hidden rounded-md border">
               <Button
                 size="sm" variant="ghost" className="h-8 w-8 rounded-none p-0"
                 aria-label="Make the calendar smaller"
