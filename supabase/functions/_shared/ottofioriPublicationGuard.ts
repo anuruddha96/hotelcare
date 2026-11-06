@@ -110,7 +110,7 @@ export function guardOttofioriPublication<T extends PublicationDraft>(params: {
       Number(decision?.rooms_remaining ?? 99) > 2;
     const measuredSingleBookingLimit = Number(decision?.days_out ?? 999) <= 7 ? 1 : 2;
     if (singleBookingSoftRise && !(
-      decision?.decision_reason === "revenue_director_yield" &&
+      ["revenue_director_yield", "ai_supervisor"].includes(String(decision?.decision_reason)) &&
       movement > 0 && movement <= measuredSingleBookingLimit
     )) {
       reject("Whole date blocked before PMS write: one net booking with soft occupancy is not enough for this increase.");

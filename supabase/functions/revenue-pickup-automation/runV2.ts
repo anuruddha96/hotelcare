@@ -29,6 +29,7 @@ import {
   type WindowRule,
   windowFor,
 } from "../_shared/engineV2.ts";
+import { observeAiPrice } from "../_shared/ottofioriAiSupervisor.ts";
 
 import {
   assertWholeEuro,
@@ -353,6 +354,13 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     ]);
 
     const typeAvail = await deps.loadTypeAvailability(admin, rule.hotel_id, today, horizonDate);
+    const aiPolicies = new Map<string, { created_at: string; valid_until: string }>();
+    if (rule.hotel_id === "ottofiori") {
+      const { data, error } = await admin.from("ottofiori_ai_price_policies")
+        .select("stay_date,created_at,valid_until").gt("valid_until", now.toISOString());
+      if (error) throw error; // Cannot coordinate safely without reading the AI layer.
+      for (const row of data ?? []) aiPolicies.set(row.stay_date, row);
+    }
 
     // Only real, sellable room types may ever be priced.
     const roomTypes = unwrap(roomTypesRes);
@@ -930,6 +938,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       } else {
         decision = decideDate(input, settings);
       }
+      if (rule.hotel_id === "ottofiori" && observeAiPrice(aiPolicies.get(stayDate), now, lastPickup)) {
+        decision = { ...decision, direction: "hold", movement: 0,
+          targetPrice: input.currentPrice, blocked: true, reason: "ai_supervisor_observation",
+          reasonDetail: "The AI supervisor's current offer is being observed for up to four hours. A new genuine booking releases the fast engine to respond." };
+      }
       decisions.push(decision);
       const wasBlocked = decision.blocked;
       if (wasBlocked) skipReasons[decision.reason] = (skipReasons[decision.reason] ?? 0) + 1;
@@ -1337,7 +1350,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .map(([reason, count]) => `${count} ${reason.replaceAll("_", " ")}`)
         .join(", ")
       : "";
-    await notifyRun({
+    if (!(rule.hotel_id === "ottofiori" && deps.isEngine && increases + decreases === 0 && !budgetHit && !gate.paused)) await notifyRun({
       severity: budgetHit ? "warning" : "info",
       pickups: decisions.filter((d) => d.reason.includes("pickup")).length,
       actions: increases + decreases,

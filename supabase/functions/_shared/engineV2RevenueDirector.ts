@@ -90,7 +90,12 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   const pickup = Math.min(netUnspent, Math.max(0, recentUnspent));
   const observed6h = Math.max(0, input.observedPickup6h ?? input.pickup6h);
   const fastPickup = input.pickup6h >= 2 && pickup >= 2;
-  const strong = occ >= 85 || (input.daysOut > 7 && occ >= Math.max(50, (pace ?? 70) + 10));
+  // Empty last rooms still need conversion. After a genuinely quiet selling
+  // period the owner's close-in rescue takes precedence over static 85% holds.
+  const quietLastRooms = input.daysOut <= 3 && observed6h === 0
+    && (hoursQuiet == null || hoursQuiet >= 4) && !context.confirmedHighEvent;
+  const strong = (occ >= 85 && !quietLastRooms)
+    || (input.daysOut > 7 && occ >= Math.max(50, (pace ?? 70) + 10));
   const waited = hoursQuiet == null || hoursQuiet >= quietHours;
   let raw = 0;
   let reason = "awaiting_no_pickup_window";
@@ -128,6 +133,7 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
     detail = raw < 0
       ? `${hoursQuiet == null ? "No active booking in the observation history" : `No booking for ${Math.floor(hoursQuiet)}h`}; ${input.roomsRemaining} rooms unsold, ${occ}% occupied. Test a lower offer by €${Math.abs(raw)}; reassess conversion before another step. An earlier rise does not prohibit a later reduction.`
       : "The offer is at its absolute hotel price floor; no further reduction is permitted.";
+    if (quietLastRooms && occ >= 85 && raw < 0) detail += " Close-in last-room rescue after four quiet hours; static occupancy alone must not leave the final room unsold.";
   }
   if (raw === 0) return hold(reason, detail);
   effective.commercialIntent = { raw, reason, detail };

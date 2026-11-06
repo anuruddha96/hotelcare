@@ -9,7 +9,7 @@
 
 type Admin = {
   from: (t: string) => any;
-  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: any; error: any }>;
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: any }>;
 };
 
 /** USD per 1M tokens, input/output. Rough public list prices. */
