@@ -12,20 +12,19 @@ import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 
 const PICKUP_WINDOW_HU: Record<number,string> = {
-  0.0001: 'Elmúlt 48 óra (automatizálás)',
   1: 'Csak ma', 2: 'Tegnap és ma', 3: 'Elmúlt 3 nap', 7: 'Elmúlt 7 nap',
   14: 'Elmúlt 14 nap', 30: 'Elmúlt 30 nap', 60: 'Elmúlt 60 nap', 90: 'Elmúlt 90 nap',
 };
 const PICKUP_WINDOWS = [
-  { value: PICKUP_WINDOW_48H, label: "Last 48 hours (automation)" },
-  { value: 1, label: "Today only" },
   { value: 2, label: "Yesterday + today" },
+  { value: 1, label: "Today only" },
   { value: 3, label: "Last 3 days" },
   { value: 7, label: "Last 7 days" },
   { value: 14, label: "Last 14 days" },
   { value: 30, label: "Last 30 days" },
   { value: 60, label: "Last 60 days" },
   { value: 90, label: "Last 90 days" },
+  { value: PICKUP_WINDOW_48H, label: "Rolling 48h (automation)" },
 ];
 
 const INITIAL_KPI_HOLD_MS = 10_000;
@@ -622,7 +621,7 @@ export default function MonthPerformanceHeader({
           </Select>
           <span className="text-[11px] text-muted-foreground">
             <span className="sm:hidden">{hu?"Foglalásváltozás és kereslet":"Pickup & demand"}</span>
-            <span className="hidden sm:inline">{hu?"A foglalásváltozás, a naptár és a kereslet időszakát szabályozza. A „Ma létrehozott foglalások” mindig a mai napra vonatkozik.":"Controls pickup, calendar PU and demand. “Bookings created today” always stays on today."}</span>
+            <span className="hidden sm:inline">{hu?"A naptár, a KPI-k és a kereslet azonos időszakot használ. A Tegnap és ma budapesti naptári napokat jelent; az automatizálás 48 órája gördülő időablak.":"The KPI cards, pickup calendar and demand chart share this period. Yesterday + today follows Budapest calendar dates; automation uses a rolling 48 hours."}</span>
           </span>
         </div>
 
