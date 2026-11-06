@@ -80,17 +80,38 @@ export function countsTowardRevenueSalesPickup(row: {
  * price rose against an empty pickup cell.
  */
 export const PICKUP_WINDOW_48H = -48;
+/** Management pickup view defaults to yesterday + today in Budapest time. */
+export const DEFAULT_PICKUP_WINDOW_DAYS = 2;
 
 /** True when the value means "the last N hours" rather than "the last N days". */
 export function isRollingPickupWindow(windowDays: number): boolean {
   return windowDays < 0;
 }
 
+/**
+ * Find Budapest's actual local midnight, including winter (UTC+1) and
+ * summer (UTC+2). A hard-coded two-hour offset counted an extra hour of
+ * the previous date in winter. Clock transitions happen after midnight.
+ */
+function budapestMidnightMs(day: string): number {
+  const utcMidnight = Date.parse(`${day}T00:00:00Z`);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: BUDAPEST_TZ,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date(utcMidnight));
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const localClock = Date.UTC(
+    value("year"), value("month") - 1, value("day"), value("hour"), value("minute"),
+  );
+  return utcMidnight - (localClock - utcMidnight);
+}
+
 /** Epoch ms at which the selected pickup window opens. */
 export function pickupWindowStartMs(windowDays: number, now: number = Date.now()): number {
   if (isRollingPickupWindow(windowDays)) return now - Math.abs(windowDays) * 3_600_000;
   const firstDay = addDays(budapestDayOf(new Date(now).toISOString()), -Math.max(0, windowDays - 1));
-  return Date.parse(`${firstDay}T00:00:00Z`) - 2 * 3_600_000; // Budapest midnight, DST-tolerant
+  return budapestMidnightMs(firstDay);
 }
 
 /** First Budapest calendar day the window can touch (used for day-keyed data). */
