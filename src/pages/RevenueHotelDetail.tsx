@@ -27,7 +27,7 @@ import MorningDigestPanel from "@/components/revenue/MorningDigestPanel";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
 import { setRevenueCurrency, useRevenueCurrency, money, getRevenueCurrency } from "@/lib/revenueCurrency";
-import { PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
+import { DEFAULT_PICKUP_WINDOW_DAYS } from "@/lib/revenueAnalytics";
 
 // Six months of stay dates must be on hand or the later month cards never
 // leave their loading state and far-out bookings taken today are trimmed away.
@@ -140,9 +140,9 @@ export default function RevenueHotelDetail() {
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("grid");
-  // Default to the automation's own rolling 48h window so the pickup row and
-  // the purple dots always describe the same stretch of time.
-  const [pickupWindow, setPickupWindow] = useState<number>(PICKUP_WINDOW_48H);
+  // All venues open on yesterday + today (Budapest calendar dates).
+  // A rolling 48-hour automation comparison remains available in the selector.
+  const [pickupWindow, setPickupWindow] = useState<number>(DEFAULT_PICKUP_WINDOW_DAYS);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   // The six-month outlook needs roughly 210 stay dates on hand, otherwise the
   // later month cards never leave their "loading" state and bookings taken
