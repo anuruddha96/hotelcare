@@ -176,7 +176,14 @@ export function buildSelectedDateHousekeepingWorkload(
         selectedDateSnapshotKind: kind, selectedDateArrival: snapshot.arrival_date,
         selectedDateDeparture: snapshot.departure_date,
         selectedDateSnapshotCapturedAt: snapshot.captured_at,
+        // A live room can retain yesterday's provisional/unsold metadata.
+        // The selected-date reservation is authoritative: clear EVERY marker,
+        // not just potentialCheckout, or booked rooms remain labelled unsold.
+        planningStatus: 'booked',
+        unsoldAtPlanning: false,
+        unsoldReason: null,
         potentialCheckout: false,
+        potentialCheckoutReason: null,
       },
     } as RoomForAssignment);
   }
