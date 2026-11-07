@@ -314,7 +314,17 @@ export function Dashboard() {
   const [activeHousekeepingSubTab, setActiveHousekeepingSubTab] = useState<string>('');
   const [activeInnerTab, setActiveInnerTab] = useState<string>('team');
 
-  useEffect(() => { setActiveTab(getDefaultTab(profile?.role)); }, [profile?.role, attendanceStatus, noMinibar]);
+  // Keep the manager's chosen tab stable when asynchronous attendance data
+  // refreshes. Only housekeeping staff need attendance-driven navigation.
+  useEffect(() => { setActiveTab(getDefaultTab(profile?.role)); }, [profile?.role, noMinibar]);
+  useEffect(() => {
+    if (profile?.role !== 'housekeeping') return;
+    setActiveTab(current =>
+      current === 'attendance' || current === 'housekeeping'
+        ? getDefaultTab(profile?.role)
+        : current
+    );
+  }, [profile?.role, attendanceStatus]);
 
   useEffect(() => {
     const urlTab = searchParams.get('tab');
