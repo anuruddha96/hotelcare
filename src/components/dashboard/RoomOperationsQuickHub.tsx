@@ -26,6 +26,7 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { cleanMemoriesOperationalNotes, isMemoriesFinalOccupiedNight } from '@/lib/memoriesOperationalNotes';
@@ -186,7 +187,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   // Reception's non-note operations remain available under their own gates.
   const canWriteNotes = canManage;
   const canCommunicate = canManage || (!isMemories && isReception);
-  const canManualGozsduRtc = isGozsdu && (canManage || isReception);
+  const canManualRtc = (isGozsdu || isMemories) && (canManage || isReception);
   const readOnlyForPast = selectedDate !== todayBudapest();
   const textileChangeLabel = isGozsduCourtHotel(hotelName) ? 'Complete Textile Change' : 'Change Room';
 
@@ -372,7 +373,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   };
 
   const markReadyToClean = async () => {
-    if (!canManualGozsduRtc || readOnlyForPast || !selection?.roomId || !selection.assignmentId) return;
+    if (!canManualRtc || readOnlyForPast || !selection?.roomId || !selection.assignmentId) return;
     if (selection.assignmentType !== 'checkout_cleaning' || !selection.isCheckout) {
       toast.warning('RTC can only be released for an active checkout-cleaning assignment.');
       return;
@@ -478,10 +479,75 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     }
   };
 
+  const markRoomDirty = async () => {
+    if (!canManage || readOnlyForPast || !selection?.roomId || selection.roomStatus === 'out_of_order') return;
+    if (!isMemories) {
+      await patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`);
+      return;
+    }
+
+    const roomId = selection.roomId;
+    const roomNumber = selection.roomNumber;
+    setActionLoading('mark-dirty');
+    try {
+      // The authenticated RPC updates the physical room status and, when
+      // needed, creates a NEW active task. Approved photos/history stay intact.
+      // The existing Memories room-status trigger queues the Previo dirty push.
+      const { data, error } = await (supabase as any).rpc('memories_mark_room_dirty', {
+        p_room_id: roomId,
+        p_expected_assignment_date: selectedDate,
+        p_source: 'room_operations',
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error('Room status was not saved.');
+
+      toast.success(data.reopened
+        ? `Room ${roomNumber} is dirty. A new cleaning task was assigned to the same housekeeper.`
+        : `Room ${roomNumber} marked dirty.`);
+      if (data.pms_queued) toast.info('Dirty status queued for Previo. Sync delivery is tracked separately.');
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      await loadRoom({ roomNumber, roomId });
+    } catch (error) {
+      console.error('Failed to mark Memories room dirty', error);
+      toast.error((error as Error)?.message || 'Could not mark the room dirty. Please refresh.');
+      await loadRoom({ roomNumber, roomId });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const markRoomClean = async () => {
     if (!canManage || readOnlyForPast || !selection?.roomId) return;
     if (isSlntTenant && selection.roomStatus === 'out_of_order') {
       toast.warning('Release this room from Out of Service before changing its housekeeping status.');
+      return;
+    }
+    if (isMemories) {
+      const roomId = selection.roomId;
+      const roomNumber = selection.roomNumber;
+      setActionLoading('mark-clean');
+      try {
+        // The existing manager RPC is atomic, permission-scoped and audited.
+        // Its room update queues the Previo status through the DB trigger.
+        const { data, error } = await (supabase as any).rpc('manager_mark_room_clean', {
+          p_room_id: roomId,
+          p_assignment_id: selection.assignmentId || null,
+          p_expected_assignment_date: selectedDate,
+          p_source: 'room_operations',
+        });
+        if (error) throw error;
+        if (!data?.success) throw new Error('Clean status was not saved.');
+        toast.success(`Room ${roomNumber} marked clean in HotelCare.`);
+        toast.info('Previo status delivery is queued or already processed. Check the sync history for confirmation.');
+        window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+        await loadRoom({ roomNumber, roomId });
+      } catch (error) {
+        console.error('Failed to mark Memories room clean', error);
+        toast.error((error as Error)?.message || 'Could not mark the room clean.');
+        await loadRoom({ roomNumber, roomId });
+      } finally {
+        setActionLoading(null);
+      }
       return;
     }
     const roomId = selection.roomId;
@@ -1000,9 +1066,11 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     || !!selection.assignmentNotes?.includes('[TOWEL_CHANGE_ONLY]')
   );
   const isSlntOutOfService = isSlntTenant && selection?.roomStatus === 'out_of_order';
+  // Physical room condition is authoritative for Clean/Dirty. A previous
+  // completed task must not make a now-dirty room appear cleaned.
   const effectiveStatus = isSlntOutOfService
     ? 'out_of_order'
-    : selection?.assignmentStatus || selection?.roomStatus || null;
+    : selection?.roomStatus || selection?.assignmentStatus || null;
   const visibleStatusLabel = isSlntOutOfService
     ? 'Out of Service'
     : hasNonCleaningOutcome
@@ -1060,7 +1128,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       )}
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className={`rounded-xl border p-3 ${visibleStatusTone}`}>
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Status</p>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Room condition</p>
           <p className="mt-1 text-sm font-bold">{visibleStatusLabel}</p>
         </div>
         <div className={`rounded-xl border p-3 ${selection.isCheckout ? 'border-orange-200 bg-orange-50 text-orange-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
@@ -1076,6 +1144,46 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <p className="mt-1 text-sm font-bold">{selection.roomSizeSqm ? `${selection.roomSizeSqm} m²` : selection.roomCategory || '—'}</p>
         </div>
       </section>
+
+      {selection.assignmentStatus && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-white/80 px-3 py-2 text-xs">
+          <span className="font-semibold text-slate-700">Housekeeping task:</span>
+          <Badge variant="outline">{statusLabel(selection.assignmentStatus)}</Badge>
+          {selection.roomStatus === 'dirty' && selection.assignmentStatus === 'completed' && (
+            <span className="text-amber-800">Previous cleaning is recorded, but this room is dirty again. Reopen it below.</span>
+          )}
+        </div>
+      )}
+
+      {selection.isCheckout && (
+        <div role="status" className={`rounded-xl border px-3 py-2.5 text-sm ${selection.readyToClean ? 'border-teal-300 bg-teal-50 text-teal-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-bold">{selection.readyToClean ? '✓ Ready to Clean (RTC)' : 'Awaiting verified guest checkout'}</span>
+            <span className="text-xs">{selection.readyToClean
+              ? isPmsRtcToday(selection.pmsMetadata) && selection.pmsMetadata?.checkedOutToday === true ? 'Auto · Previo checkout' : 'HotelCare manual release'
+              : 'Do not enter until checkout is confirmed'}</span>
+          </div>
+        </div>
+      )}
+
+      {isMemories && canManage && selection.roomStatus !== 'out_of_order' && (
+        <section className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-3 sm:p-4">
+          <p className="text-sm font-bold text-slate-900">Room status & cleaning controls</p>
+          <p className="mt-1 text-xs text-slate-700">A dirty room updates Previo. If today's approved cleaning is already completed, a new task opens without deleting that work.</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Button className="min-h-11 border-amber-400 bg-white text-amber-900 hover:bg-amber-100" variant="outline" disabled={readOnlyForPast || !!actionLoading} onClick={() => void markRoomDirty()}>
+              {actionLoading === 'mark-dirty' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {selection.assignmentStatus === 'completed'
+                ? selection.roomStatus === 'dirty' ? 'Reopen cleaning task' : 'Mark Dirty & Reopen'
+                : 'Mark Dirty'}
+            </Button>
+            <Button className="min-h-11 bg-emerald-700 hover:bg-emerald-800" disabled={readOnlyForPast || !!actionLoading} onClick={() => void markRoomClean()}>
+              {actionLoading === 'mark-clean' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Mark Clean & Sync Previo
+            </Button>
+          </div>
+        </section>
+      )}
 
       {managerTypeNotice && (
         <section className="rounded-2xl border-2 border-sky-300 bg-sky-50 p-3 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
@@ -1148,7 +1256,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <span className="text-xs opacity-90">Current: {selection.isCheckout ? 'Checkout' : 'Daily'}</span>
         </Button>
 
-        {canManualGozsduRtc && selection.isCheckout && selection.assignmentId && selection.assignmentType === 'checkout_cleaning' && (
+        {canManualRtc && selection.isCheckout && selection.assignmentId && selection.assignmentType === 'checkout_cleaning' && (
           <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 p-2.5">
             {selection.readyToClean ? (
               <div className="flex items-center justify-center gap-2 rounded-lg border border-teal-200 bg-white/80 px-3 py-2.5 text-sm font-bold text-teal-800">
@@ -1169,7 +1277,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               </Button>
             )}
             <p className="mt-1.5 text-[10px] leading-snug text-teal-900/75">
-              Gozsdu reception override. Use only after confirming the guest has physically checked out. This releases HotelCare housekeeping only and does not alter the checkout status received from Previo.
+              {isMemories ? 'Hotel Memories checkout override.' : 'Gozsdu reception override.'} Use only after confirming the guest has physically left. Previo reservation/checkout data remains unchanged.
             </p>
             {selection.pmsHold && !selection.readyToClean && (
               <p className="mt-1 text-[10px] font-semibold text-amber-800">
@@ -1442,7 +1550,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Floor</p><p className="font-semibold">{selection.floorNumber ?? '—'}</p></div>
               <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Last cleaned</p><p className="font-semibold">{selection.lastCleanedAt ? new Date(selection.lastCleanedAt).toLocaleString() : 'Not recorded'}</p></div>
             </div>
-            {canManage && selection.roomStatus !== 'out_of_order' && (
+            {canManage && !isMemories && selection.roomStatus !== 'out_of_order' && (
               <Button variant="outline" className="w-full border-amber-300 text-amber-800" disabled={!!actionLoading} onClick={() => void patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`)}>Mark Dirty</Button>
             )}
           </div>
@@ -1469,6 +1577,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
                   <DialogTitle className="flex flex-wrap items-center gap-2 text-lg">
                     <BedDouble className="h-5 w-5" /> Room {selection?.roomNumber || ''}
                     {selection && <Badge className={visibleStatusTone}>{visibleStatusLabel}</Badge>}
+                    {selection?.isCheckout && <Badge className={selection.readyToClean ? 'bg-teal-600' : 'bg-amber-600'}>{selection.readyToClean ? 'RTC' : 'Waiting checkout'}</Badge>}
                   </DialogTitle>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                     <span className="flex items-center gap-1"><Hotel className="h-3.5 w-3.5" />{hotelName}</span>
