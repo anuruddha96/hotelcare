@@ -127,6 +127,7 @@ export function RoomManagement() {
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomWithTickets[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHotel, setSelectedHotel] = useState('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -188,13 +189,14 @@ export function RoomManagement() {
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       let roomsData: any[] | null = null;
       let error: any = null;
 
       const base = supabase.from('rooms');
 
-      if (profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'top_management') {
+      if (profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'top_management' || profile?.role === 'top_management_manager') {
         // Resolve hotel_id slug to actual hotel_name used in rooms table
         let hotelFilter = profile.assigned_hotel;
         if (hotelFilter) {
@@ -227,11 +229,22 @@ export function RoomManagement() {
         let query = base
           .select('*, is_checkout_room, checkout_time, guest_count');
         
-        // Filter by assigned hotel - use direct match
+        // Resolve the configured hotel name before querying. The rooms table
+        // stores display names (e.g. "Hotel Ottofiori") rather than hotel IDs
+        // (e.g. "ottofiori"). Do not rely on the separate hotel-list request
+        // finishing first: a fresh page load otherwise returns zero rooms.
         if (profile?.assigned_hotel) {
-          const hotelKeys = Array.from(visibleHotelKeys);
-          query = query.in('hotel', hotelKeys.length > 0 ? hotelKeys : [profile.assigned_hotel]);
-          console.log('🏨 Filtering rooms by assigned_hotel keys:', hotelKeys);
+          const { data: configs, error: configError } = await supabase
+            .from('hotel_configurations')
+            .select('hotel_name')
+            .eq('hotel_id', profile.assigned_hotel)
+            .limit(1);
+          if (configError) console.warn('Could not resolve room hotel name:', configError);
+          const hotelKeys = Array.from(new Set(
+            [profile.assigned_hotel, ...Array.from(visibleHotelKeys), ...(configs || []).map(h => h.hotel_name)]
+              .filter((key): key is string => Boolean(key))
+          ));
+          query = query.in('hotel', hotelKeys);
         }
         
         const res = await query
@@ -304,6 +317,7 @@ export function RoomManagement() {
       setRooms(roomsWithExtras);
     } catch (error: any) {
       console.error('Failed to fetch rooms:', error);
+      setLoadError(error?.message || 'Could not load room data');
       toast.error(`Failed to fetch rooms: ${error?.message || 'unknown error'}`);
     } finally {
       setLoading(false);
@@ -581,7 +595,9 @@ export function RoomManagement() {
       (room.room_name && room.room_name.toLowerCase().includes(searchQuery.toLowerCase()));
     
     // Dynamic hotel filtering
-    const matchesHotel = selectedHotel === 'all' || room.hotel === selectedHotel;
+    // HotelFilter returns hotel_id; rooms use the configured hotel_name.
+    const selectedHotelName = hotels.find(h => h.id === selectedHotel)?.name;
+    const matchesHotel = selectedHotel === 'all' || room.hotel === selectedHotel || room.hotel === selectedHotelName;
     
     const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
     
@@ -1060,7 +1076,7 @@ export function RoomManagement() {
                       </div>
                       <div className="text-right">
                         <div className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>
-                          {count}
+                          {loading || loadError ? '—' : count}
                         </div>
                         <div className="text-xs text-muted-foreground font-medium">
                           {t('rooms.roomsCount')}
@@ -1083,13 +1099,34 @@ export function RoomManagement() {
         </div>
 
         {/* Rooms by Hotel */}
+        {loadError && !loading && (
+          <div role="alert" className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+            <div>
+              <p className="font-medium text-destructive">Room data could not be loaded</p>
+              <p className="text-sm text-muted-foreground">{loadError}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => void fetchRooms()}>
+              <RefreshCw className="h-4 w-4 mr-2" />Retry
+            </Button>
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
           </div>
-        ) : finalFilteredRooms.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">No rooms found</p>
+        ) : loadError ? null : finalFilteredRooms.length === 0 ? (
+          <div className="text-center py-12 space-y-3">
+            <p className="text-muted-foreground">
+              {rooms.length === 0 ? 'No rooms available for this hotel. Check your hotel access or refresh the data.' : 'No rooms match these filters.'}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => {
+              setSearchQuery('');
+              setSelectedHotel('all');
+              setStatusFilter('all');
+              setRoomTypeFilter('all');
+              setActiveStatusFilter(null);
+              void fetchRooms();
+            }}><RefreshCw className="h-4 w-4 mr-2" />Reset filters &amp; refresh</Button>
           </div>
         ) : (
           <div className="space-y-8">

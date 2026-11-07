@@ -314,7 +314,17 @@ export function Dashboard() {
   const [activeHousekeepingSubTab, setActiveHousekeepingSubTab] = useState<string>('');
   const [activeInnerTab, setActiveInnerTab] = useState<string>('team');
 
-  useEffect(() => { setActiveTab(getDefaultTab(profile?.role)); }, [profile?.role, attendanceStatus, noMinibar]);
+  // Keep the manager's chosen tab stable when asynchronous attendance data
+  // refreshes. Only housekeeping staff need attendance-driven navigation.
+  useEffect(() => { setActiveTab(getDefaultTab(profile?.role)); }, [profile?.role, noMinibar]);
+  useEffect(() => {
+    if (profile?.role !== 'housekeeping') return;
+    setActiveTab(current =>
+      current === 'attendance' || current === 'housekeeping'
+        ? getDefaultTab(profile?.role)
+        : current
+    );
+  }, [profile?.role, attendanceStatus]);
 
   useEffect(() => {
     const urlTab = searchParams.get('tab');
@@ -417,6 +427,7 @@ export function Dashboard() {
                 <TabsList className="inline-flex w-auto h-10 sm:h-12 gap-1" data-training="main-tabs">
                   <TabsTrigger value="tickets" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="tickets-tab"><Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Maintenance issues</span></TabsTrigger>
                   <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/reception`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors" data-training="rooms-tab"><Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Reception</span></button>
+                  <TabsTrigger value="rooms" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="room-management-tab"><Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Room Management</span></TabsTrigger>
                   {canUseLegacyModules && <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/parking-tickets`)} className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"><CarFront className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Parking Tickets</span></button>}
                   <TabsTrigger value="housekeeping" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="housekeeping-tab"><Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>Housekeeping</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="attendance-tab"><Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" /><span>HR</span></TabsTrigger>
