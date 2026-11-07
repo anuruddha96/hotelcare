@@ -174,7 +174,7 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
   const isOwnMemoriesAssignment = isMemories
     && ['housekeeping', 'housekeeper'].includes(role)
     && !!user?.id
-    && props.assignment.assigned_to === user.id
+    && (props.assignment as { assigned_to?: string }).assigned_to === user.id
     && date === todayBudapest();
 
   const markOwnRoomDirty = async () => {
