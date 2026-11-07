@@ -28,13 +28,11 @@ export default function ReceptionHome() {
       <main className="w-full px-2 sm:px-4 py-3 sm:py-4">
         <div className="mb-3 flex items-center gap-1.5 overflow-x-auto scrollbar-hide" aria-label="Reception tools">
           <Button type="button" size="sm" className="h-8 shrink-0 gap-1.5">
-            <CalendarDays className="h-4 w-4" />
-            Calendar & reservations
+            🛎️ Calendar & reservations
           </Button>
           <Link to={`${basePath}/guests`}>
             <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">
-              <Users className="h-4 w-4" />
-              Guest directory
+              👥 Guest directory
             </Button>
           </Link>
         </div>
