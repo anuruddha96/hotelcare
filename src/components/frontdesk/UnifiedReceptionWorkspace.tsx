@@ -185,12 +185,12 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('pms.fd.searchPlaceholder')} className="h-9 pl-8 xl:w-64" />
         </div>
         <div className="flex border border-border rounded-md overflow-hidden">
-          <Button type="button" size="sm" variant={view === 'planner' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('planner')}><CalendarDays className="h-4 w-4" /><span className="hidden sm:inline">{t('pms.planner.title')}</span></Button>
-          <Button type="button" size="sm" variant={view === 'list' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('list')}><List className="h-4 w-4" /><span className="hidden sm:inline">{t('pms.reservations.title')}</span></Button>
+          <Button type="button" size="sm" title="See every room and its bookings on a calendar. Tap a booking to open it." variant={view === 'planner' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('planner')}>🗓️ <span className="hidden sm:inline">{t('pms.planner.title')}</span></Button>
+          <Button type="button" size="sm" title="A simple list of all bookings you can search." variant={view === 'list' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('list')}>📋 <span className="hidden sm:inline">{t('pms.reservations.title')}</span></Button>
         </div>
-        {breakfastUploadPath && <Link to={breakfastUploadPath}><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5"><Coffee className="h-4 w-4" /><span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
-        {canSync && hotelId && <PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact />}
-        <Button type="button" size="sm" className="h-9 gap-1" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />{t('pms.fd.newReservation')}</Button>
+        {breakfastUploadPath && <Link to={breakfastUploadPath} title="Upload the breakfast list file for today."><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5">🥐 <span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
+        {canSync && hotelId && <span title="🔄 Pull the latest bookings from Previo."><PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact /></span>}
+        <Button type="button" size="sm" title="Make a new booking for a guest." className="h-9 gap-1" onClick={() => setCreateOpen(true)}>➕ {t('pms.fd.newReservation')}</Button>
       </div>
     </div>
 
@@ -198,8 +198,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     {!loadingData && !loadError && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0) &&
       <details role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
         <summary className="cursor-pointer select-none flex items-center gap-2 font-medium">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          PMS data needs attention
+          ⚠️ PMS data needs attention
           <span className="ml-auto text-[11px] underline underline-offset-2">Details</span>
         </summary>
         <div className="mt-2 pl-6 text-muted-foreground">
@@ -218,12 +217,12 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     )}
     <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label="HotelCare records only; not validated against Previo">
       {[
-        { label: t('pms.fd.arrivalsRemaining'), value: arrivals.length, icon: LogIn },
-        { label: t('pms.fd.departuresRemaining'), value: departures.length, icon: LogOut },
-        { label: t('pms.fd.inHouseNow'), value: inHouse.length, icon: Users },
-        { label: t('pms.planner.unassignedSection'), value: unassigned.length, icon: AlertTriangle },
+        { label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, value: arrivals.length, icon: LogIn },
+        { label: `🧳 ${t('pms.fd.departuresRemaining')}`, value: departures.length, icon: LogOut },
+        { label: `🛏️ ${t('pms.fd.inHouseNow')}`, value: inHouse.length, icon: Users },
+        { label: `❓ ${t('pms.planner.unassignedSection')}`, value: unassigned.length, icon: AlertTriangle },
       ].map((stat) => <div key={stat.label} title="HotelCare database only; not independently confirmed by Previo" className="h-8 shrink-0 rounded-md border border-border bg-card px-2.5 flex items-center gap-1.5 text-xs">
-        <stat.icon className="h-3.5 w-3.5 text-muted-foreground" /><span className="text-muted-foreground">{stat.label}</span><span className="font-semibold">{loadingData || loadError ? '—' : stat.value}</span>
+        <span className="text-muted-foreground">{stat.label}</span><span className="font-semibold">{loadingData || loadError ? '—' : stat.value}</span>
       </div>)}
     </div>
 

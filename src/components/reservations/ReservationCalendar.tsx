@@ -137,7 +137,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold flex items-center gap-1.5"><CalendarDays className="h-4 w-4" />{t('pms.planner.title')}</h2>
             <Badge variant="secondary" className="text-[11px]">{visibleRooms.length}/{rooms.length} {t('pms.res.room')}</Badge>
-            {conflictRooms > 0 && <Badge variant="destructive" role="alert" className="gap-1 text-[11px]"><AlertTriangle className="h-3 w-3" /> {conflictRooms} room conflicts</Badge>}
+            {conflictRooms > 0 && <Badge variant="destructive" role="alert" className="gap-1 text-[11px]">⚠️ {conflictRooms} room conflicts</Badge>}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => setStartDate((current) => addDays(current, -7))} aria-label="Previous week"><ChevronLeft className="h-4 w-4" /></Button>
@@ -163,7 +163,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
           {(['confirmed', 'checked_in', 'pending', 'checked_out'] as const).map((status) => (
             <span key={status} className="inline-flex items-center gap-1"><span className={`inline-block w-4 h-2.5 rounded-sm border ${RESERVATION_COLORS[status]}`} /> {t(`pms.planner.legend_${status}`)}</span>
           ))}
-          <span className="inline-flex items-center gap-1"><Radio className="h-3 w-3" /> Previo snapshot · read-only, not independently confirmed live</span>
+          
         </div>
       </CardHeader>
       <CardContent className="p-0">
