@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { BedDouble, CalendarDays, Clock3, ImagePlus } from 'lucide-react';
+import { BedDouble, CalendarDays, Clock3, ImagePlus, RefreshCw } from 'lucide-react';
 import { AssignedRoomCard as ExistingAssignedRoomCard } from './AssignedRoomCardLegacy';
 import { ExtraRoomPhotos } from './ExtraRoomPhotos';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
@@ -16,6 +16,7 @@ import { roomServiceLabel, type RoomTypeNotice } from '@/lib/roomTypeTransition'
 import { readGozsduRoomOverride } from '@/lib/gozsduRoomBucketOverride';
 import { gozsduWorkPresentation } from '@/lib/gozsduWorkPresentation';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import './housekeeper-card-visibility.css';
 
 type HousekeeperPlannedNote = {
@@ -98,6 +99,7 @@ async function loadGozsduHousekeeperBuildings(): Promise<Map<string, string>> {
 export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssignedRoomCard>) {
   const [open, setOpen] = useState(false);
   const [bedSetupOpen, setBedSetupOpen] = useState(false);
+  const [markingDirty, setMarkingDirty] = useState(false);
   const { language } = useTranslation();
   const { user, profile } = useAuth();
   const role = String(profile?.role || '').toLowerCase();
@@ -169,6 +171,34 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
   const isMemories = ['hotel memories budapest', 'memories'].includes(
     String(room?.hotel ?? '').trim().toLowerCase(),
   );
+  const isOwnMemoriesAssignment = isMemories
+    && ['housekeeping', 'housekeeper'].includes(role)
+    && !!user?.id
+    && props.assignment.assigned_to === user.id
+    && date === todayBudapest();
+
+  const markOwnRoomDirty = async () => {
+    if (!isOwnMemoriesAssignment || !room || markingDirty) return;
+    setMarkingDirty(true);
+    try {
+      const { data, error } = await (supabase as any).rpc('memories_mark_room_dirty', {
+        p_room_id: props.assignment.room_id,
+        p_expected_assignment_date: date,
+        p_source: 'housekeeper_card',
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error('Room update not saved');
+      toast.success(data.reopened
+        ? `Room ${room.room_number} is dirty again. A new task has been created for you.`
+        : `Room ${room.room_number} marked dirty.`);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      toast.error((error as Error)?.message || 'Could not mark room dirty.');
+    } finally {
+      setMarkingDirty(false);
+    }
+  };
+
   const waitingForCheckout = isMemories
     && props.assignment.assignment_type === 'checkout_cleaning'
     && props.assignment.ready_to_clean !== true
@@ -236,6 +266,27 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
     </div>}
   </> : null;
   return <div className={`space-y-2${isGozsduRoom ? ' gozsdu-housekeeper-card' : ''}${isCheckoutClean ? ' checkout-housekeeper-card' : ''}`}>
+    {isMemories && room && (
+      <section aria-label="Live room and checkout status" className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-lg px-2 py-1 font-bold ${room.status === 'dirty' ? 'bg-amber-100 text-amber-900' : room.status === 'clean' ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-800'}`}>
+            {language === 'hu' ? 'Szoba:' : 'Room:'} {room.status === 'dirty' ? (language === 'hu' ? 'Piszkos' : 'Dirty') : room.status === 'clean' ? (language === 'hu' ? 'Tiszta' : 'Clean') : room.status || '—'}
+          </span>
+          {isCheckoutClean && <span className={`rounded-lg px-2 py-1 font-bold ${props.assignment.ready_to_clean ? 'bg-teal-100 text-teal-900' : 'bg-amber-100 text-amber-900'}`}>
+            {props.assignment.ready_to_clean ? '✓ RTC · Ready to Clean' : (language === 'hu' ? 'Várakozás a kijelentkezésre' : 'Awaiting guest checkout')}
+          </span>}
+        </div>
+        {isOwnMemoriesAssignment && room.status !== 'out_of_order' && (
+          <Button type="button" variant="outline" size="sm" className="mt-2 min-h-10 w-full border-amber-300 text-amber-900" disabled={markingDirty} onClick={() => void markOwnRoomDirty()}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${markingDirty ? 'animate-spin' : ''}`} />
+            {markingDirty ? (language === 'hu' ? 'Mentés…' : 'Updating…') :
+              props.assignment.status === 'completed'
+                ? (language === 'hu' ? 'Újratakarítás kérése · piszkos' : 'Mark Dirty & Reopen Cleaning')
+                : (language === 'hu' ? 'Szoba piszkosnak jelölése' : 'Mark Room Dirty')}
+          </Button>
+        )}
+      </section>
+    )}
     <ExistingAssignedRoomCard {...props} assignment={{ ...displayAssignment, rooms: roomForDisplay }} roomNotices={roomNotices} />
     {room && canEditBedSetup && props.assignment.status !== 'completed' && <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-2 dark:border-blue-900 dark:bg-blue-950/20">
       <Button type="button" variant="outline" size="sm" className="w-full justify-start border-blue-300 text-blue-900 dark:text-blue-200" aria-expanded={bedSetupOpen} onClick={() => setBedSetupOpen((value) => !value)}>
