@@ -16718,6 +16718,14 @@ export type Database = {
         Args: { p_service_date: string }
         Returns: Json
       }
+      memories_mark_room_dirty: {
+        Args: {
+          p_expected_assignment_date?: string
+          p_room_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       next_day_housekeeping_staff_matches_hotel: {
         Args: { p_plan_id: string; p_user_id: string }
         Returns: boolean
