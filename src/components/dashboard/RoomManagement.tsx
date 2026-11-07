@@ -1076,7 +1076,7 @@ export function RoomManagement() {
                       </div>
                       <div className="text-right">
                         <div className={`text-2xl font-bold ${isActive ? 'text-primary' : 'text-foreground'}`}>
-                          {count}
+                          {loading || loadError ? '—' : count}
                         </div>
                         <div className="text-xs text-muted-foreground font-medium">
                           {t('rooms.roomsCount')}
