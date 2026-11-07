@@ -16,6 +16,8 @@ Deno.test("focused room status and housekeeping requests use the efficient tier"
   assertEquals(classifyAssistantQuestion("Show my housekeeping assignments"), "routine");
   assertEquals(classifyAssistantQuestion("Delete all room assignments"), "standard");
   assertEquals(classifyAssistantQuestion("Refund the guest for room 109"), "standard");
+  assertEquals(classifyAssistantQuestion("How can I delete a room assignment?"), "standard");
+  assertEquals(classifyAssistantQuestion("Where do I change the room rate?"), "standard");
 });
 Deno.test("updated model defaults balance cost with intelligence", () => {
   assertEquals(MODEL_BY_PURPOSE.routine, "gpt-6-luna");
