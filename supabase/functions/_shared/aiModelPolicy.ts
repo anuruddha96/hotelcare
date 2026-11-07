@@ -22,13 +22,15 @@ export function classifyAssistantQuestion(question: string): "routine" | "standa
   const q = question.trim().toLowerCase();
   if (!q || q.length > 170 || q.includes("\n")) return "standard";
   if (/\b(why|investigat|analy[sz]|compar|strateg|optim|recommend|forecast|price chang|should we|should i|root cause|error|incident|security|financial|risk|urgent|exception|incorrect|problem)\b/i.test(q)) return "standard";
+  // Risky/financial actions must never be downgraded by a leading "how" or
+  // "where" phrase that would otherwise match the generic navigation rule.
+  if (/\b(delete|remove|refund|charge|payment|cancel|compensat|salary|wage|financial|rate|price|revenue|adr|revpar|security|permission|access|bulk|all hotels)\b/.test(q)) return "standard";
   if (/^(hello|hi|hey|thanks|thank you|good morning|good evening)[!.?\s]*$/.test(q)) return "routine";
   if (/^(where (?:can i|is|do i)|how (?:do i|can i)|show (?:me|my)|what(?:'s| is| are)|which|who is|list|open|find|navigate|translate|summari[sz]e)\b/.test(q)) return "routine";
   // Focused hotel operational reads and low-risk room tasks use the efficient
   // model. Actual mutations still require backend authorization and validation.
   if (
-    /\b(room|rooms|clean|dirty|checkout|checked out|housekeeper|housekeeping|assignment|arrival|departure|breakfast|shift|status|towels?|pillow|ticket)\b/.test(q) &&
-    !/\b(delete|remove|refund|charge|payment|cancel|compensat|salary|wage|financial|rate|price|revenue|adr|revpar|security|permission|access|bulk|all hotels)\b/.test(q)
+    /\b(room|rooms|clean|dirty|checkout|checked out|housekeeper|housekeeping|assignment|arrival|departure|breakfast|shift|status|towels?|pillow|ticket)\b/.test(q)
   ) return "routine";
   return "standard";
 }
