@@ -84,14 +84,17 @@ Deno.serve(async (req) => {
       ]);
       if (!settings?.enabled || !room || room.organization_slug !== device.organization_slug)
         return deny("This room tablet is currently unavailable", 403);
+      const { data: owningOrg } = await db.from("organizations").select("id")
+        .eq("slug", device.organization_slug).maybeSingle();
+      if (!owningOrg) return deny("Room organization requires manager review", 403);
       const hotelConfig = await db.from("hotel_configurations").select("hotel_name, hotel_id")
-        .eq("hotel_id", device.hotel_id).maybeSingle();
+        .eq("hotel_id", device.hotel_id).eq("organization_id", owningOrg.id).maybeSingle();
       if (!hotelConfig.data || ![hotelConfig.data.hotel_id, hotelConfig.data.hotel_name].includes(room.hotel))
         return deny("Room mapping requires manager review", 403);
       const config = settings.published || {};
       if (action === "guest-bootstrap") {
-        void db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
-        return send({ room_number: room.room_number, hotel_id: device.hotel_id, config, paired: true });
+        await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
+        return send({ room_number: room.room_number, hotel_id: device.hotel_id, session_epoch: device.session_epoch, config, paired: true });
       }
       if (action === "guest-state") {
         const rawSince = Date.parse(val(body.since, 40));
@@ -104,7 +107,7 @@ Deno.serve(async (req) => {
             .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(80),
         ]);
         if (requests.error || messages.error) return deny("Could not load updates", 503);
-        return send({ requests: requests.data || [], messages: messages.data || [] });
+        return send({ requests: requests.data || [], messages: messages.data || [], session_epoch: device.session_epoch });
       }
       if (action === "guest-request") {
         const type = val(body.request_type, 40);
@@ -157,7 +160,6 @@ Deno.serve(async (req) => {
         return send({ request: inserted }, 201);
       }
       if (action === "guest-message") {
-        if (!config.services?.chat) { /* Chat is controlled by a separate top-level flag for compatibility. */ }
         const message = val(body.message, 1000);
         if (!message || message.length > 1000) return deny("Message required", 400);
         const { count } = await db.from("insuite_messages").select("id", { count: "exact", head: true })
