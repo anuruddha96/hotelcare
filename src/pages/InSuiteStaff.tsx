@@ -64,8 +64,11 @@ export default function InSuiteStaff() {
   const previousMessages = useRef<Set<string> | null>(null);
 
   useEffect(() => {
-    if (!hotelId && hotels.length) setHotelId(hotels[0].hotel_id);
-  }, [hotelId, hotels]);
+    if (!hotelId && hotels.length) {
+      const assigned = hotels.find((h) => [h.hotel_id, h.hotel_name].includes(profile?.assigned_hotel || ""));
+      setHotelId((assigned || hotels[0]).hotel_id);
+    }
+  }, [hotelId, hotels, profile?.assigned_hotel]);
   useEffect(() => {
     setData(null); setIssued(null); previousRequests.current = null; previousMessages.current = null;
   }, [hotelId]);
