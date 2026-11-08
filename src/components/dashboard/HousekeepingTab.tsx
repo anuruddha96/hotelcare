@@ -9,6 +9,7 @@ import { HousekeepingTabEnhanced } from './HousekeepingTabEnhanced';
 import { GozsduLaundrynerTasksV2 } from './GozsduLaundrynerTasksV2';
 import { GozsduLinenCollectionBreakdown } from './GozsduLinenCollectionBreakdown';
 import { Button } from '@/components/ui/button';
+import { InSuiteAssignedRequests } from '@/components/insuite/InSuiteAssignedRequests';
 
 type Props = ComponentProps<typeof HousekeepingTabEnhanced>;
 
@@ -72,13 +73,14 @@ export function HousekeepingTab(props: Props = {}) {
     };
   }, [scoped, user?.id, workDate, refresh]);
 
-  if (!scoped) return <HousekeepingTabEnhanced {...props} />;
+  if (!scoped) return <><InSuiteAssignedRequests /><HousekeepingTabEnhanced {...props} /></>;
   if (!ready) return <p role="status" className="p-4 text-sm text-muted-foreground">{copy.loading}</p>;
   if (failed) return <div role="alert" className="space-y-3 rounded-lg border p-4">
     <p className="text-sm">{copy.syncError}</p>
     <Button variant="outline" size="sm" onClick={() => { setReady(false); void refresh(); }}>{copy.refresh}</Button>
   </div>;
   return <div className="space-y-5">
+    <InSuiteAssignedRequests />
     {activeDuty ? <GozsduLaundrynerTasksV2 /> : <HousekeepingTabEnhanced {...props} />}
     <GozsduLinenCollectionBreakdown mode="own" />
   </div>;
