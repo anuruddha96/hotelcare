@@ -43,13 +43,14 @@ export function InSuiteAssignedRequests() {
   }, [hotelId, org, user?.id, profile?.role]);
 
   useEffect(() => {
+    if (profile?.role !== "housekeeping") return;
     seen.current = null; setItems([]);
     void load();
     const interval = window.setInterval(() => { if (!document.hidden) void load(); }, 15000);
     const visible = () => { if (!document.hidden) void load(); };
     document.addEventListener("visibilitychange", visible);
     return () => { clearInterval(interval); document.removeEventListener("visibilitychange", visible); };
-  }, [load]);
+  }, [load, profile?.role]);
 
   const update = async (id: string, status: string) => {
     setBusy(id);
