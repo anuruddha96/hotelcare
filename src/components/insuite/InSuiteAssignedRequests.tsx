@@ -33,7 +33,7 @@ export function InSuiteAssignedRequests() {
       const next = new Set<string>(list.map((r: InSuiteRequest) => r.id));
       if (seen.current) {
         const added = list.find((r: InSuiteRequest) => !seen.current!.has(r.id));
-        if (added) toast.info(`Room ${result.room_labels?.[added.room_id] || "?"}: new guest request`);
+        if (added) toast.info(`Room ${result.room_labels?.[added.room_id || ""] || "?"}: new guest request`);
       }
       seen.current = next;
       setItems(list); setRoomLabels(result.room_labels || {});
