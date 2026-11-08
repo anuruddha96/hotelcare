@@ -17,6 +17,15 @@ const sha = async (value: string) => {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)))
     .map((b) => b.toString(16).padStart(2, "0")).join("");
 };
+// Server-side HMAC pepper makes six-digit PIN hashes resistant to offline dictionary attacks.
+const pinHash = async (id: string, pin: string) => {
+  const secret = Deno.env.get("INSUITE_PIN_PEPPER");
+  if (!secret || secret.length < 32) throw Error("INSUITE_PIN_PEPPER must be configured (at least 32 chars)");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(id + ":" + pin));
+  return Array.from(new Uint8Array(signature)).map((b) => b.toString(16).padStart(2, "0")).join("");
+};
 const random = (count = 32) => {
   const bytes = crypto.getRandomValues(new Uint8Array(count));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -178,7 +187,7 @@ Deno.serve(async (req) => {
         if (device.pin_locked_until && new Date(device.pin_locked_until).getTime() > Date.now())
           return deny("Too many attempts. Ask reception.", 429);
         const pin = val(body.pin, 12);
-        if (!/^\d{6}$/.test(pin) || await sha(device.id + ":" + pin) !== device.pin_hash) {
+        if (!/^\d{6}$/.test(pin) || await pinHash(device.id, pin) !== device.pin_hash) {
           const attempts = (device.pin_failed_attempts || 0) + 1;
           await db.from("insuite_devices").update({ pin_failed_attempts: attempts,
             pin_locked_until: attempts >= 5 ? new Date(Date.now() + 15 * 60_000).toISOString() : null })
@@ -296,7 +305,7 @@ Deno.serve(async (req) => {
         id, organization_slug: org, hotel_id: hotelId, room_id: roomId,
         label: val(body.label, 80) || "Room " + room.room_number,
         pairing_hash: await sha(code), pairing_expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
-        pin_hash: await sha(id + ":" + pin), created_by: profile.id,
+        pin_hash: await pinHash(id, pin), created_by: profile.id,
       });
       if (error) throw error;
       return send({ code, pin, expires_in_minutes: 15, room_number: room.room_number, device_id: id }, 201);
