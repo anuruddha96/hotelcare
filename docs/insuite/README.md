@@ -14,7 +14,7 @@
 
 ## Production deployment order — do not skip steps
 1. Review the new SQL migration and the RLS/grant behavior in an isolated staging Supabase project.
-2. Deploy the SQL migration. Check table and index creation.
+2. Deploy the SQL migration. Check table and index creation. Configure the secret `INSUITE_PIN_PEPPER` (random, at least 32 characters) in the staging Edge Function environment; keep it private and back it up securely. Rotating it requires issuing new staff PINs.
 3. Deploy `insuite-api` with `verify_jwt=false`; the function **must** authenticate every action internally, not rely on the route being hidden.
 4. Deploy the frontend to staging. Verify that `VITE_SUPABASE_URL` or `VITE_SUPABASE_PROJECT_ID` points to staging.
 5. As top management, select a staging hotel at `/rdhotels/insuite`, save a draft, check the source facts and publish.
