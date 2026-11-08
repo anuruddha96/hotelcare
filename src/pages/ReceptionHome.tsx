@@ -30,6 +30,9 @@ export default function ReceptionHome() {
           <Button type="button" size="sm" className="h-8 shrink-0 gap-1.5">
             🛎️ Calendar & reservations
           </Button>
+          <Link to={`${basePath}/insuite`}>
+            <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground">🛎️ In-Suite guest requests & chat</Button>
+          </Link>
           <Link to={`${basePath}/guests`}>
             <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">
               👥 Guest directory
