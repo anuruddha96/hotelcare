@@ -17,7 +17,7 @@ export type InSuiteContent = {
 };
 export type InSuiteRequest = {
   id: string; client_request_id: string; room_id?: string;
-  request_type: string; quantity: number; detail?: string; priority?: string;
+  request_type: string; quantity: number; detail?: string; priority?: string; department?: string;
   status: string; assigned_to?: string | null; created_at: string; updated_at?: string;
 };
 export type InSuiteMessage = {
