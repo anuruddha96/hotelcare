@@ -23,6 +23,8 @@ const Auth = lazy(() => import("./pages/Auth"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const GuestMinibar = lazy(() => import("./pages/GuestMinibar"));
+const InSuiteGuest = lazy(() => import("./pages/InSuiteGuest"));
+const InSuiteStaff = lazy(() => import("./pages/InSuiteStaff"));
 const FrontDesk = lazy(() => import("./pages/FrontDesk"));
 const Reservations = lazy(() => import("./pages/Reservations"));
 const ReservationDetail = lazy(() => import("./pages/ReservationDetail"));
@@ -167,6 +169,7 @@ const TenantRouter = () => {
           <Route path="/assistant-insights" element={<AssistantInsights />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/admin/session-protection" element={<SessionProtectionAdmin />} />
+          <Route path="/insuite" element={<InSuiteStaff />} />
           <Route path="/parking-tickets" element={canUseLegacyModules ? <ParkingTickets /> : <Navigate to={legacyFallback} replace />} />
         </Routes>
         <AssistantLauncher />
@@ -256,6 +259,7 @@ const MainApp = () => (
                   <Route path="/" element={<RootRedirect />} />
                   <Route path="/auth" element={<Auth />} />
                   <Route path="/oauth/consent" element={<OAuthConsent />} />
+                  <Route path="/suite" element={<InSuiteGuest />} />
                   <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   <Route path="/:organizationSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   <Route path="/:organizationSlug/*" element={<TenantRouter />} />
