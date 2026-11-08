@@ -136,14 +136,15 @@ export default function InSuiteGuest() {
   const pair = async () => {
     setBusy(true); setError("");
     try {
+      // Fullscreen requires a live user gesture; request it before the network call.
+      if (document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen().catch(() => {});
+      }
       const data = await inSuiteGuest("pair", { code: pairCode });
       localStorage.setItem(INSUITE_DEVICE_KEY, data.token);
       visitStarted.current = new Date().toISOString();
       setToken(data.token);
       setPairCode("");
-      if (document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen().catch(() => {});
-      }
     } catch (err) { setError((err as Error).message); }
     finally { setBusy(false); }
   };
@@ -387,6 +388,10 @@ export default function InSuiteGuest() {
         {maintenanceUnlocked ? <>
           <p className="text-slate-600">App maintenance authorized. Device kiosk mode must be controlled by your Android/iPad MDM, not this web PIN.</p>
           <button className="rounded-xl border p-3" onClick={() => window.location.reload()}>Reload app</button>
+          {document.fullscreenElement && <button className="ml-2 rounded-xl border p-3"
+            onClick={() => void document.exitFullscreen().catch(() => toast.error("This tablet is controlled by kiosk management"))}>
+            Exit browser fullscreen
+          </button>}
         </> : <>
           <p className="text-sm text-slate-500">Enter the six-digit manager PIN.</p>
           <input className="border rounded-xl w-full p-3 text-center tracking-widest" type="password"
