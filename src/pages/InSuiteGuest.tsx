@@ -83,6 +83,7 @@ export default function InSuiteGuest() {
   const [maintenanceUnlocked, setMaintenanceUnlocked] = useState(false);
   const holdTimer = useRef<number | null>(null);
   const visitStarted = useRef(new Date().toISOString());
+  const sessionEpoch = useRef<string | null>(null);
   const t = (key: string) => words[lang][key] || words.en[key] || key;
   const accent = config?.primary_color || "#153B57";
 
@@ -90,6 +91,7 @@ export default function InSuiteGuest() {
     setLoading(true);
     try {
       const data = await inSuiteGuest("guest-bootstrap", {}, value);
+      sessionEpoch.current = data.session_epoch || null;
       setRoom(String(data.room_number || ""));
       setConfig(data.config || {});
       setError("");
@@ -103,10 +105,21 @@ export default function InSuiteGuest() {
     if (!token || !config) return;
     try {
       const data = await inSuiteGuest("guest-state", { since: visitStarted.current }, token);
+      if (sessionEpoch.current && data.session_epoch !== sessionEpoch.current) {
+        sessionEpoch.current = data.session_epoch;
+        visitStarted.current = new Date().toISOString();
+        setRequests([]); setMessages([]); setMessage(""); setDetail("");
+        setView("home"); setRequestType(null);
+        return;
+      }
       setRequests(data.requests || []);
       setMessages(data.messages || []);
     } catch (err) {
       console.warn("[insuite] temporary update failure", err);
+      if (/Tablet disabled|not paired|unavailable/i.test((err as Error).message)) {
+        localStorage.removeItem(INSUITE_DEVICE_KEY); setToken(""); setConfig(null);
+        setMessages([]); setRequests([]);
+      }
     }
   }, [token, config]);
 
