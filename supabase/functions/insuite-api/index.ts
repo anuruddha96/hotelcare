@@ -500,6 +500,34 @@ Deno.serve(async (req) => {
       if (error || !updated) return deny("Booking changed. Refresh and retry", 409);
       return send({ booking: updated });
     }
+    if (action === "staff-prefill-draft") {
+      if (!administrator) return deny("Administrator permission required");
+      // Safe prefill only from verified HotelCare property records. Guest Wi-Fi,
+      // service capacity, pricing and hours must always be entered by staff.
+      const [{ data: property }, { data: existing }] = await Promise.all([
+        db.from("hotel_configurations").select(
+          "hotel_name,custom_logo_url,custom_primary_color,custom_welcome_message"
+        ).eq("hotel_id", hotelId).eq("organization_id", organization.id).maybeSingle(),
+        db.from("insuite_property_configs").select("draft")
+          .eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle(),
+      ]);
+      if (!property) return deny("Property details not found", 404);
+      const current = cleanContent(existing?.draft || {});
+      const seeded = cleanContent({
+        ...current,
+        hotel_name: current.hotel_name || property.hotel_name,
+        logo_url: current.logo_url || property.custom_logo_url || "",
+        primary_color: current.primary_color !== "#153B57"
+          ? current.primary_color : property.custom_primary_color || current.primary_color,
+        welcome: current.welcome || property.custom_welcome_message || "",
+      });
+      const { error } = await db.from("insuite_property_configs").upsert({
+        organization_slug: org, hotel_id: hotelId, draft: seeded,
+        updated_by: profile.id, updated_at: new Date().toISOString(),
+      }, { onConflict: "organization_slug,hotel_id" });
+      if (error) throw error;
+      return send({ draft: seeded, public_fields_not_verified: true });
+    }
     if (action === "staff-save-draft" || action === "staff-publish") {
       if (!administrator) return deny("Administrator permission required");
       if (action === "staff-save-draft") {
