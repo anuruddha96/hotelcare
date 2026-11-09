@@ -13,6 +13,8 @@ describe("explicit first-time Previo room prices", () => {
     expect(validateFirstRateLadder(["150", "160", "170"], 3)).toEqual([150, 160, 170]);
     expect(validateFirstRateLadder(["100", "100"], 2)).toBeNull();
     expect(validateFirstRateLadder(["100", "101", "102"], 3)).toEqual([100, 101, 102]);
+    expect(validateFirstRateLadder(["36500", "36864"], 2, 365)).toBeNull();
+    expect(validateFirstRateLadder(["36500", "36865"], 2, 365)).toEqual([36500, 36865]);
   });
   it("honors actual known guest levels instead of guessing from words", () => {
     expect(inferredGuestCapacity("Executive suite", [1, 2, 3, 4, 5, 6])).toBe(6);
