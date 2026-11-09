@@ -12,7 +12,7 @@ export function validateFirstRateLadder(values: string[], guestCount: number): n
   if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 12 || values.length !== guestCount) return null;
   const prices = values.map((v) => v.trim() === "" ? NaN : Number(v));
   if (prices.some((v) => !Number.isInteger(v) || v <= 0 || v > 100000)) return null;
-  if (prices.some((v, i) => i > 0 && v < prices[i - 1])) return null;
+  if (prices.some((v, i) => i > 0 && v <= prices[i - 1])) return null;
   return prices;
 }
 
