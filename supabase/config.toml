@@ -296,3 +296,7 @@ verify_jwt = true
 # Checks a private Vault-backed worker secret, or a server-side service key.
 [functions.ottofiori-ai-supervisor]
 verify_jwt = false
+
+# Scheduler-only price safety scanner; authenticates x-worker-secret in code.
+[functions.revenue-rate-alerts]
+verify_jwt = false
