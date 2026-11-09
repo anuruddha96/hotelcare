@@ -36,6 +36,6 @@ jobs:
         run: deno test supabase/functions/_shared/rateSafety_test.ts
       - name: Type-check price publishing functions
         run: |
-          deno check supabase/functions/revenue-enqueue-rates/index.ts
-          deno check supabase/functions/revenue-push-drafts/index.ts
-          deno check supabase/functions/revenue-rate-alerts/index.ts
+          deno check --node-modules-dir=auto supabase/functions/revenue-enqueue-rates/index.ts
+          deno check --node-modules-dir=auto supabase/functions/revenue-push-drafts/index.ts
+          deno check --node-modules-dir=auto supabase/functions/revenue-rate-alerts/index.ts
