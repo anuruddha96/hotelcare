@@ -135,6 +135,33 @@ drop trigger if exists insuite_guest_request_notify on public.insuite_service_re
 create trigger insuite_guest_request_notify after insert on public.insuite_service_requests
 for each row execute function public.insuite_notify_request();
 
+-- Reassignment generates a new durable, employee-specific alert without
+-- touching the normal cleaning assignment or the room's clean/dirty flag.
+create or replace function public.insuite_notify_request_reassignment()
+returns trigger language plpgsql security definer set search_path = ''
+as $
+declare _number text;
+begin
+  if new.assigned_to is null or new.assigned_to is not distinct from old.assigned_to then
+    return new;
+  end if;
+  select room_number into _number from public.rooms where id = new.room_id;
+  perform public.insuite_fanout_alert(
+    new.organization_slug,new.hotel_id,new.room_id,
+    'assignment:' || new.id::text || ':' || new.assigned_to::text,
+    'guest_request',
+    'New assigned guest request · Room ' || coalesce(_number,'?'),
+    left(replace(new.request_type,'_',' ') || ' ×' || new.quantity::text,200),
+    array[]::text[],new.assigned_to,new.id,null
+  );
+  return new;
+end; $;
+revoke all on function public.insuite_notify_request_reassignment() from public, anon, authenticated;
+drop trigger if exists insuite_guest_request_reassignment on public.insuite_service_requests;
+create trigger insuite_guest_request_reassignment
+  after update of assigned_to on public.insuite_service_requests
+  for each row execute function public.insuite_notify_request_reassignment();
+
 create or replace function public.insuite_notify_guest_message()
 returns trigger language plpgsql security definer set search_path = ''
 as $$
