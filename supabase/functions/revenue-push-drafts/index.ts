@@ -688,6 +688,35 @@ Deno.serve(async (req) => {
     }
     const stayDates = groupList.map((group) => group.stay_date).sort();
 
+    // A confirmed manager price is a durable cell-level instruction. All
+    // publication paths, including older queued automation and Previo ladder
+    // auto-healing, must respect it. Read in bounded pages to avoid PostgREST
+    // silently returning only the first 1,000 protected cells.
+    const protectedRateCells = new Map<string, number>();
+    const protectedByDateRoom = new Map<string, Map<number, number>>();
+    for (let from = 0; ; from += 1000) {
+      const { data: page, error: lockError } = await admin
+        .from("revenue_manual_rate_overrides")
+        .select("stay_date, obk_id, occupancy, price")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", stayDates[0])
+        .lte("stay_date", stayDates[stayDates.length - 1])
+        .order("stay_date").order("obk_id").order("occupancy")
+        .range(from, from + 999);
+      if (lockError) throw new Error(`Unable to check permanent manager price protection: ${lockError.message}`);
+      for (const lock of page ?? []) {
+        const room = String(lock.obk_id);
+        const key = `${lock.stay_date}|${room}`;
+        const levels = protectedByDateRoom.get(key) ?? new Map<number, number>();
+        const occupancy = Number(lock.occupancy);
+        const price = Math.round(Number(lock.price));
+        levels.set(occupancy, price);
+        protectedByDateRoom.set(key, levels);
+        protectedRateCells.set(`${key}|${occupancy}`, price);
+      }
+      if ((page ?? []).length < 1000) break;
+    }
+
     const { data: storedRateRows } = await admin
       .from("revenue_room_type_rates")
       .select("stay_date, obk_id, occupancy, price")
@@ -725,8 +754,22 @@ Deno.serve(async (req) => {
       for (const [occupancy, price] of storedLevels.get(`${g.stay_date}|${g.obkId}`) ?? []) {
         wanted.set(occupancy, Math.round(Number(price)));
       }
+      const roomOverrideKey = `${g.stay_date}|${String(g.drafts[0]?.obk_id ?? g.obkId)}`;
+      const manualInFlight = new Set(
+        g.drafts.filter((d: any) => String(d.intent_source ?? "").startsWith("manual"))
+          .map((d: any) => Math.max(1, Math.round(Number(d.occupancy) || 1))),
+      );
+      for (const [occupancy, price] of protectedByDateRoom.get(roomOverrideKey) ?? []) {
+        wanted.set(occupancy, price);
+      }
       for (const d of g.drafts) {
-        wanted.set(Math.max(1, Math.round(Number(d.occupancy) || 2)), Math.round(Number(d.new_price)));
+        const occupancy = Math.max(1, Math.round(Number(d.occupancy) || 2));
+        const protectedValue = protectedRateCells.get(`${roomOverrideKey}|${occupancy}`);
+        if (protectedValue !== undefined && !manualInFlight.has(occupancy) &&
+            Math.round(Number(d.new_price)) !== protectedValue) {
+          throw new Error(`Manager-set ${occupancy}-guest rate ${protectedValue} is protected. Automation cannot overwrite it.`);
+        }
+        wanted.set(occupancy, Math.round(Number(d.new_price)));
       }
       const maxOccupancy = Math.max(...wanted.keys());
       const firstKnown = Array.from(wanted.entries()).sort((a, b) => a[0] - b[0])[0]?.[1];
@@ -741,6 +784,14 @@ Deno.serve(async (req) => {
       // can arrive from Previo's own pricelist or from a per-cell floor lifting
       // one level only. Repairs go upward, so no floor is undercut.
       const repaired = repairLadder(levels);
+      // Check the complete outgoing Previo ladder, not just the edited draft:
+      // a full-ladder EQC write must never rewrite an untouched manager cell.
+      for (const [occupancy, savedPrice] of protectedByDateRoom.get(roomOverrideKey) ?? []) {
+        if (manualInFlight.has(occupancy)) continue;
+        if (repaired.get(occupancy) !== savedPrice) {
+          throw new Error(`Rate ladder conflicts with a permanent manual override at ${occupancy} guests (${savedPrice}). Manual price left untouched; review the other prices.`);
+        }
+      }
       // Auto-heal instead of holding the date. A repair is upward-only, so it
       // can never undercut a floor, a min-ADR or a markdown cap — holding the
       // whole date-column because one occupancy level was out of order simply
