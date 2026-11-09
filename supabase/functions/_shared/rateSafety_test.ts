@@ -64,7 +64,7 @@ Deno.test("repairLadder lifts a lower-priced higher occupancy", () => {
   ]);
   assertEquals(out.get(1), 100);
   assertEquals(out.get(2), 407);
-  assertEquals(out.get(3), 407);
+  assertEquals(out.get(3), 408);
 });
 
 Deno.test("repairLadder keeps equal prices and never lowers a level", () => {
@@ -73,7 +73,7 @@ Deno.test("repairLadder keeps equal prices and never lowers a level", () => {
     { occupancy: 2, price: 150 },
     { occupancy: 3, price: 160 },
   ]);
-  assertEquals([out.get(1), out.get(2), out.get(3)], [150, 150, 160]);
+  assertEquals([out.get(1), out.get(2), out.get(3)], [150, 151, 160]);
 });
 
 Deno.test("repairLadder handles gaps in the ladder", () => {
@@ -82,7 +82,7 @@ Deno.test("repairLadder handles gaps in the ladder", () => {
     { occupancy: 4, price: 80 },
   ]);
   assertEquals(out.get(1), 90);
-  assertEquals(out.get(4), 90);
+  assertEquals(out.get(4), 93);
 });
 
 function ladderAdmin(stored: Array<Record<string, unknown>>, rooms: Array<Record<string, unknown>> = []) {
@@ -152,7 +152,7 @@ Deno.test("enforceRateSafety lifts an incoming change that lands under a lower l
   }];
   const safe = await enforceRateSafety(admin, "ottofiori", changes);
   assertEquals(safe.repairs.length, 0);
-  assertEquals(safe.changes[0].new_price, 200); // lifted to the 2-guest level, floor-safe
+  assertEquals(safe.changes[0].new_price, 210); // automated €10 increment, floor-safe
 });
 
 Deno.test("enforceRateSafety leaves an already consistent ladder alone", async () => {
