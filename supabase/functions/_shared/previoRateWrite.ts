@@ -86,7 +86,7 @@ export function normalizeLevels(t: RateWriteTarget): Array<{ occupancy: number; 
   const out: Array<{ occupancy: number; price: number }> = [];
   let lastKnown: number | null = null;
   for (let occ = 1; occ <= max; occ++) {
-    const price = byOcc.get(occ) ?? lastKnown;
+    const price: number | null = byOcc.get(occ) ?? lastKnown;
     if (price === null || price === undefined) continue; // no price for level 1 yet — skip until one is known
     lastKnown = price;
     out.push({ occupancy: occ, price });
