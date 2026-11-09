@@ -171,7 +171,12 @@ Deno.serve(async (req) => {
         const rowFor = (change: z.infer<typeof ChangeSchema>) => ({
           hotel_id: hotelId, organization_slug: orgSlug,
           ...change, status: "draft", push_error: null, created_by: user.id, push_run_id: runId,
-          confirmation_status: "sending", priority, intent_source: intent,
+          confirmation_status: "sending", priority,
+          // A sibling price derived from a manager edit is not the price they
+          // explicitly typed. Keep that provenance so only actual human-entered
+          // cells gain permanent protection.
+          intent_source: (change as any).intent_source === "manual_ladder_completion"
+            ? "manual_ladder_completion" : intent,
         });
 
         for (const batch of chunks(changes, 500)) {
