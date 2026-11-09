@@ -302,6 +302,11 @@ export default function InSuiteStaff() {
             <section className={card + " space-y-4"}>
               <div className="flex items-center gap-2"><Hotel className="h-5 w-5" /><h2 className="text-xl font-semibold">Property content</h2></div>
               <p className="text-sm text-slate-600">Draft content is not shown to guests until published and enabled. Verify opening hours and guest Wi-Fi information before publishing.</p>
+              <button className="rounded-xl border px-3 py-2 text-sm font-semibold" disabled={busy}
+                onClick={() => void execute("staff-prefill-draft", {}, "Existing hotel branding added to draft")}>
+                Prefill from HotelCare hotel branding
+              </button>
+              <p className="text-xs text-slate-500">Address, Wi-Fi, menus, facilities and opening hours still require property verification.</p>
               {field("hotel_name", "Displayed hotel name")}
               {field("welcome", "Welcome message", true)}
               {field("logo_url", "Hotel logo URL (HTTPS)")}
