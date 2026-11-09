@@ -358,6 +358,11 @@ Deno.serve(async (req) => {
           : Promise.resolve({ data: [] }),
       ]);
       const requests = (requestResult.data || []).filter((r: any) => manager || canReply || r.assigned_to === profile.id);
+      const orderIds = (orderResult.data || []).map((o: any) => o.id);
+      const { data: orderLines } = orderIds.length
+        ? await db.from("insuite_order_lines")
+          .select("order_id,name_snapshot,unit_price,quantity,line_total").in("order_id", orderIds)
+        : { data: [] };
       // Reception sees only messages in the *currently active* device epoch, never previous guest sessions.
       const deviceEpochs = new Map<string, string>();
       if (canReply && (msgResult.data || []).length) {
@@ -371,7 +376,7 @@ Deno.serve(async (req) => {
         rooms: roomResult.data || [], devices: deviceResult.data || [],
         requests, alerts: alertResult.data || [],
         catalog_items: catalogResult.data || [],
-        orders: orderResult.data || [], bookings: bookingResult.data || [],
+        orders: orderResult.data || [], order_lines: orderLines || [], bookings: bookingResult.data || [],
         messages: (msgResult.data || []).filter((m: any) => deviceEpochs.get(m.device_id) === m.session_epoch),
         room_labels: await (async () => {
           const ids = [...new Set([...requests.map((r: any) => r.room_id),
@@ -395,6 +400,84 @@ Deno.serve(async (req) => {
         .eq("organization_slug", org).eq("hotel_id", hotelId)
         .select("id").maybeSingle();
       return updated ? send({ acknowledged: true }) : deny("Alert not found", 404);
+    }
+    
+    if (action === "staff-save-menu-item") {
+      if (!administrator) return deny("Administrator permission required");
+      const id = val(body.item_id, 40);
+      const kind = val(body.kind, 30);
+      const name = val(body.name, 150);
+      const price = Number(body.price);
+      const currency = val(body.currency, 3).toUpperCase();
+      const imageUrl = val(body.image_url, 900);
+      if (!orderTypes.includes(kind) || name.length < 2
+        || !Number.isFinite(price) || price < 0 || price > 1_000_000
+        || !/^[A-Z]{3}$/.test(currency) || !Number.isInteger(price * 100)
+        || imageUrl && !/^https:\/\//i.test(imageUrl)) return deny("Invalid menu item", 400);
+      const patch = {
+        kind, name, price, currency, description: val(body.description, 500),
+        allergens: val(body.allergens, 250), image_url: imageUrl || null,
+        is_active: body.is_active === true, updated_at: new Date().toISOString(),
+      };
+      if (id) {
+        if (!validUuid(id)) return deny("Invalid item identifier", 400);
+        const { data, error } = await db.from("insuite_catalog_items").update(patch)
+          .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId).select("id").maybeSingle();
+        if (error) throw error;
+        return data ? send({ saved: true, id: data.id }) : deny("Item not found", 404);
+      }
+      const { data, error } = await db.from("insuite_catalog_items").insert({
+        ...patch, organization_slug: org, hotel_id: hotelId,
+      }).select("id").single();
+      if (error) throw error;
+      return send({ saved: true, id: data.id }, 201);
+    }
+    if (action === "staff-update-order") {
+      if (!canReply && role !== "breakfast_staff") return deny("Food service access required");
+      const id = val(body.order_id, 40);
+      const status = val(body.status, 30);
+      if (!validUuid(id)) return deny("Invalid order identifier", 400);
+      const { data: old } = await db.from("insuite_orders").select("id,kind,status")
+        .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle();
+      if (!old) return deny("Order not found", 404);
+      if (role === "breakfast_staff" && old.kind !== "breakfast") return deny("Breakfast orders only", 403);
+      const transitions: Record<string, string[]> = {
+        submitted: ["confirmed","declined","cancelled"],
+        confirmed: ["preparing","on_the_way","delivered","cancelled"],
+        preparing: ["on_the_way","delivered","cancelled"],
+        on_the_way: ["delivered","cancelled"],
+      };
+      if (!(transitions[old.status] || []).includes(status)) return deny("Invalid order transition", 409);
+      const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+      if (status === "delivered") patch.completed_at = new Date().toISOString();
+      const { data: updated, error } = await db.from("insuite_orders").update(patch)
+        .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId)
+        .eq("status", old.status).select("id,status").maybeSingle();
+      if (error || !updated) return deny("Order changed. Refresh and retry", 409);
+      return send({ order: updated });
+    }
+    if (action === "staff-update-booking") {
+      if (!canReply) return deny("Front desk permission required");
+      const id = val(body.booking_id, 40);
+      const status = val(body.status, 30);
+      if (!validUuid(id)) return deny("Invalid booking identifier", 400);
+      const { data: old } = await db.from("insuite_booking_requests")
+        .select("id,status,starts_at").eq("id", id).eq("organization_slug", org)
+        .eq("hotel_id", hotelId).maybeSingle();
+      if (!old) return deny("Booking not found", 404);
+      const transitions: Record<string, string[]> = {
+        requested: ["confirmed","declined","cancelled"],
+        confirmed: ["completed","cancelled"],
+      };
+      if (!(transitions[old.status] || []).includes(status)) return deny("Invalid booking transition", 409);
+      if (status === "confirmed" && Date.parse(old.starts_at) < Date.now() - 900_000)
+        return deny("Cannot confirm an expired request", 409);
+      const { data: updated, error } = await db.from("insuite_booking_requests").update({
+        status, staff_note: val(body.staff_note, 400), updated_at: new Date().toISOString(),
+      }).eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId)
+        .eq("status", old.status).select("id,status").maybeSingle();
+      if (error || !updated) return deny("Booking changed. Refresh and retry", 409);
+      return send({ booking: updated });
     }
     if (action === "staff-save-draft" || action === "staff-publish") {
       if (!administrator) return deny("Administrator permission required");
@@ -513,9 +596,13 @@ Deno.serve(async (req) => {
       const message = val(body.message, 1000);
       if (!validUuid(deviceId) || !message) return deny("Device and message required", 400);
       const { data: device } = await db.from("insuite_devices")
-        .select("id,room_id,session_epoch").eq("id", deviceId)
+        .select("id,room_id,session_epoch,active_reservation_id").eq("id", deviceId)
         .eq("organization_slug", org).eq("hotel_id", hotelId).eq("is_active", true).maybeSingle();
       if (!device) return deny("Device not found", 404);
+      const { data: occupant } = await db.from("reservations").select("id")
+        .eq("id", (device as any).active_reservation_id || "00000000-0000-0000-0000-000000000000")
+        .eq("status", "checked_in").eq("room_id", device.room_id).maybeSingle();
+      if (!occupant) return deny("No verified in-house guest in this room", 409);
       const { error } = await db.from("insuite_messages").insert({
         organization_slug: org, hotel_id: hotelId, room_id: device.room_id, device_id: device.id,
         session_epoch: device.session_epoch, sender: "reception", sender_user_id: profile.id, body: message,
