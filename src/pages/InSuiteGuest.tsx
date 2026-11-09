@@ -5,6 +5,7 @@ import {
   Sparkles, Wifi, Wrench, CarTaxiFront, Leaf, UtensilsCrossed, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { InSuiteGuestCommerce, type InSuiteOrder, type InSuiteBooking } from "@/components/insuite/InSuiteGuestCommerce";
 import {
   INSUITE_DEVICE_KEY, inSuiteGuest, type InSuiteContent,
   type InSuiteMessage, type InSuiteRequest,
@@ -52,7 +53,6 @@ const serviceOptions = [
   { code: "water", name: "Drinking water", icon: Coffee },
   { code: "room_cleaning", name: "Room cleaning", icon: Sparkles },
   { code: "maintenance", name: "Report a problem", icon: Wrench },
-  { code: "taxi", name: "Request a taxi", icon: CarTaxiFront },
   { code: "call_back", name: "Request a reception call", icon: Phone },
 ] as const;
 const formatStatus = (value: string) => ({
@@ -77,6 +77,9 @@ export default function InSuiteGuest() {
   const [detail, setDetail] = useState("");
   const [requests, setRequests] = useState<InSuiteRequest[]>([]);
   const [messages, setMessages] = useState<InSuiteMessage[]>([]);
+  const [orders, setOrders] = useState<InSuiteOrder[]>([]);
+  const [bookings, setBookings] = useState<InSuiteBooking[]>([]);
+  const [stayActive, setStayActive] = useState(false);
   const [message, setMessage] = useState("");
   const [staffPin, setStaffPin] = useState("");
   const [pinOpen, setPinOpen] = useState(false);
@@ -92,6 +95,7 @@ export default function InSuiteGuest() {
     try {
       const data = await inSuiteGuest("guest-bootstrap", {}, value);
       sessionEpoch.current = data.session_epoch || null;
+      setStayActive(data.stay_active === true);
       setRoom(String(data.room_number || ""));
       setConfig(data.config || {});
       setError("");
@@ -107,18 +111,23 @@ export default function InSuiteGuest() {
       const data = await inSuiteGuest("guest-state", { since: visitStarted.current }, token);
       if (sessionEpoch.current && data.session_epoch !== sessionEpoch.current) {
         sessionEpoch.current = data.session_epoch;
+        setStayActive(data.stay_active === true);
         visitStarted.current = new Date().toISOString();
-        setRequests([]); setMessages([]); setMessage(""); setDetail("");
+        setRequests([]); setMessages([]); setOrders([]); setBookings([]);
+        setMessage(""); setDetail("");
         setView("home"); setRequestType(null);
         return;
       }
+      setStayActive(data.stay_active === true);
       setRequests(data.requests || []);
       setMessages(data.messages || []);
+      setOrders(data.orders || []);
+      setBookings(data.bookings || []);
     } catch (err) {
       console.warn("[insuite] temporary update failure", err);
       if (/Tablet disabled|not paired|unavailable/i.test((err as Error).message)) {
         localStorage.removeItem(INSUITE_DEVICE_KEY); setToken(""); setConfig(null);
-        setMessages([]); setRequests([]);
+        setMessages([]); setRequests([]); setOrders([]); setBookings([]); setStayActive(false);
       }
     }
   }, [token, config]);
@@ -150,6 +159,7 @@ export default function InSuiteGuest() {
   };
   const sendRequest = async () => {
     if (!requestType) return;
+    if (!stayActive) return toast.error("Reception must verify your current room stay before requests can be placed.");
     setBusy(true);
     try {
       await inSuiteGuest("guest-request", {
@@ -163,6 +173,7 @@ export default function InSuiteGuest() {
   };
   const sendMessage = async () => {
     if (!message.trim() || busy) return;
+    if (!stayActive) return toast.error("Reception must verify your current room stay first.");
     setBusy(true);
     try {
       await inSuiteGuest("guest-message", { message });
@@ -262,6 +273,10 @@ export default function InSuiteGuest() {
       {view !== "home" && <button onClick={() => { setView("home"); setRequestType(null); }}
         className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900"><ChevronLeft className="h-4 w-4" />{t("back")}</button>}
       {view === "home" && <>
+        {!stayActive && <div role="status" className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
+          <strong>Room service temporarily unavailable.</strong> The current stay has not been verified against the hotel's reservation system.
+          Hotel information remains available. Please contact reception to activate the room.
+        </div>}
         <div className="relative min-h-52 md:min-h-72 rounded-[2rem] overflow-hidden flex items-end bg-gradient-to-br from-slate-900 to-slate-600 text-white">
           {config?.hero_url && <img src={config.hero_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />}
           <div className="relative z-10 p-7 md:p-10 max-w-2xl">
@@ -287,6 +302,7 @@ export default function InSuiteGuest() {
           </button>}
       </>}
       {view === "requests" && <>
+        {!stayActive && <p role="alert" className="rounded-xl bg-amber-50 p-4">Room requests are available after reception verifies the checked-in stay.</p>}
         <h1 className="text-3xl font-semibold">{requestType ? t("order") : t("services")}</h1>
         {requestType ? <section className={card + " max-w-xl space-y-5"}>
           <h2 className="text-xl font-semibold">{serviceOptions.find((x) => x.code === requestType)?.name}</h2>
@@ -299,7 +315,7 @@ export default function InSuiteGuest() {
             maxLength={400} placeholder={t("detail")} />
           <div className="flex gap-3">
             <button className="border rounded-xl px-4 py-3" onClick={() => setRequestType(null)}>Back</button>
-            <button className={primaryButton} style={{ background: accent }} disabled={busy} onClick={() => void sendRequest()}>
+            <button className={primaryButton} style={{ background: accent }} disabled={busy || !stayActive} onClick={() => void sendRequest()}>
               {busy ? "Sending…" : t("order")}
             </button>
           </div>
@@ -337,7 +353,7 @@ export default function InSuiteGuest() {
             <input className="flex-1 min-w-0 border rounded-xl px-4 py-3" maxLength={1000}
               value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t("message")}
               onKeyDown={(e) => { if (e.key === "Enter") void sendMessage(); }} />
-            <button className={primaryButton} style={{ backgroundColor: accent }} disabled={busy || !message.trim()}
+            <button className={primaryButton} style={{ backgroundColor: accent }} disabled={busy || !stayActive || !message.trim()}
               onClick={() => void sendMessage()} aria-label={t("send")}><Send className="h-5 w-5" /></button>
           </div>
           <p className="text-xs text-slate-500">This is not an emergency service. For emergencies, follow the hotel emergency instructions.</p>
@@ -350,7 +366,9 @@ export default function InSuiteGuest() {
           {panel("Restaurant & bar", config?.restaurant_hours, UtensilsCrossed)}
           {panel("Minibar information", config?.minibar_info, Info)}
         </div>
-        <p className="text-slate-500 text-sm">To place a paid order, please contact reception. Tablet checkout and room charging are not yet enabled.</p>
+        <InSuiteGuestCommerce mode="food" config={config || {}} accent={accent}
+          roomNumber={room} stayActive={stayActive} orders={orders} bookings={bookings}
+          onSubmitted={refresh} />
       </>}
       {view === "hotel" && <>
         <h1 className="text-3xl font-semibold">{t("information")}</h1>
@@ -374,9 +392,10 @@ export default function InSuiteGuest() {
           {panel("Transport and taxis", config?.transport_info, CarTaxiFront)}
           {panel("Hotel facilities", config?.facilities_info, Hotel)}
         </div>
-        {config?.services?.taxi && <button className={primaryButton} style={{ background: accent }}
-          onClick={() => startService("taxi")}>Request taxi assistance</button>}
-        <p className="text-sm text-slate-500">Taxi requests are not confirmed bookings until reception confirms with the operator.</p>
+        <InSuiteGuestCommerce mode="booking" config={config || {}} accent={accent}
+          roomNumber={room} stayActive={stayActive} orders={orders} bookings={bookings}
+          onSubmitted={refresh} />
+        <p className="text-sm text-slate-500">All availability and transport pricing require reception confirmation.</p>
       </>}
       <footer className="text-xs text-slate-400 flex gap-2 items-center py-3">
         <RefreshCw className="h-3 w-3" /> Service updates synchronize while the tablet is online. All requests require staff confirmation.
