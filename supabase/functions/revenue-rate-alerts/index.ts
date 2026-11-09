@@ -6,7 +6,7 @@
 // Each (date × room type × occupancy × price) is only ever reported once.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { sendEmail } from "../_shared/emailSender.ts";
+import { mailClient } from "../_shared/emailSender.ts";
 
 const ALERT_ROLES = ["admin", "top_management", "top_management_manager"];
 const RD_CRITICAL_EUR = 40;
@@ -398,14 +398,15 @@ Deno.serve(async (req) => {
             </div>`;
 
           try {
-            const sent = await sendEmail({
-              admin, organizationSlug: h.organization_slug,
+            // Use the shared organization's verified mail sender. The
+            // adapter returns delivery errors explicitly; never mark a rate
+            // alert as notified unless it accepted the message.
+            const sent = await mailClient(h.organization_slug).emails.send({
               to: unique,
               subject: `⚠️ ${fresh.length} unusual rate${fresh.length === 1 ? "" : "s"} — ${h.hotel_id}`,
               html,
-              kind: "transactional",
             });
-            if (!sent.ok) throw new Error(sent.error ?? "Rate-alert email was not accepted by the provider.");
+            if (sent.error) throw new Error(sent.error.message ?? "Rate-alert email was not accepted by the provider.");
             emailed = unique.length;
             if (notificationIds.length > 0) {
               const { error: markError } = await admin.from("revenue_rate_alerts")
