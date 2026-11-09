@@ -33,7 +33,7 @@ jobs:
         with:
           deno-version: v2.x
       - name: Manual-price safety regression tests
-        run: deno test --allow-none supabase/functions/_shared/rateSafety_test.ts
+        run: deno test supabase/functions/_shared/rateSafety_test.ts
       - name: Type-check price publishing functions
         run: |
           deno check supabase/functions/revenue-enqueue-rates/index.ts
