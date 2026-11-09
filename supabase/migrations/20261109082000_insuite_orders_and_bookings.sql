@@ -92,6 +92,44 @@ alter table public.insuite_booking_requests enable row level security;
 revoke all on public.insuite_booking_requests from public, anon, authenticated;
 grant all on public.insuite_booking_requests to service_role;
 
+-- Atomic checkout-vs-request guard. Every guest-originated or reception
+-- chat insert uses a row lock on the room device, so an overlapping checkout
+-- cannot leave behind an unverified post-checkout service request.
+create or replace function public.insuite_active_session_insert_guard()
+returns trigger language plpgsql security definer set search_path = ''
+as $
+declare _d public.insuite_devices%rowtype;
+begin
+  select * into _d from public.insuite_devices
+    where id = new.device_id and is_active for share;
+  if not found
+    or _d.session_epoch is distinct from new.session_epoch
+    or _d.active_reservation_id is null
+    or _d.room_id is distinct from new.room_id
+    or _d.organization_slug is distinct from new.organization_slug
+    or _d.hotel_id is distinct from new.hotel_id
+  then raise exception 'Tablet session is no longer valid'; end if;
+  if not exists (select 1 from public.reservations r
+    where r.id = _d.active_reservation_id
+      and r.room_id = _d.room_id and r.organization_slug = _d.organization_slug
+      and r.status::text = 'checked_in')
+  then raise exception 'No verified active guest stay'; end if;
+  if tg_table_name = 'insuite_booking_requests'
+     and new.reservation_id is distinct from _d.active_reservation_id
+  then raise exception 'Booking is not attached to this guest stay'; end if;
+  return new;
+end; $;
+revoke all on function public.insuite_active_session_insert_guard() from public, anon, authenticated;
+drop trigger if exists insuite_request_active_session on public.insuite_service_requests;
+create trigger insuite_request_active_session before insert on public.insuite_service_requests
+  for each row execute function public.insuite_active_session_insert_guard();
+drop trigger if exists insuite_message_active_session on public.insuite_messages;
+create trigger insuite_message_active_session before insert on public.insuite_messages
+  for each row execute function public.insuite_active_session_insert_guard();
+drop trigger if exists insuite_booking_active_session on public.insuite_booking_requests;
+create trigger insuite_booking_active_session before insert on public.insuite_booking_requests
+  for each row execute function public.insuite_active_session_insert_guard();
+
 -- Atomic server-side repricing from the active property catalog. The browser
 -- sends only IDs and quantities; quoted_total can never be supplied by a guest.
 -- The function executes exclusively under the already verified service-role API.
