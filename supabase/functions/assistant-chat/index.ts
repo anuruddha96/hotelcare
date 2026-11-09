@@ -13,7 +13,7 @@ import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_sha
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
 import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
-import { selectAssistantModel, classifyAssistantQuestion } from "../_shared/aiModelPolicy.ts";
+import { selectAssistantModel, classifyAssistantQuestion, MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
 import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
 
@@ -303,7 +303,27 @@ function buildTools(
         required: ["query"],
         additionalProperties: false,
       }),
-      execute: async ({ query }) => ({ query, destinations: capabilities.destinations }),
+      execute: async ({ query }) => {
+        // Avoid returning the full navigation catalogue on every short request:
+        // tool results are resent on subsequent reasoning steps and can dominate
+        // the cost of a simple room-status question.
+        const words = (query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [])
+          .filter((word) => !["the", "with", "what", "where", "how", "from", "mark"].includes(word));
+        const ranked = capabilities.destinations.map((destination, index) => {
+          const haystack = `${destination.id} ${destination.label} ${destination.description} ${destination.module}`.toLowerCase();
+          return {
+            destination,
+            index,
+            score: words.reduce((score, word) => score + (haystack.includes(word) ? 1 : 0), 0),
+          };
+        }).sort((a, b) => b.score - a.score || a.index - b.index);
+        const matching = ranked.filter((row) => row.score > 0);
+        return {
+          query,
+          destinations: (matching.length ? matching : ranked).slice(0, 10).map((row) => row.destination),
+          ...(matching.length ? {} : { note: "No exact navigation match; ask for the relevant screen if needed." }),
+        };
+      },
     }),
     get_training_guide: tool({
       description:
@@ -1673,7 +1693,7 @@ Deno.serve(async (req) => {
     // The full thread stays stored and visible in the app; the model only ever
     // sees a bounded recent window, so old turns cannot add noise or be reused
     // as if they were current operational facts.
-    const MODEL_HISTORY_TURNS = 40;
+    const MODEL_HISTORY_TURNS = 16;
     const storedMessages: UIMessage[] = (storedRows ?? []).slice(-MODEL_HISTORY_TURNS).map((row: any) => ({
       id: row.id,
       role: row.role,
@@ -1750,10 +1770,15 @@ Deno.serve(async (req) => {
     // Everyday questions use Luna or Terra; deep analysis is separately routed to Sol.
     // Explicit model tier is an administrator setting; users never choose raw model IDs.
     const tier = profile.role === "admin" ? String(body?.model_tier ?? "auto") : "auto";
-    const modelId = tier === "fast" ? (Deno.env.get("OPENAI_ROUTINE_MODEL") || "gpt-5.6-luna")
-      : tier === "balanced" ? (Deno.env.get("OPENAI_STANDARD_MODEL") || "gpt-5.6-terra")
+    const modelId = tier === "fast" ? (Deno.env.get("OPENAI_ROUTINE_MODEL") || MODEL_BY_PURPOSE.routine)
+      : tier === "balanced" ? (Deno.env.get("OPENAI_STANDARD_MODEL") || MODEL_BY_PURPOSE.standard)
       : selectAssistantModel(question, Deno.env.get("OPENAI_STANDARD_MODEL"));
     const routine = tier === "fast" || (tier !== "balanced" && classifyAssistantQuestion(question) === "routine");
+    // For focused operational requests, expose only the relevant hotel's tool
+    // category. This reduces repeatedly billed tool-schema tokens. All tools
+    // still perform their own authenticated hotel and role checks.
+    const activeScopes = routine && requestedScope && scopes.has(requestedScope)
+      ? new Set<Scope>([requestedScope]) : scopes;
     const hotels = await resolveAssistantHotels(service, profile as Profile);
     const revenueBrain = scopes.has("revenue")
       ? `
@@ -1814,7 +1839,7 @@ WEB SEARCH — for facts not stored in Hotel Care
 - Each user gets ${WEB_SEARCH_FREE_DAILY} free questions with web search per day. If a search result carries a billing note saying the question is charged, end your answer with one short line telling the user this question costs €${EXTRA_QUESTION_PRICE_EUR}. Otherwise never mention billing.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question),
+      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.

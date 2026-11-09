@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AssistantAccessRequests from "@/components/assistant/AssistantAccessRequests";
@@ -45,6 +46,8 @@ const OPERATOR_ACTIONS = [
 
 interface AuditRow {
   id: string;
+  user_id: string;
+  model: string | null;
   role: string | null;
   question: string;
   refused: boolean;
@@ -57,6 +60,8 @@ interface AuditRow {
 export default function AssistantInsights() {
   const { profile } = useAuth();
   const [rows, setRows] = useState<AuditRow[]>([]);
+  const [people, setPeople] = useState<Record<string, string>>({});
+  const [questionFilter, setQuestionFilter] = useState("");
   const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
   const [issues, setIssues] = useState<IssueRow[]>([]);
   const [usageAlerts, setUsageAlerts] = useState<UsageAlert[]>([]);
@@ -67,10 +72,21 @@ export default function AssistantInsights() {
     if (!allowed) return;
     supabase
       .from("assistant_audit_log")
-      .select("id,role,question,refused,scopes_used,created_at,hotel_id")
+      .select("id,user_id,role,model,question,refused,scopes_used,created_at,hotel_id")
+      .eq("organization_slug", profile?.organization_slug ?? "")
       .order("created_at", { ascending: false })
       .limit(200)
-      .then(({ data }) => setRows((data ?? []) as AuditRow[]));
+      .then(async ({ data }) => {
+        const audits = (data ?? []) as AuditRow[];
+        setRows(audits);
+        const userIds = [...new Set(audits.map((row) => row.user_id).filter(Boolean))];
+        if (!userIds.length) return;
+        const { data: profileRows } = await supabase.from("profiles")
+          .select("id,full_name,nickname").in("id", userIds);
+        setPeople(Object.fromEntries((profileRows ?? []).map((person) =>
+          [person.id, person.full_name || person.nickname || person.id.slice(0, 8)]
+        )));
+      });
     supabase
       .from("assistant_feedback")
       .select("id,helpful,reason,created_at")
@@ -89,12 +105,17 @@ export default function AssistantInsights() {
         .order("created_at", { ascending: false }).limit(50)
         .then(({ data }: { data: UsageAlert[] | null }) => setUsageAlerts(data ?? []));
     }
-  }, [allowed, profile?.role]);
+  }, [allowed, profile?.role, profile?.organization_slug]);
 
   if (!allowed) {
     return <div className="p-6 text-sm text-muted-foreground">This page is for administrators.</div>;
   }
 
+  const filter = questionFilter.toLowerCase().trim();
+  const visibleRows = filter
+    ? rows.filter((r) => [r.question, r.user_id, people[r.user_id] ?? "", r.hotel_id ?? ""]
+      .some((value) => value.toLowerCase().includes(filter)))
+    : rows;
   const refused = rows.filter((r) => r.refused).length;
   const helpful = feedback.filter((f) => f.helpful).length;
   const helpfulPct = feedback.length ? Math.round((helpful / feedback.length) * 100) : null;
@@ -105,7 +126,7 @@ export default function AssistantInsights() {
       <div>
         <h1 className="text-lg font-semibold">HotelCare AI Operator · Admin centre</h1>
         <p className="text-xs text-muted-foreground">
-          What your teams are asking. Use it to spot training gaps — staff never see this page.
+          Administrator-only operational assistant usage, including employee questions. Inform staff of the logging and your retention policy.
         </p>
       </div>
 
@@ -154,7 +175,12 @@ export default function AssistantInsights() {
                     <span className="text-muted-foreground">{alert.emailed_at ? "Email sent" : "Email not confirmed"}</span>
                   </div>
                   <p className="mt-1">{alert.message}</p>
-                  <p className="mt-1 text-muted-foreground">User ID: {alert.user_id}</p>
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    <p className="text-muted-foreground">User: {people[alert.user_id] ?? alert.user_id}</p>
+                    <button type="button" className="underline text-primary" onClick={() => setQuestionFilter(alert.user_id)}>
+                      Review questions
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -217,25 +243,41 @@ export default function AssistantInsights() {
 
       <Card className="p-3 space-y-2">
         <p className="text-sm font-medium">Recent questions</p>
+        <Input
+          aria-label="Filter assistant questions"
+          placeholder="Find employee, room, hotel, or question"
+          value={questionFilter}
+          onChange={(event) => setQuestionFilter(event.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          {visibleRows.length} of {rows.length} recent questions · search is limited to the latest 200.
+        </p>
         <div className="space-y-1 max-h-[60vh] overflow-y-auto">
-          {rows.map((r) => (
-            <div key={r.id} className="flex items-start gap-2 border-b py-1.5 last:border-0">
+          {visibleRows.map((r) => (
+            <div key={r.id} className="flex items-start gap-2 border-b py-2 last:border-0">
               <span className="text-xs text-muted-foreground w-28 shrink-0">
                 {new Date(r.created_at).toLocaleString()}
               </span>
-              <span className="text-sm flex-1">{r.question}</span>
-              <div className="flex gap-1 shrink-0">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm break-words">{r.question}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {people[r.user_id] ?? r.user_id.slice(0, 8)}
+                  {r.hotel_id ? ` · ${r.hotel_id}` : ""}
+                  {r.model ? ` · ${r.model}` : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1 justify-end max-w-40">
                 {r.role && <Badge variant="outline">{r.role}</Badge>}
                 {r.refused && <Badge variant="destructive">blocked</Badge>}
                 {(r.scopes_used ?? []).map((s) => (
-                  <Badge key={s} variant="secondary">
-                    {s}
-                  </Badge>
+                  <Badge key={s} variant="secondary">{s}</Badge>
                 ))}
               </div>
             </div>
           ))}
-          {rows.length === 0 && <p className="text-sm text-muted-foreground">Nothing yet.</p>}
+          {visibleRows.length === 0 && <p className="text-sm text-muted-foreground">
+            {rows.length ? "No questions match this filter." : "Nothing yet."}
+          </p>}
         </div>
       </Card>
     </div>
