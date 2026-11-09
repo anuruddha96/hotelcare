@@ -162,6 +162,7 @@ Deno.test("enforceRateSafety leaves an already consistent ladder alone", async (
   ]);
   const safe = await enforceRateSafety(admin, "ottofiori", [{
     stay_date: "2026-09-12", obk_id: "11", room_type_name: "Quad", occupancy: 2, new_price: 130,
+    intent_source: "manual",
   }]);
   assertEquals(safe.repairs.length, 0);
   assertEquals(safe.changes.length, 1);
