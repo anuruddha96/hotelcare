@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, Coffee, ShoppingBag, Spa, CarTaxiFront, Plus, Minus } from "lucide-react";
+import { CalendarClock, CheckCircle2, Coffee, ShoppingBag, Waves, CarTaxiFront, Plus, Minus } from "lucide-react";
 import { toast } from "sonner";
 import { inSuiteGuest, type InSuiteContent } from "@/lib/insuiteApi";
 
@@ -115,7 +115,7 @@ export function InSuiteGuestCommerce({ mode, config, accent, stayActive, orders,
       {types.map((t) => <button key={t} type="button" onClick={() => chooseKind(t)}
         className={`rounded-2xl border p-4 flex flex-col items-start gap-2 text-left ${kind === t ? "text-white" : "bg-white"}`}
         style={kind === t ? { backgroundColor: accent } : undefined}>
-        {mode === "food" ? <Coffee className="h-6 w-6" /> : t === "taxi" ? <CarTaxiFront className="h-6 w-6" /> : <Spa className="h-6 w-6" />}
+        {mode === "food" ? <Coffee className="h-6 w-6" /> : t === "taxi" ? <CarTaxiFront className="h-6 w-6" /> : <Waves className="h-6 w-6" />}
         <strong>{(mode === "food" ? menuLabels : bookingLabels)[t]}</strong>
       </button>)}
     </div>
