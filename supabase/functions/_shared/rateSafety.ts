@@ -226,6 +226,24 @@ export async function loadGuestStep(admin: any, hotelId: string): Promise<number
 }
 
 /**
+ * One EUR between guest levels for manager-entered prices. For SLNT the
+ * authoritative Previo prices are HUF, so 1 EUR is converted to its configured
+ * HUF equivalent instead of accidentally allowing a one-forint increment.
+ */
+export async function loadManualGuestStep(admin: any, hotelId: string): Promise<number> {
+  const { data, error } = await admin.from("hotel_revenue_settings")
+    .select("base_currency, eur_conversion_rate").eq("hotel_id", hotelId).maybeSingle();
+  if (error) throw error;
+  const currency = String(data?.base_currency ?? "EUR").toUpperCase();
+  if (currency === "EUR") return 1;
+  const conversion = Number(data?.eur_conversion_rate);
+  if (!Number.isFinite(conversion) || conversion <= 0) {
+    throw new Error(`Cannot validate the €1 manual guest increment: EUR conversion is missing for ${currency}.`);
+  }
+  return Math.max(1, Math.round(conversion));
+}
+
+/**
  * Largest allowed distance between two neighbouring guest counts. EUR hotels
  * use the operator rule of thumb (15); other currencies use the equivalent
  * share of the price so the rule travels to HUF without a conversion table.
@@ -254,7 +272,10 @@ export async function normalizeOccupancyLadder(
   if (changes.length === 0) return [];
   const stored = await loadStoredRates(admin, hotelId, changes);
   const guestStep = await loadGuestStep(admin, hotelId);
-
+  // A human may choose a €1 increase instead of the automated €10 supplement.
+  // Non-EUR venues must use the base-currency equivalent of one euro.
+  const manualStep = changes.some((c) => String(c.intent_source ?? "").startsWith("manual"))
+    ? await loadManualGuestStep(admin, hotelId) : 1;
 
   const groupKey = (row: { stay_date: string; obk_id?: string | null; room_type_name: string }) =>
     `${row.stay_date}|${mappingKey(row.obk_id) || row.room_type_name}`;
@@ -295,7 +316,13 @@ export async function normalizeOccupancyLadder(
 
     const base = merged[0]?.price ?? 0;
     const currency = (template as any)?.currency ?? "EUR";
-    const repaired = repairLadder(merged, guestStep, maxGuestGapFor(base, currency));
+    const humanEdit = changes.some((change) =>
+      groupKey(change) === group && String(change.intent_source ?? "").startsWith("manual")
+    );
+    const repaired = repairLadder(
+      merged, humanEdit ? manualStep : guestStep,
+      humanEdit ? 0 : maxGuestGapFor(base, currency),
+    );
 
     for (const level of merged) {
       const target = repaired.get(level.occupancy);
@@ -303,6 +330,9 @@ export async function normalizeOccupancyLadder(
       const cell = `${group}|${level.occupancy}`;
       const pending = changeByCell.get(cell);
       if (pending) {
+        if (humanEdit && String(pending.intent_source ?? "").startsWith("manual")) {
+          throw new Error(`The manually entered ${level.occupancy}-guest price must be at least ${manualStep} above the preceding guest level. No manual price was changed automatically.`);
+        }
         pending.new_price = target;
         continue;
       }
@@ -310,7 +340,7 @@ export async function normalizeOccupancyLadder(
       repair.occupancy = level.occupancy;
       repair.old_price = Math.round(level.price);
       repair.new_price = target;
-      if ("intent_source" in repair) repair.intent_source = "ladder_repair";
+      repair.intent_source = humanEdit ? "manual_ladder_completion" : "ladder_repair";
       if ("id" in repair) delete (repair as Record<string, unknown>).id;
       repairs.push(repair);
       changeByCell.set(cell, repair);
