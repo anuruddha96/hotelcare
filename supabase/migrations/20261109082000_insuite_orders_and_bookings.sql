@@ -114,9 +114,11 @@ begin
       and r.room_id = _d.room_id and r.organization_slug = _d.organization_slug
       and r.status::text = 'checked_in')
   then raise exception 'No verified active guest stay'; end if;
-  if tg_table_name = 'insuite_booking_requests'
-     and new.reservation_id is distinct from _d.active_reservation_id
-  then raise exception 'Booking is not attached to this guest stay'; end if;
+  if tg_table_name = 'insuite_booking_requests' then
+    if new.reservation_id is distinct from _d.active_reservation_id then
+      raise exception 'Booking is not attached to this guest stay';
+    end if;
+  end if;
   return new;
 end; $;
 revoke all on function public.insuite_active_session_insert_guard() from public, anon, authenticated;
