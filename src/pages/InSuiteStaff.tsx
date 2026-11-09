@@ -9,10 +9,15 @@ import {
   RefreshCw, Settings2, ShieldCheck, Wifi, LockKeyhole, Send, Copy,
 } from "lucide-react";
 import { inSuiteStaff, type InSuiteContent, type InSuiteRequest, type InSuiteMessage } from "@/lib/insuiteApi";
+import {
+  InSuiteCommerceConsole, type InSuiteCatalogItem, type InSuiteStaffOrder,
+  type InSuiteOrderLine, type InSuiteStaffBooking,
+} from "@/components/insuite/InSuiteCommerceConsole";
 
 type Device = {
   id: string; room_id: string; label: string; is_active: boolean;
   paired_at: string | null; last_seen_at: string | null;
+  active_reservation_id?: string | null;
 };
 type Dashboard = {
   hotel_name: string;
@@ -21,8 +26,13 @@ type Dashboard = {
   devices: Device[];
   requests: InSuiteRequest[];
   messages: InSuiteMessage[];
+  alerts: { id: number; kind: string; title: string; body: string; room_id: string; created_at: string }[];
+  catalog_items: InSuiteCatalogItem[];
+  orders: InSuiteStaffOrder[]; order_lines: InSuiteOrderLine[];
+  bookings: InSuiteStaffBooking[];
   room_labels: Record<string, string>;
-  can_manage: boolean; can_configure: boolean; can_reply: boolean;
+  room_guest_labels?: Record<string, string>;
+  can_manage: boolean; can_configure: boolean; can_reply: boolean; can_manage_orders: boolean;
 };
 const statuses: Record<string, string[]> = {
   submitted: ["accepted", "unavailable", "cancelled"],
@@ -34,7 +44,12 @@ const labels: Record<string, string> = {
   amenities: "Amenities", water: "Drinking water", room_cleaning: "Room cleaning",
   maintenance: "Maintenance", taxi: "Taxi assistance", call_back: "Reception callback",
 };
-const services = Object.keys(labels);
+const services = [...Object.keys(labels), "breakfast","room_service","minibar","gym","spa","sauna","jacuzzi"];
+const serviceNames: Record<string,string> = {
+  ...labels, breakfast:"Breakfast ordering", room_service:"Room-service ordering",
+  minibar:"Minibar / refreshment orders", gym:"Gym reservations",
+  spa:"Spa reservations", sauna:"Sauna reservations", jacuzzi:"Jacuzzi reservations",
+};
 const defaults: InSuiteContent = {
   hotel_name: "", welcome: "", logo_url: "", hero_url: "", primary_color: "#153B57",
   address: "", reception_phone: "", guest_wifi_ssid: "", guest_wifi_password: "",
@@ -51,7 +66,7 @@ export default function InSuiteStaff() {
   const { hotels, loading: tenantLoading } = useTenant();
   const { organizationSlug } = useParams();
   const [hotelId, setHotelId] = useState("");
-  const [tab, setTab] = useState<"requests" | "chat" | "admin">("requests");
+  const [tab, setTab] = useState<"requests" | "chat" | "orders" | "bookings" | "menu" | "admin">("requests");
   const [data, setData] = useState<Dashboard | null>(null);
   const [draft, setDraft] = useState<InSuiteContent>(defaults);
   const [busy, setBusy] = useState(false);
@@ -62,6 +77,7 @@ export default function InSuiteStaff() {
   const [reply, setReply] = useState("");
   const previousRequests = useRef<Set<string> | null>(null);
   const previousMessages = useRef<Set<string> | null>(null);
+  const previousAlerts = useRef<Set<number> | null>(null);
 
   useEffect(() => {
     if (!hotelId && hotels.length) {
@@ -70,7 +86,7 @@ export default function InSuiteStaff() {
     }
   }, [hotelId, hotels, profile?.assigned_hotel]);
   useEffect(() => {
-    setData(null); setIssued(null); previousRequests.current = null; previousMessages.current = null;
+    setData(null); setIssued(null); previousRequests.current = null; previousMessages.current = null; previousAlerts.current = null;
   }, [hotelId]);
   const load = useCallback(async (notify = false) => {
     if (!hotelId) return;
@@ -80,6 +96,11 @@ export default function InSuiteStaff() {
       if (notify) {
         const nextReq = new Set(current.requests.map((r) => r.id));
         const nextMsg = new Set(current.messages.map((m) => m.id));
+        const nextAlerts = new Set((current.alerts || []).map((a) => a.id));
+        if (previousAlerts.current) {
+          const alert = (current.alerts || []).find((a) => !previousAlerts.current!.has(a.id));
+          if (alert) toast.info(`${alert.title}: ${alert.body}`, { duration: 9000 });
+        }
         if (previousRequests.current) {
           const incoming = current.requests.find((r) => !previousRequests.current!.has(r.id));
           if (incoming) toast.info(`New room request · Room ${current.room_labels[incoming.room_id || ""] || "?"} · ${labels[incoming.request_type] || incoming.request_type}`);
@@ -89,9 +110,11 @@ export default function InSuiteStaff() {
           if (incoming) toast.info(`Guest message · Room ${current.room_labels[incoming.room_id || ""] || "?"}`);
         }
         previousRequests.current = nextReq; previousMessages.current = nextMsg;
+        previousAlerts.current = nextAlerts;
       } else {
         previousRequests.current = new Set(current.requests.map((r) => r.id));
         previousMessages.current = new Set(current.messages.map((m) => m.id));
+        previousAlerts.current = new Set((current.alerts || []).map((a) => a.id));
       }
       setData(current);
       // Preserve unsaved edits while polling; draft is only refreshed after explicit load / save.
@@ -158,7 +181,7 @@ export default function InSuiteStaff() {
         <div>
           <p className="text-sm text-slate-500">HotelCare · Guest experience</p>
           <h1 className="text-3xl font-bold">In-Suite Console</h1>
-          <p className="text-sm text-slate-500">Guest service requests, reception chat and room tablets.</p>
+          <p className="text-sm text-slate-500">Service requests, reception, staff alerts, food orders and reservations.</p>
         </div>
         <div className="flex items-center gap-2">
           <select className={inputClass} aria-label="Select hotel" value={hotelId}
@@ -172,6 +195,9 @@ export default function InSuiteStaff() {
         {[
           { id: "requests", name: "Guest requests", Icon: ClipboardList },
           { id: "chat", name: "Reception messages", Icon: MessageCircle },
+          { id: "orders", name: "Room orders", Icon: ClipboardList },
+          { id: "bookings", name: "Facility & taxi", Icon: Hotel },
+          { id: "menu", name: "Menus", Icon: Settings2 },
           { id: "admin", name: "Tablet & content setup", Icon: Settings2 },
         ].map((t) => <button key={t.id}
           onClick={() => setTab(t.id as typeof tab)} className={`rounded-xl px-4 py-3 flex gap-2 items-center shrink-0 ${tab === t.id ? "bg-slate-900 text-white" : "bg-white border"}`}>
@@ -179,6 +205,26 @@ export default function InSuiteStaff() {
         </button>)}
       </div>
       {!hotelId && <p>Select a hotel to begin.</p>}
+      {data && data.alerts?.length > 0 && <section className={card + " space-y-3 border-l-4 border-l-amber-400"}>
+        <div className="flex gap-2 items-center">
+          <BellRing className="h-5 w-5 text-amber-700" />
+          <h2 className="font-semibold">Unread guest-service alerts ({data.alerts.length})</h2>
+        </div>
+        <div className="grid md:grid-cols-2 gap-2">
+          {data.alerts.slice(0, 10).map((alert) => <div key={alert.id}
+            className="rounded-xl bg-amber-50 border border-amber-100 p-3 flex gap-2 items-start justify-between">
+            <div><strong className="text-sm">{alert.title}</strong>
+              <p className="text-xs text-slate-600">{alert.body}</p>
+              {data.room_guest_labels?.[alert.room_id] &&
+                <p className="text-xs text-slate-500">Current guest: {data.room_guest_labels[alert.room_id]}</p>}
+            </div>
+            <button disabled={busy} className="rounded-lg border bg-white px-3 py-2 text-xs shrink-0"
+              onClick={() => void execute("staff-ack-alert",{alert_id:alert.id},"Alert acknowledged")}>
+              Acknowledge</button>
+          </div>)}
+        </div>
+        <p className="text-xs text-slate-500">Alerts are stored until acknowledged, including when browser notifications are disabled.</p>
+      </section>}
       {loading && <p>Loading property service information…</p>}
       {!loading && data && tab === "requests" && <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -191,7 +237,10 @@ export default function InSuiteStaff() {
             <div><div className="flex gap-2 items-center"><BellRing className="h-5 w-5 text-amber-600" />
               <h3 className="text-lg font-bold">Room {roomLabel(r.room_id)} · {labels[r.request_type] || r.request_type}</h3></div>
               <p className="text-sm text-slate-500">{r.quantity} × · {r.department || "Service"} · {new Date(r.created_at).toLocaleString()}</p>
-              {r.detail && <p className="mt-2 whitespace-pre-wrap">{r.detail}</p>}</div>
+              {r.detail && <p className="mt-2 whitespace-pre-wrap">{r.detail}</p>}
+              {data.room_guest_labels?.[r.room_id || ""] &&
+                <p className="text-sm text-slate-500">Verified in-house guest: {data.room_guest_labels[r.room_id || ""]}</p>}
+              </div>
             <span className={`px-3 py-1 rounded-full text-xs font-bold ${r.status === "completed" ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"}`}>{r.status}</span>
           </div>
           {r.assigned_to ? <p className="text-sm text-slate-600">Assigned staff ID: {r.assigned_to.slice(0, 8)}…</p>
@@ -205,6 +254,14 @@ export default function InSuiteStaff() {
           </div>
         </article>)}
       </div>}
+
+      {!loading && data && (tab === "orders" || tab === "bookings" || tab === "menu") &&
+        <InSuiteCommerceConsole mode={tab} hotelId={hotelId}
+          catalogItems={data.catalog_items || []} orders={data.orders || []}
+          orderLines={data.order_lines || []} bookings={data.bookings || []}
+          roomLabels={data.room_labels || {}} canConfigure={data.can_configure}
+          canReply={data.can_reply} canManageOrders={data.can_manage_orders}
+          onRefresh={async () => { await load(); }} />}
       {!loading && data && tab === "chat" && <div className="grid lg:grid-cols-[300px_1fr] gap-4">
         <section className={card + " space-y-3"}>
           <h2 className="font-semibold text-lg">Guest conversations</h2>
@@ -217,7 +274,10 @@ export default function InSuiteStaff() {
         </section>
         <section className={card + " flex flex-col gap-3 min-h-96"}>
           {deviceId && selectedMessages.length ? <>
-            <h2 className="font-semibold">Room {roomLabel(selectedMessages[0].room_id)}</h2>
+            <h2 className="font-semibold">Room {roomLabel(selectedMessages[0].room_id)}
+              {data.room_guest_labels?.[selectedMessages[0].room_id || ""] &&
+                <span className="ml-2 text-sm text-slate-500">· {data.room_guest_labels[selectedMessages[0].room_id || ""]}</span>}
+            </h2>
             <div className="flex-1 space-y-3 max-h-[55vh] overflow-y-auto">
               {selectedMessages.map((m) => <div key={m.id}
                 className={`rounded-xl p-3 max-w-[85%] ${m.sender === "reception" ? "ml-auto bg-blue-100" : "bg-slate-100"}`}>
@@ -264,11 +324,11 @@ export default function InSuiteStaff() {
             <section className="space-y-5">
               <div className={card + " space-y-4"}>
                 <h2 className="text-xl font-semibold">Enabled guest services</h2>
-                <p className="text-sm text-slate-500">Choose the services which your staff can actually deliver. Paid ordering is not enabled in this pilot.</p>
+                <p className="text-sm text-slate-500">Only enable services the property can deliver. Menu orders require staff confirmation; no automatic charging.</p>
                 {services.map((code) => <label key={code} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl">
                   <input type="checkbox" checked={!!draft.services?.[code]} onChange={(e) =>
                     setDraft((old) => ({ ...old, services: { ...(old.services || {}), [code]: e.target.checked } }))} />
-                  <span>{labels[code]}</span>
+                  <span>{serviceNames[code] || code.replaceAll("_", " ")}</span>
                 </label>)}
                 <div className="flex flex-wrap gap-3">
                   <button disabled={busy} className={actionClass}
@@ -308,9 +368,13 @@ export default function InSuiteStaff() {
             {data.devices.map((d) => <div key={d.id} className="flex flex-col md:flex-row justify-between gap-3 border-t py-3">
               <div><strong>Room {roomLabel(d.room_id)} — {d.label}</strong>
                 <p className="text-xs text-slate-500">{d.is_active ? d.paired_at ? "Paired" : "Awaiting pairing" : "Revoked"}
-                  {" · "}Last seen: {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "Never"}</p>
+                  {" · "}Last seen: {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "Never"}
+                  {" · "}Stay: {d.active_reservation_id ? "Verified reservation" : "Not verified"}</p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button className="border rounded-xl px-3 py-2 text-sm" disabled={busy || !d.is_active}
+                  onClick={() => void execute("staff-reconcile-stay", { device_id:d.id }, "Checked-in stay verified")}>
+                  Verify active stay</button>
                 <button className="border rounded-xl px-3 py-2 text-sm" disabled={busy || !d.is_active}
                   onClick={() => { if (window.confirm("End current guest session? Clear the screen and start a new stay.")) void execute("staff-reset-session", { device_id: d.id }, "Guest session reset"); }}>
                   <ShieldCheck className="h-4 w-4 inline mr-1" /> Reset guest session</button>
@@ -322,7 +386,8 @@ export default function InSuiteStaff() {
           </section>
         </>}
       </div>}
-      <p className="text-xs text-slate-500">Pilot only: PMS checkout reset, hardware kiosk MDM, payment collection and automatic escalations require production integration before hotel-wide activation.</p>
+      <p className="text-xs text-slate-500">Pilot: reservation status changes rotate guest sessions automatically. Physical kiosk lockdown,
+        payment/folio posting, booking-provider confirmation and escalation-job scheduling must still be verified before production activation.</p>
     </main>
   </div>;
 }
