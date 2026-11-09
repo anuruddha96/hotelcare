@@ -101,11 +101,23 @@ Deno.serve(async (req) => {
       if (!hotelConfig.data || ![hotelConfig.data.hotel_id, hotelConfig.data.hotel_name].includes(room.hotel))
         return deny("Room mapping requires manager review", 403);
       const config = settings.published || {};
+      // A device identifies a physical room, never an authenticated occupant.
+      // Guest operations are enabled only while this exact bound reservation
+      // is independently confirmed checked-in by the hotel's PMS data.
+      const { data: stay } = device.active_reservation_id
+        ? await db.from("reservations")
+          .select("id,room_id,status,organization_slug")
+          .eq("id", device.active_reservation_id).maybeSingle()
+        : { data: null };
+      const stayActive = !!stay
+        && stay.room_id === room.id && stay.organization_slug === device.organization_slug
+        && stay.status === "checked_in";
       if (action === "guest-bootstrap") {
         await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
-        return send({ room_number: room.room_number, hotel_id: device.hotel_id, session_epoch: device.session_epoch, config, paired: true });
+        return send({ room_number: room.room_number, hotel_id: device.hotel_id, session_epoch: device.session_epoch, config, stay_active: stayActive, paired: true });
       }
       if (action === "guest-state") {
+        if (!stayActive) return send({ requests: [], messages: [], session_epoch: device.session_epoch, stay_active: false });
         const rawSince = Date.parse(val(body.since, 40));
         // Never expose previous guest history. State only includes entries created after THIS page load.
         const since = new Date(Math.max(Date.now() - 6 * 3600_000, Number.isFinite(rawSince) ? rawSince : Date.now())).toISOString();
@@ -116,9 +128,10 @@ Deno.serve(async (req) => {
             .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(80),
         ]);
         if (requests.error || messages.error) return deny("Could not load updates", 503);
-        return send({ requests: requests.data || [], messages: messages.data || [], session_epoch: device.session_epoch });
+        return send({ requests: requests.data || [], messages: messages.data || [], session_epoch: device.session_epoch, stay_active: true });
       }
       if (action === "guest-request") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
         const type = val(body.request_type, 40);
         const quantity = Number(body.quantity);
         const clientId = val(body.client_request_id, 40);
@@ -169,6 +182,7 @@ Deno.serve(async (req) => {
         return send({ request: inserted }, 201);
       }
       if (action === "guest-message") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
         const message = val(body.message, 1000);
         if (!message || message.length > 1000) return deny("Message required", 400);
         const { count } = await db.from("insuite_messages").select("id", { count: "exact", head: true })
@@ -231,7 +245,7 @@ Deno.serve(async (req) => {
     if (action === "staff-dashboard") {
       if (!manager && !canReply && role !== "housekeeping" && role !== "maintenance")
         return deny("Role not permitted", 403);
-      const [cfg, deviceResult, roomResult, requestResult, msgResult] = await Promise.all([
+      const [cfg, deviceResult, roomResult, requestResult, msgResult, alertResult] = await Promise.all([
         db.from("insuite_property_configs").select("draft,published,enabled,updated_at")
           .eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle(),
         manager ? db.from("insuite_devices").select("id,room_id,label,is_active,paired_at,last_seen_at,created_at")
@@ -245,6 +259,10 @@ Deno.serve(async (req) => {
           .eq("organization_slug", org).eq("hotel_id", hotelId)
           .gte("created_at", new Date(Date.now() - 86400_000).toISOString()).order("created_at", { ascending: false }).limit(200)
           : Promise.resolve({ data: [] }),
+        db.from("insuite_staff_alerts").select("id,kind,title,body,room_id,request_id,message_id,created_at,acknowledged_at")
+          .eq("organization_slug", org).eq("hotel_id", hotelId)
+          .eq("recipient_id", profile.id)
+          .is("acknowledged_at", null).order("created_at", { ascending: false }).limit(60),
       ]);
       const requests = (requestResult.data || []).filter((r: any) => manager || canReply || r.assigned_to === profile.id);
       // Reception sees only messages in the *currently active* device epoch, never previous guest sessions.
@@ -258,7 +276,8 @@ Deno.serve(async (req) => {
         hotel_name: hotel.hotel_name,
         config: manager ? cfg.data || { draft: {}, published: {}, enabled: false } : { enabled: !!cfg.data?.enabled },
         rooms: roomResult.data || [], devices: deviceResult.data || [],
-        requests, messages: (msgResult.data || []).filter((m: any) => deviceEpochs.get(m.device_id) === m.session_epoch),
+        requests, alerts: alertResult.data || [],
+        messages: (msgResult.data || []).filter((m: any) => deviceEpochs.get(m.device_id) === m.session_epoch),
         room_labels: await (async () => {
           const ids = [...new Set([...requests.map((r: any) => r.room_id), ...(msgResult.data || []).map((m: any) => m.room_id)])];
           if (!ids.length) return {};
@@ -267,6 +286,16 @@ Deno.serve(async (req) => {
         })(),
         can_manage: manager, can_configure: administrator, can_reply: canReply,
       });
+    }
+    if (action === "staff-ack-alert") {
+      const id = Number(body.alert_id);
+      if (!Number.isSafeInteger(id) || id <= 0) return deny("Invalid alert", 400);
+      const { data: updated } = await db.from("insuite_staff_alerts")
+        .update({ acknowledged_at: new Date().toISOString() })
+        .eq("id", id).eq("recipient_id", profile.id)
+        .eq("organization_slug", org).eq("hotel_id", hotelId)
+        .select("id").maybeSingle();
+      return updated ? send({ acknowledged: true }) : deny("Alert not found", 404);
     }
     if (action === "staff-save-draft" || action === "staff-publish") {
       if (!administrator) return deny("Administrator permission required");
@@ -298,17 +327,46 @@ Deno.serve(async (req) => {
       const { data: existing } = await db.from("insuite_devices").select("id").eq("room_id", roomId)
         .eq("is_active", true).maybeSingle();
       if (existing) return deny("Revoke the existing room tablet before creating another", 409);
+      const { data: stays, error: stayError } = await db.from("reservations")
+        .select("id").eq("room_id", room.id).eq("organization_slug", org)
+        .eq("status", "checked_in").limit(2);
+      if (stayError) throw stayError;
+      const activeStay = (stays || []).length === 1 ? stays[0].id : null;
       const id = crypto.randomUUID();
       const code = random(12).toUpperCase();
       const pin = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
       const { error } = await db.from("insuite_devices").insert({
         id, organization_slug: org, hotel_id: hotelId, room_id: roomId,
         label: val(body.label, 80) || "Room " + room.room_number,
+        active_reservation_id: activeStay,
         pairing_hash: await sha(code), pairing_expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
         pin_hash: await pinHash(id, pin), created_by: profile.id,
       });
       if (error) throw error;
       return send({ code, pin, expires_in_minutes: 15, room_number: room.room_number, device_id: id }, 201);
+    }
+    if (action === "staff-reconcile-stay") {
+      if (!canReply) return deny("Front desk or manager permission required");
+      const id = val(body.device_id, 40);
+      if (!validUuid(id)) return deny("Invalid device", 400);
+      const { data: device } = await db.from("insuite_devices")
+        .select("id,room_id,active_reservation_id").eq("id", id).eq("organization_slug", org)
+        .eq("hotel_id", hotelId).eq("is_active", true).maybeSingle();
+      if (!device) return deny("Device not found", 404);
+      const { data: active, error: activeError } = await db.from("reservations")
+        .select("id").eq("room_id", device.room_id).eq("organization_slug", org)
+        .eq("status", "checked_in").limit(2);
+      if (activeError) throw activeError;
+      if ((active || []).length !== 1) return deny("Exactly one verified checked-in reservation is required", 409);
+      // Only rebind when the reservation changes; idempotent reconciliation does
+      // not destroy an in-stay conversation.
+      if (device.active_reservation_id === active[0].id) return send({ stay_active: true, unchanged: true });
+      const { error } = await db.from("insuite_devices").update({
+        active_reservation_id: active[0].id,
+        session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString(),
+      }).eq("id", device.id).eq("active_reservation_id", device.active_reservation_id);
+      if (error) throw error;
+      return send({ stay_active: true, session_rotated: true });
     }
     if (action === "staff-reset-session" || action === "staff-revoke-device") {
       if (!canReply && !administrator) return deny("Front desk or manager permission required");
@@ -316,8 +374,9 @@ Deno.serve(async (req) => {
       if (!validUuid(id)) return deny("Invalid device", 400);
       if (action === "staff-revoke-device" && !administrator) return deny("Administrator permission required");
       const patch = action === "staff-revoke-device"
-        ? { is_active: false, device_token_hash: null, pairing_hash: null, session_epoch: crypto.randomUUID() }
-        : { session_epoch: crypto.randomUUID() };
+        ? { is_active: false, device_token_hash: null, pairing_hash: null,
+          active_reservation_id: null, session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString() }
+        : { active_reservation_id: null, session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString() };
       const { data, error } = await db.from("insuite_devices").update(patch)
         .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId).select("id").maybeSingle();
       if (error || !data) return deny("Device not found", 404);
