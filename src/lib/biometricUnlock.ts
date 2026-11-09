@@ -42,7 +42,7 @@ const b64 = (buf: ArrayBuffer | Uint8Array): string => {
   return btoa(s);
 };
 
-const unb64 = (value: string): Uint8Array<ArrayBuffer> => {
+const unb64 = (value: string): Uint8Array => {
   const bin = atob(value);
   const out = new Uint8Array(new ArrayBuffer(bin.length));
   for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
@@ -50,7 +50,7 @@ const unb64 = (value: string): Uint8Array<ArrayBuffer> => {
 };
 
 /** Copy into a plain ArrayBuffer so WebCrypto's BufferSource typing is happy. */
-const bytes = (input: Uint8Array | ArrayBuffer): Uint8Array<ArrayBuffer> => {
+const bytes = (input: Uint8Array | ArrayBuffer): Uint8Array => {
   const src = input instanceof Uint8Array ? input : new Uint8Array(input);
   const out = new Uint8Array(new ArrayBuffer(src.byteLength));
   out.set(src);
@@ -136,7 +136,7 @@ export async function enableBiometric(
   const prfSecret = ext?.prf?.results?.first ? bytes(ext.prf.results.first) : null;
 
   const fallbackSecret = prfSecret ? null : bytes(crypto.getRandomValues(new Uint8Array(32)));
-  const key = await keyFromSecret(prfSecret ?? (fallbackSecret as Uint8Array<ArrayBuffer>));
+  const key = await keyFromSecret(prfSecret ?? (fallbackSecret as Uint8Array));
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const cipher = await crypto.subtle.encrypt(
