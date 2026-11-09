@@ -289,12 +289,19 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Skip anything already reported with the same price.
-      const { data: existing } = await admin
-        .from("revenue_rate_alerts")
-.select("id, stay_date, room_type_name, occupancy, price, notified_at")
-        .eq("hotel_id", h.hotel_id)
-        .gte("stay_date", today);
+      // Page the alert ledger: SLNT's many room types can exceed the REST
+      // server's 1,000-row cap, otherwise old alerts get re-emailed forever.
+      const existing: any[] = [];
+      for (let from = 0; ; from += RATE_PAGE_SIZE) {
+        const { data, error } = await admin.from("revenue_rate_alerts")
+          .select("id, stay_date, room_type_name, occupancy, price, notified_at")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today)
+          .order("stay_date").order("id")
+          .range(from, from + RATE_PAGE_SIZE - 1);
+        if (error) throw error;
+        existing.push(...(data ?? []));
+        if ((data ?? []).length < RATE_PAGE_SIZE) break;
+      }
       const alertKey = (r: any) => `${r.stay_date}|${r.room_type_name}|${r.occupancy}|${Number(r.price)}`;
       const prior = new Map((existing ?? []).map((e: any) => [alertKey(e), e]));
       const alreadyNotified = new Set((existing ?? []).filter((e: any) => !!e.notified_at).map(alertKey));
@@ -316,13 +323,16 @@ Deno.serve(async (req) => {
         price: Number(r.price),
         severity: "critical",
       }));
-      const { data: inserted, error: insertError } = rows.length
-        ? await admin.from("revenue_rate_alerts").insert(rows)
-          .select("id, stay_date, room_type_name, occupancy, price")
-        : { data: [], error: null };
-      if (insertError) throw insertError;
+      const inserted: any[] = [];
+      for (let i = 0; i < rows.length; i += 300) {
+        const { data, error } = await admin.from("revenue_rate_alerts")
+          .insert(rows.slice(i, i + 300))
+          .select("id, stay_date, room_type_name, occupancy, price");
+        if (error) throw error;
+        inserted.push(...(data ?? []));
+      }
       const notificationIds = [
-        ...(inserted ?? []).map((r: any) => r.id),
+        ...inserted.map((r: any) => r.id),
         ...fresh.map((r: any) => (prior.get(alertKey(r)) as any)?.id).filter(Boolean),
       ];
 
