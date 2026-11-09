@@ -9,11 +9,12 @@ diagnostic and is not proven fixed by this branch.
 
 ### Guest pricing
 
-- Staff-entered exact prices have a minimum **€1** increase between consecutive
+- Staff-entered exact prices, including first-time room initialization, have a minimum **€1** increase between consecutive
   guest counts. Examples: €100 → €101 allowed, €100 → €100 rejected.
   No configured €10 occupancy supplement is imposed on staff's explicit prices.
 - Automatic repricing continues to use the configured per-hotel supplement.
-- For SLNT (HUF), the manual minimum step uses the configured EUR-to-HUF
+- For SLNT (HUF), the manual editor and first-price setup show HUF (never an
+  ambiguously labeled EUR amount), and the minimum step uses the configured EUR-to-HUF
   conversion rate. At the currently configured 365 HUF/EUR, the minimum is
   **365 HUF per additional guest**, not 1 HUF.
 - A manager-authored price is recorded **after Previo confirms it** in
