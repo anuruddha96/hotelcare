@@ -27,6 +27,7 @@ type Dashboard = {
   requests: InSuiteRequest[];
   messages: InSuiteMessage[];
   alerts: { id: number; kind: string; title: string; body: string; room_id: string; created_at: string }[];
+  eligible_staff: {id:string; name:string; role:string; acts_as_housekeeper:boolean; on_duty:boolean}[];
   catalog_items: InSuiteCatalogItem[];
   orders: InSuiteStaffOrder[]; order_lines: InSuiteOrderLine[];
   bookings: InSuiteStaffBooking[];
@@ -243,8 +244,25 @@ export default function InSuiteStaff() {
               </div>
             <span className={`px-3 py-1 rounded-full text-xs font-bold ${r.status === "completed" ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"}`}>{r.status}</span>
           </div>
-          {r.assigned_to ? <p className="text-sm text-slate-600">Assigned staff ID: {r.assigned_to.slice(0, 8)}…</p>
-            : <p className="text-sm font-medium text-amber-700">Unassigned — manager or reception must take ownership.</p>}
+          {r.assigned_to ? <p className="text-sm text-slate-600">Assigned to: {data.eligible_staff?.find((p) => p.id === r.assigned_to)?.name || r.assigned_to.slice(0,8) + "…"}</p>
+            : <p className="text-sm font-medium text-amber-700">Unassigned — manager or reception must route this request.</p>}
+          {data.can_reply && !["completed","cancelled","unavailable"].includes(r.status) &&
+            <label className="block text-sm font-semibold space-y-1 max-w-md">
+              <span>Assign to an on-duty employee</span>
+              <select key={r.id + ":" + (r.assigned_to || "")} className={inputClass}
+                value={r.assigned_to || ""} disabled={busy}
+                onChange={(e) => { if (e.target.value) void execute("staff-assign-request",
+                  {request_id:r.id,assigned_to:e.target.value},"Guest request assigned"); }}>
+                <option value="">Select an employee</option>
+                {(data.eligible_staff || []).filter((p) => p.on_duty &&
+                  (r.department === "housekeeping"
+                    ? p.role === "housekeeping" || p.acts_as_housekeeper
+                    : r.department === "maintenance"
+                      ? ["maintenance","maintenance_manager"].includes(p.role)
+                      : ["reception","front_office","reception_manager"].includes(p.role))
+                ).map((p) => <option key={p.id} value={p.id}>{p.name} · {p.role}</option>)}
+              </select>
+            </label>}
           <div className="flex flex-wrap gap-2">
             {(statuses[r.status] || []).map((status) => <button key={status} disabled={busy}
               className={status === "completed" ? "rounded-xl bg-emerald-700 px-4 py-2 text-white" : "rounded-xl border px-4 py-2"}
