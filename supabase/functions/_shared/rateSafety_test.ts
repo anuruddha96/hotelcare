@@ -87,13 +87,16 @@ Deno.test("repairLadder handles gaps in the ladder", () => {
 
 function ladderAdmin(stored: Array<Record<string, unknown>>, rooms: Array<Record<string, unknown>> = []) {
   return {
-    from: (table: string) => query(
-      table === "previo_rate_plan_mapping"
-        ? mapping(["11"])
-        : table === "room_types"
-          ? rooms
-          : stored,
-    ),
+    from: (table: string) => {
+      const rows = table === "previo_rate_plan_mapping" ? mapping(["11"])
+        : table === "room_types" ? rooms
+        : table === "hotel_revenue_settings"
+          ? [{ base_currency: "EUR", eur_conversion_rate: null, extra_guest_supplement_eur: 10 }]
+          : stored;
+      const chain = query(rows);
+      chain.maybeSingle = async () => ({ data: rows[0] ?? null, error: null });
+      return chain;
+    },
   };
 }
 
