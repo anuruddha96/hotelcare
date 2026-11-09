@@ -560,7 +560,7 @@ Deno.serve(async (req) => {
     }
     if (!fallback) {
       try {
-        if (!hasPrevioCredentials(cfg?.credentials_secret_name)) {
+        if (!cfg || !hasPrevioCredentials(cfg.credentials_secret_name)) {
           throw new Error("No Previo credentials are saved for this hotel (neither a PMS configuration nor an active PMS account).");
         }
         fallback = {
