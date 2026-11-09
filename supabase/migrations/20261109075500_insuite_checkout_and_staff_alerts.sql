@@ -245,6 +245,47 @@ create trigger insuite_checkout_session_guard
   after insert or update of status, room_id on public.reservations
   for each row execute function public.insuite_reservation_session_transition();
 
+-- Previo physical departures may be reflected in pms_change_events rather
+-- than reservations.status (the sync intentionally preserves some local
+-- checked-in statuses). Only reset a tablet if the *verified* checkout event
+-- explicitly identifies the same Previo reservation currently bound to it.
+-- An unrelated/late checkout event must not reset the next guest's session.
+create or replace function public.insuite_confirmed_previo_checkout()
+returns trigger language plpgsql security definer set search_path = ''
+as $
+begin
+  if new.event_type <> 'checkout_confirmed'
+    or new.source <> 'poll_checkouts'
+    or new.auto_applied is distinct from true
+    or new.room_id is null
+    or nullif(btrim(coalesce(new.previo_reservation_id,'')), '') is null
+  then return new; end if;
+
+  update public.insuite_devices d
+    set session_epoch = gen_random_uuid(),
+        active_reservation_id = null, session_started_at = now()
+    from public.reservations r
+  where d.room_id = new.room_id and d.is_active
+    and d.hotel_id = new.hotel_id
+    and d.active_reservation_id = r.id
+    and r.room_id = new.room_id
+    and r.organization_slug = d.organization_slug
+    and btrim(coalesce(r.source_reservation_id,'')) =
+        btrim(new.previo_reservation_id)
+    and exists (
+      select 1 from public.hotel_configurations hc
+      join public.organizations o on o.id = hc.organization_id
+      where hc.hotel_id = d.hotel_id and o.slug = d.organization_slug
+    );
+
+  return new;
+end; $;
+revoke all on function public.insuite_confirmed_previo_checkout() from public, anon, authenticated;
+drop trigger if exists insuite_verified_previo_checkout on public.pms_change_events;
+create trigger insuite_verified_previo_checkout
+  after insert on public.pms_change_events
+  for each row execute function public.insuite_confirmed_previo_checkout();
+
 -- Durable SLA reminder: no changes to room clean/dirty states or existing
 -- housekeeping assignments. Duplicate escalations are blocked by level.
 create or replace function public.insuite_escalate_overdue()
