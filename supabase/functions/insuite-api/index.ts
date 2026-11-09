@@ -325,7 +325,7 @@ Deno.serve(async (req) => {
       const [cfg, deviceResult, roomResult, requestResult, msgResult, alertResult, catalogResult, orderResult, bookingResult] = await Promise.all([
         db.from("insuite_property_configs").select("draft,published,enabled,updated_at")
           .eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle(),
-        manager ? db.from("insuite_devices").select("id,room_id,label,is_active,paired_at,last_seen_at,created_at")
+        manager ? db.from("insuite_devices").select("id,room_id,label,is_active,active_reservation_id,paired_at,last_seen_at,created_at")
           .eq("organization_slug", org).eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(300)
           : Promise.resolve({ data: [] }),
         manager ? roomQuery() : Promise.resolve({ data: [] }),
@@ -387,6 +387,27 @@ Deno.serve(async (req) => {
           const { data } = await db.from("rooms").select("id,room_number").in("id", ids);
           return Object.fromEntries((data || []).map((r: any) => [r.id, r.room_number]));
         })(),
+        room_guest_labels: await (async () => {
+          const ids = [...new Set([...requests.map((r: any) => r.room_id),
+            ...(msgResult.data || []).map((m: any) => m.room_id),
+            ...(orderResult.data || []).map((o: any) => o.room_id),
+            ...(bookingResult.data || []).map((b: any) => b.room_id)])];
+          if (!ids.length) return {};
+          const { data: stays } = await db.from("reservations")
+            .select("room_id,pms_guest_name,guests(first_name,last_name)")
+            .eq("organization_slug", org).eq("status","checked_in").in("room_id",ids).limit(300);
+          const byRoom = new Map<string,string[]>();
+          for (const stay of stays || []) {
+            const guest = stay.guests as any;
+            const fromProfile = [guest?.first_name, guest?.last_name].filter(Boolean).join(" ").trim();
+            const name = fromProfile || val(stay.pms_guest_name,100);
+            if (!name || !stay.room_id) continue;
+            byRoom.set(stay.room_id, [...(byRoom.get(stay.room_id) || []),name]);
+          }
+          // Ambiguous overlaps must not display a possibly incorrect guest.
+          return Object.fromEntries([...byRoom.entries()]
+            .filter(([,names]) => names.length === 1).map(([id,names]) => [id,names[0]]));
+        })(),
         can_manage: manager, can_configure: administrator, can_reply: canReply,
         can_manage_orders: canReply || role === "breakfast_staff",
       });
@@ -412,7 +433,7 @@ Deno.serve(async (req) => {
       const imageUrl = val(body.image_url, 900);
       if (!orderTypes.includes(kind) || name.length < 2
         || !Number.isFinite(price) || price < 0 || price > 1_000_000
-        || !/^[A-Z]{3}$/.test(currency) || !Number.isInteger(price * 100)
+        || !/^[A-Z]{3}$/.test(currency) || Math.abs(price * 100 - Math.round(price * 100)) > 0.000001
         || imageUrl && !/^https:\/\//i.test(imageUrl)) return deny("Invalid menu item", 400);
       const patch = {
         kind, name, price, currency, description: val(body.description, 500),
@@ -543,11 +564,16 @@ Deno.serve(async (req) => {
       // Only rebind when the reservation changes; idempotent reconciliation does
       // not destroy an in-stay conversation.
       if (device.active_reservation_id === active[0].id) return send({ stay_active: true, unchanged: true });
-      const { error } = await db.from("insuite_devices").update({
+      let update = db.from("insuite_devices").update({
         active_reservation_id: active[0].id,
         session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString(),
-      }).eq("id", device.id).eq("active_reservation_id", device.active_reservation_id);
+      }).eq("id", device.id).eq("organization_slug", org).eq("hotel_id", hotelId);
+      update = device.active_reservation_id
+        ? update.eq("active_reservation_id", device.active_reservation_id)
+        : update.is("active_reservation_id", null);
+      const { data: changed, error } = await update.select("id").maybeSingle();
       if (error) throw error;
+      if (!changed) return deny("Stay changed. Refresh and retry.", 409);
       return send({ stay_active: true, session_rotated: true });
     }
     if (action === "staff-reset-session" || action === "staff-revoke-device") {
