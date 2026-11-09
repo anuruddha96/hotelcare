@@ -358,6 +358,32 @@ Deno.serve(async (req) => {
           : Promise.resolve({ data: [] }),
       ]);
       const requests = (requestResult.data || []).filter((r: any) => manager || canReply || r.assigned_to === profile.id);
+      const { data: candidates } = manager || canReply
+        ? await db.from("profiles")
+          .select("id,full_name,nickname,role,hotel_id,assigned_hotel,acts_as_housekeeper")
+          .eq("organization_slug",org).is("deleted_at",null)
+          .in("role",["housekeeping","maintenance","reception","front_office",
+            "housekeeping_manager","maintenance_manager","reception_manager"])
+          .limit(500)
+        : { data: [] };
+      const hotelStaff = (candidates || []).filter((p: any) =>
+        p.hotel_id === hotelId || [hotel.hotel_id,hotel.hotel_name].includes(p.assigned_hotel || ""));
+      const staffIds = hotelStaff.map((p: any) => p.id);
+      const { data: attendance } = staffIds.length
+        ? await db.from("staff_attendance")
+          .select("user_id,status,check_out_time,created_at").in("user_id",staffIds)
+          .eq("work_date",todayBudapest()).order("created_at",{ascending:false}).limit(1000)
+        : { data: [] };
+      const staffOnDuty = new Map<string,boolean>();
+      for (const a of attendance || []) {
+        if (!staffOnDuty.has(a.user_id)) staffOnDuty.set(a.user_id,
+          !a.check_out_time && a.status === "checked_in");
+      }
+      const eligibleStaff = hotelStaff.map((p: any) => ({
+        id:p.id,name:val(p.full_name || p.nickname,100) || "Staff member",
+        role:p.role,acts_as_housekeeper:!!p.acts_as_housekeeper,
+        on_duty:staffOnDuty.get(p.id) === true,
+      }));
       const orderIds = (orderResult.data || []).map((o: any) => o.id);
       const { data: orderLines } = orderIds.length
         ? await db.from("insuite_order_lines")
@@ -374,7 +400,7 @@ Deno.serve(async (req) => {
         hotel_name: hotel.hotel_name,
         config: manager ? cfg.data || { draft: {}, published: {}, enabled: false } : { enabled: !!cfg.data?.enabled },
         rooms: roomResult.data || [], devices: deviceResult.data || [],
-        requests, alerts: alertResult.data || [],
+        requests, alerts: alertResult.data || [], eligible_staff: eligibleStaff,
         catalog_items: catalogResult.data || [],
         orders: orderResult.data || [], order_lines: orderLines || [], bookings: bookingResult.data || [],
         messages: (msgResult.data || []).filter((m: any) => deviceEpochs.get(m.device_id) === m.session_epoch),
@@ -617,6 +643,50 @@ Deno.serve(async (req) => {
         .eq("id", id).eq("organization_slug", org).eq("hotel_id", hotelId).select("id").maybeSingle();
       if (error || !data) return deny("Device not found", 404);
       return send({ updated: true });
+    }
+    if (action === "staff-assign-request") {
+      if (!canReply) return deny("Manager or reception permission required");
+      const id = val(body.request_id,40);
+      const targetId = val(body.assigned_to,40);
+      if (!validUuid(id) || !validUuid(targetId)) return deny("Request and employee required",400);
+      const { data: item } = await db.from("insuite_service_requests")
+        .select("id,room_id,department,status,assigned_to").eq("id",id)
+        .eq("organization_slug",org).eq("hotel_id",hotelId).maybeSingle();
+      if (!item) return deny("Request not found",404);
+      if (["completed","cancelled","unavailable"].includes(item.status))
+        return deny("Closed requests cannot be reassigned",409);
+      const { data: candidate } = await db.from("profiles")
+        .select("id,role,acts_as_housekeeper,hotel_id,assigned_hotel")
+        .eq("id",targetId).eq("organization_slug",org).is("deleted_at",null).maybeSingle();
+      if (!candidate || !(
+        candidate.hotel_id === hotelId || [hotel.hotel_id,hotel.hotel_name].includes(candidate.assigned_hotel || "")
+      )) return deny("Employee is not assigned to this property",403);
+      const supported = item.department === "housekeeping"
+        ? candidate.role === "housekeeping" || candidate.acts_as_housekeeper === true
+        : item.department === "maintenance"
+          ? ["maintenance","maintenance_manager"].includes(candidate.role)
+          : ["reception","front_office","reception_manager"].includes(candidate.role);
+      if (!supported) return deny("This staff role cannot handle the request",403);
+      const { data: shift } = await db.from("staff_attendance")
+        .select("status,check_out_time").eq("user_id",candidate.id)
+        .eq("work_date",todayBudapest()).order("created_at",{ascending:false})
+        .limit(1).maybeSingle();
+      if (!shift || shift.status !== "checked_in" || shift.check_out_time)
+        return deny("Employee is not currently signed in",409);
+      if (item.assigned_to === targetId) return send({ assigned:true,unchanged:true });
+      let change = db.from("insuite_service_requests").update({
+        assigned_to: targetId, updated_at:new Date().toISOString(),
+        status:"submitted", escalation_level:0, escalated_at:null,
+      }).eq("id",id).eq("organization_slug",org).eq("hotel_id",hotelId).eq("status",item.status);
+      change = item.assigned_to
+        ? change.eq("assigned_to",item.assigned_to)
+        : change.is("assigned_to",null);
+      const { data: updated,error } = await change.select("id,assigned_to,status").maybeSingle();
+      if (error || !updated) return deny("Request was changed. Refresh first",409);
+      await db.from("insuite_request_events").insert({
+        request_id:id,old_status:item.status,new_status:"submitted",actor_user_id:profile.id,
+      });
+      return send({ request:updated });
     }
     if (action === "staff-update-request") {
       const id = val(body.request_id, 40);
