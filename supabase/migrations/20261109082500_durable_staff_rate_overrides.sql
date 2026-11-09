@@ -37,7 +37,7 @@ where d.stay_date >= (now() at time zone 'Europe/Budapest')::date
   and d.obk_id is not null
   and d.status = 'pushed'
   and d.confirmation_status = 'confirmed'
-  and d.intent_source in ('manual', 'manual_bulk', 'manual_pickup_board', 'manual_ladder_completion')
+  and d.intent_source in ('manual', 'manual_bulk', 'manual_pickup_board')
   and r.source in ('manual', 'bulk', 'pickup-board')
   and coalesce(d.decision_reason, '') !~ '^ai_'
 order by d.hotel_id, d.stay_date, d.obk_id, d.occupancy, d.created_at desc
@@ -60,7 +60,7 @@ begin
   if new.status <> 'pushed'
      or new.confirmation_status <> 'confirmed'
      or new.obk_id is null
-     or new.intent_source not in ('manual', 'manual_bulk', 'manual_pickup_board', 'manual_ladder_completion')
+     or new.intent_source not in ('manual', 'manual_bulk', 'manual_pickup_board')
      or coalesce(new.decision_reason, '') ~ '^ai_' then
     return new;
   end if;
@@ -109,7 +109,7 @@ declare
 begin
   if new.obk_id is null
      or new.stay_date < (now() at time zone 'Europe/Budapest')::date
-     or new.intent_source in ('manual', 'manual_bulk', 'manual_pickup_board', 'manual_ladder_completion')
+     or new.intent_source in ('manual', 'manual_bulk', 'manual_pickup_board')
         and coalesce(new.decision_reason, '') !~ '^ai_' then
     return new;
   end if;
