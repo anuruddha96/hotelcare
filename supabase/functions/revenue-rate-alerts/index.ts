@@ -176,6 +176,15 @@ function buildSlntAdaptiveBounds(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+
+  // This worker has service-role access and sends real emails. Never expose
+  // it as a publicly callable endpoint or accept an empty configured secret.
+  const workerSecret = Deno.env.get("REVENUE_RATE_ALERT_WORKER_SECRET");
+  if (!workerSecret) return json({ error: "Rate-alert worker secret not configured" }, 503);
+  if (req.headers.get("x-worker-secret") !== workerSecret) {
+    return json({ error: "Unauthorized rate-alert worker request" }, 401);
+  }
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
