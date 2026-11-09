@@ -40,7 +40,7 @@ export default function InitializeRoomRatesDialog({ room, hotelId, organizationS
     const ladder = validateFirstRateLadder(prices, guests);
     const dates = initialRateDates(start, days);
     if (!ladder || dates.length !== days || start < today) {
-      toast.error("Enter a positive whole-euro price for every guest level, in non-decreasing order, and choose a future date.");
+      toast.error("Enter a positive whole-euro price for every guest level, with each higher guest level at least €1 more, and choose a future date.");
       return;
     }
     setSaving(true);
@@ -149,7 +149,7 @@ export default function InitializeRoomRatesDialog({ room, hotelId, organizationS
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Only your entered rates will be queued. Room availability and occupancy are not changed. Previo must accept and confirm the rate plan before these rooms can be priced.
+              Each additional guest must cost at least €1 more. Staff-entered prices are not subject to the automated €10 supplement. Only your entered rates will be queued. Room availability and occupancy are not changed. Previo must accept and confirm the rate plan before these rooms can be priced.
             </p>
           </div>
         )}
