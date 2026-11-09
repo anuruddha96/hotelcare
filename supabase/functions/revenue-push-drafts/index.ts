@@ -756,7 +756,7 @@ Deno.serve(async (req) => {
       }
       const roomOverrideKey = `${g.stay_date}|${String(g.drafts[0]?.obk_id ?? g.obkId)}`;
       const manualInFlight = new Set(
-        g.drafts.filter((d: any) => String(d.intent_source ?? "").startsWith("manual"))
+        g.drafts.filter((d: any) => ["manual", "manual_bulk", "manual_pickup_board"].includes(String(d.intent_source ?? "")))
           .map((d: any) => Math.max(1, Math.round(Number(d.occupancy) || 1))),
       );
       for (const [occupancy, price] of protectedByDateRoom.get(roomOverrideKey) ?? []) {
