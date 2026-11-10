@@ -107,34 +107,27 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     return () => window.clearTimeout(t);
   }, [hotelId, load]);
 
+  // Rate auditing can write thousands of rows in a bulk Previo push. Using
+  // postgres_changes on this append-heavy table makes Realtime decode and
+  // authorize every audit row, even though the UI only needs a recent summary.
+  // Refresh the history only while the revenue page is visible instead.
   useEffect(() => {
     if (!hotelId) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let pending = false;
-    const schedule = () => {
-      if (timer) return;
-      timer = setTimeout(() => {
-        timer = null;
-        if (document.visibilityState !== "visible") { pending = true; return; }
-        void loadRef.current();
-      }, 12_000);
+    let lastRefresh = Date.now();
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      // visibilitychange and focus can fire together, especially on mobile.
+      if (Date.now() - lastRefresh < 15_000) return;
+      lastRefresh = Date.now();
+      void loadRef.current();
     };
-    const onVisible = () => {
-      if (document.visibilityState === "visible" && pending) { pending = false; void loadRef.current(); }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    const channel = supabase
-      .channel(`rate-audit:${hotelId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "rate_change_audit", filter: `hotel_id=eq.${hotelId}` },
-        () => { schedule(); },
-      )
-      .subscribe();
+    const interval = window.setInterval(refreshIfVisible, 60_000);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
     return () => {
-      if (timer) clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-      void supabase.removeChannel(channel);
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
     };
   }, [hotelId]);
 
