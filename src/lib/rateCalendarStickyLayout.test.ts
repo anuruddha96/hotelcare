@@ -59,6 +59,33 @@ describe('Rate & Pickup frozen summary rows', () => {
   });
 });
 
+describe('iPhone horizontal swipes keep PU / Occ / Left frozen', () => {
+  it('does not clip the sticky summary labels at their flex row ancestor', () => {
+    const summaryCss = layout.split('/* Frozen rate summary — mobile Safari / desktop.')[1] ?? '';
+    expect(summaryCss).toMatch(/\[data-rate-sticky-summary="true"\] > \.flex \{\s*overflow: visible !important;/);
+
+    // A clipped metric-row ancestor silently disables sticky left:0 on Safari.
+    const metricRule = summaryCss.match(
+      /\[data-rate-sticky-summary="true"\] > \.flex:nth-child\(n\+3\) \{([^}]+)\}/,
+    )?.[1] ?? '';
+    expect(metricRule).toContain('height: var(--rate-metric-height) !important;');
+    expect(metricRule).not.toMatch(/overflow:\s*(hidden|auto|scroll)/);
+
+    // Horizontal date contents are still clipped within their own cells.
+    const dateCells = summaryCss.match(
+      /\[data-rate-sticky-summary="true"\] > \.flex:nth-child\(n\+3\) > :not\(\.sticky\.left-0\) \{([^}]+)\}/,
+    )?.[1] ?? '';
+    expect(dateCells).toContain('overflow: hidden;');
+
+    const frozenLabel = summaryCss.match(
+      /\[data-rate-sticky-summary="true"\] > \.flex > \.sticky\.left-0 \{([^}]+)\}/,
+    )?.[1] ?? '';
+    expect(frozenLabel).toContain('position: sticky !important;');
+    expect(frozenLabel).toContain('left: 0 !important;');
+    expect(frozenLabel).toContain('flex-shrink: 0 !important;');
+  });
+});
+
 describe('Portrait and landscape freeze the four summary metrics', () => {
   it('keeps sticky header in portrait and rotated phones', () => {
     const component = readFileSync('src/components/revenue/RevenueCalendarExperience.tsx', 'utf8');
