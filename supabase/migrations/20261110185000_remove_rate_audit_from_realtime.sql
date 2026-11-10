@@ -7,7 +7,18 @@
 -- Never delete audit history or change the Previo/revenue publishing flow.
 -- The Revenue history hook now uses visible-tab refresh at a bounded cadence.
 -- Keep operational tables (tickets, rooms, room_assignments, etc.) streaming.
-ALTER PUBLICATION supabase_realtime DROP TABLE public.rate_change_audit;
+DO $
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'rate_change_audit'
+  ) THEN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime DROP TABLE public.rate_change_audit';
+  END IF;
+END
+$;
 
 -- Reversal, if ever needed:
 -- ALTER PUBLICATION supabase_realtime ADD TABLE public.rate_change_audit;
