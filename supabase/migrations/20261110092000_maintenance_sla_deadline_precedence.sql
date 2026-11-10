@@ -38,7 +38,9 @@ WITH matching_settings AS (
    )
   WHERE t.department = 'maintenance'
     AND t.status::text <> 'completed'
-    AND t.created_at >= s.created_at
+    -- Do not retroactively apply a setting that was changed after this ticket
+    -- was created: the ticket must have lived under the current configuration.
+    AND t.created_at >= s.updated_at
     AND abs(extract(epoch FROM (t.sla_due_date - t.created_at)) -
       CASE t.priority::text
         WHEN 'urgent' THEN 4 * 3600
