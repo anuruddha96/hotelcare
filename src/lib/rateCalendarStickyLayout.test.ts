@@ -61,7 +61,7 @@ describe('Rate & Pickup frozen summary rows', () => {
 
 describe('iPhone horizontal swipes keep PU / Occ / Left frozen', () => {
   it('does not clip the sticky summary labels at their flex row ancestor', () => {
-    const summaryCss = layout.split('/* Frozen rate summary — mobile Safari / desktop.')[1] ?? '';
+    const summaryCss = layout.split(' * Frozen rate summary — mobile Safari / desktop.')[1] ?? '';
     expect(summaryCss).toMatch(/\[data-rate-sticky-summary="true"\] > \.flex \{\s*overflow: visible !important;/);
 
     // A clipped metric-row ancestor silently disables sticky left:0 on Safari.
