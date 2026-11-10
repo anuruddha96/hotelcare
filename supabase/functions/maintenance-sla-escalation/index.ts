@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
 import { sendEmail } from '../_shared/emailSender.ts';
+import { formatMaintenanceOverdue, maintenanceHoursPastDue } from '../_shared/maintenanceSla.ts';
 
 type EscalationSetting = {
   organization_slug: string;
@@ -154,7 +155,7 @@ async function evidenceLinks(admin: ReturnType<typeof createClient>, values: str
   return links;
 }
 
-async function emailBody(admin: ReturnType<typeof createClient>, ticket: MaintenanceTicket, level: 0 | 1 | 2, threshold: Date, hoursPast: number) {
+async function emailBody(admin: ReturnType<typeof createClient>, ticket: MaintenanceTicket, level: 0 | 1 | 2, hoursPast: number) {
   const url = ticketUrl(ticket);
   const room = ticket.room_number && ticket.room_number.toUpperCase() !== 'N/A' ? ticket.room_number : 'Common area';
   const assigned = ticket.assigned_to_profile?.full_name || 'Unassigned';
@@ -170,9 +171,7 @@ async function emailBody(admin: ReturnType<typeof createClient>, ticket: Mainten
   const evidenceText = evidence.length ? evidence.map(item => `${item.label}: ${item.url}`).join('\\n') : 'No attachments';
   const evidenceHtml = evidence.length ? `<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:7px">Attachments (${evidence.length})</div><div>${evidence.map(item => `<a href="${clean(item.url)}" style="display:inline-block;margin:0 6px 6px 0;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;color:#0369a1;text-decoration:none;font-size:12px">${clean(item.label)}</a>`).join('')}</div></div>` : '';
   const hotel = ticket.hotel;
-  const overdue = level === 0 ? 'Newly reported' : hoursPast < 48
-    ? `${Math.max(1, Math.round(hoursPast))}h past repair deadline`
-    : `${Math.max(2, Math.round(hoursPast / 24))} days past repair deadline`;
+  const overdue = level === 0 ? 'Newly reported' : formatMaintenanceOverdue(hoursPast);
   const reason = level === 0
     ? 'A maintenance issue has been reported. Please coordinate its repair and keep the team informed.'
     : level === 1
@@ -323,7 +322,7 @@ Deno.serve(async (req) => {
       continue;
     }
     try {
-      const message=await emailBody(admin,ticket,0,new Date(job.threshold_at),0);
+      const message=await emailBody(admin,ticket,0,0);
       const result=await sendEmail({admin:admin as never,organizationSlug:ticket.organization_slug,
         to:recipients,subject:message.subject,html:message.html,text:message.text,kind:'transactional'});
       await admin.from('maintenance_escalation_events').update({
@@ -388,8 +387,10 @@ Deno.serve(async (req) => {
         }
         if (!claimId) continue;
         claimed++;
-        const hoursPast = Math.max(0, (now.getTime() - candidate.at.getTime()) / 3_600_000);
-        const message = await emailBody(admin, ticket, candidate.level, candidate.at, hoursPast);
+        // L2 is scheduled one SLA interval after L1, but the age shown to
+        // management must always be relative to the ORIGINAL repair deadline.
+        const hoursPast = maintenanceHoursPastDue(now, ticket.sla_due_date);
+        const message = await emailBody(admin, ticket, candidate.level, hoursPast);
         const result = await sendEmail({
           admin: admin as never,
           organizationSlug: ticket.organization_slug,
