@@ -31,6 +31,10 @@ const LABELS: Record<string, string> = {
   get_restaurant_reservations: "Checking restaurant reservations…",
   render_chart: "Drawing the chart…",
   generate_image: "Creating the image…",
+  search_mail: "Searching your inbox…",
+  read_mail: "Reading the email…",
+  draft_email: "Drafting the email…",
+  draft_review_reply: "Drafting the review reply…",
   search_web: "Searching the web…",
   execute_action: "Carrying out the action…",
 };
@@ -46,6 +50,8 @@ export function isRenderedTool(toolName: string): boolean {
     toolName === "propose_automation_change" ||
     toolName === "propose_action" ||
     toolName === "render_chart" ||
-    toolName === "generate_image"
+    toolName === "generate_image" ||
+    toolName === "draft_email" ||
+    toolName === "draft_review_reply"
   );
 }

@@ -191,6 +191,12 @@ verify_jwt = false
 [functions.assistant-priorities]
 verify_jwt = false
 
+[functions.assistant-mail]
+verify_jwt = false
+
+[functions.assistant-mail-oauth-callback]
+verify_jwt = false
+
 [functions.previo-sync-daily-overview]
 verify_jwt = false
 

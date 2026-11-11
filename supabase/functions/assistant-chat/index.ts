@@ -15,6 +15,7 @@ import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assista
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
 import { MODEL_BY_PURPOSE, planAssistantTurn } from "../_shared/aiModelPolicy.ts";
 import { buildWorkspaceTools, canGenerateImages, canReadReputation, workspacePrompt, type WorkspaceAttachment } from "../_shared/assistantWorkspace.ts";
+import { buildMailTools, mailPrompt, mailToolsAvailable } from "../_shared/assistantMailTools.ts";
 import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
 
@@ -141,6 +142,7 @@ function buildTools(
   pageHotelId: string | null,
   question: string,
   attachments: WorkspaceAttachment[],
+  threadId: string | null = null,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -1569,6 +1571,8 @@ function buildTools(
       attachments,
     }),
   );
+  // Personal mailbox: search, read and draft. Sending happens only on the card.
+  Object.assign(tools, buildMailTools({ service, profile, threadId, attachments }));
   return tools;
 }
 
@@ -1913,9 +1917,9 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
         hasRestaurant: activeScopes.has("reception"),
         hasImages: canGenerateImages(profile.role),
         canWriteRates: actionsForRole(profile.role).includes("adjust_revenue_prices"),
-      })}${projectBrief}`,
+      })}${mailToolsAvailable(profile.role) ? mailPrompt() : ""}${projectBrief}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments),
+      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.

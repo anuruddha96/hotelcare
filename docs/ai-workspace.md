@@ -65,8 +65,57 @@ The same step is applied to every room type and occupancy price of a night.
 The functions and the app tolerate the migration being applied later: pins,
 projects and saved charts simply stay off until the columns exist.
 
+## Mailboxes and review replies
+
+Managers connect their **own** work mailbox (Gmail / Google Workspace or
+Outlook / Microsoft 365) from **Mailboxes** in the assistant sidebar.
+
+| Tool | What it does | Roles |
+|---|---|---|
+| `search_mail`, `read_mail` | Find and read emails in the connected inbox | admin, top management, manager, department managers |
+| `draft_email` | Prepares an email or a threaded reply as a card | same |
+| `draft_review_reply` | Prepares a Google review reply as a card | admin, top management (same as Reputation) |
+
+Rules that hold for every role:
+
+- The assistant has **no send tool**. An email leaves only when the person taps
+  **Send** on the card (`assistant-mail`, action `send`), from their own
+  mailbox. A review reply is published only on **Publish to Google**, through
+  the existing `google-reputation` → `publish_reply` path and its checks.
+- Email content is passed to the model as untrusted data and the prompt forbids
+  following instructions inside it. Recipients outside the sender's domain are
+  flagged on the card. Header injection is rejected.
+- Tokens are AES-GCM encrypted; the mailbox tables are server-only.
+- At most 10 recipients per email and 40 assistant emails per person per day.
+  Drafts expire after 48 hours.
+- Administrators see `assistant_mail_log`: who sent what subject to whom and
+  when, plus connects and disconnects. Message bodies are not logged.
+
+### Switching mailboxes on
+
+1. Apply `supabase/migrations/20261111210000_assistant_mail.sql`.
+2. Deploy `assistant-mail`, `assistant-mail-oauth-callback`, `assistant-chat`.
+3. Secret `ASSISTANT_MAIL_TOKEN_KEY`: any long random string (32 bytes base64
+   is ideal). Falls back to `GOOGLE_BUSINESS_TOKEN_KEY` when not set.
+4. **Microsoft 365**: register an app in Microsoft Entra ID → App
+   registrations. Redirect URI (Web):
+   `https://<project>.supabase.co/functions/v1/assistant-mail-oauth-callback`.
+   Delegated permissions: `offline_access`, `openid`, `email`, `User.Read`,
+   `Mail.Read`, `Mail.Send`. Create a client secret. Set
+   `MICROSOFT_MAIL_CLIENT_ID`, `MICROSOFT_MAIL_CLIENT_SECRET`, and
+   `MICROSOFT_MAIL_TENANT` (your tenant id; `common` allows any organisation).
+   Grant admin consent once so staff are not asked individually.
+5. **Google Workspace**: in Google Cloud, enable the Gmail API, add the redirect
+   URI above to an OAuth client, and add the scopes `gmail.readonly` and
+   `gmail.send`. Set the OAuth consent screen to **Internal** so only your
+   Workspace domain can connect and Google's restricted-scope verification is
+   not required. Set `GOOGLE_MAIL_CLIENT_ID` and `GOOGLE_MAIL_CLIENT_SECRET`
+   (or `GOOGLE_MAIL_ENABLED=true` to reuse the Google Business client).
+6. Optional `ASSISTANT_APP_ORIGINS`: comma-separated extra app origins allowed
+   as a return address after sign-in (the calling origin is always allowed).
+
+A provider without credentials simply does not appear in the Mailboxes dialog.
+
 ## Not included yet
 
-- Connecting a staff mailbox (Gmail / Microsoft 365) to read, draft and send.
-- Publishing a Google review reply from the chat (today: Reputation screen).
 - Writing reservation changes back to Previo.
