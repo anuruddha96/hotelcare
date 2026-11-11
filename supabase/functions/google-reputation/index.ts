@@ -330,14 +330,14 @@ Deno.serve(async (req) => {
           admin
             .from("google_business_locations")
             .select(
-              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_enabled_at,auto_reply_consent_at,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context,google_total_review_count,google_average_rating,google_review_stats_updated_at",
+              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_enabled_at,auto_reply_consent_at,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context,google_total_review_count,google_average_rating,google_review_stats_updated_at,auto_backfill_active,auto_backfill_authorized_at,auto_backfill_cutoff,auto_backfill_upper_bound",
             )
             .eq("organization_id", org.id)
             .order("google_location_title"),
           admin
             .from("google_reviews")
             .select(
-              "id,hotel_id,google_location_id,reviewer_display_name,reviewer_profile_photo_url,star_rating,comment,review_create_time,review_update_time,google_reply_comment,google_reply_update_time,reply_origin,ai_language,ai_sentiment,ai_categories,ai_summary,ai_risk_level,ai_confidence,ai_draft,ai_draft_generated_at,draft_edited_at,reply_status,replied_at,auto_reply_eligible",
+              "id,hotel_id,google_location_id,reviewer_display_name,reviewer_profile_photo_url,star_rating,comment,review_create_time,review_update_time,google_reply_comment,google_reply_update_time,reply_origin,auto_reply_kind,ai_language,ai_sentiment,ai_categories,ai_summary,ai_risk_level,ai_confidence,ai_draft,ai_draft_generated_at,draft_edited_at,reply_status,replied_at,auto_reply_eligible",
             )
             .eq("organization_id", org.id)
             .order("review_update_time", { ascending: false })
@@ -806,6 +806,41 @@ Deno.serve(async (req) => {
         activated.push(updated);
       }
       return json({ ok: true, activated, policy: "future_4_5_low_risk_only", authorized_at: consentTime });
+    }
+
+    if (action === "authorize_historical_backfill" || action === "cancel_historical_backfill") {
+      const ids = Array.isArray(body.location_ids) ? body.location_ids.map(String) : [];
+      const uniqueIds = Array.from(new Set(ids));
+      if (!uniqueIds.length || uniqueIds.length > 25 || uniqueIds.length !== ids.length)
+        return json({ error: "Choose 1–25 distinct Google Business locations." }, 400);
+      if (action === "authorize_historical_backfill" && body.confirm !== true)
+        return json({ error: "Explicit consent for the selected 14-day review window is required." }, 409);
+      const { data: venues, error: foundError } = await admin.from("google_business_locations")
+        .select("id,reply_brand_name,google_location_title,is_active")
+        .eq("organization_id", org.id).in("id", uniqueIds);
+      if (foundError) throw foundError;
+      if (!venues || venues.length !== uniqueIds.length || venues.some((v: any) => !v.is_active))
+        return json({ error: "One or more requested Google listings are unavailable." }, 409);
+      const timestamp = new Date();
+      const authorized = action === "authorize_historical_backfill";
+      const cutoff = new Date(timestamp.getTime() - 14 * 86_400_000).toISOString();
+      for (const venue of venues) {
+        const updates = authorized ? {
+          auto_backfill_active: true,
+          auto_backfill_authorized_at: timestamp.toISOString(),
+          auto_backfill_authorized_by: userData.user.id,
+          auto_backfill_cutoff: cutoff,
+          auto_backfill_upper_bound: timestamp.toISOString(),
+        } : { auto_backfill_active: false };
+        const { error } = await admin.from("google_business_locations").update({
+          ...updates, updated_at: timestamp.toISOString(),
+        }).eq("id", venue.id).eq("organization_id", org.id);
+        if (error) throw error;
+      }
+      return json({ ok: true, venues: venues.map((v: any) => ({ id: v.id, name: v.reply_brand_name || v.google_location_title })),
+        historical_window: authorized ? { from: cutoff, to: timestamp.toISOString() } : null,
+        active: authorized,
+        max_published_per_worker_run: 5 });
     }
 
     if (action === "acknowledge_low_rating_alert") {
