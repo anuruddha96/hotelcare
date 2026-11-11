@@ -16,6 +16,9 @@ const follow: Record<string, string[]> = {
  * Separate urgent guest delivery work, never changes room cleanliness or existing
  * room_assignments. Server only exposes items assigned to the signed-in cleaner.
  */
+// Do not poll a non-deployed Edge Function from every housekeeping handset.
+const INSUITE_OPERATIONS_ENABLED = import.meta.env.VITE_INSUITE_ENABLED === "true";
+
 export function InSuiteAssignedRequests() {
   const { profile, user } = useAuth();
   const [items, setItems] = useState<InSuiteRequest[]>([]);
@@ -26,7 +29,7 @@ export function InSuiteAssignedRequests() {
   const org = profile?.organization_slug || "";
 
   const load = useCallback(async () => {
-    if (!hotelId || !org || !user || profile?.role !== "housekeeping") return;
+    if (!INSUITE_OPERATIONS_ENABLED || !hotelId || !org || !user || profile?.role !== "housekeeping") return;
     try {
       const result = await inSuiteStaff("staff-dashboard", hotelId);
       const list = (result.requests || []).filter((r: InSuiteRequest) => open(r.status) && r.assigned_to === user.id);
@@ -43,7 +46,7 @@ export function InSuiteAssignedRequests() {
   }, [hotelId, org, user?.id, profile?.role]);
 
   useEffect(() => {
-    if (profile?.role !== "housekeeping") return;
+    if (!INSUITE_OPERATIONS_ENABLED || profile?.role !== "housekeeping") return;
     seen.current = null; setItems([]);
     void load();
     const interval = window.setInterval(() => { if (!document.hidden) void load(); }, 15000);
@@ -62,7 +65,7 @@ export function InSuiteAssignedRequests() {
     finally { setBusy(""); }
   };
 
-  if (!items.length) return null;
+  if (!INSUITE_OPERATIONS_ENABLED || !items.length) return null;
   return <section className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-3 sm:p-4 space-y-3"
     aria-label="Priority guest requests">
     <div className="flex items-center justify-between gap-2">
