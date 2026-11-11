@@ -1560,6 +1560,16 @@ export function AutoRoomAssignment({
   };
 
   const handleConfirmAssignment = async () => {
+    // A future planner must never fall through to the live room-assignment
+    // mutation path. A date rollover also invalidates an open future plan.
+    if (!isNextDayPlanning && selectedDate > todayBudapest()) {
+      toast.error('Future assignments can only be saved as dated plans. Reopen Auto Assign for ' + selectedDate + '.');
+      return;
+    }
+    if (isNextDayPlanning && selectedDate <= todayBudapest()) {
+      toast.error('This planning date is now today or in the past. Refresh Team View before editing.');
+      return;
+    }
     if (!user || !profile?.organization_slug) return;
     if (isGozsdu && (!gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)
       || (!hasManagerPowers(profile?.role) && !gozsduAllocationRespectsBuildings(assignmentPreviews))
@@ -1753,7 +1763,7 @@ export function AutoRoomAssignment({
         : changed.length
           ? `Previo changed cleaning requirements for ${changed.slice(0, 5).join(', ')}. Room owners are preserved; review the updated services and times before approval.`
           : 'Latest Previo snapshot loaded. Review the room allocation before approval.');
-      toast.info('Tomorrow\'s Previo workload refreshed. Review the room assignments before approval.');
+      toast.info(`Previo workload for ${selectedDate} refreshed. Review the room assignments before approval.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not refresh tomorrow\'s PMS snapshot.';
       setTomorrowApprovalError(message);
@@ -1764,6 +1774,14 @@ export function AutoRoomAssignment({
   };
 
   const handleAssignPublicAreas = async () => {
+    if (!isNextDayPlanning && selectedDate > todayBudapest()) {
+      toast.error('Future public-area work must be saved with the dated plan, not today\'s live tasks.');
+      return;
+    }
+    if (isNextDayPlanning && selectedDate <= todayBudapest()) {
+      toast.error('The selected planning date is no longer in the future. Refresh Team View.');
+      return;
+    }
     if (isNextDayPlanning) {
       if (!user || !profile?.organization_slug || !profile.assigned_hotel || !nextDayPmsSyncedAt) {
         const message = 'Tomorrow PMS data is missing. Close and reopen Auto Assign to refresh it.';
@@ -1810,7 +1828,7 @@ export function AutoRoomAssignment({
           detail: { hotelId: profile.assigned_hotel, planDate: selectedDate, planId: saved.planId },
         }));
         onAssignmentCreated(saved.roomCount, cleaningStaffIds.size);
-        toast.success(`Tomorrow’s plan approved: ${saved.roomCount} rooms · ${saved.areaCount} public-area tasks · release ${autoRelease ? '08:00' : 'held'}.`);
+        toast.success(`Future plan for ${selectedDate} approved: ${saved.roomCount} rooms · ${saved.areaCount} public-area tasks · release ${autoRelease ? '08:00' : 'held'}.`);
         onOpenChange(false);
       } catch (error) {
         console.error('[AutoRoomAssignment] tomorrow plan save failed:', error);
@@ -2077,10 +2095,17 @@ export function AutoRoomAssignment({
               {t('autoAssign.title')}
               {editingExistingAssignments && <Badge variant="outline" className="border-blue-300 text-blue-700">Editing current assignments</Badge>}
               {restoredFromSave && <Badge variant="outline" className="border-green-300 text-green-700">{t('autoAssign.restored')}</Badge>}
-              <Badge variant="outline" className={isNextDayPlanning ? 'border-blue-300 text-blue-700' : 'border-emerald-300 text-emerald-700'}>{isNextDayPlanning ? nt('tomorrowRelease') : `● ${nt('live')}`}</Badge>
+              <Badge variant="outline" className={isNextDayPlanning ? 'border-blue-300 text-blue-700' : 'border-emerald-300 text-emerald-700'}>{isNextDayPlanning ? `Future plan · ${selectedDate}` : `● ${nt('live')}`}</Badge>
             </DialogTitle>
           </DialogHeader>
-
+          {isNextDayPlanning && (
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-100">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong>Editing future housekeeping for {selectedDate}.</strong> This is a dated plan only.
+              Today's active room assignments, ongoing cleaning, RTC status and supervisor approvals will not be modified.
+              {autoRelease ? ' The approved plan is scheduled to release at 08:00 Budapest time on the selected date.' : ' Automatic release is disabled.'}</span>
+            </div>
+          )}
           <div className={isGozsdu ? 'grid grid-cols-4 items-center gap-1 py-1 text-center sm:flex sm:flex-wrap sm:justify-center' : 'flex flex-wrap items-center justify-center gap-1.5 py-1'}>
             <Badge variant={step === 'select-staff' ? 'default' : 'secondary'} className="text-xs">1. {t('autoAssign.stepStaff')}</Badge>
             <ArrowRight className={`h-3 w-3 text-muted-foreground ${isGozsdu ? 'hidden sm:block' : ''}`} />
@@ -2438,14 +2463,14 @@ export function AutoRoomAssignment({
                 <div className="text-center"><Check className="mx-auto mb-2 h-12 w-12 text-green-600" /><h3 className="text-lg font-semibold">{isNextDayPlanning ? nt('reviewPublicAreas') : t('autoAssign.roomsAssignedSuccess')}</h3><p className="text-sm text-muted-foreground">{isNextDayPlanning ? 'Mapped section tasks are included in the same 08:00 plan. Add any extra one-off public areas, then approve the complete plan.' : 'Mapped section tasks are already assigned. Add only any extra one-off public areas needed today.'}</p></div>
                 {isNextDayPlanning && submitting && (
                   <div role="status" className="rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
-                    Checking tomorrow's Previo reservations and staff permissions before approval.
+                    Checking Previo reservations for {selectedDate} and staff permissions before approval.
                   </div>
                 )}
                 {isNextDayPlanning && tomorrowApprovalError && (
                   <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <strong>Tomorrow's plan was not approved.</strong>
+                      <strong>Plan for {selectedDate} was not approved.</strong>
                       <p className="mt-1 break-words">{tomorrowApprovalError}</p>
                       <p className="mt-1 text-xs">The plan was not approved. Refresh Previo and review changed room services without losing your manual room owners or public-area selections.</p>
                       <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => void refreshTomorrowPlanForReview()} disabled={submitting}>
