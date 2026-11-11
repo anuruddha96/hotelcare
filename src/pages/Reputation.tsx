@@ -664,7 +664,7 @@ export default function Reputation() {
     setSelectedRecentIds((prev) => {
       if (!checked) return prev.filter((id) => id !== reviewId);
       if (prev.includes(reviewId)) return prev;
-      if (prev.length >= 10) { toast.warning("Choose up to 10 reviews per approval batch."); return prev; }
+      if (prev.length >= 25) { toast.warning("Choose up to 25 reviews per approval batch."); return prev; }
       return [...prev, reviewId];
     });
   };
@@ -673,21 +673,20 @@ export default function Reputation() {
     if (!selectedRecentIds.length) return;
     setBulkBusy(true);
     setBulkConsent(false);
+    setBulkProgress(`Preparing ${selectedRecentIds.length} varied replies from the curated library…`);
     try {
-      const fresh = { ...recentDrafts };
-      for (let i = 0; i < selectedRecentIds.length; i++) {
-        const id = selectedRecentIds[i];
-        if (!fresh[id]?.trim()) {
-          setBulkProgress(`Preparing reply ${i + 1} of ${selectedRecentIds.length}…`);
-          const result = await invoke("draft_reply", { review_id: id });
-          fresh[id] = String(result.draft || "");
-          setRecentDrafts((current) => ({ ...current, [id]: fresh[id] }));
-        }
-      }
-      if (selectedRecentIds.some((id) => !fresh[id]?.trim())) throw new Error("Some reviews have no prepared reply.");
+      const result = await invoke("prepare_bulk_replies", { review_ids: selectedRecentIds });
+      const prepared: Array<{ id: string; draft: string }> = result.prepared || [];
+      const rejected = result.rejected || [];
+      if (rejected.length) toast.warning(`${rejected.length} reviews need individual attention and were excluded.`);
+      if (!prepared.length) throw new Error("No safe replies could be prepared for this selection.");
+      setRecentDrafts((current) => ({
+        ...current, ...Object.fromEntries(prepared.map((entry) => [entry.id, entry.draft])),
+      }));
+      setSelectedRecentIds(prepared.map((entry) => entry.id));
       setBulkPreviewOpen(true);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not prepare all selected replies");
+      toast.error(error instanceof Error ? error.message : "Could not prepare selected replies");
     } finally {
       setBulkBusy(false);
       setBulkProgress("");
@@ -695,7 +694,7 @@ export default function Reputation() {
   };
 
   const publishBulk = async () => {
-    if (!bulkConsent || !selectedRecentIds.length || selectedRecentIds.length > 10) return;
+    if (!bulkConsent || !selectedRecentIds.length || selectedRecentIds.length > 25) return;
     setBulkBusy(true);
     try {
       const result = await invoke("bulk_publish_replies", {
@@ -1240,7 +1239,7 @@ export default function Reputation() {
             <Card>
               <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Zap className="h-5 w-5" />Recent review automation · last 14 days</CardTitle></CardHeader>
               <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">Select up to 10 recent 4–5★ low-risk reviews, prepare short venue-specific drafts, inspect and edit every reply, then expressly approve the batch. Nothing publishes when a review is merely selected. Older or sensitive reviews require individual approval in the inbox.</p>
+                <p className="text-sm text-muted-foreground">Select up to 25 recent 4–5★ low-risk reviews. HotelCare prepares diverse, venue-specific responses from its curated library at no AI token cost. Review and edit each draft, then expressly approve the batch. Nothing publishes when a review is merely selected. Older or sensitive reviews require individual approval in the inbox.</p>
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-end justify-between">
                   <div className="w-full sm:max-w-md space-y-2"><Label>Google business</Label>
                     <Select value={recentVenue} onValueChange={(value) => { setRecentVenue(value); void loadRecent(0, value); }}>
@@ -1256,8 +1255,10 @@ export default function Reputation() {
                   <Badge variant="outline">{canBulkRecent.length} eligible on this page</Badge>
                   <Badge variant="outline">{selectedRecentIds.length} selected</Badge>
                   <Button size="sm" variant="outline" disabled={recentBusy || !canBulkRecent.length}
-                    onClick={() => setSelectedRecentIds(canBulkRecent.slice(0, 10).map((review) => review.id))}>Select up to 10 eligible</Button>
-                  <Button size="sm" variant="ghost" disabled={!selectedRecentIds.length} onClick={() => setSelectedRecentIds([])}>Clear</Button>
+                    onClick={() => setSelectedRecentIds(canBulkRecent.slice(0, 25).map((review) => review.id))}>Select up to 25 eligible</Button>
+                  <Button size="sm" variant="outline" disabled={recentBusy || !canBulkRecent.length} onClick={() => setSelectedRecentIds(canBulkRecent.filter((review) => review.star_rating === 5).slice(0, 25).map((review) => review.id))}>Select 5★ only</Button>
+                  <Button size="sm" variant="outline" disabled={recentBusy || !canBulkRecent.length} onClick={() => setSelectedRecentIds(canBulkRecent.filter((review) => review.star_rating === 4).slice(0, 25).map((review) => review.id))}>Select 4★ only</Button>
+                  <Button size="sm" variant="ghost" disabled={!selectedRecentIds.length} onClick={() => setSelectedRecentIds([])}>Deselect all</Button>
                   <Button size="sm" disabled={bulkBusy || !selectedRecentIds.length} onClick={() => void prepareBulk()}>
                     <Sparkles className="h-4 w-4 mr-2" />Prepare {selectedRecentIds.length || ""} replies
                   </Button>
