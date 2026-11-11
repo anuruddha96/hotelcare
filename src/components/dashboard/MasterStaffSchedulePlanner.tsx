@@ -185,13 +185,26 @@ export function MasterStaffSchedulePlanner() {
 
   const load = async () => {
     if (!profile?.organization_slug || !canManageMaster) return;
+    if (!canSeePortfolio && !canonicalRdHotelId(profile.assigned_hotel)) {
+      setStaff([]); setShifts([]);
+      return toast.error('Assign a base hotel to this manager before viewing employee schedules.');
+    }
     setLoading(true);
+    let staffQuery = supabase.from('profiles')
+      .select('id,full_name,nickname,role,assigned_hotel,job_title,acts_as_housekeeper')
+      .eq('organization_slug', profile.organization_slug)
+      .is('deleted_at', null)
+      .order('full_name');
+    if (!canSeePortfolio) {
+      // Do not even transfer other hotels' profiles to local managers.
+      const aliasValues = [...new Set([
+        canonicalRdHotelId(profile.assigned_hotel),
+        rdHotelDisplayName(profile.assigned_hotel),
+      ].filter((v): v is string => !!v))];
+      staffQuery = staffQuery.in('assigned_hotel', aliasValues);
+    }
     const [{ data: staffRows, error: staffError }, { data: shiftRows, error: shiftError }] = await Promise.all([
-      supabase.from('profiles')
-        .select('id,full_name,nickname,role,assigned_hotel,job_title,acts_as_housekeeper')
-        .eq('organization_slug', profile.organization_slug)
-        .is('deleted_at', null)
-        .order('full_name'),
+      staffQuery,
       (supabase as any).from('staff_schedules')
         .select('*,staff_schedule_venues(venue_id)')
         .eq('organization_slug', profile.organization_slug)
@@ -207,7 +220,7 @@ export function MasterStaffSchedulePlanner() {
 
   useEffect(() => {
     void load();
-  }, [profile?.organization_slug, canManageMaster, start, end]);
+  }, [profile?.organization_slug, profile?.assigned_hotel, canManageMaster, canSeePortfolio, start, end]);
 
   useEffect(() => {
     if (!dates.includes(mobileDate)) setMobileDate(start);
