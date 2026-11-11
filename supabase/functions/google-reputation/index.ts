@@ -329,7 +329,7 @@ Deno.serve(async (req) => {
           admin
             .from("google_business_locations")
             .select(
-              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context",
+              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_enabled_at,auto_reply_consent_at,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context",
             )
             .eq("organization_id", org.id)
             .order("google_location_title"),
@@ -359,13 +359,17 @@ Deno.serve(async (req) => {
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published"),
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published").eq("reply_origin", "automatic"),
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published").eq("reply_origin", "manager"),
+        admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published").eq("reply_origin", "bulk"),
+        admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).gte("review_create_time", new Date(Date.now() - 14 * 86_400_000).toISOString()),
+        admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).gte("review_create_time", new Date(Date.now() - 14 * 86_400_000).toISOString()).neq("reply_status", "published"),
       ]);
       return json({
         ok: true,
         stats: {
           total: counts[0].count || 0, published: counts[1].count || 0,
-          automatic: counts[2].count || 0, manager: counts[3].count || 0,
-          imported: Math.max(0, (counts[1].count || 0) - (counts[2].count || 0) - (counts[3].count || 0)),
+          automatic: counts[2].count || 0, manager: counts[3].count || 0, bulk: counts[4].count || 0,
+          recent14: counts[5].count || 0, recentUnreplied: counts[6].count || 0,
+          imported: Math.max(0, (counts[1].count || 0) - (counts[2].count || 0) - (counts[3].count || 0) - (counts[4].count || 0)),
         },
         google_configured: Boolean(
           Deno.env.get("GOOGLE_BUSINESS_CLIENT_ID") &&
@@ -388,12 +392,43 @@ Deno.serve(async (req) => {
       let q = admin.from("google_reviews")
         .select("id,hotel_id,google_location_id,reviewer_display_name,star_rating,comment,review_update_time,google_reply_comment,google_reply_update_time,reply_status,reply_origin,replied_at", { count: "exact" })
         .eq("organization_id", org.id).eq("reply_status", "published");
-      if (["automatic", "manager", "google"].includes(source)) q = q.eq("reply_origin", source);
+      if (["automatic", "manager", "bulk", "google"].includes(source)) q = q.eq("reply_origin", source);
       const { data: publishedReviews, count, error } = await q
         .order("google_reply_update_time", { ascending: false, nullsFirst: false })
         .range(page * limit, (page + 1) * limit - 1);
       if (error) throw error;
       return json({ ok: true, reviews: publishedReviews || [], total: count || 0, page, limit });
+    }
+
+    if (action === "list_recent") {
+      const page = Math.max(0, Math.min(500, Number(body.page || 0) || 0));
+      const limit = 100;
+      const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString();
+      let q = admin.from("google_reviews")
+        .select("id,google_location_id,hotel_id,reviewer_display_name,star_rating,comment,review_create_time,review_update_time,ai_draft,ai_risk_level,draft_edited_at,reply_status,reply_origin,google_reply_comment", { count: "exact" })
+        .eq("organization_id", org.id).gte("review_create_time", cutoff);
+      if (body.location_id && body.location_id !== "all") {
+        q = q.eq("google_location_id", String(body.location_id));
+      }
+      const { data: recent, error, count } = await q.order("review_create_time", { ascending: false })
+        .range(page * limit, (page + 1) * limit - 1);
+      if (error) throw error;
+      return json({ ok: true, reviews: recent || [], total: count || 0, page, limit, cutoff });
+    }
+
+    if (action === "list_google_accounts") {
+      const accounts: any[] = [];
+      let pageToken = "";
+      do {
+        const params = new URLSearchParams({ pageSize: "20" });
+        if (pageToken) params.set("pageToken", pageToken);
+        const response = await gfetch(`https://mybusinessaccountmanagement.googleapis.com/v1/accounts?${params.toString()}`);
+        accounts.push(...(response.accounts || []).map((a: any) => ({
+          name: a.name, account_name: a.accountName, type: a.type, role: a.role,
+        })));
+        pageToken = response.nextPageToken || "";
+      } while (pageToken && accounts.length < 500);
+      return json({ ok: true, accounts });
     }
 
     if (action === "start_oauth") {
@@ -533,6 +568,14 @@ Deno.serve(async (req) => {
         : "match_guest";
       const delay = Math.max(0, Math.min(1440, Number(body.auto_reply_delay_minutes ?? 15)));
       const autoEnabled = Boolean(body.auto_reply_enabled) && mode !== "draft_only";
+      const { data: previousLocation } = await admin.from("google_business_locations")
+        .select("auto_reply_enabled")
+        .eq("id", id).eq("organization_id", org.id).maybeSingle();
+      if (!previousLocation) return json({ error: "Location not found" }, 404);
+      const activation = autoEnabled && !previousLocation.auto_reply_enabled;
+      if (activation && body.auto_consent_confirmed !== true) {
+        return json({ error: "Explicit authorization is required to enable automated Google review publishing for this business." }, 409);
+      }
 
       const brandName = String(body.reply_brand_name || "").trim().slice(0, 120);
       if (!brandName) return json({ error: "Reply brand name is required" }, 400);
@@ -543,11 +586,15 @@ Deno.serve(async (req) => {
         reply_brand_name: brandName,
         business_category: businessCategory,
         reply_mode: mode,
-        min_auto_rating: minAuto,
-        require_approval_below_rating: approvalBelow,
+        min_auto_rating: autoEnabled ? Math.max(4, minAuto) : minAuto,
+        require_approval_below_rating: autoEnabled ? Math.max(4, approvalBelow) : approvalBelow,
         reply_tone: tone,
         reply_language_mode: languageMode,
         auto_reply_enabled: autoEnabled,
+        ...(activation ? {
+          auto_reply_consent_at: new Date().toISOString(),
+          auto_reply_authorized_by: userData.user.id,
+        } : {}),
         auto_reply_delay_minutes: delay,
         reply_signature: String(body.reply_signature || "").trim().slice(0, 120) || null,
         brand_context: String(body.brand_context || "").trim().slice(0, 1200) || null,
@@ -563,6 +610,15 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (error) throw error;
       if (!l) return json({ error: "Location not found" }, 404);
+      if (activation) {
+        // Preserve a location-specific, dated consent record separately from review replies.
+        await admin.from("google_review_reply_events").insert({
+          organization_id: org.id, hotel_id: l.hotel_id, google_location_id: l.id,
+          review_id: null, actor_user_id: userData.user.id, event_type: "auto_policy_authorized",
+          reply_text: null, metadata: { mode: l.reply_mode, min_rating: l.min_auto_rating,
+            approval_below: l.require_approval_below_rating, brand: l.reply_brand_name },
+        });
+      }
       return json({ ok: true, location: l });
     }
 
