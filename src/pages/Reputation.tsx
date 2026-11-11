@@ -912,7 +912,7 @@ export default function Reputation() {
               <CardHeader><CardTitle className="text-lg">Performance by Google business</CardTitle><p className="text-sm text-muted-foreground">Click a venue to review its recent feedback and prepare replies.</p></CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap gap-2">
-                  {venueCategories.map((category) => <Button key={category} size="sm" variant={venueCategory === category ? "default" : "outline"} onClick={() => setVenueCategory(category)}>
+                  {venueCategories.map((category) => <Button key={category} size="sm" variant={venueCategory === category ? "default" : "outline"} onClick={() => { setVenueCategory(category); setConfigVenueFilter("all"); }}>
                     {category === "all" ? "All venues" : category.charAt(0).toUpperCase() + category.slice(1)} ({category === "all" ? locations.length : categoryCounts[category] || 0})
                   </Button>)}
                 </div>
@@ -1026,13 +1026,22 @@ export default function Reputation() {
                   <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Existing Google replies</p><p className="text-2xl font-semibold mt-1">{data?.stats?.imported ?? 0}</p></div>
                 </div>
                 <div className="max-w-sm">
-                  <Select value={publishedSource} onValueChange={(source) => { setPublishedSource(source); void loadPublished(0, source); }}>
+                  <Select value={publishedSource} onValueChange={(source) => { setPublishedSource(source); void loadPublished(0, source, historyVenue); }}>
                     <SelectTrigger><SelectValue placeholder="Published by" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All published replies</SelectItem>
                       <SelectItem value="automatic">Auto-published by HotelCare</SelectItem>
                       <SelectItem value="manager">Published by manager</SelectItem>
+                      <SelectItem value="bulk">Bulk-approved by manager</SelectItem>
                       <SelectItem value="google">Existing Google replies</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="max-w-sm">
+                  <Select value={historyVenue} onValueChange={(venue) => { setHistoryVenue(venue); void loadPublished(0, publishedSource, venue); }}>
+                    <SelectTrigger><SelectValue placeholder="Google business" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">All Google businesses</SelectItem>
+                      {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1197,7 +1206,7 @@ export default function Reputation() {
             <Card><CardContent className="pt-4 space-y-3">
               <div className="text-sm font-medium">Find venue settings quickly</div>
               <div className="flex flex-wrap gap-2">
-                {venueCategories.map((category) => <Button key={category} size="sm" variant={venueCategory === category ? "default" : "outline"} onClick={() => setVenueCategory(category)}>
+                {venueCategories.map((category) => <Button key={category} size="sm" variant={venueCategory === category ? "default" : "outline"} onClick={() => { setVenueCategory(category); setConfigVenueFilter("all"); }}>
                   {category === "all" ? "All venues" : category.charAt(0).toUpperCase() + category.slice(1)} ({category === "all" ? locations.length : categoryCounts[category] || 0})
                 </Button>)}
               </div>
