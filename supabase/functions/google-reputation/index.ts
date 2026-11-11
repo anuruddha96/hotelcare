@@ -354,8 +354,19 @@ Deno.serve(async (req) => {
             .limit(200),
         ]);
 
+      const counts = await Promise.all([
+        admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id),
+        admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published"),
+        admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published").eq("reply_origin", "automatic"),
+        admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published").eq("reply_origin", "manager"),
+      ]);
       return json({
         ok: true,
+        stats: {
+          total: counts[0].count || 0, published: counts[1].count || 0,
+          automatic: counts[2].count || 0, manager: counts[3].count || 0,
+          imported: Math.max(0, (counts[1].count || 0) - (counts[2].count || 0) - (counts[3].count || 0)),
+        },
         google_configured: Boolean(
           Deno.env.get("GOOGLE_BUSINESS_CLIENT_ID") &&
             Deno.env.get("GOOGLE_BUSINESS_CLIENT_SECRET") &&
@@ -368,6 +379,21 @@ Deno.serve(async (req) => {
         hotels: hotels || [],
         events: events || [],
       });
+    }
+
+    if (action === "list_published") {
+      const page = Math.max(0, Math.min(10000, Number(body.page || 0) || 0));
+      const limit = 50;
+      const source = String(body.source || "all");
+      let q = admin.from("google_reviews")
+        .select("id,hotel_id,google_location_id,reviewer_display_name,star_rating,comment,review_update_time,google_reply_comment,google_reply_update_time,reply_status,reply_origin,replied_at", { count: "exact" })
+        .eq("organization_id", org.id).eq("reply_status", "published");
+      if (["automatic", "manager", "google"].includes(source)) q = q.eq("reply_origin", source);
+      const { data: publishedReviews, count, error } = await q
+        .order("google_reply_update_time", { ascending: false, nullsFirst: false })
+        .range(page * limit, (page + 1) * limit - 1);
+      if (error) throw error;
+      return json({ ok: true, reviews: publishedReviews || [], total: count || 0, page, limit });
     }
 
     if (action === "start_oauth") {
