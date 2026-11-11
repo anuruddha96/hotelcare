@@ -143,7 +143,7 @@ for each row execute function public.insuite_notify_request();
 -- touching the normal cleaning assignment or the room's clean/dirty flag.
 create or replace function public.insuite_notify_request_reassignment()
 returns trigger language plpgsql security definer set search_path = ''
-as $
+as $$
 declare _number text;
 begin
   if new.assigned_to is null or new.assigned_to is not distinct from old.assigned_to then
@@ -159,7 +159,7 @@ begin
     array[]::text[],new.assigned_to,new.id,null
   );
   return new;
-end; $;
+end; $$;
 revoke all on function public.insuite_notify_request_reassignment() from public, anon, authenticated;
 drop trigger if exists insuite_guest_request_reassignment on public.insuite_service_requests;
 create trigger insuite_guest_request_reassignment
@@ -256,7 +256,7 @@ create trigger insuite_checkout_session_guard
 -- An unrelated/late checkout event must not reset the next guest's session.
 create or replace function public.insuite_confirmed_previo_checkout()
 returns trigger language plpgsql security definer set search_path = ''
-as $
+as $$
 begin
   if new.event_type <> 'checkout_confirmed'
     or new.source <> 'poll_checkouts'
@@ -283,7 +283,7 @@ begin
     );
 
   return new;
-end; $;
+end; $$;
 revoke all on function public.insuite_confirmed_previo_checkout() from public, anon, authenticated;
 drop trigger if exists insuite_verified_previo_checkout on public.pms_change_events;
 create trigger insuite_verified_previo_checkout
