@@ -29,6 +29,7 @@ export interface ExcelScheduleCandidate {
 export interface ScheduleExcelParseOptions {
   currentDate: string;
   includeExcelDates?: boolean;
+  includeHistorical?: boolean;
   codeMappings?: Record<string, ExcelCodeMapping>;
   staffMappings?: Record<string, string>;
   existingKeys?: ReadonlySet<string>;
@@ -153,7 +154,7 @@ export function previewExcelSchedules(
       for (let column = 2; column < row.length; column++) {
         const raw = row[column];
         if (raw === null || raw === undefined || String(raw).trim() === '') continue;
-        if (date < options.currentDate) { ignored.past++; continue; }
+        if (date < options.currentDate && !options.includeHistorical) { ignored.past++; continue; }
         const sourceName = String(names[column] ?? '').trim();
         const department = String(departments[column] ?? '').trim();
         const normalizedName = normalizeExcelEmployeeName(sourceName);
