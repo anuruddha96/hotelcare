@@ -272,20 +272,22 @@ Rating: ${review.star_rating}/5. Guest review: ${String(review.comment || "").sl
 Style: ${tone}. ${languageInstruction}
 Write 1-3 natural sentences, normally 20-55 words. Use ONLY the exact business name "${brand}" if naming the venue. Do NOT infer a hotel stay, conference event, restaurant meal or museum visit from the Google listing title. Only refer to services actually mentioned by the guest. Never promote adjacent venues or create details about what happened. Do not invent refunds, investigations, guarantees or follow-ups. Acknowledge negative feedback without admitting unverified accusations.${signature}${context}
 HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
-    const configuredModel = Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-6-luna";
+    const configuredModel = Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-5.6-luna";
     const send = (model: string) => fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        ...(model.startsWith("gpt-6") ? { reasoning: { effort: "none" } } : {}),
+        ...((model.startsWith("gpt-6") || model.startsWith("gpt-5.6-luna")) ? { reasoning: { effort: "none" } } : {}),
         instructions: "Write accurate concise human review replies for the correct venue; only output the reply.",
         input: prompt,
         max_output_tokens: 150,
       }),
     });
     let response = await send(configuredModel);
-    if (!response.ok && [400, 404].includes(response.status) && configuredModel === "gpt-6-luna") {
+    if (!response.ok && [400, 403, 404].includes(response.status) &&
+        ["gpt-5.6-luna", "gpt-6-luna"].includes(configuredModel) &&
+        /model_not_found|does not have access to model/i.test(await response.clone().text())) {
       response = await send("gpt-4.1-mini");
     }
     if (!response.ok) throw new Error(`AI ${response.status}: ${(await response.text()).slice(0, 220)}`);
