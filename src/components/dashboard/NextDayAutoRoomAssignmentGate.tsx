@@ -261,6 +261,13 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         },
       });
       if (current !== generation.current) return;
+      // A future date cannot rely on the unsupported-PMS metadata fallback:
+      // its room statuses would be derived from today's mutable room flags.
+      // An authoritative empty reservation roster is fine, but the physical
+      // hotel inventory must still have been verified.
+      if (!result.authoritative || result.roomCount < 1) {
+        throw new Error(`Previo did not verify the complete room inventory for ${targetDate}. Future Auto Assign is blocked to protect today's active housekeeping.`);
+      }
 
       setPmsProgress({ phase: 'validating-snapshot', attempt: 1, maxAttempts: 3 });
       setStage('syncing');
