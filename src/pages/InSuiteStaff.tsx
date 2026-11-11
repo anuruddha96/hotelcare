@@ -80,11 +80,20 @@ export default function InSuiteStaff() {
   const previousMessages = useRef<Set<string> | null>(null);
   const previousAlerts = useRef<Set<number> | null>(null);
 
+  // Follow the selected hotel in HotelCare's header (including Anu_000's
+  // top_management_manager session), without promoting a role to super admin.
+  // An explicit selection made inside this console remains until the global
+  // active hotel actually changes.
+  const previousPropertyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!hotelId && hotels.length) {
-      const assigned = hotels.find((h) => [h.hotel_id, h.hotel_name].includes(profile?.assigned_hotel || ""));
-      setHotelId((assigned || hotels[0]).hotel_id);
+    if (!hotels.length) return;
+    const activeProperty = profile?.assigned_hotel || null;
+    const propertyChanged = previousPropertyRef.current !== null && previousPropertyRef.current !== activeProperty;
+    if (!hotelId || propertyChanged || !hotels.some((h) => h.hotel_id === hotelId)) {
+      const matched = hotels.find((h) => [h.hotel_id, h.hotel_name].includes(activeProperty || ""));
+      setHotelId((matched || hotels[0]).hotel_id);
     }
+    previousPropertyRef.current = activeProperty;
   }, [hotelId, hotels, profile?.assigned_hotel]);
   useEffect(() => {
     setData(null); setIssued(null); previousRequests.current = null; previousMessages.current = null; previousAlerts.current = null;
