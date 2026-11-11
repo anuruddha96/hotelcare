@@ -245,6 +245,14 @@ Deno.serve(async (req) => {
   }
 
   async function generateDraft(review: any, location: any) {
+    const brand = String(location.reply_brand_name || location.google_location_title || "our business");
+    const stars = Number(review.star_rating || 5);
+    if (!String(review.comment || "").trim()) {
+      // Don't spend AI tokens or invent a hotel stay for a star-only rating.
+      return location.reply_language_mode === "hungarian"
+        ? `Köszönjük a${stars === 5 ? "z ötcsillagos" : ` ${stars} csillagos`} értékelést és hogy támogatta a(z) ${brand} csapatát!`
+        : `Thank you for your ${stars}-star rating and for supporting ${brand}!`;
+    }
     const key = Deno.env.get("OPENAI_API_KEY");
     if (!key) throw new Error("OPENAI_API_KEY missing");
     const tone = toneInstruction[location.reply_tone] || toneInstruction.warm_professional;
@@ -258,23 +266,28 @@ Deno.serve(async (req) => {
     const context = location.brand_context
       ? ` Factual property context you may use only when directly relevant: ${location.brand_context}`
       : "";
-    const prompt = `Write a Google Business Profile owner reply for ${location.google_location_title || "the property"}.
-Rating: ${review.star_rating}/5.
-Guest review: ${review.comment || "(no written comment)"}.
-Style: ${tone}.
-${languageInstruction}
-Keep it roughly 45-100 words. Be specific to what the guest actually said. Never invent facts, compensation, refunds, investigations or promises. Do not mention AI. Do not argue. For negative reviews acknowledge the concern without admitting unverified claims.${signature}${context}
+    const prompt = `Write a brief public Google review reply for "${brand}" (venue type: ${location.business_category || "other"}).
+Google listing title, for locating reviews ONLY: ${location.google_location_title}.
+Rating: ${review.star_rating}/5. Guest review: ${String(review.comment || "").slice(0, 1800)}.
+Style: ${tone}. ${languageInstruction}
+Write 1-3 natural sentences, normally 20-55 words. Use ONLY the exact business name "${brand}" if naming the venue. Do NOT infer a hotel stay, conference event, restaurant meal or museum visit from the Google listing title. Only refer to services actually mentioned by the guest. Never promote adjacent venues or create details about what happened. Do not invent refunds, investigations, guarantees or follow-ups. Acknowledge negative feedback without admitting unverified accusations.${signature}${context}
 HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const configuredModel = Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-6-luna";
+    const send = (model: string) => fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-4.1-mini",
-        instructions: "You write accurate, human hospitality review responses for HotelCare. Output only the reply text.",
+        model,
+        ...(model.startsWith("gpt-6") ? { reasoning: { effort: "none" } } : {}),
+        instructions: "Write accurate concise human review replies for the correct venue; only output the reply.",
         input: prompt,
-        max_output_tokens: 300,
+        max_output_tokens: 150,
       }),
     });
+    let response = await send(configuredModel);
+    if (!response.ok && [400, 404].includes(response.status) && configuredModel === "gpt-6-luna") {
+      response = await send("gpt-4.1-mini");
+    }
     if (!response.ok) throw new Error(`AI ${response.status}: ${(await response.text()).slice(0, 220)}`);
     const result = await response.json();
     const draft = String(
@@ -306,8 +319,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
           .from("google_business_locations")
           .select("*")
           .eq("connection_id", connection.id)
-          .eq("is_active", true)
-          .not("hotel_id", "is", null);
+          .eq("is_active", true);
         if (locationsError) throw locationsError;
 
         for (const location of locations || []) {
@@ -342,6 +354,9 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               const hasGoogleReply = Boolean(googleReview.reviewReply?.comment);
               const retainedDraft = !changed ? existing?.ai_draft || null : null;
               const replyStatus = hasGoogleReply ? "published" : retainedDraft ? "draft" : "unreplied";
+              const origin = hasGoogleReply
+                ? (["automatic", "manager"].includes(existing?.reply_origin) ? existing.reply_origin : "google")
+                : "unknown";
               const eligible = autoEligible(location, stars, analysis.risk, googleReview.createTime || updateTime);
 
               const row = {
@@ -368,6 +383,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 draft_edited_at: retainedDraft ? existing?.draft_edited_at || null : null,
                 draft_edited_by: retainedDraft ? existing?.draft_edited_by || null : null,
                 reply_status: replyStatus,
+                reply_origin: origin,
                 auto_reply_eligible: eligible,
                 raw: googleReview,
                 updated_at: new Date().toISOString(),
@@ -389,7 +405,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               }
 
               let draft = retainedDraft;
-              if (!draft) {
+              if (!draft && draftsGenerated < 20) {
                 draft = await generateDraft(saved, location);
                 await admin
                   .from("google_reviews")
@@ -421,6 +437,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                     google_reply_comment: draft,
                     google_reply_update_time: publishResult.updateTime || new Date().toISOString(),
                     reply_status: "published",
+                    reply_origin: "automatic",
                     replied_at: new Date().toISOString(),
                     replied_by: null,
                     updated_at: new Date().toISOString(),
@@ -464,7 +481,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       }
     }
 
-    // A cron tick with connections but zero mapped listings is not an end-to-end sync.
+    // A cron tick without any discovered listings is not a completed review sync.
     const awaitingMapping = connectionsChecked > 0 && locationsChecked === 0;
     const finalStatus = errors.length || awaitingMapping ? "partial" : "completed";
     await admin
