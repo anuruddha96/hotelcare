@@ -172,11 +172,14 @@ export function ScheduleExcelImportReview({
     // a manager's already-entered or published shift.
     setSaving(true);
     try {
+      const monthKey = preview.candidates[0].date.slice(0, 7);
+      const [year, month] = monthKey.split('-').map(Number);
+      const finalDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
       const { data: existing, error: queryError } = await (supabase as any).from('staff_schedules')
         .select('user_id,work_date')
         .eq('organization_slug', organizationSlug)
-        .gte('work_date', preview.candidates[0].date.slice(0, 7) + '-01')
-        .lte('work_date', preview.candidates[0].date.slice(0, 7) + '-31');
+        .gte('work_date', `${monthKey}-01`)
+        .lte('work_date', `${monthKey}-${String(finalDay).padStart(2, '0')}`);
       if (queryError) throw queryError;
       const occupied = new Set((existing || []).map((item: ExistingShift) => `${item.user_id}|${item.work_date}`));
       const accepted = preview.candidates.filter(item => item.date > todayBudapest() && !occupied.has(`${item.employeeId}|${item.date}`));
