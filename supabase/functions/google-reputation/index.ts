@@ -709,7 +709,7 @@ Deno.serve(async (req) => {
               ai_summary: analysis.summary,
               ai_risk_level: analysis.risk,
               ai_confidence: analysis.confidence,
-              reply_origin: hasReply ? (["manager", "automatic"].includes(existing?.reply_origin) ? existing.reply_origin : "google") : "unknown",
+              reply_origin: hasReply ? (["automatic", "manager", "bulk"].includes(existing?.reply_origin) ? existing.reply_origin : "google") : "unknown",
               ai_draft: savedDraft,
               ai_draft_generated_at: savedDraft ? existing.ai_draft_generated_at : null,
               draft_edited_at: savedDraft ? existing.draft_edited_at : null,
