@@ -9,6 +9,7 @@ import {
   Clock,
   Copy,
   Download,
+  FileSpreadsheet,
   Pencil,
   MapPin,
   Search,
@@ -123,6 +124,7 @@ export function MasterStaffSchedulePlanner() {
   const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
   const [viewMode, setViewMode] = useState<'week' | 'excel'>('week');
   const [staffManagerOpen, setStaffManagerOpen] = useState(false);
+  const [excelImportOpen, setExcelImportOpen] = useState(false);
   const [positionEditor, setPositionEditor] = useState<Staff | null>(null);
   const [positionValue, setPositionValue] = useState('');
   const [mobileDate, setMobileDate] = useState(() => format(startOfDay(new Date()), 'yyyy-MM-dd'));
@@ -510,6 +512,7 @@ export function MasterStaffSchedulePlanner() {
         <div className="flex flex-wrap gap-2">
           {profile?.organization_slug === 'rdhotels' && (profile.role === 'admin' || profile.is_super_admin) &&
             <Button variant="outline" onClick={() => setStaffManagerOpen(true)}><Users className="h-4 w-4 mr-1" />Manage staff</Button>}
+          {profile?.organization_slug === 'rdhotels' && <Button variant="outline" onClick={() => setExcelImportOpen(value => !value)}><FileSpreadsheet className="h-4 w-4 mr-1" />{excelImportOpen ? 'Close Excel upload' : 'Upload Excel & auto-fill'}</Button>}
           <Button variant="outline" onClick={() => void exportExcel()}><Download className="h-4 w-4 mr-1" />Export Excel</Button>
           <Button variant="outline" onClick={copyPreviousWeek} disabled={saving}><Copy className="h-4 w-4 mr-1" />Copy previous week</Button>
           <Button onClick={publishWeek} disabled={saving || summary.drafts === 0 || end < todayBudapest()}><Send className="h-4 w-4 mr-1" />Publish drafts</Button>
@@ -525,13 +528,10 @@ export function MasterStaffSchedulePlanner() {
         <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.drafts}</div><div className="text-xs text-muted-foreground">Draft shifts</div></CardContent></Card>
       </div>
 
-      {profile?.organization_slug === 'rdhotels' && !!profile.id && <details className="rounded-lg border bg-background p-3">
-        <summary className="cursor-pointer text-sm font-medium">Import an existing Excel roster · reviewed drafts only</summary>
-        <div className="pt-3"><ScheduleExcelImportReview
-          employees={filteredStaff} currentShifts={shifts} organizationSlug={profile.organization_slug}
-          userId={profile.id} onImported={() => { void load(); }}
-        /></div>
-      </details>}
+      {excelImportOpen && profile?.organization_slug === 'rdhotels' && !!profile.id && <ScheduleExcelImportReview
+        employees={staff} currentShifts={shifts} organizationSlug={profile.organization_slug}
+        userId={profile.id} onImported={() => { void load(); }}
+      />}
 
       <Card>
         <CardContent className="space-y-3 p-3">
