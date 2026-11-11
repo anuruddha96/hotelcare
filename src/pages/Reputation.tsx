@@ -1414,6 +1414,41 @@ export default function Reputation() {
             </Card>
           </TabsContent>
         </Tabs>
+        <Dialog open={allAutoDialogOpen} onOpenChange={(open) => { if (!allAutoBusy) { setAllAutoDialogOpen(open); if (!open) setAllAutoConsent(false); } }}>
+          <DialogContent className="max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
+            <DialogHeader><DialogTitle>Activate HotelCare AI auto replies</DialogTitle>
+              <DialogDescription>Choose the specific Google Business Profiles you authorize. These rules apply only to NEW low-risk 4–5-star reviews, after the venue's delay. Historical reviews need separate batch approval in Automation center.</DialogDescription>
+            </DialogHeader>
+            <div className="flex items-center flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => { setAllAutoVenueIds(locations.filter((l) => !l.auto_reply_enabled).map((l) => l.id)); setAllAutoConsent(false); }}>Select venues not yet enabled</Button>
+              <Button variant="outline" size="sm" onClick={() => { setAllAutoVenueIds(locations.map((l) => l.id)); setAllAutoConsent(false); }}>Select all {locations.length}</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setAllAutoVenueIds([]); setAllAutoConsent(false); }}>Deselect all</Button>
+              <Badge variant="secondary">{allAutoVenueIds.length} selected</Badge>
+            </div>
+            <div className="overflow-y-auto min-h-0 flex-1 space-y-2">
+              {locations.map((venue) => <label key={venue.id} className="flex gap-3 rounded-lg border p-3 cursor-pointer">
+                <Checkbox checked={allAutoVenueIds.includes(venue.id)} onCheckedChange={(checked) => {
+                  setAllAutoVenueIds((prev) => checked ? Array.from(new Set([...prev, venue.id])) : prev.filter((id) => id !== venue.id));
+                  setAllAutoConsent(false);
+                }} />
+                <div><div className="font-medium text-sm">{venue.reply_brand_name || venue.google_location_title}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{venue.business_category || "Other"} · {venue.auto_reply_enabled ? "Already enabled" : "Currently manual"} · 4–5★ low-risk only</div>
+                </div>
+              </label>)}
+              <label className="flex items-start gap-2 rounded-lg border border-primary/30 p-3 text-sm cursor-pointer">
+                <Checkbox checked={allAutoConsent} onCheckedChange={(checked) => setAllAutoConsent(checked === true)} />
+                <span>I expressly authorize HotelCare to automatically publish suitable, varied replies to new 4–5-star reviews on these {allAutoVenueIds.length} specifically selected businesses. I understand replies will be public and I can disable automation per business.</span>
+              </label>
+            </div>
+            <DialogFooter className="shrink-0 gap-2">
+              <Button variant="outline" disabled={allAutoBusy} onClick={() => setAllAutoDialogOpen(false)}>Cancel</Button>
+              <Button disabled={!allAutoConsent || !allAutoVenueIds.length || allAutoBusy} onClick={() => void enableAutoForSelectedVenues()}>
+                <Zap className="h-4 w-4 mr-2" />{allAutoBusy ? "Activating…" : `Authorize ${allAutoVenueIds.length} venues`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <AlertDialog open={Boolean(consentLocationId)} onOpenChange={(open) => { if (!open) setConsentLocationId(null); }}>
           <AlertDialogContent>
             <AlertDialogHeader>
