@@ -22,7 +22,29 @@ export type WorkspaceAttachment =
       categories: string[];
       series: { name: string; values: (number | null)[] }[];
     }
-  | { kind: "image"; path: string; prompt: string; size: string };
+  | { kind: "image"; path: string; prompt: string; size: string }
+  | {
+      kind: "review_reply";
+      reviewId: string;
+      organizationSlug: string;
+      location: string;
+      stars: number | null;
+      reviewer: string | null;
+      date: string;
+      review: string;
+      reply: string;
+    }
+  | {
+      kind: "email_draft";
+      draftId: string;
+      from: string;
+      to: string[];
+      cc: string[];
+      subject: string;
+      body: string;
+      external: string[];
+      inReplyTo: string | null;
+    };
 
 /** Mirrors the Reputation screen (`src/pages/Reputation.tsx`). */
 const REPUTATION_ROLES = ["admin", "top_management", "top_management_manager"];
@@ -410,7 +432,7 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
             .limit(100),
           service
             .from("google_reviews")
-            .select("google_location_id,star_rating,comment,review_create_time,reply_status,google_reply_comment,reviewer_display_name,ai_sentiment,ai_categories,ai_risk_level")
+            .select("id,google_location_id,star_rating,comment,review_create_time,reply_status,google_reply_comment,reviewer_display_name,ai_sentiment,ai_categories,ai_risk_level")
             .eq("organization_id", org.id)
             .gte("review_create_time", since)
             .order("review_create_time", { ascending: false })
@@ -455,6 +477,7 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
               .filter((r: any) => unanswered(r) && Number(r.star_rating) <= 3)
               .slice(0, 10)
               .map((r: any) => ({
+                review_id: r.id,
                 location: title.get(String(r.google_location_id)) ?? "Location",
                 stars: r.star_rating,
                 date: String(r.review_create_time).slice(0, 10),
@@ -464,7 +487,7 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
               })),
             low_star_topics: [...topics.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([topic, count]) => ({ topic, count })),
             weekly_trend: [...weekly.entries()].sort().map(([week_starting, b]) => ({ week_starting, reviews: b.count, average_rating: Math.round((b.sum / b.count) * 100) / 100 })),
-            where_to_reply: "Replies are written and published on the Reputation screen.",
+            how_to_reply: "Call draft_review_reply with a review_id to put a reply card in front of the user; they publish it with one tap.",
           },
           {
             source: "google_reviews",
@@ -472,6 +495,59 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
             ...(locations.data?.length ? {} : { confidence: "unverified" as const, note: "No Google Business location is connected yet." }),
           },
         );
+      },
+    });
+  }
+
+  if (canReadReputation(profile.role) && orgSlug) {
+    tools.draft_review_reply = tool({
+      description:
+        "Prepare a reply to ONE Google review as a card the user can edit and publish to Google with one tap. Use the review_id from get_reputation_overview. Never claim the reply is published: it is only published when the user taps Publish.",
+      inputSchema: jsonSchema<{ reviewId: string; reply: string }>({
+        type: "object",
+        properties: {
+          reviewId: { type: "string", description: "review_id from get_reputation_overview" },
+          reply: { type: "string", description: "The reply text, in the language of the review, signed as the hotel team" },
+        },
+        required: ["reviewId", "reply"],
+        additionalProperties: false,
+      }),
+      execute: async ({ reviewId, reply }) => {
+        const text = String(reply ?? "").trim();
+        if (!/^[0-9a-f-]{36}$/i.test(String(reviewId))) return { ok: false, error: "Use a review_id returned by get_reputation_overview." };
+        if (text.length < 10) return { ok: false, error: "Write a complete reply." };
+        if (text.length > 4000) return { ok: false, error: "Keep the reply under 4000 characters." };
+        if (ctx.attachments.filter((a) => a.kind === "review_reply").length >= 5) return { ok: false, error: "At most five reply cards per answer." };
+        const { data: org } = await service.from("organizations").select("id").eq("slug", orgSlug).maybeSingle();
+        if (!org?.id) return { ok: false, error: "The organization could not be resolved." };
+        const { data: review } = await service
+          .from("google_reviews")
+          .select("id,star_rating,comment,review_create_time,reviewer_display_name,reply_status,google_reply_comment,google_location_id")
+          .eq("id", reviewId)
+          .eq("organization_id", org.id)
+          .maybeSingle();
+        if (!review) return { ok: false, error: "That review is not in this organization." };
+        if (review.reply_status === "published" || review.google_reply_comment) {
+          return { ok: false, error: "This review already has a published reply." };
+        }
+        const { data: location } = await service
+          .from("google_business_locations")
+          .select("google_location_title")
+          .eq("id", review.google_location_id)
+          .maybeSingle();
+        const card: WorkspaceAttachment = {
+          kind: "review_reply",
+          reviewId: review.id,
+          organizationSlug: orgSlug,
+          location: location?.google_location_title ?? "Google review",
+          stars: Number(review.star_rating) || null,
+          reviewer: review.reviewer_display_name ?? null,
+          date: String(review.review_create_time ?? "").slice(0, 10),
+          review: String(review.comment ?? "").replace(/\s+/g, " ").slice(0, 600),
+          reply: text,
+        };
+        ctx.attachments.push(card);
+        return { ok: true, ...card, note: "Shown to the user as a card. Not published until they tap Publish." };
       },
     });
   }
@@ -656,6 +732,7 @@ export function workspacePrompt(params: { hasRevenue: boolean; hasReputation: bo
       "",
       "REPUTATION",
       "- Google review questions are answered from get_reputation_overview. Lead with rating, review count and unanswered count for the period, then the low-star reviews to reply to first. Quote review text only as a short paraphrase.",
+      "- When the user asks to reply to reviews, call draft_review_reply once per review (at most 5). Write each reply in the review's language: thank the guest by name if given, address the specific points, apologise sincerely for real failures without admitting liability, say what is being done, invite them back. No discount promises, no guest personal data, under 120 words. The user publishes each card; never say a reply was published.",
     );
   }
   if (params.hasRestaurant) {

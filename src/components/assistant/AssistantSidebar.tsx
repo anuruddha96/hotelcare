@@ -8,6 +8,7 @@ import {
   FolderInput,
   FolderOpen,
   FolderPlus,
+  Mail,
   MoreHorizontal,
   PanelLeftClose,
   Pencil,
@@ -62,6 +63,8 @@ export interface AssistantSidebarProps {
   userName: string;
   userRole: string;
   canSeeInsights: boolean;
+  canUseMail: boolean;
+  onOpenMailboxes: () => void;
   onNewChat: (projectId?: string) => void;
   onOpenThread: (id: string) => void;
   onSearch: () => void;
@@ -303,6 +306,11 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
       </div>
 
       <div className="border-t px-2 py-2">
+        {props.canUseMail && (
+          <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onOpenMailboxes}>
+            <Mail className="h-3.5 w-3.5" /> Mailboxes
+          </Button>
+        )}
         {props.canSeeInsights && (
           <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onOpenInsights}>
             <BarChart3 className="h-3.5 w-3.5" /> Usage and audit trail

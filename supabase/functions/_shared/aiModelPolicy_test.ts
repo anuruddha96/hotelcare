@@ -49,3 +49,10 @@ Deno.test("chart and image requests need the tool path and never the routine mod
   assertEquals(detectAssistantWorkflow("Create an image for our brunch post"), "visual");
   assertEquals(planAssistantTurn("Show my rooms as a chart").routine, false);
 });
+
+Deno.test("mail and review-reply requests use the tool-using agent", () => {
+  assertEquals(detectAssistantWorkflow("Any new group requests in my inbox?"), "mail");
+  assertEquals(detectAssistantWorkflow("Reply to the email from Booking.com"), "mail");
+  assertEquals(detectAssistantWorkflow("Reply to the 2-star reviews from this week"), "mail");
+  assertEquals(planAssistantTurn("Check my emails").routine, false);
+});

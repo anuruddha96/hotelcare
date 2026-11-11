@@ -45,7 +45,7 @@ export function selectAssistantModel(question: string, configuredStandardModel?:
  * the text-only deep analysis: a pricing review over a period, or an answer
  * that must draw a chart or an image.
  */
-export type AssistantWorkflow = "pricing_review" | "visual" | null;
+export type AssistantWorkflow = "pricing_review" | "visual" | "mail" | null;
 
 export function detectAssistantWorkflow(question: string): AssistantWorkflow {
   const q = question.toLowerCase();
@@ -58,6 +58,9 @@ export function detectAssistantWorkflow(question: string): AssistantWorkflow {
   if (priceTopic && period && reviewVerb && !explicitAmount) return "pricing_review";
   if (/\b(pricing review|rate review|review (?:my|our|the) (?:prices|rates|pricing))\b/.test(q)) return "pricing_review";
   if (/\b(charts?|graphs?|plot|visuali[sz]e|diagram|trend line|images?|pictures?|illustration|posters?|draw)\b/.test(q)) return "visual";
+  // Mail and review replies need the tool-using agent (search, read, draft).
+  if (/\b(e-?mails?|inbox|mailbox|gmail|outlook)\b/.test(q)) return "mail";
+  if (/\b(reply|respond|answer)\b.*\breviews?\b|\breview repl(y|ies)\b/.test(q)) return "mail";
   return null;
 }
 

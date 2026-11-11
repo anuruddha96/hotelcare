@@ -25,6 +25,8 @@ import { useAssistantProjects, type AssistantProject } from "@/hooks/useAssistan
 import AssistantChat from "@/components/assistant/AssistantChat";
 import AssistantSidebar from "@/components/assistant/AssistantSidebar";
 import ReportProblemDialog from "@/components/assistant/ReportProblemDialog";
+import MailboxesDialog from "@/components/assistant/MailboxesDialog";
+import { canConnectMailbox } from "@/lib/assistant/mail";
 import { canUseAssistant } from "@/lib/assistantAccess";
 import {
   forgetActiveAssistantThread,
@@ -62,6 +64,7 @@ export default function AssistantPage() {
   });
   const [mobileNav, setMobileNav] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [mailOpen, setMailOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchHits, setSearchHits] = useState<AssistantSearchHit[]>([]);
@@ -97,6 +100,28 @@ export default function AssistantPage() {
     const remembered = getRememberedAssistantThread(userId, organizationSlug);
     if (remembered) navigate(`${base}/${remembered}`, { replace: true });
   }, [base, navigate, organizationSlug, threadId, userId]);
+
+  // Back from the Google / Microsoft sign-in.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("mail");
+    if (!result) return;
+    const reason = params.get("reason");
+    if (result === "connected") toast.success("Mailbox connected. Ask me about your inbox.");
+    else
+      toast.error(
+        reason === "missing_permissions"
+          ? "The mailbox was not connected: reading and sending permission is needed."
+          : reason === "access_denied"
+            ? "The mailbox sign-in was cancelled."
+            : "The mailbox could not be connected.",
+      );
+    params.delete("mail");
+    params.delete("reason");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    setMailOpen(true);
+  }, []);
 
   const allowed = canUseAssistant(profile);
   useEffect(() => {
@@ -224,6 +249,11 @@ export default function AssistantPage() {
       userName={profile?.full_name || profile?.nickname || user?.email || "You"}
       userRole={profile?.role ?? ""}
       canSeeInsights={profile?.role === "admin" || Boolean(profile?.role?.startsWith("top_management"))}
+      canUseMail={canConnectMailbox(profile?.role)}
+      onOpenMailboxes={() => {
+        setMobileNav(false);
+        setMailOpen(true);
+      }}
       onNewChat={newChat}
       onOpenThread={openThread}
       onSearch={() => {
@@ -479,6 +509,7 @@ export default function AssistantPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <MailboxesDialog open={mailOpen} onOpenChange={setMailOpen} />
       <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} threadId={threadId ?? null} />
     </div>
   );

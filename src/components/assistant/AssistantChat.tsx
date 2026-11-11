@@ -33,6 +33,8 @@ import {
 import AssistantWelcome from "./AssistantWelcome";
 import AssistantChart, { isAssistantChart } from "./AssistantChart";
 import AssistantImage, { isAssistantImage } from "./AssistantImage";
+import EmailDraftCard, { isEmailDraft } from "./EmailDraftCard";
+import ReviewReplyCard, { isReviewReply } from "./ReviewReplyCard";
 import { cn } from "@/lib/utils";
 import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
 import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
@@ -450,6 +452,12 @@ function ChatSession({
                       if (toolName === "generate_image" && isAssistantImage(toolPart.output)) {
                         return <AssistantImage key={`${key}-image`} spec={toolPart.output} />;
                       }
+                      if (toolName === "draft_email" && isEmailDraft(toolPart.output)) {
+                        return <EmailDraftCard key={`${key}-email`} spec={toolPart.output} />;
+                      }
+                      if (toolName === "draft_review_reply" && isReviewReply(toolPart.output)) {
+                        return <ReviewReplyCard key={`${key}-review`} spec={toolPart.output} />;
+                      }
                       if (isAutomationProposal(toolPart.output)) {
                         return <AutomationChangeCard key={`${key}-proposal`} proposal={toolPart.output} />;
                       }
@@ -500,6 +508,10 @@ function ChatSession({
                         <AssistantChart key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
                       ) : isAssistantImage(attachment) ? (
                         <AssistantImage key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
+                      ) : isEmailDraft(attachment) ? (
+                        <EmailDraftCard key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
+                      ) : isReviewReply(attachment) ? (
+                        <ReviewReplyCard key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
                       ) : null,
                     )}
                   {needsScope && isLast && (
