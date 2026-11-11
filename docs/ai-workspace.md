@@ -67,8 +67,26 @@ projects and saved charts simply stay off until the columns exist.
 
 ## Mailboxes and review replies
 
-Managers connect their **own** work mailbox (Gmail / Google Workspace or
-Outlook / Microsoft 365) from **Mailboxes** in the assistant sidebar.
+Managers connect their **own** work mailbox from **Mailboxes** in the
+assistant sidebar. Three ways, shown when available:
+
+| Way | Works for | Company setup needed |
+|---|---|---|
+| **Email + password (IMAP/SMTP)** | the hotel's own domain mail (cPanel, Rackhost, …), Gmail and Google Workspace with an *app password*, GMX, Yahoo and most others | none (on by default) |
+| Sign in with Google | Gmail / Google Workspace | Google Cloud OAuth client with Gmail scopes |
+| Sign in with Microsoft | Outlook / Microsoft 365 | Microsoft Entra app registration |
+
+Microsoft 365 mailboxes need the Microsoft sign-in: Microsoft no longer allows
+password sign-in for apps. The form detects Outlook / Microsoft 365 addresses
+(also custom domains whose mail runs on Microsoft) and says so.
+
+For the password option the server settings are found automatically from the
+address (known providers, Google-hosted domains, `mail.` / `imap.` /
+`smtp.` names and the domain's MX host); they can be entered by hand under
+*Advanced*. Only IMAP over SSL (993) and SMTP over SSL (465) are used; servers
+that resolve to private or loopback addresses are refused. The password is
+stored AES-GCM encrypted. Eight failed connection attempts per hour lock the
+form for that person.
 
 | Tool | What it does | Roles |
 |---|---|---|
@@ -93,10 +111,12 @@ Rules that hold for every role:
 
 ### Switching mailboxes on
 
-1. Apply `supabase/migrations/20261111210000_assistant_mail.sql`.
+1. Apply `supabase/migrations/20261111210000_assistant_mail.sql` (applied).
 2. Deploy `assistant-mail`, `assistant-mail-oauth-callback`, `assistant-chat`.
 3. Secret `ASSISTANT_MAIL_TOKEN_KEY`: any long random string (32 bytes base64
-   is ideal). Falls back to `GOOGLE_BUSINESS_TOKEN_KEY` when not set.
+   is ideal). Falls back to `GOOGLE_BUSINESS_TOKEN_KEY` when not set, so the
+   email + password option works as soon as the functions are deployed.
+   `ASSISTANT_MAIL_IMAP_ENABLED=false` switches that option off.
 4. **Microsoft 365**: register an app in Microsoft Entra ID → App
    registrations. Redirect URI (Web):
    `https://<project>.supabase.co/functions/v1/assistant-mail-oauth-callback`.

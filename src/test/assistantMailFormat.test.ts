@@ -103,3 +103,18 @@ describe("assistant mail format", () => {
     expect(wrapped.match(/<\/email_content>/g)).toHaveLength(1);
   });
 });
+
+import { isPrivateAddress } from "../../supabase/functions/_shared/mailFormat";
+
+describe("mail server address guard", () => {
+  it("refuses private, loopback, link-local and metadata addresses", () => {
+    for (const address of ["10.0.0.1", "192.168.1.5", "127.0.0.1", "169.254.169.254", "172.20.0.1", "100.64.1.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1", "not-an-ip"]) {
+      expect(isPrivateAddress(address), address).toBe(true);
+    }
+  });
+  it("allows public mail servers", () => {
+    for (const address of ["8.8.8.8", "142.250.27.108", "185.33.52.10", "2a00:1450:4001::6d"]) {
+      expect(isPrivateAddress(address), address).toBe(false);
+    }
+  });
+});
