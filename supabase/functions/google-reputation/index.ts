@@ -702,21 +702,23 @@ Rating: ${r.star_rating}/5. Style: ${tone}. ${languageInstruction}
 Use the exact brand "${property}" if naming the business; do NOT infer a conference, hotel stay, meal, tour or service from the listing title. Mention a specific service ONLY when the guest review itself describes it. Never use a different venue's name or imply a hotel stay for a restaurant, museum, brunch or conference venue.
 Write 1-3 natural sentences, typically 20-55 words; no generic marketing language or exaggerated praise. Never invent facts, compensation, or investigations. For negative feedback, be considerate without admitting unverified accusations. Avoid promising follow-up unless specifically instructed.${signature}${brandContext}
 Risk level: ${analysis.risk}.`;
-        const model = Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-6-luna";
+        const model = Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-5.6-luna";
         const makeRequest = (chosen: string) => fetch("https://api.openai.com/v1/responses", {
           method: "POST",
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             model: chosen,
-            ...(chosen.startsWith("gpt-6") ? { reasoning: { effort: "none" } } : {}),
+            ...((chosen.startsWith("gpt-6") || chosen.startsWith("gpt-5.6-luna")) ? { reasoning: { effort: "none" } } : {}),
             instructions: "You write concise, accurate, venue-specific Google review replies. Output only the reply.",
             input: prompt,
             max_output_tokens: 150,
           }),
         });
         let oa = await makeRequest(model);
-        if (!oa.ok && [400, 404].includes(oa.status) && model === "gpt-6-luna") {
-          oa = await makeRequest("gpt-4.1-mini"); // Existing supported model if Luna is unavailable for this API account.
+        if (!oa.ok && [400, 403, 404].includes(oa.status) &&
+            ["gpt-5.6-luna", "gpt-6-luna"].includes(model) &&
+            /model_not_found|does not have access to model/i.test(await oa.clone().text())) {
+          oa = await makeRequest("gpt-4.1-mini"); // Account may lack access to the preferred low-cost model.
         }
         if (!oa.ok) throw new Error(`AI ${oa.status}: ${(await oa.text()).slice(0, 250)}`);
         const ox = await oa.json();
