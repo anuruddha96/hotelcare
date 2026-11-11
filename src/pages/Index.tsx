@@ -4,6 +4,8 @@ import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { MasterStaffSchedulePlanner } from '@/components/dashboard/MasterStaffSchedulePlanner';
+import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
+import { OperationalPageHeading } from '@/components/layout/OperationalPageHeading';
 import { MaintenanceIssueDeepLink } from '@/components/dashboard/MaintenanceIssueDeepLink';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
 import { isReceptionRole } from '@/lib/roleAccess';
@@ -35,7 +37,7 @@ const readHotelSelectedForToday = (userId?: string) => {
 const Index = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   // Dashboard strips ?tab= once it applies it, so latch explicit navigation
   // intent on mount. The master schedule uses ?view=staff-schedule and must also
   // bypass the revenue-first executive redirect.
@@ -126,30 +128,18 @@ const Index = () => {
 
   const canOpenMasterSchedule = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(profile?.role || '');
   const showingMasterSchedule = canOpenMasterSchedule && searchParams.get('view') === 'staff-schedule';
-  const toggleMasterSchedule = () => {
-    const next = new URLSearchParams(searchParams);
-    if (showingMasterSchedule) next.delete('view');
-    else next.set('view', 'staff-schedule');
-    setSearchParams(next);
-  };
 
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
       <Header />
-      {canOpenMasterSchedule && (
-        <div className="container mx-auto flex justify-end px-4 pt-3">
-          <button
-            type="button"
-            onClick={toggleMasterSchedule}
-            className="inline-flex items-center rounded-md border bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-muted"
-          >
-            {showingMasterSchedule ? 'Back to dashboard' : 'Master staff schedule'}
-          </button>
-        </div>
-      )}
+
 
       {showingMasterSchedule ? (
         <main className="container mx-auto px-4 py-6">
+          <OperationalPageHeading section="Master staff schedule" />
+          <div className="mt-4 mb-6">
+            <OperationsNavigation current="staff-schedule" />
+          </div>
           <MasterStaffSchedulePlanner />
         </main>
       ) : (
