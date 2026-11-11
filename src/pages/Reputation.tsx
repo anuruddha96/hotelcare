@@ -60,6 +60,7 @@ import {
   parseGoogleBusinessSetupError,
 } from "@/lib/googleBusinessSetup";
 import { toast } from "sonner";
+import { ReplyCustomizerDialog, type ReplyCustomizerOptions } from "@/components/reputation/ReplyCustomizerDialog";
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
 
@@ -251,6 +252,7 @@ export default function Reputation() {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [e2e, setE2E] = useState<E2EState>({ status: "idle", message: "" });
   const [draftText, setDraftText] = useState<Record<string, string>>({});
+  const [customizingReviewId, setCustomizingReviewId] = useState<string | null>(null);
   const [locationEdits, setLocationEdits] = useState<Record<string, LocationEdit>>({});
   const [search, setSearch] = useState("");
   const [ratingFilter, setRatingFilter] = useState("all");
@@ -643,6 +645,22 @@ export default function Reputation() {
     } finally {
       setItemBusy(null);
     }
+  };
+
+  const generateCustomizedReplies = async (reviewId: string, options: ReplyCustomizerOptions, previousDraft: string): Promise<string[]> => {
+    const result = await invoke("customize_reply", {
+      review_id: reviewId, options, previous_draft: previousDraft,
+    });
+    if (!Array.isArray(result.alternatives) || result.alternatives.length !== 3)
+      throw new Error("The AI did not return three reply alternatives.");
+    return result.alternatives;
+  };
+
+  const useCustomizedReply = async (reviewId: string, reply: string) => {
+    await invoke("update_draft", { review_id: reviewId, reply });
+    setDraftText((current) => ({ ...current, [reviewId]: reply }));
+    toast.success("Custom reply saved as a draft. It has not been published to Google.");
+    await load();
   };
 
   const saveDraft = async (reviewId: string) => {
@@ -1187,12 +1205,16 @@ export default function Reputation() {
                             <Textarea value={currentDraft} onChange={(e) => setDraftText((current) => ({ ...current, [review.id]: e.target.value }))} rows={5} />
                             <div className="flex flex-wrap gap-2">
                               <Button variant="outline" onClick={() => saveDraft(review.id)} disabled={itemBusy === review.id}><Save className="h-4 w-4 mr-2" />Save draft</Button>
-                              <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Regenerate</Button>
+                              <Button variant="outline" onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Customize reply</Button>
+                              <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Quick regenerate</Button>
                               <Button onClick={() => publish(review.id)} disabled={itemBusy === review.id || googleSetup.blocked}><Send className="h-4 w-4 mr-2" />{approvalRequired ? "Approve & publish" : "Publish to Google"}</Button>
                             </div>
                           </div>
                         ) : (
-                          <Button onClick={() => draft(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Draft reply with AI</Button>
+                          <div className="flex flex-wrap gap-2">
+                            <Button onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Customize & draft reply</Button>
+                            <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Quick draft</Button>
+                          </div>
                         )}
                       </CardContent>
                     </Card>
@@ -1593,6 +1615,19 @@ export default function Reputation() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <ReplyCustomizerDialog
+          open={Boolean(customizingReviewId)}
+          onOpenChange={(open) => { if (!open) setCustomizingReviewId(null); }}
+          review={customizingReviewId ? (reviewById.get(customizingReviewId) || null) : null}
+          venueName={customizingReviewId
+            ? (locationById.get(reviewById.get(customizingReviewId)?.google_location_id || "")?.reply_brand_name ||
+               locationById.get(reviewById.get(customizingReviewId)?.google_location_id || "")?.google_location_title || "Google business")
+            : "Google business"}
+          currentDraft={customizingReviewId ? (draftText[customizingReviewId] || "") : ""}
+          onGenerate={generateCustomizedReplies}
+          onSave={useCustomizedReply}
+        />
 
         <Dialog open={bulkPreviewOpen} onOpenChange={(open) => { if (!bulkBusy) { setBulkPreviewOpen(open); if (!open) setBulkConsent(false); } }}>
           <DialogContent className="max-w-3xl max-h-[88vh] flex flex-col overflow-hidden">
