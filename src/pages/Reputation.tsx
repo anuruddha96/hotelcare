@@ -9,6 +9,9 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  Zap,
+  CheckCheck,
+  ListFilter,
   ExternalLink,
   History,
   Languages,
@@ -35,6 +38,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -88,6 +99,8 @@ type Location = {
   brand_context?: string | null;
   is_active?: boolean;
   last_sync_at?: string | null;
+  auto_reply_enabled_at?: string | null;
+  auto_reply_consent_at?: string | null;
 };
 
 type Review = {
@@ -136,7 +149,15 @@ type Status = {
   reviews: Review[];
   hotels: Hotel[];
   events: ReplyEvent[];
-  stats?: { total: number; published: number; automatic: number; manager: number; imported: number };
+  stats?: {
+    total: number; published: number; automatic: number; manager: number; bulk: number;
+    imported: number; recent14: number; recentUnreplied: number; previous14: number;
+    awaiting: number; attention: number; average: number | null;
+  };
+  location_summary?: Record<string, {
+    total: number; published: number; automatic: number; bulk: number;
+    recent14: number; recentUnreplied: number; ratings: number; stars: number; attention: number;
+  }>;
 };
 
 type E2EState = {
@@ -188,6 +209,7 @@ const riskBadge = (risk?: string | null) => {
 const originLabel: Record<string, string> = {
   automatic: "Auto-published by HotelCare",
   manager: "Published by manager",
+  bulk: "Bulk-approved by manager",
   google: "Existing Google reply",
   unknown: "Publication source unknown",
 };
@@ -198,6 +220,7 @@ const eventLabel: Record<string, string> = {
   approved: "Reply approved",
   published: "Published to Google",
   auto_published: "Automatically published",
+  bulk_published: "Manager-approved bulk reply",
   publish_failed: "Publish failed",
   sync_detected_reply: "Google reply detected",
 };
@@ -226,6 +249,24 @@ export default function Reputation() {
   const [publishedBusy, setPublishedBusy] = useState(false);
   const [locationFilter, setLocationFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
+  const [venueCategory, setVenueCategory] = useState("all");
+  const [configVenueFilter, setConfigVenueFilter] = useState("all");
+  const [consentLocationId, setConsentLocationId] = useState<string | null>(null);
+  const [autoConsentIds, setAutoConsentIds] = useState<string[]>([]);
+  const [recentReviews, setRecentReviews] = useState<Review[]>([]);
+  const [recentTotal, setRecentTotal] = useState(0);
+  const [recentPage, setRecentPage] = useState(0);
+  const [recentVenue, setRecentVenue] = useState("all");
+  const [recentBusy, setRecentBusy] = useState(false);
+  const [selectedRecentIds, setSelectedRecentIds] = useState<string[]>([]);
+  const [recentDrafts, setRecentDrafts] = useState<Record<string, string>>({});
+  const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
+  const [bulkConsent, setBulkConsent] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState("");
+  const [historyVenue, setHistoryVenue] = useState("all");
+  const [googleAccounts, setGoogleAccounts] = useState<Array<{ name: string; account_name?: string; type?: string; role?: string }> | null>(null);
+  const [googleAccountsBusy, setGoogleAccountsBusy] = useState(false);
 
   const invokeRaw = async (action: string, extra: Record<string, unknown> = {}) => {
     if (!organizationSlug) throw new Error("Organization is missing");
@@ -272,10 +313,10 @@ export default function Reputation() {
     });
   };
 
-  const loadPublished = async (page = 0, source = publishedSource) => {
+  const loadPublished = async (page = 0, source = publishedSource, venue = historyVenue) => {
     setPublishedBusy(true);
     try {
-      const result = await invoke("list_published", { page, source });
+      const result = await invoke("list_published", { page, source, location_id: venue });
       setPublishedReviews(result.reviews || []);
       setPublishedPage(page);
       setPublishedTotal(Number(result.total || 0));
@@ -286,6 +327,34 @@ export default function Reputation() {
     }
   };
 
+  const loadRecent = async (page = 0, venue = recentVenue) => {
+    setRecentBusy(true);
+    try {
+      const result = await invoke("list_recent", { page, location_id: venue });
+      setRecentReviews(result.reviews || []);
+      setRecentTotal(Number(result.total || 0));
+      setRecentPage(page);
+      setSelectedRecentIds([]);
+      setRecentDrafts(Object.fromEntries((result.reviews || []).map((review: Review) => [review.id, review.ai_draft || ""])));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load recent Google reviews");
+    } finally {
+      setRecentBusy(false);
+    }
+  };
+
+  const loadAccounts = async () => {
+    setGoogleAccountsBusy(true);
+    try {
+      const result = await invoke("list_google_accounts");
+      setGoogleAccounts(result.accounts || []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not fetch connected Google accounts");
+    } finally {
+      setGoogleAccountsBusy(false);
+    }
+  };
+
   const load = async () => {
     if (!organizationSlug) return null;
     setBusy(true);
@@ -293,7 +362,7 @@ export default function Reputation() {
       const result = (await invoke("status")) as Status;
       setData(result);
       hydrateLocalState(result);
-      if (activeTab === "published") void loadPublished(publishedPage, publishedSource);
+      if (activeTab === "published" || activeTab === "auto") void loadPublished(publishedPage, publishedSource, historyVenue);
       const latestError = result.connections.find((connection) => connection.last_error)?.last_error || null;
       setSetupError(latestError);
       return result;
@@ -483,7 +552,11 @@ export default function Reputation() {
     if (!edit) return;
     setItemBusy(locationId);
     try {
-      await invoke("update_location_settings", { location_id: locationId, ...edit });
+      await invoke("update_location_settings", {
+        location_id: locationId, ...edit,
+        auto_consent_confirmed: autoConsentIds.includes(locationId),
+      });
+      setAutoConsentIds((ids) => ids.filter((id) => id !== locationId));
       toast.success("Reputation rules saved");
       await load();
     } catch (error) {
