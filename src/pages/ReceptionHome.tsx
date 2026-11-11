@@ -2,7 +2,8 @@ import { Navigate, Link, useParams } from 'react-router-dom';
 import { CalendarDays, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/layout/Header';
-import { PMSNavigation } from '@/components/layout/PMSNavigation';
+import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
+import { OperationalPageHeading } from '@/components/layout/OperationalPageHeading';
 import { UnifiedReceptionWorkspace } from '@/components/frontdesk/UnifiedReceptionWorkspace';
 import { Button } from '@/components/ui/button';
 
@@ -24,8 +25,11 @@ export default function ReceptionHome() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <PMSNavigation />
-      <main className="w-full px-2 sm:px-4 py-3 sm:py-4">
+      <main className="container mx-auto px-4 py-6">
+        <OperationalPageHeading section="Reception" />
+        <div className="mt-4 mb-6">
+          <OperationsNavigation current="reception" />
+        </div>
         <div className="mb-3 flex items-center gap-1.5 overflow-x-auto scrollbar-hide" aria-label="Reception tools">
           <Button type="button" size="sm" className="h-8 shrink-0 gap-1.5">
             🛎️ Calendar & reservations
