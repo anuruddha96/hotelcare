@@ -881,6 +881,65 @@ export default function Reputation() {
                 <div><div className="text-muted-foreground">Managed Google listings</div><div className="font-medium mt-1">{locations.length}</div></div>
               </CardContent>
             </Card>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <Card><CardContent className="pt-5"><p className="text-xs text-muted-foreground">New reviews · past 14 days</p><div className="text-2xl font-semibold mt-1">{data?.stats?.recent14 ?? 0}</div><p className="text-xs text-muted-foreground mt-1">Previous 14 days: {data?.stats?.previous14 ?? 0}</p></CardContent></Card>
+              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("automation"); void loadRecent(0, "all"); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Last 14 days · need reply</p><div className="text-2xl font-semibold mt-1">{data?.stats?.recentUnreplied ?? 0}</div><p className="text-xs text-primary mt-1">Review and approve responses</p></CardContent></Card>
+              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("auto"); setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Auto-published replies</p><div className="text-2xl font-semibold mt-1">{data?.stats?.automatic ?? 0}</div><p className="text-xs text-primary mt-1">View automatic reply history</p></CardContent></Card>
+              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("auto"); setPublishedSource("bulk"); void loadPublished(0, "bulk", historyVenue); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Bulk-approved replies</p><div className="text-2xl font-semibold mt-1">{data?.stats?.bulk ?? 0}</div><p className="text-xs text-primary mt-1">View manager-approved batches</p></CardContent></Card>
+            </div>
+            <Card>
+              <CardHeader><div className="flex flex-wrap items-center justify-between gap-3">
+                <div><CardTitle className="text-lg">Connected Google Business accounts</CardTitle><p className="text-sm text-muted-foreground mt-1">Signed-in Google connections and the Business Profile accounts accessible through them.</p></div>
+                <Button variant="outline" size="sm" onClick={loadAccounts} disabled={googleAccountsBusy}>{googleAccountsBusy ? "Loading…" : "Load Google accounts"}</Button>
+              </div></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {(data?.connections || []).map((connection) => <div key={connection.id} className="flex flex-wrap justify-between gap-2 rounded-md border p-3">
+                  <div><div className="font-medium">{connection.google_account_email || connection.google_account_display_name || "Connected Google account"}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Connection status: {connection.status} · Last sync: {fmtDate(connection.last_sync_at)}</div>
+                  </div><Badge variant="outline">{locations.length} linked business listings</Badge>
+                </div>)}
+                {googleAccounts === null ? <p className="text-xs text-muted-foreground">Select “Load Google accounts” to see the Google-side account names and access roles.</p> :
+                  googleAccounts.length === 0 ? <p className="text-xs text-muted-foreground">No Google Business account details returned.</p> :
+                    googleAccounts.map((account) => <div key={account.name} className="flex flex-wrap justify-between gap-2 rounded-md border px-3 py-2">
+                      <div><span className="font-medium">{account.account_name || account.name}</span>
+                        <span className="block text-xs text-muted-foreground">{account.name} · {account.type || "Business account"} · {account.role || "Role not returned"}</span>
+                      </div>
+                      <Badge variant="outline">{locations.filter((location) => location.google_account_name === account.name).length} locations</Badge>
+                    </div>)}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-lg">Performance by Google business</CardTitle><p className="text-sm text-muted-foreground">Click a venue to review its recent feedback and prepare replies.</p></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {venueCategories.map((category) => <Button key={category} size="sm" variant={venueCategory === category ? "default" : "outline"} onClick={() => setVenueCategory(category)}>
+                    {category === "all" ? "All venues" : category.charAt(0).toUpperCase() + category.slice(1)} ({category === "all" ? locations.length : categoryCounts[category] || 0})
+                  </Button>)}
+                </div>
+                <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {visibleVenues.map((location) => {
+                    const s = summary[location.id];
+                    return <button type="button" key={location.id} className="text-left rounded-lg border p-4 space-y-3 hover:border-primary/50 hover:bg-muted/20 transition-colors"
+                      onClick={() => { setRecentVenue(location.id); setActiveTab("automation"); void loadRecent(0, location.id); }}>
+                      <div className="flex flex-wrap justify-between items-start gap-2">
+                        <div className="font-semibold">{location.reply_brand_name || location.google_location_title}</div>
+                        <Badge variant="secondary" className="capitalize">{location.business_category || "other"}</Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate" title={location.google_location_title}>{location.google_location_title}</div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div><div className="text-muted-foreground">Reviews</div><div className="font-semibold text-base">{s?.total ?? 0}</div></div>
+                        <div><div className="text-muted-foreground">Rating</div><div className="font-semibold text-base">{s?.ratings ? (s.stars / s.ratings).toFixed(1) : "—"}</div></div>
+                        <div><div className="text-muted-foreground">14d pending</div><div className="font-semibold text-base">{s?.recentUnreplied ?? 0}</div></div>
+                      </div>
+                      <div className="flex flex-wrap justify-between gap-2 text-xs">
+                        <span className={location.auto_reply_enabled ? "text-emerald-700" : "text-muted-foreground"}>Auto replies: {location.auto_reply_enabled ? "Enabled" : "Off"}</span>
+                        <span className="text-primary">Open reviews →</span>
+                      </div>
+                    </button>;
+                  })}
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="inbox" className="space-y-4">
