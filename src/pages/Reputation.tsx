@@ -576,7 +576,11 @@ export default function Reputation() {
               ) : (
                 <div>
                   <p className="font-medium">HotelCare authentication is working.</p>
-                  <p className="text-sm text-muted-foreground mt-1">Google is refusing the next API call because required Business Profile services are disabled or access has not been granted.</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {googleSetup.apiDisabled
+                      ? "A required Google Business Profile service is not enabled in this Cloud project. Open the matching API in Google Cloud, click Enable, then retry location discovery. Your existing OAuth connection does not need to be changed."
+                      : "Google is refusing the next API call. Review the technical details below and confirm this project's API permissions and account access."}
+                  </p>
                 </div>
               )}
 
