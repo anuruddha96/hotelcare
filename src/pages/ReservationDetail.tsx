@@ -13,7 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  ArrowLeft, User, CalendarDays, BedDouble, CreditCard, FileText, Edit,
+  ArrowLeft, User, CalendarDays, BedDouble, CreditCard, Edit,
   History, Lock, AlertTriangle, Hash,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -21,6 +21,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { EditReservationDialog } from '@/components/reservations/EditReservationDialog';
+import { ReservationNotesPanel } from '@/components/reservations/ReservationNotesPanel';
 import { ReservationAccountPanel } from '@/components/reservations/ReservationAccountPanel';
 import { LifecycleError, setReservationStatus } from '@/lib/pmsLifecycle';
 import {
@@ -284,21 +285,7 @@ const ReservationDetail = () => {
           </Card>
         </div>
 
-        {(reservation.special_requests || reservation.internal_notes) && (
-          <Card>
-            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><FileText className="h-4 w-4" /> {t('pms.reservationDetail.notesRequests')}</CardTitle></CardHeader>
-            <CardContent className="grid md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground font-medium">{t('pms.reservationDetail.specialRequests')}</span>
-                <p className="mt-1 whitespace-pre-wrap">{reservation.special_requests || '—'}</p>
-              </div>
-              <div>
-                <span className="text-muted-foreground font-medium">{t('pms.reservationDetail.internalNotes')}</span>
-                <p className="mt-1 whitespace-pre-wrap">{reservation.internal_notes || '—'}</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <ReservationNotesPanel specialRequests={reservation.special_requests} internalNotes={reservation.internal_notes} />
 
         <div className="grid xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] gap-4 items-start">
           <ReservationAccountPanel reservation={reservation} onFinancialChanged={fetchData} />
