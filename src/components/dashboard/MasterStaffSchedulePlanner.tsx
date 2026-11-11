@@ -31,6 +31,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { calculateScheduledMinutes, getScheduleSummary } from '@/lib/staffScheduleAnalytics';
 import { canonicalRdHotelId, isSameRdHotel, rdHotelDisplayName } from '@/lib/rdSchedulingHotels';
+import { todayBudapest } from '@/lib/budapestTime';
 
 type WorkStatus = 'working' | 'off' | 'leave' | 'sick' | 'training';
 type LifecycleStatus = 'draft' | 'published';
@@ -70,12 +71,7 @@ type ShiftTemplate = {
 
 const PORTFOLIO_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
 const PROPERTY_MANAGER_ROLES = ['manager', 'housekeeping_manager'];
-const todayInBudapest = () => {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-  const get = (type: string) => parts.find(part => part.type === type)?.value || '';
-  return `${get('year')}-${get('month')}-${get('day')}`;
-};
-const isHistoricalDate = (date: string) => date < todayInBudapest();
+const isHistoricalDate = (date: string) => date < todayBudapest();
 const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   working: 'Working',
   off: 'Off',
@@ -237,8 +233,17 @@ export function MasterStaffSchedulePlanner() {
         if (!hasWorkingVenue) return false;
       }
       return true;
-    });
+    }).sort((a, b) => departmentForRole(a.role).localeCompare(departmentForRole(b.role))
+      || a.full_name.localeCompare(b.full_name));
   }, [staff, search, departmentFilter, roleFilter, baseVenueFilter, workingVenueFilter, dates, shiftMap, venueNameById, baseHotelName, canSeePortfolio, profile?.assigned_hotel]);
+
+  const departmentGroups = useMemo(() => filteredStaff.reduce<Array<{ label: string; count: number }>>((groups, employee) => {
+    const department = departmentForRole(employee.role);
+    const last = groups[groups.length - 1];
+    if (last?.label === department) last.count++;
+    else groups.push({ label: department, count: 1 });
+    return groups;
+  }, []), [filteredStaff]);
 
   const summary = useMemo(() => {
     const visibleIds = new Set(filteredStaff.map((person) => person.id));
@@ -339,7 +344,7 @@ export function MasterStaffSchedulePlanner() {
       published_at: new Date().toISOString(),
       published_by: profile.id,
     }).eq('organization_slug', profile.organization_slug)
-      .gte('work_date', start > todayInBudapest() ? start : todayInBudapest())
+      .gte('work_date', start > todayBudapest() ? start : todayBudapest())
       .lte('work_date', end)
       .in('status', ['draft', 'off']);
     if (error) return toast.error(error.message);
@@ -418,7 +423,7 @@ export function MasterStaffSchedulePlanner() {
   };
 
   const handleCellKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, person: Staff, date: string, shift?: Shift) => {
-    if (isHistoricalDate(date) && !(event.ctrlKey || event.metaKey && event.key.toLowerCase() === 'c')) return;
+    if (isHistoricalDate(date) && !((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c')) return;
     const modifier = event.ctrlKey || event.metaKey;
     if (modifier && event.key.toLowerCase() === 'c' && shift) {
       event.preventDefault();
@@ -468,7 +473,7 @@ export function MasterStaffSchedulePlanner() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => void exportExcel()}><Download className="h-4 w-4 mr-1" />Export Excel</Button>
           <Button variant="outline" onClick={copyPreviousWeek} disabled={saving}><Copy className="h-4 w-4 mr-1" />Copy previous week</Button>
-          <Button onClick={publishWeek} disabled={saving || summary.drafts === 0 || end < todayInBudapest()}><Send className="h-4 w-4 mr-1" />Publish drafts</Button>
+          <Button onClick={publishWeek} disabled={saving || summary.drafts === 0 || end < todayBudapest()}><Send className="h-4 w-4 mr-1" />Publish drafts</Button>
         </div>
       </div>
 
@@ -509,12 +514,13 @@ export function MasterStaffSchedulePlanner() {
           {viewMode === 'excel' && <div className="hidden max-h-[70vh] overflow-auto rounded-md border md:block">
             <table className="border-collapse text-xs">
               <thead className="sticky top-0 z-20 bg-background">
-                <tr><th className="sticky left-0 z-30 min-w-24 border-r bg-background p-2 text-left">Date</th>
-                  {filteredStaff.map(person => <th key={person.id} className="min-w-40 border-r p-2 text-left">
-                    <span className="block font-semibold">{person.full_name}</span>
-                    <span className="block font-normal text-muted-foreground">{departmentForRole(person.role)} · {baseVenueLabel(person)}</span>
-                  </th>)}
+                <tr><th rowSpan={2} className="sticky left-0 z-30 min-w-24 border-r bg-background p-2 text-left">Date</th>
+                  {departmentGroups.map(group => <th key={group.label} colSpan={group.count} className="border-r border-b bg-muted/40 p-2 text-center font-semibold">{group.label} · {group.count}</th>)}
                 </tr>
+                <tr>{filteredStaff.map(person => <th key={person.id} className="min-w-40 border-r p-2 text-left">
+                  <span className="block font-semibold">{person.full_name}</span>
+                  <span className="block font-normal text-muted-foreground">{baseVenueLabel(person)}</span>
+                </th>)}</tr>
               </thead>
               <tbody>{periodDays.map((day, index) => {
                 const date = dates[index];
