@@ -920,6 +920,34 @@ export default function Reputation() {
           </Card>
         )}
 
+        {(data?.open_alert_count || 0) > 0 && (
+          <Card className="border-amber-300">
+            <CardContent className="pt-5 space-y-3">
+              <div className="flex flex-wrap justify-between items-center gap-3">
+                <div className="flex gap-2 items-start">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                  <div><div className="font-semibold">{data?.open_alert_count} new 1–3-star Google review alert(s)</div>
+                    <p className="text-sm text-muted-foreground">These require a manager response. Low-rated or sensitive reviews are never auto-published.</p>
+                  </div>
+                </div>
+                <Button variant="outline" onClick={() => { setActiveTab("inbox"); setRatingFilter("attention"); setStatusFilter("all"); }}>Review low ratings</Button>
+              </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {(data?.alerts || []).slice(0, 6).map((alert) => <div key={alert.id} className="rounded-md border p-3 space-y-2">
+                  <div className="text-sm font-medium">{alert.star_rating}★ · {locations.find((venue) => venue.id === alert.google_location_id)?.reply_brand_name || "Google business"}</div>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{alert.review_excerpt || "Rating only — no written comment."}</p>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button size="sm" variant="outline" onClick={() => {
+                      setLocationFilter(alert.google_location_id); setRatingFilter("attention"); setActiveTab("inbox");
+                    }}>Open</Button>
+                    <Button size="sm" variant="ghost" disabled={alertBusy === alert.id} onClick={() => void acknowledgeAlert(alert.id)}>Acknowledge</Button>
+                  </div>
+                </div>)}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Tabs value={activeTab} onValueChange={(value) => {
           setActiveTab(value);
           if (value === "automation") void loadRecent(0, recentVenue);
@@ -1040,12 +1068,36 @@ export default function Reputation() {
               <CardContent className="pt-5">
                 <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-3">
                   <div className="relative xl:col-span-2"><Search className="h-4 w-4 absolute left-3 top-3 text-muted-foreground" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search guest, review or topic…" className="pl-9" /></div>
-                  <Select value={ratingFilter} onValueChange={setRatingFilter}><SelectTrigger><SelectValue placeholder="Rating" /></SelectTrigger><SelectContent><SelectItem value="all">All ratings</SelectItem>{[5,4,3,2,1].map((value) => <SelectItem key={value} value={String(value)}>{value} stars</SelectItem>)}</SelectContent></Select>
+                  <Select value={ratingFilter} onValueChange={setRatingFilter}><SelectTrigger><SelectValue placeholder="Rating" /></SelectTrigger><SelectContent><SelectItem value="all">All ratings</SelectItem><SelectItem value="positive">4–5 stars · positive</SelectItem><SelectItem value="attention">1–3 stars · attention</SelectItem>{[5,4,3,2,1].map((value) => <SelectItem key={value} value={String(value)}>{value} stars</SelectItem>)}</SelectContent></Select>
                   <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="unreplied">Awaiting reply</SelectItem><SelectItem value="draft">Draft ready</SelectItem><SelectItem value="published">Published</SelectItem></SelectContent></Select>
                   <Select value={riskFilter} onValueChange={setRiskFilter}><SelectTrigger><SelectValue placeholder="Risk" /></SelectTrigger><SelectContent><SelectItem value="all">All risk levels</SelectItem><SelectItem value="low">Low risk</SelectItem><SelectItem value="medium">Review carefully</SelectItem><SelectItem value="high">High risk</SelectItem></SelectContent></Select>
-                  <Select value={originFilter} onValueChange={setOriginFilter}><SelectTrigger><SelectValue placeholder="Reply source" /></SelectTrigger><SelectContent><SelectItem value="all">All reply sources</SelectItem><SelectItem value="automatic">Auto-published</SelectItem><SelectItem value="manager">Manager published</SelectItem><SelectItem value="google">Existing Google replies</SelectItem></SelectContent></Select>
+                  <Select value={originFilter} onValueChange={setOriginFilter}><SelectTrigger><SelectValue placeholder="Reply source" /></SelectTrigger><SelectContent><SelectItem value="all">All reply sources</SelectItem><SelectItem value="automatic">Auto-published</SelectItem><SelectItem value="manager">Manager published</SelectItem><SelectItem value="bulk">Manager-approved batch</SelectItem><SelectItem value="google">Existing Google replies</SelectItem></SelectContent></Select>
                 </div>
-                {locations.length > 1 && <div className="mt-3 max-w-md"><Select value={locationFilter} onValueChange={setLocationFilter}><SelectTrigger><SelectValue placeholder="Google location" /></SelectTrigger><SelectContent><SelectItem value="all">All Google locations</SelectItem>{locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.google_location_title}</SelectItem>)}</SelectContent></Select></div>}
+                <div className="mt-3 space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { id: "all", label: "All ratings" },
+                      { id: "positive", label: "4–5★ positive" },
+                      { id: "attention", label: "1–3★ attention" },
+                      { id: "5", label: "5★" }, { id: "4", label: "4★" },
+                      { id: "3", label: "3★" }, { id: "2", label: "2★" }, { id: "1", label: "1★" },
+                    ]).map((item) => <Button key={item.id} size="sm" variant={ratingFilter === item.id ? "default" : "outline"}
+                      onClick={() => setRatingFilter(item.id)}>{item.label}</Button>)}
+                  </div>
+                  <Select value={locationFilter} onValueChange={setLocationFilter}>
+                    <SelectTrigger className="max-w-md"><SelectValue placeholder="Google business" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">All connected businesses</SelectItem>
+                      {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex flex-wrap gap-2">
+                    {locations.map((location) => <Button key={location.id} size="sm"
+                      variant={locationFilter === location.id ? "default" : "outline"} onClick={() => setLocationFilter(location.id)}>
+                      {location.reply_brand_name || location.google_location_title}</Button>)}
+                    {locationFilter !== "all" && <Button size="sm" variant="ghost" onClick={() => setLocationFilter("all")}>Clear venue filter</Button>}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{filteredReviews.length} matching recent inbox entries (last 250 imported) · venue and rating filters</p>
+                </div>
               </CardContent>
             </Card>
 
