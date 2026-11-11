@@ -79,6 +79,7 @@ import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
 import { isPotentialCheckoutRoom } from '@/lib/nextDayHousekeepingSnapshot';
+import { groupFutureHousekeepingRooms } from '@/lib/futureHousekeepingDay';
 import type { OttofioriNightForecast } from '@/lib/ottofioriNextDayForecast';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { todayBudapest } from '@/lib/budapestTime';
@@ -2191,6 +2192,19 @@ export function AutoRoomAssignment({
                   <div className="text-center"><p className="text-2xl font-bold text-blue-600">{effectiveRooms.filter(room => !isCheckoutLike(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.daily')}</p></div>
                 </div>
 
+                {isNextDayPlanning && (() => {
+                  const workload = groupFutureHousekeepingRooms(effectiveRooms, selectedDate);
+                  return (
+                    <div className="rounded-lg border bg-card px-3 py-2 text-xs" role="status">
+                      <strong>Morning work on {selectedDate}:</strong>{' '}
+                      {workload.checkouts.length} confirmed checkouts ·{' '}
+                      {workload.dayTwoStayovers.length} day-2 stayovers ·{' '}
+                      {workload.laterStayovers.length} day-3+ stayovers ·{' '}
+                      {workload.otherStayovers.length} stayovers (night not verified) ·{' '}
+                      {workload.unbookedMorning.length} unsold / provisional rooms
+                    </div>
+                  );
+                })()}
                 {isNextDayPlanning && nightForecast !== undefined && (
                   <div role={nightForecast ? 'status' : 'alert'} className={nightForecast
                     ? 'rounded-lg border border-sky-300 bg-sky-50 p-3 text-sm text-sky-950 dark:bg-sky-950/30 dark:text-sky-100'
