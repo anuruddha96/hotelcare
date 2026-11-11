@@ -19,11 +19,15 @@ const sha = async (value: string) => {
 };
 // Server-side HMAC pepper makes six-digit PIN hashes resistant to offline dictionary attacks.
 const pinHash = async (id: string, pin: string) => {
-  const secret = Deno.env.get("INSUITE_PIN_PEPPER");
-  if (!secret || secret.length < 32) throw Error("INSUITE_PIN_PEPPER must be configured (at least 32 chars)");
+  // Prefer a dedicated secret. Supabase's protected service-role key is a
+  // stable, server-only HMAC fallback for installations without secret editing.
+  // Never log, return, or expose either key to guest/staff browsers.
+  const secret = Deno.env.get("INSUITE_PIN_PEPPER") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!secret || secret.length < 32) throw Error("Secure In-Suite PIN HMAC key is not configured");
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(id + ":" + pin));
+  const signature = await crypto.subtle.sign("HMAC", key,
+    new TextEncoder().encode("hotelcare:insuite:maintenance-pin:v1:" + id + ":" + pin));
   return Array.from(new Uint8Array(signature)).map((b) => b.toString(16).padStart(2, "0")).join("");
 };
 const random = (count = 32) => {
