@@ -73,7 +73,7 @@ type ShiftTemplate = {
 };
 
 const PORTFOLIO_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
-const PROPERTY_MANAGER_ROLES = ['manager', 'housekeeping_manager'];
+const PROPERTY_MANAGER_ROLES = ['manager', 'housekeeping_manager', 'maintenance_manager', 'reception_manager', 'finance_manager', 'control_manager', 'marketing_manager', 'back_office_manager'];
 const isHistoricalDate = (date: string) => date < todayBudapest();
 const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   working: 'Working',
