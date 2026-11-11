@@ -18,18 +18,20 @@ const BATCH_SIZE = 100;
 /** Upload a staff workbook and turn reviewed, confidently matched future cells
  * into draft shifts. Import never changes existing or published assignments. */
 export function ScheduleExcelImportReview({
-  employees, currentShifts, organizationSlug, userId, onImported,
+  employees, currentShifts, organizationSlug, userId, canImportHistory, onImported,
 }: {
   employees: ExcelEmployee[];
   currentShifts: ExistingShift[];
   organizationSlug: string;
   userId: string;
+  canImportHistory?: boolean;
   onImported: () => void;
 }) {
   const [tables, setTables] = useState<Record<string, unknown[][]>>({});
   const [selectedSheet, setSelectedSheet] = useState('all');
   const [fileName, setFileName] = useState('');
   const [recoverExcelDates, setRecoverExcelDates] = useState(false);
+  const [includeHistory, setIncludeHistory] = useState(false);
   const [codeMappings, setCodeMappings] = useState<Record<string, ExcelCodeMapping>>({});
   const [staffMappings, setStaffMappings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -63,6 +65,7 @@ export function ScheduleExcelImportReview({
       setCodeMappings({});
       setStaffMappings({});
       setRecoverExcelDates(false);
+      setIncludeHistory(false);
       setApproval(false);
       setProgress('');
       toast.success('Excel read successfully. Preview the detected shifts and approve automatic filling.');
@@ -80,10 +83,11 @@ export function ScheduleExcelImportReview({
     scoped, employees, {
       currentDate: todayBudapest(),
       includeExcelDates: recoverExcelDates,
+      includeHistorical: canImportHistory && includeHistory,
       codeMappings, staffMappings,
       existingKeys: new Set(currentShifts.map(shift => shift.user_id + '|' + shift.work_date)),
     },
-  ), [scoped, employees, recoverExcelDates, codeMappings, staffMappings, currentShifts]);
+  ), [scoped, employees, recoverExcelDates, canImportHistory, includeHistory, codeMappings, staffMappings, currentShifts]);
 
   const candidateCounts = useMemo(() => preview.candidates.reduce(
     (result, item) => {
@@ -122,17 +126,35 @@ export function ScheduleExcelImportReview({
         }
         if ((data?.length ?? 0) < 1000) break;
       }
-      const pending = all.filter(item =>
-        item.date >= todayBudapest() && !occupied.has(item.employeeId + '|' + item.date),
-      );
-      if (!pending.length) {
-        toast.info('All eligible shifts are already present or are in the past.');
+      const candidates = all.filter(item => !occupied.has(item.employeeId + '|' + item.date));
+      const future = candidates.filter(item => item.date >= todayBudapest());
+      const history = canImportHistory && includeHistory
+        ? candidates.filter(item => item.date < todayBudapest()) : [];
+      if (!future.length && !history.length) {
+        toast.info('All approved schedule cells have already been filled.');
         return;
       }
 
+      let archived = 0;
+      // Historical rows are inserted solely by a limited, audited HR/executive
+      // function. Direct changes to past rosters remain blocked by database RLS.
+      for (let from = 0; from < history.length; from += BATCH_SIZE) {
+        const rows = history.slice(from, from + BATCH_SIZE).map(item => ({
+          user_id: item.employeeId, hotel_id: item.hotelId,
+          work_date: item.date, work_status: item.workStatus,
+          shift_start: item.start, shift_end: item.end,
+        }));
+        const { data, error } = await (supabase as any).rpc('rd_import_historical_staff_schedules', {
+          _rows: rows, _source_file: fileName.slice(0, 200),
+        });
+        if (error) throw new Error(error.message);
+        archived += Number(data || 0);
+        setProgress('Archived ' + archived + ' historical shifts');
+      }
+
       let saved = 0;
-      for (let from = 0; from < pending.length; from += BATCH_SIZE) {
-        const batch = pending.slice(from, from + BATCH_SIZE).map((item: ExcelScheduleCandidate) => ({
+      for (let from = 0; from < future.length; from += BATCH_SIZE) {
+        const batch = future.slice(from, from + BATCH_SIZE).map((item: ExcelScheduleCandidate) => ({
           organization_slug: organizationSlug,
           hotel_id: item.hotelId,
           user_id: item.employeeId,
@@ -148,10 +170,13 @@ export function ScheduleExcelImportReview({
         const { error } = await (supabase as any).from('staff_schedules').insert(batch);
         if (error) throw new Error(error.message);
         saved += batch.length;
-        setProgress('Filled ' + saved + ' of ' + pending.length + ' new draft shifts');
+        setProgress('Filled ' + saved + ' of ' + future.length + ' future drafts; ' +
+          archived + ' historical shifts archived');
       }
-      toast.success('Successfully filled ' + saved + ' schedule cells. Review the grid, then publish when ready.');
-      setProgress('Completed: ' + saved + ' new drafts. Existing schedules were not modified.');
+      toast.success('Excel filled ' + saved + ' future drafts and ' + archived +
+        ' read-only historical shifts. Review future drafts before publishing.');
+      setProgress('Completed: ' + saved + ' drafts and ' + archived +
+        ' archived shifts. Existing schedules were not modified.');
       setApproval(false);
       onImported();
     } catch (cause) {
@@ -208,6 +233,15 @@ export function ScheduleExcelImportReview({
           </span>
         </span>
       </label>
+      {canImportHistory && <label className="flex cursor-pointer items-start gap-2 rounded-md border p-3 text-sm">
+        <input type="checkbox" checked={includeHistory} disabled={saving}
+          onChange={event => { setIncludeHistory(event.target.checked); setApproval(false); }} />
+        <span><strong>Include historical schedules as read-only archive</strong>
+          <span className="block text-xs text-muted-foreground">
+            HR and executives can include past Excel schedules. They become permanently read-only
+            roster records, not actual attendance or payroll hours.
+          </span></span>
+      </label>}
       {!!preview.unrecognizedCodes.length && <details className="rounded-md border p-3">
         <summary className="cursor-pointer font-medium text-sm">Map absence codes (optional)</summary>
         <p className="my-2 text-xs text-muted-foreground">Unknown codes are skipped until you explicitly choose their meaning. Do not assume SZ, K, HO, B or any other abbreviation means a particular leave type.</p>
@@ -276,18 +310,18 @@ export function ScheduleExcelImportReview({
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" checked={approval} disabled={saving || preview.candidates.length === 0}
           onChange={event => setApproval(event.target.checked)} />
-        <span>I reviewed these matches and want HotelCare to fill empty future schedule cells automatically as <strong>drafts</strong>.</span>
+        <span>I reviewed the matches and authorize filling future shifts as <strong>drafts</strong>{includeHistory && canImportHistory ? ' and past shifts as read-only archives.' : '.'}</span>
       </label>
       <Button disabled={saving || !approval || !preview.candidates.length}
         onClick={() => void importFutureDrafts()} className="gap-2">
         <CheckCircle2 className="h-4 w-4" />
-        {saving ? 'Filling schedule…' : 'Auto-fill ' + preview.candidates.length + ' draft shifts'}
+        {saving ? 'Filling schedule…' : 'Auto-fill ' + preview.candidates.length + ' schedule cells'}
       </Button>
       {!!progress && <p aria-live="polite" className="text-xs text-muted-foreground">{progress}</p>}
       <p className="text-xs text-muted-foreground">
         The uploaded workbook is not stored. This action fills schedules only after review;
-        it does not publish shifts or start Housekeeping Auto Assign.
-        Historical records remain read-only and require a separate controlled import.
+        it does not publish future shifts or start Housekeeping Auto Assign.
+        Historical entries use an audited executive/HR-only import.
       </p>
     </div>}
   </CardContent></Card>;
