@@ -334,19 +334,9 @@ end; $$;
 revoke all on function public.insuite_escalate_overdue() from public, anon, authenticated;
 grant execute on function public.insuite_escalate_overdue() to service_role;
 
--- Single property-scoped escalation check per minute. All work is restricted
--- to published/enabled properties, currently active device epochs and open jobs.
--- If pg_cron is unavailable, the migration succeeds but a verified operator
--- must schedule this function after enabling pg_cron in that environment.
-do $schedule$
-begin
-  if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    if not exists (select 1 from cron.job where jobname = 'insuite-escalation-1m') then
-      perform cron.schedule('insuite-escalation-1m', '* * * * *',
-        'select public.insuite_escalate_overdue();');
-    end if;
-  else
-    raise notice 'In-Suite escalations are not scheduled: pg_cron extension is missing';
-  end if;
-end
-$schedule$;
+-- Escalation is installed but intentionally NOT scheduled until a hotel
+-- has completed guest-service and staff-notification pilot tests.
+-- Schedule only once after validating alerts and on-duty routing:
+-- SELECT cron.schedule('insuite-escalation-1m', '* * * * *',
+--    'SELECT public.insuite_escalate_overdue();');
+-- This avoids adding a production background job before the pilot is enabled.
