@@ -490,6 +490,78 @@ export default function Reputation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!data?.locations?.length) return;
+    const activeHotel = String(profile?.assigned_hotel || profile?.hotel_id || "").trim();
+    if (!activeHotel) return;
+    const scope = String(profile?.organization_slug || "") + ":" + activeHotel;
+    if (venueSelectionScope.current === scope) return;
+    venueSelectionScope.current = scope;
+    const activeConfig = (data.hotels || []).find((hotel) =>
+      hotel.hotel_id === activeHotel || hotel.hotel_name.toLowerCase() === activeHotel.toLowerCase());
+    const matching = data.locations.find((location) => activeConfig &&
+      location.hotel_id === activeConfig.hotel_id) ||
+      data.locations.find((location) => location.hotel_id === activeHotel);
+    // A direct alert link has stronger intent than the default active hotel.
+    if (searchParams.get("venue")) return;
+    const venueId = matching?.id || "all";
+    setLocationFilter(venueId);
+    setRecentVenue(venueId);
+    setHistoryVenue(venueId);
+  }, [data?.locations, data?.hotels, profile?.assigned_hotel, profile?.hotel_id,
+      profile?.organization_slug, searchParams]);
+
+  useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    const venue = searchParams.get("venue");
+    if (requestedTab === "attention") {
+      setActiveTab("inbox");
+      setRatingFilter("attention");
+      setStatusFilter("all");
+    } else if (requestedTab === "auto") {
+      setActiveTab("published");
+      setPublishedSource("automatic");
+    }
+    if (venue) {
+      setLocationFilter(venue);
+      setRecentVenue(venue);
+      setHistoryVenue(venue);
+    }
+  }, [searchParams]);
+
+  const acknowledgeAlert = async (id: string) => {
+    setAlertBusy(id);
+    try {
+      await invoke("acknowledge_low_rating_alert", { alert_id: id });
+      toast.success("Low-rating alert acknowledged");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not acknowledge alert");
+    } finally {
+      setAlertBusy(null);
+    }
+  };
+
+  const enableAutoForSelectedVenues = async () => {
+    if (!allAutoConsent || !allAutoVenueIds.length) return;
+    setAllAutoBusy(true);
+    try {
+      const result = await invoke("activate_auto_venues", {
+        location_ids: allAutoVenueIds,
+        confirm: true,
+      });
+      toast.success(`Automatic 4–5-star replies authorized for ${result.activated?.length || 0} Google businesses`);
+      setAllAutoDialogOpen(false);
+      setAllAutoVenueIds([]);
+      setAllAutoConsent(false);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not activate selected venues");
+    } finally {
+      setAllAutoBusy(false);
+    }
+  };
+
   const connect = async () => {
     setBusy(true);
     try {
