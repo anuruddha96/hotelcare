@@ -1282,6 +1282,73 @@ export default function Reputation() {
             </Card>
           </TabsContent>
         </Tabs>
+        <AlertDialog open={Boolean(consentLocationId)} onOpenChange={(open) => { if (!open) setConsentLocationId(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Authorize automatic Google replies for this business?</AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <span className="block font-medium text-foreground">
+                  {locations.find((location) => location.id === consentLocationId)?.reply_brand_name || "Selected Google business"}
+                </span>
+                <span className="block">When you save these settings, HotelCare may automatically publish replies to NEW 4–5★ low-risk reviews for this specific listing, after the configured delay. Negative and high-risk reviews remain manager-controlled.</span>
+                <span className="block">Reviews from the previous 14 days are not published automatically by this switch; use Automation center to select and approve those separately. You can disable future automatic publishing at any time.</span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep manual approval</AlertDialogCancel>
+              <AlertDialogAction onClick={() => {
+                if (!consentLocationId) return;
+                const id = consentLocationId;
+                setLocationEdits((current) => {
+                  const edit = current[id];
+                  return edit ? { ...current, [id]: { ...edit, auto_reply_enabled: true,
+                    reply_mode: edit.reply_mode === "draft_only" ? "auto_positive" : edit.reply_mode,
+                    min_auto_rating: Math.max(4, edit.min_auto_rating),
+                    require_approval_below_rating: Math.max(4, edit.require_approval_below_rating) } } : current;
+                });
+                setAutoConsentIds((ids) => Array.from(new Set([...ids, id])));
+                setConsentLocationId(null);
+                toast.info("Authorization noted. Click Save location rules to enable automation.");
+              }}>Authorize for this business</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <Dialog open={bulkPreviewOpen} onOpenChange={(open) => { if (!bulkBusy) { setBulkPreviewOpen(open); if (!open) setBulkConsent(false); } }}>
+          <DialogContent className="max-w-3xl max-h-[88vh] flex flex-col overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>Review and approve {selectedRecentReviews.length} Google replies</DialogTitle>
+              <DialogDescription>Check each reply, business identity and star rating. Editing here changes only this batch. Replies are sent to Google only after your explicit confirmation.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 overflow-y-auto min-h-0 flex-1 pr-2">
+              {selectedRecentReviews.map((review) => {
+                const venue = locationById.get(review.google_location_id);
+                return <div key={review.id} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <div className="font-semibold text-sm">{venue?.reply_brand_name || venue?.google_location_title || "Google business"} · {review.reviewer_display_name || "Google guest"}</div>
+                    <div>{stars(review.star_rating)}</div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Received {fmtDate(review.review_create_time)}</p>
+                  <div className="text-sm rounded-md bg-muted/40 p-2 whitespace-pre-wrap">{review.comment || "Rating only — no written comment"}</div>
+                  <Label htmlFor={`bulk-draft-${review.id}`}>Reply to publish</Label>
+                  <Textarea id={`bulk-draft-${review.id}`} rows={3} maxLength={1500}
+                    value={recentDrafts[review.id] || ""}
+                    onChange={(event) => { setRecentDrafts((current) => ({ ...current, [review.id]: event.target.value })); setBulkConsent(false); }} />
+                </div>;
+              })}
+              <label className="flex gap-3 items-start rounded-lg border bg-muted/30 p-3 text-sm cursor-pointer">
+                <Checkbox checked={bulkConsent} onCheckedChange={(value) => setBulkConsent(value === true)} className="mt-0.5" />
+                <span>I have reviewed each reply and explicitly authorize publishing these {selectedRecentReviews.length} replies to their respective Google Business Profiles. I understand these are public replies.</span>
+              </label>
+            </div>
+            <DialogFooter className="mt-3 shrink-0">
+              <Button variant="outline" disabled={bulkBusy} onClick={() => { setBulkPreviewOpen(false); setBulkConsent(false); }}>Cancel</Button>
+              <Button disabled={!bulkConsent || bulkBusy || selectedRecentReviews.length === 0 || selectedRecentReviews.some((review) => !(recentDrafts[review.id] || "").trim())} onClick={() => void publishBulk()}>
+                <Send className="h-4 w-4 mr-2" />{bulkBusy ? "Publishing…" : `Publish ${selectedRecentReviews.length} reviewed replies`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );
