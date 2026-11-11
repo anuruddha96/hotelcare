@@ -211,7 +211,6 @@ Deno.serve(async (req) => {
         access_token_ciphertext: await enc(String(result.access_token)),
         access_token_expires_at: expiresAt,
         status: "active",
-        last_error: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", connection.id);
@@ -447,7 +446,10 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
           }
         }
 
-        if (!errors.some((item) => item.connection_id === connection.id)) {
+        // Do not report a healthy Google sync just because the cron ran.
+        // A newly approved account has zero mapped locations until the manager
+        // discovers and maps listings; preserve setup errors until a real sync succeeds.
+        if ((locations || []).length > 0 && !errors.some((item) => item.connection_id === connection.id)) {
           await admin
             .from("google_business_connections")
             .update({
@@ -462,7 +464,9 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       }
     }
 
-    const finalStatus = errors.length ? "partial" : "completed";
+    // A cron tick with connections but zero mapped listings is not an end-to-end sync.
+    const awaitingMapping = connectionsChecked > 0 && locationsChecked === 0;
+    const finalStatus = errors.length || awaitingMapping ? "partial" : "completed";
     await admin
       .from("google_reputation_worker_runs")
       .update({

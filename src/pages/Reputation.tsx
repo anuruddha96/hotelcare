@@ -576,7 +576,11 @@ export default function Reputation() {
               ) : (
                 <div>
                   <p className="font-medium">HotelCare authentication is working.</p>
-                  <p className="text-sm text-muted-foreground mt-1">Google is refusing the next API call because required Business Profile services are disabled or access has not been granted.</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {googleSetup.apiDisabled
+                      ? "A required Google Business Profile service is not enabled in this Cloud project. Open the matching API in Google Cloud, click Enable, then retry location discovery. Your existing OAuth connection does not need to be changed."
+                      : "Google is refusing the next API call. Review the technical details below and confirm this project's API permissions and account access."}
+                  </p>
                 </div>
               )}
 
@@ -613,6 +617,20 @@ export default function Reputation() {
                   <div className="mt-2 rounded-md bg-background border p-3 whitespace-pre-wrap break-words">{connectionError}</div>
                 </details>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {Boolean(data?.connections?.length) && !googleSetup.blocked && locations.length === 0 && (
+          <Card className="border-blue-200">
+            <CardContent className="pt-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="font-medium">Google is connected — discover your business listings</p>
+                <p className="text-sm text-muted-foreground mt-1">The connection is ready for a location check, but no Google locations have been imported yet. Discover listings, then map each one to its HotelCare property under Locations &amp; rules.</p>
+              </div>
+              <Button variant="outline" onClick={() => syncLocations()} disabled={busy}>
+                <Download className="h-4 w-4 mr-2" />Discover Google locations
+              </Button>
             </CardContent>
           </Card>
         )}

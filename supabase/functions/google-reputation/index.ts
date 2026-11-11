@@ -271,7 +271,6 @@ Deno.serve(async (req) => {
           access_token_ciphertext: await enc(String(x.access_token)),
           access_token_expires_at: expiry,
           status: "active",
-          last_error: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", c.id);
@@ -410,10 +409,18 @@ Deno.serve(async (req) => {
 
     if (action === "sync_locations") {
       const { connection: c } = await accessToken();
-      const accounts = await gfetch("https://mybusinessaccountmanagement.googleapis.com/v1/accounts");
-      const found: any[] = [];
+      const accessibleAccounts: any[] = [];
+      let accountPageToken = "";
+      do {
+        const params = new URLSearchParams({ pageSize: "20" });
+        if (accountPageToken) params.set("pageToken", accountPageToken);
+        const page = await gfetch(`https://mybusinessaccountmanagement.googleapis.com/v1/accounts?${params.toString()}`);
+        accessibleAccounts.push(...(page.accounts || []));
+        accountPageToken = page.nextPageToken || "";
+      } while (accountPageToken);
 
-      for (const a of accounts.accounts || []) {
+      const found: any[] = [];
+      for (const a of accessibleAccounts) {
         if (!a.name) continue;
         let pageToken = "";
         do {
@@ -458,7 +465,7 @@ Deno.serve(async (req) => {
         .eq("id", c.id);
       return json({
         ok: true,
-        accounts: (accounts.accounts || []).map((a: any) => ({
+        accounts: accessibleAccounts.map((a: any) => ({
           name: a.name,
           account_name: a.accountName,
           type: a.type,
