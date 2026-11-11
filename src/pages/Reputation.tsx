@@ -978,7 +978,13 @@ export default function Reputation() {
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Google listings managed</span><span className="font-medium">{locations.length}</span></div>
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Standalone listings (no hotel required)</span><span className="font-medium">{locations.length - mapped.length}</span></div>
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Automatic publishing enabled</span><span className="font-medium">{locations.filter((location) => location.auto_reply_enabled).length} location(s)</span></div>
-                  <div className="rounded-lg border bg-muted/30 p-3 flex gap-2"><ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" /><span>High-risk complaints are never considered safe for automatic publishing. Auto replies remain off by default until you explicitly enable them per location.</span></div>
+                  <div className="rounded-lg border bg-muted/30 p-3 flex gap-2"><ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" /><span>High-risk and 1–3-star reviews are always manager-controlled. Automatic replies need specific venue authorization.</span></div>
+                  <div className="rounded-lg border p-3 flex items-center justify-between gap-3">
+                    <div><div className="font-medium">Curated HotelCare reply library</div>
+                      <p className="text-xs text-muted-foreground">{data?.reply_library?.curated_base_variants ?? 132}+ rating- and topic-aware variations, with personalized reviewer names and natural closings. Standard positive drafts use no AI tokens.</p>
+                    </div>
+                    <Badge variant="secondary">{data?.reply_library?.curated_base_variants ?? 132}+ replies</Badge>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -1308,7 +1314,14 @@ export default function Reputation() {
             <Card>
               <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Building2 className="h-5 w-5" />Google Business locations</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => syncLocations()} disabled={busy || googleSetup.quotaPending}><Download className="h-4 w-4 mr-2" />Discover / refresh locations</Button><Button variant="outline" onClick={runE2ECheck} disabled={busy}><Activity className="h-4 w-4 mr-2" />Test connection</Button></div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => syncLocations()} disabled={busy || googleSetup.quotaPending}><Download className="h-4 w-4 mr-2" />Discover / refresh locations</Button>
+                  <Button variant="outline" onClick={runE2ECheck} disabled={busy}><Activity className="h-4 w-4 mr-2" />Test connection</Button>
+                  <Button disabled={!locations.length} onClick={() => {
+                    setAllAutoVenueIds(locations.filter((venue) => !venue.auto_reply_enabled).map((venue) => venue.id));
+                    setAllAutoConsent(false); setAllAutoDialogOpen(true);
+                  }}><Zap className="h-4 w-4 mr-2" />Enable 4–5★ auto replies for venues</Button>
+                </div>
                 <p className="text-sm text-muted-foreground">Manage every Google listing independently, including brunches, restaurants, museums and conferences. HotelCare property linkage is optional; standalone businesses do not require hotel accounts.</p>
               </CardContent>
             </Card>
