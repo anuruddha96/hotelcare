@@ -12,6 +12,21 @@ describe('unified next-day Auto Assign bridge', () => {
     expect(shouldRefreshCurrentPmsRoomStateForTomorrow({ hotelId: 'mika-downtown' })).toBe(true);
   });
 
+  it('never refreshes live housekeeping flags when planning any future date, even without an explicit opt-out', () => {
+    const futureDate = '2099-05-12';
+    for (const hotelId of ['ottofiori', 'mika-downtown', 'hotel-memories-budapest', 'gozsdu-court']) {
+      expect(shouldRefreshCurrentPmsRoomStateForTomorrow({
+        hotelId,
+        selectedDate: futureDate,
+      })).toBe(false);
+    }
+    // Preserve today's existing behavior for the current-day workflow.
+    expect(shouldRefreshCurrentPmsRoomStateForTomorrow({
+      hotelId: 'ottofiori',
+      selectedDate: '2026-01-01',
+    })).toBe(true);
+  });
+
   it('keeps the short PMS reuse window at fifteen minutes', () => {
     expect(TOMORROW_PMS_REUSE_MS).toBe(15 * 60 * 1000);
   });

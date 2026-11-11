@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
-import { tomorrowBudapest } from '@/lib/budapestTime';
+import { todayBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isVerifiedSparseTomorrowSnapshot } from '@/lib/nextDayPmsGateCoverage';
@@ -204,6 +204,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
   const nt = (key: Parameters<typeof nextDayAutoAssignUiText>[0]) => nextDayAutoAssignUiText(key, language);
   const [stage, setStage] = useState<Stage>('checking');
   const [snapshot, setSnapshot] = useState<TomorrowSnapshotState | null>(null);
+  const [verifiedDate, setVerifiedDate] = useState<string | null>(null);
   const [summary, setSummary] = useState<PmsDaySummary | null>(null);
   // Undefined for other properties; null means Ottofiori's night occupancy
   // could not be independently established from the paired dated snapshots.
@@ -227,13 +228,15 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
     setStage(forceFresh ? 'syncing' : 'checking');
     setError(null);
     setSummary(null);
+    setVerifiedDate(null);
     try {
-      const expectedTomorrow = tomorrowBudapest();
-      if (props.selectedDate !== expectedTomorrow) {
-        throw new Error(
-          `Tomorrow planning date mismatch. Budapest tomorrow is ${expectedTomorrow}, but the screen requested ${props.selectedDate}. Nothing was assigned.`,
-        );
+      const targetDate = props.selectedDate;
+      if (targetDate <= todayBudapest()) {
+        throw new Error(`Future planning requires a Budapest business date after today. Selected ${targetDate}; no live assignments were changed.`);
       }
+      // Reject malformed dates before invoking the PMS. The ISO date must
+      // correspond to an actual calendar day, not just match a string shape.
+      nextMorningDate(targetDate);
 
       // Profiles created before canonical hotel IDs were enforced may still
       // contain display names such as "Hotel Mika Downtown". Integration
@@ -247,8 +250,10 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       const result = await ensureTomorrowPmsSnapshot({
         organizationSlug: profile.organization_slug,
         hotelId: canonicalHotelId,
-        selectedDate: expectedTomorrow,
+        selectedDate: targetDate,
         forceFresh,
+        // Future previews must NEVER refresh today's rooms/RTC/dirty flags.
+        refreshLiveRoomState: false,
         onProgress: (event) => {
           if (current !== generation.current) return;
           setPmsProgress(event);
@@ -256,13 +261,20 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         },
       });
       if (current !== generation.current) return;
+      // A future date cannot rely on the unsupported-PMS metadata fallback:
+      // its room statuses would be derived from today's mutable room flags.
+      // An authoritative empty reservation roster is fine, but the physical
+      // hotel inventory must still have been verified.
+      if (!result.authoritative || result.roomCount < 1) {
+        throw new Error(`Previo did not verify the complete room inventory for ${targetDate}. Future Auto Assign is blocked to protect today's active housekeeping.`);
+      }
 
       setPmsProgress({ phase: 'validating-snapshot', attempt: 1, maxAttempts: 3 });
       setStage('syncing');
       const exactDay = await loadExactPmsDaySummary({
         organizationSlug: profile.organization_slug,
         hotelId: canonicalHotelId,
-        selectedDate: expectedTomorrow,
+        selectedDate: targetDate,
         allowOtherRows: isGozsdu,
       });
       if (current !== generation.current) return;
@@ -277,11 +289,11 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       // every operating room is currently unbooked and becomes provisional.
       if (isGozsdu && !verifiedEmpty
         && (!exactDay || result.rowCount !== exactDay.totalRows || !result.authoritative)) {
-        throw new Error(`The verified Previo snapshot for ${expectedTomorrow} changed. Please refresh before assigning.`);
+        throw new Error(`The verified Previo snapshot for ${targetDate} changed. Please refresh before assigning.`);
       }
       if (result.roomCount > 0 && !verifiedEmpty) {
         if (!exactDay) {
-          throw new Error(`The Previo snapshot for ${expectedTomorrow} is missing. Nothing was assigned.`);
+          throw new Error(`The Previo snapshot for ${targetDate} is missing. Nothing was assigned.`);
         }
         if (exactDay.totalRows < result.roomCount
           && !isVerifiedSparseTomorrowSnapshot({
@@ -292,13 +304,13 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
             authoritative: result.authoritative,
           })) {
           throw new Error(
-            `The Previo snapshot for ${expectedTomorrow} is incomplete (${exactDay.totalRows}/${result.roomCount} rooms). Nothing was assigned.`,
+            `The Previo snapshot for ${targetDate} is incomplete (${exactDay.totalRows}/${result.roomCount} rooms). Nothing was assigned.`,
           );
         }
       }
 
       const resolvedSummary: PmsDaySummary | null = exactDay || (verifiedEmpty ? {
-        date: expectedTomorrow,
+        date: targetDate,
         checkoutCount: 0,
         dailyCount: 0,
         otherCount: 0,
@@ -308,13 +320,13 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
 
       let confirmedNightForecast: OttofioriNightForecast | null = null;
       if (canonicalHotelId === 'ottofiori' && resolvedSummary) {
-        const nextMorning = nextMorningDate(expectedTomorrow);
+        const nextMorning = nextMorningDate(targetDate);
         const [morningResult, nextMorningResult] = await Promise.all([
           (supabase as any).from('daily_overview_snapshots')
             .select('room_number,arrival_date,departure_date,captured_at')
             .eq('organization_slug', profile.organization_slug)
             .eq('hotel_id', canonicalHotelId)
-            .eq('business_date', expectedTomorrow).eq('source', 'previo'),
+            .eq('business_date', targetDate).eq('source', 'previo'),
           (supabase as any).from('daily_overview_snapshots')
             .select('room_number,arrival_date,departure_date,captured_at')
             .eq('organization_slug', profile.organization_slug)
@@ -326,7 +338,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
             morningResult.error || nextMorningResult.error);
         } else {
           confirmedNightForecast = buildOttofioriNightForecast({
-            selectedDate: expectedTomorrow,
+            selectedDate: targetDate,
             physicalRoomCount: result.roomCount,
             housekeepingMorning: morningResult.data || [],
             followingMorning: nextMorningResult.data || [],
@@ -338,13 +350,14 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       setNightForecast(confirmedNightForecast);
       setSummary(resolvedSummary);
       setSnapshot(result);
+      setVerifiedDate(targetDate);
       setStage('ready');
 
       if (resolvedSummary) {
         const dayDescription = `${resolvedSummary.checkoutCount} check-outs · ${resolvedSummary.dailyCount} stay-overs`;
         const nightDescription = canonicalHotelId === 'ottofiori'
           ? confirmedNightForecast
-            ? ` · ${confirmedNightForecast.checkIns} check-ins · ${confirmedNightForecast.nightBooked} booked ${expectedTomorrow} night · ${confirmedNightForecast.nightUnbooked} unbooked tonight`
+            ? ` · ${confirmedNightForecast.checkIns} check-ins · ${confirmedNightForecast.nightBooked} booked ${targetDate} night · ${confirmedNightForecast.nightUnbooked} unbooked tonight`
             : ' · next-night occupancy not verified'
           : ` · ${resolvedSummary.totalRows} morning housekeeping rooms`;
         toast.success(
@@ -357,6 +370,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       console.error('[NextDayAutoRoomAssignmentGate] PMS preparation failed:', cause);
       setSnapshot(null);
       setSummary(null);
+      setVerifiedDate(null);
       setNightForecast(null);
       setError(cause instanceof Error ? cause.message : String(cause));
       setStage('error');
@@ -393,9 +407,10 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
 
   if (!props.open) return null;
 
-  if (stage === 'ready' && snapshot) {
+  if (stage === 'ready' && snapshot && verifiedDate === props.selectedDate) {
     return (
       <AutoRoomAssignmentImpl
+        key={props.selectedDate}
         {...props}
         planningMode="next-day"
         nightForecast={profile?.assigned_hotel?.toLowerCase().includes('ottofiori') ? nightForecast : undefined}
@@ -421,7 +436,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
           <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
             <CalendarClock className="h-5 w-5 text-primary" />
             {nt('preparing')}
-            <Badge variant="outline">{nt('tomorrowRelease')} · {props.selectedDate}</Badge>
+            <Badge variant="outline">Future plan · {props.selectedDate}</Badge>
           </DialogTitle>
         </DialogHeader>
 

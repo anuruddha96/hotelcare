@@ -4,7 +4,7 @@ import { MapPin, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { isBudapestNineOrLater, tomorrowBudapest } from '@/lib/budapestTime';
+import { todayBudapest } from '@/lib/budapestTime';
 import {
   clearCurrentDayCarryForwardDraft,
   seedCurrentDayCarryForwardDraft,
@@ -51,15 +51,14 @@ function isHotelMemoriesKey(value?: string | null) {
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
-  const isTomorrowPlanner = props.selectedDate === tomorrowBudapest();
-  const tomorrowPlanningAvailable = isBudapestNineOrLater();
+  const isFuturePlanner = props.selectedDate > todayBudapest();
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
   const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
 
   const realityKey = profile?.assigned_hotel
     ? `${profile.assigned_hotel}|${props.selectedDate}`
     : null;
-  const liveAssignmentStateReady = isTomorrowPlanner
+  const liveAssignmentStateReady = isFuturePlanner
     || !props.open
     || (!!realityKey && preparedRealityKey === realityKey);
   const assignmentInstanceKey = props.open && liveAssignmentStateReady
@@ -75,11 +74,11 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
    *    inside that carried preview. Once the plan is fully released, live DB
    *    assignments become the sole source of truth again.
    *
-   * Tomorrow is deliberately excluded from live-day preparation. It always
-   * travels through the protected next-day gate and selected-date PMS snapshot.
+   * Every future date is excluded from live-day preparation. It travels
+   * through the protected selected-date PMS gate and plan-only persistence.
    */
   useEffect(() => {
-    if (!props.open || isTomorrowPlanner) {
+    if (!props.open || isFuturePlanner) {
       setPreparedRealityKey(null);
       clearLiveSectionTaskSnapshot();
       return;
@@ -156,7 +155,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
       cancelled = true;
     };
   }, [
-    isTomorrowPlanner,
+    isFuturePlanner,
     profile?.assigned_hotel,
     profile?.organization_slug,
     props.open,
@@ -165,23 +164,17 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   ]);
 
   useEffect(() => {
-    if (!props.open || !isTomorrowPlanner || tomorrowPlanningAvailable) return;
-    props.onOpenChange(false);
-  }, [isTomorrowPlanner, props.onOpenChange, props.open, tomorrowPlanningAvailable]);
-
-  useEffect(() => {
-    if (isTomorrowPlanner || !isMemories || !props.open || typeof window === 'undefined') return;
+    if (isFuturePlanner || !isMemories || !props.open || typeof window === 'undefined') return;
     const saved = window.localStorage.getItem(MEMORIES_VIEW_KEY);
     if (saved === 'housekeeper' || saved === 'zone') setMemoriesView(saved);
-  }, [isMemories, isTomorrowPlanner, props.open]);
+  }, [isMemories, isFuturePlanner, props.open]);
 
   const changeMemoriesView = (next: MemoriesAutoAssignView) => {
     setMemoriesView(next);
     if (typeof window !== 'undefined') window.localStorage.setItem(MEMORIES_VIEW_KEY, next);
   };
 
-  if (isTomorrowPlanner) {
-    if (!tomorrowPlanningAvailable) return null;
+  if (isFuturePlanner) {
     return (
       <>
         <MotionConfig transformPagePoint={toViewportPoint}>
