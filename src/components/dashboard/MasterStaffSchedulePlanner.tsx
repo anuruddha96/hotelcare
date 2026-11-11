@@ -30,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { calculateScheduledMinutes, getScheduleSummary } from '@/lib/staffScheduleAnalytics';
+import { canonicalRdHotelId, isSameRdHotel, rdHotelDisplayName } from '@/lib/rdSchedulingHotels';
 
 type WorkStatus = 'working' | 'off' | 'leave' | 'sick' | 'training';
 type LifecycleStatus = 'draft' | 'published';
@@ -69,7 +70,11 @@ type ShiftTemplate = {
 
 const PORTFOLIO_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
 const PROPERTY_MANAGER_ROLES = ['manager', 'housekeeping_manager'];
-const todayInBudapest = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const todayInBudapest = () => {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const get = (type: string) => parts.find(part => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
 const isHistoricalDate = (date: string) => date < todayInBudapest();
 const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   working: 'Working',
@@ -156,7 +161,7 @@ export function MasterStaffSchedulePlanner() {
     for (const shift of shifts) {
       const key = `${shift.user_id}|${shift.work_date}`;
       const existing = map.get(key);
-      const baseHotel = staffById.get(shift.user_id)?.assigned_hotel;
+      const baseHotel = canonicalRdHotelId(staffById.get(shift.user_id)?.assigned_hotel);
       if (!existing || shift.hotel_id === baseHotel || (lifecycleOf(shift) === 'published' && lifecycleOf(existing) !== 'published')) {
         map.set(key, shift);
       }
@@ -173,7 +178,7 @@ export function MasterStaffSchedulePlanner() {
 
   const baseVenueLabel = (person: Staff) => {
     if (!person.assigned_hotel) return 'Not set';
-    return baseHotelName.get(person.assigned_hotel) ?? venueNameById.get(person.assigned_hotel) ?? person.assigned_hotel;
+    return rdHotelDisplayName(person.assigned_hotel) ?? baseHotelName.get(person.assigned_hotel) ?? venueNameById.get(person.assigned_hotel) ?? person.assigned_hotel;
   };
 
   const load = async () => {
@@ -208,13 +213,13 @@ export function MasterStaffSchedulePlanner() {
 
   const departments = useMemo(() => [...new Set(staff.map((person) => departmentForRole(person.role)))].sort(), [staff]);
   const roles = useMemo(() => [...new Set(staff.map((person) => person.role).filter(Boolean) as string[])].sort(), [staff]);
-  const baseHotels = useMemo(() => [...new Set(staff.map((person) => person.assigned_hotel).filter(Boolean) as string[])].sort(), [staff]);
+  const baseHotels = useMemo(() => [...new Set(staff.map((person) => canonicalRdHotelId(person.assigned_hotel)).filter(Boolean) as string[])].sort(), [staff]);
 
   const filteredStaff = useMemo(() => {
     const term = search.trim().toLowerCase();
     return staff.filter((person) => {
       // UI scope mirrors (but never replaces) the database's property-level RLS.
-      if (!canSeePortfolio && person.assigned_hotel !== profile?.assigned_hotel) return false;
+      if (!canSeePortfolio && !isSameRdHotel(person.assigned_hotel, profile?.assigned_hotel)) return false;
       const department = departmentForRole(person.role);
       const position = person.job_title || prettyRole(person.role);
       const matchesSearch = !term || [person.full_name, person.nickname, person.role, position, department, baseVenueLabel(person)]
@@ -223,7 +228,7 @@ export function MasterStaffSchedulePlanner() {
       if (!matchesSearch) return false;
       if (departmentFilter !== 'all' && department !== departmentFilter) return false;
       if (roleFilter !== 'all' && person.role !== roleFilter) return false;
-      if (baseVenueFilter !== 'all' && person.assigned_hotel !== baseVenueFilter) return false;
+      if (baseVenueFilter !== 'all' && canonicalRdHotelId(person.assigned_hotel) !== baseVenueFilter) return false;
       if (workingVenueFilter !== 'all') {
         const hasWorkingVenue = dates.some((date) => {
           const shift = shiftMap.get(`${person.id}|${date}`);
@@ -255,7 +260,7 @@ export function MasterStaffSchedulePlanner() {
     if (isActiveShift(template.workStatus) && calculateScheduledMinutes(template.shiftStart, template.shiftEnd) === null) return { error: new Error('Enter a valid start and end time. Overnight shifts such as 20:00–08:00 are supported.') };
     if (!profile?.id || !profile.organization_slug) return { error: new Error('Missing organization or user context') };
     const existing = shiftMap.get(`${person.id}|${date}`);
-    const baseHotel = existing?.hotel_id || person.assigned_hotel;
+    const baseHotel = existing?.hotel_id || canonicalRdHotelId(person.assigned_hotel);
     if (!baseHotel) return { error: new Error(`${person.full_name} has no base hotel. Set a base property before scheduling.`) };
 
     const active = isActiveShift(template.workStatus);
@@ -413,7 +418,7 @@ export function MasterStaffSchedulePlanner() {
   };
 
   const handleCellKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, person: Staff, date: string, shift?: Shift) => {
-    if (isHistoricalDate(date)) return;
+    if (isHistoricalDate(date) && !(event.ctrlKey || event.metaKey && event.key.toLowerCase() === 'c')) return;
     const modifier = event.ctrlKey || event.metaKey;
     if (modifier && event.key.toLowerCase() === 'c' && shift) {
       event.preventDefault();
@@ -493,7 +498,7 @@ export function MasterStaffSchedulePlanner() {
               <div className="relative sm:col-span-2 xl:col-span-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find staff" className="pl-9" /></div>
               <Select value={departmentFilter} onValueChange={setDepartmentFilter}><SelectTrigger><SelectValue placeholder="Department" /></SelectTrigger><SelectContent><SelectItem value="all">All departments</SelectItem>{departments.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
               <Select value={roleFilter} onValueChange={setRoleFilter}><SelectTrigger><SelectValue placeholder="Role" /></SelectTrigger><SelectContent><SelectItem value="all">All roles</SelectItem>{roles.map((value) => <SelectItem key={value} value={value}>{prettyRole(value)}</SelectItem>)}</SelectContent></Select>
-              <Select value={baseVenueFilter} onValueChange={setBaseVenueFilter}><SelectTrigger><SelectValue placeholder="Base property" /></SelectTrigger><SelectContent><SelectItem value="all">All base properties</SelectItem>{baseHotels.map((value) => <SelectItem key={value} value={value}>{baseHotelName.get(value) ?? venueNameById.get(value) ?? value}</SelectItem>)}</SelectContent></Select>
+              <Select value={baseVenueFilter} onValueChange={setBaseVenueFilter}><SelectTrigger><SelectValue placeholder="Base property" /></SelectTrigger><SelectContent><SelectItem value="all">All base properties</SelectItem>{baseHotels.map((value) => <SelectItem key={value} value={value}>{rdHotelDisplayName(value) ?? baseHotelName.get(value) ?? venueNameById.get(value) ?? value}</SelectItem>)}</SelectContent></Select>
               <Select value={workingVenueFilter} onValueChange={setWorkingVenueFilter}><SelectTrigger><SelectValue placeholder="Working venue" /></SelectTrigger><SelectContent><SelectItem value="all">All working venues</SelectItem>{venues.map((venue) => <SelectItem key={venue.id} value={venue.id}>{venue.name}</SelectItem>)}</SelectContent></Select>
             </div>
           </div>
