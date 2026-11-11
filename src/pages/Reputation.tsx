@@ -1279,7 +1279,12 @@ export default function Reputation() {
 
           <TabsContent value="automation" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Zap className="h-5 w-5" />Recent review automation · last 14 days</CardTitle></CardHeader>
+              <CardHeader><div className="flex flex-wrap justify-between items-center gap-3">
+                <CardTitle className="flex items-center gap-2 text-lg"><Zap className="h-5 w-5" />Recent review automation · last 14 days</CardTitle>
+                <Button onClick={() => { setBackfillVenueIds(recentVenue === "all" ? [] : [recentVenue]); setBackfillConsent(false); setBackfillOpen(true); }}>
+                  <Zap className="h-4 w-4 mr-2" />Authorize 14-day AI auto catch-up
+                </Button>
+              </div></CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">Select up to 25 recent 4–5★ low-risk reviews. HotelCare prepares diverse, venue-specific responses from its curated library at no AI token cost. Review and edit each draft, then expressly approve the batch. Nothing publishes when a review is merely selected. Older or sensitive reviews require individual approval in the inbox.</p>
                 <div className="flex flex-col sm:flex-row gap-3 sm:items-end justify-between">
@@ -1383,7 +1388,10 @@ export default function Reputation() {
               if (!edit) return null;
               return (
                 <Card key={location.id}>
-                  <CardHeader className="pb-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><CardTitle className="text-lg">{location.google_location_title}</CardTitle><p className="text-xs text-muted-foreground mt-1">{location.hotel_id ? `Linked to ${hotels.find((hotel) => hotel.hotel_id === location.hotel_id)?.hotel_name || location.hotel_id}` : "Managed independently — no hotel needed"}</p></div><Badge variant={edit.auto_reply_enabled ? "default" : "outline"}>{edit.auto_reply_enabled ? "Auto reply enabled" : "Manual approval mode"}</Badge></div></CardHeader>
+                  <CardHeader className="pb-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><CardTitle className="text-lg">{location.google_location_title}</CardTitle><p className="text-xs text-muted-foreground mt-1">{location.hotel_id ? `Linked to ${hotels.find((hotel) => hotel.hotel_id === location.hotel_id)?.hotel_name || location.hotel_id}` : "Managed independently — no hotel needed"}</p></div><div className="flex flex-wrap gap-2">
+                      <Badge variant={edit.auto_reply_enabled ? "default" : "outline"}>{edit.auto_reply_enabled ? "Future auto replies enabled" : "Manual approval mode"}</Badge>
+                      {location.auto_backfill_active && <Badge variant="secondary">14-day auto catch-up active</Badge>}
+                    </div></div></CardHeader>
                   <CardContent className="space-y-5">
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2"><Label>Business name for replies</Label><Input value={edit.reply_brand_name || ""} onChange={(e) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, reply_brand_name: e.target.value } }))} placeholder="e.g. Hotel Memories Budapest" /><p className="text-xs text-muted-foreground">AI uses this identity, not the full Google listing title.</p></div>
@@ -1417,6 +1425,12 @@ export default function Reputation() {
                     <div className="rounded-lg bg-muted/40 p-3 text-sm flex gap-2"><ShieldCheck className="h-4 w-4 mt-0.5 shrink-0" /><span>Recommended starting policy: 4–5★ may become eligible for automatic replies after testing; 1–3★ and any high-risk complaint remain manager-controlled.</span></div>
                     {edit.auto_reply_enabled && !location.auto_reply_enabled && (
                       <p className="text-xs text-amber-700">Automation is not live until you save these rules. It will apply to new reviews only.</p>
+                    )}
+                    {location.auto_backfill_active && (
+                      <div className="flex flex-wrap justify-between gap-2 items-center rounded-md border p-3 text-sm">
+                        <span>Historical 14-day catch-up authorized {fmtDate(location.auto_backfill_authorized_at)}. Only suitable 4–5★ reviews received before authorization are considered.</span>
+                        <Button size="sm" variant="outline" disabled={itemBusy === location.id} onClick={() => void cancelBackfill(location.id)}>Stop catch-up</Button>
+                      </div>
                     )}
                     <Button onClick={() => saveLocation(location.id)} disabled={itemBusy === location.id}><Save className="h-4 w-4 mr-2" />Save location rules</Button>
                   </CardContent>
