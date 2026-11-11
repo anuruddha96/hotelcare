@@ -566,6 +566,68 @@ export default function Reputation() {
     }
   };
 
+  const recentEligible = (review: Review) => {
+    const created = new Date(review.review_create_time || "").getTime();
+    return review.reply_status !== "published" && !review.google_reply_comment &&
+      Number(review.star_rating) >= 4 && review.ai_risk_level === "low" &&
+      Number.isFinite(created) && created >= Date.now() - 14 * 86_400_000 && created <= Date.now();
+  };
+
+  const toggleRecent = (reviewId: string, checked: boolean) => {
+    setSelectedRecentIds((prev) => {
+      if (!checked) return prev.filter((id) => id !== reviewId);
+      if (prev.includes(reviewId)) return prev;
+      if (prev.length >= 10) { toast.warning("Choose up to 10 reviews per approval batch."); return prev; }
+      return [...prev, reviewId];
+    });
+  };
+
+  const prepareBulk = async () => {
+    if (!selectedRecentIds.length) return;
+    setBulkBusy(true);
+    setBulkConsent(false);
+    try {
+      const fresh = { ...recentDrafts };
+      for (let i = 0; i < selectedRecentIds.length; i++) {
+        const id = selectedRecentIds[i];
+        if (!fresh[id]?.trim()) {
+          setBulkProgress(`Preparing reply ${i + 1} of ${selectedRecentIds.length}…`);
+          const result = await invoke("draft_reply", { review_id: id });
+          fresh[id] = String(result.draft || "");
+          setRecentDrafts((current) => ({ ...current, [id]: fresh[id] }));
+        }
+      }
+      if (selectedRecentIds.some((id) => !fresh[id]?.trim())) throw new Error("Some reviews have no prepared reply.");
+      setBulkPreviewOpen(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not prepare all selected replies");
+    } finally {
+      setBulkBusy(false);
+      setBulkProgress("");
+    }
+  };
+
+  const publishBulk = async () => {
+    if (!bulkConsent || !selectedRecentIds.length || selectedRecentIds.length > 10) return;
+    setBulkBusy(true);
+    try {
+      const result = await invoke("bulk_publish_replies", {
+        confirm: true, items: selectedRecentIds.map((id) => ({ id, reply: recentDrafts[id] || "" })),
+      });
+      const successes = Number(result.published || 0);
+      const failures = (result.outcomes || []).filter((entry: { status: string }) => entry.status !== "published").length;
+      toast[failures ? "warning" : "success"](`${successes} replies published to Google${failures ? `; ${failures} skipped or failed — check individual results` : ""}.`);
+      setBulkPreviewOpen(false);
+      setBulkConsent(false);
+      await loadRecent(0, recentVenue);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Batch publishing failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const reviews = data?.reviews || [];
   const locations = data?.locations || [];
   const hotels = data?.hotels || [];
