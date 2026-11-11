@@ -97,7 +97,7 @@ grant all on public.insuite_booking_requests to service_role;
 -- cannot leave behind an unverified post-checkout service request.
 create or replace function public.insuite_active_session_insert_guard()
 returns trigger language plpgsql security definer set search_path = ''
-as $
+as $$
 declare _d public.insuite_devices%rowtype;
 begin
   select * into _d from public.insuite_devices
@@ -120,7 +120,7 @@ begin
     end if;
   end if;
   return new;
-end; $;
+end; $$;
 revoke all on function public.insuite_active_session_insert_guard() from public, anon, authenticated;
 drop trigger if exists insuite_request_active_session on public.insuite_service_requests;
 create trigger insuite_request_active_session before insert on public.insuite_service_requests
