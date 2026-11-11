@@ -464,7 +464,9 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       }
     }
 
-    const finalStatus = errors.length ? "partial" : "completed";
+    // A cron tick with connections but zero mapped listings is not an end-to-end sync.
+    const awaitingMapping = connectionsChecked > 0 && locationsChecked === 0;
+    const finalStatus = errors.length || awaitingMapping ? "partial" : "completed";
     await admin
       .from("google_reputation_worker_runs")
       .update({
