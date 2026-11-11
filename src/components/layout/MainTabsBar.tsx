@@ -89,6 +89,12 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
           <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
           <span>HR</span>
         </button>
+        {role === 'manager' && organizationSlug === 'rdhotels' && (
+          <button type="button" className={btn('reputation')} onClick={() => navigate(`${orgPath}/reputation`)}>
+            <MessageSquareText className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+            <span>Reputation</span>
+          </button>
+        )}
         {isExec && (
           <>
             {showRevenue && (
