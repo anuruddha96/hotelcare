@@ -9,7 +9,14 @@ export interface AssistantThread {
   updated_at: string;
   /** First line of the newest message, used as the history preview. */
   preview?: string | null;
+  /** Set while the conversation is pinned to the top of the sidebar. */
+  pinned_at?: string | null;
+  /** The project this conversation is filed under, if any. */
+  project_id?: string | null;
 }
+
+/** A chart or generated image that belongs to an assistant answer. */
+export type AssistantAttachment = { kind: string; [key: string]: unknown };
 
 export interface AssistantMessage {
   id: string;
@@ -19,6 +26,7 @@ export interface AssistantMessage {
   created_at: string;
   /** Set on the newest assistant reply when it hit a scope wall. */
   needsScope?: string | null;
+  attachments?: AssistantAttachment[] | null;
 }
 
 export function assistantRowsToUiMessages(rows: AssistantMessage[]): UIMessage[] {
@@ -26,7 +34,13 @@ export function assistantRowsToUiMessages(rows: AssistantMessage[]): UIMessage[]
     id: row.id,
     role: row.role,
     parts: [{ type: "text", text: row.content }],
-    metadata: row.needsScope ? { needsScope: row.needsScope } : undefined,
+    metadata:
+      row.needsScope || row.attachments?.length
+        ? {
+            ...(row.needsScope ? { needsScope: row.needsScope } : {}),
+            ...(row.attachments?.length ? { attachments: row.attachments } : {}),
+          }
+        : undefined,
   }));
 }
 
@@ -53,17 +67,23 @@ export function useAssistant(threadId: string | null) {
     // A user without an assigned property saves threads with a null hotel and
     // organisation. Matching those with .eq("", ...) never hit a row, so their
     // history looked wiped; null scopes are matched with .is() instead.
-    let query = supabase
-      .from("assistant_threads")
-      .select("id,title,updated_at")
-      .eq("user_id", user.id);
-    query = profile?.organization_slug
-      ? query.eq("organization_slug", profile.organization_slug)
-      : query.is("organization_slug", null);
-    query = profile?.assigned_hotel
-      ? query.eq("hotel_id", profile.assigned_hotel)
-      : query.is("hotel_id", null);
-    const { data, error } = await query.order("updated_at", { ascending: false }).limit(50);
+    const run = (columns: string) => {
+      let query = (supabase as any)
+        .from("assistant_threads")
+        .select(columns)
+        .eq("user_id", user.id);
+      query = profile?.organization_slug
+        ? query.eq("organization_slug", profile.organization_slug)
+        : query.is("organization_slug", null);
+      query = profile?.assigned_hotel
+        ? query.eq("hotel_id", profile.assigned_hotel)
+        : query.is("hotel_id", null);
+      return query.order("updated_at", { ascending: false }).limit(100);
+    };
+    // Pins and projects arrive with the workspace migration; until it has been
+    // applied the history still loads from the original columns.
+    let { data, error } = await run("id,title,updated_at,pinned_at,project_id");
+    if (error) ({ data, error } = await run("id,title,updated_at"));
     if (error) {
       console.error("Failed to load assistant threads", error);
       setLoadingThreads(false);
@@ -117,12 +137,15 @@ export function useAssistant(threadId: string | null) {
       const cached = messageCache.get(threadId);
       if (cached) setMessages(cached);
       setLoadingMessages(!cached);
-      const { data, error } = await supabase
-        .from("assistant_messages")
-        .select("id,role,content,refused,created_at")
-        .eq("thread_id", threadId)
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: true });
+      const read = (columns: string) =>
+        (supabase as any)
+          .from("assistant_messages")
+          .select(columns)
+          .eq("thread_id", threadId)
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true });
+      let { data, error } = await read("id,role,content,refused,created_at,attachments");
+      if (error) ({ data, error } = await read("id,role,content,refused,created_at"));
       if (!cancelled && !error) {
         const rows = (data ?? []) as AssistantMessage[];
         messageCache.set(threadId, rows);
@@ -137,16 +160,18 @@ export function useAssistant(threadId: string | null) {
     };
   }, [threadId, user]);
 
-  const createThread = useCallback(async (): Promise<string | null> => {
+  const createThread = useCallback(async (projectId?: unknown): Promise<string | null> => {
     if (!user) return null;
+    // Often wired straight to onClick, so anything but an id is ignored.
+    const project = typeof projectId === "string" && projectId ? projectId : null;
     // Organization and hotel are filled in by the database from the signed-in
     // profile. Sending them from the client broke chat creation whenever a
     // manager had switched the hotel view (the local profile no longer matches
     // the stored one, and the access rule rejected the row).
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from("assistant_threads")
-      .insert({ user_id: user.id, title: "New chat" })
-      .select("id,title,updated_at")
+      .insert({ user_id: user.id, title: "New chat", ...(project ? { project_id: project } : {}) })
+      .select(project ? "id,title,updated_at,pinned_at,project_id" : "id,title,updated_at")
       .single();
     if (error || !data) {
       console.error("assistant: could not create thread", error);
@@ -200,6 +225,39 @@ export function useAssistant(threadId: string | null) {
     return true;
   }, [user?.id]);
 
+  const patchThread = useCallback(
+    async (id: string, patch: { pinned_at?: string | null; project_id?: string | null }) => {
+      const { error } = await (supabase as any)
+        .from("assistant_threads")
+        .update(patch)
+        .eq("id", id)
+        .eq("user_id", user?.id ?? "");
+      if (error) {
+        console.error("assistant: thread update failed", error);
+        return false;
+      }
+      setThreads((t) => {
+        const next = t.map((x) => (x.id === id ? { ...x, ...patch } : x));
+        threadCache.set(cacheKeyRef.current, next);
+        return next;
+      });
+      return true;
+    },
+    [user?.id],
+  );
+
+  /** Pin to, or release from, the top of the sidebar. */
+  const setThreadPinned = useCallback(
+    (id: string, pinned: boolean) => patchThread(id, { pinned_at: pinned ? new Date().toISOString() : null }),
+    [patchThread],
+  );
+
+  /** File a conversation under a project, or take it out with `null`. */
+  const moveThreadToProject = useCallback(
+    (id: string, projectId: string | null) => patchThread(id, { project_id: projectId }),
+    [patchThread],
+  );
+
   return {
     threads,
     messages,
@@ -209,6 +267,8 @@ export function useAssistant(threadId: string | null) {
     renameThread,
     deleteThread,
     loadThreads,
+    setThreadPinned,
+    moveThreadToProject,
   };
 }
 
@@ -229,4 +289,45 @@ export async function requestAssistantAccess(params: {
     question: params.question,
     reason: params.reason ?? null,
   });
+}
+
+export interface AssistantSearchHit {
+  threadId: string;
+  title: string;
+  snippet: string;
+  updated_at: string;
+}
+
+/**
+ * Search the signed-in user's own conversations by title and message text.
+ * Row-level security already limits both tables to the caller's own threads.
+ */
+export async function searchAssistantThreads(userId: string, term: string): Promise<AssistantSearchHit[]> {
+  const clean = term.replace(/[%_,()\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (clean.length < 2) return [];
+  const pattern = `%${clean}%`;
+  const [titles, bodies] = await Promise.all([
+    supabase.from("assistant_threads").select("id,title,updated_at").eq("user_id", userId).ilike("title", pattern).order("updated_at", { ascending: false }).limit(20),
+    supabase.from("assistant_messages").select("thread_id,content,created_at").eq("user_id", userId).ilike("content", pattern).order("created_at", { ascending: false }).limit(40),
+  ]);
+  const hits = new Map<string, AssistantSearchHit>();
+  for (const row of titles.data ?? []) {
+    hits.set(row.id, { threadId: row.id, title: row.title, snippet: "", updated_at: row.updated_at });
+  }
+  const missing = [...new Set((bodies.data ?? []).map((row) => row.thread_id))].filter((id) => !hits.has(id));
+  const extra = missing.length
+    ? await supabase.from("assistant_threads").select("id,title,updated_at").eq("user_id", userId).in("id", missing)
+    : { data: [] as { id: string; title: string; updated_at: string }[] };
+  for (const row of extra.data ?? []) {
+    hits.set(row.id, { threadId: row.id, title: row.title, snippet: "", updated_at: row.updated_at });
+  }
+  const needle = clean.toLowerCase();
+  for (const row of bodies.data ?? []) {
+    const hit = hits.get(row.thread_id);
+    if (!hit || hit.snippet) continue;
+    const text = String(row.content ?? "").replace(/\s+/g, " ");
+    const at = Math.max(0, text.toLowerCase().indexOf(needle) - 40);
+    hit.snippet = `${at > 0 ? "…" : ""}${text.slice(at, at + 140)}`;
+  }
+  return [...hits.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 25);
 }

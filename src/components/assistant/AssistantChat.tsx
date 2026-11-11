@@ -30,7 +30,10 @@ import {
   requestAssistantAccess,
   useAssistant,
 } from "@/hooks/useAssistant";
-import { greeting, starterPrompts } from "@/lib/assistant/starters";
+import AssistantWelcome from "./AssistantWelcome";
+import AssistantChart, { isAssistantChart } from "./AssistantChart";
+import AssistantImage, { isAssistantImage } from "./AssistantImage";
+import { cn } from "@/lib/utils";
 import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
 import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
 import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
@@ -38,7 +41,6 @@ import ActionConfirmCard, { isActionProposal } from "./ActionConfirmCard";
 import AssistantActions, { isAssistantActions } from "./AssistantActions";
 import ActivityLine from "./ActivityLine";
 import PremiumTopupCard, { type PremiumPackage } from "./PremiumTopupCard";
-import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
 const SCOPE_LABEL: Record<string, string> = {
   revenue: "Revenue management",
@@ -49,6 +51,8 @@ const SCOPE_LABEL: Record<string, string> = {
 
 type AssistantMetadata = {
   needsScope?: string;
+  /** Charts and images of a stored answer, restored when a chat is reopened. */
+  attachments?: unknown[];
   premiumRequired?: boolean;
   premiumPackages?: PremiumPackage[];
   premiumUsage?: {
@@ -208,6 +212,7 @@ function ChatSession({
   initialPrompt,
   onThreadUpdated,
   onNavigate,
+  workspace = false,
 }: {
   threadId: string;
   initialMessages: AssistantUiMessage[];
@@ -215,6 +220,7 @@ function ChatSession({
   initialPrompt?: string | null;
   onThreadUpdated: () => void;
   onNavigate?: () => void;
+  workspace?: boolean;
 }) {
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
@@ -234,7 +240,6 @@ function ChatSession({
   const initialPromptSentRef = useRef(false);
   const lastQuestionRef = useRef("");
   const debug = isAssistantDebugEnabled(profile?.role);
-  const starters = useMemo(() => starterPrompts(profile?.role, page.module), [profile?.role, page.module]);
 
   const transport = useMemo(
     () =>
@@ -396,33 +401,9 @@ function ChatSession({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <Conversation className="min-h-0">
-        <ConversationContent className="gap-4 px-2 py-4 sm:px-3">
+        <ConversationContent className={cn("gap-4 px-2 py-4 sm:px-3", workspace && "mx-auto w-full max-w-3xl gap-6 sm:px-4")}>
           {messages.length === 0 && (
-            <div className="mx-auto w-full max-w-md space-y-5 px-2 py-6">
-              <div className="flex items-center gap-3">
-                <img src={hotelCareMark} alt="" className="h-11 w-11 rounded-xl" />
-                <div>
-                  <p className="text-lg font-semibold leading-tight">{greeting(profile?.full_name)}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {profile?.assigned_hotel ? `${profile.assigned_hotel} · ` : ""}
-                    How can I help?
-                  </p>
-                </div>
-              </div>
-              <div className="grid gap-2">
-                {starters.map((starter) => (
-                  <button
-                    key={starter.prompt}
-                    type="button"
-                    className="rounded-xl border bg-card px-3.5 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
-                    onClick={() => void submit({ text: starter.prompt })}
-                  >
-                    <span className="block text-sm font-medium">{starter.label}</span>
-                    <span className="block text-xs text-muted-foreground">{starter.prompt}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} />
           )}
 
           {messages.map((message, index) => {
@@ -433,7 +414,7 @@ function ChatSession({
             const previousQuestion = index > 0 ? messageText(messages[index - 1]) : "";
             const isLast = index === messages.length - 1;
             return (
-              <Message key={message.id} from={message.role} className="max-w-[92%]">
+              <Message key={message.id} from={message.role} className={workspace && message.role === "assistant" ? "max-w-full" : "max-w-[92%]"}>
                 <MessageContent
                   className={
                     message.role === "user"
@@ -462,6 +443,12 @@ function ChatSession({
                       }
                       if (toolName === "execute_action" && toolPart.output?.ok === false) {
                         return <p key={key} className="mt-2 text-xs text-destructive">Not completed: {String(toolPart.output.error || "Action not verified.")}</p>;
+                      }
+                      if (toolName === "render_chart" && isAssistantChart(toolPart.output)) {
+                        return <AssistantChart key={`${key}-chart`} spec={toolPart.output} />;
+                      }
+                      if (toolName === "generate_image" && isAssistantImage(toolPart.output)) {
+                        return <AssistantImage key={`${key}-image`} spec={toolPart.output} />;
                       }
                       if (isAutomationProposal(toolPart.output)) {
                         return <AutomationChangeCard key={`${key}-proposal`} proposal={toolPart.output} />;
@@ -506,6 +493,15 @@ function ChatSession({
                         />
                       );
                     })}
+                  {message.role === "assistant" &&
+                    !message.parts.some((part) => part.type.startsWith("tool-") || part.type === "dynamic-tool") &&
+                    (message.metadata?.attachments ?? []).map((attachment, attachmentIndex) =>
+                      isAssistantChart(attachment) ? (
+                        <AssistantChart key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
+                      ) : isAssistantImage(attachment) ? (
+                        <AssistantImage key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
+                      ) : null,
+                    )}
                   {needsScope && isLast && (
                     <Button
                       size="sm"
@@ -563,7 +559,7 @@ function ChatSession({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="shrink-0 border-t bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-3xl sm:px-4" : "border-t")}>
         <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] text-muted-foreground">
           <span>HotelCare AI Operator · {page.hotelId || profile?.assigned_hotel || "Select a hotel"}</span>
           {usage && <span>{usage.unlimited ? "Unlimited messages" : `${usage.used}/20 messages this month`}</span>}
@@ -651,15 +647,16 @@ export default function AssistantChat({
   onNeedThread,
   onThreadUpdated,
   onNavigate,
+  workspace = false,
 }: {
   threadId: string | null;
   onNeedThread: () => Promise<string | null>;
   onThreadUpdated?: () => void;
   onNavigate?: () => void;
+  /** Full-page workspace layout: centred column and the live opening screen. */
+  workspace?: boolean;
 }) {
   const { language } = useTranslation();
-  const { profile } = useAuth();
-  const { page } = useAssistantContext();
   const { messages: rows, loadingMessages, loadThreads } = useAssistant(threadId);
   // The first question of a brand-new chat is kept together with the thread it
   // belongs to. Keeping them in one value means the URL update that follows
@@ -667,7 +664,6 @@ export default function AssistantChat({
   const [pending, setPending] = useState<{ id: string; text: string } | null>(null);
   const [starting, setStarting] = useState(false);
   const activeThreadId = threadId ?? pending?.id ?? null;
-  const starters = useMemo(() => starterPrompts(profile?.role, page.module), [profile?.role, page.module]);
 
   const createAndSend = async ({ text }: { text: string }) => {
     const value = text.trim();
@@ -689,35 +685,10 @@ export default function AssistantChat({
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="mx-auto w-full max-w-md space-y-5 px-3 py-6">
-            <div className="flex items-center gap-3">
-              <img src={hotelCareMark} alt="" className="h-11 w-11 rounded-xl" />
-              <div>
-                <p className="text-lg font-semibold leading-tight">{greeting(profile?.full_name)}</p>
-                <p className="text-sm text-muted-foreground">
-                  {profile?.assigned_hotel ? `${profile.assigned_hotel} · ` : ""}
-                  How can I help?
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              {starters.map((starter) => (
-                <button
-                  key={starter.prompt}
-                  type="button"
-                  disabled={starting}
-                  className="rounded-xl border bg-card px-3.5 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
-                  onClick={() => void createAndSend({ text: starter.prompt })}
-                >
-                  <span className="block text-sm font-medium">{starter.label}</span>
-                  <span className="block text-xs text-muted-foreground">{starter.prompt}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} />
         </div>
-        <div className="shrink-0 border-t bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <PromptInput onSubmit={createAndSend} className="rounded-xl bg-background shadow-sm">
+        <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-3xl sm:px-4" : "border-t")}>
+          <PromptInput onSubmit={createAndSend} className={cn("bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
             <PromptInputTextarea
               rows={1}
               enterKeyHint="send"
@@ -758,6 +729,7 @@ export default function AssistantChat({
       language={language}
       initialPrompt={pending?.id === activeThreadId ? pending.text : null}
       onNavigate={onNavigate}
+      workspace={workspace}
       onThreadUpdated={() => {
         setPending(null);
         void loadThreads();
