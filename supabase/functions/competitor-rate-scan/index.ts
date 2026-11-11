@@ -60,14 +60,53 @@ function extractJson(text: string): unknown {
 // expensive one.
 const CHUNK_DAYS = 20;
 const LEASE_ID = "competitor-rate-scan";
-/** Scheduled sweep: near horizon every week, the full 60 nights fortnightly. */
-const CRON_NEAR_DAYS = 30;
-const CRON_FULL_DAYS = 60;
+/** Scheduled sweep: 60 commercially useful stay dates spread across 120 days. */
+const CRON_HORIZON_DAYS = 120;
+const CRON_SAMPLE_DATES = 60;
+const CRON_NEAR_PRIORITY_DAYS = 14;
 /** A competitor scanned this recently is skipped by the scheduled sweep. */
 const CRON_FRESH_HOURS = 120;
 
 function isoAdd(base: Date, days: number) {
   return new Date(base.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Select the scheduled market sample without pretending it is continuous
+ * coverage. Always keep the urgent next 14 nights, then the commercially weak
+ * November and January dates, then spread the remaining quota across the whole
+ * 120-day horizon.
+ */
+export function prioritySampleDates(
+  base: Date,
+  horizonDays = CRON_HORIZON_DAYS,
+  sampleCount = CRON_SAMPLE_DATES,
+): string[] {
+  const horizon = Array.from({ length: horizonDays }, (_, i) => isoAdd(base, i));
+  const limit = Math.min(Math.max(Math.trunc(sampleCount), 1), horizon.length);
+  const chosen = new Set<string>();
+  const add = (date: string) => {
+    if (chosen.size < limit) chosen.add(date);
+  };
+
+  horizon.slice(0, CRON_NEAR_PRIORITY_DAYS).forEach(add);
+  horizon.filter((date) => {
+    const month = Number(date.slice(5, 7));
+    return month === 11 || month === 1;
+  }).forEach(add);
+
+  const remaining = horizon.filter((date) => !chosen.has(date));
+  const needed = limit - chosen.size;
+  if (needed === 1 && remaining.length) add(remaining[Math.floor(remaining.length / 2)]);
+  if (needed > 1 && remaining.length) {
+    for (let i = 0; i < needed; i += 1) {
+      add(remaining[Math.round(i * (remaining.length - 1) / (needed - 1))]);
+    }
+  }
+  // Rounding can select the same date twice in very small horizons.
+  remaining.forEach(add);
+
+  return horizon.filter((date) => chosen.has(date));
 }
 
 /** One web-search question covering a short date range for one competitor. */
@@ -225,21 +264,20 @@ Deno.serve(async (req) => {
       hotelIds = [...new Set(((all ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id))];
     }
 
-    // Horizon: the manual button keeps whatever the panel asks for. The
-    // scheduled sweep looks 14 nights ahead most weeks and stretches to 60
-    // every second week — far-out competitor rates barely move, so paying for
-    // them weekly is waste.
-    const weekOfYear = Math.floor(Date.now() / (7 * 86_400_000));
-    const cronDays = weekOfYear % 2 === 0 ? CRON_FULL_DAYS : CRON_NEAR_DAYS;
-    const days = Math.min(Math.max(Number(body.days ?? (isCron ? cronDays : 60)), 1), 90);
+    // The scheduled sweep samples 60 priority dates across 120 days. Manual
+    // scans retain contiguous caller-selected coverage.
+    const manualDays = Math.min(Math.max(Number(body.days ?? 60), 1), 120);
+    const days = isCron ? CRON_SAMPLE_DATES : manualDays;
     const tier: "cheap" | "rich" = isCron ? "cheap" : "rich";
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
 
     const start = new Date();
     const startIso = start.toISOString().slice(0, 10);
-    const endIso = isoAdd(start, days);
-    const allDates = Array.from({ length: days }, (_, i) => isoAdd(start, i));
+    const endIso = isoAdd(start, isCron ? CRON_HORIZON_DAYS - 1 : days - 1);
+    const allDates = isCron
+      ? prioritySampleDates(start)
+      : Array.from({ length: days }, (_, i) => isoAdd(start, i));
 
     let captured = 0;
     const results: Array<{ competitor: string; prices: number; observations?: number; error: string | null }> = [];
@@ -292,10 +330,11 @@ Deno.serve(async (req) => {
         let usedModel: string | null = null;
         const filled = new Set<string>();
 
-        // The daily core scan concentrates on the next 30 nights — those are the
-        // dates the pricing engine is allowed to act on with market evidence.
-        const compDays = isCron && tierOf(c) === 1 ? Math.min(days, 30) : days;
-        const compDates = allDates.slice(0, compDays);
+        // Every scheduled competitor receives the same explicit 60-date sample.
+        // This avoids falsely treating the first 30/60 nights as full-horizon
+        // coverage while keeping paid search volume bounded.
+        const compDates = allDates;
+        const compDays = compDates.length;
         const compEndIso = compDates[compDates.length - 1] ?? endIso;
 
         const { data: runRow } = await admin.from("competitor_scan_runs").insert({
