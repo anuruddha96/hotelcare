@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Activity,
@@ -88,6 +88,9 @@ type Location = {
   business_category?: "hotel" | "brunch" | "restaurant" | "conference" | "museum" | "other";
   google_account_name?: string | null;
   google_location_name?: string | null;
+  google_total_review_count?: number | null;
+  google_average_rating?: number | null;
+  google_review_stats_updated_at?: string | null;
   reply_mode: "draft_only" | "auto_positive" | "auto_all";
   min_auto_rating: number;
   reply_tone: "warm_professional" | "friendly_concise" | "formal" | "luxury_hospitality";
@@ -125,7 +128,7 @@ type Review = {
   ai_draft_generated_at?: string | null;
   draft_edited_at?: string | null;
   reply_status: "unreplied" | "draft" | "approved" | "published" | "error";
-  reply_origin?: "unknown" | "automatic" | "manager" | "google";
+  reply_origin?: "unknown" | "automatic" | "manager" | "bulk" | "google";
   replied_at?: string | null;
   auto_reply_eligible?: boolean;
 };
@@ -142,6 +145,10 @@ type ReplyEvent = {
   created_at: string;
 };
 
+type ReputationAlert = {
+  id: string; google_location_id: string; review_id: string | null;
+  star_rating: number; review_excerpt: string | null; detected_at: string; status: string;
+};
 type Status = {
   google_configured: boolean;
   connections: Connection[];
@@ -149,6 +156,8 @@ type Status = {
   reviews: Review[];
   hotels: Hotel[];
   events: ReplyEvent[];
+  alerts?: ReputationAlert[]; open_alert_count?: number;
+  reply_library?: { curated_base_variants: number; curated_ai_cost: number };
   stats?: {
     total: number; published: number; automatic: number; manager: number; bulk: number;
     imported: number; recent14: number; recentUnreplied: number; previous14: number;
@@ -207,9 +216,9 @@ const riskBadge = (risk?: string | null) => {
 };
 
 const originLabel: Record<string, string> = {
-  automatic: "Auto-published by HotelCare",
+  automatic: "Replied by HotelCare AI · automatic",
   manager: "Published by manager",
-  bulk: "Bulk-approved by manager",
+  bulk: "HotelCare AI · manager approved",
   google: "Existing Google reply",
   unknown: "Publication source unknown",
 };
@@ -267,6 +276,12 @@ export default function Reputation() {
   const [historyVenue, setHistoryVenue] = useState("all");
   const [googleAccounts, setGoogleAccounts] = useState<Array<{ name: string; account_name?: string; type?: string; role?: string }> | null>(null);
   const [googleAccountsBusy, setGoogleAccountsBusy] = useState(false);
+  const venueSelectionScope = useRef<string>("");
+  const [allAutoDialogOpen, setAllAutoDialogOpen] = useState(false);
+  const [allAutoVenueIds, setAllAutoVenueIds] = useState<string[]>([]);
+  const [allAutoConsent, setAllAutoConsent] = useState(false);
+  const [allAutoBusy, setAllAutoBusy] = useState(false);
+  const [alertBusy, setAlertBusy] = useState<string | null>(null);
 
   const invokeRaw = async (action: string, extra: Record<string, unknown> = {}) => {
     if (!organizationSlug) throw new Error("Organization is missing");
@@ -639,7 +654,13 @@ export default function Reputation() {
   const urgent = data?.stats?.attention ?? reviews.filter((review) => review.reply_status !== "published" && review.star_rating <= 3).length;
   const autoReady = reviews.filter((review) => review.reply_status !== "published" && review.auto_reply_eligible).length;
   const totalTracked = data?.stats?.total ?? reviews.length;
-  const allAvg = data?.stats?.average ?? avg;
+  const googleTotal = locations.reduce((acc, location) => acc +
+    (location.google_total_review_count ?? (data?.location_summary?.[location.id]?.total ?? 0)), 0);
+  const rated = locations.filter((location) => Number(location.google_total_review_count || 0) > 0 && location.google_average_rating != null);
+  const ratedCount = rated.reduce((sum, location) => sum + Number(location.google_total_review_count || 0), 0);
+  const googleAverage = ratedCount ? rated.reduce((sum, location) =>
+    sum + Number(location.google_average_rating || 0) * Number(location.google_total_review_count || 0), 0) / ratedCount : null;
+  const allAvg = googleAverage ?? data?.stats?.average ?? avg;
   const summary = data?.location_summary || {};
   const categoryCounts = locations.reduce((result, location) => {
     const key = location.business_category || "other";
@@ -670,7 +691,9 @@ export default function Reputation() {
   const filteredReviews = useMemo(() => {
     const q = search.trim().toLowerCase();
     return reviews.filter((review) => {
-      if (ratingFilter !== "all" && Number(ratingFilter) !== review.star_rating) return false;
+      if (ratingFilter === "positive" && review.star_rating < 4) return false;
+      if (ratingFilter === "attention" && review.star_rating > 3) return false;
+      if (!["all", "positive", "attention"].includes(ratingFilter) && Number(ratingFilter) !== review.star_rating) return false;
       if (statusFilter !== "all" && review.reply_status !== statusFilter) return false;
       if (originFilter !== "all" && review.reply_origin !== originFilter) return false;
       if (locationFilter !== "all" && review.google_location_id !== locationFilter) return false;
