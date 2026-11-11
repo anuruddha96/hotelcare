@@ -635,10 +635,21 @@ export default function Reputation() {
   const mapped = locations.filter((location) => location.hotel_id);
   const avg = reviews.length ? reviews.reduce((sum, review) => sum + Number(review.star_rating || 0), 0) / reviews.length : 0;
   const published = data?.stats?.published ?? reviews.filter((review) => review.reply_status === "published").length;
-  const awaiting = reviews.filter((review) => review.reply_status !== "published").length;
-  const urgent = reviews.filter((review) => review.reply_status !== "published" && review.star_rating <= 3).length;
+  const awaiting = data?.stats?.awaiting ?? reviews.filter((review) => review.reply_status !== "published").length;
+  const urgent = data?.stats?.attention ?? reviews.filter((review) => review.reply_status !== "published" && review.star_rating <= 3).length;
   const autoReady = reviews.filter((review) => review.reply_status !== "published" && review.auto_reply_eligible).length;
   const totalTracked = data?.stats?.total ?? reviews.length;
+  const allAvg = data?.stats?.average ?? avg;
+  const summary = data?.location_summary || {};
+  const categoryCounts = locations.reduce((result, location) => {
+    const key = location.business_category || "other";
+    result[key] = (result[key] || 0) + 1;
+    return result;
+  }, {} as Record<string, number>);
+  const venueCategories = ["all", "hotel", "brunch", "restaurant", "conference", "museum", "other"];
+  const visibleVenues = locations.filter((location) => venueCategory === "all" || location.business_category === venueCategory);
+  const canBulkRecent = recentReviews.filter((review) => recentEligible(review));
+  const selectedRecentReviews = selectedRecentIds.map((id) => recentReviews.find((review) => review.id === id)).filter((review): review is Review => Boolean(review));
   const responseRate = totalTracked ? Math.round((published / totalTracked) * 100) : 0;
 
   const locationNameById = useMemo(
@@ -814,11 +825,18 @@ export default function Reputation() {
           </Card>
         )}
 
-        <Tabs value={activeTab} onValueChange={(value) => { setActiveTab(value); if (value === "published") void loadPublished(0, publishedSource); }} className="space-y-4">
+        <Tabs value={activeTab} onValueChange={(value) => {
+          setActiveTab(value);
+          if (value === "automation") void loadRecent(0, recentVenue);
+          if (value === "published") { setPublishedSource("all"); void loadPublished(0, "all", historyVenue); }
+          if (value === "auto") { setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }
+        }} className="space-y-4">
           <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="overview" className="gap-2"><BarChart3 className="h-4 w-4" />Overview</TabsTrigger>
             <TabsTrigger value="inbox" className="gap-2"><MessageSquareText className="h-4 w-4" />Review inbox{awaiting > 0 ? <Badge variant="secondary" className="ml-1">{awaiting}</Badge> : null}</TabsTrigger>
-            <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Locations & rules</TabsTrigger>
+            <TabsTrigger value="automation" className="gap-2"><Zap className="h-4 w-4" />Automation center <Badge variant="secondary">{data?.stats?.recentUnreplied ?? 0}</Badge></TabsTrigger>
+            <TabsTrigger value="auto" className="gap-2"><CheckCheck className="h-4 w-4" />Auto replies <Badge variant="secondary">{data?.stats?.automatic ?? 0}</Badge></TabsTrigger>
+            <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Venues & rules</TabsTrigger>
             <TabsTrigger value="published" className="gap-2"><Send className="h-4 w-4" />Published replies <Badge variant="secondary">{published}</Badge></TabsTrigger>
             <TabsTrigger value="audit" className="gap-2"><History className="h-4 w-4" />Audit trail</TabsTrigger>
           </TabsList>
@@ -826,7 +844,7 @@ export default function Reputation() {
           <TabsContent value="overview" className="space-y-4">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reviews tracked</div><div className="text-3xl font-bold mt-2">{totalTracked}</div></CardContent></Card>
-              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Recent average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{reviews.length ? avg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
+              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Overall average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{totalTracked ? allAvg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Response rate</div><div className="text-3xl font-bold mt-2">{totalTracked ? `${responseRate}%` : "—"}</div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Awaiting reply</div><div className="text-3xl font-bold mt-2">{awaiting}</div></CardContent></Card>
               <Card className={urgent ? "border-amber-300" : ""}><CardContent className="pt-5"><div className="text-xs text-muted-foreground">1–3★ attention</div><div className="text-3xl font-bold mt-2">{urgent}</div></CardContent></Card>
@@ -1007,9 +1025,23 @@ export default function Reputation() {
               </CardContent>
             </Card>
 
+            <Card><CardContent className="pt-4 space-y-3">
+              <div className="text-sm font-medium">Find venue settings quickly</div>
+              <div className="flex flex-wrap gap-2">
+                {venueCategories.map((category) => <Button key={category} size="sm" variant={venueCategory === category ? "default" : "outline"} onClick={() => setVenueCategory(category)}>
+                  {category === "all" ? "All venues" : category.charAt(0).toUpperCase() + category.slice(1)} ({category === "all" ? locations.length : categoryCounts[category] || 0})
+                </Button>)}
+              </div>
+              <Select value={configVenueFilter} onValueChange={(value) => { setConfigVenueFilter(value); if (value !== "all") setVenueCategory("all"); }}>
+                <SelectTrigger className="max-w-md"><SelectValue placeholder="Select a specific Google listing" /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All locations</SelectItem>
+                  {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </CardContent></Card>
             {locations.length === 0 ? (
               <Card><CardContent className="py-14 text-center text-muted-foreground">{googleSetup.quotaPending ? "Google location discovery is waiting for API approval." : "No Google Business locations discovered yet."}</CardContent></Card>
-            ) : locations.map((location) => {
+            ) : visibleVenues.filter((location) => configVenueFilter === "all" || location.id === configVenueFilter).map((location) => {
               const edit = locationEdits[location.id];
               if (!edit) return null;
               return (
@@ -1035,12 +1067,20 @@ export default function Reputation() {
 
                     <div className="grid lg:grid-cols-2 gap-4">
                       <div className="space-y-2"><Label>Reply signature</Label><Input value={edit.reply_signature || ""} onChange={(e) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, reply_signature: e.target.value } }))} placeholder="e.g. The Hotel Ottofiori Team" /></div>
-                      <div className="rounded-lg border p-3 flex items-center justify-between gap-4"><div><div className="font-medium text-sm">Automatic publishing</div><div className="text-xs text-muted-foreground mt-1">Only eligible low-risk reviews can ever be auto-published.</div></div><Switch checked={edit.auto_reply_enabled} disabled={edit.reply_mode === "draft_only"} onCheckedChange={(checked) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, auto_reply_enabled: checked } }))} /></div>
+                      <div className="rounded-lg border p-3 flex items-center justify-between gap-4"><div><div className="font-medium text-sm">Automatic publishing</div><div className="text-xs text-muted-foreground mt-1">Enable for this venue, including independent brunches. Requires explicit approval. Future 4–5★ low-risk reviews only.</div></div><Switch checked={edit.auto_reply_enabled} onCheckedChange={(checked) => {
+                        if (checked && !location.auto_reply_enabled) { setConsentLocationId(location.id); return; }
+                        setLocationEdits((current) => ({ ...current, [location.id]: { ...edit,
+                          auto_reply_enabled: checked,
+                          reply_mode: checked && edit.reply_mode === "draft_only" ? "auto_positive" : edit.reply_mode } }));
+                      }} /></div>
                     </div>
 
                     <div className="space-y-2"><Label>Property context for AI</Label><Textarea rows={3} value={edit.brand_context || ""} onChange={(e) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, brand_context: e.target.value } }))} placeholder="Optional factual context: breakfast hours, positioning, service style, contact instructions. The AI is told never to invent information." /></div>
 
                     <div className="rounded-lg bg-muted/40 p-3 text-sm flex gap-2"><ShieldCheck className="h-4 w-4 mt-0.5 shrink-0" /><span>Recommended starting policy: 4–5★ may become eligible for automatic replies after testing; 1–3★ and any high-risk complaint remain manager-controlled.</span></div>
+                    {edit.auto_reply_enabled && !location.auto_reply_enabled && (
+                      <p className="text-xs text-amber-700">Automation is not live until you save these rules. It will apply to new reviews only.</p>
+                    )}
                     <Button onClick={() => saveLocation(location.id)} disabled={itemBusy === location.id}><Save className="h-4 w-4 mr-2" />Save location rules</Button>
                   </CardContent>
                 </Card>
