@@ -958,12 +958,70 @@ Risk level: ${analysis.risk}.`;
       return json({ ok: true, draft: reply });
     }
 
+    if (action === "prepare_bulk_replies") {
+      const ids = Array.isArray(body.review_ids) ? body.review_ids.map(String) : [];
+      if (!ids.length || ids.length > 25 || new Set(ids).size !== ids.length)
+        return json({ error: "Choose 1–25 distinct reviews for draft preparation." }, 400);
+      const { data: selected, error } = await admin.from("google_reviews")
+        .select("*,google_business_locations(id,organization_id,is_active,reply_brand_name,google_location_title,business_category,brand_context,reply_signature,reply_language_mode)")
+        .eq("organization_id", org.id).in("id", ids);
+      if (error) throw error;
+      if ((selected || []).length !== ids.length) return json({ error: "One or more reviews no longer exist." }, 409);
+      const cutoff = Date.now() - 14 * 86_400_000;
+      const prepared = [];
+      const rejected = [];
+      for (const review of selected || []) {
+        const location = review.google_business_locations;
+        const ageMs = new Date(review.review_create_time || "").getTime();
+        const safe = Number(review.star_rating) >= 4 &&
+          classifyReview(Number(review.star_rating), String(review.comment || "")).risk === "low" &&
+          ageMs >= cutoff && ageMs <= Date.now() &&
+          !review.google_reply_comment && review.reply_status !== "published" &&
+          location?.organization_id === org.id && location?.is_active;
+        if (!safe) {
+          rejected.push({ id: review.id, reason: "Review is not eligible for the safe 14-day approval queue." });
+          continue;
+        }
+        if (review.draft_edited_at && review.ai_draft) {
+          prepared.push({ id: review.id, draft: review.ai_draft, source: "manager_edited" });
+          continue;
+        }
+        const draft = buildCuratedReply({
+          reviewId: review.google_review_name,
+          rating: review.star_rating,
+          comment: review.comment,
+          reviewerName: review.reviewer_display_name,
+          venueName: location.reply_brand_name || location.google_location_title,
+          venueCategory: location.business_category,
+          venueContext: location.brand_context,
+          signature: location.reply_signature,
+          languageMode: location.reply_language_mode,
+        });
+        if (!draft) {
+          rejected.push({ id: review.id, reason: "Needs a custom manager-reviewed reply." });
+          continue;
+        }
+        const { error: writeError } = await admin.from("google_reviews")
+          .update({ ai_draft: draft.text, ai_draft_generated_at: new Date().toISOString(),
+            reply_status: "draft", ai_risk_level: "low", updated_at: new Date().toISOString() })
+          .eq("id", review.id).eq("organization_id", org.id);
+        if (writeError) {
+          rejected.push({ id: review.id, reason: "Draft could not be saved." });
+          continue;
+        }
+        await audit(review, "draft_generated", draft.text, { source: "curated_reply_library",
+          template_id: draft.templateId, topic: draft.topic, bulk_preparation: true });
+        prepared.push({ id: review.id, draft: draft.text, source: "curated_reply_library" });
+      }
+      return json({ ok: true, prepared, rejected, library_variants: CURATED_REPLY_BASE_COUNT });
+    }
+
     if (action === "bulk_publish_replies") {
       // Batch approval is a one-time explicit decision, NOT a change to a venue's
       // unattended auto-reply policy. It cannot silently publish older reviews.
       if (body.confirm !== true) return json({ error: "Explicit confirmation is required." }, 409);
       const items = Array.isArray(body.items) ? body.items : [];
-      if (!items.length || items.length > 10) return json({ error: "Choose 1–10 reviews per batch." }, 400);
+      if (!items.length || items.length > 25) return json({ error: "Choose 1–25 reviews per batch." }, 400);
       const unique = new Set(items.map((x: any) => String(x?.id || "")));
       if (unique.size !== items.length) return json({ error: "Duplicate review selection." }, 400);
       const cutoffMs = Date.now() - 14 * 86_400_000;
