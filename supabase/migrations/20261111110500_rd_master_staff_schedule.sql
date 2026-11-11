@@ -370,7 +370,7 @@ BEGIN
     IF employee_id IS NULL OR work_day IS NULL OR hotel IS NULL
        OR work_day >= (timezone('Europe/Budapest',now()))::date
        OR work_day < ((timezone('Europe/Budapest',now()))::date - INTERVAL '3 years')::date
-       OR work_state NOT IN ('working','training','off','leave','sick') THEN
+       OR work_state IS NULL OR work_state NOT IN ('working','training','off','leave','sick') THEN
       RAISE EXCEPTION 'Historical schedule date, employee, property or status is invalid';
     END IF;
 
@@ -428,3 +428,61 @@ END;
 $body$;
 REVOKE ALL ON FUNCTION public.rd_import_historical_staff_schedules(jsonb,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.rd_import_historical_staff_schedules(jsonb,text) TO authenticated;
+
+
+-- Protect RD staffing authorization claims against self-service profile UPDATE.
+-- An existing permissive own-profile policy otherwise lets a user change
+-- assigned_hotel, role, or acts_as_housekeeper and gain access indirectly.
+-- Only changes to non-sensitive profile fields are self-service.
+CREATE FUNCTION public.rd_protect_profile_authorization_fields()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $body$
+DECLARE
+  actor public.profiles%ROWTYPE;
+BEGIN
+  IF OLD.organization_slug IS DISTINCT FROM 'rdhotels'
+     AND NEW.organization_slug IS DISTINCT FROM 'rdhotels' THEN
+    RETURN NEW;
+  END IF;
+  IF auth.uid() IS NULL THEN RETURN NEW; END IF;
+  SELECT * INTO actor FROM public.profiles WHERE id = auth.uid();
+  IF actor.id IS NULL OR actor.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'Profile change not authorized';
+  END IF;
+
+  IF actor.id = OLD.id AND (
+    NEW.id IS DISTINCT FROM OLD.id
+    OR NEW.role IS DISTINCT FROM OLD.role
+    OR NEW.organization_slug IS DISTINCT FROM OLD.organization_slug
+    OR NEW.is_super_admin IS DISTINCT FROM OLD.is_super_admin
+    OR NEW.assigned_hotel IS DISTINCT FROM OLD.assigned_hotel
+    OR NEW.hotel_id IS DISTINCT FROM OLD.hotel_id
+    OR NEW.acts_as_housekeeper IS DISTINCT FROM OLD.acts_as_housekeeper
+    OR NEW.deleted_at IS DISTINCT FROM OLD.deleted_at
+    OR NEW.deleted_by IS DISTINCT FROM OLD.deleted_by
+  ) THEN
+    RAISE EXCEPTION 'Users cannot change their own access, role, organization or hotel';
+  END IF;
+
+  IF (NEW.role IS DISTINCT FROM OLD.role
+      OR NEW.organization_slug IS DISTINCT FROM OLD.organization_slug
+      OR NEW.is_super_admin IS DISTINCT FROM OLD.is_super_admin)
+     AND (
+       actor.organization_slug IS DISTINCT FROM 'rdhotels'
+       OR actor.role::text <> 'admin'
+     ) THEN
+    RAISE EXCEPTION 'Role and organization changes require an RD Hotels administrator';
+  END IF;
+  IF NEW.is_super_admin IS DISTINCT FROM OLD.is_super_admin
+     AND actor.is_super_admin IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'Super-administrator privileges cannot be delegated';
+  END IF;
+  RETURN NEW;
+END;
+$body$;
+REVOKE ALL ON FUNCTION public.rd_protect_profile_authorization_fields() FROM PUBLIC;
+
+CREATE TRIGGER rd_prevent_profile_access_escalation
+BEFORE UPDATE ON public.profiles
+FOR EACH ROW
+EXECUTE FUNCTION public.rd_protect_profile_authorization_fields();
