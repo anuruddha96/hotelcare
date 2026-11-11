@@ -51,6 +51,9 @@ export function OperationsNavigation({ current, onDashboardTabChange }: Operatio
     ...(manager || role === 'hr' ? [
       { key: 'attendance', text: 'HR', icon: Clock, click: () => openTab('attendance'), training: 'attendance-tab' },
     ] : []),
+    ...(canOpenSchedule ? [
+      { key: 'staff-schedule', text: 'Master staff schedule', icon: CalendarDays, click: () => navigate(`${basePath}?view=staff-schedule`) },
+    ] : []),
     ...(executive ? [
       { key: 'revenue', text: 'Revenue Management', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) },
     ] : []),
@@ -59,9 +62,6 @@ export function OperationsNavigation({ current, onDashboardTabChange }: Operatio
     ] : []),
     ...(legacy && manager ? [
       { key: 'invoices', text: 'Invoices', icon: Receipt, click: () => navigate(`${basePath}/purchase-invoices`) },
-    ] : []),
-    ...(canOpenSchedule ? [
-      { key: 'staff-schedule', text: 'Master staff schedule', icon: CalendarDays, click: () => navigate(`${basePath}?view=staff-schedule`) },
     ] : []),
     ...(role === 'admin' ? [
       { key: 'admin', text: 'Admin', icon: Settings, click: () => openTab('admin'), training: 'admin-tab' },
