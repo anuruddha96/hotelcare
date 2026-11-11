@@ -621,6 +621,20 @@ export default function Reputation() {
           </Card>
         )}
 
+        {Boolean(data?.connections?.length) && !googleSetup.blocked && locations.length === 0 && (
+          <Card className="border-blue-200">
+            <CardContent className="pt-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="font-medium">Google is connected — discover your business listings</p>
+                <p className="text-sm text-muted-foreground mt-1">The connection is ready for a location check, but no Google locations have been imported yet. Discover listings, then map each one to its HotelCare property under Locations &amp; rules.</p>
+              </div>
+              <Button variant="outline" onClick={() => syncLocations()} disabled={busy}>
+                <Download className="h-4 w-4 mr-2" />Discover Google locations
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {e2e.status !== "idle" && (
           <Card className={e2eTone}>
             <CardContent className="pt-5 flex items-start gap-3">
