@@ -58,6 +58,12 @@ A device's room mapping is permanent, but **guest services become available only
 - Persistent alerts are acknowledged by the recipient; acknowledgments never silently complete the underlying task.
 - **Still required for full production:** per-team delivery/availability monitoring, non-polling private realtime updates, push reliability verification across iOS and Android, shift-change reassignment and a complete escalations audit/management dashboard.
 
+## Safe source-code merge while database is not activated
+
+The standalone In-Suite routes and console are included in the frontend source for authorized roles, but a property cannot serve guests until its backend, tables, secret and approved content are configured. The housekeeping component **must not poll** the In-Suite backend on every cleaner's phone before deployment. It is disabled by default and only starts when the frontend build is configured with `VITE_INSUITE_ENABLED=true` **after** the Edge Function and DB migrations have been deployed and verified.
+
+The source-code merge alone does not install database migrations or enable guest orders, payments or kiosk locking. The Admin tab remains restricted to its pre-existing permissions; top-management manager accounts, including Anu_000, can manage In-Suite property settings for their authorized organization without becoming global super-admins.
+
 ## Required staging deployment sequence
 
 1. Create or select an **isolated staging Supabase project** with sanitized test rooms/reservations and appropriate environment URLs. Do not point staging frontend back at production.
