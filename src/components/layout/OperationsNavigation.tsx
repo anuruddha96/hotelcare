@@ -1,14 +1,14 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   CalendarDays, CarFront, Clock, DoorOpen, Home, Radio, Receipt,
-  Settings, Ticket, TrendingUp, Users,
+  Settings, TabletSmartphone, Ticket, TrendingUp, Users,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { canAccessLegacyModules } from '@/lib/roleAccess';
 import { cn } from '@/lib/utils';
 
 type DashboardTab = 'tickets' | 'rooms' | 'housekeeping' | 'attendance' | 'admin';
-type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'channel-manager' | 'invoices' | 'staff-schedule';
+type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'channel-manager' | 'invoices' | 'staff-schedule' | 'insuite';
 
 interface OperationsNavigationProps {
   current: ModuleKey | string;
@@ -42,6 +42,9 @@ export function OperationsNavigation({ current, onDashboardTabChange }: Operatio
     ] : []),
     ...(manager || role === 'reception' || role === 'front_office' ? [
       { key: 'reception', text: 'Reception', icon: DoorOpen, click: () => navigate(`${basePath}/reception`), training: 'rooms-tab' },
+    ] : []),
+    ...(manager || role === 'reception' || role === 'front_office' ? [
+      { key: 'insuite', text: 'In-Suite', icon: TabletSmartphone, click: () => navigate(`${basePath}/insuite`) },
     ] : []),
     ...(manager ? [
       { key: 'rooms', text: 'Room Management', icon: Home, click: () => openTab('rooms'), training: 'room-management-tab' },

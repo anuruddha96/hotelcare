@@ -48,6 +48,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -153,6 +155,7 @@ export function SupervisorApprovalView({
   breakRequestCount = 0,
 }: SupervisorApprovalViewProps = {}) {
   const { t, language } = useTranslation();
+  const { profile } = useAuth();
   const { showNotification } = useNotifications();
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   useEffect(() => {
@@ -1482,6 +1485,13 @@ export function SupervisorApprovalView({
         <p className="text-muted-foreground">
           {t('supervisor.manageApprovals')}
         </p>
+        {profile?.organization_slug && <Link
+          to={`/${profile.organization_slug}/insuite`}
+          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+        >
+          <MessageSquare className="h-4 w-4" />
+          Guest Services · In-Suite requests and approvals
+        </Link>}
       </div>
 
       <Tabs defaultValue="pending" className="space-y-6">

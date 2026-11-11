@@ -1,4 +1,6 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { OrganizationManagement } from './OrganizationManagement';
 import { HotelManagementView } from './HotelManagementView';
@@ -26,6 +28,7 @@ import UnitMappingReview from '@/components/slnt/UnitMappingReview';
 
 
 export const AdminTabs = () => {
+  const { profile } = useAuth();
   const { venuesEnabled, multiPmsAccounts } = useTenantFeatures();
 
   return (
@@ -46,6 +49,7 @@ export const AdminTabs = () => {
               <Cable className="w-4 h-4" />
               PMS Config
             </TabsTrigger>
+            <TabsTrigger value="insuite" className="gap-2"><Hotel className="w-4 h-4" /> In-Suite</TabsTrigger>
             <TabsTrigger value="translations" className="gap-2">
               <Languages className="w-4 h-4" />
               Translations
@@ -94,6 +98,13 @@ export const AdminTabs = () => {
           </TabsContent>
         )}
 
+        <TabsContent value="insuite">
+          <div className="rounded-xl border bg-card p-5 space-y-3">
+            <h3 className="font-semibold">HotelCare In-Suite</h3>
+            <p className="text-sm text-muted-foreground">Manage hotel branding, information, room tablets and guest service requests.</p>
+            <Link className="inline-flex rounded-lg bg-primary px-4 py-2 text-primary-foreground" to={`/${profile?.organization_slug || "rdhotels"}/insuite`}>Open In-Suite Console</Link>
+          </div>
+        </TabsContent>
         <TabsContent value="training">
           <TrainingAdminPanel />
         </TabsContent>
