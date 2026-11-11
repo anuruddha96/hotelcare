@@ -45,7 +45,7 @@ const fieldOptions = {
     ["apologize_for_experience", "Apologize for their experience — no liability admitted"],
     ["acknowledge_no_apology", "Acknowledge feedback — do not apologize"],
     ["clarify_without_admitting", "Respectfully clarify — avoid admissions"],
-    ["accept_confirmed_issue", "Accept responsibility for manager-confirmed facts"],
+    ["accept_confirmed_issue", "Accept a verified issue & apologize"],
   ],
   focus: [
     ["all", "Cover the main concerns"], ["fees", "Service charge / billing"], ["food", "Food & portions"], ["staff", "Staff interactions"],
@@ -75,7 +75,7 @@ export function ReplyCustomizerDialog({ open, onOpenChange, review, venueName, c
   useEffect(() => {
     if (!open) return;
     setAlternatives([]); setChosen(null); setEdited(""); setGeneration(0);
-    setOptions({ ...defaultOptions, stance: review && review.star_rating < 4 ? "acknowledge_no_apology" : "apologize_for_experience" });
+    setOptions({ ...defaultOptions });
   }, [review?.id, open]);
   const update = <K extends keyof ReplyCustomizerOptions>(key: K, value: ReplyCustomizerOptions[K]) => {
     setOptions(prev => ({ ...prev, [key]: value }));
