@@ -147,6 +147,8 @@ const toneInstruction: Record<string, string> = {
   luxury_hospitality: "refined, gracious and hospitality-focused without sounding exaggerated",
 };
 
+const orgSlugForManager = (profile: { organization_slug?: string | null }) => profile.organization_slug || "";
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -173,7 +175,7 @@ Deno.serve(async (req) => {
       .single();
     if (
       !profile ||
-      (!profile.is_super_admin && !["admin", "top_management", "top_management_manager"].includes(profile.role))
+      (!profile.is_super_admin && !["admin", "top_management", "top_management_manager"].includes(profile.role) && !(orgSlugForManager(profile) === "rdhotels" && profile.role === "manager"))
     ) {
       return json({ error: "Forbidden" }, 403);
     }
@@ -327,14 +329,14 @@ Deno.serve(async (req) => {
           admin
             .from("google_business_locations")
             .select(
-              "id,hotel_id,google_account_name,google_location_name,google_location_title,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context",
+              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context",
             )
             .eq("organization_id", org.id)
             .order("google_location_title"),
           admin
             .from("google_reviews")
             .select(
-              "id,hotel_id,google_location_id,reviewer_display_name,reviewer_profile_photo_url,star_rating,comment,review_create_time,review_update_time,google_reply_comment,google_reply_update_time,ai_language,ai_sentiment,ai_categories,ai_summary,ai_risk_level,ai_confidence,ai_draft,ai_draft_generated_at,draft_edited_at,reply_status,replied_at,auto_reply_eligible",
+              "id,hotel_id,google_location_id,reviewer_display_name,reviewer_profile_photo_url,star_rating,comment,review_create_time,review_update_time,google_reply_comment,google_reply_update_time,reply_origin,ai_language,ai_sentiment,ai_categories,ai_summary,ai_risk_level,ai_confidence,ai_draft,ai_draft_generated_at,draft_edited_at,reply_status,replied_at,auto_reply_eligible",
             )
             .eq("organization_id", org.id)
             .order("review_update_time", { ascending: false })
@@ -506,8 +508,14 @@ Deno.serve(async (req) => {
       const delay = Math.max(0, Math.min(1440, Number(body.auto_reply_delay_minutes ?? 15)));
       const autoEnabled = Boolean(body.auto_reply_enabled) && mode !== "draft_only";
 
+      const brandName = String(body.reply_brand_name || "").trim().slice(0, 120);
+      if (!brandName) return json({ error: "Reply brand name is required" }, 400);
+      const businessCategory = ["hotel", "brunch", "restaurant", "conference", "museum", "other"].includes(String(body.business_category))
+        ? String(body.business_category) : "other";
       const updates = {
         hotel_id: hotelId,
+        reply_brand_name: brandName,
+        business_category: businessCategory,
         reply_mode: mode,
         min_auto_rating: minAuto,
         require_approval_below_rating: approvalBelow,
@@ -537,13 +545,23 @@ Deno.serve(async (req) => {
         .from("google_business_locations")
         .select("*")
         .eq("organization_id", org.id)
-        .eq("is_active", true)
-        .not("hotel_id", "is", null);
+        .eq("is_active", true);
 
       let imported = 0;
       let unreplied = 0;
       for (const l of locs || []) {
         if (!l.google_account_name || !l.google_location_name) continue;
+        const existingReviews = new Map<string, any>();
+        let readOffset = 0;
+        while (true) {
+          const { data: batch, error: readError } = await admin.from("google_reviews")
+            .select("google_review_name,comment,ai_draft,ai_draft_generated_at,draft_edited_at,draft_edited_by,reply_origin")
+            .eq("google_location_id", l.id).range(readOffset, readOffset + 999);
+          if (readError) throw readError;
+          for (const existing of batch || []) existingReviews.set(existing.google_review_name, existing);
+          if (!batch || batch.length < 1000) break;
+          readOffset += 1000;
+        }
         let pageToken = "";
         do {
           const q = new URLSearchParams({ pageSize: "50" });
@@ -553,6 +571,10 @@ Deno.serve(async (req) => {
           );
 
           for (const r of x.reviews || []) {
+            const existing = existingReviews.get(r.name);
+            const unchanged = existing && String(existing.comment || "") === String(r.comment || "");
+            const savedDraft = unchanged ? existing.ai_draft || null : null;
+            const hasReply = Boolean(r.reviewReply?.comment);
             const stars = rating(r.starRating);
             const analysis = classifyReview(stars, r.comment || "");
             const row = {
@@ -574,7 +596,12 @@ Deno.serve(async (req) => {
               ai_summary: analysis.summary,
               ai_risk_level: analysis.risk,
               ai_confidence: analysis.confidence,
-              reply_status: r.reviewReply?.comment ? "published" : "unreplied",
+              reply_origin: hasReply ? (["manager", "automatic"].includes(existing?.reply_origin) ? existing.reply_origin : "google") : "unknown",
+              ai_draft: savedDraft,
+              ai_draft_generated_at: savedDraft ? existing.ai_draft_generated_at : null,
+              draft_edited_at: savedDraft ? existing.draft_edited_at : null,
+              draft_edited_by: savedDraft ? existing.draft_edited_by : null,
+              reply_status: hasReply ? "published" : savedDraft ? "draft" : "unreplied",
               auto_reply_eligible:
                 stars >= Number(l.min_auto_rating || 4) &&
                 analysis.risk === "low" &&
@@ -616,7 +643,8 @@ Deno.serve(async (req) => {
       if (!key) return json({ error: "HotelCare AI is not configured" }, 409);
 
       const location = r.google_business_locations as any;
-      const property = location?.google_location_title || "the property";
+      const property = location?.reply_brand_name || location?.google_location_title || "our business";
+      const category = location?.business_category || "other";
       const tone = toneInstruction[location?.reply_tone] || toneInstruction.warm_professional;
       const languageInstruction =
         location?.reply_language_mode === "english"
@@ -632,36 +660,44 @@ Deno.serve(async (req) => {
         : "";
 
       const analysis = classifyReview(Number(r.star_rating || 5), String(r.comment || ""));
-      const prompt = `Write a Google Business Profile owner reply for ${property}.
-Rating: ${r.star_rating}/5.
-Guest review: ${r.comment || "(no written comment)"}.
-Style: ${tone}.
-${languageInstruction}
-Keep it roughly 45-100 words. Be specific to what the guest actually said. Never invent facts, compensation, refunds, investigations or promises. Do not mention AI. Do not argue. For negative reviews acknowledge the concern without admitting unverified claims, and invite direct contact only when useful.${signature}${brandContext}
-Risk level assessed by HotelCare: ${analysis.risk}. If risk is high, use especially careful neutral wording.`;
-
-      const oa = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-4.1-mini",
-          instructions: "You write accurate, human hospitality review responses for HotelCare. Output only the reply text.",
-          input: prompt,
-          max_output_tokens: 300,
-        }),
-      });
-      if (!oa.ok) throw new Error(`AI ${oa.status}: ${(await oa.text()).slice(0, 250)}`);
-
-      const ox = await oa.json();
-      const draft = String(
-        ox.output_text ||
-          (ox.output || [])
-            .flatMap((o: any) => o.content || [])
-            .filter((c: any) => c.type === "output_text")
-            .map((c: any) => c.text || "")
-            .join(""),
-      ).trim();
-      if (!draft) throw new Error("AI returned an empty draft");
+      let draft = "";
+      if (!String(r.comment || "").trim()) {
+        // Rating-only reviews do not need a paid model call or invented visit details.
+        const stars = Number(r.star_rating || 5);
+        const hungarian = location?.reply_language_mode === "hungarian";
+        draft = hungarian
+          ? `Köszönjük a${stars === 5 ? "z ötcsillagos" : ` ${stars} csillagos`} értékelést és hogy támogatta a(z) ${property} csapatát!`
+          : `Thank you for your ${stars}-star rating and for supporting ${property}!`;
+      } else {
+        const prompt = `Write a brief public Google review reply for the brand "${property}" (venue type: ${category}).
+Public listing title for identification ONLY: ${location?.google_location_title || property}.
+Guest review: ${String(r.comment).slice(0, 1800)}.
+Rating: ${r.star_rating}/5. Style: ${tone}. ${languageInstruction}
+Use the exact brand "${property}" if naming the business; do NOT infer a conference, hotel stay, meal, tour or service from the listing title. Mention a specific service ONLY when the guest review itself describes it. Never use a different venue's name or imply a hotel stay for a restaurant, museum, brunch or conference venue.
+Write 1-3 natural sentences, typically 20-55 words; no generic marketing language or exaggerated praise. Never invent facts, compensation, or investigations. For negative feedback, be considerate without admitting unverified accusations. Avoid promising follow-up unless specifically instructed.${signature}${brandContext}
+Risk level: ${analysis.risk}.`;
+        const model = Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-6-luna";
+        const makeRequest = (chosen: string) => fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: chosen,
+            ...(chosen.startsWith("gpt-6") ? { reasoning: { effort: "none" } } : {}),
+            instructions: "You write concise, accurate, venue-specific Google review replies. Output only the reply.",
+            input: prompt,
+            max_output_tokens: 150,
+          }),
+        });
+        let oa = await makeRequest(model);
+        if (!oa.ok && [400, 404].includes(oa.status) && model === "gpt-6-luna") {
+          oa = await makeRequest("gpt-4.1-mini"); // Existing supported model if Luna is unavailable for this API account.
+        }
+        if (!oa.ok) throw new Error(`AI ${oa.status}: ${(await oa.text()).slice(0, 250)}`);
+        const ox = await oa.json();
+        draft = String(ox.output_text || (ox.output || []).flatMap((o: any) => o.content || [])
+          .filter((x: any) => x.type === "output_text").map((x: any) => x.text || "").join("")).trim();
+        if (!draft) throw new Error("AI returned an empty draft");
+      }
 
       await admin
         .from("google_reviews")
@@ -761,6 +797,7 @@ Risk level assessed by HotelCare: ${analysis.risk}. If risk is high, use especia
             google_reply_comment: reply,
             google_reply_update_time: x.updateTime || new Date().toISOString(),
             reply_status: "published",
+            reply_origin: isAuto ? "automatic" : "manager",
             replied_at: new Date().toISOString(),
             replied_by: userData.user.id,
             updated_at: new Date().toISOString(),
