@@ -766,6 +766,48 @@ Deno.serve(async (req) => {
       return json({ ok: true, imported, unreplied });
     }
 
+    if (action === "alert_summary") {
+      // Lightweight endpoint for the shared application header; avoid pulling
+      // thousands of reviews or running the full Reputation overview query.
+      const { data: openAlerts, count, error } = await admin.from("google_reputation_alerts")
+        .select("id,star_rating,google_location_id,review_excerpt,detected_at,google_business_locations(reply_brand_name,google_location_title)", { count: "exact" })
+        .eq("organization_id", org.id).eq("status", "open")
+        .order("detected_at", { ascending: false }).limit(8);
+      if (error) throw error;
+      return json({ ok: true, total: count || 0, alerts: openAlerts || [] });
+    }
+
+    if (action === "activate_auto_venues") {
+      // Explicit one-time consent for a named set of Google Business locations.
+      // This never grants consent to publish old reviews and never sets the mode
+      // below the safe 4-star threshold.
+      if (body.confirm !== true) return json({ error: "Explicit business-level authorization is required." }, 409);
+      const ids = Array.isArray(body.location_ids) ? body.location_ids.map(String) : [];
+      const uniq = Array.from(new Set(ids));
+      if (!uniq.length || uniq.length > 25 || uniq.length !== ids.length) return json({ error: "Select 1–25 distinct Google businesses." }, 400);
+      const { data: selected, error: selectedError } = await admin.from("google_business_locations")
+        .select("id,reply_brand_name,google_location_title,hotel_id,auto_reply_enabled,reply_mode")
+        .eq("organization_id", org.id).eq("is_active", true).in("id", uniq);
+      if (selectedError) throw selectedError;
+      if ((selected || []).length !== uniq.length) return json({ error: "One or more selected listings are unavailable." }, 409);
+      const activated: any[] = [];
+      const consentTime = new Date().toISOString();
+      for (const venue of selected || []) {
+        const { data: updated, error } = await admin.from("google_business_locations").update({
+          reply_mode: "auto_positive",
+          auto_reply_enabled: true,
+          min_auto_rating: 4,
+          require_approval_below_rating: 4,
+          auto_reply_consent_at: consentTime,
+          auto_reply_authorized_by: userData.user.id,
+          updated_at: consentTime,
+        }).eq("id", venue.id).eq("organization_id", org.id).select("id,reply_brand_name,auto_reply_enabled,auto_reply_enabled_at").single();
+        if (error) throw error;
+        activated.push(updated);
+      }
+      return json({ ok: true, activated, policy: "future_4_5_low_risk_only", authorized_at: consentTime });
+    }
+
     if (action === "acknowledge_low_rating_alert") {
       const id = String(body.alert_id || "");
       if (!id) return json({ error: "alert_id is required" }, 400);
