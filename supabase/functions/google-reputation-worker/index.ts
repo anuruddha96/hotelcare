@@ -211,7 +211,6 @@ Deno.serve(async (req) => {
         access_token_ciphertext: await enc(String(result.access_token)),
         access_token_expires_at: expiresAt,
         status: "active",
-        last_error: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", connection.id);
