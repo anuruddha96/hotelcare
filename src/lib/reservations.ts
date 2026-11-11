@@ -25,6 +25,15 @@ export interface ReservationLike {
   adults?: number | null;
   children?: number | null;
   room_id?: string | null;
+  // Reported by Previo, written only by the reservation importer.
+  pms_reservation_id?: string | null;
+  pms_voucher?: string | null;
+  pms_status_id?: number | null;
+  pms_payment_status?: string | null;
+  pms_channel?: string | null;
+  pms_option_expires_at?: string | null;
+  pms_contact_name?: string | null;
+  pms_contact_email?: string | null;
 }
 
 export const ACTIVE_STATUSES = ["pending", "confirmed", "checked_in"] as const;
@@ -68,6 +77,63 @@ export function datesOverlap(
 /** Previo-origin bookings: booking-core fields are read-only locally. */
 export function isPmsManaged(r: Pick<ReservationLike, "source">): boolean {
   return (r.source || "").toLowerCase() === "previo";
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  direct: "Direct",
+  walk_in: "Walk-in",
+  phone: "Phone",
+  email: "Email",
+  booking_com: "Booking.com",
+  expedia: "Expedia",
+  previo: "Previo",
+  previo_snapshot: "Previo",
+  other: "Other",
+};
+
+const CHANNEL_LETTERS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/booking/, "B"],
+  [/expedia|hotels\.com/, "E"],
+  [/airbnb/, "A"],
+  [/agoda/, "G"],
+  [/szallas|szállás/, "S"],
+  [/previo/, "P"],
+  [/walk/, "W"],
+  [/direct/, "D"],
+];
+
+/**
+ * Sales channel of a booking: the partner Previo reports (e.g. "Booking.com")
+ * when there is one, otherwise the HotelCare source. `letter` is the planner badge.
+ */
+export function reservationChannel(
+  r: Pick<ReservationLike, "source" | "pms_channel">,
+): { label: string; letter: string } {
+  const channel = (r.pms_channel ?? "").trim();
+  const source = (r.source ?? "").trim();
+  const label = channel || SOURCE_LABELS[source.toLowerCase()] || source.replaceAll("_", " ") || "—";
+  const name = (channel || source).toLowerCase();
+  const known = CHANNEL_LETTERS.find(([pattern]) => pattern.test(name));
+  const initial = channel.match(/[\p{L}\p{N}]/u)?.[0]?.toUpperCase();
+  return { label, letter: known ? known[1] : initial || "R" };
+}
+
+/** A pending Previo booking is either an option (holds the room until it expires) or on the waiting list. */
+export function pmsHoldKind(
+  r: Pick<ReservationLike, "status" | "pms_status_id">,
+): "option" | "waiting_list" | null {
+  if (r.status !== "pending") return null;
+  if (Number(r.pms_status_id) === 1) return "option";
+  if (Number(r.pms_status_id) === 6) return "waiting_list";
+  return null;
+}
+
+/** What Previo says about payment, for Previo-managed bookings only. */
+export function pmsPaymentNote(
+  r: Pick<ReservationLike, "source" | "pms_payment_status">,
+): "paid" | "partial" | null {
+  if (!isPmsManaged(r)) return null;
+  return r.pms_payment_status === "paid" || r.pms_payment_status === "partial" ? r.pms_payment_status : null;
 }
 
 /**
@@ -146,6 +212,11 @@ export function reservationSearchText(r: ReservationLike & { rooms?: { room_numb
     r.reservation_number,
     r.source_reservation_id,
     r.rooms?.room_number,
+    r.pms_voucher,
+    r.pms_reservation_id,
+    r.pms_channel,
+    r.pms_contact_name,
+    r.pms_contact_email,
   ]
     .filter(Boolean)
     .join(" ")

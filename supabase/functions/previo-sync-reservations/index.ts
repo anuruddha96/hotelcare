@@ -4,7 +4,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { callPrevioXml, hasPrevioCredentials, loadPrevioCredentials, resolvePrevioSecretName } from "../_shared/previoCredentials.ts";
-import { addDays, isReservationOwnedByImportChunk, mapPrevioStatus, parsePrevioReservations, type PrevioReservationRow } from "../_shared/previoReservations.ts";
+import {
+  addDays, buildReservationTermXml, groupGuestNames, isPrevioBusyResponse, isReservationOwnedByImportChunk,
+  mapPrevioStatus, mergePrevioFinancials, mergePrevioStatus, parsePrevioReservations, pmsFieldsEqual,
+  PMS_RESERVATION_COLUMNS, resolveImportTarget, type PrevioReservationRow,
+} from "../_shared/previoReservations.ts";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 const roles = new Set(["admin", "manager", "reception", "front_office", "top_management", "top_management_manager"]);
@@ -13,6 +17,13 @@ const PAGE_SIZE = 500; // Below Supabase's 1,000-row default PostgREST cap.
 const MAX_EXISTING = 50000;
 const MAX_INCOMING = 50000;
 const UPSERT_BATCH = 200;
+const LOOKUP_BATCH = 100;
+const BUSY_RETRY_MS = 2500;
+// Columns that exist on every deployment. The pms_* columns arrive with migration
+// 20261111100000; until it is applied the importer keeps working without them.
+const LEGACY_SELECT = "id,source_reservation_id,status,actual_check_in,room_id,guest_id,total_amount,balance_due,payment_status,adults,children,check_in_date,check_out_date,pms_guest_name,special_requests,currency";
+const EXTENDED_SELECT = `${LEGACY_SELECT},${PMS_RESERVATION_COLUMNS.join(",")}`;
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 const errorMessage = (value: unknown) => value instanceof Error ? value.message : String(value);
 function hotelToday() {
@@ -43,9 +54,17 @@ serve(async req => {
   const errors: string[] = [];
   const accountsSummary: Array<{ label: string; received: number; error?: string }> = [];
   let window: { from: string; to: string } | null = null;
+  // "horizon": full stay-overlap import of the booking window (manual Sync button, scheduled refresh).
+  // "incremental": only bookings changed in Previo in the last few days (scheduled every 10 minutes).
+  let mode: "horizon" | "incremental" = "horizon";
+  let extendedSchema = true;
   let historyWritten = false;
   const writeHistory = async (syncStatus: "success" | "partial" | "failed") => {
     if (!hotelId || historyWritten) return;
+    // The reception "last import" banner reads this table. A 10-minute job must not
+    // flood it or flip it to "failed" on one transient miss: an incremental run is
+    // recorded only when it actually changed bookings. Its failures go to the caller.
+    if (mode === "incremental" && !(syncStatus === "success" && committedInserted + committedUpdated > 0)) return;
     historyWritten = true;
     const { error } = await db.from("pms_sync_history").insert({
       hotel_id: hotelId, sync_type: "reservations", direction: "from_previo", sync_status: syncStatus,
@@ -53,7 +72,7 @@ serve(async req => {
       error_message: errors.length ? errors.join("; ").slice(0, 900) : null,
       data: { received, inserted: committedInserted, updated: committedUpdated,
         skipped, attempted, unmapped_rooms: unmappedRooms, errors, window, accounts: accountsSummary,
-        completed_batches_only: true },
+        mode, schema_pending: !extendedSchema, completed_batches_only: true },
     });
     if (error) console.error("Previo reservation sync history write failed", error.code);
   };
@@ -77,6 +96,14 @@ serve(async req => {
     if (!Number.isInteger(back) || back < 0 || back > 60 || !Number.isInteger(forward) || forward < 30 || forward > 540) {
       return json({ success: false, error: "Reservation window out of range" }, 400);
     }
+    if (body?.mode != null && body.mode !== "horizon" && body.mode !== "incremental") {
+      return json({ success: false, error: "Unknown sync mode" }, 400);
+    }
+    const modifiedDays = Number(body?.modifiedDays ?? 2);
+    if (!Number.isInteger(modifiedDays) || modifiedDays < 1 || modifiedDays > 14) {
+      return json({ success: false, error: "Modified window out of range" }, 400);
+    }
+    mode = body?.mode === "incremental" ? "incremental" : "horizon";
     const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
     let org: string | null = null;
     if (token !== serviceKey) {
@@ -123,16 +150,31 @@ serve(async req => {
     }
 
     const today = hotelToday();
-    window = { from: addDays(today, -back), to: addDays(today, forward) };
+    window = mode === "incremental"
+      ? { from: addDays(today, -modifiedDays), to: addDays(today, 1) }
+      : { from: addDays(today, -back), to: addDays(today, forward) };
+    // Horizon: stay-overlap search in 93-day chunks. Incremental: one "modified" search.
+    const ranges: Array<{ from: string; to: string }> = [];
+    if (mode === "incremental") ranges.push({ from: window.from, to: window.to });
+    else for (let from = window.from; from < window.to; from = addDays(from, CHUNK_DAYS)) {
+      const next = addDays(from, CHUNK_DAYS);
+      ranges.push({ from, to: next < window.to ? next : window.to });
+    }
+    const termType = mode === "incremental" ? "modified" : "overlap";
     const parsed = new Map<string, PrevioReservationRow>();
     for (const account of accounts) {
       const creds = loadPrevioCredentials(account.credentials_secret_name);
       let accountReceived = 0;
-      for (let from = window.from; from < window.to; from = addDays(from, CHUNK_DAYS)) {
-        const next = addDays(from, CHUNK_DAYS);
-        const to = next < window.to ? next : window.to;
-        const response = await callPrevioXml({ method: "searchReservations", creds,
-          pmsHotelId: account.pms_hotel_id, extraXml: `<term><from>${from}</from><to>${to}</to></term>` });
+      for (const { from, to } of ranges) {
+        const request = { method: "searchReservations", creds,
+          pmsHotelId: account.pms_hotel_id, extraXml: buildReservationTermXml(from, to, termType) };
+        let response = await callPrevioXml(request);
+        // Previo refuses a call while another one on the same API key is running.
+        // This is a read, so one delayed retry is safe.
+        if (!response.ok && isPrevioBusyResponse(response)) {
+          await sleep(BUSY_RETRY_MS);
+          response = await callPrevioXml(request);
+        }
         if (!response.ok) {
           errors.push(`${account.label}: Previo reservation read failed for ${from}–${to} (HTTP ${response.status})`);
           accountsSummary.push({ label: account.label, received: accountReceived, error: "Incomplete upstream read" });
@@ -146,7 +188,8 @@ serve(async req => {
           // Overlapping Previo searches return ongoing stays in more than one
           // chunk. Import each source booking from its arrival-owning chunk.
           // Never paper over conflicting duplicates inside a single chunk.
-          if (!isReservationOwnedByImportChunk(row.arrivalDate, from, to, from === window.from)) continue;
+          // A "modified" search is not a stay-overlap search, so chunk ownership does not apply.
+          if (mode === "horizon" && !isReservationOwnedByImportChunk(row.arrivalDate, from, to, from === window.from)) continue;
           if (row.arrivalDate >= row.departureDate || !row.sourceRef) {
             errors.push("Previo returned an invalid reservation date or reference");
             await writeHistory("failed");
@@ -164,6 +207,12 @@ serve(async req => {
         }
       }
       accountsSummary.push({ label: account.label, received: accountReceived });
+    }
+
+    // Nothing changed in Previo since the last look: no local reads, no writes, no history row.
+    if (mode === "incremental" && parsed.size === 0) {
+      return json({ success: true, complete: true, status: "success", mode, inserted: 0, updated: 0,
+        skipped: 0, attempted: 0, received, unmapped_rooms: 0, errors, window, accounts: accountsSummary });
     }
 
     const roomByPmsId = new Map<string, string>();
@@ -194,49 +243,138 @@ serve(async req => {
     for (const external of ambiguousRooms) roomByPmsId.delete(external);
     for (const [external, local] of roomByPmsId) if (!validRoomIds.has(local)) roomByPmsId.delete(external);
 
-    // Never trust a single unpaginated PostgREST response: Memories already has
-    // more than the default 1,000-row limit of imported reservations.
-    const existingByRef = new Map<string, Existing>();
-    for (let offset = 0; offset <= MAX_EXISTING; offset += PAGE_SIZE) {
-      const { data, error } = await db.from("reservations")
-        .select("id,source_reservation_id,status,room_id,guest_id,total_amount,balance_due,adults,children,check_in_date,check_out_date,pms_guest_name,special_requests,currency")
-        .eq("hotel_id", hotelId).eq("source", "previo").order("id").range(offset, offset + PAGE_SIZE - 1);
-      if (error || !data) throw new Error("Unable to read all existing Previo reservations");
-      for (const row of data) {
-        const ref = String(row.source_reservation_id ?? "");
-        if (!ref || existingByRef.has(ref)) throw new Error("Duplicate or blank local Previo reservation reference");
-        existingByRef.set(ref, row as Existing);
+    // Are the pms_* columns there yet? If the migration has not been applied the
+    // importer must keep importing the core booking fields exactly as before.
+    {
+      const { error: probeError } = await db.from("reservations").select("pms_room_reservation_id").eq("hotel_id", hotelId).limit(1);
+      if (probeError) {
+        if (probeError.code === "42703" || /pms_room_reservation_id/.test(probeError.message ?? "")) extendedSchema = false;
+        else throw new Error("Unable to read all existing Previo reservations");
       }
-      if (existingByRef.size > MAX_EXISTING) throw new Error("Local reservation safety limit reached");
-      if (data.length < PAGE_SIZE) break;
     }
+    const existingSelect = extendedSchema ? EXTENDED_SELECT : LEGACY_SELECT;
+
+    const existingByRef = new Map<string, Existing>();
+    const existingByComId = new Map<string, Existing>();
+    const indexComId = (row: Existing) => {
+      const comId = String(row.pms_room_reservation_id ?? "").trim();
+      // Two stored rows claiming one Previo room item is not safe to match on: fall back to the reference.
+      if (comId) existingByComId.set(comId, existingByComId.has(comId) ? ({ ...row, ambiguous: true } as Existing) : row);
+    };
+    if (mode === "horizon") {
+      // Never trust a single unpaginated PostgREST response: Memories already has
+      // more than the default 1,000-row limit of imported reservations.
+      for (let offset = 0; offset <= MAX_EXISTING; offset += PAGE_SIZE) {
+        const { data, error } = await db.from("reservations")
+          .select(existingSelect)
+          .eq("hotel_id", hotelId).eq("source", "previo").order("id").range(offset, offset + PAGE_SIZE - 1);
+        if (error || !data) throw new Error("Unable to read all existing Previo reservations");
+        for (const row of data as unknown as Existing[]) {
+          const ref = String(row.source_reservation_id ?? "");
+          if (!ref || existingByRef.has(ref)) throw new Error("Duplicate or blank local Previo reservation reference");
+          existingByRef.set(ref, row);
+          indexComId(row);
+        }
+        if (existingByRef.size > MAX_EXISTING) throw new Error("Local reservation safety limit reached");
+        if (data.length < PAGE_SIZE) break;
+      }
+    } else {
+      // Incremental: read only the stored rows this (small) response can touch.
+      const seenIds = new Set<string>();
+      const remember = (rows: Existing[]) => {
+        for (const row of rows) {
+          const id = String(row.id ?? "");
+          if (!id || seenIds.has(id)) continue;
+          seenIds.add(id);
+          const ref = String(row.source_reservation_id ?? "");
+          if (!ref || existingByRef.has(ref)) throw new Error("Duplicate or blank local Previo reservation reference");
+          existingByRef.set(ref, row);
+          indexComId(row);
+        }
+      };
+      const lookup = async (column: string, values: string[]) => {
+        for (let i = 0; i < values.length; i += LOOKUP_BATCH) {
+          const { data, error } = await db.from("reservations").select(existingSelect)
+            .eq("hotel_id", hotelId).eq("source", "previo").in(column, values.slice(i, i + LOOKUP_BATCH)).limit(1000);
+          if (error || !data || data.length >= 1000) throw new Error("Unable to read all existing Previo reservations");
+          remember(data as unknown as Existing[]);
+        }
+      };
+      await lookup("source_reservation_id", [...parsed.keys()]);
+      if (extendedSchema) {
+        const comIds = [...new Set([...parsed.values()].map(row => row.comId).filter((id): id is string => !!id))];
+        await lookup("pms_room_reservation_id", comIds);
+      }
+    }
+    for (const [comId, row] of existingByComId) if (row.ambiguous) existingByComId.delete(comId);
 
     const payload: Array<{ record: Record<string, unknown>; kind: "insert" | "update" }> = [];
+    const statusEvents: Array<Record<string, unknown>> = [];
+    const usedRefs = new Set<string>();
+    const guestNameByResId = groupGuestNames(parsed.values());
     for (const row of parsed.values()) {
-      const existing = existingByRef.get(row.sourceRef);
+      const target = resolveImportTarget(row, existingByComId, existingByRef);
+      const existing = target.existing;
+      if (usedRefs.has(target.sourceRef)) {
+        // Two room items resolving to one stored row would overwrite each other. Keep the first; report the rest.
+        errors.push("Previo returned room items that map to the same stored booking; one was skipped");
+        skipped++;
+        continue;
+      }
+      usedRefs.add(target.sourceRef);
       const mappedStatus = mapPrevioStatus(row.statusId);
       const localStatus = existing ? String(existing.status) : null;
-      const status = localStatus && ["checked_in", "checked_out"].includes(localStatus) ? localStatus : mappedStatus;
+      // Previo is the authority, but a check-in/out done in HotelCare is never changed by an import.
+      const status = mergePrevioStatus(localStatus, row.statusId, existing?.actual_check_in != null);
       const mappedRoom = row.objId ? roomByPmsId.get(String(row.objId)) ?? null : null;
       if (!mappedRoom && row.objId && mappedStatus === "confirmed") unmappedRooms++;
       const roomId = localStatus === "checked_in" ? (existing?.room_id as string | null) ?? mappedRoom
         : mappedRoom ?? ((existing?.room_id as string | null) ?? null);
       const nights = Math.max(1, row.nights);
       const total = row.totalPrice ?? (existing ? Number(existing.total_amount ?? 0) : 0);
-      const previouslyPaid = existing ? Math.max(0, Number(existing.total_amount ?? 0) - Number(existing.balance_due ?? 0)) : 0;
-      const balance = Math.max(0, Math.round((total - previouslyPaid) * 100) / 100);
+      const money = mergePrevioFinancials({
+        total, paymentStatus: row.paymentStatus,
+        existingTotal: existing ? Number(existing.total_amount ?? 0) : null,
+        existingBalance: existing ? Number(existing.balance_due ?? 0) : null,
+        existingPmsPaymentStatus: (existing?.pms_payment_status as string | null) ?? null,
+      });
+      const balance = money.balance;
       const children = existing ? Number(existing.children ?? 0) : 0;
       const adults = Math.max(1, row.guestsCount - children);
+      // Guest label, real data only: this room's guest, else the group's guest
+      // (Previo lists guests on one room of a group), else what is stored, else the booker.
+      const guestLabel = row.guestName ?? guestNameByResId.get(row.resId)
+        ?? (existing?.pms_guest_name as string | null) ?? row.contactName ?? null;
       const record: Record<string, unknown> = {
-        hotel_id: hotelId, organization_slug: org, source: "previo", source_reservation_id: row.sourceRef,
+        hotel_id: hotelId, organization_slug: org, source: "previo", source_reservation_id: target.sourceRef,
         check_in_date: row.arrivalDate, check_out_date: row.departureDate, status, adults, children,
         room_id: roomId, guest_id: (existing?.guest_id as string | null) ?? null,
-        pms_guest_name: row.guestName ?? (existing?.pms_guest_name as string | null) ?? null,
+        pms_guest_name: guestLabel,
         rate_per_night: Math.round(total / nights * 100) / 100, total_amount: total, balance_due: balance,
-        payment_status: balance <= 0 && total > 0 ? "paid" : previouslyPaid > 0 ? "partial" : "unpaid",
+        payment_status: money.paymentStatus,
         special_requests: row.note ?? (existing?.special_requests as string | null) ?? null,
         updated_at: new Date().toISOString(),
       };
+      if (extendedSchema) {
+        // Every record carries every pms_* key so a batch upsert never nulls a column by omission.
+        const keep = (value: unknown, column: string) => value ?? existing?.[column] ?? null;
+        Object.assign(record, {
+          pms_reservation_id: row.resId,
+          pms_room_reservation_id: keep(row.comId, "pms_room_reservation_id"),
+          pms_voucher: keep(row.voucher, "pms_voucher"),
+          pms_status_id: row.statusId > 0 ? row.statusId : keep(null, "pms_status_id"),
+          pms_payment_status: row.paymentStatus,
+          pms_channel: keep(row.channel, "pms_channel"),
+          pms_channel_id: keep(row.channelId, "pms_channel_id"),
+          pms_rate_plan_id: keep(row.ratePlanId, "pms_rate_plan_id"),
+          pms_option_expires_at: mappedStatus === "pending" ? row.optionExpiresAtIso : null,
+          pms_locked: row.locked,
+          pms_group_note: row.groupNote,
+          pms_contact_name: keep(row.contactName, "pms_contact_name"),
+          pms_contact_email: keep(row.contactEmail, "pms_contact_email"),
+          pms_contact_phone: keep(row.contactPhone, "pms_contact_phone"),
+        });
+      }
       if (row.currency) record.currency = row.currency;
       else if (existing?.currency) record.currency = existing.currency;
       if (status === "cancelled") record.cancelled_at = row.cancelledAtIso ?? new Date().toISOString();
@@ -244,8 +382,14 @@ serve(async req => {
       const unchanged = existing.check_in_date === record.check_in_date && existing.check_out_date === record.check_out_date
         && String(existing.status) === status && (existing.room_id ?? null) === roomId
         && Number(existing.total_amount ?? 0) === total && (existing.pms_guest_name ?? null) === record.pms_guest_name
-        && (existing.special_requests ?? null) === record.special_requests && Number(existing.adults ?? 0) === adults;
+        && (existing.special_requests ?? null) === record.special_requests && Number(existing.adults ?? 0) === adults
+        && Number(existing.balance_due ?? 0) === balance && (existing.payment_status ?? null) === money.paymentStatus
+        && (!extendedSchema || pmsFieldsEqual(existing, record));
       if (unchanged) { skipped++; continue; }
+      if (localStatus !== status && existing.id) statusEvents.push({
+        reservation_id: existing.id, hotel_id: hotelId, organization_slug: org, event_type: "pms_status_sync",
+        metadata: { from: localStatus, to: status, previo_status_id: row.statusId, source: "previo-sync-reservations", mode },
+      });
       payload.push({ record, kind: "update" });
     }
 
@@ -263,8 +407,18 @@ serve(async req => {
     }
     const committed = committedInserted + committedUpdated;
     const status = errors.length ? committed ? "partial" : "failed" : "success";
+    // Audit trail for status changes that came from Previo. Best effort: only after every
+    // batch was written, and a failed audit insert never fails the import.
+    if (status === "success" && statusEvents.length) {
+      for (let i = 0; i < statusEvents.length; i += UPSERT_BATCH) {
+        const { error } = await db.from("reservation_events").insert(statusEvents.slice(i, i + UPSERT_BATCH));
+        if (error) { console.error("Previo status audit insert failed", error.code); break; }
+      }
+    }
     await writeHistory(status);
-    if (status === "success") {
+    if (mode === "incremental") {
+      // last_sync_at keeps meaning "last full import"; an incremental run does not move it.
+    } else if (status === "success") {
       const timestamp = new Date().toISOString();
       if (legacy?.id) await db.from("pms_configurations").update({ last_sync_at: timestamp }).eq("id", legacy.id);
       for (const account of accounts) if (!account.isLegacy) await db.from("pms_accounts")
@@ -273,7 +427,8 @@ serve(async req => {
       .update({ last_sync_status: status, last_sync_error: errors.join("; ").slice(0, 500) }).eq("id", account.id);
     return json({ success: status === "success", complete: status === "success", status,
       inserted: committedInserted, updated: committedUpdated, skipped, attempted,
-      received, unmapped_rooms: unmappedRooms, errors, window, accounts: accountsSummary }, status === "failed" ? 502 : 200);
+      received, unmapped_rooms: unmappedRooms, errors, window, accounts: accountsSummary,
+      mode, schema_pending: !extendedSchema }, status === "failed" ? 502 : 200);
   } catch (error) {
     errors.push(errorMessage(error));
     await writeHistory(committedInserted + committedUpdated > 0 ? "partial" : "failed");

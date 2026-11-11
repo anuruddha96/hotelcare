@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
-import { reservationGuestLabel } from '@/lib/reservations';
+import { pmsHoldKind, pmsPaymentNote, reservationChannel, reservationGuestLabel } from '@/lib/reservations';
 import { getRoomLaneCount, layoutRoomStays } from '@/lib/receptionPlanner';
 
 interface PlannerRoom {
@@ -45,14 +45,17 @@ function startNearToday() {
   return addDays(startOfDay(new Date()), -2);
 }
 
-function channelLetter(source: unknown): string {
-  const name = String(source ?? '').toLowerCase();
-  if (name.includes('booking')) return 'B';
-  if (name.includes('expedia')) return 'E';
-  if (name.includes('previo')) return 'P';
-  if (name.includes('walk')) return 'W';
-  if (name.includes('direct')) return 'D';
-  return 'R';
+/** Extra facts for the hover title: channel, voucher, Previo hold and payment state. */
+function reservationFacts(reservation: any, t: (key: string) => string): string {
+  const facts = [reservationChannel(reservation).label];
+  if (reservation.pms_voucher) facts.push(`${t('pms.res.voucher')} ${reservation.pms_voucher}`);
+  const hold = pmsHoldKind(reservation);
+  if (hold === 'option') facts.push(t('pms.res.option'));
+  if (hold === 'waiting_list') facts.push(t('pms.res.waitingList'));
+  const payment = pmsPaymentNote(reservation);
+  if (payment === 'paid') facts.push(t('pms.res.paidInPrevio'));
+  if (payment === 'partial') facts.push(t('pms.res.partiallyPaidInPrevio'));
+  return facts.filter(Boolean).join(' · ');
 }
 
 /** Read-only snapshot bookings are displayed separately from editable HotelCare records. */
@@ -210,12 +213,12 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
                       key={reservation.id}
                       disabled={snapshot}
                       onClick={() => openReservation(reservation)}
-                      title={`${label} · ${reservation.check_in_date} → ${reservation.check_out_date}${snapshot ? ' · Previo snapshot, read-only; verify in PMS' : ''}${overlaps ? ' · CHECK ROOM CONFLICT' : ''}`}
+                      title={`${label} · ${reservation.check_in_date} → ${reservation.check_out_date} · ${reservationFacts(reservation, t)}${snapshot ? ' · Previo snapshot, read-only; verify in PMS' : ''}${overlaps ? ' · CHECK ROOM CONFLICT' : ''}`}
                       aria-label={`${label}, ${reservation.check_in_date} to ${reservation.check_out_date}${snapshot ? ', read-only snapshot' : ''}${overlaps ? ', room conflict' : ''}`}
                       className={`absolute flex items-center gap-1 rounded border text-[11px] font-semibold text-left px-1.5 overflow-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${RESERVATION_COLORS[reservation.status] || 'bg-muted border-border'} ${snapshot ? 'border-dashed opacity-75 cursor-not-allowed' : 'hover:brightness-95 cursor-pointer'} ${overlaps ? 'ring-2 ring-destructive ring-inset' : ''}`}
                       style={{ left: start * COLUMN_WIDTH + 2, top: lane * 37 + 4, width: Math.max(20, (end - start) * COLUMN_WIDTH - 4), height: 32 }}
                     >
-                      <span className="shrink-0 text-[9px] rounded bg-black/15 px-1">{channelLetter(reservation.source)}</span>
+                      <span className="shrink-0 text-[9px] rounded bg-black/15 px-1">{reservationChannel(reservation).letter}</span>
                       <span className="truncate">{label}</span>
                       {snapshot && <Radio className="h-3 w-3 shrink-0 ml-auto" />}
                     </button>;

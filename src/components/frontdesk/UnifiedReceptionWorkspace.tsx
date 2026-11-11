@@ -16,7 +16,7 @@ import { useOperationalHotel } from '@/hooks/useOperationalHotel';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest, tomorrowBudapest } from '@/lib/budapestTime';
 import { auditReceptionSnapshots, type ReceptionSnapshot } from '@/lib/receptionSnapshotAudit';
-import { reservationGuestLabel, reservationSearchText, RESERVATION_STATUS_COLORS } from '@/lib/reservations';
+import { reservationChannel, reservationGuestLabel, reservationSearchText, RESERVATION_STATUS_COLORS } from '@/lib/reservations';
 
 const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status), rooms:room_id(id, room_number, room_type, status)';
 type ViewMode = 'planner' | 'list';
@@ -60,7 +60,7 @@ function SideSection({ title, icon: Icon, items, onOpen }: {
           <div className="flex items-start justify-between gap-2"><div className="min-w-0">
             <div className="text-xs font-semibold truncate">{reservationGuestLabel(row)}</div>
             <div className="text-[10px] text-muted-foreground truncate mt-0.5">{row.rooms?.room_number || row.room_label || t('pms.unified.unassigned')} · {row.check_in_date?.slice(5)} → {row.check_out_date?.slice(5)}</div>
-          </div><span className="text-[10px] text-primary shrink-0 font-medium">{String(row.source || '').replace('_', ' ')}</span></div>
+          </div><span className="text-[10px] text-primary shrink-0 font-medium">{reservationChannel(row).label}</span></div>
         </button>,
       )}
     </div>
@@ -233,7 +233,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>
           <td className="px-3 py-2 font-medium">{reservationGuestLabel(row)}</td><td className="px-3 py-2">{row.rooms?.room_number || row.room_label || t('pms.res.unassigned')}</td>
           <td className="px-3 py-2 whitespace-nowrap">{row.check_in_date} → {row.check_out_date}</td><td className="px-3 py-2"><Badge className={RESERVATION_STATUS_COLORS[row.status] || 'bg-muted'}>{String(row.status).replace('_', ' ')}</Badge></td>
-          <td className="px-3 py-2 capitalize" title={isSnapshotOnly(row) ? `Read-only snapshot captured ${new Date(row.captured_at).toLocaleString()}; not an independently verified booking` : undefined}>{isSnapshotOnly(row) ? 'Previo snapshot · read-only' : String(row.source || '').replace('_', ' ')}</td>
+          <td className="px-3 py-2 capitalize" title={isSnapshotOnly(row) ? `Read-only snapshot captured ${new Date(row.captured_at).toLocaleString()}; not an independently verified booking` : undefined}>{isSnapshotOnly(row) ? 'Previo snapshot · read-only' : reservationChannel(row).label}</td>
         </tr>)}</tbody></table></div></CardContent></Card>}
     </div>
       <aside className="border border-border rounded-lg overflow-hidden bg-card 2xl:sticky 2xl:top-3">

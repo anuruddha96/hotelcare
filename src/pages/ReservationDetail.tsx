@@ -24,7 +24,7 @@ import { EditReservationDialog } from '@/components/reservations/EditReservation
 import { ReservationAccountPanel } from '@/components/reservations/ReservationAccountPanel';
 import { LifecycleError, setReservationStatus } from '@/lib/pmsLifecycle';
 import {
-  formatMoney, isPmsManaged, reservationGuestLabel, RESERVATION_STATUS_COLORS,
+  formatMoney, isPmsManaged, pmsHoldKind, pmsPaymentNote, reservationChannel, reservationGuestLabel, RESERVATION_STATUS_COLORS,
 } from '@/lib/reservations';
 
 const RES_SELECT = `
@@ -186,11 +186,20 @@ const ReservationDetail = () => {
               <Badge className={RESERVATION_STATUS_COLORS[reservation.status] || 'bg-muted'}>
                 {t(`pms.reservations.${reservation.status === 'no_show' ? 'noShow' : reservation.status === 'checked_in' ? 'checkedIn' : reservation.status === 'checked_out' ? 'checkedOut' : reservation.status}`)}
               </Badge>
+              {pmsHoldKind(reservation) === 'option' && (
+                <Badge variant="outline">
+                  {t('pms.res.option')}{reservation.pms_option_expires_at ? ` · ${t('pms.res.optionExpires')} ${new Date(reservation.pms_option_expires_at).toLocaleString()}` : ''}
+                </Badge>
+              )}
+              {pmsHoldKind(reservation) === 'waiting_list' && <Badge variant="outline">{t('pms.res.waitingList')}</Badge>}
             </div>
             <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
               <span className="font-mono">{reservation.reservation_number}</span>
               <span>·</span>
-              <span className="capitalize">{reservation.source?.replaceAll('_', ' ') || '—'}</span>
+              <span>{reservationChannel(reservation).label}</span>
+              {reservation.pms_voucher && (
+                <><span>·</span><span className="text-xs">{t('pms.res.voucher')} <span className="font-mono">{reservation.pms_voucher}</span></span></>
+              )}
               {reservation.source_reservation_id && (
                 <><span>·</span><span className="font-mono text-xs">{reservation.source_reservation_id}</span></>
               )}
@@ -269,6 +278,8 @@ const ReservationDetail = () => {
               <div><span className="text-muted-foreground">{t('pms.reservationDetail.total')}:</span> <strong>{formatMoney(reservation.total_amount, reservation.currency)}</strong></div>
               <div><span className="text-muted-foreground">{t('pms.reservationDetail.payment')}:</span> <Badge variant="outline" className="capitalize">{reservation.payment_status?.replaceAll('_', ' ') || '—'}</Badge></div>
               <div><span className="text-muted-foreground">{t('pms.reservationDetail.balance')}:</span> <strong>{formatMoney(reservation.balance_due, reservation.currency)}</strong></div>
+              {pmsPaymentNote(reservation) === 'paid' && <p className="text-xs text-green-700 dark:text-green-400">{t('pms.res.paidInPrevio')}</p>}
+              {pmsPaymentNote(reservation) === 'partial' && <p className="text-xs text-amber-700 dark:text-amber-400">{t('pms.res.partiallyPaidInPrevio')}</p>}
             </CardContent>
           </Card>
         </div>
