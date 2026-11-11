@@ -21,6 +21,26 @@ ALTER TABLE public.staff_schedule_venues ENABLE ROW LEVEL SECURITY;
 
 -- All policies check the authenticated account's server-side profile role.
 -- Employee rows are checked against the same organization and base hotel.
+-- Department-specific manager security roles do not have the existing
+-- general org-wide profiles SELECT policy. Permit only their own property's
+-- directory, translating display names/IDs without exposing other properties.
+CREATE POLICY "RD department managers view property staff"
+ON public.profiles FOR SELECT TO authenticated
+USING (
+  organization_slug = 'rdhotels' AND deleted_at IS NULL
+  AND public.get_user_organization_slug((select auth.uid())) = 'rdhotels'
+  AND public.get_user_role((select auth.uid()))::text IN
+    ('maintenance_manager','reception_manager','finance_manager',
+     'control_manager','marketing_manager','back_office_manager')
+  AND EXISTS (
+    SELECT 1 FROM public.hotel_configurations h
+    JOIN public.organizations o ON o.id = h.organization_id
+    WHERE o.slug = 'rdhotels'
+      AND public.get_user_assigned_hotel((select auth.uid())) IN (h.hotel_id,h.hotel_name)
+      AND profiles.assigned_hotel IN (h.hotel_id,h.hotel_name)
+  )
+);
+
 CREATE POLICY "RD schedule authorized reads"
 ON public.staff_schedules FOR SELECT TO authenticated
 USING (
@@ -32,7 +52,7 @@ USING (
         ('admin', 'top_management', 'top_management_manager', 'hr')
     )
     OR (
-      public.get_user_role((select auth.uid()))::text IN ('manager', 'housekeeping_manager')
+      public.get_user_role((select auth.uid()))::text IN ('manager', 'housekeeping_manager', 'maintenance_manager', 'reception_manager', 'finance_manager', 'control_manager', 'marketing_manager', 'back_office_manager')
       AND (
         hotel_id = public.get_user_assigned_hotel((select auth.uid()))
         OR EXISTS (
@@ -60,7 +80,7 @@ WITH CHECK (
     public.get_user_role((select auth.uid()))::text IN
       ('admin', 'top_management', 'top_management_manager', 'hr')
     OR (
-      public.get_user_role((select auth.uid()))::text IN ('manager', 'housekeeping_manager')
+      public.get_user_role((select auth.uid()))::text IN ('manager', 'housekeeping_manager', 'maintenance_manager', 'reception_manager', 'finance_manager', 'control_manager', 'marketing_manager', 'back_office_manager')
       AND (
         hotel_id = public.get_user_assigned_hotel((select auth.uid()))
         OR EXISTS (
@@ -100,7 +120,7 @@ USING (
     public.get_user_role((select auth.uid()))::text IN
       ('admin', 'top_management', 'top_management_manager', 'hr')
     OR (
-      public.get_user_role((select auth.uid()))::text IN ('manager','housekeeping_manager')
+      public.get_user_role((select auth.uid()))::text IN ('manager','housekeeping_manager','maintenance_manager','reception_manager','finance_manager','control_manager','marketing_manager','back_office_manager')
       AND (
         hotel_id = public.get_user_assigned_hotel((select auth.uid()))
         OR EXISTS (
@@ -121,7 +141,7 @@ WITH CHECK (
     public.get_user_role((select auth.uid()))::text IN
       ('admin', 'top_management', 'top_management_manager', 'hr')
     OR (
-      public.get_user_role((select auth.uid()))::text IN ('manager','housekeeping_manager')
+      public.get_user_role((select auth.uid()))::text IN ('manager','housekeeping_manager','maintenance_manager','reception_manager','finance_manager','control_manager','marketing_manager','back_office_manager')
       AND (
         hotel_id = public.get_user_assigned_hotel((select auth.uid()))
         OR EXISTS (
@@ -175,7 +195,7 @@ WITH CHECK (
           ('admin','hr','top_management','top_management_manager')
         OR (
           public.get_user_role((select auth.uid()))::text IN
-            ('manager','housekeeping_manager')
+            ('manager','housekeeping_manager','maintenance_manager','reception_manager','finance_manager','control_manager','marketing_manager','back_office_manager')
           AND (
             s.hotel_id = public.get_user_assigned_hotel((select auth.uid()))
             OR EXISTS (
@@ -202,7 +222,7 @@ USING (
           ('admin','hr','top_management','top_management_manager')
         OR (
           public.get_user_role((select auth.uid()))::text IN
-            ('manager','housekeeping_manager')
+            ('manager','housekeeping_manager','maintenance_manager','reception_manager','finance_manager','control_manager','marketing_manager','back_office_manager')
           AND (
             s.hotel_id = public.get_user_assigned_hotel((select auth.uid()))
             OR EXISTS (
@@ -257,10 +277,10 @@ BEGIN
      OR employee.id IS NULL OR employee.deleted_at IS NOT NULL
      OR actor.organization_slug IS DISTINCT FROM 'rdhotels'
      OR employee.organization_slug IS DISTINCT FROM 'rdhotels'
-     OR actor.role::text NOT IN ('admin','top_management','top_management_manager','hr','manager','housekeeping_manager') THEN
+     OR actor.role::text NOT IN ('admin','top_management','top_management_manager','hr','manager','housekeeping_manager','maintenance_manager','reception_manager','finance_manager','control_manager','marketing_manager','back_office_manager') THEN
     RAISE EXCEPTION 'Not authorized to update staff position';
   END IF;
-  IF actor.role::text IN ('manager','housekeeping_manager') AND NOT EXISTS (
+  IF actor.role::text IN ('manager','housekeeping_manager','maintenance_manager','reception_manager','finance_manager','control_manager','marketing_manager','back_office_manager') AND NOT EXISTS (
     SELECT 1 FROM public.hotel_configurations h
     JOIN public.organizations o ON o.id = h.organization_id
     WHERE o.slug = 'rdhotels'
