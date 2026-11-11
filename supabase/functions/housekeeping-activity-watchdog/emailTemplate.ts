@@ -112,8 +112,13 @@ export function buildHousekeepingActivityEmail(input: ActivityEmailInput): {
     <div style="margin:0;padding:18px 10px;background:#f3f6fa;font-family:Arial,Helvetica,sans-serif;color:#172338">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:580px;margin:0 auto;border-spacing:0">
         <tr><td style="background:#111c2e;border-radius:12px 12px 0 0;padding:19px 22px">
+          <div style="margin-bottom:14px">
+            <a href="https://hotelcare.app" style="display:inline-block;text-decoration:none">
+              <img src="https://raw.githubusercontent.com/anuruddha96/hotelcare/main/public/hotelcare-email-logo.png" alt="HotelCare" width="240" height="49" style="display:block;width:240px;max-width:100%;height:auto;border:0" />
+            </a>
+          </div>
           <div style="font-size:12px;line-height:18px;letter-spacing:0.7px;font-weight:700;color:#bfcee2">
-            HOTELCARE · TAKARÍTÁS <span lang="en">/ HOUSEKEEPING</span>
+            TAKARÍTÁS <span lang="en">/ HOUSEKEEPING</span>
           </div>
           <div style="font-size:23px;line-height:30px;font-weight:700;color:white;margin-top:7px">
             Aktivitási értesítés <span lang="en" style="display:block;font-size:16px;line-height:23px;font-weight:400;color:#d4dfed">Activity alert</span>
