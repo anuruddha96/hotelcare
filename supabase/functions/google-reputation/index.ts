@@ -363,12 +363,51 @@ Deno.serve(async (req) => {
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).gte("review_create_time", new Date(Date.now() - 14 * 86_400_000).toISOString()),
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).gte("review_create_time", new Date(Date.now() - 14 * 86_400_000).toISOString()).neq("reply_status", "published"),
       ]);
+      const summary: Record<string, { total: number; published: number; automatic: number; bulk: number; recent14: number; recentUnreplied: number; ratings: number; stars: number; attention: number }> = {};
+      let totalRatings = 0; let totalStars = 0; let totalAwaiting = 0; let totalAttention = 0;
+      let offset = 0;
+      const recentCutoffMs = Date.now() - 14 * 86_400_000;
+      const earlierCutoffMs = Date.now() - 28 * 86_400_000;
+      let previous14 = 0;
+      while (offset < 30000) {
+        const { data: group, error: groupError } = await admin.from("google_reviews")
+          .select("google_location_id,star_rating,review_create_time,reply_status,reply_origin,ai_risk_level")
+          .eq("organization_id", org.id).order("id").range(offset, offset + 999);
+        if (groupError) throw groupError;
+        for (const review of group || []) {
+          const key = review.google_location_id;
+          const entry = (summary[key] ||= { total: 0, published: 0, automatic: 0,
+            bulk: 0, recent14: 0, recentUnreplied: 0, ratings: 0, stars: 0, attention: 0 });
+          const rating = Number(review.star_rating || 0);
+          const published = review.reply_status === "published";
+          const createdAt = new Date(review.review_create_time || "").getTime();
+          const recent = createdAt >= recentCutoffMs && createdAt <= Date.now();
+          entry.total++; entry.ratings++; entry.stars += rating;
+          totalRatings++; totalStars += rating;
+          if (published) entry.published++;
+          else {
+            totalAwaiting++;
+            if (rating <= 3) { entry.attention++; totalAttention++; }
+          }
+          if (review.reply_origin === "automatic" && published) entry.automatic++;
+          if (review.reply_origin === "bulk" && published) entry.bulk++;
+          if (recent) {
+            entry.recent14++;
+            if (!published) entry.recentUnreplied++;
+          } else if (createdAt >= earlierCutoffMs && createdAt < recentCutoffMs) previous14++;
+        }
+        if (!group || group.length < 1000) break;
+        offset += 1000;
+      }
       return json({
         ok: true,
+        location_summary: summary,
         stats: {
           total: counts[0].count || 0, published: counts[1].count || 0,
           automatic: counts[2].count || 0, manager: counts[3].count || 0, bulk: counts[4].count || 0,
           recent14: counts[5].count || 0, recentUnreplied: counts[6].count || 0,
+          previous14, awaiting: totalAwaiting, attention: totalAttention,
+          average: totalRatings ? totalStars / totalRatings : null,
           imported: Math.max(0, (counts[1].count || 0) - (counts[2].count || 0) - (counts[3].count || 0) - (counts[4].count || 0)),
         },
         google_configured: Boolean(
@@ -393,6 +432,7 @@ Deno.serve(async (req) => {
         .select("id,hotel_id,google_location_id,reviewer_display_name,star_rating,comment,review_update_time,google_reply_comment,google_reply_update_time,reply_status,reply_origin,replied_at", { count: "exact" })
         .eq("organization_id", org.id).eq("reply_status", "published");
       if (["automatic", "manager", "bulk", "google"].includes(source)) q = q.eq("reply_origin", source);
+      if (body.location_id && body.location_id !== "all") q = q.eq("google_location_id", String(body.location_id));
       const { data: publishedReviews, count, error } = await q
         .order("google_reply_update_time", { ascending: false, nullsFirst: false })
         .range(page * limit, (page + 1) * limit - 1);
