@@ -9,6 +9,7 @@ import {
   Clock,
   Copy,
   Download,
+  Pencil,
   MapPin,
   Search,
   Send,
@@ -33,6 +34,7 @@ import { calculateScheduledMinutes, getScheduleSummary } from '@/lib/staffSchedu
 import { canonicalRdHotelId, isSameRdHotel, rdHotelDisplayName } from '@/lib/rdSchedulingHotels';
 import { todayBudapest } from '@/lib/budapestTime';
 import { ScheduleExcelImportReview } from './ScheduleExcelImportReview';
+import { UserManagementDialog } from './UserManagementDialog';
 
 type WorkStatus = 'working' | 'off' | 'leave' | 'sick' | 'training';
 type LifecycleStatus = 'draft' | 'published';
@@ -120,6 +122,9 @@ export function MasterStaffSchedulePlanner() {
   const { venues } = useVenues();
   const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
   const [viewMode, setViewMode] = useState<'week' | 'excel'>('week');
+  const [staffManagerOpen, setStaffManagerOpen] = useState(false);
+  const [positionEditor, setPositionEditor] = useState<Staff | null>(null);
+  const [positionValue, setPositionValue] = useState('');
   const [mobileDate, setMobileDate] = useState(() => format(startOfDay(new Date()), 'yyyy-MM-dd'));
   const [staff, setStaff] = useState<Staff[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -309,6 +314,24 @@ export function MasterStaffSchedulePlanner() {
     return { error: null };
   };
 
+  const editPosition = (person: Staff) => {
+    setPositionEditor(person);
+    setPositionValue(person.job_title || '');
+  };
+
+  const savePosition = async () => {
+    if (!positionEditor) return;
+    setSaving(true);
+    const { error } = await (supabase as any).rpc('rd_set_staff_position', {
+      _employee_id: positionEditor.id, _position: positionValue.trim(),
+    });
+    setSaving(false);
+    if (error) return toast.error(error.message);
+    toast.success('Position updated. Previous values remain in the HR audit log.');
+    setPositionEditor(null);
+    await load();
+  };
+
   const openEditor = (person: Staff, date: string) => {
     if (isHistoricalDate(date)) { toast.info('Historical schedules are read-only'); return; }
     const existing = shiftMap.get(`${person.id}|${date}`);
@@ -472,6 +495,8 @@ export function MasterStaffSchedulePlanner() {
           <p className="text-sm text-muted-foreground">{canSeePortfolio ? 'Organization-wide roster' : 'Your property roster'} · Weekly planning or an Excel-style month. Published schedules are the shared source of truth for departments.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {profile?.organization_slug === 'rdhotels' && (profile.role === 'admin' || profile.is_super_admin) &&
+            <Button variant="outline" onClick={() => setStaffManagerOpen(true)}><Users className="h-4 w-4 mr-1" />Manage staff</Button>}
           <Button variant="outline" onClick={() => void exportExcel()}><Download className="h-4 w-4 mr-1" />Export Excel</Button>
           <Button variant="outline" onClick={copyPreviousWeek} disabled={saving}><Copy className="h-4 w-4 mr-1" />Copy previous week</Button>
           <Button onClick={publishWeek} disabled={saving || summary.drafts === 0 || end < todayBudapest()}><Send className="h-4 w-4 mr-1" />Publish drafts</Button>
@@ -529,6 +554,8 @@ export function MasterStaffSchedulePlanner() {
                 <tr>{filteredStaff.map(person => <th key={person.id} className="min-w-40 border-r p-2 text-left">
                   <span className="block font-semibold">{person.full_name}</span>
                   <span className="block font-normal text-muted-foreground">{baseVenueLabel(person)}</span>
+                  {profile?.organization_slug === 'rdhotels' && <button type="button" className="mt-1 flex items-center gap-1 text-[10px] font-normal text-primary hover:underline"
+                    onClick={() => editPosition(person)}><Pencil className="h-3 w-3" />{person.job_title || 'Set position'}</button>}
                 </th>)}</tr>
               </thead>
               <tbody>{periodDays.map((day, index) => {
@@ -564,7 +591,12 @@ export function MasterStaffSchedulePlanner() {
               <tbody>{filteredStaff.map((person) => <tr key={person.id}>
                 <th className="sticky left-0 z-10 border-b border-r bg-background p-3 text-left"><div className="font-medium">{person.full_name}</div>{person.nickname && <div className="font-normal text-muted-foreground">{person.nickname}</div>}</th>
                 <td className="border-b border-r p-3 text-muted-foreground">{departmentForRole(person.role)}</td>
-                <td className="border-b border-r p-3 text-muted-foreground">{person.job_title || prettyRole(person.role)}</td>
+                <td className="border-b border-r p-3 text-muted-foreground">
+                  {profile?.organization_slug === 'rdhotels'
+                    ? <button type="button" className="flex items-center gap-1 text-left hover:text-primary"
+                        onClick={() => editPosition(person)}>{person.job_title || prettyRole(person.role)}<Pencil className="h-3 w-3" /></button>
+                    : person.job_title || prettyRole(person.role)}
+                </td>
                 <td className="border-b border-r p-3 text-muted-foreground">{baseVenueLabel(person)}</td>
                 {dates.map((date) => {
                   const key = `${person.id}|${date}`;
@@ -587,6 +619,21 @@ export function MasterStaffSchedulePlanner() {
         </CardContent>
       </Card>
 
+      {profile?.organization_slug === 'rdhotels' && <UserManagementDialog
+        open={staffManagerOpen} onOpenChange={open => { setStaffManagerOpen(open); if (!open) void load(); }}
+      />}
+      <Dialog open={!!positionEditor} onOpenChange={open => { if (!open) setPositionEditor(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Update staff position</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">{positionEditor?.full_name} · {positionEditor && baseVenueLabel(positionEditor)}</p>
+          <Label htmlFor="schedule-position-title">Job title / position</Label>
+          <Input id="schedule-position-title" maxLength={120} value={positionValue}
+            onChange={event => setPositionValue(event.target.value)} placeholder="e.g. Senior Receptionist" />
+          <p className="text-xs text-muted-foreground">This changes the HR job title, not the employee's system permissions or security role.</p>
+          <DialogFooter><Button variant="outline" onClick={() => setPositionEditor(null)}>Cancel</Button>
+            <Button disabled={saving} onClick={() => void savePosition()}>{saving ? 'Saving…' : 'Save position'}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>{editing?.user.full_name}</DialogTitle>{editing && <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><CalendarDays className="h-4 w-4" />{format(new Date(`${editing.date}T12:00:00`), 'EEEE, MMMM d')}<span>·</span><Building2 className="h-4 w-4" />Base: {baseVenueLabel(editing.user)}</div>}</DialogHeader>
           <div className="space-y-4">
