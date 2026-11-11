@@ -377,7 +377,7 @@ export default function Reputation() {
       const result = (await invoke("status")) as Status;
       setData(result);
       hydrateLocalState(result);
-      if (activeTab === "published" || activeTab === "auto") void loadPublished(publishedPage, publishedSource, historyVenue);
+      if (activeTab === "published") void loadPublished(publishedPage, publishedSource, historyVenue);
       const latestError = result.connections.find((connection) => connection.last_error)?.last_error || null;
       setSetupError(latestError);
       return result;
@@ -923,14 +923,12 @@ export default function Reputation() {
         <Tabs value={activeTab} onValueChange={(value) => {
           setActiveTab(value);
           if (value === "automation") void loadRecent(0, recentVenue);
-          if (value === "published") { setPublishedSource("all"); void loadPublished(0, "all", historyVenue); }
-          if (value === "auto") { setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }
-        }} className="space-y-4">
+          if (value === "published") { void loadPublished(0, publishedSource, historyVenue); }
+         }} className="space-y-4">
           <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="overview" className="gap-2"><BarChart3 className="h-4 w-4" />Overview</TabsTrigger>
             <TabsTrigger value="inbox" className="gap-2"><MessageSquareText className="h-4 w-4" />Review inbox{awaiting > 0 ? <Badge variant="secondary" className="ml-1">{awaiting}</Badge> : null}</TabsTrigger>
             <TabsTrigger value="automation" className="gap-2"><Zap className="h-4 w-4" />Automation center <Badge variant="secondary">{data?.stats?.recentUnreplied ?? 0}</Badge></TabsTrigger>
-            <TabsTrigger value="auto" className="gap-2"><CheckCheck className="h-4 w-4" />Auto replies <Badge variant="secondary">{data?.stats?.automatic ?? 0}</Badge></TabsTrigger>
             <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Venues & rules</TabsTrigger>
             <TabsTrigger value="published" className="gap-2"><Send className="h-4 w-4" />Published replies <Badge variant="secondary">{published}</Badge></TabsTrigger>
             <TabsTrigger value="audit" className="gap-2"><History className="h-4 w-4" />Audit trail</TabsTrigger>
@@ -938,12 +936,12 @@ export default function Reputation() {
 
           <TabsContent value="overview" className="space-y-4">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reviews tracked</div><div className="text-3xl font-bold mt-2">{totalTracked}</div></CardContent></Card>
-              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Overall average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{totalTracked ? allAvg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
-              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Response rate</div><div className="text-3xl font-bold mt-2">{totalTracked ? `${responseRate}%` : "—"}</div></CardContent></Card>
-              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Awaiting reply</div><div className="text-3xl font-bold mt-2">{awaiting}</div></CardContent></Card>
-              <Card className={urgent ? "border-amber-300" : ""}><CardContent className="pt-5"><div className="text-xs text-muted-foreground">1–3★ attention</div><div className="text-3xl font-bold mt-2">{urgent}</div></CardContent></Card>
-              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Auto published</div><div className="text-3xl font-bold mt-2">{data?.stats?.automatic ?? 0}</div></CardContent></Card>
+              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reviews on Google</div><div className="text-3xl font-bold mt-2">{googleTotal.toLocaleString()}</div><div className="text-xs text-muted-foreground mt-1">{totalTracked.toLocaleString()} imported for management</div></CardContent></Card>
+              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Overall average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{googleTotal ? allAvg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
+              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reply rate · imported reviews</div><div className="text-3xl font-bold mt-2">{totalTracked ? `${responseRate}%` : "—"}</div></CardContent></Card>
+              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Awaiting · imported reviews</div><div className="text-3xl font-bold mt-2">{awaiting}</div></CardContent></Card>
+              <Card className={urgent ? "border-amber-300" : ""}><CardContent className="pt-5"><div className="text-xs text-muted-foreground">1–3★ · imported reviews</div><div className="text-3xl font-bold mt-2">{urgent}</div></CardContent></Card>
+              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Replied by HotelCare AI</div><div className="text-3xl font-bold mt-2">{data?.stats?.automatic ?? 0}</div></CardContent></Card>
             </div>
 
             <div className="grid lg:grid-cols-2 gap-4">
@@ -979,8 +977,8 @@ export default function Reputation() {
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <Card><CardContent className="pt-5"><p className="text-xs text-muted-foreground">New reviews · past 14 days</p><div className="text-2xl font-semibold mt-1">{data?.stats?.recent14 ?? 0}</div><p className="text-xs text-muted-foreground mt-1">Previous 14 days: {data?.stats?.previous14 ?? 0}</p></CardContent></Card>
               <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("automation"); void loadRecent(0, "all"); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Last 14 days · need reply</p><div className="text-2xl font-semibold mt-1">{data?.stats?.recentUnreplied ?? 0}</div><p className="text-xs text-primary mt-1">Review and approve responses</p></CardContent></Card>
-              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("auto"); setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Auto-published replies</p><div className="text-2xl font-semibold mt-1">{data?.stats?.automatic ?? 0}</div><p className="text-xs text-primary mt-1">View automatic reply history</p></CardContent></Card>
-              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("auto"); setPublishedSource("bulk"); void loadPublished(0, "bulk", historyVenue); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Bulk-approved replies</p><div className="text-2xl font-semibold mt-1">{data?.stats?.bulk ?? 0}</div><p className="text-xs text-primary mt-1">View manager-approved batches</p></CardContent></Card>
+              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("published"); setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Auto-published replies</p><div className="text-2xl font-semibold mt-1">{data?.stats?.automatic ?? 0}</div><p className="text-xs text-primary mt-1">View automatic reply history</p></CardContent></Card>
+              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("published"); setPublishedSource("bulk"); void loadPublished(0, "bulk", historyVenue); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Bulk-approved replies</p><div className="text-2xl font-semibold mt-1">{data?.stats?.bulk ?? 0}</div><p className="text-xs text-primary mt-1">View manager-approved batches</p></CardContent></Card>
             </div>
             <Card>
               <CardHeader><div className="flex flex-wrap items-center justify-between gap-3">
@@ -1022,8 +1020,8 @@ export default function Reputation() {
                       </div>
                       <div className="text-xs text-muted-foreground truncate" title={location.google_location_title}>{location.google_location_title}</div>
                       <div className="grid grid-cols-3 gap-2 text-xs">
-                        <div><div className="text-muted-foreground">Reviews</div><div className="font-semibold text-base">{s?.total ?? 0}</div></div>
-                        <div><div className="text-muted-foreground">Rating</div><div className="font-semibold text-base">{s?.ratings ? (s.stars / s.ratings).toFixed(1) : "—"}</div></div>
+                        <div><div className="text-muted-foreground">Google reviews</div><div className="font-semibold text-base">{(location.google_total_review_count ?? s?.total ?? 0).toLocaleString()}</div><div className="text-[10px] text-muted-foreground">{s?.total ?? 0} imported</div></div>
+                        <div><div className="text-muted-foreground">Google rating</div><div className="font-semibold text-base">{location.google_average_rating != null ? Number(location.google_average_rating).toFixed(1) : s?.ratings ? (s.stars / s.ratings).toFixed(1) : "—"}</div></div>
                         <div><div className="text-muted-foreground">14d pending</div><div className="font-semibold text-base">{s?.recentUnreplied ?? 0}</div></div>
                       </div>
                       <div className="flex flex-wrap justify-between gap-2 text-xs">
@@ -1115,10 +1113,17 @@ export default function Reputation() {
               <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="h-5 w-5" />Published Google review replies</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">See when each reply appeared and whether it was published automatically by HotelCare, by a manager in HotelCare, or was already present on Google. This history includes older replies outside the recent review inbox.</p>
-                <div className="grid sm:grid-cols-3 gap-3">
-                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Automatically published</p><p className="text-2xl font-semibold mt-1">{data?.stats?.automatic ?? 0}</p></div>
-                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Published by manager</p><p className="text-2xl font-semibold mt-1">{data?.stats?.manager ?? 0}</p></div>
-                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Existing Google replies</p><p className="text-2xl font-semibold mt-1">{data?.stats?.imported ?? 0}</p></div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {([
+                    { key: "automatic", label: "HotelCare AI · automatic", count: data?.stats?.automatic ?? 0 },
+                    { key: "bulk", label: "HotelCare AI · manager-approved", count: data?.stats?.bulk ?? 0 },
+                    { key: "manager", label: "Published manually", count: data?.stats?.manager ?? 0 },
+                    { key: "google", label: "Imported from Google", count: data?.stats?.imported ?? 0 },
+                  ]).map((item) => <button type="button" key={item.key}
+                    className={`text-left rounded-lg border p-3 hover:border-primary/40 ${publishedSource === item.key ? "border-primary bg-primary/5" : ""}`}
+                    onClick={() => { setPublishedSource(item.key); void loadPublished(0, item.key, historyVenue); }}>
+                    <p className="text-xs text-muted-foreground">{item.label}</p><p className="text-2xl font-semibold mt-1">{item.count}</p>
+                  </button>)}
                 </div>
                 <div className="max-w-sm">
                   <Select value={publishedSource} onValueChange={(source) => { setPublishedSource(source); void loadPublished(0, source, historyVenue); }}>
@@ -1242,49 +1247,6 @@ export default function Reputation() {
               <div className="flex gap-2">
                 <Button variant="outline" disabled={recentBusy || recentPage === 0} onClick={() => void loadRecent(recentPage - 1, recentVenue)}>Newer</Button>
                 <Button variant="outline" disabled={recentBusy || (recentPage + 1) * 100 >= recentTotal} onClick={() => void loadRecent(recentPage + 1, recentVenue)}>Older</Button>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="auto" className="space-y-4">
-            <Card>
-              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Zap className="h-5 w-5" />Automatic & bulk-approved reply history</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">This history shows Google replies published automatically by HotelCare separately from replies selected and approved in batches by managers. Pre-existing Google replies are not counted as automatic.</p>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <button type="button" className={`text-left rounded-lg border p-4 ${publishedSource === "automatic" ? "border-primary bg-primary/5" : "hover:bg-muted/20"}`} onClick={() => { setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }}>
-                    <p className="text-xs text-muted-foreground">Unattended, authorized automatic replies</p><p className="text-2xl font-bold mt-1">{data?.stats?.automatic ?? 0}</p>
-                  </button>
-                  <button type="button" className={`text-left rounded-lg border p-4 ${publishedSource === "bulk" ? "border-primary bg-primary/5" : "hover:bg-muted/20"}`} onClick={() => { setPublishedSource("bulk"); void loadPublished(0, "bulk", historyVenue); }}>
-                    <p className="text-xs text-muted-foreground">Bulk replies explicitly approved by managers</p><p className="text-2xl font-bold mt-1">{data?.stats?.bulk ?? 0}</p>
-                  </button>
-                </div>
-                <Select value={historyVenue} onValueChange={(value) => { setHistoryVenue(value); void loadPublished(0, publishedSource, value); }}>
-                  <SelectTrigger className="max-w-md"><SelectValue placeholder="All venues" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">All business listings</SelectItem>
-                    {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </CardContent>
-            </Card>
-            {publishedBusy ? <Card><CardContent className="py-8 text-center text-muted-foreground">Loading reply history…</CardContent></Card> :
-              publishedReviews.length === 0 ? <Card><CardContent className="py-8 text-center text-muted-foreground">No {publishedSource === "bulk" ? "bulk-approved" : "automatic"} replies match this filter.</CardContent></Card> :
-              <div className="space-y-3">{publishedReviews.map((review) => {
-                const venue = locationById.get(review.google_location_id);
-                return <Card key={review.id}><CardContent className="pt-5 space-y-3">
-                  <div className="flex flex-wrap justify-between gap-2"><div className="font-semibold">{review.reviewer_display_name || "Google guest"}</div>
-                    <Badge variant="outline">{originLabel[review.reply_origin || "unknown"]}</Badge></div>
-                  <div className="text-xs text-muted-foreground">{venue?.reply_brand_name || venue?.google_location_title || "Google business"} · Published {fmtDate(review.google_reply_update_time || review.replied_at)}</div>
-                  <div>{stars(review.star_rating)}</div>
-                  <p className="text-sm rounded-md bg-muted/40 p-3 whitespace-pre-wrap">{review.comment || "Rating only — no written comment."}</p>
-                  <div className="text-sm rounded-md border border-emerald-200 p-3 whitespace-pre-wrap">{review.google_reply_comment || "Google reply text unavailable"}</div>
-                </CardContent></Card>;
-              })}</div>}
-            <div className="flex justify-between items-center gap-2 flex-wrap text-sm text-muted-foreground">
-              <span>{publishedTotal} matching replies · Page {publishedPage + 1}</span>
-              <div className="flex gap-2">
-                <Button variant="outline" disabled={publishedBusy || publishedPage === 0} onClick={() => void loadPublished(publishedPage - 1, publishedSource, historyVenue)}>Newer</Button>
-                <Button variant="outline" disabled={publishedBusy || (publishedPage + 1) * 50 >= publishedTotal} onClick={() => void loadPublished(publishedPage + 1, publishedSource, historyVenue)}>Older</Button>
               </div>
             </div>
           </TabsContent>
