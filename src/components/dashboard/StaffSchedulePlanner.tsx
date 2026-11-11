@@ -10,6 +10,7 @@ import { SlntTeamAQuickPlanner } from './SlntTeamAQuickPlanner';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
 
 const MASTER_SCHEDULE_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
+const LOCAL_SCHEDULE_ROLES = ['manager', 'housekeeping_manager'];
 const HOUSEKEEPING_MANAGER_ROLES = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'hr'];
 
 /**
@@ -24,7 +25,7 @@ export function StaffSchedulePlanner() {
   const isSlnt = profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group';
   const role = profile?.role ?? '';
   const canManageHousekeeping = HOUSEKEEPING_MANAGER_ROLES.includes(role);
-  const canManageMaster = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(role);
+  const canManageMaster = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(role) || (!isSlnt && LOCAL_SCHEDULE_ROLES.includes(role));
 
   // SLNT Team B uses a virtual working-by-default calendar, not the
   // shift publishing grid. Team A keeps its own disabled-by-default setup.
@@ -40,8 +41,9 @@ export function StaffSchedulePlanner() {
               </div>
             : <SlntSecureStaffSchedulePlanner />)
         : <UpcomingShiftCard />)
-    : <LegacyStaffSchedulePlanner />;
+    : (canManageHousekeeping ? <LegacyStaffSchedulePlanner /> : <UpcomingShiftCard />);
 
+  // Ordinary staff see only their own published shifts; managers stay property-scoped in the master view.
   if (!canManageMaster) return housekeepingView;
 
   return (
