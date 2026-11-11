@@ -34,7 +34,7 @@
 - Six-digit staff maintenance PIN hashed with a server-only HMAC secret (`INSUITE_PIN_PEPPER`, at least 32 characters). Wrong PIN attempts are throttled and locked out.
 - Server-side order pricing: `insuite_create_order` atomically snapshots item names, currency, quantities and prices from the hotel-specific active catalog, independent of client-supplied amounts. Idempotent client UUIDs and request throttles prevent common duplicates.
 - Protected, conditional database trigger fanout into a durable staff notification queue and, when possible, opted-in Web Push.
-- Overdue open requests escalate to management/reception from an idempotent `insuite_escalate_overdue` SQL function. The migration schedules its 1-minute check through `pg_cron` where the extension exists; confirm the named job is installed exactly once in staging.
+- Overdue open requests escalate to management/reception from an idempotent `insuite_escalate_overdue` SQL function. The migration only defines the escalation function. Schedule the 1-minute `pg_cron` job manually after the property pilot demonstrates accurate routing and notifications.
 
 ## Check-in/check-out protection (critical)
 
@@ -72,9 +72,9 @@ The source-code merge alone does not install database migrations or enable guest
    - `20261109075500_insuite_checkout_and_staff_alerts.sql`
    - `20261109082000_insuite_orders_and_bookings.sql`
 3. Inspect Supabase Data API settings and verify new tables/RPCs are exposed **only to the intended server role**; check RLS/grants, tenant isolation, and no sensitive data leaked via the browser.
-4. Set a secure, randomly generated `INSUITE_PIN_PEPPER` (minimum 32 chars) in staging Edge Function secrets. Retain and back it up securely: rotation invalidates all existing staff PIN hashes.
+4. Prefer a secure, randomly generated `INSUITE_PIN_PEPPER` (minimum 32 chars) stored in the Edge Function secrets. Without a custom secret, the function uses the server-only built-in `SUPABASE_SERVICE_ROLE_KEY` as a fallback HMAC key, with domain separation. Never place either key in client code. Rotating/changing the chosen key requires reissuing staff PINs.
 5. Deploy `insuite-api` to staging with `verify_jwt=false`, as it verifies its own device bearer and staff JWT authorization for each action. Confirm request rate limits, device pairing and cross-tenant rejections. Never put service-role credentials in the app.
-6. Verify `hotelcare_dispatch_push` dependencies and install/check the named `pg_cron` job `insuite-escalation-1m` exactly once. Test the job without modifying hotel cleanliness/room assignment.
+6. Verify `hotelcare_dispatch_push` dependencies. After a successful pilot, install/check the named `pg_cron` job `insuite-escalation-1m` exactly once; do not enable the job as part of a database-only deployment.
 7. Deploy frontend with staging-specific Supabase URL, then activate **one test hotel only** by saving and publishing verified hotel content and menu. Ensure all non-existent facilities are switched off.
 8. Pair a dedicated test tablet at `/suite`, check active reservation binding, staff and guest chat, requests, cleaning card, order quotes, booking approvals, and session reset after actual HotelCare and Previo checkouts.
 9. For real devices, separately configure **Android Enterprise Lock Task Mode** or **supervised iPad Single App Mode** via approved MDM; test full-screen, app restart, power cycle, offline mode, physical controls and authorized staff maintenance.

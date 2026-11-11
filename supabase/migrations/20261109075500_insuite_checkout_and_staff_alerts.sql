@@ -89,14 +89,18 @@ begin
   on conflict (recipient_id,event_key) do nothing;
   get diagnostics _result = row_count;
   if _result > 0 then
-    -- Existing HotelCare Web Push dispatch already handles opted-in devices.
-    -- The stored alert remains available even if push transport fails.
-    perform public.hotelcare_dispatch_push(
-      _ids, left(_title,120), left(_body,200),
-      '/' || _organization_slug || '/insuite',
-      left('insuite-' || _event_key, 80), 'insuite_' || _kind,
-      jsonb_build_object('hotelId',_hotel_id,'roomId',_room_id,'roomNumber',_room_number)
-    );
+    -- Push is best-effort; a failed push MUST NEVER roll back the durable
+    -- per-user inbox alert inserted in the parent transaction.
+    begin
+      perform public.hotelcare_dispatch_push(
+        _ids, left(_title,120), left(_body,200),
+        '/' || _organization_slug || '/insuite',
+        left('insuite-' || _event_key, 80), 'insuite_' || _kind,
+        jsonb_build_object('hotelId',_hotel_id,'roomId',_room_id,'roomNumber',_room_number)
+      );
+    exception when others then
+      raise warning 'insuite optional Web Push failed: %', sqlerrm;
+    end;
   end if;
   return _result;
 exception when others then
@@ -139,7 +143,7 @@ for each row execute function public.insuite_notify_request();
 -- touching the normal cleaning assignment or the room's clean/dirty flag.
 create or replace function public.insuite_notify_request_reassignment()
 returns trigger language plpgsql security definer set search_path = ''
-as $
+as $$
 declare _number text;
 begin
   if new.assigned_to is null or new.assigned_to is not distinct from old.assigned_to then
@@ -155,7 +159,7 @@ begin
     array[]::text[],new.assigned_to,new.id,null
   );
   return new;
-end; $;
+end; $$;
 revoke all on function public.insuite_notify_request_reassignment() from public, anon, authenticated;
 drop trigger if exists insuite_guest_request_reassignment on public.insuite_service_requests;
 create trigger insuite_guest_request_reassignment
@@ -252,7 +256,7 @@ create trigger insuite_checkout_session_guard
 -- An unrelated/late checkout event must not reset the next guest's session.
 create or replace function public.insuite_confirmed_previo_checkout()
 returns trigger language plpgsql security definer set search_path = ''
-as $
+as $$
 begin
   if new.event_type <> 'checkout_confirmed'
     or new.source <> 'poll_checkouts'
@@ -279,7 +283,7 @@ begin
     );
 
   return new;
-end; $;
+end; $$;
 revoke all on function public.insuite_confirmed_previo_checkout() from public, anon, authenticated;
 drop trigger if exists insuite_verified_previo_checkout on public.pms_change_events;
 create trigger insuite_verified_previo_checkout
@@ -334,19 +338,9 @@ end; $$;
 revoke all on function public.insuite_escalate_overdue() from public, anon, authenticated;
 grant execute on function public.insuite_escalate_overdue() to service_role;
 
--- Single property-scoped escalation check per minute. All work is restricted
--- to published/enabled properties, currently active device epochs and open jobs.
--- If pg_cron is unavailable, the migration succeeds but a verified operator
--- must schedule this function after enabling pg_cron in that environment.
-do $schedule$
-begin
-  if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    if not exists (select 1 from cron.job where jobname = 'insuite-escalation-1m') then
-      perform cron.schedule('insuite-escalation-1m', '* * * * *',
-        'select public.insuite_escalate_overdue();');
-    end if;
-  else
-    raise notice 'In-Suite escalations are not scheduled: pg_cron extension is missing';
-  end if;
-end
-$schedule$;
+-- Escalation is installed but intentionally NOT scheduled until a hotel
+-- has completed guest-service and staff-notification pilot tests.
+-- Schedule only once after validating alerts and on-duty routing:
+-- SELECT cron.schedule('insuite-escalation-1m', '* * * * *',
+--    'SELECT public.insuite_escalate_overdue();');
+-- This avoids adding a production background job before the pilot is enabled.
