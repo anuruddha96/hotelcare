@@ -3,6 +3,7 @@
 // key. Results are cached on room_types.name_translations so the grid never
 // pays for a translation twice.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { translationModel } from "../_shared/aiModelPolicy.ts";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
 const LANGS = ["en", "hu", "es", "vi", "mn", "az", "tl", "uk", "ru"] as const;
@@ -66,7 +67,7 @@ Deno.serve(async (req) => {
         Authorization: `Bearer ${openaiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: translationModel(),
         temperature: 0,
         response_format: { type: "json_object" },
         messages: [{ role: "user", content: prompt }],

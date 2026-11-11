@@ -1,4 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.53.0";
+import { translationModel } from "../_shared/aiModelPolicy.ts";
+import { logAiUsage } from "../_shared/aiBudget.ts";
+import { readTranslationCache, writeTranslationCache } from "../_shared/translationCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,12 +30,18 @@ function providerError(status: number) {
   return json({ error: "Translation unavailable" }, 502);
 }
 
-async function translateOne(apiKey: string, text: string, targetName: string) {
+type Usage = { inputTokens: number; outputTokens: number };
+const usageOf = (data: any): Usage => ({
+  inputTokens: Number(data?.usage?.prompt_tokens ?? 0),
+  outputTokens: Number(data?.usage?.completion_tokens ?? 0),
+});
+
+async function translateOne(apiKey: string, model: string, text: string, targetName: string) {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model,
       temperature: 0,
       messages: [
         {
@@ -47,15 +57,15 @@ async function translateOne(apiKey: string, text: string, targetName: string) {
   const data = await response.json();
   const translatedText = data.choices?.[0]?.message?.content?.trim();
   if (!translatedText) return { errorResponse: json({ error: "Empty translation" }, 502) };
-  return { translatedText: String(translatedText) };
+  return { translatedText: String(translatedText), usage: usageOf(data) };
 }
 
-async function translateBatch(apiKey: string, texts: string[], targetName: string) {
+async function translateBatch(apiKey: string, model: string, texts: string[], targetName: string) {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model,
       temperature: 0,
       response_format: { type: "json_object" },
       messages: [
@@ -79,7 +89,7 @@ async function translateBatch(apiKey: string, texts: string[], targetName: strin
         !translations.every((value: unknown) => typeof value === "string")) {
       return { errorResponse: json({ error: "Invalid batch translation" }, 502) };
     }
-    return { translatedTexts: translations as string[] };
+    return { translatedTexts: translations as string[], usage: usageOf(data) };
   } catch {
     return { errorResponse: json({ error: "Invalid batch translation" }, 502) };
   }
@@ -106,6 +116,16 @@ serve(async (req) => {
       return json({ error: "Translation is not configured" }, 503);
     }
     const targetName = languageNames[targetLanguage] || targetLanguage;
+    const model = translationModel();
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const admin = supabaseUrl && serviceKey
+      ? createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+      : null;
+    const record = (usage: Usage | undefined, ok: boolean) => logAiUsage(admin as any, {
+      functionName: "translate-note", model, ok,
+      inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0,
+    });
 
     if (Array.isArray(texts)) {
       if (texts.length < 1 || texts.length > 8 ||
@@ -114,16 +134,30 @@ serve(async (req) => {
           !texts.some(value => value.trim())) {
         return json({ error: "Invalid texts (maximum 8 items / 6000 total characters)" }, 400);
       }
-      const result = await translateBatch(OPENAI_API_KEY, texts, targetName);
-      if (result.errorResponse) return result.errorResponse;
-      return json({ translatedTexts: result.translatedTexts });
+      // Only pay for strings nobody has translated into this language before.
+      const cached = await readTranslationCache(admin, targetLanguage, texts);
+      const missing = [...new Set(texts.filter(value => value.trim() && !cached.has(value)))];
+      if (missing.length > 0) {
+        const result = await translateBatch(OPENAI_API_KEY, model, missing, targetName);
+        if (result.errorResponse) return result.errorResponse;
+        const pairs = missing.map((value, i) => [value, result.translatedTexts![i]] as [string, string]);
+        for (const [value, out] of pairs) cached.set(value, out);
+        await Promise.all([writeTranslationCache(admin, targetLanguage, pairs, model), record(result.usage, true)]);
+      }
+      return json({ translatedTexts: texts.map(value => value.trim() ? (cached.get(value) ?? value) : value) });
     }
 
     if (typeof text !== "string" || !text.trim() || text.length > 6000) {
       return json({ error: "Invalid text (maximum 6000 characters)" }, 400);
     }
-    const result = await translateOne(OPENAI_API_KEY, text, targetName);
+    const hit = (await readTranslationCache(admin, targetLanguage, [text])).get(text);
+    if (hit) return json({ translatedText: hit, cached: true });
+    const result = await translateOne(OPENAI_API_KEY, model, text, targetName);
     if (result.errorResponse) return result.errorResponse;
+    await Promise.all([
+      writeTranslationCache(admin, targetLanguage, [[text, result.translatedText!]], model),
+      record(result.usage, true),
+    ]);
     return json({ translatedText: result.translatedText });
   } catch (error) {
     console.error("translate-note error:", error instanceof Error ? error.message : "Unknown error");

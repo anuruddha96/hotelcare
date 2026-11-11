@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useMaintenanceAutoTranslation } from '@/hooks/useMaintenanceAutoTranslation';
 import { toast } from 'sonner';
-import { CheckCircle2, Clock3, History, PauseCircle, Play, RotateCcw, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock3, History, Languages, PauseCircle, Play, RotateCcw, XCircle } from 'lucide-react';
 
 export type ManagerMaintenanceAction = 'start' | 'hold' | 'resume' | 'resolve' | 'reopen' | 'approve' | 'reject';
 export const MAINTENANCE_MANAGER_ROLES = [
@@ -81,9 +81,11 @@ const words = {
   },
 };
 
-function TranslatedHistoryContent({ content, language }: { content: string; language: string }) {
-  const translated = useMaintenanceAutoTranslation({ description: content }, language, true);
-  return <p className="whitespace-pre-wrap break-words text-sm">{translated.description || content}</p>;
+// Translation is on demand only: opening the history must not trigger one
+// paid request per entry. The manager taps "Translate" once for the list.
+function TranslatedHistoryContent({ content, language, enabled }: { content: string; language: string; enabled: boolean }) {
+  const translated = useMaintenanceAutoTranslation({ description: content }, language, enabled);
+  return <p className="whitespace-pre-wrap break-words text-sm">{(enabled && translated.description) || content}</p>;
 }
 
 export function MaintenanceManagerControls({ ticket, language, onUpdated }: Props) {
@@ -95,6 +97,7 @@ export function MaintenanceManagerControls({ ticket, language, onUpdated }: Prop
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [translateHistory, setTranslateHistory] = useState(false);
   const overdue = !!ticket.sla_due_date && new Date(ticket.sla_due_date).getTime() < Date.now();
 
   useEffect(() => {
@@ -205,14 +208,20 @@ export function MaintenanceManagerControls({ ticket, language, onUpdated }: Prop
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={showHistory} onOpenChange={setShowHistory}>
+      <Dialog open={showHistory} onOpenChange={open => { setShowHistory(open); if (!open) setTranslateHistory(false); }}>
         <DialogContent className="max-h-[85dvh] w-[calc(100vw-1rem)] max-w-lg overflow-y-auto">
           <DialogHeader><DialogTitle>{c.history}</DialogTitle></DialogHeader>
+          {history.length > 0 && <div className="flex justify-end">
+            <Button type="button" size="sm" variant="outline" className="h-9 text-xs" onClick={() => setTranslateHistory(v => !v)}>
+              <Languages className="mr-1 h-3.5 w-3.5" />
+              {translateHistory ? (language === 'hu' ? 'Eredeti' : 'Original') : (language === 'hu' ? 'Fordítás' : 'Translate')}
+            </Button>
+          </div>}
           {historyLoading ? <p className="text-sm text-muted-foreground">…</p> : history.length === 0
             ? <p className="text-sm text-muted-foreground">{c.historyEmpty}</p>
             : history.map(entry => <div key={entry.id} className="space-y-1 rounded-md border p-3">
                 <Badge variant="outline">{new Date(entry.created_at).toLocaleString()}</Badge>
-                <TranslatedHistoryContent content={entry.content} language={language} />
+                <TranslatedHistoryContent content={entry.content} language={language} enabled={translateHistory} />
               </div>)}
         </DialogContent>
       </Dialog>

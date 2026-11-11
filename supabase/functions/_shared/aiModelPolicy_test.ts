@@ -26,3 +26,6 @@ Deno.test("updated model defaults balance cost with intelligence", () => {
 Deno.test("premium routing retains flagship model", () => {
   assertEquals(MODEL_BY_PURPOSE.premium, "gpt-5.6-sol");
 });
+Deno.test("translations use the low-cost text model", () => {
+  assertEquals(MODEL_BY_PURPOSE.translation, "gpt-4.1-nano");
+});

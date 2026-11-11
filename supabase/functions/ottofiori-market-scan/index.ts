@@ -8,6 +8,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { checkAiBudget } from "../_shared/aiBudget.ts";
+import { MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
 import { ottofioriMarketDates } from "../_shared/ottofioriMarketDates.ts";
 
 const HOTEL_ID = "ottofiori";
@@ -15,7 +16,9 @@ const DEFAULT_DAYS = 60;
 const MAX_DAYS = 60;
 const CHUNK_DAYS = 7;
 const RETRY_CHUNK_DAYS = 4;
-const MODEL = "gpt-4o";
+// gpt-4o cost ~6x more per token for the same price extraction. The scan's
+// verified-URL rules are unchanged; override with OPENAI_MARKET_SCAN_MODEL.
+const MODEL = Deno.env.get("OPENAI_MARKET_SCAN_MODEL") || MODEL_BY_PURPOSE["market-scan"];
 const SEARCH_CONTEXT = "medium" as const; // verified URLs still mandatory; avoid high-search surcharge
 
 const corsHeaders = {

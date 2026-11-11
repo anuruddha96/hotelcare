@@ -5,6 +5,9 @@ import { selectAiDates, validateAiMoves, estimateSupervisorCost, availableSuperv
 
 declare const EdgeRuntime: { waitUntil(task: Promise<unknown>): void };
 const HOTEL = 'ottofiori', ORG = 'rdhotels', FEATURE = 'ottofiori-ai-supervisor';
+// Three reviews a day (see the cron schedule) fit comfortably inside these caps;
+// the deterministic engine keeps running between reviews at no AI cost.
+const DAILY_CAP_USD = 1.0, MONTHLY_CAP_USD = 20;
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {status, headers:{'Content-Type':'application/json'}});
 const message = (e: unknown) => e instanceof Error ? e.message : String((e as any)?.message ?? e);
 const schema = {
@@ -114,7 +117,7 @@ async function run(admin: any, apiKey: string) {
     const todayUtc = now.toISOString().slice(0,10);
     const monthSpend = (costRows.data ?? []).reduce((a:number,r:any)=>a+Number(r.estimated_cost_usd),0);
     const daySpend = (costRows.data ?? []).filter((r:any)=>r.created_at.slice(0,10)===todayUtc).reduce((a:number,r:any)=>a+Number(r.estimated_cost_usd),0);
-    if (daySpend+reserve>1.50 || monthSpend+reserve>30
+    if (daySpend+reserve>DAILY_CAP_USD || monthSpend+reserve>MONTHLY_CAP_USD
       || (budget.dailyBudget>0 && budget.spendToday+reserve>budget.dailyBudget)
       || (budget.monthlyBudget>0 && budget.spendMonth+reserve>budget.monthlyBudget)) {
       await admin.from('ottofiori_ai_review_runs').update({status:'budget_skipped',finished_at:now.toISOString(),error:'Not enough AI allowance for a bounded review; deterministic engine continues.'}).eq('id',reviewId);

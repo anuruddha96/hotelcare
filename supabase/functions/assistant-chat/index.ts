@@ -13,7 +13,7 @@ import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_sha
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
 import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
-import { selectAssistantModel, classifyAssistantQuestion, MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
+import { selectAssistantModel, classifyAssistantQuestion, MODEL_BY_PURPOSE, translationModel } from "../_shared/aiModelPolicy.ts";
 import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
 
@@ -1569,7 +1569,7 @@ async function generateThreadTitle(params: {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${params.apiKey}` },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: translationModel(),
         temperature: 0.2,
         max_tokens: 24,
         messages: [

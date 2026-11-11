@@ -4,14 +4,26 @@
  * consequential recommendations remain on the explicit premium path.
  * Public models and rates should be reviewed periodically against OpenAI docs.
  */
-export type AiPurpose = "routine" | "standard" | "premium" | "verified-search";
+export type AiPurpose = "routine" | "standard" | "premium" | "verified-search" | "translation" | "market-scan";
 
 export const MODEL_BY_PURPOSE: Record<AiPurpose, string> = {
   routine: "gpt-6-luna",
   standard: "gpt-6.1-terra",
   premium: "gpt-5.6-sol",
   "verified-search": "gpt-4.1",
+  // Plain text translation and short labels: the cheapest Chat Completions
+  // model that still handles all ten staff languages. Override per
+  // environment with OPENAI_TRANSLATION_MODEL if quality needs a step up.
+  translation: "gpt-4.1-nano",
+  // Scheduled competitor-price extraction from web search results. Search
+  // fees dominate here, so a mini model keeps the token side small.
+  "market-scan": "gpt-4.1-mini",
 };
+
+/** Model for translations and other tiny text transforms (titles, labels). */
+export function translationModel(): string {
+  return Deno.env.get("OPENAI_TRANSLATION_MODEL") || MODEL_BY_PURPOSE.translation;
+}
 
 /**
  * Only obviously small requests use Luna. A manager's ambiguous operational

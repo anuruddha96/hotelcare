@@ -1,5 +1,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
 import { sendEmail } from '../_shared/emailSender.ts';
+import { translationModel } from '../_shared/aiModelPolicy.ts';
+import { logAiUsage } from '../_shared/aiBudget.ts';
+import { readTranslationCache, writeTranslationCache } from '../_shared/translationCache.ts';
 import { formatMaintenanceOverdue, maintenanceHoursPastDue } from '../_shared/maintenanceSla.ts';
 
 type EscalationSetting = {
@@ -100,17 +103,27 @@ function ticketUrl(ticket: MaintenanceTicket): string {
   return `${base}/${encodeURIComponent(ticket.organization_slug)}?tab=tickets&maintenanceIssue=${encodeURIComponent(ticket.id)}`;
 }
 
-async function translateForEmail(text: string): Promise<string> {
+// Most titles are already English; plain-ASCII text with common English words
+// is sent as-is instead of paying for an identity "translation".
+const ENGLISH_HINT = /\b(the|is|not|and|in|on|of|broken|leak(?:ing)?|light|door|room|water|shower|toilet|window|bed|tv|ac|heating|missing|lamp|sink|lock|key|noise|smell|repair|fix|change|replace|working|doesn'?t|won'?t|no)\b/i;
+function looksEnglish(value: string): boolean {
+  return /^[\x00-\x7F]*$/.test(value) && ENGLISH_HINT.test(value);
+}
+
+async function translateForEmail(admin: ReturnType<typeof createClient>, text: string): Promise<string> {
   const value = String(text || '').trim();
-  if (!value) return value;
+  if (!value || looksEnglish(value)) return value;
   const apiKey = Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) return value;
+  const hit = (await readTranslationCache(admin, 'en', [value])).get(value);
+  if (hit) return hit;
+  const model = translationModel();
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model,
         temperature: 0,
         messages: [
           { role: 'system', content: 'Translate this hotel maintenance issue into concise, natural English. Return only the translation. Preserve room numbers, names, quantities, safety meaning and technical details. Do not add facts.' },
@@ -120,7 +133,16 @@ async function translateForEmail(text: string): Promise<string> {
     });
     if (!response.ok) return value;
     const data = await response.json();
-    return String(data?.choices?.[0]?.message?.content || value).trim() || value;
+    const out = String(data?.choices?.[0]?.message?.content || value).trim() || value;
+    await Promise.all([
+      writeTranslationCache(admin, 'en', [[value, out]], model),
+      logAiUsage(admin as any, {
+        functionName: 'maintenance-sla-escalation', model,
+        inputTokens: Number(data?.usage?.prompt_tokens ?? 0),
+        outputTokens: Number(data?.usage?.completion_tokens ?? 0),
+      }),
+    ]);
+    return out;
   } catch {
     return value;
   }
@@ -159,7 +181,7 @@ async function emailBody(admin: ReturnType<typeof createClient>, ticket: Mainten
   const url = ticketUrl(ticket);
   const room = ticket.room_number && ticket.room_number.toUpperCase() !== 'N/A' ? ticket.room_number : 'Common area';
   const assigned = ticket.assigned_to_profile?.full_name || 'Unassigned';
-  const issue = await translateForEmail(ticket.title);
+  const issue = await translateForEmail(admin, ticket.title);
   const reporter = ticket.created_by_profile?.full_name || 'Hotel team';
   const reached = ticket.forwarded_at ? `Forwarded to maintenance ${formatBudapestDate(ticket.forwarded_at)}` : 'Entered the maintenance queue automatically';
   const pending = ticket.assigned_to_profile?.full_name
