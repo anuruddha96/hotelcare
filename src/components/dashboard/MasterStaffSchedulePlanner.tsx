@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 import { calculateScheduledMinutes, getScheduleSummary } from '@/lib/staffScheduleAnalytics';
 import { canonicalRdHotelId, isSameRdHotel, rdHotelDisplayName } from '@/lib/rdSchedulingHotels';
 import { todayBudapest } from '@/lib/budapestTime';
+import { ScheduleExcelImportReview } from './ScheduleExcelImportReview';
 
 type WorkStatus = 'working' | 'off' | 'leave' | 'sick' | 'training';
 type LifecycleStatus = 'draft' | 'published';
@@ -485,6 +486,14 @@ export function MasterStaffSchedulePlanner() {
         <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.published}</div><div className="text-xs text-muted-foreground">Published shifts</div></CardContent></Card>
         <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.drafts}</div><div className="text-xs text-muted-foreground">Draft shifts</div></CardContent></Card>
       </div>
+
+      {profile?.organization_slug === 'rdhotels' && !!profile.id && <details className="rounded-lg border bg-background p-3">
+        <summary className="cursor-pointer text-sm font-medium">Import an existing Excel roster · reviewed drafts only</summary>
+        <div className="pt-3"><ScheduleExcelImportReview
+          employees={filteredStaff} currentShifts={shifts} organizationSlug={profile.organization_slug}
+          userId={profile.id} onImported={() => { void load(); }}
+        /></div>
+      </details>}
 
       <Card>
         <CardContent className="space-y-3 p-3">
