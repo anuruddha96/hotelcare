@@ -1,10 +1,19 @@
 # HotelCare In-Suite — phased development and guarded rollout
 
-**Last updated:** 2026-11-09  
+**Last updated:** 2026-11-11  
 **Repository:** `anuruddha96/hotelcare`  
 **Branch:** `feature/insuite-guest-tablet-mvp-20261108`  
-**PR:** https://github.com/anuruddha96/hotelcare/pull/769 (DRAFT — do not merge/deploy without review)  
-**Status:** Implementation committed and subject to automated CI. Supabase migrations and Edge Function have **not** been applied to production. Full device and PMS tests are still required.
+**PR:** https://github.com/anuruddha96/hotelcare/pull/769 (merged), hotfix https://github.com/anuruddha96/hotelcare/pull/782 (merged)  
+**Status:** Code merged; **database schema provisioned and In-Suite API v2 deployed to HotelCare production on 2026-11-11**. All four RD Hotels properties remain `enabled=false`, unpublished, and have no paired tablets. No automatic escalation cron is running; housekeeping background cards remain opt-in via `VITE_INSUITE_ENABLED=true`. Physical device and end-to-end PMS pilot tests are still required.
+
+## Immediate management steps
+
+1. Open the connected HotelCare frontend at `/rdhotels/insuite` and sign in as an administrator or top-management manager. The account `Anu_000` already has `top_management_manager` role, so it can select the organization's hotels without a global super-admin grant.
+2. Choose **Hotel Memories Budapest**, **Hotel Mika Downtown**, **Hotel Ottofiori**, or **Gozsdu Court Budapest** from the hotel selector.
+3. Review the prefilled draft hotel name. Logos, Wi-Fi, real operating hours, guest transport information, service prices, VAT and service availability are **not preverified**; add them explicitly. The API must not publish a venue automatically.
+4. Use a managed test tablet, verify the hardware kiosk restrictions and room assignment. Confirm that a check-in binds the correct reservation and that checkout clears chat/order history.
+5. Exercise towel request → on-duty housekeeper → manager/approval queue → guest status, reception two-way chat, food and transport request confirmations. Enable Web Push subscriptions before judging notification reliability.
+6. Only after test evidence is recorded should managers publish the property and the deployment engineer enable the housekeeping flag and SLA cron.
 
 ## Delivered in the proposed code
 
@@ -58,11 +67,11 @@ A device's room mapping is permanent, but **guest services become available only
 - Persistent alerts are acknowledged by the recipient; acknowledgments never silently complete the underlying task.
 - **Still required for full production:** per-team delivery/availability monitoring, non-polling private realtime updates, push reliability verification across iOS and Android, shift-change reassignment and a complete escalations audit/management dashboard.
 
-## Safe source-code merge while database is not activated
+## Safely provisioned production backend — no guest activation
 
-The standalone In-Suite routes and console are included in the frontend source for authorized roles, but a property cannot serve guests until its backend, tables, secret and approved content are configured. The housekeeping component **must not poll** the In-Suite backend on every cleaner's phone before deployment. It is disabled by default and only starts when the frontend build is configured with `VITE_INSUITE_ENABLED=true` **after** the Edge Function and DB migrations have been deployed and verified.
+The In-Suite routes and console are included in the frontend source for authorized roles. The database tables and Edge Function are now deployed, but a property cannot serve guests until approved content is published, staff are trained, tests pass and a managed tablet is paired. The housekeeping component must not poll the In-Suite backend on every cleaner's phone until the pilot is validated. It remains disabled by default and only starts with `VITE_INSUITE_ENABLED=true` in the frontend build.
 
-The source-code merge alone does not install database migrations or enable guest orders, payments or kiosk locking. The Admin tab remains restricted to its pre-existing permissions; top-management manager accounts, including Anu_000, can manage In-Suite property settings for their authorized organization without becoming global super-admins.
+The production schema was provisioned by the In-Suite migrations on 2026-11-11. This does **not** enable guest orders, payments, staff automation, tablet pairing, or kiosk locking by itself. The Admin tab remains restricted to its pre-existing permissions; top-management manager accounts, including Anu_000, can manage In-Suite property settings for their authorized organization without becoming global super-admins.
 
 ## Required staging deployment sequence
 
@@ -117,6 +126,12 @@ The source-code merge alone does not install database migrations or enable guest
 - A grounded, budget-controlled AI concierge with approved property knowledge and human escalation.
 - Integration tests against an isolated staging database, full SQL migration execution, tenant/RLS checks, real hardware and reservation-sync scenarios.
 
-## Non-production status
+## Production status / activation gate
 
-All work in this PR is a proposed code change. Production HotelCare Supabase and existing pricing/housekeeping workflows are intentionally unchanged. **Do not merge, deploy, enroll live tablets or enable guest payment flows without completing staging verification.**
+**Provisioned but disabled:** The source PRs are merged. All 10 private In-Suite tables, 11 server functions and 10 triggers exist in the HotelCare Supabase project; the `insuite-api` Edge Function version 2 is ACTIVE. Security checks confirmed RLS enabled and no direct `anon` or `authenticated` `SELECT` privilege on any In-Suite table. The two-stage backend deployment and existing guest/housekeeping/revenue data were left unchanged. All four RD Hotels In-Suite configs are unpublished (`enabled=false`) and no devices are paired. The escalation cron was not scheduled.
+
+**Do not hand out live room tablets yet.** Next, top management signs into `/:organizationSlug/insuite`, verifies the hotel's unique logo, hours, address, Wi-Fi SSID and password, available services, staff routing and menu. Only after physical MDM kiosk lockdown, room mapping and PMS/notification/checkout end-to-end tests should that property's content be published and a test device enrolled. To enable housekeeping priority cards on staff devices, configure `VITE_INSUITE_ENABLED=true` in the frontend deployment for that specific tested rollout. No room charges are automatically posted and no provider bookings are guaranteed.
+
+**Security advisory:** Supabase may flag the 10 tables as 'RLS enabled without policies'; this is intentional here. Direct client SQL access is explicitly revoked for `anon` and `authenticated`, and all requests must traverse the authenticated and room-scoped Edge Function. Do not resolve the advisory by adding permissive RLS policies.
+
+**Production documentation and pilot checklist only:** Successful schema deployment is not a substitute for a full checkout/privacy regression test against live Previo and room tablets.
