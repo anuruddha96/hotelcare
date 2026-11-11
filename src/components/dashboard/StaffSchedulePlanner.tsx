@@ -23,9 +23,10 @@ export function StaffSchedulePlanner() {
   const simplifiedReady = useSlntSimplifiedHousekeeping() === true;
   const teamAReady = useSlntTeamAEnabled();
   const isSlnt = profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group';
+  const isRdHotels = profile?.organization_slug === 'rdhotels';
   const role = profile?.role ?? '';
   const canManageHousekeeping = HOUSEKEEPING_MANAGER_ROLES.includes(role);
-  const canManageMaster = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(role) || (!isSlnt && LOCAL_SCHEDULE_ROLES.includes(role));
+  const canManageMaster = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(role) || (isRdHotels && LOCAL_SCHEDULE_ROLES.includes(role));
 
   // SLNT Team B uses a virtual working-by-default calendar, not the
   // shift publishing grid. Team A keeps its own disabled-by-default setup.
@@ -41,13 +42,13 @@ export function StaffSchedulePlanner() {
               </div>
             : <SlntSecureStaffSchedulePlanner />)
         : <UpcomingShiftCard />)
-    : (canManageHousekeeping ? <LegacyStaffSchedulePlanner /> : <UpcomingShiftCard />);
+    : (isRdHotels && !canManageHousekeeping ? <UpcomingShiftCard /> : <LegacyStaffSchedulePlanner />);
 
   // Ordinary staff see only their own published shifts; managers stay property-scoped in the master view.
   if (!canManageMaster) return housekeepingView;
 
   return (
-    <Tabs defaultValue="housekeeping" className="space-y-4">
+    <Tabs defaultValue={isRdHotels ? "master" : "housekeeping"} className="space-y-4">
       <TabsList className="h-auto flex-wrap justify-start">
         <TabsTrigger value="housekeeping">Housekeeping schedule</TabsTrigger>
         <TabsTrigger value="master">Master staff schedule</TabsTrigger>
