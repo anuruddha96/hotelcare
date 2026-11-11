@@ -39,6 +39,11 @@ export interface PrevioReservationNote {
     meals: string | null;
     other: string[];
   };
+  /**
+   * Labelled blocks this parser does not recognise (other channels, new Previo
+   * fields). Kept and shown as-is so nothing a guest or OTA wrote is hidden.
+   */
+  extras: Array<{ label: string; value: string }>;
   /** True when at least one structured field was found. */
   isStructured: boolean;
   /** Plain, readable version of the raw note (tags/entities stripped). */
@@ -125,6 +130,7 @@ export function parsePrevioReservationNote(raw: string | null | undefined): Prev
     guest: { requests: [], smoking: null },
     payment: { method: null, collectedBy: null, chargeableFrom: null, instructions: [] },
     policies: { cancellation: null, deposit: null, children: null, meals: null, other: [] },
+    extras: [],
     isStructured: false,
     plainText: stripTags(source),
   };
@@ -215,6 +221,8 @@ export function parsePrevioReservationNote(raw: string | null | undefined): Prev
           }
         }
       }
+    } else if (value) {
+      result.extras.push({ label: clean(label) ?? "—", value });
     }
   }
 
@@ -227,7 +235,32 @@ export function parsePrevioReservationNote(raw: string | null | undefined): Prev
   const b = result.booking;
   result.isStructured =
     blocks.length > 0 &&
-    !!(b.channel || b.totalPrice || b.roomName || result.guest.smoking || result.guest.requests.length || result.policies.cancellation || result.payment.method);
+    !!(b.channel || b.totalPrice || b.roomName || result.guest.smoking || result.guest.requests.length || result.policies.cancellation || result.payment.method || result.extras.length);
 
   return result;
+}
+
+/**
+ * One-line version of a reservation note for tight spaces (check-in dialog):
+ * what reception typed, what the guest asked for, smoking preference and a
+ * virtual-card reminder. Booking/commission/policy boilerplate is left out.
+ * Plain notes come back unchanged; a Previo note with nothing actionable -> null.
+ */
+export function summarizeReservationNote(raw: string | null | undefined): string | null {
+  const text = (raw ?? "").trim();
+  if (!text) return null;
+  if (!looksLikePrevioReservationNote(text)) return text;
+  const note = parsePrevioReservationNote(text);
+  if (!note.isStructured) return note.plainText || null;
+  const parts: string[] = [];
+  if (note.receptionNote) parts.push(note.receptionNote);
+  parts.push(...note.guest.requests);
+  if (note.guest.smoking) parts.push(note.guest.smoking);
+  if (note.payment.method && /virtual/i.test(note.payment.method)) {
+    parts.push(note.payment.chargeableFrom
+      ? `${note.payment.method} (chargeable from ${note.payment.chargeableFrom})`
+      : note.payment.method);
+  }
+  parts.push(...note.extras.map((e) => `${e.label}: ${e.value}`));
+  return parts.length ? [...new Set(parts)].join(" · ") : null;
 }

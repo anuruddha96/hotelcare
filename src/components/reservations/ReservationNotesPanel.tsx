@@ -53,7 +53,8 @@ export function ReservationNotesPanel({ specialRequests, internalNotes }: Props)
 
   const k = (key: string) => t(`pms.notes.${key}` as any);
   const structured = note?.isStructured ? note : null;
-  const today = new Date().toISOString().slice(0, 10);
+  // Hotel-local date: a card "chargeable from" today must not wait for UTC midnight.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest" }).format(new Date());
   const chargeFrom = structured?.payment.chargeableFrom ?? null;
   const chargeReady = !!chargeFrom && chargeFrom <= today;
 
@@ -150,6 +151,16 @@ export function ReservationNotesPanel({ specialRequests, internalNotes }: Props)
                   {structured.policies.other.length > 0 && (
                     <Row label={k("other")}>{structured.policies.other.join(" ")}</Row>
                   )}
+                </dl>
+              </Section>
+            )}
+
+            {structured.extras.length > 0 && (
+              <Section icon={<FileText className="h-3.5 w-3.5" />} title={k("otherDetails")}>
+                <dl>
+                  {structured.extras.map((extra, index) => (
+                    <Row key={`${extra.label}-${index}`} label={extra.label}>{extra.value}</Row>
+                  ))}
                 </dl>
               </Section>
             )}

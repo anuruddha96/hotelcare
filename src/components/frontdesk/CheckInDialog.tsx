@@ -17,6 +17,7 @@ import {
   fetchAvailableRooms, checkInReservation, LifecycleError, type AvailableRoom,
 } from '@/lib/pmsLifecycle';
 import { balanceOf, formatMoney, reservationGuestLabel } from '@/lib/reservations';
+import { summarizeReservationNote } from '@/lib/previoReservationNote';
 
 interface CheckInDialogProps {
   reservation: any;
@@ -37,6 +38,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
   const balance = balanceOf(reservation);
+  // Previo/OTA notes arrive as a block of markup: show only what reception must act on.
+  const noteSummary = summarizeReservationNote(reservation.special_requests);
   const guest = reservation.guests;
   const missingContact = !guest?.email && !guest?.phone;
 
@@ -99,11 +102,11 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             </p>
           </div>
 
-          {(reservation.special_requests || balance > 0 || missingContact) && (
+          {(noteSummary || balance > 0 || missingContact) && (
             <div className="space-y-1.5">
-              {reservation.special_requests && (
-                <p className="text-sm text-amber-600 flex items-start gap-1.5">
-                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /> {reservation.special_requests}
+              {noteSummary && (
+                <p className="text-sm text-amber-600 flex items-start gap-1.5 break-words">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" /> {noteSummary}
                 </p>
               )}
               {balance > 0 && (
