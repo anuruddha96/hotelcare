@@ -159,7 +159,7 @@ export function UpcomingShiftCard() {
                   : format(dateOf(day), 'EEE, MMM d')}
                 {day === from ? ` · ${copy.today}` : ''}
               </div>
-              {shift && <Badge className="gap-1"><Clock className="h-3 w-3" />{shift.shift_start.slice(0, 5)}–{shift.shift_end.slice(0, 5)}</Badge>}
+              {shift && <Badge className="gap-1"><Clock className="h-3 w-3" />{shift.shift_start?.slice(0, 5) ?? '—'}–{shift.shift_end?.slice(0, 5) ?? '—'}</Badge>}
             </div>
             {shift ? <>
               <div className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
