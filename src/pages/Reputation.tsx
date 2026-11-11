@@ -691,7 +691,7 @@ export default function Reputation() {
           <TabsContent value="overview" className="space-y-4">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reviews tracked</div><div className="text-3xl font-bold mt-2">{totalTracked}</div></CardContent></Card>
-              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{reviews.length ? avg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
+              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Recent average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{reviews.length ? avg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Response rate</div><div className="text-3xl font-bold mt-2">{totalTracked ? `${responseRate}%` : "—"}</div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Awaiting reply</div><div className="text-3xl font-bold mt-2">{awaiting}</div></CardContent></Card>
               <Card className={urgent ? "border-amber-300" : ""}><CardContent className="pt-5"><div className="text-xs text-muted-foreground">1–3★ attention</div><div className="text-3xl font-bold mt-2">{urgent}</div></CardContent></Card>
@@ -702,7 +702,8 @@ export default function Reputation() {
               <Card>
                 <CardHeader><CardTitle className="text-lg flex items-center gap-2"><ShieldCheck className="h-5 w-5" />Automation safety</CardTitle></CardHeader>
                 <CardContent className="space-y-3 text-sm">
-                  <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Google locations mapped</span><span className="font-medium">{mapped.length} / {locations.length}</span></div>
+                  <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Google listings managed</span><span className="font-medium">{locations.length}</span></div>
+                  <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Standalone listings (no hotel required)</span><span className="font-medium">{locations.length - mapped.length}</span></div>
                   <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Automatic publishing enabled</span><span className="font-medium">{locations.filter((location) => location.auto_reply_enabled).length} location(s)</span></div>
                   <div className="rounded-lg border bg-muted/30 p-3 flex gap-2"><ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" /><span>High-risk complaints are never considered safe for automatic publishing. Auto replies remain off by default until you explicitly enable them per location.</span></div>
                 </CardContent>
@@ -724,7 +725,7 @@ export default function Reputation() {
                 <div><div className="text-muted-foreground">Google account</div><div className="font-medium mt-1">{data?.connections?.[0]?.google_account_email || data?.connections?.[0]?.google_account_display_name || "Not connected"}</div></div>
                 <div><div className="text-muted-foreground">Connected</div><div className="font-medium mt-1">{fmtDate(data?.connections?.[0]?.created_at)}</div></div>
                 <div><div className="text-muted-foreground">Last Google sync</div><div className="font-medium mt-1">{fmtDate(data?.connections?.[0]?.last_sync_at)}</div></div>
-                <div><div className="text-muted-foreground">Mapped properties</div><div className="font-medium mt-1">{mapped.length}</div></div>
+                <div><div className="text-muted-foreground">Managed Google listings</div><div className="font-medium mt-1">{locations.length}</div></div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -800,6 +801,66 @@ export default function Reputation() {
                 })}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="published" className="space-y-4">
+            <Card>
+              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="h-5 w-5" />Published Google review replies</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">See when each reply appeared and whether it was published automatically by HotelCare, by a manager in HotelCare, or was already present on Google. This history includes older replies outside the recent review inbox.</p>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Automatically published</p><p className="text-2xl font-semibold mt-1">{data?.stats?.automatic ?? 0}</p></div>
+                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Published by manager</p><p className="text-2xl font-semibold mt-1">{data?.stats?.manager ?? 0}</p></div>
+                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Existing Google replies</p><p className="text-2xl font-semibold mt-1">{data?.stats?.imported ?? 0}</p></div>
+                </div>
+                <div className="max-w-sm">
+                  <Select value={publishedSource} onValueChange={(source) => { setPublishedSource(source); void loadPublished(0, source); }}>
+                    <SelectTrigger><SelectValue placeholder="Published by" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All published replies</SelectItem>
+                      <SelectItem value="automatic">Auto-published by HotelCare</SelectItem>
+                      <SelectItem value="manager">Published by manager</SelectItem>
+                      <SelectItem value="google">Existing Google replies</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+            {publishedBusy ? <Card><CardContent className="py-10 text-center text-muted-foreground">Loading published history…</CardContent></Card> :
+              publishedReviews.length === 0 ? <Card><CardContent className="py-10 text-center text-muted-foreground">No published replies for this filter.</CardContent></Card> : (
+                <div className="space-y-3">
+                  {publishedReviews.map((review) => {
+                    const location = locationById.get(review.google_location_id);
+                    return <Card key={review.id}>
+                      <CardContent className="pt-5 space-y-3">
+                        <div className="flex flex-col sm:flex-row justify-between gap-3">
+                          <div><div className="font-semibold">{review.reviewer_display_name || "Google guest"}</div>
+                            <div className="text-xs text-muted-foreground mt-1">{location?.reply_brand_name || location?.google_location_title || "Google Business listing"} · {fmtDate(review.review_update_time)}</div>
+                            <div className="mt-2">{stars(review.star_rating)}</div>
+                          </div>
+                          <div className="flex flex-wrap items-start gap-2">
+                            <Badge variant={review.reply_origin === "automatic" ? "default" : "outline"}>{originLabel[review.reply_origin || "unknown"]}</Badge>
+                            <Badge variant="secondary">{fmtDate(review.google_reply_update_time || review.replied_at)}</Badge>
+                          </div>
+                        </div>
+                        <div className="text-sm rounded-md bg-muted/40 p-3 whitespace-pre-wrap">{review.comment || <span className="text-muted-foreground">Rating only — no written comment</span>}</div>
+                        <div className="text-sm rounded-md border border-emerald-200 p-3 whitespace-pre-wrap">
+                          <div className="text-xs font-semibold text-emerald-700 mb-2">Published reply</div>
+                          {review.google_reply_comment || "Google reply text unavailable"}
+                        </div>
+                      </CardContent>
+                    </Card>;
+                  })}
+                </div>
+              )
+            }
+            <div className="flex flex-wrap justify-between items-center gap-3">
+              <p className="text-sm text-muted-foreground">{publishedTotal} matching published replies · Page {publishedPage + 1} of {Math.max(1, Math.ceil(publishedTotal / 50))}</p>
+              <div className="flex gap-2">
+                <Button variant="outline" disabled={publishedBusy || publishedPage <= 0} onClick={() => void loadPublished(publishedPage - 1, publishedSource)}>Newer</Button>
+                <Button variant="outline" disabled={publishedBusy || (publishedPage + 1) * 50 >= publishedTotal} onClick={() => void loadPublished(publishedPage + 1, publishedSource)}>Older</Button>
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="locations" className="space-y-4">
