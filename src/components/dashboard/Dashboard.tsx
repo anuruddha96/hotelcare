@@ -35,7 +35,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Users, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon } from 'lucide-react';
+import { Plus, Search, Users, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, CalendarDays } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Ticket {
@@ -444,6 +444,11 @@ export function Dashboard() {
                   <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.tickets')}</span></TabsTrigger>
                   <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="rooms-tab"><Home className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.rooms')}</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab"><Clock className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.workStatus')}</span></TabsTrigger>
+                  {(profile?.role === 'hr' || profile?.is_super_admin) && (
+                    <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}?view=staff-schedule`)} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 sm:px-3 text-xs sm:text-sm text-muted-foreground hover:bg-background/60 hover:text-foreground">
+                      <CalendarDays className="h-4 w-4" />Master staff schedule
+                    </button>
+                  )}
                 </TabsList>
               )}
             </div>
