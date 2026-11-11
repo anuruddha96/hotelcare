@@ -89,14 +89,18 @@ begin
   on conflict (recipient_id,event_key) do nothing;
   get diagnostics _result = row_count;
   if _result > 0 then
-    -- Existing HotelCare Web Push dispatch already handles opted-in devices.
-    -- The stored alert remains available even if push transport fails.
-    perform public.hotelcare_dispatch_push(
-      _ids, left(_title,120), left(_body,200),
-      '/' || _organization_slug || '/insuite',
-      left('insuite-' || _event_key, 80), 'insuite_' || _kind,
-      jsonb_build_object('hotelId',_hotel_id,'roomId',_room_id,'roomNumber',_room_number)
-    );
+    -- Push is best-effort; a failed push MUST NEVER roll back the durable
+    -- per-user inbox alert inserted in the parent transaction.
+    begin
+      perform public.hotelcare_dispatch_push(
+        _ids, left(_title,120), left(_body,200),
+        '/' || _organization_slug || '/insuite',
+        left('insuite-' || _event_key, 80), 'insuite_' || _kind,
+        jsonb_build_object('hotelId',_hotel_id,'roomId',_room_id,'roomNumber',_room_number)
+      );
+    exception when others then
+      raise warning 'insuite optional Web Push failed: %', sqlerrm;
+    end;
   end if;
   return _result;
 exception when others then
