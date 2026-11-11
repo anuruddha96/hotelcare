@@ -1,248 +1,294 @@
 import { useMemo, useState } from 'react';
-import { FileSpreadsheet, Upload } from 'lucide-react';
+import { FileSpreadsheet, Upload, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
-import { canonicalRdHotelId } from '@/lib/rdSchedulingHotels';
+import {
+  ExcelEmployee, ExcelCodeMapping, ExcelScheduleCandidate,
+  monthFromExcelSheet, normalizeExcelEmployeeName, normalizeExcelText,
+  previewExcelSchedules,
+} from '@/lib/scheduleExcelParser';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
-/**
- * Review-first import for the existing RD Hotels workbook format:
- * row 1 departments, row 2 employee names, column A day of month.
- * Never infer leave from SZ/K codes or reinterpret Excel-corrupted dates.
- * Only exact employee matches and unambiguous future clock ranges may
- * become draft shifts, and ONLY after explicit manager confirmation.
- */
-type Employee = {
-  id: string;
-  full_name: string;
-  assigned_hotel?: string | null;
-};
 type ExistingShift = { user_id: string; work_date: string };
-type ImportCandidate = {
-  employeeId: string;
-  employeeName: string;
-  date: string;
-  start: string;
-  end: string;
-  hotelId: string;
-  sourceName: string;
-  column: number;
-};
-type Preview = {
-  source: string;
-  candidates: ImportCandidate[];
-  ignored: { past: number; unrecognized: number; unmatched: number; duplicates: number; existing: number };
-};
 
-const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  .replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+const BATCH_SIZE = 100;
 
-const MONTHS: Record<string, number> = {
-  january: 1, januar: 1, februar: 2, february: 2, marcius: 3, march: 3,
-  aprilis: 4, april: 4, majus: 5, may: 5, junius: 6, june: 6,
-  julius: 7, july: 7, augusztus: 8, august: 8, szeptember: 9, september: 9,
-  oktober: 10, october: 10, november: 11, december: 12,
-};
-
-function monthFromSheet(name: string): { year: number; month: number } | null {
-  const normalized = normalize(name);
-  const year = Number(normalized.match(/\b20\d{2}\b/)?.[0]);
-  const month = Object.entries(MONTHS).find(([label]) => normalized.includes(label))?.[1];
-  if (!Number.isInteger(year) || !month) return null;
-  return { year, month };
-}
-
-function timeFromCell(raw: unknown): { start: string; end: string } | null {
-  if (typeof raw !== 'string') return null;
-  // Explicit shifts ONLY. e.g. 08-17:30, 20-08, 'éjsz, 20-08'.
-  // Date objects and vague 'night', 'SZ', 'K', 'HO', 'off or day' are never guessed.
-  const text = raw.trim().replace(/^éjsz\s*[,.:]?\s*/i, '');
-  const match = text.match(/^(\d{1,2})(?::(\d{2}))?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?$/);
-  if (!match) return null;
-  const hours = [Number(match[1]), Number(match[3])];
-  const minutes = [Number(match[2] ?? '0'), Number(match[4] ?? '0')];
-  if (hours.some(h => h > 23) || minutes.some(m => m > 59)) return null;
-  const [start, end] = hours.map((h, index) => `${String(h).padStart(2, '0')}:${String(minutes[index]).padStart(2, '0')}`);
-  return start === end ? null : { start, end };
-}
-
-function extractPreview(
-  table: unknown[][], sheetName: string, employees: Employee[],
-  currentShifts: ExistingShift[], currentDate: string,
-): Preview {
-  const period = monthFromSheet(sheetName);
-  const ignored = { past: 0, unrecognized: 0, unmatched: 0, duplicates: 0, existing: 0 };
-  if (!period) return { source: sheetName, candidates: [], ignored };
-  const names = table[1] ?? [];
-  const byName = new Map<string, Employee[]>();
-  for (const employee of employees) {
-    const key = normalize(employee.full_name);
-    byName.set(key, [...(byName.get(key) || []), employee]);
-  }
-  const existing = new Set(currentShifts.map(shift => `${shift.user_id}|${shift.work_date}`));
-  const all: ImportCandidate[] = [];
-  for (let rowIndex = 2; rowIndex < table.length; rowIndex++) {
-    const row = table[rowIndex] ?? [];
-    const day = Number(row[0]);
-    if (!Number.isInteger(day) || day < 1 || day > 31) continue;
-    const date = `${period.year}-${String(period.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    if (new Date(`${date}T12:00:00Z`).getUTCDate() !== day) continue;
-    for (let column = 2; column < row.length; column++) {
-      const value = row[column];
-      if (value === null || value === undefined || String(value).trim() === '') continue;
-      if (date <= currentDate) { ignored.past++; continue; }
-      const times = timeFromCell(value);
-      if (!times) { ignored.unrecognized++; continue; }
-      const matches = byName.get(normalize(String(names[column] ?? ''))) || [];
-      if (matches.length !== 1 || !canonicalRdHotelId(matches[0].assigned_hotel)) {
-        ignored.unmatched++;
-        continue;
-      }
-      const employee = matches[0];
-      if (existing.has(`${employee.id}|${date}`)) { ignored.existing++; continue; }
-      all.push({
-        employeeId: employee.id,
-        employeeName: employee.full_name,
-        date, start: times.start, end: times.end,
-        hotelId: canonicalRdHotelId(employee.assigned_hotel)!,
-        sourceName: String(names[column]),
-        column,
-      });
-    }
-  }
-  const keyCounts = new Map<string, number>();
-  for (const item of all) {
-    const key = `${item.employeeId}|${item.date}`;
-    keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
-  }
-  const candidates = all.filter(item => {
-    const duplicates = keyCounts.get(`${item.employeeId}|${item.date}`) !== 1;
-    if (duplicates) ignored.duplicates++;
-    return !duplicates;
-  });
-  return { source: sheetName, candidates, ignored };
-}
-
+/** Upload a staff workbook and turn reviewed, confidently matched future cells
+ * into draft shifts. Import never changes existing or published assignments. */
 export function ScheduleExcelImportReview({
   employees, currentShifts, organizationSlug, userId, onImported,
 }: {
-  employees: Employee[];
+  employees: ExcelEmployee[];
   currentShifts: ExistingShift[];
   organizationSlug: string;
   userId: string;
   onImported: () => void;
 }) {
   const [tables, setTables] = useState<Record<string, unknown[][]>>({});
-  const [sheetName, setSheetName] = useState('');
+  const [selectedSheet, setSelectedSheet] = useState('all');
   const [fileName, setFileName] = useState('');
+  const [recoverExcelDates, setRecoverExcelDates] = useState(false);
+  const [codeMappings, setCodeMappings] = useState<Record<string, ExcelCodeMapping>>({});
+  const [staffMappings, setStaffMappings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState('');
+  const [approval, setApproval] = useState(false);
 
   const readFile = async (file?: File) => {
     if (!file) return;
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error('The workbook is larger than 15 MB. Please upload a smaller schedule.');
+      return;
+    }
     setLoading(true);
     try {
       const XLSX = await import('xlsx');
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      // cellDates:false retains serial values such as 45155 so managers can
+      // explicitly approve their conversion into 08:00–17:00.
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
       const next: Record<string, unknown[][]> = {};
-      for (const name of workbook.SheetNames) {
-        if (!monthFromSheet(name)) continue;
-        next[name] = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[name], { header: 1, raw: true, defval: null });
+      for (const sheetName of workbook.SheetNames) {
+        if (!monthFromExcelSheet(sheetName)) continue;
+        next[sheetName] = XLSX.utils.sheet_to_json<unknown[]>(
+          workbook.Sheets[sheetName], { header: 1, raw: true, defval: null },
+        );
       }
-      if (!Object.keys(next).length) throw new Error('No YYYY monthly schedule tabs were found in this workbook.');
+      if (!Object.keys(next).length) throw new Error('No month-year tabs found, such as November 2026.');
       setTables(next);
-      setSheetName(Object.keys(next)[0]);
+      setSelectedSheet('all');
       setFileName(file.name);
-      toast.success('Workbook read locally. No schedule changes have been made.');
-    } catch (error) {
-      setTables({}); setSheetName('');
-      toast.error(error instanceof Error ? error.message : 'Could not open workbook');
+      setCodeMappings({});
+      setStaffMappings({});
+      setRecoverExcelDates(false);
+      setApproval(false);
+      setProgress('');
+      toast.success('Excel read successfully. Preview the detected shifts and approve automatic filling.');
+    } catch (cause) {
+      setTables({}); setFileName('');
+      toast.error(cause instanceof Error ? cause.message : 'Could not open the workbook');
     } finally { setLoading(false); }
   };
 
-  const preview = useMemo(
-    () => extractPreview(tables[sheetName] || [], sheetName, employees, currentShifts, todayBudapest()),
-    [tables, sheetName, employees, currentShifts],
+  const scoped = useMemo(
+    () => selectedSheet === 'all' ? tables : { [selectedSheet]: tables[selectedSheet] ?? [] },
+    [tables, selectedSheet],
   );
-  const importDrafts = async () => {
-    if (saving || !preview.candidates.length || organizationSlug !== 'rdhotels') return;
-    // Recheck all existing records immediately before insertion: never overwrite
-    // a manager's already-entered or published shift.
+  const preview = useMemo(() => previewExcelSchedules(
+    scoped, employees, {
+      currentDate: todayBudapest(),
+      includeExcelDates: recoverExcelDates,
+      codeMappings, staffMappings,
+      existingKeys: new Set(currentShifts.map(shift => shift.user_id + '|' + shift.work_date)),
+    },
+  ), [scoped, employees, recoverExcelDates, codeMappings, staffMappings, currentShifts]);
+
+  const candidateCounts = useMemo(() => preview.candidates.reduce(
+    (result, item) => {
+      result[item.confidence] = (result[item.confidence] ?? 0) + 1;
+      return result;
+    }, {} as Record<string, number>,
+  ), [preview.candidates]);
+
+  const changeMapping = (key: string, value: string) => {
+    setApproval(false);
+    setCodeMappings(current => ({ ...current, [key]: value as ExcelCodeMapping }));
+  };
+
+  const importFutureDrafts = async () => {
+    if (saving || !approval || !preview.candidates.length || organizationSlug !== 'rdhotels') return;
     setSaving(true);
+    setProgress('Checking previously saved schedules…');
     try {
-      const monthKey = preview.candidates[0].date.slice(0, 7);
-      const [year, month] = monthKey.split('-').map(Number);
-      const finalDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-      const { data: existing, error: queryError } = await (supabase as any).from('staff_schedules')
-        .select('user_id,work_date')
-        .eq('organization_slug', organizationSlug)
-        .gte('work_date', `${monthKey}-01`)
-        .lte('work_date', `${monthKey}-${String(finalDay).padStart(2, '0')}`);
-      if (queryError) throw queryError;
-      const occupied = new Set((existing || []).map((item: ExistingShift) => `${item.user_id}|${item.work_date}`));
-      const accepted = preview.candidates.filter(item => item.date > todayBudapest() && !occupied.has(`${item.employeeId}|${item.date}`));
-      // Limit any import to 100 rows; remaining drafts can be imported on the
-      // next explicit review. Never publish an imported schedule automatically.
-      const batch = accepted.slice(0, 100).map(item => ({
-        organization_slug: organizationSlug,
-        hotel_id: item.hotelId,
-        user_id: item.employeeId,
-        work_date: item.date,
-        shift_start: item.start,
-        shift_end: item.end,
-        work_status: 'working',
-        status: 'draft',
-        created_by: userId,
-        notes: 'Imported from approved Excel schedule preview',
-      }));
-      if (!batch.length) return toast.info('No new future shifts remain after checking existing schedules.');
-      const { error } = await (supabase as any).from('staff_schedules').insert(batch);
-      if (error) throw error;
-      toast.success(`${batch.length} reviewed future shifts imported as drafts. Publish separately after approval.`);
+      const all = [...preview.candidates].sort((a, b) => a.date.localeCompare(b.date));
+      const firstDate = all[0].date;
+      const lastDate = all[all.length - 1].date;
+      const occupied = new Set<string>();
+      // Supabase PostgREST defaults to 1,000 rows. Paginate to avoid
+      // accidentally missing an existing shift and then overwriting it.
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await (supabase as any).from('staff_schedules')
+          .select('user_id,work_date')
+          .eq('organization_slug', organizationSlug)
+          .gte('work_date', firstDate)
+          .lte('work_date', lastDate)
+          .order('id')
+          .range(offset, offset + 999);
+        if (error) throw new Error(error.message);
+        for (const shift of (data ?? []) as ExistingShift[]) {
+          occupied.add(shift.user_id + '|' + shift.work_date);
+        }
+        if ((data?.length ?? 0) < 1000) break;
+      }
+      const pending = all.filter(item =>
+        item.date >= todayBudapest() && !occupied.has(item.employeeId + '|' + item.date),
+      );
+      if (!pending.length) {
+        toast.info('All eligible shifts are already present or are in the past.');
+        return;
+      }
+
+      let saved = 0;
+      for (let from = 0; from < pending.length; from += BATCH_SIZE) {
+        const batch = pending.slice(from, from + BATCH_SIZE).map((item: ExcelScheduleCandidate) => ({
+          organization_slug: organizationSlug,
+          hotel_id: item.hotelId,
+          user_id: item.employeeId,
+          work_date: item.date,
+          shift_start: item.start,
+          shift_end: item.end,
+          work_status: item.workStatus,
+          status: 'draft',
+          created_by: userId,
+          notes: 'Imported from approved Excel schedule: ' + item.sheetName +
+            ' (' + item.sourceDepartment + ', ' + item.sourceValue.slice(0, 64) + ')',
+        }));
+        const { error } = await (supabase as any).from('staff_schedules').insert(batch);
+        if (error) throw new Error(error.message);
+        saved += batch.length;
+        setProgress('Filled ' + saved + ' of ' + pending.length + ' new draft shifts');
+      }
+      toast.success('Successfully filled ' + saved + ' schedule cells. Review the grid, then publish when ready.');
+      setProgress('Completed: ' + saved + ' new drafts. Existing schedules were not modified.');
+      setApproval(false);
       onImported();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Excel import was not completed');
+    } catch (cause) {
+      toast.error((cause instanceof Error ? cause.message : 'Import failed') +
+        '. If some batches succeeded, reload to see which drafts were saved.');
     } finally { setSaving(false); }
   };
 
   if (organizationSlug !== 'rdhotels') return null;
-  return <Card><CardContent className="space-y-3 p-4">
-    <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div><div className="flex items-center gap-2 font-semibold"><FileSpreadsheet className="h-4 w-4 text-primary" />Import Excel work schedule</div>
-        <p className="text-xs text-muted-foreground">Existing workbook format · exact employee names · future shifts only · review before drafting</p></div>
-      <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
-        <Upload className="h-4 w-4" />{loading ? 'Reading…' : 'Choose .xlsx'}
+  return <Card><CardContent className="space-y-4 p-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <div className="flex items-center gap-2 font-semibold">
+          <FileSpreadsheet className="h-5 w-5 text-primary" />Upload Excel and auto-fill the roster
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Supports RD Hotels workbooks with monthly tabs, department headings and employee columns.
+          Reads locally; no Excel file is uploaded to a storage server.
+        </p>
+      </div>
+      <label className="inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted">
+        <Upload className="h-4 w-4" />{loading ? 'Reading…' : 'Choose Excel file'}
         <input className="sr-only" type="file" accept=".xlsx,.xls" disabled={loading || saving}
           onChange={event => { void readFile(event.target.files?.[0]); event.target.value = ''; }} />
       </label>
     </div>
-    {!!fileName && <div className="flex flex-wrap items-center gap-3 text-sm">
-      <span className="max-w-64 truncate text-muted-foreground">{fileName}</span>
-      <select aria-label="Workbook month" value={sheetName} onChange={event => setSheetName(event.target.value)}
-        className="rounded-md border bg-background px-2 py-1.5">
-        {Object.keys(tables).map(name => <option key={name} value={name}>{name}</option>)}
-      </select>
-    </div>}
-    {!!sheetName && <div className="space-y-2">
-      <p className="text-sm"><strong>{preview.candidates.length}</strong> future, uniquely matched clock-range shifts eligible for draft review.
-        <span className="text-muted-foreground"> Excluded: {preview.ignored.unrecognized} ambiguous codes,
-          {preview.ignored.unmatched} missing/ambiguous employee names,
-          {preview.ignored.duplicates} duplicate employee-day entries,
-          {preview.ignored.existing} existing shifts,
-          {preview.ignored.past} historical entries.</span></p>
-      {preview.candidates.length > 0 && <div className="max-h-48 overflow-auto rounded-md border text-xs">
-        <table className="w-full"><thead className="sticky top-0 bg-background"><tr><th className="p-2 text-left">Date</th><th className="p-2 text-left">Employee</th><th className="p-2 text-left">Clock range</th></tr></thead>
-          <tbody>{preview.candidates.slice(0, 40).map(item => <tr key={`${item.employeeId}|${item.date}`} className="border-t">
-            <td className="p-2">{item.date}</td><td className="p-2">{item.employeeName}</td>
-            <td className="p-2">{item.start}–{item.end}</td>
-          </tr>)}</tbody></table>
+    {!!fileName && <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="max-w-64 truncate text-sm font-medium">{fileName}</span>
+        <label className="flex items-center gap-2 text-sm">
+          Import period
+          <select className="rounded border bg-background px-2 py-1.5"
+            value={selectedSheet} disabled={saving}
+            onChange={event => { setSelectedSheet(event.target.value); setApproval(false); }}>
+            <option value="all">All monthly tabs ({Object.keys(tables).length})</option>
+            {Object.keys(tables).map(sheet => <option key={sheet} value={sheet}>{sheet}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="rounded border p-3"><div className="text-xl font-semibold">{preview.candidates.length}</div><div className="text-xs text-muted-foreground">Ready to auto-fill</div></div>
+        <div className="rounded border p-3"><div className="text-xl font-semibold">{candidateCounts.clock_range || 0}</div><div className="text-xs text-muted-foreground">Explicit time ranges</div></div>
+        <div className="rounded border p-3"><div className="text-xl font-semibold">{preview.ignored.unmatched}</div><div className="text-xs text-muted-foreground">Unmatched employee cells</div></div>
+        <div className="rounded border p-3"><div className="text-xl font-semibold">{preview.ignored.unrecognized}</div><div className="text-xs text-muted-foreground">Codes needing mapping</div></div>
+      </div>
+      <label className="flex cursor-pointer items-start gap-2 rounded-md border p-3 text-sm">
+        <input type="checkbox" checked={recoverExcelDates} disabled={saving}
+          onChange={event => { setRecoverExcelDates(event.target.checked); setApproval(false); }} />
+        <span>
+          <strong>Recover Excel-autoconverted time ranges</strong>
+          <span className="block text-xs text-muted-foreground">
+            For example, Excel sometimes changes 08–17 to a date serial. Interpret its month/day as 08:00–17:00.
+            Enable only after checking the preview. {candidateCounts.excel_autodate || 0} such shifts currently selected.
+          </span>
+        </span>
+      </label>
+      {!!preview.unrecognizedCodes.length && <details className="rounded-md border p-3">
+        <summary className="cursor-pointer font-medium text-sm">Map absence codes (optional)</summary>
+        <p className="my-2 text-xs text-muted-foreground">Unknown codes are skipped until you explicitly choose their meaning. Do not assume SZ, K, HO, B or any other abbreviation means a particular leave type.</p>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {preview.unrecognizedCodes.map(item => <label key={item.code} className="flex items-center justify-between gap-2 text-xs">
+            <span className="truncate" title={item.code}>{item.code} ({item.count})</span>
+            <select value={codeMappings[normalizeExcelText(item.code)] || 'ignore'} disabled={saving}
+              className="min-w-32 rounded border bg-background p-1.5"
+              onChange={event => changeMapping(normalizeExcelText(item.code), event.target.value)}>
+              <option value="ignore">Skip / unknown</option><option value="leave">Leave</option>
+              <option value="sick">Sick</option><option value="off">Day off</option>
+              <option value="training">Training</option>
+            </select>
+          </label>)}
+        </div>
+      </details>}
+      {!!preview.unmatchedStaff.length && <details className="rounded-md border p-3">
+        <summary className="cursor-pointer text-sm font-medium">Match Excel names to existing staff (optional)</summary>
+        <p className="my-2 text-xs text-muted-foreground">Choose a profile only if you are sure it is the same person. Unmatched people are not created automatically.</p>
+        <div className="grid gap-2 lg:grid-cols-2">
+          {preview.unmatchedStaff.map(item => <label key={item.label + item.department} className="flex flex-col gap-1 text-xs">
+            <span>{item.label} · {item.department} ({item.count})</span>
+            <select value={staffMappings[normalizeExcelEmployeeName(item.label)] || ''}
+              disabled={saving} className="rounded border bg-background p-1.5"
+              onChange={event => {
+                setStaffMappings(previous => ({
+                  ...previous,
+                  [normalizeExcelEmployeeName(item.label)]: event.target.value,
+                }));
+                setApproval(false);
+              }}>
+              <option value="">Keep unmatched</option>
+              {employees.map(employee =>
+                <option key={employee.id} value={employee.id}>{employee.full_name} — {employee.assigned_hotel || 'No property'}</option>)}
+            </select>
+          </label>)}
+        </div>
+      </details>}
+      <div className="rounded-md border p-3 text-xs text-muted-foreground">
+        Excluded: {preview.ignored.past} historical cells, {preview.ignored.existing} existing schedule cells,
+        {preview.ignored.duplicates} repeated employee/day matches, and {preview.ignored.missingHotel} profiles without a base hotel.
+        Unmatched or ambiguous entries are never guessed or overwritten.
+      </div>
+      {!!preview.candidates.length && <div className="max-h-64 overflow-auto rounded-md border">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-background"><tr>
+            <th className="p-2 text-left">Date</th><th className="p-2 text-left">Employee</th>
+            <th className="p-2 text-left">Source</th><th className="p-2 text-left">Detected schedule</th>
+          </tr></thead>
+          <tbody>{preview.candidates.slice(0, 60).map((item, i) =>
+            <tr key={item.employeeId + item.date + i} className="border-t">
+              <td className="p-2">{item.date}</td><td className="p-2">{item.employeeName}</td>
+              <td className="p-2">{item.sourceValue}</td>
+              <td className="p-2">{item.workStatus === 'working' ? item.start + '–' + item.end : item.workStatus}
+                {item.confidence === 'excel_autodate' && <span className="ml-1 text-amber-700">(recovered)</span>}
+              </td>
+            </tr>)}
+          </tbody>
+        </table>
+        {preview.candidates.length > 60 && <p className="p-2 text-xs text-muted-foreground">Showing first 60 of {preview.candidates.length} rows</p>}
       </div>}
-      <p className="text-xs text-muted-foreground">This does not convert SZ/K/HO into leave or working days, and it does not import Excel date-formatted cells. Each approved import is a draft; no changes to past or published shifts.</p>
-      <Button disabled={saving || !preview.candidates.length} onClick={() => void importDrafts()}>
-        {saving ? 'Importing…' : `Import up to ${Math.min(preview.candidates.length, 100)} future drafts`}
+      {candidateCounts.excel_autodate > 0 && <p className="flex items-start gap-2 text-xs text-amber-700">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        You included {candidateCounts.excel_autodate} shifts inferred from Excel date conversion. Compare a sample with the original workbook before approving.
+      </p>}
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" checked={approval} disabled={saving || preview.candidates.length === 0}
+          onChange={event => setApproval(event.target.checked)} />
+        <span>I reviewed these matches and want HotelCare to fill empty future schedule cells automatically as <strong>drafts</strong>.</span>
+      </label>
+      <Button disabled={saving || !approval || !preview.candidates.length}
+        onClick={() => void importFutureDrafts()} className="gap-2">
+        <CheckCircle2 className="h-4 w-4" />
+        {saving ? 'Filling schedule…' : 'Auto-fill ' + preview.candidates.length + ' draft shifts'}
       </Button>
+      {!!progress && <p aria-live="polite" className="text-xs text-muted-foreground">{progress}</p>}
+      <p className="text-xs text-muted-foreground">
+        The uploaded workbook is not stored. This action fills schedules only after review;
+        it does not publish shifts or start Housekeeping Auto Assign.
+        Historical records remain read-only and require a separate controlled import.
+      </p>
     </div>}
   </CardContent></Card>;
 }
