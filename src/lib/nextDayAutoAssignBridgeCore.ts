@@ -16,6 +16,7 @@ import {
 } from '@/lib/roomAssignmentAlgorithm';
 import { splitSharedDuration } from '@/lib/nextDayHousekeepingShared';
 import { buildOttofioriNightForecast, nextMorningDate } from '@/lib/ottofioriNextDayForecast';
+import { todayBudapest } from '@/lib/budapestTime';
 
 export const TOMORROW_PMS_REUSE_MS = 15 * 60 * 1000;
 
@@ -303,7 +304,12 @@ async function findReusableSnapshot(args: {
 }
 
 /** Keep today's live room state isolated from tomorrow's approval-time validation. */
-export function shouldRefreshCurrentPmsRoomStateForTomorrow(args: Pick<TomorrowPmsSnapshotArgs, 'hotelId' | 'refreshLiveRoomState'>): boolean {
+export function shouldRefreshCurrentPmsRoomStateForTomorrow(
+  args: Pick<TomorrowPmsSnapshotArgs, 'hotelId' | 'refreshLiveRoomState'> & { selectedDate?: string },
+): boolean {
+  // Never execute the live PMS room sync for a future-date planner: that sync
+  // updates today's RTC, occupancy and cleaning indicators in the rooms table.
+  if (args.selectedDate && args.selectedDate > todayBudapest()) return false;
   return args.hotelId !== GOZSDU_COURT_HOTEL_ID && args.refreshLiveRoomState !== false;
 }
 
@@ -527,6 +533,13 @@ export async function saveApprovedNextDayAutoAssignPlan(args: {
     estimatedDuration?: number | null;
   }>;
 }): Promise<{ planId: string; roomCount: number; areaCount: number }> {
+  // The plan-save API is the only write path for future Auto Assign.
+  // Never allow today's active room state (or a date that became today
+  // while the planner was left open) into this staging table.
+  if (args.selectedDate <= todayBudapest()) {
+    throw new Error('Future plan date is no longer in the future. Close this planner and refresh the current-day assignments.');
+  }
+  nextMorningDate(args.selectedDate); // validates the actual ISO calendar date
   const existing = args.existingPlan || null;
   if (existing?.status === 'released' || existing?.status === 'releasing') {
     throw new Error('This tomorrow plan is already being released or has been released.');
