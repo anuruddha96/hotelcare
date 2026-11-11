@@ -40,7 +40,7 @@ export function ReputationAlertsBell() {
       if (error || data?.error) throw error || new Error(data.error);
       const nextTotal = Number(data?.total || 0);
       if (previousTotal.current !== null && nextTotal > previousTotal.current) {
-        toast.warning(\`\${nextTotal - previousTotal.current} new low-rating Google review alert(s)\`, {
+        toast.warning(`${nextTotal - previousTotal.current} new low-rating Google review alert(s)`, {
           description: "Open Reputation to review and respond to 1–3-star feedback.",
         });
       }
@@ -80,8 +80,8 @@ export function ReputationAlertsBell() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative h-9 w-9 shrink-0"
-          aria-label={total ? \`\${total} Google low-rating alerts\` : "Google review alerts"}>
-          <BellRing className={\`h-4 w-4 \${total ? "text-amber-600" : "text-muted-foreground"}\`} />
+          aria-label={total ? `${total} Google low-rating alerts` : "Google review alerts"}>
+          <BellRing className={`h-4 w-4 ${total ? "text-amber-600" : "text-muted-foreground"}`} />
           {total > 0 && <Badge className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[10px] bg-red-600 text-white">
             {total > 99 ? "99+" : total}
           </Badge>}
@@ -93,7 +93,7 @@ export function ReputationAlertsBell() {
         {alerts.length ? alerts.map((alert) => (
           <div key={alert.id} className="rounded-md border p-2 space-y-2">
             <button type="button" className="text-left w-full" onClick={() =>
-              navigate(\`/rdhotels/reputation?tab=attention&venue=\${encodeURIComponent(alert.google_location_id)}\`)}>
+              navigate(`/rdhotels/reputation?tab=attention&venue=${encodeURIComponent(alert.google_location_id)}`)}>
               <div className="text-sm font-medium">
                 {alert.star_rating}★ · {alert.google_business_locations?.reply_brand_name ||
                   alert.google_business_locations?.google_location_title || "Google business"}
