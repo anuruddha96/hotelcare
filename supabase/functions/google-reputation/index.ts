@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
 import { buildCuratedReply, CURATED_REPLY_BASE_COUNT, requiresCarefulReview } from "../_shared/reputation-replies.ts";
+import { buildReplyCustomizationPrompt, validateReplyChoices } from "../_shared/reputation-customization.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -854,6 +855,75 @@ Deno.serve(async (req) => {
       if (error) throw error;
       if (!result) return json({ error: "Alert not found or already acknowledged" }, 404);
       return json({ ok: true });
+    }
+
+    if (action === "customize_reply") {
+      const reviewId = String(body.review_id || "");
+      if (!/^[a-f0-9-]{36}$/i.test(reviewId)) return json({ error: "Valid review ID required" }, 400);
+      let choices: ReturnType<typeof validateReplyChoices>;
+      try { choices = validateReplyChoices(body.options && typeof body.options === "object" ? body.options : {}); }
+      catch (validationError) {
+        return json({ error: validationError instanceof Error ? validationError.message : "Invalid reply options" }, 400);
+      }
+      const { data: review, error: readError } = await admin.from("google_reviews")
+        .select("id,organization_id,hotel_id,google_location_id,reviewer_display_name,star_rating,comment,google_reply_comment,reply_status,ai_draft,google_business_locations(reply_brand_name,google_location_title,business_category,brand_context,reply_signature)")
+        .eq("id", reviewId).eq("organization_id", org.id).maybeSingle();
+      if (readError) throw readError;
+      if (!review || !review.google_business_locations) return json({ error: "Review or Google business not found" }, 404);
+      if (review.reply_status === "published" || review.google_reply_comment) {
+        return json({ error: "This Google review is already replied to; draft alternatives cannot overwrite it." }, 409);
+      }
+      const apiKey = Deno.env.get("OPENAI_API_KEY");
+      if (!apiKey) return json({ error: "HotelCare AI is not configured" }, 409);
+      // Use an inexpensive model for manager-requested revisions only. The
+      // positive-review curated library continues to incur zero model cost.
+      const chosenModel = Deno.env.get("OPENAI_REVIEW_CUSTOM_MODEL") || "gpt-4.1-mini";
+      const input = buildReplyCustomizationPrompt({
+        review: review as any,
+        venue: review.google_business_locations as any,
+        choices,
+        previousDraft: String(body.previous_draft || review.ai_draft || "").slice(0, 1000),
+      });
+      const oa = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: chosenModel,
+          instructions: "You write accurate public hospitality review replies. Return exactly three alternatives as JSON. You must obey the response stance and factual constraints.",
+          input,
+          max_output_tokens: 1000,
+          text: { format: { type: "json_schema", name: "review_reply_alternatives", strict: true,
+            schema: { type: "object", additionalProperties: false, required: ["replies"],
+              properties: { replies: { type: "array", items: { type: "string" } } } } } },
+        }),
+      });
+      if (!oa.ok) {
+        const responseText = await oa.text();
+        console.error("Google reply customization failed", oa.status, responseText.slice(0, 200));
+        return json({ error: "Could not generate alternatives. Try again or edit the existing draft." }, 502);
+      }
+      const generated = await oa.json();
+      const output = String(generated.output_text ||
+        (generated.output || []).flatMap((x: any) => x.content || [])
+          .filter((x: any) => x.type === "output_text")
+          .map((x: any) => x.text || "").join("")).trim();
+      let parsed: any;
+      try { parsed = JSON.parse(output); }
+      catch { return json({ error: "AI returned an invalid reply format. Please try again." }, 502); }
+      const candidates = Array.isArray(parsed?.replies) ? parsed.replies : [];
+      const replies = candidates.map((v: any) => String(v || "").trim())
+        .filter((v: string) => v.length >= 15 && v.length <= 1500).slice(0, 3);
+      if (replies.length !== 3 || new Set(replies.map((s: string) => s.toLowerCase())).size !== 3)
+        return json({ error: "Could not produce three distinct safe replies. Please adjust your options." }, 502);
+      await audit(review, "draft_options_generated", null, {
+        manager_requested: true, model: chosenModel, options: {
+          length: choices.length, tone: choices.tone, stance: choices.stance,
+          focus: choices.focus, language: choices.language,
+          has_manager_notes: Boolean(choices.notes),
+        },
+        variant_count: replies.length, publish_action: false,
+      });
+      return json({ ok: true, alternatives: replies, model: chosenModel, saved: false, published: false });
     }
 
     if (action === "draft_reply") {
