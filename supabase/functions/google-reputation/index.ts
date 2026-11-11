@@ -610,15 +610,6 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (error) throw error;
       if (!l) return json({ error: "Location not found" }, 404);
-      if (activation) {
-        // Preserve a location-specific, dated consent record separately from review replies.
-        await admin.from("google_review_reply_events").insert({
-          organization_id: org.id, hotel_id: l.hotel_id, google_location_id: l.id,
-          review_id: null, actor_user_id: userData.user.id, event_type: "auto_policy_authorized",
-          reply_text: null, metadata: { mode: l.reply_mode, min_rating: l.min_auto_rating,
-            approval_below: l.require_approval_below_rating, brand: l.reply_brand_name },
-        });
-      }
       return json({ ok: true, location: l });
     }
 
@@ -836,6 +827,74 @@ Risk level: ${analysis.risk}.`;
         .eq("id", reviewId);
       await audit(r, "draft_edited", reply);
       return json({ ok: true, draft: reply });
+    }
+
+    if (action === "bulk_publish_replies") {
+      // Batch approval is a one-time explicit decision, NOT a change to a venue's
+      // unattended auto-reply policy. It cannot silently publish older reviews.
+      if (body.confirm !== true) return json({ error: "Explicit confirmation is required." }, 409);
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!items.length || items.length > 10) return json({ error: "Choose 1–10 reviews per batch." }, 400);
+      const unique = new Set(items.map((x: any) => String(x?.id || "")));
+      if (unique.size !== items.length) return json({ error: "Duplicate review selection." }, 400);
+      const cutoffMs = Date.now() - 14 * 86_400_000;
+      const { data: selected, error: selectionError } = await admin.from("google_reviews")
+        .select("*,google_business_locations(id,is_active,organization_id,reply_brand_name,business_category)")
+        .eq("organization_id", org.id).in("id", Array.from(unique));
+      if (selectionError) throw selectionError;
+      if ((selected || []).length !== items.length) return json({ error: "Some selected reviews were not found." }, 404);
+
+      const planned: Array<{ review: any; reply: string }> = [];
+      for (const entry of items) {
+        const review = (selected || []).find((row: any) => row.id === entry.id);
+        if (!review || !review.google_business_locations?.is_active ||
+            review.google_business_locations?.organization_id !== org.id)
+          return json({ error: "Selected listing is unavailable." }, 409);
+        const created = new Date(review.review_create_time || "").getTime();
+        if (!Number.isFinite(created) || created < cutoffMs || created > Date.now())
+          return json({ error: "Only reviews received during the last 14 days are eligible for batch approval." }, 409);
+        const stars = Number(review.star_rating || 0);
+        const currentRisk = classifyReview(stars, String(review.comment || "")).risk;
+        if (stars < 4 || currentRisk !== "low")
+          return json({ error: "Only low-risk 4–5 star reviews can be bulk-approved; other reviews require individual manager attention." }, 409);
+        if (review.reply_status === "published" || review.google_reply_comment)
+          return json({ error: "A selected review has already been answered." }, 409);
+        const reply = String(entry.reply || "").trim();
+        if (!reply || reply.length > 1500)
+          return json({ error: "Each reply must be reviewed, nonempty, and at most 1,500 characters." }, 400);
+        if (!String(review.ai_draft || "").trim())
+          return json({ error: "Prepare a draft for every selected review before bulk publishing." }, 409);
+        planned.push({ review, reply });
+      }
+
+      const outcomes: Array<{ id: string; status: "published" | "skipped" | "error"; message?: string }> = [];
+      for (const { review, reply } of planned) {
+        try {
+          const live = await gfetch(`https://mybusiness.googleapis.com/v4/${review.google_review_name}`);
+          if (live?.reviewReply?.comment) {
+            // Do not overwrite anything posted outside HotelCare since last sync.
+            outcomes.push({ id: review.id, status: "skipped", message: "Already replied on Google" });
+            continue;
+          }
+          const posted = await gfetch(`https://mybusiness.googleapis.com/v4/${review.google_review_name}/reply`, {
+            method: "PUT", body: JSON.stringify({ comment: reply }),
+          });
+          const now = new Date().toISOString();
+          const { error: writeError } = await admin.from("google_reviews")
+            .update({ ai_draft: reply, google_reply_comment: reply, google_reply_update_time: posted.updateTime || now,
+              reply_status: "published", reply_origin: "bulk", replied_at: now,
+              replied_by: userData.user.id, updated_at: now })
+            .eq("id", review.id).eq("organization_id", org.id);
+          if (writeError) throw writeError;
+          await audit(review, "bulk_published", reply, { approved_by: userData.user.id,
+            explicitly_selected: true, review_date: review.review_create_time, window_days: 14 });
+          outcomes.push({ id: review.id, status: "published" });
+        } catch (error) {
+          outcomes.push({ id: review.id, status: "error",
+            message: error instanceof Error ? error.message.slice(0, 240) : "Could not publish" });
+        }
+      }
+      return json({ ok: true, outcomes, published: outcomes.filter((x) => x.status === "published").length });
     }
 
     if (action === "publish_reply") {
