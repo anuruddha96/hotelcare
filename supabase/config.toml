@@ -194,6 +194,9 @@ verify_jwt = false
 [functions.previo-sync-daily-overview-all]
 verify_jwt = false
 
+[functions.previo-sync-reservations-all]
+verify_jwt = false
+
 [functions.email-config]
 verify_jwt = false
 

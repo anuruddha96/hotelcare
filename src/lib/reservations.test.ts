@@ -144,3 +144,50 @@ describe("misc helpers", () => {
     expect(lifecycleErrorKey(new Error("something else"))).toBe(null);
   });
 });
+
+describe("Previo-reported reservation facts", () => {
+  it("shows the real sales channel of a Previo booking, not just 'previo'", async () => {
+    const { reservationChannel } = await import("./reservations");
+    expect(reservationChannel({ source: "previo", pms_channel: "Booking.com" })).toEqual({ label: "Booking.com", letter: "B" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Expedia" })).toEqual({ label: "Expedia", letter: "E" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Szallas.hu" })).toEqual({ label: "Szallas.hu", letter: "S" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Hotelbeds" })).toEqual({ label: "Hotelbeds", letter: "H" });
+    expect(reservationChannel({ source: "previo", pms_channel: null })).toEqual({ label: "Previo", letter: "P" });
+  });
+
+  it("keeps the existing badges for HotelCare-made bookings", async () => {
+    const { reservationChannel } = await import("./reservations");
+    expect(reservationChannel({ source: "walk_in" })).toEqual({ label: "Walk-in", letter: "W" });
+    expect(reservationChannel({ source: "direct" })).toEqual({ label: "Direct", letter: "D" });
+    expect(reservationChannel({ source: "booking_com" })).toEqual({ label: "Booking.com", letter: "B" });
+    expect(reservationChannel({ source: "phone" })).toEqual({ label: "Phone", letter: "R" });
+    expect(reservationChannel({ source: null })).toEqual({ label: "—", letter: "R" });
+  });
+
+  it("tells an option from a waiting-list booking only while pending", async () => {
+    const { pmsHoldKind } = await import("./reservations");
+    expect(pmsHoldKind({ status: "pending", pms_status_id: 1 })).toBe("option");
+    expect(pmsHoldKind({ status: "pending", pms_status_id: 6 })).toBe("waiting_list");
+    expect(pmsHoldKind({ status: "pending", pms_status_id: null })).toBeNull();
+    expect(pmsHoldKind({ status: "confirmed", pms_status_id: 1 })).toBeNull();
+  });
+
+  it("reports Previo payment state for Previo bookings only", async () => {
+    const { pmsPaymentNote } = await import("./reservations");
+    expect(pmsPaymentNote({ source: "previo", pms_payment_status: "paid" })).toBe("paid");
+    expect(pmsPaymentNote({ source: "previo", pms_payment_status: "partial" })).toBe("partial");
+    expect(pmsPaymentNote({ source: "previo", pms_payment_status: "unpaid" })).toBeNull();
+    expect(pmsPaymentNote({ source: "direct", pms_payment_status: "paid" })).toBeNull();
+  });
+
+  it("finds a booking by OTA voucher, channel or booker", async () => {
+    const { reservationSearchText } = await import("./reservations");
+    const text = reservationSearchText({
+      status: "confirmed", check_in_date: "2026-11-08", check_out_date: "2026-11-15",
+      pms_voucher: "5462609756", pms_channel: "Booking.com", pms_contact_name: "Istvan Holbach",
+    });
+    expect(text).toContain("5462609756");
+    expect(text).toContain("booking.com");
+    expect(text).toContain("istvan holbach");
+  });
+});
