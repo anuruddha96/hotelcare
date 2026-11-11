@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { compressHousekeepingPhoto } from '@/lib/housekeepingPhotoCompression';
 import { Camera, ImagePlus, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { verifiedBedPhotoHint } from '@/lib/housekeepingRoomSizing';
@@ -67,12 +68,13 @@ export function ExtraRoomPhotos({ open, onOpenChange, assignmentId, roomNumber, 
       return;
     }
     setBusy(true);
-    const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+    const extension = 'jpg';
     const safeRoom = roomNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
     const path = `${user.id}/${safeRoom}/${category}_photo_angle_${Date.now()}_${Math.random().toString(36).slice(2)}.${extension}`;
     let uploaded = false;
     try {
-      const result = await supabase.storage.from('room-photos').upload(path, file, { upsert: false, contentType: file.type });
+      const optimized = await compressHousekeepingPhoto(file);
+      const result = await supabase.storage.from('room-photos').upload(path, optimized, { upsert: false, contentType: 'image/jpeg', cacheControl: '3600' });
       if (result.error) throw result.error;
       uploaded = true;
       const publicUrl = supabase.storage.from('room-photos').getPublicUrl(path).data.publicUrl;
