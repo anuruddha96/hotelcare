@@ -193,8 +193,7 @@ export function MasterStaffSchedulePlanner() {
     let staffQuery = supabase.from('profiles')
       .select('id,full_name,nickname,role,assigned_hotel,job_title,acts_as_housekeeper')
       .eq('organization_slug', profile.organization_slug)
-      .is('deleted_at', null)
-      .order('full_name');
+      .is('deleted_at', null);
     if (!canSeePortfolio) {
       // Do not even transfer other hotels' profiles to local managers.
       const aliasValues = [...new Set([
@@ -203,6 +202,7 @@ export function MasterStaffSchedulePlanner() {
       ].filter((v): v is string => !!v))];
       staffQuery = staffQuery.in('assigned_hotel', aliasValues);
     }
+    staffQuery = staffQuery.order('full_name');
     const [{ data: staffRows, error: staffError }, { data: shiftRows, error: shiftError }] = await Promise.all([
       staffQuery,
       (supabase as any).from('staff_schedules')
