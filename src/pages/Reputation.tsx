@@ -104,6 +104,10 @@ type Location = {
   last_sync_at?: string | null;
   auto_reply_enabled_at?: string | null;
   auto_reply_consent_at?: string | null;
+  auto_backfill_active?: boolean;
+  auto_backfill_authorized_at?: string | null;
+  auto_backfill_cutoff?: string | null;
+  auto_backfill_upper_bound?: string | null;
 };
 
 type Review = {
@@ -129,6 +133,7 @@ type Review = {
   draft_edited_at?: string | null;
   reply_status: "unreplied" | "draft" | "approved" | "published" | "error";
   reply_origin?: "unknown" | "automatic" | "manager" | "bulk" | "google";
+  auto_reply_kind?: "new_positive" | "historical_14d" | null;
   replied_at?: string | null;
   auto_reply_eligible?: boolean;
 };
@@ -282,6 +287,11 @@ export default function Reputation() {
   const [allAutoConsent, setAllAutoConsent] = useState(false);
   const [allAutoBusy, setAllAutoBusy] = useState(false);
   const [alertBusy, setAlertBusy] = useState<string | null>(null);
+  const [backfillOpen, setBackfillOpen] = useState(false);
+  const [backfillVenueIds, setBackfillVenueIds] = useState<string[]>([]);
+  const [backfillConsent, setBackfillConsent] = useState(false);
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  const [publishedKind, setPublishedKind] = useState("all");
 
   const invokeRaw = async (action: string, extra: Record<string, unknown> = {}) => {
     if (!organizationSlug) throw new Error("Organization is missing");
@@ -328,10 +338,10 @@ export default function Reputation() {
     });
   };
 
-  const loadPublished = async (page = 0, source = publishedSource, venue = historyVenue) => {
+  const loadPublished = async (page = 0, source = publishedSource, venue = historyVenue, kind = publishedKind) => {
     setPublishedBusy(true);
     try {
-      const result = await invoke("list_published", { page, source, location_id: venue });
+      const result = await invoke("list_published", { page, source, location_id: venue, kind });
       setPublishedReviews(result.reviews || []);
       setPublishedPage(page);
       setPublishedTotal(Number(result.total || 0));
@@ -540,6 +550,32 @@ export default function Reputation() {
     } finally {
       setAlertBusy(null);
     }
+  };
+
+  const authorizeBackfill = async () => {
+    if (!backfillConsent || !backfillVenueIds.length) return;
+    setBackfillBusy(true);
+    try {
+      const result = await invoke("authorize_historical_backfill", {
+        location_ids: backfillVenueIds, confirm: true,
+      });
+      toast.success(`Historical 14-day catch-up authorized for ${result.venues?.length || 0} venues. HotelCare AI will process up to five qualifying replies per scheduled run.`);
+      setBackfillOpen(false); setBackfillConsent(false); setBackfillVenueIds([]);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not authorize catch-up");
+    } finally { setBackfillBusy(false); }
+  };
+
+  const cancelBackfill = async (locationId: string) => {
+    setItemBusy(locationId);
+    try {
+      await invoke("cancel_historical_backfill", { location_ids: [locationId] });
+      toast.info("Historical auto catch-up stopped for this venue.");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not stop catch-up");
+    } finally { setItemBusy(null); }
   };
 
   const enableAutoForSelectedVenues = async () => {
