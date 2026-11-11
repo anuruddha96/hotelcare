@@ -1464,6 +1464,53 @@ export default function Reputation() {
             </Card>
           </TabsContent>
         </Tabs>
+        <Dialog open={backfillOpen} onOpenChange={(open) => { if (!backfillBusy) { setBackfillOpen(open); if (!open) setBackfillConsent(false); } }}>
+          <DialogContent className="max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>Authorize 14-day HotelCare AI catch-up</DialogTitle>
+              <DialogDescription>
+                This is a separate, one-time authorization for replies to reviews from the previous 14 days.
+                HotelCare will publish only low-risk 4–5★ replies on the businesses you select.
+                Maximum 5 historical replies per scheduled run; the authorization expires after 48 hours.
+                It does not enable ongoing automation for future reviews.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => {
+                setBackfillVenueIds(locations.map((v) => v.id)); setBackfillConsent(false);
+              }}>Select all {locations.length}</Button>
+              <Button variant="outline" size="sm" onClick={() => {
+                setBackfillVenueIds([]); setBackfillConsent(false);
+              }}>Deselect all</Button>
+              <Badge variant="secondary">{backfillVenueIds.length} businesses</Badge>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto space-y-2">
+              {locations.map((venue) => <label key={venue.id} className="flex gap-3 p-3 rounded-lg border cursor-pointer">
+                <Checkbox checked={backfillVenueIds.includes(venue.id)} onCheckedChange={(value) => {
+                  setBackfillVenueIds((current) => value ?
+                    Array.from(new Set([...current, venue.id])) : current.filter((id) => id !== venue.id));
+                  setBackfillConsent(false);
+                }} />
+                <div className="flex-1">
+                  <div className="font-medium text-sm">{venue.reply_brand_name || venue.google_location_title}</div>
+                  <p className="text-xs text-muted-foreground">{summary[venue.id]?.recentUnreplied || 0} unreplied reviews received in the last 14 days · only low-risk 4–5★ will qualify</p>
+                  {venue.auto_backfill_active && <Badge variant="secondary" className="mt-1">Catch-up already authorized</Badge>}
+                </div>
+              </label>)}
+              <label className="flex items-start gap-3 p-3 rounded-lg border border-amber-300 cursor-pointer">
+                <Checkbox checked={backfillConsent} onCheckedChange={(value) => setBackfillConsent(value === true)} className="mt-1" />
+                <span className="text-sm">I explicitly authorize public HotelCare AI replies for eligible unanswered reviews dated within the previous 14 days on these {backfillVenueIds.length} named businesses. I understand HotelCare will publish without an individual preview, at a controlled rate, and that I can stop the catch-up from Venues & rules.</span>
+              </label>
+            </div>
+            <DialogFooter className="shrink-0 gap-2">
+              <Button variant="outline" disabled={backfillBusy} onClick={() => setBackfillOpen(false)}>Cancel</Button>
+              <Button disabled={!backfillConsent || !backfillVenueIds.length || backfillBusy} onClick={() => void authorizeBackfill()}>
+                <Zap className="h-4 w-4 mr-2" />{backfillBusy ? "Authorizing…" : `Authorize ${backfillVenueIds.length} businesses`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={allAutoDialogOpen} onOpenChange={(open) => { if (!allAutoBusy) { setAllAutoDialogOpen(open); if (!open) setAllAutoConsent(false); } }}>
           <DialogContent className="max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
             <DialogHeader><DialogTitle>Activate HotelCare AI auto replies</DialogTitle>
