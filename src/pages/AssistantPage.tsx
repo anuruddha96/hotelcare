@@ -1,12 +1,29 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Flag, Pencil, Plus, Trash2 } from "lucide-react";
+import { Folder, MessageSquare, PanelLeft, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
-import { useAssistant } from "@/hooks/useAssistant";
+import { searchAssistantThreads, useAssistant, type AssistantSearchHit, type AssistantThread } from "@/hooks/useAssistant";
+import { useAssistantProjects, type AssistantProject } from "@/hooks/useAssistantProjects";
 import AssistantChat from "@/components/assistant/AssistantChat";
+import AssistantSidebar from "@/components/assistant/AssistantSidebar";
 import ReportProblemDialog from "@/components/assistant/ReportProblemDialog";
 import { canUseAssistant } from "@/lib/assistantAccess";
 import {
@@ -14,23 +31,61 @@ import {
   getRememberedAssistantThread,
   rememberActiveAssistantThread,
 } from "@/lib/assistant/activeThread";
-import { cn } from "@/lib/utils";
-import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
-/** Full-page view of the assistant. Every thread has its own URL. */
+const SIDEBAR_KEY = "hc-assistant-sidebar";
+
+type ProjectDraft = { id: string | null; name: string; instructions: string };
+
+/** The HotelCare AI workspace. Every conversation has its own URL. */
 export default function AssistantPage() {
   const { threadId } = useParams<{ threadId: string }>();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
-  const { threads, loadingThreads, createThread, renameThread, deleteThread, loadThreads } = useAssistant(threadId ?? null);
+  const {
+    threads,
+    loadingThreads,
+    createThread,
+    renameThread,
+    deleteThread,
+    loadThreads,
+    setThreadPinned,
+    moveThreadToProject,
+  } = useAssistant(threadId ?? null);
+  const { projects, projectsAvailable, createProject, updateProject, deleteProject } = useAssistantProjects();
+
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const [mobileNav, setMobileNav] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchHits, setSearchHits] = useState<AssistantSearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [renaming, setRenaming] = useState<{ thread: AssistantThread; title: string } | null>(null);
+  const [deletingThread, setDeletingThread] = useState<AssistantThread | null>(null);
+  const [deletingProject, setDeletingProject] = useState<AssistantProject | null>(null);
+  const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null);
+  const [savingProject, setSavingProject] = useState(false);
+  // Remembers which chat asked for "New project" so it can be filed there.
+  const moveAfterCreate = useRef<string | null>(null);
+  // Set when the user deliberately opens a blank chat, so the "resume the last
+  // conversation" redirect does not pull them straight back.
+  const wantsBlank = useRef(false);
+
   const base = `/${profile?.organization_slug}/assistant`;
   const userId = user?.id ?? null;
   const organizationSlug = profile?.organization_slug ?? null;
+  const activeThread = threads.find((t) => t.id === threadId) ?? null;
+  const activeProject = projects.find((p) => p.id === activeThread?.project_id) ?? null;
 
   useEffect(() => {
-    document.title = "HotelCare AI Operator";
-  }, []);
+    document.title = activeThread?.title && activeThread.title !== "New chat" ? `${activeThread.title} · HotelCare AI` : "HotelCare AI";
+  }, [activeThread?.title]);
 
   useEffect(() => {
     if (!userId || !organizationSlug) return;
@@ -38,6 +93,7 @@ export default function AssistantPage() {
       rememberActiveAssistantThread(userId, organizationSlug, threadId);
       return;
     }
+    if (wantsBlank.current) return;
     const remembered = getRememberedAssistantThread(userId, organizationSlug);
     if (remembered) navigate(`${base}/${remembered}`, { replace: true });
   }, [base, navigate, organizationSlug, threadId, userId]);
@@ -46,15 +102,85 @@ export default function AssistantPage() {
   useEffect(() => {
     if (profile && !allowed) navigate(`/${profile.organization_slug ?? ""}`, { replace: true });
   }, [profile, allowed, navigate]);
-  if (!allowed) return null;
 
-  const newThread = async () => {
-    const id = await createThread();
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Debounced search over the user's own titles and messages.
+  useEffect(() => {
+    if (!searchOpen || !userId) return;
+    const term = searchTerm.trim();
+    if (term.length < 2) {
+      setSearchHits([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      const hits = await searchAssistantThreads(userId, term).catch(() => []);
+      if (!cancelled) {
+        setSearchHits(hits);
+        setSearching(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchOpen, searchTerm, userId]);
+
+  const toggleSidebar = (open: boolean) => {
+    setSidebarOpen(open);
+    try {
+      localStorage.setItem(SIDEBAR_KEY, open ? "open" : "closed");
+    } catch {
+      // Preference only.
+    }
+  };
+
+  const openThread = useCallback(
+    (id: string) => {
+      rememberActiveAssistantThread(userId, organizationSlug, id);
+      setMobileNav(false);
+      setSearchOpen(false);
+      navigate(`${base}/${id}`);
+    },
+    [base, navigate, organizationSlug, userId],
+  );
+
+  /** A plain new chat is only created once the first message is sent. */
+  const startBlank = () => {
+    wantsBlank.current = true;
+    forgetActiveAssistantThread(userId, organizationSlug);
+    setMobileNav(false);
+    navigate(base);
+  };
+
+  const newThread = async (projectId?: string) => {
+    const id = await createThread(projectId);
     if (id) {
       rememberActiveAssistantThread(userId, organizationSlug, id);
       navigate(`${base}/${id}`);
+    } else if (projectId) {
+      toast.error("Could not start a chat in this project");
     }
     return id;
+  };
+
+  const newChat = (projectId?: string) => {
+    if (projectId) {
+      setMobileNav(false);
+      void newThread(projectId);
+    } else startBlank();
   };
 
   const markThreadActive = () => {
@@ -62,91 +188,296 @@ export default function AssistantPage() {
     void loadThreads();
   };
 
+  const saveProject = async () => {
+    if (!projectDraft || savingProject) return;
+    if (!projectDraft.name.trim()) {
+      toast.error("Give the project a name");
+      return;
+    }
+    setSavingProject(true);
+    try {
+      if (projectDraft.id) {
+        const ok = await updateProject(projectDraft.id, { name: projectDraft.name, instructions: projectDraft.instructions });
+        if (!ok) return void toast.error("Could not save the project");
+      } else {
+        const created = await createProject(projectDraft.name, projectDraft.instructions);
+        if (!created) return void toast.error("Could not create the project");
+        if (moveAfterCreate.current) await moveThreadToProject(moveAfterCreate.current, created.id);
+      }
+      moveAfterCreate.current = null;
+      setProjectDraft(null);
+    } finally {
+      setSavingProject(false);
+    }
+  };
+
+  const recentForSearch = useMemo(() => threads.slice(0, 8), [threads]);
+  if (!allowed) return null;
+
+  const sidebar = (onCollapse?: () => void) => (
+    <AssistantSidebar
+      threads={threads}
+      loading={loadingThreads}
+      activeThreadId={threadId ?? null}
+      projects={projects}
+      projectsAvailable={projectsAvailable}
+      userName={profile?.full_name || profile?.nickname || user?.email || "You"}
+      userRole={profile?.role ?? ""}
+      canSeeInsights={profile?.role === "admin" || Boolean(profile?.role?.startsWith("top_management"))}
+      onNewChat={newChat}
+      onOpenThread={openThread}
+      onSearch={() => {
+        setMobileNav(false);
+        setSearchTerm("");
+        setSearchOpen(true);
+      }}
+      onRenameThread={(thread) => setRenaming({ thread, title: thread.title })}
+      onDeleteThread={setDeletingThread}
+      onPinThread={async (thread, pinned) => {
+        if (!(await setThreadPinned(thread.id, pinned))) toast.error("Could not update the pin");
+      }}
+      onMoveThread={async (thread, projectId) => {
+        if (!(await moveThreadToProject(thread.id, projectId))) toast.error("Could not move the chat");
+      }}
+      onNewProject={() => {
+        moveAfterCreate.current = null;
+        setProjectDraft({ id: null, name: "", instructions: "" });
+      }}
+      onEditProject={(project) => setProjectDraft({ id: project.id, name: project.name, instructions: project.instructions })}
+      onDeleteProject={setDeletingProject}
+      onOpenInsights={() => navigate(`/${profile?.organization_slug}/assistant-insights`)}
+      onReport={() => setReportOpen(true)}
+      onBack={() => navigate(`/${profile?.organization_slug ?? ""}`)}
+      onCollapse={onCollapse}
+    />
+  );
+
   return (
-    <div className="p-3 sm:p-6 max-w-6xl mx-auto min-h-[100dvh]">
-      <div className="flex items-center gap-2 mb-4">
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label="Back"
-          onClick={() => (window.history.length > 1 ? navigate(-1) : navigate(`/${profile?.organization_slug}`))}
-        >
-          <ArrowLeft />
-        </Button>
-        <img src={hotelCareMark} alt="Hotel Care" className="h-9 w-9 rounded-lg" />
-        <div>
-          <h1 className="text-lg font-semibold leading-tight">HotelCare AI Operator</h1>
-          <p className="text-xs text-muted-foreground">Your HotelCare operations partner · actions are verified and role-controlled.</p>
-        </div>
-        <Button size="sm" variant="ghost" className="ml-auto gap-1.5" onClick={() => setReportOpen(true)}>
-          <Flag className="h-3.5 w-3.5" /> Report a problem
-        </Button>
-      </div>
+    <div className="flex h-[100dvh] w-full overflow-hidden bg-background">
+      {sidebarOpen && <aside className="hidden w-72 shrink-0 border-r md:block">{sidebar(() => toggleSidebar(false))}</aside>}
 
-      <div className="grid gap-4 md:grid-cols-[240px_1fr]">
-        <Card className="hidden p-2 h-fit space-y-2 md:block">
-          <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={newThread}>
-            <Plus className="h-3.5 w-3.5" /> New chat
+      <Sheet open={mobileNav} onOpenChange={setMobileNav}>
+        <SheetContent side="left" className="w-[86vw] max-w-xs p-0 [&>button]:hidden">
+          <SheetTitle className="sr-only">Conversations</SheetTitle>
+          <SheetDescription className="sr-only">Your chats, projects and search</SheetDescription>
+          {sidebar()}
+        </SheetContent>
+      </Sheet>
+
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-12 shrink-0 items-center gap-1 px-2 sm:px-3">
+          <Button size="icon" variant="ghost" className="h-9 w-9 md:hidden" aria-label="Open conversations" onClick={() => setMobileNav(true)}>
+            <PanelLeft className="h-4 w-4" />
           </Button>
-          <div className="space-y-1 max-h-[50vh] overflow-y-auto">
-            {loadingThreads && threads.length === 0 &&
-              [0, 1, 2].map((row) => <Skeleton key={row} className="h-10 w-full rounded-lg" />)}
-            {threads.map((t) => (
-              <div
-                key={t.id}
-                className={cn(
-                  "flex items-start gap-1.5 rounded-lg border px-2 py-1.5",
-                  t.id === threadId && "border-primary bg-primary/5",
-                )}
-              >
-                <button
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => {
-                    rememberActiveAssistantThread(userId, organizationSlug, t.id);
-                    navigate(`${base}/${t.id}`);
-                  }}
-                >
-                  <span className="block truncate text-sm">{t.title}</span>
-                  {t.preview && (
-                    <span className="block truncate text-[11px] text-muted-foreground">{t.preview}</span>
-                  )}
-                </button>
-                <button
-                  aria-label="Rename chat"
-                  className="mt-0.5 text-muted-foreground hover:text-foreground"
-                  onClick={() => {
-                    const next = window.prompt("Rename this conversation", t.title);
-                    if (next) void renameThread(t.id, next);
-                  }}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  aria-label="Delete chat"
-                  className="mt-0.5 text-muted-foreground hover:text-destructive"
-                  onClick={async () => {
-                    await deleteThread(t.id);
-                    if (t.id === threadId) {
-                      forgetActiveAssistantThread(userId, organizationSlug);
-                      navigate(base);
-                    }
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
+          {!sidebarOpen && (
+            <Button size="icon" variant="ghost" className="hidden h-9 w-9 md:inline-flex" aria-label="Show sidebar" onClick={() => toggleSidebar(true)}>
+              <PanelLeft className="h-4 w-4" />
+            </Button>
+          )}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1 text-sm">
+            {activeProject && (
+              <>
+                <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="hidden max-w-[10rem] truncate text-muted-foreground sm:inline">{activeProject.name}</span>
+                <span className="hidden text-muted-foreground sm:inline">/</span>
+              </>
+            )}
+            <h1 className="truncate font-medium">{activeThread?.title && activeThread.title !== "New chat" ? activeThread.title : "New chat"}</h1>
           </div>
-        </Card>
+          <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="New chat" onClick={startBlank}>
+            <Plus className="h-4 w-4" />
+          </Button>
+        </header>
 
-        <Card className="p-3 h-[calc(100dvh-8rem)] min-h-[32rem] flex flex-col min-h-0">
-          <AssistantChat
-            threadId={threadId ?? null}
-            onNeedThread={newThread}
-            onThreadUpdated={markThreadActive}
-          />
-        </Card>
-      </div>
+        <div className="min-h-0 flex-1 px-1 pb-1 sm:px-2">
+          <AssistantChat workspace threadId={threadId ?? null} onNeedThread={() => newThread()} onThreadUpdated={markThreadActive} />
+        </div>
+      </main>
+
+      {/* Search ----------------------------------------------------------- */}
+      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+        <DialogContent className="overflow-hidden p-0 shadow-lg sm:max-w-xl">
+        <DialogTitle className="sr-only">Search chats</DialogTitle>
+        <DialogDescription className="sr-only">Search your conversations by title or content</DialogDescription>
+        {/* Results come from the server, so the built-in client filter is off. */}
+        <Command shouldFilter={false} className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group]]:px-2 [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5">
+        <CommandInput placeholder="Search your chats…" value={searchTerm} onValueChange={setSearchTerm} />
+        <CommandList>
+          {searchTerm.trim().length >= 2 ? (
+            <>
+              {!searching && <CommandEmpty>No chats match “{searchTerm.trim()}”.</CommandEmpty>}
+              {searching && searchHits.length === 0 && <p className="px-4 py-6 text-center text-sm text-muted-foreground">Searching…</p>}
+              {searchHits.length > 0 && (
+                <CommandGroup heading="Results">
+                  {searchHits.map((hit) => (
+                    <CommandItem key={hit.threadId} value={hit.threadId} onSelect={() => openThread(hit.threadId)} className="items-start gap-2">
+                      <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm">{hit.title}</span>
+                        {hit.snippet && <span className="block truncate text-xs text-muted-foreground">{hit.snippet}</span>}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
+            </>
+          ) : (
+            <CommandGroup heading="Recent">
+              <CommandItem
+                value="new-chat"
+                onSelect={() => {
+                  setSearchOpen(false);
+                  startBlank();
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" /> New chat
+              </CommandItem>
+              {recentForSearch.map((thread) => (
+                <CommandItem key={thread.id} value={thread.id} onSelect={() => openThread(thread.id)}>
+                  <MessageSquare className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span className="truncate">{thread.title}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+        </CommandList>
+        </Command>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename ----------------------------------------------------------- */}
+      <Dialog open={Boolean(renaming)} onOpenChange={(open) => !open && setRenaming(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename chat</DialogTitle>
+            <DialogDescription>The new name is shown in your history only.</DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!renaming) return;
+              if (await renameThread(renaming.thread.id, renaming.title)) setRenaming(null);
+              else toast.error("Could not rename the chat");
+            }}
+          >
+            <Input
+              autoFocus
+              maxLength={60}
+              aria-label="Chat name"
+              value={renaming?.title ?? ""}
+              onChange={(event) => setRenaming((state) => (state ? { ...state, title: event.target.value } : state))}
+            />
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="ghost" onClick={() => setRenaming(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!renaming?.title.trim()}>
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Project ---------------------------------------------------------- */}
+      <Dialog open={Boolean(projectDraft)} onOpenChange={(open) => !open && setProjectDraft(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{projectDraft?.id ? "Project settings" : "New project"}</DialogTitle>
+            <DialogDescription>
+              A project keeps related chats together. Its instructions apply to every chat inside it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="assistant-project-name">Name</Label>
+              <Input
+                id="assistant-project-name"
+                autoFocus
+                maxLength={80}
+                placeholder="December pricing"
+                value={projectDraft?.name ?? ""}
+                onChange={(event) => setProjectDraft((draft) => (draft ? { ...draft, name: event.target.value } : draft))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="assistant-project-instructions">Instructions (optional)</Label>
+              <Textarea
+                id="assistant-project-instructions"
+                rows={5}
+                maxLength={4000}
+                placeholder="Always answer for Hotel Memories. Compare with the same weekday last year and include a chart."
+                value={projectDraft?.instructions ?? ""}
+                onChange={(event) => setProjectDraft((draft) => (draft ? { ...draft, instructions: event.target.value } : draft))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Instructions shape focus and format. They never change what your role is allowed to see or do.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setProjectDraft(null)}>
+              Cancel
+            </Button>
+            <Button disabled={savingProject || !projectDraft?.name.trim()} onClick={() => void saveProject()}>
+              {projectDraft?.id ? "Save" : "Create project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmations --------------------------------------------- */}
+      <AlertDialog open={Boolean(deletingThread)} onOpenChange={(open) => !open && setDeletingThread(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{deletingThread?.title}” and its messages will be removed from your history. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep chat</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                const target = deletingThread;
+                setDeletingThread(null);
+                if (!target) return;
+                if (!(await deleteThread(target.id))) return void toast.error("Could not delete the chat");
+                if (target.id === threadId) startBlank();
+              }}
+            >
+              Delete chat
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(deletingProject)} onOpenChange={(open) => !open && setDeletingProject(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{deletingProject?.name}” and its instructions will be deleted. The chats inside are kept and move back to your main list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep project</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                const target = deletingProject;
+                setDeletingProject(null);
+                if (!target) return;
+                if (!(await deleteProject(target.id))) return void toast.error("Could not delete the project");
+                void loadThreads();
+              }}
+            >
+              Delete project
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} threadId={threadId ?? null} />
     </div>

@@ -3,7 +3,7 @@ import { createOpenAI } from "npm:@ai-sdk/openai@4";
 import { streamText } from "npm:ai@7";
 import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
-import { MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
+import { detectAssistantWorkflow, MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -827,7 +827,10 @@ Deno.serve(async (req) => {
   const threadId = typeof body?.thread_id === "string" ? body.thread_id : "";
   if (!question || !threadId) return json({ error: "A valid thread and question are required" }, 400);
 
-  if (isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep")) {
+  // A pricing review, a chart or an image needs the tool-using agent. The deep
+  // analysis below is text-only and can neither draw nor prepare a change.
+  const needsAgent = detectAssistantWorkflow(question) !== null && body?.model_tier !== "deep";
+  if (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep")) {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/assistant-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: authHeader },

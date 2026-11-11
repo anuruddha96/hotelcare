@@ -25,6 +25,14 @@ const LABELS: Record<string, string> = {
   get_room_detail: "Looking up that room…",
   get_purchase_invoices: "Reviewing purchase invoices…",
   propose_action: "Preparing this for your confirmation…",
+  review_pricing: "Reviewing events, pickup and competitor prices…",
+  get_competitor_rates: "Checking competitor prices…",
+  get_reputation_overview: "Reading your Google reviews…",
+  get_restaurant_reservations: "Checking restaurant reservations…",
+  render_chart: "Drawing the chart…",
+  generate_image: "Creating the image…",
+  search_web: "Searching the web…",
+  execute_action: "Carrying out the action…",
 };
 
 export function activityLabel(toolName: string): string {
@@ -33,5 +41,11 @@ export function activityLabel(toolName: string): string {
 
 /** True for the tool whose output is rendered as a card rather than hidden. */
 export function isRenderedTool(toolName: string): boolean {
-  return toolName === "suggest_actions" || toolName === "propose_automation_change" || toolName === "propose_action";
+  return (
+    toolName === "suggest_actions" ||
+    toolName === "propose_automation_change" ||
+    toolName === "propose_action" ||
+    toolName === "render_chart" ||
+    toolName === "generate_image"
+  );
 }

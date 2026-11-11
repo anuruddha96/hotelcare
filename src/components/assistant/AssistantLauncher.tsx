@@ -118,6 +118,9 @@ export default function AssistantLauncher() {
   if (!user || !profile?.organization_slug) return null;
   if (!canUseAssistant(profile)) return null;
   if (location.pathname.startsWith("/bb") || location.pathname.startsWith("/auth")) return null;
+  // The full workspace is already the assistant; a second floating copy on top
+  // of it would only cover the message box.
+  if (/\/assistant(\/|$)/.test(location.pathname)) return null;
 
   const isApprover = canApproveAssistantAccess(profile.role);
 

@@ -39,3 +39,56 @@ export function selectAssistantModel(question: string, configuredStandardModel?:
     ? (Deno.env.get("OPENAI_ROUTINE_MODEL") || MODEL_BY_PURPOSE.routine)
     : (configuredStandardModel || MODEL_BY_PURPOSE.standard);
 }
+
+/**
+ * Multi-step jobs that need the tool-using agent rather than a single read or
+ * the text-only deep analysis: a pricing review over a period, or an answer
+ * that must draw a chart or an image.
+ */
+export type AssistantWorkflow = "pricing_review" | "visual" | null;
+
+export function detectAssistantWorkflow(question: string): AssistantWorkflow {
+  const q = question.toLowerCase();
+  const priceTopic = /\b(prices?|pricing|rates?|adr)\b/.test(q);
+  const period = /\b(next|coming|following|upcoming)\s+(\d{1,3}\s+)?(days?|weeks?|month|weekend)\b|\b(this|next) (week|month|weekend)\b|\b\d{1,3}\s*days?\b|\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/.test(q);
+  const reviewVerb = /\b(review|check|optimi[sz]e|update|adjust|change|set|fix|identify|which dates|what should|best rates?|recommend|events?)\b/.test(q);
+  // "Raise prices by €5 for the next three days" is a direct instruction with
+  // its own amount, not a request for a recommendation.
+  const explicitAmount = /[€$]\s*\d|\d+\s*(?:eur|euros?|€)|\bby\s*[+-]?\d/.test(q);
+  if (priceTopic && period && reviewVerb && !explicitAmount) return "pricing_review";
+  if (/\b(pricing review|rate review|review (?:my|our|the) (?:prices|rates|pricing))\b/.test(q)) return "pricing_review";
+  if (/\b(charts?|graphs?|plot|visuali[sz]e|diagram|trend line|images?|pictures?|illustration|posters?|draw)\b/.test(q)) return "visual";
+  return null;
+}
+
+/** Model, depth and step budget for one assistant turn. */
+export function planAssistantTurn(question: string, configuredStandardModel?: string | null): {
+  workflow: AssistantWorkflow;
+  model: string;
+  routine: boolean;
+  reasoningEffort: "low" | "medium" | "high";
+  maxSteps: number;
+} {
+  const workflow = detectAssistantWorkflow(question);
+  if (workflow === "pricing_review") {
+    // A wrong price recommendation costs far more than the tokens saved by a
+    // small model, so the review always runs on the analysis model.
+    return {
+      workflow,
+      model: Deno.env.get("OPENAI_AGENT_MODEL") || configuredStandardModel || MODEL_BY_PURPOSE.standard,
+      routine: false,
+      reasoningEffort: "high",
+      maxSteps: 18,
+    };
+  }
+  const routine = workflow === null && classifyAssistantQuestion(question) === "routine";
+  return {
+    workflow,
+    model: routine
+      ? (Deno.env.get("OPENAI_ROUTINE_MODEL") || MODEL_BY_PURPOSE.routine)
+      : (configuredStandardModel || MODEL_BY_PURPOSE.standard),
+    routine,
+    reasoningEffort: routine ? "low" : "medium",
+    maxSteps: routine ? 6 : 12,
+  };
+}
