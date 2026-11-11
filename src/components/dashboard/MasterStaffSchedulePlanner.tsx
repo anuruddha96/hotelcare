@@ -530,7 +530,7 @@ export function MasterStaffSchedulePlanner() {
 
       {excelImportOpen && profile?.organization_slug === 'rdhotels' && !!profile.id && <ScheduleExcelImportReview
         employees={staff} currentShifts={shifts} organizationSlug={profile.organization_slug}
-        userId={profile.id} onImported={() => { void load(); }}
+        userId={profile.id} canImportHistory={canSeePortfolio} onImported={() => { void load(); }}
       />}
 
       <Card>
