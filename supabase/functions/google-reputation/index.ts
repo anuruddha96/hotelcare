@@ -440,9 +440,11 @@ Deno.serve(async (req) => {
       const limit = 50;
       const source = String(body.source || "all");
       let q = admin.from("google_reviews")
-        .select("id,hotel_id,google_location_id,reviewer_display_name,star_rating,comment,review_update_time,google_reply_comment,google_reply_update_time,reply_status,reply_origin,replied_at", { count: "exact" })
+        .select("id,hotel_id,google_location_id,reviewer_display_name,star_rating,comment,review_update_time,google_reply_comment,google_reply_update_time,reply_status,reply_origin,auto_reply_kind,replied_at", { count: "exact" })
         .eq("organization_id", org.id).eq("reply_status", "published");
       if (["automatic", "manager", "bulk", "google"].includes(source)) q = q.eq("reply_origin", source);
+      if (source === "automatic" && ["historical_14d", "new_positive"].includes(String(body.kind)))
+        q = q.eq("auto_reply_kind", String(body.kind));
       if (body.location_id && body.location_id !== "all") q = q.eq("google_location_id", String(body.location_id));
       const { data: publishedReviews, count, error } = await q
         .order("google_reply_update_time", { ascending: false, nullsFirst: false })
