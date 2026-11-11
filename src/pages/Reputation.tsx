@@ -9,6 +9,9 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  Zap,
+  CheckCheck,
+  ListFilter,
   ExternalLink,
   History,
   Languages,
@@ -35,6 +38,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -88,6 +99,8 @@ type Location = {
   brand_context?: string | null;
   is_active?: boolean;
   last_sync_at?: string | null;
+  auto_reply_enabled_at?: string | null;
+  auto_reply_consent_at?: string | null;
 };
 
 type Review = {
@@ -136,7 +149,15 @@ type Status = {
   reviews: Review[];
   hotels: Hotel[];
   events: ReplyEvent[];
-  stats?: { total: number; published: number; automatic: number; manager: number; imported: number };
+  stats?: {
+    total: number; published: number; automatic: number; manager: number; bulk: number;
+    imported: number; recent14: number; recentUnreplied: number; previous14: number;
+    awaiting: number; attention: number; average: number | null;
+  };
+  location_summary?: Record<string, {
+    total: number; published: number; automatic: number; bulk: number;
+    recent14: number; recentUnreplied: number; ratings: number; stars: number; attention: number;
+  }>;
 };
 
 type E2EState = {
@@ -188,6 +209,7 @@ const riskBadge = (risk?: string | null) => {
 const originLabel: Record<string, string> = {
   automatic: "Auto-published by HotelCare",
   manager: "Published by manager",
+  bulk: "Bulk-approved by manager",
   google: "Existing Google reply",
   unknown: "Publication source unknown",
 };
@@ -198,6 +220,7 @@ const eventLabel: Record<string, string> = {
   approved: "Reply approved",
   published: "Published to Google",
   auto_published: "Automatically published",
+  bulk_published: "Manager-approved bulk reply",
   publish_failed: "Publish failed",
   sync_detected_reply: "Google reply detected",
 };
@@ -226,6 +249,24 @@ export default function Reputation() {
   const [publishedBusy, setPublishedBusy] = useState(false);
   const [locationFilter, setLocationFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
+  const [venueCategory, setVenueCategory] = useState("all");
+  const [configVenueFilter, setConfigVenueFilter] = useState("all");
+  const [consentLocationId, setConsentLocationId] = useState<string | null>(null);
+  const [autoConsentIds, setAutoConsentIds] = useState<string[]>([]);
+  const [recentReviews, setRecentReviews] = useState<Review[]>([]);
+  const [recentTotal, setRecentTotal] = useState(0);
+  const [recentPage, setRecentPage] = useState(0);
+  const [recentVenue, setRecentVenue] = useState("all");
+  const [recentBusy, setRecentBusy] = useState(false);
+  const [selectedRecentIds, setSelectedRecentIds] = useState<string[]>([]);
+  const [recentDrafts, setRecentDrafts] = useState<Record<string, string>>({});
+  const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
+  const [bulkConsent, setBulkConsent] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState("");
+  const [historyVenue, setHistoryVenue] = useState("all");
+  const [googleAccounts, setGoogleAccounts] = useState<Array<{ name: string; account_name?: string; type?: string; role?: string }> | null>(null);
+  const [googleAccountsBusy, setGoogleAccountsBusy] = useState(false);
 
   const invokeRaw = async (action: string, extra: Record<string, unknown> = {}) => {
     if (!organizationSlug) throw new Error("Organization is missing");
@@ -272,10 +313,10 @@ export default function Reputation() {
     });
   };
 
-  const loadPublished = async (page = 0, source = publishedSource) => {
+  const loadPublished = async (page = 0, source = publishedSource, venue = historyVenue) => {
     setPublishedBusy(true);
     try {
-      const result = await invoke("list_published", { page, source });
+      const result = await invoke("list_published", { page, source, location_id: venue });
       setPublishedReviews(result.reviews || []);
       setPublishedPage(page);
       setPublishedTotal(Number(result.total || 0));
@@ -286,6 +327,34 @@ export default function Reputation() {
     }
   };
 
+  const loadRecent = async (page = 0, venue = recentVenue) => {
+    setRecentBusy(true);
+    try {
+      const result = await invoke("list_recent", { page, location_id: venue });
+      setRecentReviews(result.reviews || []);
+      setRecentTotal(Number(result.total || 0));
+      setRecentPage(page);
+      setSelectedRecentIds([]);
+      setRecentDrafts(Object.fromEntries((result.reviews || []).map((review: Review) => [review.id, review.ai_draft || ""])));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load recent Google reviews");
+    } finally {
+      setRecentBusy(false);
+    }
+  };
+
+  const loadAccounts = async () => {
+    setGoogleAccountsBusy(true);
+    try {
+      const result = await invoke("list_google_accounts");
+      setGoogleAccounts(result.accounts || []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not fetch connected Google accounts");
+    } finally {
+      setGoogleAccountsBusy(false);
+    }
+  };
+
   const load = async () => {
     if (!organizationSlug) return null;
     setBusy(true);
@@ -293,7 +362,7 @@ export default function Reputation() {
       const result = (await invoke("status")) as Status;
       setData(result);
       hydrateLocalState(result);
-      if (activeTab === "published") void loadPublished(publishedPage, publishedSource);
+      if (activeTab === "published" || activeTab === "auto") void loadPublished(publishedPage, publishedSource, historyVenue);
       const latestError = result.connections.find((connection) => connection.last_error)?.last_error || null;
       setSetupError(latestError);
       return result;
@@ -483,13 +552,79 @@ export default function Reputation() {
     if (!edit) return;
     setItemBusy(locationId);
     try {
-      await invoke("update_location_settings", { location_id: locationId, ...edit });
+      await invoke("update_location_settings", {
+        location_id: locationId, ...edit,
+        auto_consent_confirmed: autoConsentIds.includes(locationId),
+      });
+      setAutoConsentIds((ids) => ids.filter((id) => id !== locationId));
       toast.success("Reputation rules saved");
       await load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save location rules");
     } finally {
       setItemBusy(null);
+    }
+  };
+
+  const recentEligible = (review: Review) => {
+    const created = new Date(review.review_create_time || "").getTime();
+    return review.reply_status !== "published" && !review.google_reply_comment &&
+      Number(review.star_rating) >= 4 && review.ai_risk_level === "low" &&
+      Number.isFinite(created) && created >= Date.now() - 14 * 86_400_000 && created <= Date.now();
+  };
+
+  const toggleRecent = (reviewId: string, checked: boolean) => {
+    setSelectedRecentIds((prev) => {
+      if (!checked) return prev.filter((id) => id !== reviewId);
+      if (prev.includes(reviewId)) return prev;
+      if (prev.length >= 10) { toast.warning("Choose up to 10 reviews per approval batch."); return prev; }
+      return [...prev, reviewId];
+    });
+  };
+
+  const prepareBulk = async () => {
+    if (!selectedRecentIds.length) return;
+    setBulkBusy(true);
+    setBulkConsent(false);
+    try {
+      const fresh = { ...recentDrafts };
+      for (let i = 0; i < selectedRecentIds.length; i++) {
+        const id = selectedRecentIds[i];
+        if (!fresh[id]?.trim()) {
+          setBulkProgress(`Preparing reply ${i + 1} of ${selectedRecentIds.length}…`);
+          const result = await invoke("draft_reply", { review_id: id });
+          fresh[id] = String(result.draft || "");
+          setRecentDrafts((current) => ({ ...current, [id]: fresh[id] }));
+        }
+      }
+      if (selectedRecentIds.some((id) => !fresh[id]?.trim())) throw new Error("Some reviews have no prepared reply.");
+      setBulkPreviewOpen(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not prepare all selected replies");
+    } finally {
+      setBulkBusy(false);
+      setBulkProgress("");
+    }
+  };
+
+  const publishBulk = async () => {
+    if (!bulkConsent || !selectedRecentIds.length || selectedRecentIds.length > 10) return;
+    setBulkBusy(true);
+    try {
+      const result = await invoke("bulk_publish_replies", {
+        confirm: true, items: selectedRecentIds.map((id) => ({ id, reply: recentDrafts[id] || "" })),
+      });
+      const successes = Number(result.published || 0);
+      const failures = (result.outcomes || []).filter((entry: { status: string }) => entry.status !== "published").length;
+      toast[failures ? "warning" : "success"](`${successes} replies published to Google${failures ? `; ${failures} skipped or failed — check individual results` : ""}.`);
+      setBulkPreviewOpen(false);
+      setBulkConsent(false);
+      await loadRecent(0, recentVenue);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Batch publishing failed");
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -500,10 +635,21 @@ export default function Reputation() {
   const mapped = locations.filter((location) => location.hotel_id);
   const avg = reviews.length ? reviews.reduce((sum, review) => sum + Number(review.star_rating || 0), 0) / reviews.length : 0;
   const published = data?.stats?.published ?? reviews.filter((review) => review.reply_status === "published").length;
-  const awaiting = reviews.filter((review) => review.reply_status !== "published").length;
-  const urgent = reviews.filter((review) => review.reply_status !== "published" && review.star_rating <= 3).length;
+  const awaiting = data?.stats?.awaiting ?? reviews.filter((review) => review.reply_status !== "published").length;
+  const urgent = data?.stats?.attention ?? reviews.filter((review) => review.reply_status !== "published" && review.star_rating <= 3).length;
   const autoReady = reviews.filter((review) => review.reply_status !== "published" && review.auto_reply_eligible).length;
   const totalTracked = data?.stats?.total ?? reviews.length;
+  const allAvg = data?.stats?.average ?? avg;
+  const summary = data?.location_summary || {};
+  const categoryCounts = locations.reduce((result, location) => {
+    const key = location.business_category || "other";
+    result[key] = (result[key] || 0) + 1;
+    return result;
+  }, {} as Record<string, number>);
+  const venueCategories = ["all", "hotel", "brunch", "restaurant", "conference", "museum", "other"];
+  const visibleVenues = locations.filter((location) => venueCategory === "all" || location.business_category === venueCategory);
+  const canBulkRecent = recentReviews.filter((review) => recentEligible(review));
+  const selectedRecentReviews = selectedRecentIds.map((id) => recentReviews.find((review) => review.id === id)).filter((review): review is Review => Boolean(review));
   const responseRate = totalTracked ? Math.round((published / totalTracked) * 100) : 0;
 
   const locationNameById = useMemo(
@@ -679,11 +825,18 @@ export default function Reputation() {
           </Card>
         )}
 
-        <Tabs value={activeTab} onValueChange={(value) => { setActiveTab(value); if (value === "published") void loadPublished(0, publishedSource); }} className="space-y-4">
+        <Tabs value={activeTab} onValueChange={(value) => {
+          setActiveTab(value);
+          if (value === "automation") void loadRecent(0, recentVenue);
+          if (value === "published") { setPublishedSource("all"); void loadPublished(0, "all", historyVenue); }
+          if (value === "auto") { setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }
+        }} className="space-y-4">
           <TabsList className="h-auto flex-wrap justify-start">
             <TabsTrigger value="overview" className="gap-2"><BarChart3 className="h-4 w-4" />Overview</TabsTrigger>
             <TabsTrigger value="inbox" className="gap-2"><MessageSquareText className="h-4 w-4" />Review inbox{awaiting > 0 ? <Badge variant="secondary" className="ml-1">{awaiting}</Badge> : null}</TabsTrigger>
-            <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Locations & rules</TabsTrigger>
+            <TabsTrigger value="automation" className="gap-2"><Zap className="h-4 w-4" />Automation center <Badge variant="secondary">{data?.stats?.recentUnreplied ?? 0}</Badge></TabsTrigger>
+            <TabsTrigger value="auto" className="gap-2"><CheckCheck className="h-4 w-4" />Auto replies <Badge variant="secondary">{data?.stats?.automatic ?? 0}</Badge></TabsTrigger>
+            <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Venues & rules</TabsTrigger>
             <TabsTrigger value="published" className="gap-2"><Send className="h-4 w-4" />Published replies <Badge variant="secondary">{published}</Badge></TabsTrigger>
             <TabsTrigger value="audit" className="gap-2"><History className="h-4 w-4" />Audit trail</TabsTrigger>
           </TabsList>
@@ -691,7 +844,7 @@ export default function Reputation() {
           <TabsContent value="overview" className="space-y-4">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reviews tracked</div><div className="text-3xl font-bold mt-2">{totalTracked}</div></CardContent></Card>
-              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Recent average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{reviews.length ? avg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
+              <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Overall average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{totalTracked ? allAvg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Response rate</div><div className="text-3xl font-bold mt-2">{totalTracked ? `${responseRate}%` : "—"}</div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Awaiting reply</div><div className="text-3xl font-bold mt-2">{awaiting}</div></CardContent></Card>
               <Card className={urgent ? "border-amber-300" : ""}><CardContent className="pt-5"><div className="text-xs text-muted-foreground">1–3★ attention</div><div className="text-3xl font-bold mt-2">{urgent}</div></CardContent></Card>
@@ -726,6 +879,65 @@ export default function Reputation() {
                 <div><div className="text-muted-foreground">Connected</div><div className="font-medium mt-1">{fmtDate(data?.connections?.[0]?.created_at)}</div></div>
                 <div><div className="text-muted-foreground">Last Google sync</div><div className="font-medium mt-1">{fmtDate(data?.connections?.[0]?.last_sync_at)}</div></div>
                 <div><div className="text-muted-foreground">Managed Google listings</div><div className="font-medium mt-1">{locations.length}</div></div>
+              </CardContent>
+            </Card>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <Card><CardContent className="pt-5"><p className="text-xs text-muted-foreground">New reviews · past 14 days</p><div className="text-2xl font-semibold mt-1">{data?.stats?.recent14 ?? 0}</div><p className="text-xs text-muted-foreground mt-1">Previous 14 days: {data?.stats?.previous14 ?? 0}</p></CardContent></Card>
+              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("automation"); void loadRecent(0, "all"); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Last 14 days · need reply</p><div className="text-2xl font-semibold mt-1">{data?.stats?.recentUnreplied ?? 0}</div><p className="text-xs text-primary mt-1">Review and approve responses</p></CardContent></Card>
+              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("auto"); setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Auto-published replies</p><div className="text-2xl font-semibold mt-1">{data?.stats?.automatic ?? 0}</div><p className="text-xs text-primary mt-1">View automatic reply history</p></CardContent></Card>
+              <Card className="cursor-pointer hover:border-primary/40" onClick={() => { setActiveTab("auto"); setPublishedSource("bulk"); void loadPublished(0, "bulk", historyVenue); }}><CardContent className="pt-5"><p className="text-xs text-muted-foreground">Bulk-approved replies</p><div className="text-2xl font-semibold mt-1">{data?.stats?.bulk ?? 0}</div><p className="text-xs text-primary mt-1">View manager-approved batches</p></CardContent></Card>
+            </div>
+            <Card>
+              <CardHeader><div className="flex flex-wrap items-center justify-between gap-3">
+                <div><CardTitle className="text-lg">Connected Google Business accounts</CardTitle><p className="text-sm text-muted-foreground mt-1">Signed-in Google connections and the Business Profile accounts accessible through them.</p></div>
+                <Button variant="outline" size="sm" onClick={loadAccounts} disabled={googleAccountsBusy}>{googleAccountsBusy ? "Loading…" : "Load Google accounts"}</Button>
+              </div></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {(data?.connections || []).map((connection) => <div key={connection.id} className="flex flex-wrap justify-between gap-2 rounded-md border p-3">
+                  <div><div className="font-medium">{connection.google_account_email || connection.google_account_display_name || "Connected Google account"}</div>
+                    <div className="text-xs text-muted-foreground mt-1">Connection status: {connection.status} · Last sync: {fmtDate(connection.last_sync_at)}</div>
+                  </div><Badge variant="outline">{locations.length} linked business listings</Badge>
+                </div>)}
+                {googleAccounts === null ? <p className="text-xs text-muted-foreground">Select “Load Google accounts” to see the Google-side account names and access roles.</p> :
+                  googleAccounts.length === 0 ? <p className="text-xs text-muted-foreground">No Google Business account details returned.</p> :
+                    googleAccounts.map((account) => <div key={account.name} className="flex flex-wrap justify-between gap-2 rounded-md border px-3 py-2">
+                      <div><span className="font-medium">{account.account_name || account.name}</span>
+                        <span className="block text-xs text-muted-foreground">{account.name} · {account.type || "Business account"} · {account.role || "Role not returned"}</span>
+                      </div>
+                      <Badge variant="outline">{locations.filter((location) => location.google_account_name === account.name).length} locations</Badge>
+                    </div>)}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-lg">Performance by Google business</CardTitle><p className="text-sm text-muted-foreground">Click a venue to review its recent feedback and prepare replies.</p></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {venueCategories.map((category) => <Button key={category} size="sm" variant={venueCategory === category ? "default" : "outline"} onClick={() => { setVenueCategory(category); setConfigVenueFilter("all"); }}>
+                    {category === "all" ? "All venues" : category.charAt(0).toUpperCase() + category.slice(1)} ({category === "all" ? locations.length : categoryCounts[category] || 0})
+                  </Button>)}
+                </div>
+                <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {visibleVenues.map((location) => {
+                    const s = summary[location.id];
+                    return <button type="button" key={location.id} className="text-left rounded-lg border p-4 space-y-3 hover:border-primary/50 hover:bg-muted/20 transition-colors"
+                      onClick={() => { setRecentVenue(location.id); setActiveTab("automation"); void loadRecent(0, location.id); }}>
+                      <div className="flex flex-wrap justify-between items-start gap-2">
+                        <div className="font-semibold">{location.reply_brand_name || location.google_location_title}</div>
+                        <Badge variant="secondary" className="capitalize">{location.business_category || "other"}</Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate" title={location.google_location_title}>{location.google_location_title}</div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div><div className="text-muted-foreground">Reviews</div><div className="font-semibold text-base">{s?.total ?? 0}</div></div>
+                        <div><div className="text-muted-foreground">Rating</div><div className="font-semibold text-base">{s?.ratings ? (s.stars / s.ratings).toFixed(1) : "—"}</div></div>
+                        <div><div className="text-muted-foreground">14d pending</div><div className="font-semibold text-base">{s?.recentUnreplied ?? 0}</div></div>
+                      </div>
+                      <div className="flex flex-wrap justify-between gap-2 text-xs">
+                        <span className={location.auto_reply_enabled ? "text-emerald-700" : "text-muted-foreground"}>Auto replies: {location.auto_reply_enabled ? "Enabled" : "Off"}</span>
+                        <span className="text-primary">Open reviews →</span>
+                      </div>
+                    </button>;
+                  })}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -814,13 +1026,22 @@ export default function Reputation() {
                   <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Existing Google replies</p><p className="text-2xl font-semibold mt-1">{data?.stats?.imported ?? 0}</p></div>
                 </div>
                 <div className="max-w-sm">
-                  <Select value={publishedSource} onValueChange={(source) => { setPublishedSource(source); void loadPublished(0, source); }}>
+                  <Select value={publishedSource} onValueChange={(source) => { setPublishedSource(source); void loadPublished(0, source, historyVenue); }}>
                     <SelectTrigger><SelectValue placeholder="Published by" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All published replies</SelectItem>
                       <SelectItem value="automatic">Auto-published by HotelCare</SelectItem>
                       <SelectItem value="manager">Published by manager</SelectItem>
+                      <SelectItem value="bulk">Bulk-approved by manager</SelectItem>
                       <SelectItem value="google">Existing Google replies</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="max-w-sm">
+                  <Select value={historyVenue} onValueChange={(venue) => { setHistoryVenue(venue); void loadPublished(0, publishedSource, venue); }}>
+                    <SelectTrigger><SelectValue placeholder="Google business" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">All Google businesses</SelectItem>
+                      {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -863,6 +1084,116 @@ export default function Reputation() {
             </div>
           </TabsContent>
 
+          <TabsContent value="automation" className="space-y-4">
+            <Card>
+              <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Zap className="h-5 w-5" />Recent review automation · last 14 days</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">Select up to 10 recent 4–5★ low-risk reviews, prepare short venue-specific drafts, inspect and edit every reply, then expressly approve the batch. Nothing publishes when a review is merely selected. Older or sensitive reviews require individual approval in the inbox.</p>
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-end justify-between">
+                  <div className="w-full sm:max-w-md space-y-2"><Label>Google business</Label>
+                    <Select value={recentVenue} onValueChange={(value) => { setRecentVenue(value); void loadRecent(0, value); }}>
+                      <SelectTrigger><SelectValue placeholder="All Google venues" /></SelectTrigger>
+                      <SelectContent><SelectItem value="all">All connected venues</SelectItem>{locations.map((location) =>
+                        <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <Button variant="outline" disabled={recentBusy} onClick={() => void loadRecent(0, recentVenue)}><RefreshCw className="h-4 w-4 mr-2" />Refresh recent</Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="secondary">{recentTotal} reviews in last 14 days</Badge>
+                  <Badge variant="outline">{canBulkRecent.length} eligible on this page</Badge>
+                  <Badge variant="outline">{selectedRecentIds.length} selected</Badge>
+                  <Button size="sm" variant="outline" disabled={recentBusy || !canBulkRecent.length}
+                    onClick={() => setSelectedRecentIds(canBulkRecent.slice(0, 10).map((review) => review.id))}>Select up to 10 eligible</Button>
+                  <Button size="sm" variant="ghost" disabled={!selectedRecentIds.length} onClick={() => setSelectedRecentIds([])}>Clear</Button>
+                  <Button size="sm" disabled={bulkBusy || !selectedRecentIds.length} onClick={() => void prepareBulk()}>
+                    <Sparkles className="h-4 w-4 mr-2" />Prepare {selectedRecentIds.length || ""} replies
+                  </Button>
+                </div>
+                {bulkBusy && bulkProgress && <p role="status" className="text-sm text-muted-foreground">{bulkProgress}</p>}
+              </CardContent>
+            </Card>
+            {recentBusy ? <Card><CardContent className="py-10 text-center text-muted-foreground">Loading recent reviews…</CardContent></Card> :
+              recentReviews.length === 0 ? <Card><CardContent className="py-10 text-center text-muted-foreground">No reviews in this 14-day window for the selected venue.</CardContent></Card> :
+              <div className="space-y-3">{recentReviews.map((review) => {
+                const venue = locationById.get(review.google_location_id);
+                const eligible = recentEligible(review);
+                return <Card key={review.id} className={selectedRecentIds.includes(review.id) ? "border-primary" : ""}>
+                  <CardContent className="pt-5 flex gap-3">
+                    <Checkbox checked={selectedRecentIds.includes(review.id)} disabled={!eligible}
+                      onCheckedChange={(checked) => toggleRecent(review.id, checked === true)}
+                      aria-label={`Select review from ${review.reviewer_display_name || "guest"}`} className="mt-1" />
+                    <div className="space-y-3 min-w-0 flex-1">
+                      <div className="flex flex-wrap justify-between gap-3">
+                        <div><div className="font-semibold">{review.reviewer_display_name || "Google guest"}</div>
+                          <div className="text-xs text-muted-foreground mt-1">{venue?.reply_brand_name || venue?.google_location_title || "Google business"} · {fmtDate(review.review_create_time)}</div>
+                          <div className="mt-2">{stars(review.star_rating)}</div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 items-start">
+                          {riskBadge(review.ai_risk_level)}
+                          <Badge variant={eligible ? "outline" : "secondary"}>{review.reply_status === "published" ? "Already replied" : eligible ? "Eligible for selection" : "Individual review needed"}</Badge>
+                        </div>
+                      </div>
+                      <p className="text-sm rounded-md bg-muted/40 p-3 whitespace-pre-wrap">{review.comment || "Rating only — no written comment."}</p>
+                      {recentDrafts[review.id] && <div className="text-xs rounded-md border p-3"><span className="font-semibold">Current draft: </span>{recentDrafts[review.id]}</div>}
+                      {!eligible && review.reply_status !== "published" && <p className="text-xs text-amber-700">This review is not safe for bulk publishing. Reply individually in the Review inbox.</p>}
+                    </div>
+                  </CardContent>
+                </Card>;
+              })}</div>
+            }
+            <div className="flex justify-between items-center flex-wrap gap-2 text-sm">
+              <span className="text-muted-foreground">{recentTotal} recent reviews · Page {recentPage + 1} of {Math.max(1, Math.ceil(recentTotal / 100))}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" disabled={recentBusy || recentPage === 0} onClick={() => void loadRecent(recentPage - 1, recentVenue)}>Newer</Button>
+                <Button variant="outline" disabled={recentBusy || (recentPage + 1) * 100 >= recentTotal} onClick={() => void loadRecent(recentPage + 1, recentVenue)}>Older</Button>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="auto" className="space-y-4">
+            <Card>
+              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Zap className="h-5 w-5" />Automatic & bulk-approved reply history</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">This history shows Google replies published automatically by HotelCare separately from replies selected and approved in batches by managers. Pre-existing Google replies are not counted as automatic.</p>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <button type="button" className={`text-left rounded-lg border p-4 ${publishedSource === "automatic" ? "border-primary bg-primary/5" : "hover:bg-muted/20"}`} onClick={() => { setPublishedSource("automatic"); void loadPublished(0, "automatic", historyVenue); }}>
+                    <p className="text-xs text-muted-foreground">Unattended, authorized automatic replies</p><p className="text-2xl font-bold mt-1">{data?.stats?.automatic ?? 0}</p>
+                  </button>
+                  <button type="button" className={`text-left rounded-lg border p-4 ${publishedSource === "bulk" ? "border-primary bg-primary/5" : "hover:bg-muted/20"}`} onClick={() => { setPublishedSource("bulk"); void loadPublished(0, "bulk", historyVenue); }}>
+                    <p className="text-xs text-muted-foreground">Bulk replies explicitly approved by managers</p><p className="text-2xl font-bold mt-1">{data?.stats?.bulk ?? 0}</p>
+                  </button>
+                </div>
+                <Select value={historyVenue} onValueChange={(value) => { setHistoryVenue(value); void loadPublished(0, publishedSource, value); }}>
+                  <SelectTrigger className="max-w-md"><SelectValue placeholder="All venues" /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">All business listings</SelectItem>
+                    {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+            {publishedBusy ? <Card><CardContent className="py-8 text-center text-muted-foreground">Loading reply history…</CardContent></Card> :
+              publishedReviews.length === 0 ? <Card><CardContent className="py-8 text-center text-muted-foreground">No {publishedSource === "bulk" ? "bulk-approved" : "automatic"} replies match this filter.</CardContent></Card> :
+              <div className="space-y-3">{publishedReviews.map((review) => {
+                const venue = locationById.get(review.google_location_id);
+                return <Card key={review.id}><CardContent className="pt-5 space-y-3">
+                  <div className="flex flex-wrap justify-between gap-2"><div className="font-semibold">{review.reviewer_display_name || "Google guest"}</div>
+                    <Badge variant="outline">{originLabel[review.reply_origin || "unknown"]}</Badge></div>
+                  <div className="text-xs text-muted-foreground">{venue?.reply_brand_name || venue?.google_location_title || "Google business"} · Published {fmtDate(review.google_reply_update_time || review.replied_at)}</div>
+                  <div>{stars(review.star_rating)}</div>
+                  <p className="text-sm rounded-md bg-muted/40 p-3 whitespace-pre-wrap">{review.comment || "Rating only — no written comment."}</p>
+                  <div className="text-sm rounded-md border border-emerald-200 p-3 whitespace-pre-wrap">{review.google_reply_comment || "Google reply text unavailable"}</div>
+                </CardContent></Card>;
+              })}</div>}
+            <div className="flex justify-between items-center gap-2 flex-wrap text-sm text-muted-foreground">
+              <span>{publishedTotal} matching replies · Page {publishedPage + 1}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" disabled={publishedBusy || publishedPage === 0} onClick={() => void loadPublished(publishedPage - 1, publishedSource, historyVenue)}>Newer</Button>
+                <Button variant="outline" disabled={publishedBusy || (publishedPage + 1) * 50 >= publishedTotal} onClick={() => void loadPublished(publishedPage + 1, publishedSource, historyVenue)}>Older</Button>
+              </div>
+            </div>
+          </TabsContent>
+
           <TabsContent value="locations" className="space-y-4">
             <Card>
               <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Building2 className="h-5 w-5" />Google Business locations</CardTitle></CardHeader>
@@ -872,9 +1203,23 @@ export default function Reputation() {
               </CardContent>
             </Card>
 
+            <Card><CardContent className="pt-4 space-y-3">
+              <div className="text-sm font-medium">Find venue settings quickly</div>
+              <div className="flex flex-wrap gap-2">
+                {venueCategories.map((category) => <Button key={category} size="sm" variant={venueCategory === category ? "default" : "outline"} onClick={() => { setVenueCategory(category); setConfigVenueFilter("all"); }}>
+                  {category === "all" ? "All venues" : category.charAt(0).toUpperCase() + category.slice(1)} ({category === "all" ? locations.length : categoryCounts[category] || 0})
+                </Button>)}
+              </div>
+              <Select value={configVenueFilter} onValueChange={(value) => { setConfigVenueFilter(value); if (value !== "all") setVenueCategory("all"); }}>
+                <SelectTrigger className="max-w-md"><SelectValue placeholder="Select a specific Google listing" /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All locations</SelectItem>
+                  {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </CardContent></Card>
             {locations.length === 0 ? (
               <Card><CardContent className="py-14 text-center text-muted-foreground">{googleSetup.quotaPending ? "Google location discovery is waiting for API approval." : "No Google Business locations discovered yet."}</CardContent></Card>
-            ) : locations.map((location) => {
+            ) : visibleVenues.filter((location) => configVenueFilter === "all" || location.id === configVenueFilter).map((location) => {
               const edit = locationEdits[location.id];
               if (!edit) return null;
               return (
@@ -900,12 +1245,20 @@ export default function Reputation() {
 
                     <div className="grid lg:grid-cols-2 gap-4">
                       <div className="space-y-2"><Label>Reply signature</Label><Input value={edit.reply_signature || ""} onChange={(e) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, reply_signature: e.target.value } }))} placeholder="e.g. The Hotel Ottofiori Team" /></div>
-                      <div className="rounded-lg border p-3 flex items-center justify-between gap-4"><div><div className="font-medium text-sm">Automatic publishing</div><div className="text-xs text-muted-foreground mt-1">Only eligible low-risk reviews can ever be auto-published.</div></div><Switch checked={edit.auto_reply_enabled} disabled={edit.reply_mode === "draft_only"} onCheckedChange={(checked) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, auto_reply_enabled: checked } }))} /></div>
+                      <div className="rounded-lg border p-3 flex items-center justify-between gap-4"><div><div className="font-medium text-sm">Automatic publishing</div><div className="text-xs text-muted-foreground mt-1">Enable for this venue, including independent brunches. Requires explicit approval. Future 4–5★ low-risk reviews only.</div></div><Switch checked={edit.auto_reply_enabled} onCheckedChange={(checked) => {
+                        if (checked && !location.auto_reply_enabled) { setConsentLocationId(location.id); return; }
+                        setLocationEdits((current) => ({ ...current, [location.id]: { ...edit,
+                          auto_reply_enabled: checked,
+                          reply_mode: checked && edit.reply_mode === "draft_only" ? "auto_positive" : edit.reply_mode } }));
+                      }} /></div>
                     </div>
 
                     <div className="space-y-2"><Label>Property context for AI</Label><Textarea rows={3} value={edit.brand_context || ""} onChange={(e) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, brand_context: e.target.value } }))} placeholder="Optional factual context: breakfast hours, positioning, service style, contact instructions. The AI is told never to invent information." /></div>
 
                     <div className="rounded-lg bg-muted/40 p-3 text-sm flex gap-2"><ShieldCheck className="h-4 w-4 mt-0.5 shrink-0" /><span>Recommended starting policy: 4–5★ may become eligible for automatic replies after testing; 1–3★ and any high-risk complaint remain manager-controlled.</span></div>
+                    {edit.auto_reply_enabled && !location.auto_reply_enabled && (
+                      <p className="text-xs text-amber-700">Automation is not live until you save these rules. It will apply to new reviews only.</p>
+                    )}
                     <Button onClick={() => saveLocation(location.id)} disabled={itemBusy === location.id}><Save className="h-4 w-4 mr-2" />Save location rules</Button>
                   </CardContent>
                 </Card>
@@ -938,6 +1291,73 @@ export default function Reputation() {
             </Card>
           </TabsContent>
         </Tabs>
+        <AlertDialog open={Boolean(consentLocationId)} onOpenChange={(open) => { if (!open) setConsentLocationId(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Authorize automatic Google replies for this business?</AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <span className="block font-medium text-foreground">
+                  {locations.find((location) => location.id === consentLocationId)?.reply_brand_name || "Selected Google business"}
+                </span>
+                <span className="block">When you save these settings, HotelCare may automatically publish replies to NEW 4–5★ low-risk reviews for this specific listing, after the configured delay. Negative and high-risk reviews remain manager-controlled.</span>
+                <span className="block">Reviews from the previous 14 days are not published automatically by this switch; use Automation center to select and approve those separately. You can disable future automatic publishing at any time.</span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep manual approval</AlertDialogCancel>
+              <AlertDialogAction onClick={() => {
+                if (!consentLocationId) return;
+                const id = consentLocationId;
+                setLocationEdits((current) => {
+                  const edit = current[id];
+                  return edit ? { ...current, [id]: { ...edit, auto_reply_enabled: true,
+                    reply_mode: edit.reply_mode === "draft_only" ? "auto_positive" : edit.reply_mode,
+                    min_auto_rating: Math.max(4, edit.min_auto_rating),
+                    require_approval_below_rating: Math.max(4, edit.require_approval_below_rating) } } : current;
+                });
+                setAutoConsentIds((ids) => Array.from(new Set([...ids, id])));
+                setConsentLocationId(null);
+                toast.info("Authorization noted. Click Save location rules to enable automation.");
+              }}>Authorize for this business</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <Dialog open={bulkPreviewOpen} onOpenChange={(open) => { if (!bulkBusy) { setBulkPreviewOpen(open); if (!open) setBulkConsent(false); } }}>
+          <DialogContent className="max-w-3xl max-h-[88vh] flex flex-col overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>Review and approve {selectedRecentReviews.length} Google replies</DialogTitle>
+              <DialogDescription>Check each reply, business identity and star rating. Editing here changes only this batch. Replies are sent to Google only after your explicit confirmation.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 overflow-y-auto min-h-0 flex-1 pr-2">
+              {selectedRecentReviews.map((review) => {
+                const venue = locationById.get(review.google_location_id);
+                return <div key={review.id} className="rounded-lg border p-3 space-y-2">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <div className="font-semibold text-sm">{venue?.reply_brand_name || venue?.google_location_title || "Google business"} · {review.reviewer_display_name || "Google guest"}</div>
+                    <div>{stars(review.star_rating)}</div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Received {fmtDate(review.review_create_time)}</p>
+                  <div className="text-sm rounded-md bg-muted/40 p-2 whitespace-pre-wrap">{review.comment || "Rating only — no written comment"}</div>
+                  <Label htmlFor={`bulk-draft-${review.id}`}>Reply to publish</Label>
+                  <Textarea id={`bulk-draft-${review.id}`} rows={3} maxLength={1500}
+                    value={recentDrafts[review.id] || ""}
+                    onChange={(event) => { setRecentDrafts((current) => ({ ...current, [review.id]: event.target.value })); setBulkConsent(false); }} />
+                </div>;
+              })}
+              <label className="flex gap-3 items-start rounded-lg border bg-muted/30 p-3 text-sm cursor-pointer">
+                <Checkbox checked={bulkConsent} onCheckedChange={(value) => setBulkConsent(value === true)} className="mt-0.5" />
+                <span>I have reviewed each reply and explicitly authorize publishing these {selectedRecentReviews.length} replies to their respective Google Business Profiles. I understand these are public replies.</span>
+              </label>
+            </div>
+            <DialogFooter className="mt-3 shrink-0">
+              <Button variant="outline" disabled={bulkBusy} onClick={() => { setBulkPreviewOpen(false); setBulkConsent(false); }}>Cancel</Button>
+              <Button disabled={!bulkConsent || bulkBusy || selectedRecentReviews.length === 0 || selectedRecentReviews.some((review) => !(recentDrafts[review.id] || "").trim())} onClick={() => void publishBulk()}>
+                <Send className="h-4 w-4 mr-2" />{bulkBusy ? "Publishing…" : `Publish ${selectedRecentReviews.length} reviewed replies`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

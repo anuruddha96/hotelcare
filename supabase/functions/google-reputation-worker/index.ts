@@ -357,7 +357,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               const retainedDraft = !changed ? existing?.ai_draft || null : null;
               const replyStatus = hasGoogleReply ? "published" : retainedDraft ? "draft" : "unreplied";
               const origin = hasGoogleReply
-                ? (["automatic", "manager"].includes(existing?.reply_origin) ? existing.reply_origin : "google")
+                ? (["automatic", "manager", "bulk"].includes(existing?.reply_origin) ? existing.reply_origin : "google")
                 : "unknown";
               const eligible = autoEligible(location, stars, analysis.risk, googleReview.createTime || updateTime);
 
