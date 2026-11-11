@@ -6,6 +6,8 @@
 // draft         – current state of a draft card (pending / sent / …)
 // send          – sends a draft after the person tapped Send on its card
 // discard       – drops a draft
+// imap_discover – suggested server settings for an address (other mailboxes)
+// imap_connect  – checks address + password against the mail servers and saves it
 //
 // The chat function only ever creates drafts. This is the one place an email
 // leaves HotelCare, and only for the draft's owner, from their own mailbox.
@@ -13,16 +15,19 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import {
-  accessTokenFor,
+  encryptToken,
+  imapEnabled,
   MailAuthError,
-  type MailAccount,
   mailConfigured,
   type MailProvider,
   mailRedirectUri,
   providerConfig,
-  sendDraft,
 } from "../_shared/assistantMail.ts";
-import { canUseMail, validateDraft } from "../_shared/mailFormat.ts";
+import { type MailboxAccount, mailboxSend } from "../_shared/assistantMailbox.ts";
+import { canUseMail, normalizeAddress, validateDraft } from "../_shared/mailFormat.ts";
+
+const FAILED_CONNECTS_PER_HOUR = 8;
+const imapModule = () => import("../_shared/assistantMailImap.ts");
 
 const DAILY_SEND_LIMIT = 40;
 
@@ -88,6 +93,7 @@ Deno.serve(async (req) => {
         providers: {
           google: allowed && providerConfig("google").enabled,
           microsoft: allowed && providerConfig("microsoft").enabled,
+          imap: allowed && imapEnabled(),
         },
         accounts: accounts ?? [],
       });
@@ -129,6 +135,103 @@ Deno.serve(async (req) => {
         params.set("prompt", "select_account");
       }
       return json({ ok: true, authorization_url: `${config.authorizeUrl}?${params}` });
+    }
+
+    if (action === "imap_discover" || action === "imap_connect") {
+      if (!imapEnabled()) return json({ error: "Connecting other mailboxes is switched off." }, 409);
+      const email = normalizeAddress(body?.email);
+      if (!email) return json({ error: "Enter a valid email address." }, 400);
+      const { discoverSettings, verifyImapAccount, ImapLoginError, MailHostError, IMAP_PORT, SMTP_PORT } = await imapModule();
+      const discovery = await discoverSettings(email);
+
+      if (action === "imap_discover") {
+        if (discovery.kind === "use_microsoft") return json({ ok: true, microsoft: true });
+        return json({ ok: true, microsoft: false, suggested: discovery.candidates[0], gmail: discovery.note === "gmail" });
+      }
+
+      const since = new Date(Date.now() - 3_600_000).toISOString();
+      const { count: failures } = await service
+        .from("assistant_mail_log")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("outcome", "failed")
+        .eq("subject", "Mailbox connection failed")
+        .gte("created_at", since);
+      if ((failures ?? 0) >= FAILED_CONNECTS_PER_HOUR) {
+        return json({ error: "Too many failed attempts. Try again in an hour." }, 429);
+      }
+      const password = String(body?.password ?? "");
+      if (!password || password.length > 512) return json({ error: "Enter the mailbox password." }, 400);
+      const username = String(body?.username ?? "").trim().slice(0, 254) || email;
+      const host = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/\.$/, "").slice(0, 253);
+      const manual = host(body?.imap_host) && host(body?.smtp_host)
+        ? [{ imap: host(body?.imap_host), smtp: host(body?.smtp_host) }]
+        : null;
+      if (!manual && discovery.kind === "use_microsoft") {
+        return json({ error: "This is an Outlook / Microsoft 365 mailbox. Use the Microsoft option instead.", microsoft: true }, 409);
+      }
+      const candidates = manual ?? (discovery.kind === "settings" ? discovery.candidates : []);
+      const testPorts = Deno.env.get("ASSISTANT_MAIL_ALLOW_PRIVATE_HOSTS") === "true";
+      let lastError = "The mail servers for this address could not be found. Enter them under Advanced.";
+      let connected: { imap: string; smtp: string } | null = null;
+      for (const candidate of candidates.slice(0, 4)) {
+        const settings = {
+          imap_host: candidate.imap,
+          imap_port: testPorts ? Number(body?.imap_port ?? IMAP_PORT) : IMAP_PORT,
+          smtp_host: candidate.smtp,
+          smtp_port: testPorts ? Number(body?.smtp_port ?? SMTP_PORT) : SMTP_PORT,
+          username,
+        };
+        try {
+          await verifyImapAccount(settings, password);
+          connected = candidate;
+          const { error } = await service.from("assistant_mail_accounts").upsert(
+            {
+              user_id: userId,
+              organization_slug: profile.organization_slug,
+              provider: "imap",
+              email,
+              display_name: String(body?.display_name ?? "").trim().slice(0, 120) || null,
+              refresh_token_ciphertext: await encryptToken(password),
+              access_token_ciphertext: null,
+              access_token_expires_at: null,
+              settings,
+              scopes: "imap smtp",
+              status: "active",
+            },
+            { onConflict: "user_id,provider,email" },
+          );
+          if (error) throw error;
+          break;
+        } catch (error) {
+          if (error instanceof ImapLoginError) {
+            // Right server, wrong password: trying other servers would not help.
+            lastError = discovery.kind === "settings" && discovery.note === "gmail"
+              ? "Google did not accept the password. Gmail needs an app password (Google Account → Security → 2-Step Verification → App passwords)."
+              : error.message;
+            break;
+          }
+          if (error instanceof MailHostError) {
+            lastError = error.message;
+            if (manual) break;
+            continue;
+          }
+          if (!(error instanceof Error) || !/could not be reached/.test(error.message)) throw error;
+          lastError = manual ? error.message : lastError;
+        }
+      }
+      await service.from("assistant_mail_log").insert({
+        user_id: userId,
+        organization_slug: profile.organization_slug,
+        provider: "imap",
+        from_email: email,
+        to_addresses: [],
+        subject: connected ? "Mailbox connected" : "Mailbox connection failed",
+        outcome: connected ? "connected" : "failed",
+        error: connected ? null : lastError.slice(0, 300),
+      });
+      if (!connected) return json({ error: lastError }, 400);
+      return json({ ok: true, email, imap_host: connected.imap, smtp_host: connected.smtp });
     }
 
     if (action === "disconnect") {
@@ -232,8 +335,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-      const token = await accessTokenFor(service, account as MailAccount);
-      const providerId = await sendDraft(token, account as MailAccount, {
+      const providerId = await mailboxSend(service, account as MailboxAccount, {
         ...checked.draft,
         reply_to_message_id: draft.reply_to_message_id,
         reply_thread_id: draft.reply_thread_id,
@@ -247,7 +349,8 @@ Deno.serve(async (req) => {
       const message = error instanceof Error ? error.message.slice(0, 300) : "Send failed";
       await service.from("assistant_mail_drafts").update({ status: "failed", error: message }).eq("id", draftId);
       await service.from("assistant_mail_log").insert({ ...log, outcome: "failed", error: message });
-      return json({ error: error instanceof MailAuthError ? "Your mailbox needs to be reconnected before sending." : `The email was not sent: ${message}` }, error instanceof MailAuthError ? 409 : 502);
+      const authProblem = error instanceof MailAuthError || (error as any)?.code === "EAUTH";
+      return json({ error: authProblem ? "Your mailbox needs to be reconnected before sending." : `The email was not sent: ${message}` }, authProblem ? 409 : 502);
     }
   } catch (error) {
     console.error("assistant-mail error", error);

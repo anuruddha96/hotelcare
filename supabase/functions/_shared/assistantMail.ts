@@ -86,8 +86,13 @@ export function mailRedirectUri(): string {
   return `${Deno.env.get("SUPABASE_URL")}/functions/v1/assistant-mail-oauth-callback`;
 }
 
+/** Self-service IMAP needs only the encryption key; an admin can switch it off. */
+export function imapEnabled(): boolean {
+  return Boolean(tokenKeyRaw()) && Deno.env.get("ASSISTANT_MAIL_IMAP_ENABLED") !== "false";
+}
+
 export function mailConfigured(): boolean {
-  return Boolean(tokenKeyRaw()) && (providerConfig("google").enabled || providerConfig("microsoft").enabled);
+  return Boolean(tokenKeyRaw()) && (providerConfig("google").enabled || providerConfig("microsoft").enabled || imapEnabled());
 }
 
 // -------------------------------------------------------------- encryption

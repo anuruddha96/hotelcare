@@ -6,14 +6,8 @@
 // email can contain text written to manipulate an AI.
 
 import { jsonSchema, tool } from "npm:ai@7";
-import {
-  accessTokenFor,
-  MailAuthError,
-  type MailAccount,
-  mailConfigured,
-  readMail,
-  searchMail,
-} from "./assistantMail.ts";
+import { MailAuthError, mailConfigured } from "./assistantMail.ts";
+import { type MailboxAccount, mailboxRead, mailboxSearch } from "./assistantMailbox.ts";
 import {
   canUseMail,
   externalRecipients,
@@ -42,17 +36,17 @@ export function mailToolsAvailable(role: string | null | undefined): boolean {
 export function buildMailTools(ctx: Ctx): Record<string, any> {
   if (!mailToolsAvailable(ctx.profile.role)) return {};
   const { service, profile } = ctx;
-  let accountsPromise: Promise<MailAccount[]> | null = null;
+  let accountsPromise: Promise<MailboxAccount[]> | null = null;
   const accounts = () => {
     accountsPromise ??= service
       .from("assistant_mail_accounts")
       .select("*")
       .eq("user_id", profile.id)
       .order("created_at")
-      .then(({ data }: { data: MailAccount[] | null }) => data ?? []);
+      .then(({ data }: { data: MailboxAccount[] | null }) => data ?? []);
     return accountsPromise!;
   };
-  const pick = async (mailbox: string | null | undefined): Promise<MailAccount | { error: string }> => {
+  const pick = async (mailbox: string | null | undefined): Promise<MailboxAccount | { error: string }> => {
     const list = await accounts();
     if (!list.length) return { error: NOT_CONNECTED };
     if (mailbox) {
@@ -63,13 +57,15 @@ export function buildMailTools(ctx: Ctx): Record<string, any> {
     }
     return list.find((a) => a.status === "active") ?? list[0];
   };
-  const withToken = async <T>(account: MailAccount, run: (token: string) => Promise<T>): Promise<T | { ok: false; error: string }> => {
+  const withMailbox = async <T>(account: MailboxAccount, run: () => Promise<T>): Promise<T | { ok: false; error: string }> => {
     try {
-      return await run(await accessTokenFor(service, account));
+      return await run();
     } catch (error) {
-      if (error instanceof MailAuthError) {
+      if (error instanceof MailAuthError || (error as any)?.authenticationFailed) {
         return { ok: false, error: `The mailbox ${account.email} needs to be reconnected from Mailboxes in the sidebar.` };
       }
+      const message = (error as Error)?.message ?? "";
+      if (/no longer in the inbox|not found|not valid/i.test(message)) return { ok: false, error: message };
       console.error("assistant mail tool failed", error);
       return { ok: false, error: "The mailbox could not be reached just now." };
     }
@@ -97,8 +93,8 @@ export function buildMailTools(ctx: Ctx): Record<string, any> {
       execute: async ({ query, unreadOnly, days, mailbox }) => {
         const account = await pick(mailbox);
         if ("error" in account) return { ok: false, error: account.error };
-        return await withToken(account, async (token) => {
-          const messages = await searchMail(token, account.provider, {
+        return await withMailbox(account, async () => {
+          const messages = await mailboxSearch(service, account, {
             query: query ? String(query) : null,
             unreadOnly: Boolean(unreadOnly),
             days: Number(days ?? 7) || 7,
@@ -133,8 +129,8 @@ export function buildMailTools(ctx: Ctx): Record<string, any> {
       execute: async ({ messageId, mailbox }) => {
         const account = await pick(mailbox);
         if ("error" in account) return { ok: false, error: account.error };
-        return await withToken(account, async (token) => {
-          const message = await readMail(token, account.provider, String(messageId));
+        return await withMailbox(account, async () => {
+          const message = await mailboxRead(service, account, String(messageId));
           return {
             ok: true,
             mailbox: account.email,
@@ -173,9 +169,9 @@ export function buildMailTools(ctx: Ctx): Record<string, any> {
         if ("error" in account) return { ok: false, error: account.error };
         let reply: { id: string; thread: string | null; header: string | null; subject: string; from: string } | null = null;
         if (replyToMessageId) {
-          const original = await withToken(account, (token) => readMail(token, account.provider, String(replyToMessageId)));
+          const original = await withMailbox(account, () => mailboxRead(service, account, String(replyToMessageId)));
           if ("ok" in original && original.ok === false) return original;
-          const message = original as Awaited<ReturnType<typeof readMail>>;
+          const message = original as Awaited<ReturnType<typeof mailboxRead>>;
           reply = { id: message.id, thread: message.thread_id, header: message.header_message_id, subject: message.subject, from: message.from };
         }
         const checked = validateDraft({

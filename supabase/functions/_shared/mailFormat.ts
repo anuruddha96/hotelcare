@@ -133,7 +133,13 @@ export function buildMimeMessage(params: {
   return utf8Base64(lines.join("\r\n")).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+const ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ",
+  ndash: "–", mdash: "—", hellip: "…", euro: "€", rsquo: "’", lsquo: "‘", rdquo: "”", ldquo: "“",
+  bull: "•", middot: "·", copy: "©", reg: "®", trade: "™", times: "×", deg: "°",
+  aacute: "á", eacute: "é", iacute: "í", oacute: "ó", uacute: "ú", ouml: "ö", uuml: "ü", auml: "ä",
+  Aacute: "Á", Eacute: "É", Iacute: "Í", Oacute: "Ó", Uacute: "Ú", Ouml: "Ö", Uuml: "Ü", Auml: "Ä", szlig: "ß",
+};
 
 /** Readable text from an HTML email. Good enough for a model to read; not a renderer. */
 export function htmlToText(html: string): string {
@@ -148,7 +154,7 @@ export function htmlToText(html: string): string {
         const n = code[1].toLowerCase() === "x" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
         return Number.isFinite(n) && n > 0 && n < 0x110000 ? String.fromCodePoint(n) : " ";
       }
-      return ENTITIES[code.toLowerCase()] ?? match;
+      return ENTITIES[code] ?? ENTITIES[code.toLowerCase()] ?? match;
     })
     .replace(/[ \t\f\v]+/g, " ")
     .replace(/ *\n */g, "\n")
@@ -177,4 +183,27 @@ export function stripQuotedHistory(text: string): string {
 export function untrustedMailText(text: string, max = 6000): string {
   const clipped = text.length > max ? `${text.slice(0, max)}\n[… shortened]` : text;
   return `<email_content untrusted="true">\n${clipped.replace(/<\/?email_content[^>]*>/gi, "")}\n</email_content>`;
+}
+
+/** True for loopback, private, link-local, CGNAT, multicast and other non-public ranges. */
+export function isPrivateAddress(address: string): boolean {
+  const a = address.toLowerCase();
+  if (a.includes(":")) {
+    if (a === "::1" || a === "::") return true;
+    if (a.startsWith("fe8") || a.startsWith("fe9") || a.startsWith("fea") || a.startsWith("feb")) return true;
+    if (a.startsWith("fc") || a.startsWith("fd")) return true;
+    const mapped = a.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    return mapped ? isPrivateAddress(mapped[1]) : false;
+  }
+  const p = a.split(".").map(Number);
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
+  const [x, y] = p;
+  return (
+    x === 0 || x === 10 || x === 127 || x >= 224 ||
+    (x === 100 && y >= 64 && y <= 127) ||
+    (x === 169 && y === 254) ||
+    (x === 172 && y >= 16 && y <= 31) ||
+    (x === 192 && y === 168) ||
+    (x === 198 && (y === 18 || y === 19))
+  );
 }

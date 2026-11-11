@@ -1,4 +1,5 @@
--- HotelCare AI: personal mailbox connection (Gmail / Microsoft 365).
+-- HotelCare AI: personal mailbox connection (Gmail / Microsoft 365 via OAuth,
+-- or any other mailbox via IMAP + SMTP with the person's own password).
 --
 -- A manager connects their OWN mailbox. The assistant can then search and read
 -- it and prepare replies, but an email only leaves after the person taps Send
@@ -14,10 +15,13 @@ CREATE TABLE IF NOT EXISTS public.assistant_mail_accounts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   organization_slug text,
-  provider text NOT NULL CHECK (provider IN ('google', 'microsoft')),
+  provider text NOT NULL CHECK (provider IN ('google', 'microsoft', 'imap')),
   email text NOT NULL,
   display_name text,
+  -- OAuth: the encrypted refresh token. IMAP: the encrypted mailbox password.
   refresh_token_ciphertext text NOT NULL,
+  -- IMAP only: {imap_host, imap_port, smtp_host, smtp_port, username}. No secrets.
+  settings jsonb NOT NULL DEFAULT '{}'::jsonb,
   access_token_ciphertext text,
   access_token_expires_at timestamptz,
   scopes text,
