@@ -21,6 +21,7 @@ import { SubscriptionStatusMenu } from '@/components/layout/SubscriptionStatusMe
 
 import { RevenueAutomationNotifications } from '@/components/revenue/RevenueAutomationNotifications';
 import { AnnouncementsBell } from '@/components/system/AnnouncementsBell';
+import { ReputationAlertsBell } from '@/components/reputation/ReputationAlertsBell';
 import { Building2, CreditCard, LogOut, Settings, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
 import { Link, useParams, useNavigate } from 'react-router-dom';
@@ -142,6 +143,7 @@ export function Header() {
               <LiveSyncIndicator />
             )}
             <RevenueAutomationNotifications />
+            <ReputationAlertsBell />
             <AnnouncementsBell />
             <TrainingHelpButton />
             
