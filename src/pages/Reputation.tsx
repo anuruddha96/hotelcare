@@ -233,7 +233,8 @@ const eventLabel: Record<string, string> = {
   draft_edited: "Draft edited",
   approved: "Reply approved",
   published: "Published to Google",
-  auto_published: "Automatically published",
+  auto_published: "Automatically published by HotelCare AI",
+  historical_auto_published: "HotelCare AI · 14-day historical catch-up",
   bulk_published: "Manager-approved bulk reply",
   publish_failed: "Publish failed",
   sync_detected_reply: "Google reply detected",
@@ -1230,6 +1231,17 @@ export default function Reputation() {
                     </SelectContent>
                   </Select>
                 </div>
+                {publishedSource === "automatic" && (
+                  <div className="max-w-sm">
+                    <Select value={publishedKind} onValueChange={(kind) => { setPublishedKind(kind); void loadPublished(0, publishedSource, historyVenue, kind); }}>
+                      <SelectTrigger><SelectValue placeholder="Automatic reply type" /></SelectTrigger>
+                      <SelectContent><SelectItem value="all">All HotelCare AI replies</SelectItem>
+                        <SelectItem value="new_positive">New-review automation</SelectItem>
+                        <SelectItem value="historical_14d">14-day catch-up automation</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="max-w-sm">
                   <Select value={historyVenue} onValueChange={(venue) => { setHistoryVenue(venue); void loadPublished(0, publishedSource, venue); }}>
                     <SelectTrigger><SelectValue placeholder="Google business" /></SelectTrigger>
@@ -1253,7 +1265,11 @@ export default function Reputation() {
                             <div className="mt-2">{stars(review.star_rating)}</div>
                           </div>
                           <div className="flex flex-wrap items-start gap-2">
-                            <Badge variant={review.reply_origin === "automatic" ? "default" : "outline"}>{originLabel[review.reply_origin || "unknown"]}</Badge>
+                            <Badge variant={review.reply_origin === "automatic" ? "default" : "outline"}>
+                              {review.reply_origin === "automatic" && review.auto_reply_kind === "historical_14d"
+                                ? "Replied by HotelCare AI · 14-day catch-up"
+                                : originLabel[review.reply_origin || "unknown"]}
+                            </Badge>
                             <Badge variant="secondary">{fmtDate(review.google_reply_update_time || review.replied_at)}</Badge>
                           </div>
                         </div>
