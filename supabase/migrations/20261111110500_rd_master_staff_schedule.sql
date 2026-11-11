@@ -216,3 +216,70 @@ USING (
       )
   )
 );
+
+
+-- Job title is an HR position label, not an authorization role.
+-- This narrow, audited RPC changes only profiles.job_title; it never grants
+-- access by altering role/is_super_admin/organization_slug.
+CREATE TABLE IF NOT EXISTS public.rd_staff_position_history (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id uuid NOT NULL REFERENCES public.profiles(id),
+  editor_id uuid NOT NULL REFERENCES public.profiles(id),
+  old_position text,
+  new_position text,
+  changed_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.rd_staff_position_history ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "RD HR and executives view position history"
+ON public.rd_staff_position_history FOR SELECT TO authenticated
+USING (
+  public.get_user_organization_slug((select auth.uid())) = 'rdhotels'
+  AND public.get_user_role((select auth.uid()))::text IN
+    ('admin','top_management','top_management_manager','hr')
+  AND EXISTS (
+    SELECT 1 FROM public.profiles p
+    WHERE p.id = employee_id AND p.organization_slug = 'rdhotels'
+  )
+);
+
+CREATE FUNCTION public.rd_set_staff_position(_employee_id uuid, _position text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''
+AS $body$
+DECLARE
+  actor public.profiles%ROWTYPE;
+  employee public.profiles%ROWTYPE;
+  normalized_position text;
+BEGIN
+  SELECT * INTO actor FROM public.profiles WHERE id = auth.uid();
+  SELECT * INTO employee FROM public.profiles WHERE id = _employee_id FOR UPDATE;
+  IF actor.id IS NULL OR actor.deleted_at IS NOT NULL
+     OR employee.id IS NULL OR employee.deleted_at IS NOT NULL
+     OR actor.organization_slug IS DISTINCT FROM 'rdhotels'
+     OR employee.organization_slug IS DISTINCT FROM 'rdhotels'
+     OR actor.role::text NOT IN ('admin','top_management','top_management_manager','hr','manager','housekeeping_manager') THEN
+    RAISE EXCEPTION 'Not authorized to update staff position';
+  END IF;
+  IF actor.role::text IN ('manager','housekeeping_manager') AND NOT EXISTS (
+    SELECT 1 FROM public.hotel_configurations h
+    JOIN public.organizations o ON o.id = h.organization_id
+    WHERE o.slug = 'rdhotels'
+      AND actor.assigned_hotel IN (h.hotel_id, h.hotel_name)
+      AND employee.assigned_hotel IN (h.hotel_id, h.hotel_name)
+  ) THEN
+    RAISE EXCEPTION 'Position belongs to another property';
+  END IF;
+  normalized_position := nullif(btrim(_position), '');
+  IF length(coalesce(normalized_position,'')) > 120 THEN
+    RAISE EXCEPTION 'Position title cannot exceed 120 characters';
+  END IF;
+  IF employee.job_title IS DISTINCT FROM normalized_position THEN
+    UPDATE public.profiles SET job_title = normalized_position, updated_at = now()
+    WHERE id = _employee_id;
+    INSERT INTO public.rd_staff_position_history (employee_id, editor_id, old_position, new_position)
+    VALUES (_employee_id, auth.uid(), employee.job_title, normalized_position);
+  END IF;
+END;
+$body$;
+REVOKE ALL ON FUNCTION public.rd_set_staff_position(uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rd_set_staff_position(uuid,text) TO authenticated;
