@@ -21,6 +21,7 @@ import { DoneRoomsDialog } from './DoneRoomsDialog';
 import { EarlySignoutApprovalView } from './EarlySignoutApprovalView';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { HotelRoomOverview } from './HotelRoomOverview';
+import { FutureHousekeepingOverview } from './FutureHousekeepingOverview';
 import { PublicAreaAssignment } from './PublicAreaAssignment';
 import { AssignmentSuccessAnimation } from './AssignmentSuccessAnimation';
 import { PmsRefreshButton } from './PmsRefreshButton';
@@ -163,6 +164,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayBudapest());
+  const isFutureDate = selectedDate > todayBudapest();
   const previousBusinessDateRef = useRef(todayBudapest());
   const [loading, setLoading] = useState(true);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
@@ -201,7 +203,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [successAnimation, setSuccessAnimation] = useState<{ show: boolean; roomCount: number; staffCount: number }>({ show: false, roomCount: 0, staffCount: 0 });
 
   // Staged (unsaved) drag & drop moves — no dialog per move, one blanket apply.
-  const stagedEnabled = venuesEnabled && canDragAssign;
+  const stagedEnabled = venuesEnabled && canDragAssign && !isFutureDate;
   const { moves: stagedMoves, restored: stagedRestored } = useStagedMoves();
   const [applying, setApplying] = useState(false);
 
@@ -969,16 +971,16 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
             onChange={(e) => setSelectedDate(e.target.value)}
             className="px-3 py-2 border rounded-md"
           />
-          {venuesEnabled && selectedDate > todayBudapest() && <Badge variant="outline" className="gap-1"><Calendar className="h-3 w-3" />Prepared work · activates on this date</Badge>}
+          {isFutureDate && <Badge variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-900"><Calendar className="h-3 w-3" />Future plan for {selectedDate} · today's work is not being edited</Badge>}
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
-          {profile && hasManagerPowers(profile.role) && (
+          {!isFutureDate && profile && hasManagerPowers(profile.role) && (
             <PmsRefreshButton />
           )}
           {profile && hasManagerPowers(profile.role) && (
             <>
-              {!isSlntTenant && <Button
+              {!isFutureDate && !isSlntTenant && <Button
                 variant={bulkUnassignMode ? "destructive" : "outline"}
                 onClick={() => {
                   setBulkUnassignMode(!bulkUnassignMode);
@@ -990,7 +992,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 {bulkUnassignMode ? t('common.cancel') : t('team.bulkUnassign')}
               </Button>}
               
-              {!isSlntTenant && bulkUnassignMode && selectedAssignments.length > 0 && (
+              {!isFutureDate && !isSlntTenant && bulkUnassignMode && selectedAssignments.length > 0 && (
                 <Button
                   variant="destructive"
                   onClick={() => setUnassignDialogOpen(true)}
@@ -1011,7 +1013,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 <Wand2 className="h-4 w-4" />
                 <span className="truncate">{isSlntTenant ? (hu ? 'Újraelosztás' : 'Rebalance') : t('manager.autoAssign')}</span>
                </Button>
-               {!isSlntTenant && (
+               {!isFutureDate && !isSlntTenant && (
                  <Button
                    type="button"
                    variant="outline"
@@ -1024,7 +1026,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                  </Button>
                )}
 
-               {!isSlntTenant && <Button
+               {!isFutureDate && !isSlntTenant && <Button
                  variant="outline"
                  onClick={() => setPublicAreaDialogOpen(true)}
                  disabled={!slntRosterReady}
@@ -1034,7 +1036,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                  <span className="truncate">{t('manager.publicAreas')}</span>
                </Button>}
                
-               {!isSlntTenant && <Button 
+               {!isFutureDate && !isSlntTenant && <Button 
                  variant="outline"
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                  onClick={() => setAssignmentDialogOpen(true)}
@@ -1049,7 +1051,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
        </div>
 
       {/* Assignment Dialogs - conditionally mounted to prevent invisible overlays */}
-      {assignmentDialogOpen && (
+      {!isFutureDate && assignmentDialogOpen && (
         <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
           <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
@@ -1073,7 +1075,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
-      {publicAreaDialogOpen && (
+      {!isFutureDate && publicAreaDialogOpen && (
         <PublicAreaAssignment
           open={publicAreaDialogOpen}
           onOpenChange={setPublicAreaDialogOpen}
@@ -1088,8 +1090,23 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       {/* SLNT shared pool must be the first operational section, above Property Overview. */}
       {slntPoolMode && <SlntTeamPoolSummary selectedDate={selectedDate} staff={housekeepingStaff} />}
 
-      {/* Hotel Room Overview */}
-      {managerHotelName && (
+      {/* The live room board represents TODAY'S mutable Previo cleaning flags.
+          Future dates MUST use date-scoped PMS reservation rows and dated plans. */}
+      {isFutureDate && isSlntTenant && (
+        <div role="note" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          SLNT future shifts and room allocations are managed in the Next 14 days assignments planner.
+          Today's live board is hidden to prevent accidental housekeeping changes.
+        </div>
+      )}
+      {isFutureDate && !isSlntTenant && managerHotelName && activeOrganizationSlug && (
+        <FutureHousekeepingOverview
+          selectedDate={selectedDate}
+          hotelName={managerHotelName}
+          organizationSlug={activeOrganizationSlug}
+          refreshKey={overviewRefreshKey}
+        />
+      )}
+      {!isFutureDate && managerHotelName && (
         <HotelRoomOverview
           selectedDate={selectedDate}
           hotelName={managerHotelName}
@@ -1111,6 +1128,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
 
 
+      {!isFutureDate && <>
       <div className={`grid grid-cols-1 ${isSlntTenant ? "xl:grid-cols-2 gap-3" : "md:grid-cols-2 lg:grid-cols-3 gap-4"}`}>
         {[...housekeepingStaff].sort((a, b) => {
           const aCount = teamAssignments.find(t => t.staff_id === a.id)?.total_assigned || 0;
@@ -1423,6 +1441,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         </CardContent>
       </Card>
 
+      </>}
       {/* Confirmation Dialog */}
       <AlertDialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
         <AlertDialogContent>
