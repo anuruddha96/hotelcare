@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { prioritySampleDates } from "./index.ts";
+import { prioritySampleDates } from "./sampling.ts";
 
 Deno.test("scheduled competitor sample covers 60 priority dates across 120 days", () => {
   const start = new Date("2026-11-11T00:00:00Z");
