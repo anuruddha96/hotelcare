@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { addDays, format, startOfDay, startOfWeek } from 'date-fns';
+import { addDays, addMonths, differenceInCalendarDays, endOfMonth, format, startOfDay, startOfMonth, startOfWeek } from 'date-fns';
 import {
   Building2,
   CalendarDays,
@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  Download,
   MapPin,
   Search,
   Send,
@@ -28,6 +29,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import { calculateScheduledMinutes, getScheduleSummary } from '@/lib/staffScheduleAnalytics';
 
 type WorkStatus = 'working' | 'off' | 'leave' | 'sick' | 'training';
 type LifecycleStatus = 'draft' | 'published';
@@ -65,7 +67,10 @@ type ShiftTemplate = {
   venueIds: string[];
 };
 
-const MASTER_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
+const PORTFOLIO_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
+const PROPERTY_MANAGER_ROLES = ['manager', 'housekeeping_manager'];
+const todayInBudapest = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const isHistoricalDate = (date: string) => date < todayInBudapest();
 const WORK_STATUS_LABELS: Record<WorkStatus, string> = {
   working: 'Working',
   off: 'Off',
@@ -112,6 +117,7 @@ export function MasterStaffSchedulePlanner() {
   const { profile } = useAuth();
   const { venues } = useVenues();
   const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
+  const [viewMode, setViewMode] = useState<'week' | 'excel'>('week');
   const [mobileDate, setMobileDate] = useState(() => format(startOfDay(new Date()), 'yyyy-MM-dd'));
   const [staff, setStaff] = useState<Staff[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -131,12 +137,18 @@ export function MasterStaffSchedulePlanner() {
   const [clipboard, setClipboard] = useState<ShiftTemplate | null>(null);
   const [selectedCell, setSelectedCell] = useState<string | null>(null);
 
-  const canManageMaster = !!profile?.is_super_admin || MASTER_ROLES.includes(profile?.role || '');
+  const canSeePortfolio = !!profile?.is_super_admin || PORTFOLIO_ROLES.includes(profile?.role || '');
+  const canManageMaster = canSeePortfolio || PROPERTY_MANAGER_ROLES.includes(profile?.role || '');
   const weekStart = useMemo(() => startOfWeek(anchorDate, { weekStartsOn: 1 }), [anchorDate]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)), [weekStart]);
-  const dates = useMemo(() => weekDays.map((day) => format(day, 'yyyy-MM-dd')), [weekDays]);
+  const periodDays = useMemo(() => {
+    if (viewMode === 'week') return weekDays;
+    const first = startOfMonth(anchorDate), last = endOfMonth(anchorDate);
+    return Array.from({ length: differenceInCalendarDays(last, first) + 1 }, (_, index) => addDays(first, index));
+  }, [viewMode, anchorDate, weekDays]);
+  const dates = useMemo(() => periodDays.map((day) => format(day, 'yyyy-MM-dd')), [periodDays]);
   const start = dates[0];
-  const end = dates[6];
+  const end = dates[dates.length - 1];
 
   const staffById = useMemo(() => new Map(staff.map((person) => [person.id, person])), [staff]);
   const shiftMap = useMemo(() => {
@@ -171,6 +183,7 @@ export function MasterStaffSchedulePlanner() {
       supabase.from('profiles')
         .select('id,full_name,nickname,role,assigned_hotel,job_title,acts_as_housekeeper')
         .eq('organization_slug', profile.organization_slug)
+        .is('deleted_at', null)
         .order('full_name'),
       (supabase as any).from('staff_schedules')
         .select('*,staff_schedule_venues(venue_id)')
@@ -200,6 +213,8 @@ export function MasterStaffSchedulePlanner() {
   const filteredStaff = useMemo(() => {
     const term = search.trim().toLowerCase();
     return staff.filter((person) => {
+      // UI scope mirrors (but never replaces) the database's property-level RLS.
+      if (!canSeePortfolio && person.assigned_hotel !== profile?.assigned_hotel) return false;
       const department = departmentForRole(person.role);
       const position = person.job_title || prettyRole(person.role);
       const matchesSearch = !term || [person.full_name, person.nickname, person.role, position, department, baseVenueLabel(person)]
@@ -218,18 +233,14 @@ export function MasterStaffSchedulePlanner() {
       }
       return true;
     });
-  }, [staff, search, departmentFilter, roleFilter, baseVenueFilter, workingVenueFilter, dates, shiftMap, venueNameById, baseHotelName]);
+  }, [staff, search, departmentFilter, roleFilter, baseVenueFilter, workingVenueFilter, dates, shiftMap, venueNameById, baseHotelName, canSeePortfolio, profile?.assigned_hotel]);
 
   const summary = useMemo(() => {
     const visibleIds = new Set(filteredStaff.map((person) => person.id));
-    const weekShifts = shifts.filter((shift) => dates.includes(shift.work_date) && visibleIds.has(shift.user_id));
-    return {
-      staff: filteredStaff.length,
-      working: weekShifts.filter((shift) => isActiveShift(deriveWorkStatus(shift))).length,
-      published: weekShifts.filter((shift) => lifecycleOf(shift) === 'published').length,
-      drafts: weekShifts.filter((shift) => lifecycleOf(shift) === 'draft').length,
-    };
-  }, [filteredStaff, shifts, dates]);
+    // One canonical cell per person/day: do not double count cross-property rows.
+    const visible = [...shiftMap.values()].filter((shift) => dates.includes(shift.work_date) && visibleIds.has(shift.user_id));
+    return { staff: filteredStaff.length, ...getScheduleSummary(visible) };
+  }, [filteredStaff, shiftMap, dates]);
 
   const templateFromShift = (shift: Shift): ShiftTemplate => ({
     workStatus: deriveWorkStatus(shift),
@@ -240,6 +251,8 @@ export function MasterStaffSchedulePlanner() {
   });
 
   const persistSchedule = async (person: Staff, date: string, template: ShiftTemplate) => {
+    if (isHistoricalDate(date)) return { error: new Error('Past schedules are read-only. Record corrections in attendance.') };
+    if (isActiveShift(template.workStatus) && calculateScheduledMinutes(template.shiftStart, template.shiftEnd) === null) return { error: new Error('Enter a valid start and end time. Overnight shifts such as 20:00–08:00 are supported.') };
     if (!profile?.id || !profile.organization_slug) return { error: new Error('Missing organization or user context') };
     const existing = shiftMap.get(`${person.id}|${date}`);
     const baseHotel = existing?.hotel_id || person.assigned_hotel;
@@ -286,6 +299,7 @@ export function MasterStaffSchedulePlanner() {
   };
 
   const openEditor = (person: Staff, date: string) => {
+    if (isHistoricalDate(date)) { toast.info('Historical schedules are read-only'); return; }
     const existing = shiftMap.get(`${person.id}|${date}`);
     setEditing({ user: person, date });
     setShiftStart(existing?.shift_start?.slice(0, 5) ?? '09:00');
@@ -320,7 +334,7 @@ export function MasterStaffSchedulePlanner() {
       published_at: new Date().toISOString(),
       published_by: profile.id,
     }).eq('organization_slug', profile.organization_slug)
-      .gte('work_date', start)
+      .gte('work_date', start > todayInBudapest() ? start : todayInBudapest())
       .lte('work_date', end)
       .in('status', ['draft', 'off']);
     if (error) return toast.error(error.message);
@@ -342,7 +356,7 @@ export function MasterStaffSchedulePlanner() {
     const existingKeys = new Set(shifts.map((shift) => `${shift.user_id}|${shift.work_date}`));
     const candidates = ((data ?? []) as Shift[]).filter((source) => {
       const target = format(addDays(new Date(`${source.work_date}T12:00:00`), 7), 'yyyy-MM-dd');
-      return staffById.has(source.user_id) && !existingKeys.has(`${source.user_id}|${target}`);
+      return !isHistoricalDate(target) && staffById.has(source.user_id) && !existingKeys.has(`${source.user_id}|${target}`);
     });
     if (!candidates.length) return toast.info('No previous-week shifts are available to copy into empty cells');
 
@@ -361,7 +375,7 @@ export function MasterStaffSchedulePlanner() {
   };
 
   const moveWeek = (offset: number) => {
-    const next = addDays(weekStart, offset * 7);
+    const next = viewMode === 'excel' ? addMonths(anchorDate, offset) : addDays(weekStart, offset * 7);
     setAnchorDate(next);
     setMobileDate(format(next, 'yyyy-MM-dd'));
   };
@@ -372,7 +386,34 @@ export function MasterStaffSchedulePlanner() {
     setMobileDate(format(today, 'yyyy-MM-dd'));
   };
 
+  const exportExcel = async () => {
+    const XLSX = await import('xlsx');
+    const columnNames = filteredStaff.map(person => person.full_name);
+    const rowData = [
+      ['Date', 'Day', ...columnNames],
+      ...periodDays.map((day, i) => [
+        dates[i], format(day, 'EEE'), ...filteredStaff.map(person => {
+          const shift = shiftMap.get(`${person.id}|${dates[i]}`);
+          if (!shift) return '';
+          const status = deriveWorkStatus(shift);
+          if (status !== 'working' && status !== 'training') return status.toUpperCase();
+          return `${shift.shift_start?.slice(0,5) ?? '?'}-${shift.shift_end?.slice(0,5) ?? '?'}`;
+        }),
+      ]),
+      ['Total scheduled hours', '', ...filteredStaff.map(person => {
+        const records = periodDays.map((_, i) => shiftMap.get(`${person.id}|${dates[i]}`)).filter(Boolean) as Shift[];
+        return getScheduleSummary(records).hours;
+      })],
+    ];
+    const sheet = XLSX.utils.aoa_to_sheet(rowData);
+    sheet['!cols'] = [{ wch: 13 }, { wch: 8 }, ...columnNames.map(() => ({ wch: 22 }))];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Staff schedule');
+    XLSX.writeFile(workbook, `RD-staff-schedule-${start}-${end}.xlsx`);
+  };
+
   const handleCellKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, person: Staff, date: string, shift?: Shift) => {
+    if (isHistoricalDate(date)) return;
     const modifier = event.ctrlKey || event.metaKey;
     if (modifier && event.key.toLowerCase() === 'c' && shift) {
       event.preventDefault();
@@ -417,17 +458,20 @@ export function MasterStaffSchedulePlanner() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-primary" /><h2 className="text-xl font-semibold">Master staff schedule</h2></div>
-          <p className="text-sm text-muted-foreground">Organization-wide source of truth. Department schedules, including Housekeeping, edit these same records.</p>
+          <p className="text-sm text-muted-foreground">{canSeePortfolio ? 'Organization-wide roster' : 'Your property roster'} · Weekly planning or an Excel-style month. Published schedules are the shared source of truth for departments.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void exportExcel()}><Download className="h-4 w-4 mr-1" />Export Excel</Button>
           <Button variant="outline" onClick={copyPreviousWeek} disabled={saving}><Copy className="h-4 w-4 mr-1" />Copy previous week</Button>
-          <Button onClick={publishWeek} disabled={saving || summary.drafts === 0}><Send className="h-4 w-4 mr-1" />Publish drafts</Button>
+          <Button onClick={publishWeek} disabled={saving || summary.drafts === 0 || end < todayInBudapest()}><Send className="h-4 w-4 mr-1" />Publish drafts</Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
         <Card><CardContent className="p-3"><div className="flex items-center gap-2"><Users className="h-4 w-4 text-muted-foreground" /><span className="text-2xl font-semibold">{summary.staff}</span></div><div className="text-xs text-muted-foreground">Visible staff</div></CardContent></Card>
-        <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.working}</div><div className="text-xs text-muted-foreground">Working / training shifts</div></CardContent></Card>
+        <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.working + summary.training}</div><div className="text-xs text-muted-foreground">Working / training shifts</div></CardContent></Card>
+        <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.hours.toLocaleString()}</div><div className="text-xs text-muted-foreground">Scheduled hours before breaks</div></CardContent></Card>
+        <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.leave} / {summary.sick}</div><div className="text-xs text-muted-foreground">Leave / sick days</div></CardContent></Card>
         <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.published}</div><div className="text-xs text-muted-foreground">Published shifts</div></CardContent></Card>
         <Card><CardContent className="p-3"><div className="text-2xl font-semibold">{summary.drafts}</div><div className="text-xs text-muted-foreground">Draft shifts</div></CardContent></Card>
       </div>
@@ -438,8 +482,12 @@ export function MasterStaffSchedulePlanner() {
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="icon" onClick={() => moveWeek(-1)} aria-label="Previous week"><ChevronLeft className="h-4 w-4" /></Button>
               <Button variant="outline" size="icon" onClick={() => moveWeek(1)} aria-label="Next week"><ChevronRight className="h-4 w-4" /></Button>
-              <div className="min-w-40 text-center font-semibold">{format(weekStart, 'MMM d')} – {format(addDays(weekStart, 6), 'MMM d, yyyy')}</div>
+              <div className="min-w-40 text-center font-semibold">{format(periodDays[0], 'MMM d')} – {format(periodDays[periodDays.length - 1], 'MMM d, yyyy')}</div>
               <Button variant="ghost" onClick={goToday}>Today</Button>
+              <div className="flex rounded-md border p-0.5">
+                <Button size="sm" variant={viewMode === 'week' ? 'secondary' : 'ghost'} onClick={() => setViewMode('week')}>Week</Button>
+                <Button size="sm" variant={viewMode === 'excel' ? 'secondary' : 'ghost'} onClick={() => setViewMode('excel')}>Excel month</Button>
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
               <div className="relative sm:col-span-2 xl:col-span-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find staff" className="pl-9" /></div>
@@ -450,9 +498,41 @@ export function MasterStaffSchedulePlanner() {
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground"><Copy className="h-3.5 w-3.5" />Ctrl/Cmd+C and Ctrl/Cmd+V copy schedule cells. Drag a filled cell to another day to copy it. Cross-property venue allocations are edited inside each cell.</div>
+          <div className="hidden md:flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground"><Copy className="h-3.5 w-3.5" />Ctrl/Cmd+C and Ctrl/Cmd+V copy schedule cells. Drag to copy future shifts. Historical dates are read-only; calculations exclude breaks and payroll adjustments.</div>
+          {summary.incomplete > 0 && <p className="text-xs text-amber-700">{summary.incomplete} active shifts have invalid or missing times; they are excluded from the hours total.</p>}
 
-          <div className="hidden max-h-[68vh] overflow-auto rounded-md border md:block">
+          {viewMode === 'excel' && <div className="hidden max-h-[70vh] overflow-auto rounded-md border md:block">
+            <table className="border-collapse text-xs">
+              <thead className="sticky top-0 z-20 bg-background">
+                <tr><th className="sticky left-0 z-30 min-w-24 border-r bg-background p-2 text-left">Date</th>
+                  {filteredStaff.map(person => <th key={person.id} className="min-w-40 border-r p-2 text-left">
+                    <span className="block font-semibold">{person.full_name}</span>
+                    <span className="block font-normal text-muted-foreground">{departmentForRole(person.role)} · {baseVenueLabel(person)}</span>
+                  </th>)}
+                </tr>
+              </thead>
+              <tbody>{periodDays.map((day, index) => {
+                const date = dates[index];
+                const historic = isHistoricalDate(date);
+                return <tr key={date} className={index % 2 ? 'bg-muted/20' : ''}>
+                  <th className="sticky left-0 z-10 border-r border-t bg-background p-2 text-left">{format(day,'EEE d MMM')}{historic && <span className="block font-normal text-muted-foreground">Archive</span>}</th>
+                  {filteredStaff.map(person => {
+                    const shift = shiftMap.get(`${person.id}|${date}`);
+                    return <td key={person.id} className="border-r border-t p-1 align-top">
+                      <button type="button" disabled={historic} onClick={() => openEditor(person,date)}
+                        className="min-h-12 w-full rounded p-1.5 text-left hover:bg-muted disabled:cursor-default disabled:opacity-80">
+                        {shift ? <><span className="block font-medium">{deriveWorkStatus(shift) === 'working' || deriveWorkStatus(shift) === 'training' ? `${shift.shift_start?.slice(0,5)}–${shift.shift_end?.slice(0,5)}` : WORK_STATUS_LABELS[deriveWorkStatus(shift)]}</span><span className="text-[10px] text-muted-foreground">{lifecycleOf(shift)}</span></> : (historic ? '—' : '+ Add')}
+                      </button>
+                    </td>;
+                  })}
+                </tr>;
+              })}</tbody>
+              <tfoot><tr><th className="sticky left-0 bg-background p-2 text-left">Hours</th>
+                {filteredStaff.map(person => <th key={person.id} className="border-t p-2 text-left">{getScheduleSummary([...shiftMap.values()].filter(s => s.user_id === person.id && dates.includes(s.work_date))).hours} h</th>)}
+              </tr></tfoot>
+            </table>
+          </div>}
+          {viewMode === 'week' && <div className="hidden max-h-[68vh] overflow-auto rounded-md border md:block">
             <table className="w-full min-w-[1360px] border-collapse text-xs">
               <thead className="sticky top-0 z-20 bg-background"><tr>
                 <th className="sticky left-0 z-30 min-w-52 border-b border-r bg-background p-3 text-left">Staff</th>
@@ -470,7 +550,7 @@ export function MasterStaffSchedulePlanner() {
                   const key = `${person.id}|${date}`;
                   const shift = shiftMap.get(key);
                   return <td key={date} className="border-b border-r p-1 align-top"><button type="button" draggable={!!shift}
-                    onClick={() => { setSelectedCell(key); openEditor(person, date); }} onFocus={() => setSelectedCell(key)} onKeyDown={(event) => handleCellKeyDown(event, person, date, shift)}
+                    disabled={isHistoricalDate(date)} onClick={() => { setSelectedCell(key); openEditor(person, date); }} onFocus={() => setSelectedCell(key)} onKeyDown={(event) => handleCellKeyDown(event, person, date, shift)}
                     onDragStart={(event) => { if (!shift) return; const template = templateFromShift(shift); setClipboard(template); event.dataTransfer.effectAllowed = 'copy'; event.dataTransfer.setData('text/plain', key); }}
                     onDragOver={(event) => { if (clipboard || event.dataTransfer.types.includes('text/plain')) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); if (clipboard) void applyTemplate(person, date, clipboard); }}
                     className={`min-h-24 w-full rounded-md border p-2 text-left transition-colors hover:bg-muted/60 focus:outline-none focus:ring-2 focus:ring-ring ${selectedCell === key ? 'ring-2 ring-ring' : ''}`}>{renderShiftContents(shift)}</button></td>;
@@ -478,11 +558,11 @@ export function MasterStaffSchedulePlanner() {
               </tr>)}</tbody>
             </table>
             {!loading && filteredStaff.length === 0 && <div className="p-8 text-center text-sm text-muted-foreground">No staff match these filters.</div>}
-          </div>
+          </div>}
 
           <div className="space-y-3 md:hidden">
-            <div className="flex gap-2 overflow-x-auto pb-1">{weekDays.map((day) => { const date = format(day, 'yyyy-MM-dd'); return <Button key={date} variant={mobileDate === date ? 'default' : 'outline'} className="shrink-0" onClick={() => setMobileDate(date)}><span className="flex flex-col leading-tight"><span>{format(day, 'EEE')}</span><span className="text-[10px]">{format(day, 'd')}</span></span></Button>; })}</div>
-            <div className="space-y-2">{filteredStaff.map((person) => { const shift = shiftMap.get(`${person.id}|${mobileDate}`); return <button key={person.id} type="button" onClick={() => openEditor(person, mobileDate)} className="w-full rounded-lg border p-3 text-left hover:bg-muted/50"><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2 font-medium"><UserRound className="h-4 w-4" />{person.full_name}</div><div className="mt-1 text-xs text-muted-foreground">{departmentForRole(person.role)} · {person.job_title || prettyRole(person.role)} · {baseVenueLabel(person)}</div></div><div className="max-w-[48%] text-right">{renderShiftContents(shift)}</div></div></button>; })}</div>
+            <div className="flex gap-2 overflow-x-auto pb-1">{periodDays.map((day) => { const date = format(day, 'yyyy-MM-dd'); return <Button key={date} variant={mobileDate === date ? 'default' : 'outline'} className="shrink-0" onClick={() => setMobileDate(date)}><span className="flex flex-col leading-tight"><span>{format(day, 'EEE')}</span><span className="text-[10px]">{format(day, 'd')}</span></span></Button>; })}</div>
+            <div className="space-y-2">{filteredStaff.map((person) => { const shift = shiftMap.get(`${person.id}|${mobileDate}`); return <button key={person.id} type="button" disabled={isHistoricalDate(mobileDate)} onClick={() => openEditor(person, mobileDate)} className="w-full rounded-lg border p-3 text-left hover:bg-muted/50 disabled:opacity-80"><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2 font-medium"><UserRound className="h-4 w-4" />{person.full_name}</div><div className="mt-1 text-xs text-muted-foreground">{departmentForRole(person.role)} · {person.job_title || prettyRole(person.role)} · {baseVenueLabel(person)}</div></div><div className="max-w-[48%] text-right">{renderShiftContents(shift)}</div></div></button>; })}</div>
           </div>
         </CardContent>
       </Card>
