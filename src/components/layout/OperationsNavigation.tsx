@@ -1,14 +1,14 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   CalendarDays, CarFront, Clock, DoorOpen, Home, Radio, Receipt,
-  Settings, TabletSmartphone, Ticket, TrendingUp, Users,
+  Settings, TabletSmartphone, Ticket, TrendingUp, Users, MessageSquareText,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { canAccessLegacyModules } from '@/lib/roleAccess';
 import { cn } from '@/lib/utils';
 
 type DashboardTab = 'tickets' | 'rooms' | 'housekeeping' | 'attendance' | 'admin';
-type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'channel-manager' | 'invoices' | 'staff-schedule' | 'insuite';
+type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'channel-manager' | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation';
 
 interface OperationsNavigationProps {
   current: ModuleKey | string;
@@ -59,6 +59,9 @@ export function OperationsNavigation({ current, onDashboardTabChange }: Operatio
     ] : []),
     ...(executive ? [
       { key: 'revenue', text: 'Revenue Management', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) },
+    ] : []),
+    ...(executive || (role === 'manager' && organizationSlug === 'rdhotels') ? [
+      { key: 'reputation', text: 'Reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) },
     ] : []),
     ...(manager && ['admin', 'manager', 'top_management', 'top_management_manager'].includes(role) ? [
       { key: 'channel-manager', text: 'Channel Manager', icon: Radio, click: () => navigate(`${basePath}/channel-manager`) },
