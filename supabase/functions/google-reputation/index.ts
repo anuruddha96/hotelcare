@@ -766,6 +766,17 @@ Deno.serve(async (req) => {
       return json({ ok: true, imported, unreplied });
     }
 
+    if (action === "acknowledge_low_rating_alert") {
+      const id = String(body.alert_id || "");
+      if (!id) return json({ error: "alert_id is required" }, 400);
+      const { data: result, error } = await admin.from("google_reputation_alerts")
+        .update({ status: "acknowledged", acknowledged_at: new Date().toISOString(), acknowledged_by: userData.user.id })
+        .eq("id", id).eq("organization_id", org.id).eq("status", "open").select("id").maybeSingle();
+      if (error) throw error;
+      if (!result) return json({ error: "Alert not found or already acknowledged" }, 404);
+      return json({ ok: true });
+    }
+
     if (action === "draft_reply") {
       const reviewId = String(body.review_id || "");
       if (!reviewId) return json({ error: "review_id required" }, 400);
@@ -777,10 +788,10 @@ Deno.serve(async (req) => {
         .eq("organization_id", org.id)
         .maybeSingle();
       if (!r) return json({ error: "Review not found" }, 404);
+      if (r.reply_status === "published" || r.google_reply_comment)
+        return json({ error: "This Google review has already been answered" }, 409);
 
       const key = Deno.env.get("OPENAI_API_KEY");
-      if (!key) return json({ error: "HotelCare AI is not configured" }, 409);
-
       const location = r.google_business_locations as any;
       const property = location?.reply_brand_name || location?.google_location_title || "our business";
       const category = location?.business_category || "other";
@@ -800,14 +811,21 @@ Deno.serve(async (req) => {
 
       const analysis = classifyReview(Number(r.star_rating || 5), String(r.comment || ""));
       let draft = "";
-      if (!String(r.comment || "").trim()) {
-        // Rating-only reviews do not need a paid model call or invented visit details.
-        const stars = Number(r.star_rating || 5);
-        const hungarian = location?.reply_language_mode === "hungarian";
-        draft = hungarian
-          ? `Köszönjük a${stars === 5 ? "z ötcsillagos" : ` ${stars} csillagos`} értékelést és hogy támogatta a(z) ${property} csapatát!`
-          : `Thank you for your ${stars}-star rating and for supporting ${property}!`;
+      const curated = analysis.risk === "low" ? buildCuratedReply({
+        reviewId: String(r.google_review_name || r.id),
+        rating: Number(r.star_rating || 5),
+        comment: r.comment,
+        reviewerName: r.reviewer_display_name,
+        venueName: property,
+        venueCategory: category,
+        venueContext: location?.brand_context,
+        signature: location?.reply_signature,
+        languageMode: location?.reply_language_mode,
+      }) : null;
+      if (curated) {
+        draft = curated.text;
       } else {
+        if (!key) return json({ error: "HotelCare AI is not configured" }, 409);
         const prompt = `Write a brief public Google review reply for the brand "${property}" (venue type: ${category}).
 Public listing title for identification ONLY: ${location?.google_location_title || property}.
 Guest review: ${String(r.comment).slice(0, 1800)}.
@@ -859,11 +877,14 @@ Risk level: ${analysis.risk}.`;
 
       await audit(r, "draft_generated", draft, {
         risk: analysis.risk,
+        source: curated ? "curated_reply_library" : "openai",
+        template_id: curated?.templateId || null,
         tone: location?.reply_tone || "warm_professional",
         language_mode: location?.reply_language_mode || "match_guest",
       });
 
-      return json({ ok: true, draft, ...analysis });
+      return json({ ok: true, draft, source: curated ? "curated_reply_library" : "openai",
+        template_id: curated?.templateId || null, ...analysis });
     }
 
     if (action === "update_draft") {
