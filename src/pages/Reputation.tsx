@@ -185,6 +185,13 @@ const riskBadge = (risk?: string | null) => {
   return <Badge variant="outline" className="border-emerald-300 text-emerald-700">Low risk</Badge>;
 };
 
+const originLabel: Record<string, string> = {
+  automatic: "Auto-published by HotelCare",
+  manager: "Published by manager",
+  google: "Existing Google reply",
+  unknown: "Publication source unknown",
+};
+
 const eventLabel: Record<string, string> = {
   draft_generated: "AI draft generated",
   draft_edited: "Draft edited",
@@ -730,6 +737,7 @@ export default function Reputation() {
                   <Select value={ratingFilter} onValueChange={setRatingFilter}><SelectTrigger><SelectValue placeholder="Rating" /></SelectTrigger><SelectContent><SelectItem value="all">All ratings</SelectItem>{[5,4,3,2,1].map((value) => <SelectItem key={value} value={String(value)}>{value} stars</SelectItem>)}</SelectContent></Select>
                   <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="unreplied">Awaiting reply</SelectItem><SelectItem value="draft">Draft ready</SelectItem><SelectItem value="published">Published</SelectItem></SelectContent></Select>
                   <Select value={riskFilter} onValueChange={setRiskFilter}><SelectTrigger><SelectValue placeholder="Risk" /></SelectTrigger><SelectContent><SelectItem value="all">All risk levels</SelectItem><SelectItem value="low">Low risk</SelectItem><SelectItem value="medium">Review carefully</SelectItem><SelectItem value="high">High risk</SelectItem></SelectContent></Select>
+                  <Select value={originFilter} onValueChange={setOriginFilter}><SelectTrigger><SelectValue placeholder="Reply source" /></SelectTrigger><SelectContent><SelectItem value="all">All reply sources</SelectItem><SelectItem value="automatic">Auto-published</SelectItem><SelectItem value="manager">Manager published</SelectItem><SelectItem value="google">Existing Google replies</SelectItem></SelectContent></Select>
                 </div>
                 {locations.length > 1 && <div className="mt-3 max-w-md"><Select value={locationFilter} onValueChange={setLocationFilter}><SelectTrigger><SelectValue placeholder="Google location" /></SelectTrigger><SelectContent><SelectItem value="all">All Google locations</SelectItem>{locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.google_location_title}</SelectItem>)}</SelectContent></Select></div>}
               </CardContent>
@@ -754,7 +762,7 @@ export default function Reputation() {
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {riskBadge(review.ai_risk_level)}
-                            {review.reply_status === "published" ? <Badge className="bg-emerald-600">Published</Badge> : review.reply_status === "draft" ? <Badge variant="secondary">Draft ready</Badge> : <Badge variant="outline">Awaiting reply</Badge>}
+                            {review.reply_status === "published" ? <><Badge className="bg-emerald-600">Published</Badge><Badge variant="outline">{originLabel[review.reply_origin || "unknown"]}</Badge></> : review.reply_status === "draft" ? <Badge variant="secondary">Draft ready</Badge> : <Badge variant="outline">Awaiting reply</Badge>}
                           </div>
                         </div>
 
@@ -772,7 +780,7 @@ export default function Reputation() {
                         )}
 
                         {review.reply_status === "published" ? (
-                          <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 dark:bg-emerald-950/10 p-3"><div className="text-xs font-medium text-emerald-700 mb-1">Published owner reply</div><div className="text-sm whitespace-pre-wrap">{review.google_reply_comment}</div></div>
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 dark:bg-emerald-950/10 p-3"><div className="flex flex-wrap gap-2 justify-between text-xs font-medium text-emerald-700 mb-2"><span>{originLabel[review.reply_origin || "unknown"]}</span><span>{fmtDate(review.google_reply_update_time || review.replied_at)}</span></div><div className="text-sm whitespace-pre-wrap">{review.google_reply_comment}</div></div>
                         ) : currentDraft ? (
                           <div className="space-y-3">
                             <div className="flex items-center gap-2 text-sm font-medium"><Bot className="h-4 w-4" />AI-assisted reply draft</div>
@@ -799,7 +807,7 @@ export default function Reputation() {
               <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Building2 className="h-5 w-5" />Google Business locations</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => syncLocations()} disabled={busy || googleSetup.quotaPending}><Download className="h-4 w-4 mr-2" />Discover / refresh locations</Button><Button variant="outline" onClick={runE2ECheck} disabled={busy}><Activity className="h-4 w-4 mr-2" />Test connection</Button></div>
-                <p className="text-sm text-muted-foreground">Map each Google listing to the correct HotelCare property, then set its reply policy. A Google account can contain hotel, brunch, restaurant and bar listings independently.</p>
+                <p className="text-sm text-muted-foreground">Manage every Google listing independently, including brunches, restaurants, museums and conferences. HotelCare property linkage is optional; standalone businesses do not require hotel accounts.</p>
               </CardContent>
             </Card>
 
@@ -810,10 +818,14 @@ export default function Reputation() {
               if (!edit) return null;
               return (
                 <Card key={location.id}>
-                  <CardHeader className="pb-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><CardTitle className="text-lg">{location.google_location_title}</CardTitle><p className="text-xs text-muted-foreground mt-1">{location.hotel_id ? `Mapped to ${hotels.find((hotel) => hotel.hotel_id === location.hotel_id)?.hotel_name || location.hotel_id}` : "Not mapped"}</p></div><Badge variant={edit.auto_reply_enabled ? "default" : "outline"}>{edit.auto_reply_enabled ? "Auto reply enabled" : "Manual approval mode"}</Badge></div></CardHeader>
+                  <CardHeader className="pb-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><CardTitle className="text-lg">{location.google_location_title}</CardTitle><p className="text-xs text-muted-foreground mt-1">{location.hotel_id ? `Linked to ${hotels.find((hotel) => hotel.hotel_id === location.hotel_id)?.hotel_name || location.hotel_id}` : "Managed independently — no hotel needed"}</p></div><Badge variant={edit.auto_reply_enabled ? "default" : "outline"}>{edit.auto_reply_enabled ? "Auto reply enabled" : "Manual approval mode"}</Badge></div></CardHeader>
                   <CardContent className="space-y-5">
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="space-y-2"><Label>Business name for replies</Label><Input value={edit.reply_brand_name || ""} onChange={(e) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, reply_brand_name: e.target.value } }))} placeholder="e.g. Hotel Memories Budapest" /><p className="text-xs text-muted-foreground">AI uses this identity, not the full Google listing title.</p></div>
+                      <div className="space-y-2"><Label>Venue category</Label><Select value={edit.business_category || "other"} onValueChange={(value: Location["business_category"]) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, business_category: value } }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["hotel","brunch","restaurant","conference","museum","other"].map((value) => <SelectItem key={value} value={value}>{value.charAt(0).toUpperCase()+value.slice(1)}</SelectItem>)}</SelectContent></Select></div>
+                    </div>
                     <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                      <div className="space-y-2"><Label>HotelCare property</Label><Select value={edit.hotel_id || "unmapped"} onValueChange={(value) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, hotel_id: value === "unmapped" ? null : value } }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unmapped">Not mapped</SelectItem>{hotels.filter((hotel) => hotel.is_active !== false).map((hotel) => <SelectItem key={hotel.hotel_id} value={hotel.hotel_id}>{hotel.hotel_name}</SelectItem>)}</SelectContent></Select></div>
+                      <div className="space-y-2"><Label>HotelCare property (optional)</Label><Select value={edit.hotel_id || "unmapped"} onValueChange={(value) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, hotel_id: value === "unmapped" ? null : value } }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unmapped">Independent Google business</SelectItem>{hotels.filter((hotel) => hotel.is_active !== false).map((hotel) => <SelectItem key={hotel.hotel_id} value={hotel.hotel_id}>{hotel.hotel_name}</SelectItem>)}</SelectContent></Select></div>
                       <div className="space-y-2"><Label>Reply workflow</Label><Select value={edit.reply_mode} onValueChange={(value: Location["reply_mode"]) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, reply_mode: value, auto_reply_enabled: value === "draft_only" ? false : edit.auto_reply_enabled } }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="draft_only">Draft only — manager publishes</SelectItem><SelectItem value="auto_positive">Auto only positive reviews</SelectItem><SelectItem value="auto_all">Auto eligible reviews</SelectItem></SelectContent></Select></div>
                       <div className="space-y-2"><Label>AI tone</Label><Select value={edit.reply_tone} onValueChange={(value: Location["reply_tone"]) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, reply_tone: value } }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="warm_professional">Warm professional</SelectItem><SelectItem value="friendly_concise">Friendly & concise</SelectItem><SelectItem value="formal">Formal</SelectItem><SelectItem value="luxury_hospitality">Luxury hospitality</SelectItem></SelectContent></Select></div>
                       <div className="space-y-2"><Label>Reply language</Label><Select value={edit.reply_language_mode} onValueChange={(value: Location["reply_language_mode"]) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, reply_language_mode: value } }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="match_guest">Match guest language</SelectItem><SelectItem value="english">Always English</SelectItem><SelectItem value="hungarian">Always Hungarian</SelectItem></SelectContent></Select></div>
