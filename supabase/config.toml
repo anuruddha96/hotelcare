@@ -194,6 +194,9 @@ verify_jwt = false
 [functions.previo-sync-daily-overview-all]
 verify_jwt = false
 
+[functions.previo-sync-reservations-all]
+verify_jwt = false
+
 [functions.email-config]
 verify_jwt = false
 
@@ -297,7 +300,7 @@ verify_jwt = true
 [functions.ottofiori-ai-supervisor]
 verify_jwt = false
 
-# Unauthenticated room tablets present a high-entropy device bearer token.
-# Signed-in staff present a Supabase JWT; both are verified by the function.
+# In-Suite room tablets use device-bound tokens. Staff uses verified JWT.
+# The function itself must validate every request (no public table grants).
 [functions.insuite-api]
 verify_jwt = false

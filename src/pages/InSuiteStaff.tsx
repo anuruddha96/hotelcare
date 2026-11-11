@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenant } from "@/contexts/TenantContext";
 import { Header } from "@/components/layout/Header";
+import { OperationsNavigation } from "@/components/layout/OperationsNavigation";
 import { toast } from "sonner";
 import {
   BellRing, CheckCheck, ClipboardList, Hotel, MessageCircle, MonitorSmartphone,
@@ -187,6 +188,7 @@ export default function InSuiteStaff() {
   return <div className="min-h-screen bg-slate-50">
     <Header />
     <main className="container mx-auto p-4 lg:p-8 space-y-6 max-w-7xl">
+      <OperationsNavigation current="insuite" />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-sm text-slate-500">HotelCare · Guest experience</p>

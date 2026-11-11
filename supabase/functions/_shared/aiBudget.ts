@@ -20,6 +20,8 @@ const TOKEN_PRICES: Record<string, { in: number; out: number }> = {
   "gpt-4.1-mini": { in: 0.4, out: 1.6 },
   // 2026 published USD / 1M input and output tokens (excluding discounts
   // for cached tokens or any tool/long-context surcharges).
+  "gpt-6-luna": { in: 0.10, out: 0.50 },
+  "gpt-6.1-terra": { in: 1, out: 5 },
   "gpt-5.6": { in: 4, out: 20 },
   "gpt-5.6-sol": { in: 4, out: 20 },
   "gpt-5.6-terra": { in: 2, out: 12 },
