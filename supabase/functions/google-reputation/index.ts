@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { buildCuratedReply, CURATED_REPLY_BASE_COUNT, requiresCarefulReview } from "../_shared/reputation-replies.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -130,7 +131,7 @@ function classifyReview(stars: number, comment: string) {
   const risk =
     stars <= 1 || highRiskWords.some((w) => text.includes(w))
       ? "high"
-      : stars <= 3 || mediumRiskWords.some((w) => text.includes(w))
+      : stars <= 3 || mediumRiskWords.some((w) => text.includes(w)) || requiresCarefulReview(comment)
         ? "medium"
         : "low";
   const sentiment = stars >= 4 ? "positive" : stars === 3 ? "mixed" : "negative";
@@ -329,7 +330,7 @@ Deno.serve(async (req) => {
           admin
             .from("google_business_locations")
             .select(
-              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_enabled_at,auto_reply_consent_at,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context",
+              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_enabled_at,auto_reply_consent_at,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context,google_total_review_count,google_average_rating,google_review_stats_updated_at",
             )
             .eq("organization_id", org.id)
             .order("google_location_title"),
@@ -354,6 +355,14 @@ Deno.serve(async (req) => {
             .limit(200),
         ]);
 
+      const [{ data: alerts }, { count: openAlertCount }] = await Promise.all([
+        admin.from("google_reputation_alerts")
+          .select("id,google_location_id,review_id,star_rating,review_excerpt,status,detected_at,acknowledged_at")
+          .eq("organization_id", org.id).eq("status", "open").order("detected_at", { ascending: false }).limit(30),
+        admin.from("google_reputation_alerts")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", org.id).eq("status", "open"),
+      ]);
       const counts = await Promise.all([
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id),
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published"),
@@ -402,6 +411,8 @@ Deno.serve(async (req) => {
       return json({
         ok: true,
         location_summary: summary,
+        alerts: alerts || [], open_alert_count: openAlertCount || 0,
+        reply_library: { curated_base_variants: CURATED_REPLY_BASE_COUNT, curated_ai_cost: 0 },
         stats: {
           total: counts[0].count || 0, published: counts[1].count || 0,
           automatic: counts[2].count || 0, manager: counts[3].count || 0, bulk: counts[4].count || 0,
@@ -683,6 +694,13 @@ Deno.serve(async (req) => {
             `https://mybusiness.googleapis.com/v4/${l.google_account_name}/${l.google_location_name}/reviews?${q.toString()}`,
           );
 
+          await admin.from("google_business_locations").update({
+            google_total_review_count: Number.isFinite(Number(x.totalReviewCount))
+              ? Number(x.totalReviewCount) : l.google_total_review_count,
+            google_average_rating: Number.isFinite(Number(x.averageRating))
+              ? Number(x.averageRating) : l.google_average_rating,
+            google_review_stats_updated_at: new Date().toISOString(),
+          }).eq("id", l.id);
           for (const r of x.reviews || []) {
             const existing = existingReviews.get(r.name);
             const unchanged = existing && String(existing.comment || "") === String(r.comment || "");
@@ -724,8 +742,16 @@ Deno.serve(async (req) => {
               updated_at: new Date().toISOString(),
             };
 
-            const { error } = await admin.from("google_reviews").upsert(row, { onConflict: "google_review_name" });
+            const { data: savedReview, error } = await admin.from("google_reviews")
+              .upsert(row, { onConflict: "google_review_name" }).select("id").single();
             if (error) throw error;
+            if (stars <= 3 && !existing && new Date(r.createTime || "").getTime() >= Date.now() - 14 * 86_400_000) {
+              await admin.from("google_reputation_alerts").upsert({
+                organization_id: org.id, google_location_id: l.id,
+                google_review_name: r.name, review_id: savedReview.id,
+                star_rating: stars, review_excerpt: String(r.comment || "").slice(0, 600),
+              }, { onConflict: "organization_id,google_review_name", ignoreDuplicates: true });
+            }
             imported++;
             if (!r.reviewReply?.comment) unreplied++;
           }
