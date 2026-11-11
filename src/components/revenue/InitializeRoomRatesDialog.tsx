@@ -25,6 +25,7 @@ export default function InitializeRoomRatesDialog({ room, hotelId, organizationS
   const [days, setDays] = useState(7);
   const [start, setStart] = useState(today);
   const [saving, setSaving] = useState(false);
+  const [currency, setCurrency] = useState<{ code: string; minimumStep: number } | null>(null);
 
   useEffect(() => {
     if (!room) return;
@@ -35,27 +36,41 @@ export default function InitializeRoomRatesDialog({ room, hotelId, organizationS
     setStart(today);
   }, [room, today]);
 
+  useEffect(() => {
+    setCurrency(null);
+    if (!room || !hotelId) return;
+    let active = true;
+    void (async () => {
+      const { data, error } = await (supabase as any).from("hotel_revenue_settings")
+        .select("base_currency,eur_conversion_rate")
+        .eq("hotel_id", hotelId).maybeSingle();
+      if (!active) return;
+      if (error || !data) {
+        toast.error("Unable to load this hotel's pricing currency");
+        return;
+      }
+      const code = String(data.base_currency ?? "EUR").toUpperCase();
+      const fx = Number(data.eur_conversion_rate);
+      if (code !== "EUR" && (!Number.isFinite(fx) || fx <= 0)) {
+        toast.error(`No valid EUR-to-${code} rate is configured for the €1 minimum guest increment`);
+        return;
+      }
+      setCurrency({ code, minimumStep: code === "EUR" ? 1 : Math.max(1, Math.round(fx)) });
+    })();
+    return () => { active = false; };
+  }, [hotelId, room]);
+
   async function submit() {
     if (!room?.pms_room_id || !hotelId || saving) return;
-    const ladder = validateFirstRateLadder(prices, guests);
+    if (!currency) { toast.error("The hotel's currency settings are not ready"); return; }
+    const ladder = validateFirstRateLadder(prices, guests, currency.minimumStep);
     const dates = initialRateDates(start, days);
     if (!ladder || dates.length !== days || start < today) {
-      toast.error("Enter a positive whole-euro price for every guest level, in non-decreasing order, and choose a future date.");
+      toast.error(`Enter positive whole-${currency.code} prices, increasing by at least ${currency.minimumStep} ${currency.code} per additional guest, and choose a future date.`);
       return;
     }
     setSaving(true);
     try {
-      // This compact first-price form currently accepts whole EUR amounts only.
-      // Refuse other base currencies rather than accidentally interpreting
-      // a displayed EUR number as an unrelated local-currency amount.
-      const { data: hotelSettings, error: settingsError } = await (supabase as any)
-        .from("hotel_revenue_settings").select("base_currency")
-        .eq("hotel_id", hotelId).maybeSingle();
-      if (settingsError) throw new Error(settingsError.message);
-      if (String(hotelSettings?.base_currency ?? "EUR").toUpperCase() !== "EUR") {
-        throw new Error("This first-price form currently supports EUR hotels only. Please initialize rates directly in Previo for other base currencies.");
-      }
-
       // A new kind has no original price to edit. Don't substitute a sibling
       // kind's Previo ID or rate plan; an EXACT mapping is required.
       const { data: mappings, error: mappingError } = await (supabase as any)
@@ -130,7 +145,7 @@ export default function InitializeRoomRatesDialog({ room, hotelId, organizationS
             <div className="grid grid-cols-2 gap-2">
               {prices.map((value, index) => (
                 <label key={index} className="space-y-1 text-xs">
-                  <span>{index + 1} guest{index > 0 ? "s" : ""} · EUR</span>
+                  <span>{index + 1} guest{index > 0 ? "s" : ""} · {currency?.code ?? "…"}</span>
                   <Input type="number" min={1} step={1} inputMode="numeric" value={value}
                     onChange={(event) => setPrices((old) => old.map((v, i) => i === index ? event.target.value : v))}
                     placeholder="Enter price" />
@@ -149,13 +164,13 @@ export default function InitializeRoomRatesDialog({ room, hotelId, organizationS
               </label>
             </div>
             <p className="text-xs text-muted-foreground">
-              Only your entered rates will be queued. Room availability and occupancy are not changed. Previo must accept and confirm the rate plan before these rooms can be priced.
+              Each additional guest must cost at least {currency ? `${currency.minimumStep} ${currency.code}` : "the EUR-equivalent of €1"} more. Staff-entered prices are not subject to the automated €10 supplement. Only your entered rates will be queued. Room availability and occupancy are not changed. Previo must accept and confirm the rate plan before these rooms can be priced.
             </p>
           </div>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button onClick={() => void submit()} disabled={saving || !validateFirstRateLadder(prices, guests) || start < today}>
+          <Button onClick={() => void submit()} disabled={saving || !currency || !validateFirstRateLadder(prices, guests, currency.minimumStep) || start < today}>
             {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Publish first prices
           </Button>

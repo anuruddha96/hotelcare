@@ -64,7 +64,7 @@ Deno.test("repairLadder lifts a lower-priced higher occupancy", () => {
   ]);
   assertEquals(out.get(1), 100);
   assertEquals(out.get(2), 407);
-  assertEquals(out.get(3), 407);
+  assertEquals(out.get(3), 408);
 });
 
 Deno.test("repairLadder keeps equal prices and never lowers a level", () => {
@@ -73,7 +73,7 @@ Deno.test("repairLadder keeps equal prices and never lowers a level", () => {
     { occupancy: 2, price: 150 },
     { occupancy: 3, price: 160 },
   ]);
-  assertEquals([out.get(1), out.get(2), out.get(3)], [150, 150, 160]);
+  assertEquals([out.get(1), out.get(2), out.get(3)], [150, 151, 160]);
 });
 
 Deno.test("repairLadder handles gaps in the ladder", () => {
@@ -82,18 +82,21 @@ Deno.test("repairLadder handles gaps in the ladder", () => {
     { occupancy: 4, price: 80 },
   ]);
   assertEquals(out.get(1), 90);
-  assertEquals(out.get(4), 90);
+  assertEquals(out.get(4), 93);
 });
 
 function ladderAdmin(stored: Array<Record<string, unknown>>, rooms: Array<Record<string, unknown>> = []) {
   return {
-    from: (table: string) => query(
-      table === "previo_rate_plan_mapping"
-        ? mapping(["11"])
-        : table === "room_types"
-          ? rooms
-          : stored,
-    ),
+    from: (table: string) => {
+      const rows = table === "previo_rate_plan_mapping" ? mapping(["11"])
+        : table === "room_types" ? rooms
+        : table === "hotel_revenue_settings"
+          ? [{ base_currency: "EUR", eur_conversion_rate: null, extra_guest_supplement_eur: 10 }]
+          : stored;
+      const chain = query(rows);
+      chain.maybeSingle = async () => ({ data: rows[0] ?? null, error: null });
+      return chain;
+    },
   };
 }
 
@@ -110,10 +113,33 @@ Deno.test("enforceRateSafety adds a sibling repair for the untouched level", asy
   const safe = await enforceRateSafety(admin, "ottofiori", changes);
   assertEquals(safe.repairs.length, 1);
   assertEquals(safe.repairs[0].occupancy, 3);
-  assertEquals(safe.repairs[0].new_price, 407);
+  assertEquals(safe.repairs[0].new_price, 408);
   assertEquals(safe.repairs[0].old_price, 405);
-  assertEquals(safe.repairs[0].intent_source, "ladder_repair");
+  assertEquals(safe.repairs[0].intent_source, "manual_ladder_completion");
   assertEquals(safe.changes.length, 2);
+});
+
+Deno.test("staff entered €100 / €101 remains intact when automated supplement is €10", async () => {
+  const admin = {
+    from: (table: string) => {
+      const values = table === "previo_rate_plan_mapping" ? mapping(["11"])
+        : table === "hotel_revenue_settings" ? [{ extra_guest_supplement_eur: 10, base_currency: "EUR" }]
+        : table === "room_types" ? []
+        : [{ stay_date: "2026-12-03", obk_id: "11", room_type_name: "Double", occupancy: 1, price: 100 },
+           { stay_date: "2026-12-03", obk_id: "11", room_type_name: "Double", occupancy: 2, price: 110 }];
+      const chain = query(values);
+      chain.maybeSingle = async () => ({ data: values[0], error: null });
+      return chain;
+    },
+  };
+  const safe = await enforceRateSafety(admin, "ottofiori", [
+    { stay_date: "2026-12-03", obk_id: "11", room_type_name: "Double", occupancy: 1,
+      new_price: 100, old_price: 100, intent_source: "manual" },
+    { stay_date: "2026-12-03", obk_id: "11", room_type_name: "Double", occupancy: 2,
+      new_price: 101, old_price: 110, intent_source: "manual" },
+  ]);
+  assertEquals(safe.changes.find((c) => c.occupancy === 2)?.new_price, 101);
+  assertEquals(safe.repairs.length, 0);
 });
 
 Deno.test("enforceRateSafety lifts an incoming change that lands under a lower level", async () => {
@@ -126,7 +152,7 @@ Deno.test("enforceRateSafety lifts an incoming change that lands under a lower l
   }];
   const safe = await enforceRateSafety(admin, "ottofiori", changes);
   assertEquals(safe.repairs.length, 0);
-  assertEquals(safe.changes[0].new_price, 200); // lifted to the 2-guest level, floor-safe
+  assertEquals(safe.changes[0].new_price, 210); // automated €10 increment, floor-safe
 });
 
 Deno.test("enforceRateSafety leaves an already consistent ladder alone", async () => {
@@ -136,6 +162,7 @@ Deno.test("enforceRateSafety leaves an already consistent ladder alone", async (
   ]);
   const safe = await enforceRateSafety(admin, "ottofiori", [{
     stay_date: "2026-09-12", obk_id: "11", room_type_name: "Quad", occupancy: 2, new_price: 130,
+    intent_source: "manual",
   }]);
   assertEquals(safe.repairs.length, 0);
   assertEquals(safe.changes.length, 1);

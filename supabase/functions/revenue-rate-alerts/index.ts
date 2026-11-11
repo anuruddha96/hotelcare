@@ -8,9 +8,13 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { mailClient } from "../_shared/emailSender.ts";
 
-const ALERT_ROLES = ["top_management", "top_management_manager"];
+const ALERT_ROLES = ["admin", "top_management", "top_management_manager"];
+const RD_CRITICAL_EUR = 40;
+const SLNT_CRITICAL_EUR = 15;
+const SLNT_ALERT_RECIPIENTS = ["zsolt@slnt.hu", "csaba@slnt.hu", "anuruddha.dharmasena@gmail.com"];
+const RD_ALERT_RECIPIENTS = ["info@rdhotels.hu", "anu@rdhotels.hu"];
 const EXCLUDED_ALERT_EMAILS = new Set(["control@rdhotels.hu"]);
-const HORIZON_DAYS = 120;
+const HORIZON_DAYS = 365;
 const SLNT_ADAPTIVE_MIN_SAMPLES = 30;
 const RATE_PAGE_SIZE = 1000;
 
@@ -172,6 +176,15 @@ function buildSlntAdaptiveBounds(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+
+  // This worker has service-role access and sends real emails. Never expose
+  // it as a publicly callable endpoint or accept an empty configured secret.
+  const workerSecret = Deno.env.get("REVENUE_RATE_ALERT_WORKER_SECRET");
+  if (!workerSecret) return json({ error: "Rate-alert worker secret not configured" }, 503);
+  if (req.headers.get("x-worker-secret") !== workerSecret) {
+    return json({ error: "Unauthorized rate-alert worker request" }, 401);
+  }
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -215,14 +228,18 @@ Deno.serve(async (req) => {
         summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 });
         continue;
       }
-      const criticalBelow = t.rate_critical_below_eur * thresholdScale;
+      const isSlnt = h.hotel_id === "slnt-group" ||
+        String(h.organization_slug ?? "").toLowerCase() === "slnt";
+      const isRd = String(h.organization_slug ?? "").toLowerCase() === "rdhotels";
+      // Operator-requested absolute email floors, independent of the learned
+      // anomaly range and the property's optional alert toggle.
+      const hardFloorEur = isSlnt ? SLNT_CRITICAL_EUR : isRd ? RD_CRITICAL_EUR : t.rate_critical_below_eur;
+      const criticalBelow = hardFloorEur * thresholdScale;
       const maxSane = t.rate_max_sane_eur * thresholdScale;
       const currencyLabel = currency.base_currency === "HUF" ? "Ft" : currency.base_currency;
 
       const rates = await fetchPublishedRates(admin, h.hotel_id, today, horizon);
 
-      const isSlnt = h.hotel_id === "slnt-group" ||
-        String(h.organization_slug ?? "").toLowerCase() === "slnt";
       const adaptiveBounds = isSlnt
         ? buildSlntAdaptiveBounds(rates, criticalBelow, maxSane)
         : new Map<string, EffectiveBounds>();
@@ -261,7 +278,10 @@ Deno.serve(async (req) => {
         if (isSlnt && !hasResolvedRoomType(r.room_type_name)) return false;
         const p = Number(r.price);
         if (!Number.isFinite(p)) return false;
-        return p <= 0 || p < r._alertLow || p > r._alertHigh;
+        // SLNT apartments may legitimately sell below the learned adaptive
+        // threshold. Notify for the agreed hard €15 floor only, or high typos.
+        // RD Hotels always notify for ANY nightly rate below €40.
+        return p <= 0 || p < criticalBelow || (!isSlnt && p < r._alertLow) || p > r._alertHigh;
       });
 
       if (offenders.length === 0) {
@@ -269,25 +289,32 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Skip anything already reported with the same price.
-      const { data: existing } = await admin
-        .from("revenue_rate_alerts")
-        .select("stay_date, room_type_name, occupancy, price")
-        .eq("hotel_id", h.hotel_id)
-        .gte("stay_date", today);
-      const seen = new Set(
-        (existing ?? []).map((e: any) => `${e.stay_date}|${e.room_type_name}|${e.occupancy}|${Number(e.price)}`),
-      );
+      // Page the alert ledger: SLNT's many room types can exceed the REST
+      // server's 1,000-row cap, otherwise old alerts get re-emailed forever.
+      const existing: any[] = [];
+      for (let from = 0; ; from += RATE_PAGE_SIZE) {
+        const { data, error } = await admin.from("revenue_rate_alerts")
+          .select("id, stay_date, room_type_name, occupancy, price, notified_at")
+          .eq("hotel_id", h.hotel_id).gte("stay_date", today)
+          .order("stay_date").order("id")
+          .range(from, from + RATE_PAGE_SIZE - 1);
+        if (error) throw error;
+        existing.push(...(data ?? []));
+        if ((data ?? []).length < RATE_PAGE_SIZE) break;
+      }
+      const alertKey = (r: any) => `${r.stay_date}|${r.room_type_name}|${r.occupancy}|${Number(r.price)}`;
+      const prior = new Map((existing ?? []).map((e: any) => [alertKey(e), e]));
+      const alreadyNotified = new Set((existing ?? []).filter((e: any) => !!e.notified_at).map(alertKey));
 
-      const fresh = offenders.filter(
-        (r: any) => !seen.has(`${r.stay_date}|${r.room_type_name}|${r.occupancy}|${Number(r.price)}`),
-      );
+      // An alert which failed to send must retry, not disappear forever just
+      // because its row was inserted before attempting the email.
+      const fresh = offenders.filter((r: any) => !alreadyNotified.has(alertKey(r)));
       if (fresh.length === 0) {
         summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 });
         continue;
       }
 
-      const rows = fresh.map((r: any) => ({
+      const rows = fresh.filter((r: any) => !prior.has(alertKey(r))).map((r: any) => ({
         hotel_id: h.hotel_id,
         organization_slug: h.organization_slug ?? null,
         stay_date: r.stay_date,
@@ -296,28 +323,40 @@ Deno.serve(async (req) => {
         price: Number(r.price),
         severity: "critical",
       }));
-      const { data: inserted } = await admin
-        .from("revenue_rate_alerts").insert(rows).select("id");
+      const inserted: any[] = [];
+      for (let i = 0; i < rows.length; i += 300) {
+        const { data, error } = await admin.from("revenue_rate_alerts")
+          .insert(rows.slice(i, i + 300))
+          .select("id, stay_date, room_type_name, occupancy, price");
+        if (error) throw error;
+        inserted.push(...(data ?? []));
+      }
+      const notificationIds = [
+        ...inserted.map((r: any) => r.id),
+        ...fresh.map((r: any) => (prior.get(alertKey(r)) as any)?.id).filter(Boolean),
+      ];
 
       let emailed = 0;
       const resendKey = Deno.env.get("RESEND_API_KEY");
-      if (t.rate_alert_emails_enabled && resendKey) {
+      const containsCriticalFloor = fresh.some((r: any) => Number(r.price) < criticalBelow);
+      if ((t.rate_alert_emails_enabled || containsCriticalFloor) && resendKey) {
         const { data: people } = await admin
           .from("profiles")
           .select("email, full_name, role, assigned_hotel, organization_slug")
           .in("role", ALERT_ROLES);
 
-        const recipients = (people ?? [])
-          .filter((p: any) => {
-            if (!p.email) return false;
-            const email = String(p.email).trim().toLowerCase();
-            if (EXCLUDED_ALERT_EMAILS.has(email)) return false;
-            return p.assigned_hotel === h.hotel_id ||
-              (h.organization_slug && p.organization_slug === h.organization_slug);
-          })
-          .map((p: any) => String(p.email).trim());
-
-        const unique = Array.from(new Set(recipients));
+        const management = (people ?? [])
+          .filter((p: any) => p.email &&
+            (p.assigned_hotel === h.hotel_id ||
+              (h.organization_slug && p.organization_slug === h.organization_slug)))
+          .map((p: any) => String(p.email).trim().toLowerCase());
+        const recipients = isSlnt
+          ? SLNT_ALERT_RECIPIENTS
+          : isRd ? [...RD_ALERT_RECIPIENTS, ...management] : management;
+        const unique = [...new Set(recipients)]
+          .filter((email) => !EXCLUDED_ALERT_EMAILS.has(email))
+          .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+          .filter((email) => !/\.(local|invalid|test|example)$/i.test(email.split("@")[1] ?? ""));
         if (unique.length > 0) {
           const rangeHeader = isSlnt
             ? `<th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Safety range</th>`
@@ -334,8 +373,8 @@ Deno.serve(async (req) => {
           }).join("");
 
           const thresholdText = isSlnt
-            ? `SLNT uses an adaptive safety net calculated separately for each room type and occupancy from the complete current ${HORIZON_DAYS}-day published rate curve. The configured portfolio limits remain hard guardrails.`
-            : `The safety net is below ${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel} or above ${Math.round(maxSane).toLocaleString("en-US")} ${currencyLabel}.`;
+            ? `SLNT's critical low-price email threshold is strictly below €15 (equivalent to ${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel}). High-price anomaly detection remains enabled.`
+            : `The critical email floor is strictly below €${hardFloorEur} (${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel}); unusually high prices are also reported.`;
 
           const html = `
             <div style="font-family:Arial,Helvetica,sans-serif;color:#111">
@@ -359,18 +398,20 @@ Deno.serve(async (req) => {
             </div>`;
 
           try {
-            const resend = mailClient();
-            await resend.emails.send({
-              from: "Hotel Care <onboarding@resend.dev>",
+            // Use the shared organization's verified mail sender. The
+            // adapter returns delivery errors explicitly; never mark a rate
+            // alert as notified unless it accepted the message.
+            const sent = await mailClient(h.organization_slug).emails.send({
               to: unique,
               subject: `⚠️ ${fresh.length} unusual rate${fresh.length === 1 ? "" : "s"} — ${h.hotel_id}`,
               html,
             });
+            if (sent.error) throw new Error(sent.error.message ?? "Rate-alert email was not accepted by the provider.");
             emailed = unique.length;
-            const ids = (inserted ?? []).map((r: any) => r.id);
-            if (ids.length > 0) {
-              await admin.from("revenue_rate_alerts")
-                .update({ notified_at: new Date().toISOString() }).in("id", ids);
+            if (notificationIds.length > 0) {
+              const { error: markError } = await admin.from("revenue_rate_alerts")
+                .update({ notified_at: new Date().toISOString() }).in("id", notificationIds);
+              if (markError) console.error("rate alert sent but notified flag failed", markError);
             }
           } catch (e) {
             console.error("rate alert email failed", e);

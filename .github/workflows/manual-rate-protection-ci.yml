@@ -1,0 +1,41 @@
+name: Manual rate protection CI
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/revenue/initialRoomRates*'
+      - 'src/components/revenue/InitializeRoomRatesDialog.tsx'
+      - 'supabase/functions/_shared/rateSafety*'
+      - 'supabase/functions/revenue-enqueue-rates/index.ts'
+      - 'supabase/functions/revenue-push-drafts/index.ts'
+      - 'supabase/functions/revenue-rate-alerts/index.ts'
+      - 'supabase/migrations/*staff_rate_overrides.sql'
+      - '.github/workflows/manual-rate-protection-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/rateSafety*'
+      - 'supabase/functions/revenue-enqueue-rates/index.ts'
+      - 'supabase/functions/revenue-push-drafts/index.ts'
+      - 'supabase/functions/revenue-rate-alerts/index.ts'
+      - '.github/workflows/manual-rate-protection-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  manual-rate-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Manual-price safety regression tests
+        run: deno test supabase/functions/_shared/rateSafety_test.ts
+      - name: Type-check price publishing functions
+        run: |
+          deno check --node-modules-dir=auto supabase/functions/revenue-enqueue-rates/index.ts
+          deno check --node-modules-dir=auto supabase/functions/revenue-push-drafts/index.ts
+          deno check --node-modules-dir=auto supabase/functions/revenue-rate-alerts/index.ts
