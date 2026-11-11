@@ -10,7 +10,7 @@ import { SlntTeamAQuickPlanner } from './SlntTeamAQuickPlanner';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
 
 const MASTER_SCHEDULE_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
-const LOCAL_SCHEDULE_ROLES = ['manager', 'housekeeping_manager'];
+const LOCAL_SCHEDULE_ROLES = ['manager', 'housekeeping_manager', 'maintenance_manager', 'reception_manager', 'finance_manager', 'control_manager', 'marketing_manager', 'back_office_manager'];
 const HOUSEKEEPING_MANAGER_ROLES = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'hr'];
 
 /**
@@ -50,10 +50,10 @@ export function StaffSchedulePlanner() {
   return (
     <Tabs defaultValue={isRdHotels ? "master" : "housekeeping"} className="space-y-4">
       <TabsList className="h-auto flex-wrap justify-start">
-        <TabsTrigger value="housekeeping">Housekeeping schedule</TabsTrigger>
+        {canManageHousekeeping && <TabsTrigger value="housekeeping">Housekeeping schedule</TabsTrigger>}
         <TabsTrigger value="master">Master staff schedule</TabsTrigger>
       </TabsList>
-      <TabsContent value="housekeeping" className="mt-0">{housekeepingView}</TabsContent>
+      {canManageHousekeeping && <TabsContent value="housekeeping" className="mt-0">{housekeepingView}</TabsContent>}
       <TabsContent value="master" className="mt-0"><MasterStaffSchedulePlanner /></TabsContent>
     </Tabs>
   );
