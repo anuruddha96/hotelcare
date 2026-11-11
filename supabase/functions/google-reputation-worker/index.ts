@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { buildCuratedReply, requiresCarefulReview } from "../_shared/reputation-replies.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -84,7 +85,7 @@ function classifyReview(stars: number, comment: string) {
   const risk =
     stars <= 1 || highRiskWords.some((word) => text.includes(word))
       ? "high"
-      : stars <= 3 || mediumRiskWords.some((word) => text.includes(word))
+      : stars <= 3 || mediumRiskWords.some((word) => text.includes(word)) || requiresCarefulReview(comment)
         ? "medium"
         : "low";
   const sentiment = stars >= 4 ? "positive" : stars === 3 ? "mixed" : "negative";
@@ -165,6 +166,7 @@ Deno.serve(async (req) => {
   let reviewsSynced = 0;
   let draftsGenerated = 0;
   let repliesPublished = 0;
+  let historicalPublished = 0;
   const errors: Array<Record<string, unknown>> = [];
 
   async function audit(review: any, eventType: string, replyText: string | null = null, metadata: Record<string, unknown> = {}) {
@@ -246,13 +248,18 @@ Deno.serve(async (req) => {
 
   async function generateDraft(review: any, location: any) {
     const brand = String(location.reply_brand_name || location.google_location_title || "our business");
-    const stars = Number(review.star_rating || 5);
-    if (!String(review.comment || "").trim()) {
-      // Don't spend AI tokens or invent a hotel stay for a star-only rating.
-      return location.reply_language_mode === "hungarian"
-        ? `Köszönjük a${stars === 5 ? "z ötcsillagos" : ` ${stars} csillagos`} értékelést és hogy támogatta a(z) ${brand} csapatát!`
-        : `Thank you for your ${stars}-star rating and for supporting ${brand}!`;
-    }
+    const curated = buildCuratedReply({
+      reviewId: String(review.google_review_name || review.id),
+      rating: Number(review.star_rating || 5),
+      comment: review.comment || "",
+      reviewerName: review.reviewer_display_name,
+      venueName: brand,
+      venueCategory: location.business_category,
+      venueContext: location.brand_context,
+      signature: location.reply_signature,
+      languageMode: location.reply_language_mode,
+    });
+    if (curated && String(review.ai_risk_level || "low") === "low") return curated.text;
     const key = Deno.env.get("OPENAI_API_KEY");
     if (!key) throw new Error("OPENAI_API_KEY missing");
     const tone = toneInstruction[location.reply_tone] || toneInstruction.warm_professional;
@@ -327,6 +334,13 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
         for (const location of locations || []) {
           locationsChecked++;
           try {
+            if (location.auto_backfill_active &&
+                (!location.auto_backfill_authorized_at ||
+                 Date.now() - new Date(location.auto_backfill_authorized_at).getTime() > 48 * 3_600_000)) {
+              await admin.from("google_business_locations").update({ auto_backfill_active: false })
+                .eq("id", location.id);
+              location.auto_backfill_active = false;
+            }
             const query = new URLSearchParams({ pageSize: "50", orderBy: "updateTime desc" });
             const response = await googleFetch(
               connection,
@@ -334,6 +348,14 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               `https://mybusiness.googleapis.com/v4/${location.google_account_name}/${location.google_location_name}/reviews?${query.toString()}`,
             );
 
+            await admin.from("google_business_locations")
+              .update({
+                google_total_review_count: Number.isFinite(Number(response.totalReviewCount))
+                  ? Number(response.totalReviewCount) : location.google_total_review_count,
+                google_average_rating: Number.isFinite(Number(response.averageRating))
+                  ? Number(response.averageRating) : location.google_average_rating,
+                google_review_stats_updated_at: new Date().toISOString(),
+              }).eq("id", location.id);
             for (const googleReview of response.reviews || []) {
               const stars = rating(googleReview.starRating);
               const comment = googleReview.comment || null;
@@ -359,7 +381,17 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               const origin = hasGoogleReply
                 ? (["automatic", "manager", "bulk"].includes(existing?.reply_origin) ? existing.reply_origin : "google")
                 : "unknown";
-              const eligible = autoEligible(location, stars, analysis.risk, googleReview.createTime || updateTime);
+              const eligible = autoEligible(location, stars, analysis.risk, googleReview.createTime || updateTime) &&
+                !requiresCarefulReview(comment || "");
+              const reviewMs = new Date(googleReview.createTime || "").getTime();
+              const historicalEligible = Boolean(location.auto_backfill_active) &&
+                historicalPublished < 5 &&
+                Number.isFinite(reviewMs) &&
+                reviewMs >= new Date(location.auto_backfill_cutoff || "").getTime() &&
+                reviewMs <= new Date(location.auto_backfill_upper_bound || "").getTime() &&
+                stars >= 4 && analysis.risk === "low" &&
+                !requiresCarefulReview(comment || "") && !existing?.draft_edited_at &&
+                !eligible;
 
               const row = {
                 organization_id: connection.organization_id,
@@ -386,7 +418,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 draft_edited_by: retainedDraft ? existing?.draft_edited_by || null : null,
                 reply_status: replyStatus,
                 reply_origin: origin,
-                auto_reply_eligible: eligible,
+                auto_reply_eligible: eligible || historicalEligible,
                 raw: googleReview,
                 updated_at: new Date().toISOString(),
               };
@@ -398,7 +430,17 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 .single();
               if (saveError) throw saveError;
               reviewsSynced++;
-
+              if (stars <= 3 && !existing && new Date(googleReview.createTime || "").getTime() >= Date.now() - 14 * 86_400_000) {
+                const { error: alertError } = await admin.from("google_reputation_alerts").upsert({
+                  organization_id: connection.organization_id,
+                  google_location_id: location.id,
+                  google_review_name: reviewName,
+                  review_id: saved.id,
+                  star_rating: stars,
+                  review_excerpt: (comment || "").slice(0, 600),
+                }, { onConflict: "organization_id,google_review_name", ignoreDuplicates: true });
+                if (alertError) console.error("reputation-alert", alertError.message);
+              }
               if (hasGoogleReply) {
                 if (existing && existing.reply_status !== "published") {
                   await audit(saved, "sync_detected_reply", googleReview.reviewReply.comment, { source: "google" });
@@ -407,6 +449,28 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               }
 
               let draft = retainedDraft;
+              if (historicalEligible && !existing?.draft_edited_at) {
+                // Replace any previously generated generic draft with a vetted,
+                // business-specific choice from the varied zero-cost reply pool.
+                const curated = buildCuratedReply({
+                  reviewId: reviewName,
+                  rating: stars,
+                  comment,
+                  reviewerName: saved.reviewer_display_name,
+                  venueName: location.reply_brand_name || location.google_location_title,
+                  venueCategory: location.business_category,
+                  venueContext: location.brand_context,
+                  signature: location.reply_signature,
+                  languageMode: location.reply_language_mode,
+                });
+                if (curated) {
+                  draft = curated.text;
+                  await admin.from("google_reviews")
+                    .update({ ai_draft: draft, ai_draft_generated_at: new Date().toISOString(),
+                      reply_status: "draft", updated_at: new Date().toISOString() })
+                    .eq("id", saved.id);
+                }
+              }
               if (!draft && draftsGenerated < 20) {
                 draft = await generateDraft(saved, location);
                 await admin
@@ -426,7 +490,13 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 draftsGenerated++;
               }
 
-              if (eligible && draft) {
+              if ((eligible || historicalEligible) && draft) {
+                // Read back Google's latest state before publishing: never
+                // overwrite a response added outside HotelCare in the meantime.
+                const live = await googleFetch(connection, accessToken,
+                  `https://mybusiness.googleapis.com/v4/${reviewName}`);
+                if (live?.reviewReply?.comment) continue;
+                const isHistorical = historicalEligible && !eligible;
                 const publishResult = await googleFetch(
                   connection,
                   accessToken,
@@ -440,15 +510,20 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                     google_reply_update_time: publishResult.updateTime || new Date().toISOString(),
                     reply_status: "published",
                     reply_origin: "automatic",
+                    auto_reply_kind: isHistorical ? "historical_14d" : "new_positive",
                     replied_at: new Date().toISOString(),
                     replied_by: null,
                     updated_at: new Date().toISOString(),
                   })
                   .eq("id", saved.id);
-                await audit(saved, "auto_published", draft, {
+                await audit(saved, isHistorical ? "historical_auto_published" : "auto_published", draft, {
                   google_update_time: publishResult.updateTime || null,
+                  published_by: "HotelCare AI", venue_name: location.reply_brand_name || location.google_location_title,
+                  reply_policy: isHistorical ? "explicit_14_day_backfill" : "new_positive_low_risk",
+                  authorized_at: isHistorical ? location.auto_backfill_authorized_at : location.auto_reply_consent_at,
                 });
                 repliesPublished++;
+                if (isHistorical) historicalPublished++;
               }
             }
 

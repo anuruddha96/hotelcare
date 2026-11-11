@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { buildCuratedReply, CURATED_REPLY_BASE_COUNT, requiresCarefulReview } from "../_shared/reputation-replies.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -130,7 +131,7 @@ function classifyReview(stars: number, comment: string) {
   const risk =
     stars <= 1 || highRiskWords.some((w) => text.includes(w))
       ? "high"
-      : stars <= 3 || mediumRiskWords.some((w) => text.includes(w))
+      : stars <= 3 || mediumRiskWords.some((w) => text.includes(w)) || requiresCarefulReview(comment)
         ? "medium"
         : "low";
   const sentiment = stars >= 4 ? "positive" : stars === 3 ? "mixed" : "negative";
@@ -329,14 +330,14 @@ Deno.serve(async (req) => {
           admin
             .from("google_business_locations")
             .select(
-              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_enabled_at,auto_reply_consent_at,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context",
+              "id,hotel_id,google_account_name,google_location_name,google_location_title,reply_brand_name,business_category,place_id,store_code,reply_mode,min_auto_rating,is_active,last_sync_at,reply_tone,reply_language_mode,auto_reply_enabled,auto_reply_enabled_at,auto_reply_consent_at,auto_reply_delay_minutes,require_approval_below_rating,reply_signature,brand_context,google_total_review_count,google_average_rating,google_review_stats_updated_at,auto_backfill_active,auto_backfill_authorized_at,auto_backfill_cutoff,auto_backfill_upper_bound",
             )
             .eq("organization_id", org.id)
             .order("google_location_title"),
           admin
             .from("google_reviews")
             .select(
-              "id,hotel_id,google_location_id,reviewer_display_name,reviewer_profile_photo_url,star_rating,comment,review_create_time,review_update_time,google_reply_comment,google_reply_update_time,reply_origin,ai_language,ai_sentiment,ai_categories,ai_summary,ai_risk_level,ai_confidence,ai_draft,ai_draft_generated_at,draft_edited_at,reply_status,replied_at,auto_reply_eligible",
+              "id,hotel_id,google_location_id,reviewer_display_name,reviewer_profile_photo_url,star_rating,comment,review_create_time,review_update_time,google_reply_comment,google_reply_update_time,reply_origin,auto_reply_kind,ai_language,ai_sentiment,ai_categories,ai_summary,ai_risk_level,ai_confidence,ai_draft,ai_draft_generated_at,draft_edited_at,reply_status,replied_at,auto_reply_eligible",
             )
             .eq("organization_id", org.id)
             .order("review_update_time", { ascending: false })
@@ -354,6 +355,14 @@ Deno.serve(async (req) => {
             .limit(200),
         ]);
 
+      const [{ data: alerts }, { count: openAlertCount }] = await Promise.all([
+        admin.from("google_reputation_alerts")
+          .select("id,google_location_id,review_id,star_rating,review_excerpt,status,detected_at,acknowledged_at")
+          .eq("organization_id", org.id).eq("status", "open").order("detected_at", { ascending: false }).limit(30),
+        admin.from("google_reputation_alerts")
+          .select("id", { count: "exact", head: true })
+          .eq("organization_id", org.id).eq("status", "open"),
+      ]);
       const counts = await Promise.all([
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id),
         admin.from("google_reviews").select("id", { count: "exact", head: true }).eq("organization_id", org.id).eq("reply_status", "published"),
@@ -402,6 +411,8 @@ Deno.serve(async (req) => {
       return json({
         ok: true,
         location_summary: summary,
+        alerts: alerts || [], open_alert_count: openAlertCount || 0,
+        reply_library: { curated_base_variants: CURATED_REPLY_BASE_COUNT, curated_ai_cost: 0 },
         stats: {
           total: counts[0].count || 0, published: counts[1].count || 0,
           automatic: counts[2].count || 0, manager: counts[3].count || 0, bulk: counts[4].count || 0,
@@ -429,9 +440,11 @@ Deno.serve(async (req) => {
       const limit = 50;
       const source = String(body.source || "all");
       let q = admin.from("google_reviews")
-        .select("id,hotel_id,google_location_id,reviewer_display_name,star_rating,comment,review_update_time,google_reply_comment,google_reply_update_time,reply_status,reply_origin,replied_at", { count: "exact" })
+        .select("id,hotel_id,google_location_id,reviewer_display_name,star_rating,comment,review_update_time,google_reply_comment,google_reply_update_time,reply_status,reply_origin,auto_reply_kind,replied_at", { count: "exact" })
         .eq("organization_id", org.id).eq("reply_status", "published");
       if (["automatic", "manager", "bulk", "google"].includes(source)) q = q.eq("reply_origin", source);
+      if (source === "automatic" && ["historical_14d", "new_positive"].includes(String(body.kind)))
+        q = q.eq("auto_reply_kind", String(body.kind));
       if (body.location_id && body.location_id !== "all") q = q.eq("google_location_id", String(body.location_id));
       const { data: publishedReviews, count, error } = await q
         .order("google_reply_update_time", { ascending: false, nullsFirst: false })
@@ -683,6 +696,13 @@ Deno.serve(async (req) => {
             `https://mybusiness.googleapis.com/v4/${l.google_account_name}/${l.google_location_name}/reviews?${q.toString()}`,
           );
 
+          await admin.from("google_business_locations").update({
+            google_total_review_count: Number.isFinite(Number(x.totalReviewCount))
+              ? Number(x.totalReviewCount) : l.google_total_review_count,
+            google_average_rating: Number.isFinite(Number(x.averageRating))
+              ? Number(x.averageRating) : l.google_average_rating,
+            google_review_stats_updated_at: new Date().toISOString(),
+          }).eq("id", l.id);
           for (const r of x.reviews || []) {
             const existing = existingReviews.get(r.name);
             const unchanged = existing && String(existing.comment || "") === String(r.comment || "");
@@ -724,8 +744,16 @@ Deno.serve(async (req) => {
               updated_at: new Date().toISOString(),
             };
 
-            const { error } = await admin.from("google_reviews").upsert(row, { onConflict: "google_review_name" });
+            const { data: savedReview, error } = await admin.from("google_reviews")
+              .upsert(row, { onConflict: "google_review_name" }).select("id").single();
             if (error) throw error;
+            if (stars <= 3 && !existing && new Date(r.createTime || "").getTime() >= Date.now() - 14 * 86_400_000) {
+              await admin.from("google_reputation_alerts").upsert({
+                organization_id: org.id, google_location_id: l.id,
+                google_review_name: r.name, review_id: savedReview.id,
+                star_rating: stars, review_excerpt: String(r.comment || "").slice(0, 600),
+              }, { onConflict: "organization_id,google_review_name", ignoreDuplicates: true });
+            }
             imported++;
             if (!r.reviewReply?.comment) unreplied++;
           }
@@ -740,6 +768,94 @@ Deno.serve(async (req) => {
       return json({ ok: true, imported, unreplied });
     }
 
+    if (action === "alert_summary") {
+      // Lightweight endpoint for the shared application header; avoid pulling
+      // thousands of reviews or running the full Reputation overview query.
+      const { data: openAlerts, count, error } = await admin.from("google_reputation_alerts")
+        .select("id,star_rating,google_location_id,review_excerpt,detected_at,google_business_locations(reply_brand_name,google_location_title)", { count: "exact" })
+        .eq("organization_id", org.id).eq("status", "open")
+        .order("detected_at", { ascending: false }).limit(8);
+      if (error) throw error;
+      return json({ ok: true, total: count || 0, alerts: openAlerts || [] });
+    }
+
+    if (action === "activate_auto_venues") {
+      // Explicit one-time consent for a named set of Google Business locations.
+      // This never grants consent to publish old reviews and never sets the mode
+      // below the safe 4-star threshold.
+      if (body.confirm !== true) return json({ error: "Explicit business-level authorization is required." }, 409);
+      const ids = Array.isArray(body.location_ids) ? body.location_ids.map(String) : [];
+      const uniq = Array.from(new Set(ids));
+      if (!uniq.length || uniq.length > 25 || uniq.length !== ids.length) return json({ error: "Select 1–25 distinct Google businesses." }, 400);
+      const { data: selected, error: selectedError } = await admin.from("google_business_locations")
+        .select("id,reply_brand_name,google_location_title,hotel_id,auto_reply_enabled,reply_mode")
+        .eq("organization_id", org.id).eq("is_active", true).in("id", uniq);
+      if (selectedError) throw selectedError;
+      if ((selected || []).length !== uniq.length) return json({ error: "One or more selected listings are unavailable." }, 409);
+      const activated: any[] = [];
+      const consentTime = new Date().toISOString();
+      for (const venue of selected || []) {
+        const { data: updated, error } = await admin.from("google_business_locations").update({
+          reply_mode: "auto_positive",
+          auto_reply_enabled: true,
+          min_auto_rating: 4,
+          require_approval_below_rating: 4,
+          auto_reply_consent_at: consentTime,
+          auto_reply_authorized_by: userData.user.id,
+          updated_at: consentTime,
+        }).eq("id", venue.id).eq("organization_id", org.id).select("id,reply_brand_name,auto_reply_enabled,auto_reply_enabled_at").single();
+        if (error) throw error;
+        activated.push(updated);
+      }
+      return json({ ok: true, activated, policy: "future_4_5_low_risk_only", authorized_at: consentTime });
+    }
+
+    if (action === "authorize_historical_backfill" || action === "cancel_historical_backfill") {
+      const ids = Array.isArray(body.location_ids) ? body.location_ids.map(String) : [];
+      const uniqueIds = Array.from(new Set(ids));
+      if (!uniqueIds.length || uniqueIds.length > 25 || uniqueIds.length !== ids.length)
+        return json({ error: "Choose 1–25 distinct Google Business locations." }, 400);
+      if (action === "authorize_historical_backfill" && body.confirm !== true)
+        return json({ error: "Explicit consent for the selected 14-day review window is required." }, 409);
+      const { data: venues, error: foundError } = await admin.from("google_business_locations")
+        .select("id,reply_brand_name,google_location_title,is_active")
+        .eq("organization_id", org.id).in("id", uniqueIds);
+      if (foundError) throw foundError;
+      if (!venues || venues.length !== uniqueIds.length || venues.some((v: any) => !v.is_active))
+        return json({ error: "One or more requested Google listings are unavailable." }, 409);
+      const timestamp = new Date();
+      const authorized = action === "authorize_historical_backfill";
+      const cutoff = new Date(timestamp.getTime() - 14 * 86_400_000).toISOString();
+      for (const venue of venues) {
+        const updates = authorized ? {
+          auto_backfill_active: true,
+          auto_backfill_authorized_at: timestamp.toISOString(),
+          auto_backfill_authorized_by: userData.user.id,
+          auto_backfill_cutoff: cutoff,
+          auto_backfill_upper_bound: timestamp.toISOString(),
+        } : { auto_backfill_active: false };
+        const { error } = await admin.from("google_business_locations").update({
+          ...updates, updated_at: timestamp.toISOString(),
+        }).eq("id", venue.id).eq("organization_id", org.id);
+        if (error) throw error;
+      }
+      return json({ ok: true, venues: venues.map((v: any) => ({ id: v.id, name: v.reply_brand_name || v.google_location_title })),
+        historical_window: authorized ? { from: cutoff, to: timestamp.toISOString() } : null,
+        active: authorized,
+        max_published_per_worker_run: 5 });
+    }
+
+    if (action === "acknowledge_low_rating_alert") {
+      const id = String(body.alert_id || "");
+      if (!id) return json({ error: "alert_id is required" }, 400);
+      const { data: result, error } = await admin.from("google_reputation_alerts")
+        .update({ status: "acknowledged", acknowledged_at: new Date().toISOString(), acknowledged_by: userData.user.id })
+        .eq("id", id).eq("organization_id", org.id).eq("status", "open").select("id").maybeSingle();
+      if (error) throw error;
+      if (!result) return json({ error: "Alert not found or already acknowledged" }, 404);
+      return json({ ok: true });
+    }
+
     if (action === "draft_reply") {
       const reviewId = String(body.review_id || "");
       if (!reviewId) return json({ error: "review_id required" }, 400);
@@ -751,10 +867,10 @@ Deno.serve(async (req) => {
         .eq("organization_id", org.id)
         .maybeSingle();
       if (!r) return json({ error: "Review not found" }, 404);
+      if (r.reply_status === "published" || r.google_reply_comment)
+        return json({ error: "This Google review has already been answered" }, 409);
 
       const key = Deno.env.get("OPENAI_API_KEY");
-      if (!key) return json({ error: "HotelCare AI is not configured" }, 409);
-
       const location = r.google_business_locations as any;
       const property = location?.reply_brand_name || location?.google_location_title || "our business";
       const category = location?.business_category || "other";
@@ -774,14 +890,21 @@ Deno.serve(async (req) => {
 
       const analysis = classifyReview(Number(r.star_rating || 5), String(r.comment || ""));
       let draft = "";
-      if (!String(r.comment || "").trim()) {
-        // Rating-only reviews do not need a paid model call or invented visit details.
-        const stars = Number(r.star_rating || 5);
-        const hungarian = location?.reply_language_mode === "hungarian";
-        draft = hungarian
-          ? `Köszönjük a${stars === 5 ? "z ötcsillagos" : ` ${stars} csillagos`} értékelést és hogy támogatta a(z) ${property} csapatát!`
-          : `Thank you for your ${stars}-star rating and for supporting ${property}!`;
+      const curated = analysis.risk === "low" ? buildCuratedReply({
+        reviewId: String(r.google_review_name || r.id),
+        rating: Number(r.star_rating || 5),
+        comment: r.comment,
+        reviewerName: r.reviewer_display_name,
+        venueName: property,
+        venueCategory: category,
+        venueContext: location?.brand_context,
+        signature: location?.reply_signature,
+        languageMode: location?.reply_language_mode,
+      }) : null;
+      if (curated) {
+        draft = curated.text;
       } else {
+        if (!key) return json({ error: "HotelCare AI is not configured" }, 409);
         const prompt = `Write a brief public Google review reply for the brand "${property}" (venue type: ${category}).
 Public listing title for identification ONLY: ${location?.google_location_title || property}.
 Guest review: ${String(r.comment).slice(0, 1800)}.
@@ -833,11 +956,14 @@ Risk level: ${analysis.risk}.`;
 
       await audit(r, "draft_generated", draft, {
         risk: analysis.risk,
+        source: curated ? "curated_reply_library" : "openai",
+        template_id: curated?.templateId || null,
         tone: location?.reply_tone || "warm_professional",
         language_mode: location?.reply_language_mode || "match_guest",
       });
 
-      return json({ ok: true, draft, ...analysis });
+      return json({ ok: true, draft, source: curated ? "curated_reply_library" : "openai",
+        template_id: curated?.templateId || null, ...analysis });
     }
 
     if (action === "update_draft") {
@@ -869,12 +995,70 @@ Risk level: ${analysis.risk}.`;
       return json({ ok: true, draft: reply });
     }
 
+    if (action === "prepare_bulk_replies") {
+      const ids = Array.isArray(body.review_ids) ? body.review_ids.map(String) : [];
+      if (!ids.length || ids.length > 25 || new Set(ids).size !== ids.length)
+        return json({ error: "Choose 1–25 distinct reviews for draft preparation." }, 400);
+      const { data: selected, error } = await admin.from("google_reviews")
+        .select("*,google_business_locations(id,organization_id,is_active,reply_brand_name,google_location_title,business_category,brand_context,reply_signature,reply_language_mode)")
+        .eq("organization_id", org.id).in("id", ids);
+      if (error) throw error;
+      if ((selected || []).length !== ids.length) return json({ error: "One or more reviews no longer exist." }, 409);
+      const cutoff = Date.now() - 14 * 86_400_000;
+      const prepared = [];
+      const rejected = [];
+      for (const review of selected || []) {
+        const location = review.google_business_locations;
+        const ageMs = new Date(review.review_create_time || "").getTime();
+        const safe = Number(review.star_rating) >= 4 &&
+          classifyReview(Number(review.star_rating), String(review.comment || "")).risk === "low" &&
+          ageMs >= cutoff && ageMs <= Date.now() &&
+          !review.google_reply_comment && review.reply_status !== "published" &&
+          location?.organization_id === org.id && location?.is_active;
+        if (!safe) {
+          rejected.push({ id: review.id, reason: "Review is not eligible for the safe 14-day approval queue." });
+          continue;
+        }
+        if (review.draft_edited_at && review.ai_draft) {
+          prepared.push({ id: review.id, draft: review.ai_draft, source: "manager_edited" });
+          continue;
+        }
+        const draft = buildCuratedReply({
+          reviewId: review.google_review_name,
+          rating: review.star_rating,
+          comment: review.comment,
+          reviewerName: review.reviewer_display_name,
+          venueName: location.reply_brand_name || location.google_location_title,
+          venueCategory: location.business_category,
+          venueContext: location.brand_context,
+          signature: location.reply_signature,
+          languageMode: location.reply_language_mode,
+        });
+        if (!draft) {
+          rejected.push({ id: review.id, reason: "Needs a custom manager-reviewed reply." });
+          continue;
+        }
+        const { error: writeError } = await admin.from("google_reviews")
+          .update({ ai_draft: draft.text, ai_draft_generated_at: new Date().toISOString(),
+            reply_status: "draft", ai_risk_level: "low", updated_at: new Date().toISOString() })
+          .eq("id", review.id).eq("organization_id", org.id);
+        if (writeError) {
+          rejected.push({ id: review.id, reason: "Draft could not be saved." });
+          continue;
+        }
+        await audit(review, "draft_generated", draft.text, { source: "curated_reply_library",
+          template_id: draft.templateId, topic: draft.topic, bulk_preparation: true });
+        prepared.push({ id: review.id, draft: draft.text, source: "curated_reply_library" });
+      }
+      return json({ ok: true, prepared, rejected, library_variants: CURATED_REPLY_BASE_COUNT });
+    }
+
     if (action === "bulk_publish_replies") {
       // Batch approval is a one-time explicit decision, NOT a change to a venue's
       // unattended auto-reply policy. It cannot silently publish older reviews.
       if (body.confirm !== true) return json({ error: "Explicit confirmation is required." }, 409);
       const items = Array.isArray(body.items) ? body.items : [];
-      if (!items.length || items.length > 10) return json({ error: "Choose 1–10 reviews per batch." }, 400);
+      if (!items.length || items.length > 25) return json({ error: "Choose 1–25 reviews per batch." }, 400);
       const unique = new Set(items.map((x: any) => String(x?.id || "")));
       if (unique.size !== items.length) return json({ error: "Duplicate review selection." }, 400);
       const cutoffMs = Date.now() - 14 * 86_400_000;
