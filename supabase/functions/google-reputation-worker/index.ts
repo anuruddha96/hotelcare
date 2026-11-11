@@ -447,7 +447,10 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
           }
         }
 
-        if (!errors.some((item) => item.connection_id === connection.id)) {
+        // Do not report a healthy Google sync just because the cron ran.
+        // A newly approved account has zero mapped locations until the manager
+        // discovers and maps listings; preserve setup errors until a real sync succeeds.
+        if ((locations || []).length > 0 && !errors.some((item) => item.connection_id === connection.id)) {
           await admin
             .from("google_business_connections")
             .update({
