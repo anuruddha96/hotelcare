@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 type Shift = {
-  id: string; work_date: string; shift_start: string; shift_end: string; status: string;
+  id: string; work_date: string; shift_start: string | null; shift_end: string | null; status: string; work_status?: string | null;
   notes: string | null; staff_schedule_venues?: { venues: { name: string } | null }[];
 };
 const isSlnt = (slug: string | null | undefined) => slug === 'slnt' || slug === 'slnt-group';
@@ -38,7 +38,7 @@ export function UpcomingShiftCard() {
   const [teamBMember, setTeamBMember] = useState<boolean | null>(null);
   const [teamBError, setTeamBError] = useState('');
   const slnt = isSlnt(orgSlug ?? profile?.organization_slug);
-  const from = slnt ? todayBudapest() : format(new Date(), 'yyyy-MM-dd');
+  const from = todayBudapest();
   const to = format(addDays(dateOf(from), 13), 'yyyy-MM-dd');
 
   useEffect(() => {
@@ -61,7 +61,7 @@ export function UpcomingShiftCard() {
   const refresh = useCallback(async (isActive: () => boolean = () => true) => {
     // Team B uses virtual working days and explicit absences, never published-shift rows.
     if (slnt && simplifiedReady && teamBMember !== false) return;
-    if (!venuesEnabled || !user?.id) { if (isActive()) setShifts([]); return; }
+    if ((slnt && !venuesEnabled) || !user?.id) { if (isActive()) setShifts([]); return; }
     setLoading(true);
     setError('');
     try {
@@ -75,7 +75,7 @@ export function UpcomingShiftCard() {
         return;
       }
       let query = (supabase as any).from('staff_schedules')
-        .select('id,work_date,shift_start,shift_end,status,notes,staff_schedule_venues(venues(name))')
+        .select('id,work_date,shift_start,shift_end,status,work_status,notes,staff_schedule_venues(venues(name))')
         .eq('user_id', user.id).eq('status', 'published')
         .gte('work_date', from).lte('work_date', to).order('work_date');
       if (slnt) {
@@ -96,13 +96,13 @@ export function UpcomingShiftCard() {
   }, [venuesEnabled, user?.id, profile?.organization_slug, profile?.assigned_hotel, slnt, from, to, simplifiedEnabled, simplifiedReady, teamBMember]);
 
   useEffect(() => { let active = true; void refresh(() => active); return () => { active = false; }; }, [refresh]);
-  if (!venuesEnabled) return null;
+  if (slnt && !venuesEnabled) return null;
   if (slnt && simplifiedReady && teamBMember === true) return <SlntTeamBMySchedule />;
   if (slnt && simplifiedReady && teamBMember === null) return <Card className="w-full"><CardContent className="p-3 text-sm text-muted-foreground" role={teamBError ? 'alert' : 'status'}>{teamBError || (language === 'hu' ? 'Beosztás ellenőrzése…' : 'Checking Team B schedule…')}</CardContent></Card>;
 
   // Preserve the existing compact card for all tenants other than SLNT.
   if (!slnt) return <Card className="w-full max-w-md mx-auto"><CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><CalendarDays className="h-4 w-4" />Upcoming schedule</CardTitle></CardHeader><CardContent className="space-y-2">
-    {shifts.length === 0 ? <p className="text-sm text-muted-foreground">No published shifts in the next two weeks.</p> : shifts.slice(0, 5).map((shift) => <div key={shift.id} className="rounded-md border p-2.5"><div className="flex items-center justify-between gap-2"><strong className="text-sm">{format(dateOf(shift.work_date), 'EEE, MMM d')}</strong><Badge variant="outline" className="gap-1"><Clock className="h-3 w-3" />{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</Badge></div><div className="mt-1 flex items-start gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /><span>{shift.staff_schedule_venues?.map((v) => v.venues?.name).filter(Boolean).join(', ') || 'Venue to be confirmed'}</span></div>{shift.notes && <p className="mt-1 text-xs">{shift.notes}</p>}</div>)}
+    {shifts.length === 0 ? <p className="text-sm text-muted-foreground">No published shifts in the next two weeks.</p> : shifts.slice(0, 5).map((shift) => <div key={shift.id} className="rounded-md border p-2.5"><div className="flex items-center justify-between gap-2"><strong className="text-sm">{format(dateOf(shift.work_date), 'EEE, MMM d')}</strong><Badge variant="outline" className="gap-1"><Clock className="h-3 w-3" />{shift.shift_start && shift.shift_end ? `${shift.shift_start.slice(0,5)}–${shift.shift_end.slice(0,5)}` : (shift.work_status === 'leave' ? 'Leave' : shift.work_status === 'sick' ? 'Sick' : shift.work_status === 'off' ? 'Off' : 'No shift hours')}</Badge></div><div className="mt-1 flex items-start gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3 mt-0.5 shrink-0" /><span>{shift.staff_schedule_venues?.map((v) => v.venues?.name).filter(Boolean).join(', ') || 'Venue to be confirmed'}</span></div>{shift.notes && <p className="mt-1 text-xs">{shift.notes}</p>}</div>)}
   </CardContent></Card>;
 
   // SLNT Team A: future dates are browsable; no published shift is required.
