@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MyWorkforceSchedule } from '@/components/workforce/MyWorkforceSchedule';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Users, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, CalendarDays } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -549,6 +550,7 @@ export function Dashboard() {
           </TabsContent>
 
           <TabsContent value="rooms" className="space-y-6">
+            {profile?.role === 'reception' && profile?.organization_slug === 'rdhotels' && <MyWorkforceSchedule compact />}
             {profile?.role === 'reception' ? <HotelRoomOverview selectedDate={new Date().toISOString().split('T')[0]} hotelName={profile?.assigned_hotel || ''} staffMap={receptionStaffMap} /> : <RoomManagement />}
           </TabsContent>
 

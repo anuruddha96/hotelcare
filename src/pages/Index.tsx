@@ -4,6 +4,8 @@ import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { MasterStaffSchedulePlanner } from '@/components/dashboard/MasterStaffSchedulePlanner';
+import { WorkforceSchedule } from '@/components/workforce/WorkforceSchedule';
+import { PROPERTY_ROLES as WORKFORCE_PROPERTY_ROLES } from '@/lib/workforce/model';
 import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
 import { OperationalPageHeading } from '@/components/layout/OperationalPageHeading';
 import { MaintenanceIssueDeepLink } from '@/components/dashboard/MaintenanceIssueDeepLink';
@@ -126,7 +128,9 @@ const Index = () => {
     return <HotelSelectionScreen onHotelSelected={() => setHotelSelected(true)} />;
   }
 
-  const canOpenMasterSchedule = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(profile?.role || '');
+  const isRdHotels = profile?.organization_slug === 'rdhotels';
+  const canOpenMasterSchedule = !!profile?.is_super_admin || MASTER_SCHEDULE_ROLES.includes(profile?.role || '')
+    || (isRdHotels && WORKFORCE_PROPERTY_ROLES.includes(profile?.role || ''));
   const showingMasterSchedule = canOpenMasterSchedule && searchParams.get('view') === 'staff-schedule';
 
   return (
@@ -136,11 +140,11 @@ const Index = () => {
 
       {showingMasterSchedule ? (
         <main className="container mx-auto px-4 py-6">
-          <OperationalPageHeading section="Master staff schedule" />
+          <OperationalPageHeading section={isRdHotels ? 'Work schedule' : 'Master staff schedule'} />
           <div className="mt-4 mb-6">
             <OperationsNavigation current="staff-schedule" />
           </div>
-          <MasterStaffSchedulePlanner />
+          {isRdHotels ? <WorkforceSchedule /> : <MasterStaffSchedulePlanner />}
         </main>
       ) : (
         <>
