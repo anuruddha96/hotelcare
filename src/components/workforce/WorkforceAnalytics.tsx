@@ -11,21 +11,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { fetchAllRows, type WorkforceData } from '@/hooks/useWorkforce';
 import { formatHours, hotelShort, matchesStaffSearch, pad2, type WorkforceKind } from '@/lib/workforce/model';
 import { WORKING_KINDS } from '@/lib/workforce/cellParser';
+import { isPublicHoliday } from '@/lib/workforce/holidays';
+import { WorkforceStaffOverview } from './WorkforceStaffOverview';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 type Row = { staff_id: string; work_date: string; kind: WorkforceKind; worked_minutes: number; extra_minutes: number; hotel_id: string | null; status: string };
-type GroupBy = 'department' | 'role' | 'hotel' | 'staff';
+type GroupBy = 'department' | 'role' | 'hotel' | 'base' | 'contract' | 'staff';
+const CONTRACT: Record<string, string> = { full_time: 'Full time', part_time: 'Part time', hourly: 'Hourly / casual', trainee: 'Trainee', external: 'External / on call' };
 
 interface Totals {
   key: string; label: string; people: Set<string>; minutes: number; extra: number; shifts: number; nights: number;
-  leave: number; sick: number; unpaid: number; absent: number; drafts: number;
+  leave: number; sick: number; unpaid: number; absent: number; drafts: number; holiday: number;
 }
-const emptyTotals = (key: string, label: string): Totals => ({ key, label, people: new Set(), minutes: 0, extra: 0, shifts: 0, nights: 0, leave: 0, sick: 0, unpaid: 0, absent: 0, drafts: 0 });
+const emptyTotals = (key: string, label: string): Totals => ({ key, label, people: new Set(), minutes: 0, extra: 0, shifts: 0, nights: 0, leave: 0, sick: 0, unpaid: 0, absent: 0, drafts: 0, holiday: 0 });
 function add(t: Totals, r: Row) {
   t.people.add(r.staff_id);
   t.minutes += r.worked_minutes ?? 0;
-  if (WORKING_KINDS.has(r.kind)) { t.shifts++; t.extra += r.extra_minutes ?? 0; }
+  if (WORKING_KINDS.has(r.kind)) { t.shifts++; t.extra += r.extra_minutes ?? 0; if (isPublicHoliday(r.work_date)) t.holiday++; }
   if (r.kind === 'night') t.nights++;
   if (r.kind === 'leave') t.leave++;
   if (r.kind === 'half_leave') t.leave += 0.5;
@@ -77,6 +80,8 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
         case 'department': key = s?.department_id ?? 'none'; label = deptName.get(key) ?? 'No department'; break;
         case 'role': key = s?.job_role_id ?? 'none'; label = roleName.get(key) ?? 'No role'; break;
         case 'hotel': key = r.hotel_id ?? 'company'; label = hotelShort(r.hotel_id); break;
+        case 'base': key = s?.hotel_id ?? 'company'; label = hotelShort(s?.hotel_id); break;
+        case 'contract': key = s?.employment_type ?? 'full_time'; label = CONTRACT[key] ?? key; break;
         default: key = r.staff_id; label = s?.full_name ?? 'Unknown';
       }
       if (!groups.has(key)) groups.set(key, emptyTotals(key, label));
@@ -95,8 +100,8 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
 
   const exportXlsx = async () => {
     const XLSX = await import('xlsx');
-    const header = ['Group', 'People', 'Hours', 'Extra hours', 'Shifts', 'Nights', 'Leave days', 'Sick days', 'Sick rate %', 'Unpaid days', 'Unexcused', 'Drafts'];
-    const body = visibleGroups.map((g) => [g.label, g.people.size, Math.round(g.minutes / 6) / 10, Math.round(g.extra / 6) / 10, g.shifts, g.nights, g.leave, g.sick, Math.round(sickRate(g) * 10) / 10, g.unpaid, g.absent, g.drafts]);
+    const header = ['Group', 'People', 'Hours', 'Extra hours', 'Shifts', 'Nights', 'Holiday shifts', 'Leave days', 'Sick days', 'Sick rate %', 'Unpaid days', 'Unexcused', 'Drafts'];
+    const body = visibleGroups.map((g) => [g.label, g.people.size, Math.round(g.minutes / 6) / 10, Math.round(g.extra / 6) / 10, g.shifts, g.nights, g.holiday, g.leave, g.sick, Math.round(sickRate(g) * 10) / 10, g.unpaid, g.absent, g.drafts]);
     if (groupBy === 'staff') {
       header.splice(1, 0, 'Department', 'Role', 'Base hotel', 'Daily hours');
       visibleGroups.forEach((g, i) => { const s = staffById.get(g.key); body[i].splice(1, 0, deptName.get(s?.department_id ?? '') ?? '', roleName.get(s?.job_role_id ?? '') ?? '', hotelShort(s?.hotel_id), s?.daily_hours ?? ''); });
@@ -126,7 +131,8 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="department">Department</SelectItem><SelectItem value="role">Job role</SelectItem>
-              <SelectItem value="hotel">Hotel worked at</SelectItem><SelectItem value="staff">Employee</SelectItem>
+              <SelectItem value="hotel">Hotel worked at</SelectItem><SelectItem value="base">Base hotel</SelectItem>
+              <SelectItem value="contract">Contract type</SelectItem><SelectItem value="staff">Employee</SelectItem>
             </SelectContent>
           </Select>
         </label>
@@ -140,8 +146,10 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
         {tile('Avg hours / person', total.people.size ? formatHours(total.minutes / total.people.size) : '0')}
         {tile('Leave days', String(total.leave))}
         {tile('Sick days', String(total.sick), `${sickRate(total).toFixed(1)}% sick rate`)}
-        {tile('Night shifts', String(total.nights), total.drafts ? `${total.drafts} draft days` : undefined)}
+        {tile('Night shifts', String(total.nights), total.holiday ? `${total.holiday} shifts on public holidays` : undefined)}
       </div>
+
+      <WorkforceStaffOverview data={data} rows={rows} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -186,7 +194,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
                 <TableHead>{groupBy === 'staff' ? 'Employee' : 'Group'}</TableHead>
                 {groupBy !== 'staff' && <TableHead className="text-right">People</TableHead>}
                 <TableHead className="text-right">Hours</TableHead><TableHead className="text-right">Extra h</TableHead>
-                <TableHead className="text-right">Shifts</TableHead><TableHead className="text-right">Nights</TableHead>
+                <TableHead className="text-right">Shifts</TableHead><TableHead className="text-right">Nights</TableHead><TableHead className="text-right" title="Shifts on public holidays">Holiday</TableHead>
                 <TableHead className="text-right">Leave</TableHead><TableHead className="text-right">Sick</TableHead>
                 <TableHead className="text-right">Sick %</TableHead><TableHead className="text-right">Unpaid</TableHead><TableHead className="text-right">Unexcused</TableHead>
               </TableRow>
@@ -200,6 +208,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
                   <TableCell className="text-right tabular-nums">{g.extra ? formatHours(g.extra) : ''}</TableCell>
                   <TableCell className="text-right tabular-nums">{g.shifts}</TableCell>
                   <TableCell className="text-right tabular-nums">{g.nights || ''}</TableCell>
+                  <TableCell className="text-right tabular-nums">{g.holiday || ''}</TableCell>
                   <TableCell className="text-right tabular-nums">{g.leave || ''}</TableCell>
                   <TableCell className="text-right tabular-nums">{g.sick || ''}</TableCell>
                   <TableCell className="text-right tabular-nums">{g.sick ? sickRate(g).toFixed(1) : ''}</TableCell>
@@ -207,7 +216,7 @@ export function WorkforceAnalytics({ data, year, month }: { data: WorkforceData;
                   <TableCell className="text-right tabular-nums">{g.absent || ''}</TableCell>
                 </TableRow>
               ))}
-              {!visibleGroups.length && <TableRow><TableCell colSpan={11} className="py-8 text-center text-muted-foreground">{loading ? 'Loading…' : 'No schedule data in this period.'}</TableCell></TableRow>}
+              {!visibleGroups.length && <TableRow><TableCell colSpan={12} className="py-8 text-center text-muted-foreground">{loading ? 'Loading…' : 'No schedule data in this period.'}</TableCell></TableRow>}
             </TableBody>
           </Table>
         </CardContent>
