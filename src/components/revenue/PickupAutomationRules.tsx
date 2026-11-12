@@ -411,7 +411,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [running, setRunning] = useState(false);
   const [stats, setStats] = useState({ pushed: 0, failed: 0, lastActionAt: null as string | null });
   const [runResult, setRunResult] = useState<RunResult | null>(null);
-  const [guestStep, setGuestStep] = useState<number>(10);
+  const [guestStep, setGuestStep] = useState<number>(1);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -428,7 +428,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       ]);
 
       const storedStep = Number((settingsRes.data as { extra_guest_supplement_eur?: number } | null)?.extra_guest_supplement_eur);
-      setGuestStep(Number.isFinite(storedStep) && storedStep >= 0 ? Math.round(storedStep) : 10);
+      setGuestStep(Number.isFinite(storedStep) && storedStep >= 1 ? Math.round(storedStep) : 1);
 
       const names = new Map<string, string>();
       for (const row of (nameRes.data ?? []) as any[]) names.set(row.hotel_id, row.hotel_name);
@@ -1636,9 +1636,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 value="occupancy"
                 icon={Users}
                 title="Price per extra guest"
-                summary={guestStep > 0
-                  ? `Each extra guest costs at least ${cur} ${guestStep} more`
-                  : "No minimum difference between guest counts"}
+                summary={`Each extra guest costs at least ${cur} ${guestStep} more`}
               >
                 <p className="text-xs text-muted-foreground">
                   Inside one room type, two guests must never pay the same as three. Every price
@@ -1648,12 +1646,12 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 <NumField
                   label="Minimum difference per extra guest"
                   suffix={cur}
-                  min={0}
+                  min={1}
                   max={cur === "EUR" ? 100 : 100000}
                   value={guestStep}
                   onChange={(e) => setGuestStep(Number(e.target.value))}
-                  hint={<><strong>Example:</strong> with {cur} {guestStep || 10}, a {cur} 240 two-guest price makes three guests {cur} {240 + (guestStep || 10)} and four guests {cur} {240 + 2 * (guestStep || 10)}.</>}
-                  note="Typical is 10–20. Repairs only ever move a price up, never down."
+                  hint={<><strong>Example:</strong> with {cur} {guestStep}, a {cur} 240 two-guest price makes three guests {cur} {240 + guestStep} and four guests {cur} {240 + 2 * guestStep}. A minimum of 1 permits smaller differences such as €100 and €105.</>}
+                  note="Set to 1 for flexible winter rates. Repairs only lift an invalid lower occupancy level; they must not impose a €10 gap."
                 />
               </Section>
 

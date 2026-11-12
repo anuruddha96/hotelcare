@@ -28,7 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Checkbox } from '@/components/ui/checkbox';
-import { User, Edit, Trash2, UserPlus, Shield } from 'lucide-react';
+import { User, Edit, Trash2, UserPlus, Shield, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
 
@@ -57,6 +57,8 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const { scopedStaffEnabled } = useTenantFeatures();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [restoringUserId, setRestoringUserId] = useState<string | null>(null);
+  const [showDeletedOnly, setShowDeletedOnly] = useState(false);
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [newUserData, setNewUserData] = useState({
     email: '',
@@ -193,7 +195,24 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         throw error;
       }
 
-      const rows = (data as any[]) || [];
+      let rows = (data as any[]) || [];
+
+      // Existing profiles RLS intentionally hides archived accounts from ordinary
+      // organization admins. Fetch only the permitted archived rows through an
+      // authenticated, tenant-scoped Edge Function; never relax global RLS.
+      if (currentUserIsSuperAdmin || currentUserRole === 'admin') {
+        const { data: archivedResult, error: archivedError } = await supabase.functions.invoke(
+          'admin-list-deleted-users',
+          { body: { organization_slug: currentUserIsSuperAdmin ? (selectedOrgSlug || undefined) : undefined } },
+        );
+        if (archivedError) throw archivedError;
+        if (!archivedResult?.success) throw new Error(archivedResult?.error || 'Unable to load archived users');
+        const knownIds = new Set(rows.map((profile: any) => profile.id));
+        rows = [
+          ...rows,
+          ...((archivedResult.users || []) as any[]).filter(profile => !knownIds.has(profile.id)),
+        ];
+      }
 
       // For admins only, resolve deleted_by → full_name for display.
       const deleterIds = Array.from(
@@ -356,6 +375,34 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       fetchUsers();
     } catch (error: any) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+
+  const handleRestoreUser = async (userId: string, userName: string) => {
+    setRestoringUserId(userId);
+    try {
+      // The edge function verifies the caller's administrator role and tenant scope.
+      const { data, error } = await supabase.functions.invoke('admin-restore-user', {
+        body: { target_user_id: userId },
+      });
+      if (error) throw error;
+      const result = data as { success?: boolean; error?: string; message?: string };
+      if (!result?.success || result.error) {
+        throw new Error(result?.error || 'Unable to restore user');
+      }
+      toast({
+        title: 'Account restored',
+        description: result.message || `${userName} can sign in with their existing credentials.`,
+      });
+      await fetchUsers();
+    } catch (error: any) {
+      toast({
+        title: 'Restoration failed',
+        description: error.message || 'The account was not restored.',
+        variant: 'destructive',
+      });
+    } finally {
+      setRestoringUserId(null);
     }
   };
 
@@ -585,13 +632,25 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
           </TabsList>
 
           <TabsContent value="users" className="flex-1 min-h-0 overflow-auto">
+            {(currentUserIsSuperAdmin || currentUserRole === 'admin') && (
+              <div className="flex items-center gap-2 pb-3 px-1">
+                <Checkbox
+                  id="show-deleted-users-only"
+                  checked={showDeletedOnly}
+                  onCheckedChange={checked => setShowDeletedOnly(checked === true)}
+                />
+                <Label htmlFor="show-deleted-users-only" className="text-sm cursor-pointer">
+                  Deleted users only ({users.filter(user => !!user.deleted_at).length})
+                </Label>
+              </div>
+            )}
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               </div>
             ) : (
               <div className="space-y-3 pr-2">
-                {users.map((user) => (
+                {users.filter(user => !showDeletedOnly || !!user.deleted_at).map((user) => (
                   <Card key={user.id} className={user.deleted_at ? 'opacity-60' : ''}>
                     <CardContent className="p-3 sm:p-4">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -645,6 +704,44 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             )}
                           </div>
                           <div className="flex items-center gap-1">
+                            {user.deleted_at && (currentUserIsSuperAdmin || (
+                              currentUserRole === 'admin' &&
+                              !user.is_super_admin &&
+                              !['admin', 'top_management', 'top_management_manager'].includes(user.role)
+                            )) && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={restoringUserId === user.id}
+                                    className="h-8 sm:h-9 px-3 gap-1"
+                                  >
+                                    <RotateCcw className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    {restoringUserId === user.id ? 'Restoring...' : 'Restore'}
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent className="w-[95vw] max-w-md">
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Restore user access?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Restore <strong>{user.full_name}</strong> with their original role,
+                                      hotel assignment, password, and historical records?
+                                      They will be able to sign in again.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel disabled={restoringUserId === user.id}>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      disabled={restoringUserId === user.id}
+                                      onClick={() => handleRestoreUser(user.id, user.full_name)}
+                                    >
+                                      Restore access
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
                             {!user.deleted_at && (
                               <>
                                 {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? (

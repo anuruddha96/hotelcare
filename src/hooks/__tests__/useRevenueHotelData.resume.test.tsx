@@ -171,6 +171,20 @@ describe("useRevenueHotelData — executive resume", () => {
     await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(initial));
   });
 
+  it("reports a failed explicit reload instead of silently claiming cached prices are current", async () => {
+    const { result } = renderHook(() => useRevenueHotelData("hotel-manual-mika", "org-1"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.extending).toBe(false));
+
+    rpc.mockResolvedValue({ data: null, error: { message: "temporary database outage" } });
+    await act(async () => {
+      await expect(result.current.reload()).rejects.toThrow(/could not refresh the displayed prices/);
+    });
+    // Retaining the old grid is intentional; reporting it as freshly synced is not.
+    expect(result.current.rates).toEqual([]);
+    expect(result.current.loading).toBe(false);
+  });
+
   it("keeps the previous data when the refresh fails", async () => {
     const { result } = renderHook(() => useRevenueHotelData("hotel-resume-failure", "org-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));

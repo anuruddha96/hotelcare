@@ -2,7 +2,7 @@ export const CRON_HORIZON_DAYS = 120;
 export const CRON_SAMPLE_DATES = 60;
 const CRON_NEAR_PRIORITY_DAYS = 14;
 
-function isoAdd(base: Date, days: number) {
+export function isoAdd(base: Date, days: number) {
   return new Date(base.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
