@@ -195,7 +195,24 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
         throw error;
       }
 
-      const rows = (data as any[]) || [];
+      let rows = (data as any[]) || [];
+
+      // Existing profiles RLS intentionally hides archived accounts from ordinary
+      // organization admins. Fetch only the permitted archived rows through an
+      // authenticated, tenant-scoped Edge Function; never relax global RLS.
+      if (currentUserIsSuperAdmin || currentUserRole === 'admin') {
+        const { data: archivedResult, error: archivedError } = await supabase.functions.invoke(
+          'admin-list-deleted-users',
+          { body: { organization_slug: currentUserIsSuperAdmin ? (selectedOrgSlug || undefined) : undefined } },
+        );
+        if (archivedError) throw archivedError;
+        if (!archivedResult?.success) throw new Error(archivedResult?.error || 'Unable to load archived users');
+        const knownIds = new Set(rows.map((profile: any) => profile.id));
+        rows = [
+          ...rows,
+          ...((archivedResult.users || []) as any[]).filter(profile => !knownIds.has(profile.id)),
+        ];
+      }
 
       // For admins only, resolve deleted_by → full_name for display.
       const deleterIds = Array.from(
@@ -687,7 +704,11 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             )}
                           </div>
                           <div className="flex items-center gap-1">
-                            {user.deleted_at && (currentUserIsSuperAdmin || currentUserRole === 'admin') && (
+                            {user.deleted_at && (currentUserIsSuperAdmin || (
+                              currentUserRole === 'admin' &&
+                              !user.is_super_admin &&
+                              !['admin', 'top_management', 'top_management_manager'].includes(user.role)
+                            )) && (
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <Button
