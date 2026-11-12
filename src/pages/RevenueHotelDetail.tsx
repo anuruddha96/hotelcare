@@ -55,6 +55,7 @@ import MarketIntelligenceChart from "@/components/revenue/MarketIntelligenceChar
 import { useTenant } from "@/contexts/TenantContext";
 import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
 import MonthPerformanceHeader from "@/components/revenue/MonthPerformanceHeader";
+import KpiReconciliationCard from "@/components/revenue/KpiReconciliationCard";
 import { buildDemandBoard } from "@/lib/demandScore";
 import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePanel";
 
@@ -1199,6 +1200,7 @@ export default function RevenueHotelDetail() {
             refreshing={serverRefreshing || live.extending}
             lastSyncAt={live.lastSyncAt}
           />
+          <KpiReconciliationCard hotelId={hotelId ?? null} month={selectedMonth} />
 
 
 
