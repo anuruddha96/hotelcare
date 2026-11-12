@@ -24,6 +24,18 @@ import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 export default function AssistantLauncher() {
   const { user, profile } = useAuth();
   const [open, setOpen] = useState(false);
+  const [revenueQuestion, setRevenueQuestion] = useState<{ id: number; text: string } | null>(null);
+  useEffect(() => {
+    const openRevenueQuestion = (event: Event) => {
+      const question = (event as CustomEvent<{ prompt?: string }>).detail?.prompt?.trim();
+      if (!question) return;
+      setRevenueQuestion((prev) => ({ id: (prev?.id ?? 0) + 1, text: question }));
+      setTab("chat");
+      setOpen(true);
+    };
+    window.addEventListener("hotelcare:ask-ai", openRevenueQuestion);
+    return () => window.removeEventListener("hotelcare:ask-ai", openRevenueQuestion);
+  }, []);
   const [tab, setTab] = useState("chat");
   const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
   const [debugOn, setDebugOn] = useState(false);
@@ -214,6 +226,8 @@ export default function AssistantLauncher() {
                 onNeedThread={newThread}
                 onThreadUpdated={markThreadActive}
                 onNavigate={() => setOpen(false)}
+                suggestedPrompt={revenueQuestion}
+                onSuggestedPromptConsumed={() => setRevenueQuestion(null)}
               />
             </TabsContent>
 
