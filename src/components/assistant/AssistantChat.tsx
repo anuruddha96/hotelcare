@@ -672,6 +672,8 @@ export default function AssistantChat({
   onThreadUpdated,
   onNavigate,
   workspace = false,
+  suggestedPrompt,
+  onSuggestedPromptConsumed,
 }: {
   threadId: string | null;
   onNeedThread: () => Promise<string | null>;
@@ -679,6 +681,8 @@ export default function AssistantChat({
   onNavigate?: () => void;
   /** Full-page workspace layout: centred column and the live opening screen. */
   workspace?: boolean;
+  suggestedPrompt?: { id: number; text: string } | null;
+  onSuggestedPromptConsumed?: () => void;
 }) {
   const { language } = useTranslation();
   const { messages: rows, loadingMessages, loadThreads } = useAssistant(threadId);
