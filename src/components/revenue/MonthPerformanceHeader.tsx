@@ -474,6 +474,11 @@ export default function MonthPerformanceHeader({
             </div>
           </details>
         )}
+        <button type="button" className="w-fit text-xs font-medium text-primary underline-offset-2 hover:underline"
+          onClick={() => window.dispatchEvent(new CustomEvent("hotelcare:ask-ai", { detail: { prompt:
+            `Explain the revenue dashboard for hotel ${hotelId ?? "current property"}, ${monthLabel}. Check full-month stayed + booked occupancy, gross booking ADR including breakfast/extras, RevPAR, net pickup, and explain any Previo discrepancy. Compare only the same full-month basis and identify actionable issues. Do not mistake forward-only prices for full-month ADR.` } }))}>
+          {hu ? "Kérdezd a HotelCare AI-t a havi számokról" : "Ask HotelCare AI about this month"}
+        </button>
         <div data-testid="monthly-kpis" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Tile
             loading={tilesLoading}
