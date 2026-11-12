@@ -85,18 +85,21 @@ describe("MonthPerformanceHeader — whole month", () => {
     expect(screen.queryByText(/133 of 190 room-nights/)).toBeNull();
   });
 
-  it("shows room-only ADR first once the breakfast value is known", () => {
+  it("keeps gross whole-month ADR as the headline and room-only ADR in optional details", () => {
     recon.data = DAYS.map((d) => ({ ...d, breakfast_price_per_guest: 12.5 }));
     renderHeader();
     // Room-only: (30,285 - 486 breakfasts x 12.5) / 243 = €100.
-    expect(screen.getByText("room only · €125 incl. breakfast")).toBeTruthy();
+    expect(screen.getAllByText("€125").length).toBeGreaterThan(0);
     expect(screen.getAllByText("€100").length).toBeGreaterThan(0);
+    expect(screen.getByText("ADR calculation & breakfast settings").closest("details")?.open).toBe(false);
   });
 
-  it("falls back to the from-today figures, labelled as such, if the month request fails", () => {
+  it("refuses to label future-only figures as whole-month ADR when the month request fails", () => {
     recon.data = undefined; recon.isLoading = false;
     renderHeader();
-    expect(screen.getByText(/133 of 190 room-nights · 12–30 November 2026 · from today, on the books/)).toBeTruthy();
+    expect(screen.getByText(/Partial ADR is not shown as monthly ADR/)).toBeTruthy();
+    expect(screen.getAllByText("Monthly data unavailable").length).toBeGreaterThan(0);
+    expect(screen.queryByText("€145")).toBeNull();
     expect(screen.queryByTestId("month-breakdown")).toBeNull();
   });
 });
