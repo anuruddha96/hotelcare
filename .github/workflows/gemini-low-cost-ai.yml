@@ -26,9 +26,9 @@ jobs:
           deno-version: v2.x
       - name: Type-check updated Edge Functions
         run: |
-          deno check supabase/functions/translate-note/index.ts
-          deno check supabase/functions/translate-room-types/index.ts
-          deno check supabase/functions/google-reputation/index.ts
-          deno check supabase/functions/google-reputation-worker/index.ts
+          deno check --node-modules-dir=auto supabase/functions/translate-note/index.ts
+          deno check --node-modules-dir=auto supabase/functions/translate-room-types/index.ts
+          deno check --node-modules-dir=auto supabase/functions/google-reputation/index.ts
+          deno check --node-modules-dir=auto supabase/functions/google-reputation-worker/index.ts
       - name: Test Gemini routing, fallback and privacy guard
         run: deno test --allow-env supabase/functions/_shared/lowCostAi_test.ts
