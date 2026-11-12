@@ -1,4 +1,4 @@
-import { generateLowCostText } from "./lowCostAi.ts";
+import { generateLowCostText, containsLikelySensitiveData } from "./lowCostAi.ts";
 
 function withProviderMocks(
   handlers: { gemini?: (url: string) => Response; openai?: () => Response },
@@ -60,13 +60,70 @@ Deno.test("invalid Gemini JSON falls back to OpenAI", async () => {
   });
 });
 
-Deno.test("internal notes do not reach the free Gemini tier by default", async () => {
+Deno.test("non-sensitive housekeeping and maintenance notes use Gemini first", async () => {
+  let openaiCalls = 0;
+  await withProviderMocks({
+    openai: () => { openaiCalls++; throw new Error("OpenAI should not run"); },
+  }, async () => {
+    const value = await generateLowCostText({
+      task: "internal", prompt: "Replace broken corridor light and clean mirror",
+    });
+    if (value.provider !== "gemini" || openaiCalls !== 0)
+      throw new Error("Gemini-first internal routing failed");
+  });
+});
+
+Deno.test("ordinary manager reply customizations use Gemini first", async () => {
+  await withProviderMocks({}, async () => {
+    const value = await generateLowCostText({
+      task: "internal",
+      prompt: "Write three alternatives with a warm tone for an anonymous public review.",
+    });
+    if (value.provider !== "gemini") throw new Error("Manager customization routing failed");
+  });
+});
+
+Deno.test("personal details and sensitive operational context remain on OpenAI", async () => {
+  const sensitiveExamples = [
+    "Call guest named John Smith to discuss the incident",
+    "Room 204 has a requested repair while occupied",
+    "Employee diagnosed with asthma",
+    "Please message guest at guest@example.com",
+    "Guest phone: +36 30 123 4567",
+    "Check payroll adjustment",
+  ];
+  for (const sample of sensitiveExamples) {
+    if (!containsLikelySensitiveData(sample)) throw new Error("PII detection missed a sample");
+  }
   let geminiCalls = 0;
   await withProviderMocks({
-    gemini: () => { geminiCalls++; throw new Error("Private content should not use Gemini"); },
+    gemini: () => { geminiCalls++; throw new Error("Sensitive content should not use Gemini"); },
   }, async () => {
-    const value = await generateLowCostText({ task: "internal", prompt: "room maintenance note" });
-    if (value.provider !== "openai" || geminiCalls !== 0) throw new Error("Privacy guard failed");
+    const value = await generateLowCostText({
+      task: "internal", prompt: "Room 204 guest phone: +36 30 123 4567",
+    });
+    if (value.provider !== "openai" || geminiCalls !== 0)
+      throw new Error("Sensitive-data privacy guard failed");
+    const flagged = await generateLowCostText({
+      task: "internal", sensitive: true,
+      prompt: "Manager confirmed sensitive issue after private investigation",
+    });
+    if (flagged.provider !== "openai" || geminiCalls !== 0)
+      throw new Error("Explicit sensitive flag failed");
+  });
+});
+
+Deno.test("GEMINI_ALLOW_INTERNAL_CONTENT=false disables Gemini for all internal notes", async () => {
+  let geminiCalls = 0;
+  await withProviderMocks({
+    gemini: () => { geminiCalls++; throw new Error("Gemini should not run"); },
+  }, async () => {
+    Deno.env.set("GEMINI_ALLOW_INTERNAL_CONTENT", "false");
+    const value = await generateLowCostText({
+      task: "internal", prompt: "Clean the corridor",
+    });
+    if (value.provider !== "openai" || geminiCalls !== 0)
+      throw new Error("Owner-controlled opt-out failed");
   });
 });
 
