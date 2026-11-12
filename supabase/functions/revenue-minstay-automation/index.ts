@@ -383,7 +383,7 @@ Deno.serve(async (req: Request) => {
 
     const [snapshotRes, minStayRes, pickupRes, eventRes, cfgRes, mappingRes, recentDecisionRes] = await Promise.all([
       admin.rpc("revenue_latest_snapshots", { p_hotel_id: hotelId, p_from: today, p_to: horizonDate }),
-      admin.from("min_stay_rules").select("stay_date,min_nights,updated_at").eq("hotel_id", hotelId)
+      admin.from("min_stay_rules").select("stay_date,min_nights,updated_at,updated_by").eq("hotel_id", hotelId)
         .gte("stay_date", today).lte("stay_date", horizonDate),
       admin.from("revenue_pickup_ledger").select("stay_date,reservation_id,first_seen_at,cancelled_at")
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonDate)
@@ -437,8 +437,21 @@ Deno.serve(async (req: Request) => {
     const snapByDate = new Map<string, any>();
     for (const row of snapshotRows) if (!snapByDate.has(row.stay_date)) snapByDate.set(row.stay_date, row);
 
+    // A HotelCare manager edit carries updated_by; automatic writes do not.
+    // A human change takes precedence indefinitely until explicitly released.
     const currentByDate = new Map<string, number>();
-    for (const row of (minStayRes.data ?? []) as any[]) currentByDate.set(row.stay_date, Math.max(1, Number(row.min_nights) || 1));
+    const baselineByDate = new Map<string, { minNights: number; updatedAt: string; updatedBy: string | null }>();
+    const manualProtectedDates = new Set<string>();
+    for (const row of (minStayRes.data ?? []) as any[]) {
+      const minNights = Math.max(1, Number(row.min_nights) || 1);
+      currentByDate.set(row.stay_date, minNights);
+      baselineByDate.set(row.stay_date, {
+        minNights,
+        updatedAt: String(row.updated_at ?? ""),
+        updatedBy: row.updated_by == null ? null : String(row.updated_by),
+      });
+      if (row.updated_by != null) manualProtectedDates.add(row.stay_date);
+    }
 
     const pickupByDate = new Map<string, Set<string>>();
     for (const row of (pickupRes.data ?? []) as any[]) {
@@ -492,6 +505,7 @@ Deno.serve(async (req: Request) => {
 
     const decisions: any[] = [];
     const changes: PlannedChange[] = [];
+    const managerReviewCandidates: PlannedChange[] = [];
     for (let d = today; d <= horizonDate; d = addDays(d, 1)) {
       const daysOut = daysBetween(today, d);
       const snap = snapByDate.get(d);
@@ -507,7 +521,27 @@ Deno.serve(async (req: Request) => {
         monthOcc: monthOcc.get(monthKey(d)) ?? null,
         event: eventByDate.get(d) ?? { impact: null, title: null, confidence: null, durationDays: null },
       };
-      const decision = decideMinStay(facts, maxNights);
+      const suggested = decideMinStay(facts, maxNights);
+      const manuallyProtected = manualProtectedDates.has(d);
+      // Even exceptionally strong demand is not a guarantee of bookings.
+      // Surface a bounded (at most two-night) proposal to the manager instead
+      // of silently replacing the manager's own minimum-stay selection.
+      if (
+        manuallyProtected && suggested.target !== current &&
+        suggested.target === 2 && occupancy !== null && occupancy >= 95 &&
+        left !== null && left <= 2 && facts.pickup24h >= 2
+      ) {
+        managerReviewCandidates.push({
+          stayDate: d, current, target: 2, reason: "exceptional_demand_manual_review",
+          daysOut, occupancyPct: occupancy, roomsLeft: left,
+          pickup24h: facts.pickup24h, eventTitle: facts.event.title,
+          eventImpact: facts.event.impact, eventConfidence: facts.event.confidence,
+          eventDurationDays: facts.event.durationDays,
+        });
+      }
+      const decision = manuallyProtected
+        ? { target: current, reason: "manual_override_hold" }
+        : suggested;
       const changed = decision.target !== current;
       const lastAt = lastAppliedAt.get(d) ?? 0;
       const inCooldown = changed && cooldownHours > 0 && lastAt > 0 && now.getTime() - lastAt < cooldownHours * 3_600_000;
@@ -554,6 +588,31 @@ Deno.serve(async (req: Request) => {
     const failedDates = new Set<string>();
     const groupResults: any[] = [];
     for (const group of groups) {
+      // Recheck immediately before sending a range to Previo. Never let a
+      // changed/manual date be included in a multi-date automation write.
+      // A stale group is safely deferred for the next evaluation.
+      const { data: freshRules, error: freshError } = await admin.from("min_stay_rules")
+        .select("stay_date,min_nights,updated_at,updated_by")
+        .eq("hotel_id", hotelId).in("stay_date", group.dates);
+      if (freshError) throw freshError;
+      const freshByDate = new Map((freshRules ?? []).map((row: any) => [String(row.stay_date), row]));
+      const changedSinceEvaluation = group.dates.some((date) => {
+        const before = baselineByDate.get(date);
+        const fresh = freshByDate.get(date) as any;
+        if (!before) return !!fresh;
+        return !fresh || fresh.updated_by != null ||
+          Math.max(1, Number(fresh.min_nights) || 1) !== before.minNights ||
+          String(fresh.updated_at ?? "") !== before.updatedAt;
+      });
+      if (changedSinceEvaluation) {
+        const { error: deferError } = await admin.from("revenue_min_stay_decisions")
+          .update({ status: "cooldown", reason: "manual_or_concurrent_edit_protected" })
+          .eq("run_id", runId).in("stay_date", group.dates);
+        if (deferError) throw deferError;
+        groupResults.push({ from: group.from, to: group.to, target: group.target,
+          ok: true, skipped: true, reason: "manual_or_concurrent_edit_protected" });
+        continue;
+      }
       let allOk = true;
       const errors: string[] = [];
       for (const mapping of uniqueMappings) {
@@ -588,6 +647,8 @@ Deno.serve(async (req: Request) => {
 
     const summary = {
       today, horizon_date: horizonDate, evaluated: decisions.length, attempted: changes.length, applied, failed,
+      manual_protected_dates: manualProtectedDates.size,
+      manual_review_candidate_dates: managerReviewCandidates.length,
       groups: groupResults,
       one_night_target_dates: decisions.filter((d) => d.target_min_stay === 1).length,
       two_night_target_dates: decisions.filter((d) => d.target_min_stay === 2).length,
@@ -649,6 +710,50 @@ Deno.serve(async (req: Request) => {
         changes: notificationChanges,
       });
       if (notificationError) console.error("minimum-stay notification insert failed", notificationError);
+    }
+
+    if (managerReviewCandidates.length > 0) {
+      // Re-use the existing manager-visible automation feed. Avoid repeating
+      // identical review requests in successive hourly runs.
+      const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+      const { data: priorNotifications, error: priorError } = await admin
+        .from("revenue_automation_notifications")
+        .select("changes")
+        .eq("hotel_id", hotelId).eq("notification_type", "min_stay_automation")
+        .gte("created_at", since).limit(100);
+      if (priorError) console.error("minimum-stay review deduplication failed", priorError);
+      const alreadyNotified = new Set<string>();
+      for (const notice of (priorNotifications ?? []) as any[]) {
+        for (const c of (Array.isArray(notice.changes) ? notice.changes : []) as any[]) {
+          if (c.status === "manual_review") alreadyNotified.add(`${c.stay_date}:${c.new_min_stay}`);
+        }
+      }
+      const reviewChanges = managerReviewCandidates
+        .filter((c) => !alreadyNotified.has(`${c.stayDate}:${c.target}`))
+        .map((c) => ({
+          stay_date: c.stayDate, change_type: "minimum_stay",
+          old_min_stay: c.current, new_min_stay: c.target,
+          status: "manual_review", reason: c.reason,
+          reason_detail: "Manual minimum stay preserved. Exceptionally strong live occupancy and pickup suggest considering a maximum 2-night stay. Manager approval required; no Previo restriction was changed.",
+          days_out: c.daysOut, occupancy_pct: c.occupancyPct,
+          rooms_left: c.roomsLeft, pickup_24h: c.pickup24h,
+          event_title: c.eventTitle, event_impact: c.eventImpact,
+          event_confidence: c.eventConfidence,
+          event_duration_days: c.eventDurationDays, min_stay_run_id: runId,
+        }));
+      if (reviewChanges.length > 0) {
+        const { error: alertError } = await admin.from("revenue_automation_notifications").insert({
+          hotel_id: hotelId, organization_slug: rule.organization_slug,
+          notification_type: "min_stay_automation", run_source: "automatic",
+          actor_name: "Minimum stay — manager review", actor_user_id: null,
+          rule_id: rule.id ?? null, action_ids: [], pickups_count: 0,
+          actions_count: 0, pushed_count: 0, failed_count: 0,
+          currency: null, severity: "warning",
+          summary: `Manual minimum stay protected · ${reviewChanges.length} exceptional-demand suggestion(s) need manager review; no automatic change`,
+          changes: reviewChanges,
+        });
+        if (alertError) console.error("minimum-stay manager review notification failed", alertError);
+      }
     }
 
     return json({ ok: failed === 0, run_id: runId, ...summary });
