@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
+import { generateLowCostText } from "../_shared/lowCostAi.ts";
 import { buildCuratedReply, CURATED_REPLY_BASE_COUNT, requiresCarefulReview } from "../_shared/reputation-replies.ts";
 import { buildReplyCustomizationPrompt, validateReplyChoices } from "../_shared/reputation-customization.ts";
 
@@ -873,8 +874,8 @@ Deno.serve(async (req) => {
       if (review.reply_status === "published" || review.google_reply_comment) {
         return json({ error: "This Google review is already replied to; draft alternatives cannot overwrite it." }, 409);
       }
-      const apiKey = Deno.env.get("OPENAI_API_KEY");
-      if (!apiKey) return json({ error: "HotelCare AI is not configured" }, 409);
+      if (!Deno.env.get("GEMINI_API_KEY") && !Deno.env.get("OPENAI_API_KEY"))
+        return json({ error: "HotelCare AI is not configured" }, 409);
       // Use an inexpensive model for manager-requested revisions only. The
       // positive-review curated library continues to incur zero model cost.
       const chosenModel = Deno.env.get("OPENAI_REVIEW_CUSTOM_MODEL") || "gpt-4.1-mini";
@@ -884,29 +885,28 @@ Deno.serve(async (req) => {
         choices,
         previousDraft: String(body.previous_draft || review.ai_draft || "").slice(0, 1000),
       });
-      const oa = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: chosenModel,
-          instructions: "You write accurate public hospitality review replies. Return exactly three alternatives as JSON. You must obey the response stance and factual constraints.",
-          input,
-          max_output_tokens: 1000,
-          text: { format: { type: "json_schema", name: "review_reply_alternatives", strict: true,
-            schema: { type: "object", additionalProperties: false, required: ["replies"],
-              properties: { replies: { type: "array", items: { type: "string" } } } } } },
-        }),
-      });
-      if (!oa.ok) {
-        const responseText = await oa.text();
-        console.error("Google reply customization failed", oa.status, responseText.slice(0, 200));
+      let generated: Awaited<ReturnType<typeof generateLowCostText>>;
+      try {
+        generated = await generateLowCostText({
+          task: "public",
+          json: true,
+          instructions: "You write accurate public hospitality review replies. Return exactly three distinct alternatives as JSON in the form {\\\"replies\\\":[\\\"...\\\",\\\"...\\\",\\\"...\\\"]}. Obey the response stance and factual constraints. Do not invent details.",
+          prompt: input,
+          maxOutputTokens: 1500,
+          fallbackModel: chosenModel,
+          validate: (raw) => {
+            try {
+              const replies = JSON.parse(raw)?.replies;
+              return Array.isArray(replies) && replies.length === 3 &&
+                replies.every((v: unknown) => typeof v === "string" && v.trim().length >= 15 && v.length <= 1500) &&
+                new Set(replies.map((v: string) => v.trim().toLowerCase())).size === 3;
+            } catch { return false; }
+          },
+        });
+      } catch {
         return json({ error: "Could not generate alternatives. Try again or edit the existing draft." }, 502);
       }
-      const generated = await oa.json();
-      const output = String(generated.output_text ||
-        (generated.output || []).flatMap((x: any) => x.content || [])
-          .filter((x: any) => x.type === "output_text")
-          .map((x: any) => x.text || "").join("")).trim();
+      const output = generated.text;
       let parsed: any;
       try { parsed = JSON.parse(output); }
       catch { return json({ error: "AI returned an invalid reply format. Please try again." }, 502); }
@@ -916,14 +916,14 @@ Deno.serve(async (req) => {
       if (replies.length !== 3 || new Set(replies.map((s: string) => s.toLowerCase())).size !== 3)
         return json({ error: "Could not produce three distinct safe replies. Please adjust your options." }, 502);
       await audit(review, "draft_options_generated", null, {
-        manager_requested: true, model: chosenModel, options: {
+        manager_requested: true, model: generated.model, provider: generated.provider, options: {
           length: choices.length, tone: choices.tone, stance: choices.stance,
           focus: choices.focus, language: choices.language,
           has_manager_notes: Boolean(choices.notes),
         },
         variant_count: replies.length, publish_action: false,
       });
-      return json({ ok: true, alternatives: replies, model: chosenModel, saved: false, published: false });
+      return json({ ok: true, alternatives: replies, model: generated.model, provider: generated.provider, saved: false, published: false });
     }
 
     if (action === "draft_reply") {
@@ -940,7 +940,7 @@ Deno.serve(async (req) => {
       if (r.reply_status === "published" || r.google_reply_comment)
         return json({ error: "This Google review has already been answered" }, 409);
 
-      const key = Deno.env.get("OPENAI_API_KEY");
+      const aiProviderAvailable = Boolean(Deno.env.get("GEMINI_API_KEY") || Deno.env.get("OPENAI_API_KEY"));
       const location = r.google_business_locations as any;
       const property = location?.reply_brand_name || location?.google_location_title || "our business";
       const category = location?.business_category || "other";
@@ -960,6 +960,7 @@ Deno.serve(async (req) => {
 
       const analysis = classifyReview(Number(r.star_rating || 5), String(r.comment || ""));
       let draft = "";
+      let aiProvider: "gemini" | "openai" | null = null;
       const curated = analysis.risk === "low" ? buildCuratedReply({
         reviewId: String(r.google_review_name || r.id),
         rating: Number(r.star_rating || 5),
@@ -974,7 +975,7 @@ Deno.serve(async (req) => {
       if (curated) {
         draft = curated.text;
       } else {
-        if (!key) return json({ error: "HotelCare AI is not configured" }, 409);
+        if (!aiProviderAvailable) return json({ error: "HotelCare AI is not configured" }, 409);
         const prompt = `Write a brief public Google review reply for the brand "${property}" (venue type: ${category}).
 Public listing title for identification ONLY: ${location?.google_location_title || property}.
 Guest review: ${String(r.comment).slice(0, 1800)}.
@@ -982,28 +983,16 @@ Rating: ${r.star_rating}/5. Style: ${tone}. ${languageInstruction}
 Use the exact brand "${property}" if naming the business; do NOT infer a conference, hotel stay, meal, tour or service from the listing title. Mention a specific service ONLY when the guest review itself describes it. Never use a different venue's name or imply a hotel stay for a restaurant, museum, brunch or conference venue.
 Write 1-3 natural sentences, typically 20-55 words; no generic marketing language or exaggerated praise. Never invent facts, compensation, or investigations. For negative feedback, be considerate without admitting unverified accusations. Avoid promising follow-up unless specifically instructed.${signature}${brandContext}
 Risk level: ${analysis.risk}.`;
-        const model = Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-5.6-luna";
-        const makeRequest = (chosen: string) => fetch("https://api.openai.com/v1/responses", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: chosen,
-            ...((chosen.startsWith("gpt-6") || chosen.startsWith("gpt-5.6-luna")) ? { reasoning: { effort: "none" } } : {}),
-            instructions: "You write concise, accurate, venue-specific Google review replies. Output only the reply.",
-            input: prompt,
-            max_output_tokens: 150,
-          }),
+        const generated = await generateLowCostText({
+          task: "public",
+          instructions: "Write accurate, concise, venue-specific public Google review replies. Output only the reply, never invent facts.",
+          prompt,
+          fallbackModel: Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-4.1-mini",
+          maxOutputTokens: 512,
+          validate: (text) => text.trim().length >= 8 && text.length <= 4096,
         });
-        let oa = await makeRequest(model);
-        if (!oa.ok && [400, 403, 404].includes(oa.status) &&
-            ["gpt-5.6-luna", "gpt-6-luna"].includes(model) &&
-            /model_not_found|does not have access to model/i.test(await oa.clone().text())) {
-          oa = await makeRequest("gpt-4.1-mini"); // Account may lack access to the preferred low-cost model.
-        }
-        if (!oa.ok) throw new Error(`AI ${oa.status}: ${(await oa.text()).slice(0, 250)}`);
-        const ox = await oa.json();
-        draft = String(ox.output_text || (ox.output || []).flatMap((o: any) => o.content || [])
-          .filter((x: any) => x.type === "output_text").map((x: any) => x.text || "").join("")).trim();
+        draft = generated.text;
+        aiProvider = generated.provider;
         if (!draft) throw new Error("AI returned an empty draft");
       }
 
@@ -1026,13 +1015,13 @@ Risk level: ${analysis.risk}.`;
 
       await audit(r, "draft_generated", draft, {
         risk: analysis.risk,
-        source: curated ? "curated_reply_library" : "openai",
+        source: curated ? "curated_reply_library" : (aiProvider || "openai"),
         template_id: curated?.templateId || null,
         tone: location?.reply_tone || "warm_professional",
         language_mode: location?.reply_language_mode || "match_guest",
       });
 
-      return json({ ok: true, draft, source: curated ? "curated_reply_library" : "openai",
+      return json({ ok: true, draft, source: curated ? "curated_reply_library" : (aiProvider || "openai"),
         template_id: curated?.templateId || null, ...analysis });
     }
 
