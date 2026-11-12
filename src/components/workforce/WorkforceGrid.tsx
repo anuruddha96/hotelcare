@@ -1,5 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut,
+  ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -7,9 +11,10 @@ import {
   type WorkforceDepartment, type WorkforceEntry, type WorkforceJobRole, type WorkforceStaff,
 } from '@/lib/workforce/model';
 import {
-  entryFromText, inRange, normalizeRange, parseTsv, pasteTargets, textOfEntry, toTsv, type CellRange,
+  entryFromText, fillHandleTargets, inRange, normalizeRange, parseTsv, pasteTargets, textOfEntry, toTsv, type CellRange,
 } from '@/lib/workforce/grid';
-import type { CustomShiftCode } from '@/lib/workforce/cellParser';
+import { WORKING_KINDS, type CustomShiftCode } from '@/lib/workforce/cellParser';
+import { calendarDay, type CalendarDayKind } from '@/lib/workforce/holidays';
 import { entryKey } from '@/hooks/useWorkforce';
 
 export interface CellChange { staff: WorkforceStaff; date: string; next: WorkforceEntry | null }
@@ -42,6 +47,7 @@ const SUMMARY_ROWS: Array<{ key: string; label: string; hint: string }> = [
   { key: 'leave', label: 'Szabadság', hint: 'Leave days this month' },
   { key: 'sick', label: 'Betegség', hint: 'Sick days this month' },
   { key: 'off', label: 'Szabadnap', hint: 'Days off (incl. empty days)' },
+  { key: 'holiday', label: 'Ünnep', hint: 'Shifts worked on public holidays (holiday premium)' },
   { key: 'hours', label: 'Órák', hint: 'Gross hours (breaks not deducted)' },
   { key: 'leaveLeft', label: 'Szabi maradt', hint: 'Annual leave entitlement minus leave taken this year up to this month' },
 ];
@@ -53,6 +59,8 @@ export function WorkforceGrid(props: WorkforceGridProps) {
   const [focus, setFocus] = useState<Pos | null>(null);
   const [editing, setEditing] = useState<{ pos: Pos; value: string } | null>(null);
   const dragging = useRef(false);
+  const [fillTo, setFillTo] = useState<Pos | null>(null);
+  const filling = useRef(false);
   const undoStack = useRef<CellChange[][]>([]);
   const redoStack = useRef<CellChange[][]>([]);
 
@@ -110,6 +118,10 @@ export function WorkforceGrid(props: WorkforceGridProps) {
       case 'leave': return m.leaveDays ? String(m.leaveDays) : '';
       case 'sick': return m.sickDays ? String(m.sickDays) : '';
       case 'off': return String(m.daysOff);
+      case 'holiday': {
+        const n = days.filter((d) => calendarDay(d)?.kind === 'holiday' && WORKING_KINDS.has(entries.get(entryKey(s.id, d))?.kind ?? 'other')).length;
+        return n ? String(n) : '';
+      }
       case 'hours': return formatHours(m.workedMinutes);
       case 'leaveLeft': return s.annual_leave_days == null ? '' : String(s.annual_leave_days - (leaveUsed.get(s.id) ?? 0));
       default: return '';
@@ -186,6 +198,37 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     void apply(changesFromTexts(targets));
   }, [range, apply, changesFromTexts]);
 
+  const pasteText = useCallback((text: string) => {
+    if (!range) return;
+    const block = parseTsv(text.replace(/\n$/, ''));
+    if (!block.length) return;
+    const targets = pasteTargets(block, range, rowCount - 1, colCount - 1).map((t) => ({ pos: { r: t.r, c: t.c }, value: t.value }));
+    void apply(changesFromTexts(targets));
+    const last = targets[targets.length - 1]?.pos;
+    if (last) { setAnchor({ r: range.r1, c: range.c1 }); setFocus(last); }
+  }, [range, rowCount, colCount, apply, changesFromTexts]);
+
+  const fillFromEdge = useCallback((direction: 'down' | 'right') => {
+    if (!range) return;
+    const targets: Array<{ pos: Pos; value: string }> = [];
+    for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) {
+      if (direction === 'down' ? r === range.r1 : c === range.c1) continue;
+      const src = direction === 'down' ? { r: range.r1, c } : { r, c: range.c1 };
+      const { staff: s, date } = at(src);
+      targets.push({ pos: { r, c }, value: textOfEntry(entries.get(entryKey(s.id, date)), s.hotel_id) });
+    }
+    void apply(changesFromTexts(targets));
+  }, [range, at, entries, apply, changesFromTexts]);
+
+  const menuCopy = async (cut = false) => {
+    try { await navigator.clipboard.writeText(selectionTsv()); if (cut) clearSelection(); }
+    catch { toast.info('Use Ctrl+C / Ctrl+X to copy here'); }
+  };
+  const menuPaste = async () => {
+    try { pasteText(await navigator.clipboard.readText()); }
+    catch { toast.info('Use Ctrl+V to paste here'); }
+  };
+
   // Clipboard: listen on the document so Ctrl+C / Ctrl+V work while the grid has focus.
   useEffect(() => {
     const active = () => !!gridRef.current && gridRef.current.contains(document.activeElement) && !editing;
@@ -200,18 +243,13 @@ export function WorkforceGrid(props: WorkforceGridProps) {
       const text = e.clipboardData?.getData('text/plain');
       if (text == null) return;
       e.preventDefault();
-      const block = parseTsv(text.replace(/\n$/, ''));
-      if (!block.length) return;
-      const targets = pasteTargets(block, range, rowCount - 1, colCount - 1).map((t) => ({ pos: { r: t.r, c: t.c }, value: t.value }));
-      void apply(changesFromTexts(targets));
-      const last = targets[targets.length - 1]?.pos;
-      if (last) { setAnchor({ r: range.r1, c: range.c1 }); setFocus(last); }
+      pasteText(text);
     };
     document.addEventListener('copy', onCopy);
     document.addEventListener('cut', onCut);
     document.addEventListener('paste', onPaste);
     return () => { document.removeEventListener('copy', onCopy); document.removeEventListener('cut', onCut); document.removeEventListener('paste', onPaste); };
-  }, [range, editing, selectionTsv, clearSelection, apply, changesFromTexts, rowCount, colCount]);
+  }, [range, editing, selectionTsv, clearSelection, pasteText]);
 
   const undo = useCallback(async (redo = false) => {
     const from = redo ? redoStack.current : undoStack.current;
@@ -258,18 +296,9 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); void undo(e.shiftKey); return; }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); void undo(true); return; }
     if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); setAnchor({ r: 0, c: 0 }); setFocus({ r: rowCount - 1, c: colCount - 1 }); return; }
-    if (mod && e.key.toLowerCase() === 'd' && range) {
-      // Fill down (Excel): copy the top row of the selection into the rows below.
-      e.preventDefault();
-      const targets: Array<{ pos: Pos; value: string }> = [];
-      for (let c = range.c1; c <= range.c2; c++) {
-        const { staff: s, date } = at({ r: range.r1, c });
-        const text = textOfEntry(entries.get(entryKey(s.id, date)), s.hotel_id);
-        for (let r = range.r1 + 1; r <= range.r2; r++) targets.push({ pos: { r, c }, value: text });
-      }
-      void apply(changesFromTexts(targets));
-      return;
-    }
+    // Fill down / fill right (Excel): copy the first row / column of the selection.
+    if (mod && e.key.toLowerCase() === 'd' && range) { e.preventDefault(); fillFromEdge('down'); return; }
+    if (mod && e.key.toLowerCase() === 'r' && range) { e.preventDefault(); fillFromEdge('right'); return; }
     if (!mod && !e.altKey && e.key.length === 1) {
       const { staff: s, date } = at(focus);
       if (!canEdit(date, s)) { toast.info('Past days are read-only'); return; }
@@ -279,6 +308,11 @@ export function WorkforceGrid(props: WorkforceGridProps) {
   };
 
   const startDrag = (pos: Pos, e: React.MouseEvent) => {
+    if (e.button === 2) {
+      // Right click outside the selection selects that cell first (as in Excel).
+      if (!inRange(range, pos.r, pos.c)) { setAnchor(pos); setFocus(pos); }
+      return;
+    }
     if (e.button !== 0) return;
     gridRef.current?.focus({ preventScroll: true });
     if (editing && (editing.pos.r !== pos.r || editing.pos.c !== pos.c)) void commitEdit();
@@ -286,11 +320,33 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     else { setAnchor(pos); setFocus(pos); }
     dragging.current = true;
   };
+  const finishFill = useRef<() => void>(() => {});
+  finishFill.current = () => {
+    if (!filling.current) return;
+    filling.current = false;
+    const to = fillTo;
+    setFillTo(null);
+    if (!range || !to) return;
+    const { targets, extended } = fillHandleTargets(range, to);
+    if (!targets.length) return;
+    const inside = targets.filter((t) => t.r >= 0 && t.c >= 0 && t.r < rowCount && t.c < colCount);
+    void apply(changesFromTexts(inside.map((t) => {
+      const { staff: s, date } = at(t.from);
+      return { pos: { r: t.r, c: t.c }, value: textOfEntry(entries.get(entryKey(s.id, date)), s.hotel_id) };
+    })));
+    setAnchor({ r: extended.r1, c: extended.c1 });
+    setFocus({ r: Math.min(rowCount - 1, extended.r2), c: Math.min(colCount - 1, extended.c2) });
+  };
   useEffect(() => {
-    const stop = () => { dragging.current = false; };
+    const stop = () => { dragging.current = false; finishFill.current(); };
     window.addEventListener('mouseup', stop);
     return () => window.removeEventListener('mouseup', stop);
   }, []);
+  const startFill = useCallback((e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    filling.current = true;
+  }, []);
+  const fillRange = range && fillTo ? fillHandleTargets(range, fillTo).extended : null;
 
   const onDouble = (pos: Pos) => {
     const { staff: s, date } = at(pos);
@@ -301,7 +357,10 @@ export function WorkforceGrid(props: WorkforceGridProps) {
   const handlers = useRef({ startDrag, onDouble });
   handlers.current = { startDrag, onDouble };
   const cellMouseDown = useCallback((p: Pos, e: React.MouseEvent) => handlers.current.startDrag(p, e), []);
-  const cellMouseEnter = useCallback((p: Pos) => { if (dragging.current) setFocus(p); }, []);
+  const cellMouseEnter = useCallback((p: Pos) => {
+    if (filling.current) setFillTo(p);
+    else if (dragging.current) setFocus(p);
+  }, []);
   const cellDoubleClick = useCallback((p: Pos) => handlers.current.onDouble(p), []);
 
   const renderCell = (pos: Pos) => {
@@ -321,6 +380,9 @@ export function WorkforceGrid(props: WorkforceGridProps) {
         locked={locked}
         weekend={[0, 6].includes(weekdayOf(date))}
         isToday={date === today}
+        dayKind={calendarDay(date)?.kind ?? null}
+        fillPreview={!!fillRange && inRange(fillRange, pos.r, pos.c) && !inRange(range, pos.r, pos.c)}
+        handle={!editing && !!range && range.r2 === pos.r && range.c2 === pos.c ? startFill : undefined}
         onMouseDown={cellMouseDown}
         onMouseEnter={cellMouseEnter}
         onDoubleClick={cellDoubleClick}
@@ -352,16 +414,35 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     </div>
   );
 
-  const dayHeader = (date: string) => {
+  const dayHeader = (date: string, compact = false) => {
     const wd = weekdayOf(date);
+    const special = calendarDay(date);
     return (
-      <span className={cn('flex items-baseline gap-1 tabular-nums', date === today && 'font-bold text-primary')}>
-        {Number(date.slice(8))}<span className="text-[10px] text-muted-foreground">{WEEKDAY_SHORT[wd]}</span>
+      <span className={cn('flex items-baseline gap-1 tabular-nums', date === today && 'font-bold text-primary')}
+        title={special ? `${special.nameHu} – ${special.name}` : undefined}>
+        <span className={cn(special?.kind === 'holiday' && 'font-semibold text-red-600 dark:text-red-400')}>{Number(date.slice(8))}</span>
+        <span className="text-[10px] text-muted-foreground">{WEEKDAY_SHORT[wd]}</span>
+        {special && (compact
+          ? <span className={cn('h-1.5 w-1.5 self-center rounded-full', special.kind === 'working_saturday' ? 'bg-sky-500' : 'bg-red-500')} />
+          : <span className={cn('truncate text-[10px] font-medium', special.kind === 'working_saturday' ? 'text-sky-600 dark:text-sky-400' : 'text-red-600 dark:text-red-400')}>
+              {special.kind === 'working_saturday' ? 'munkanap' : special.nameHu}
+            </span>)}
       </span>
     );
   };
+  const dayRowClass = (date: string) => {
+    const kind = calendarDay(date)?.kind;
+    if (date === today) return 'bg-primary/10';
+    if (kind === 'holiday' || kind === 'rest_day') return 'bg-red-50 dark:bg-red-950/40';
+    return [0, 6].includes(weekdayOf(date)) && kind !== 'working_saturday' ? 'bg-muted' : 'bg-background';
+  };
+
+  const single = range && range.r1 === range.r2 && range.c1 === range.c2 ? at({ r: range.r1, c: range.c1 }) : null;
+  const quickCodes = [...codes.map((c) => c.code), 'SZB', 'fél SZB', 'B', 'X', 'FIX', 'FNSZ'].filter((v, i, a) => a.indexOf(v) === i).slice(0, 24);
 
   return (
+    <ContextMenu>
+    <ContextMenuTrigger asChild>
     <div
       ref={gridRef}
       tabIndex={0}
@@ -382,12 +463,12 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               {groups.map((g, i) => (
                 <th key={`${g.id}-${i}`} colSpan={g.span} className="border-b border-r px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide"
                   style={{ boxShadow: `inset 0 3px 0 ${g.color}` }}>
-                  <span className="sticky left-14">{g.name}</span>
+                  <span className="sticky left-[112px]">{g.name}</span>
                 </th>
               ))}
             </tr>
             <tr>
-              <th className="sticky left-0 z-20 w-14 min-w-14 border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">Day</th>
+              <th className="sticky left-0 z-20 w-[104px] min-w-[104px] max-w-[104px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">Day</th>
               {staff.map((s) => (
                 <th key={s.id} className={cn('w-[92px] min-w-[92px] max-w-[92px] border-b border-r px-1.5 py-1 text-left font-normal', !s.is_active && 'opacity-60')}>{staffHeader(s)}</th>
               ))}
@@ -396,7 +477,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
           <tbody>
             {days.map((date, r) => (
               <tr key={date}>
-                <th className={cn('sticky left-0 z-[5] border-b border-r px-2 text-left font-normal', [0, 6].includes(weekdayOf(date)) ? 'bg-muted' : 'bg-background', date === today && 'bg-primary/10')}>{dayHeader(date)}</th>
+                <th className={cn('sticky left-0 z-[5] max-w-[104px] overflow-hidden border-b border-r px-2 text-left font-normal', dayRowClass(date))}>{dayHeader(date)}</th>
                 {staff.map((_, c) => renderCell({ r, c }))}
               </tr>
             ))}
@@ -421,7 +502,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
           <thead className="sticky top-0 z-10 bg-background">
             <tr>
               <th className="sticky left-0 z-20 min-w-[170px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">Employee</th>
-              {days.map((d) => <th key={d} className={cn('w-[64px] min-w-[64px] border-b border-r px-1 py-1 text-left font-normal', [0, 6].includes(weekdayOf(d)) && 'bg-muted')}>{dayHeader(d)}</th>)}
+              {days.map((d) => <th key={d} className={cn('w-[64px] min-w-[64px] border-b border-r px-1 py-1 text-left font-normal', dayRowClass(d))}>{dayHeader(d, true)}</th>)}
               {SUMMARY_ROWS.map((row) => <th key={row.key} title={row.hint} className="min-w-[56px] border-b border-r bg-muted px-1 text-right font-medium">{row.label}</th>)}
             </tr>
           </thead>
@@ -448,6 +529,26 @@ export function WorkforceGrid(props: WorkforceGridProps) {
         </table>
       )}
     </div>
+    </ContextMenuTrigger>
+    <ContextMenuContent className="w-60" onCloseAutoFocus={(e) => { e.preventDefault(); gridRef.current?.focus(); }}>
+      <ContextMenuItem disabled={!range} onSelect={() => void menuCopy(true)}>Cut<ContextMenuShortcut>Ctrl+X</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range} onSelect={() => void menuCopy()}>Copy<ContextMenuShortcut>Ctrl+C</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range} onSelect={() => void menuPaste()}>Paste<ContextMenuShortcut>Ctrl+V</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range} onSelect={clearSelection}>Clear<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled={!range || range.r1 === range.r2} onSelect={() => fillFromEdge('down')}>Fill down<ContextMenuShortcut>Ctrl+D</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!range || range.c1 === range.c2} onSelect={() => fillFromEdge('right')}>Fill right<ContextMenuShortcut>Ctrl+R</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger disabled={!range}>Set selected cells to</ContextMenuSubTrigger>
+        <ContextMenuSubContent className="max-h-80 w-48 overflow-y-auto">
+          {quickCodes.map((code) => <ContextMenuItem key={code} onSelect={() => fillSelection(code)}>{code}</ContextMenuItem>)}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSeparator />
+      <ContextMenuItem disabled={!single} onSelect={() => single && onOpenDetails(single.staff, single.date)}>Details, times and note…</ContextMenuItem>
+      <ContextMenuItem disabled={!single} onSelect={() => single && onEditNote(single.staff)}>Monthly remark…</ContextMenuItem>
+    </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -461,13 +562,16 @@ interface CellProps {
   locked: boolean;
   weekend: boolean;
   isToday: boolean;
+  dayKind: CalendarDayKind | null;
+  fillPreview: boolean;
+  handle?: (e: React.MouseEvent) => void;
   editor: React.ReactNode;
   onMouseDown: (pos: Pos, e: React.MouseEvent) => void;
   onMouseEnter: (pos: Pos) => void;
   onDoubleClick: (pos: Pos) => void;
 }
 
-const ScheduleCell = memo(function ScheduleCell({ r, c, entry, baseHotel, selected, focused, locked, weekend, isToday, editor, onMouseDown, onMouseEnter, onDoubleClick }: CellProps) {
+const ScheduleCell = memo(function ScheduleCell({ r, c, entry, baseHotel, selected, focused, locked, weekend, isToday, dayKind, fillPreview, handle, editor, onMouseDown, onMouseEnter, onDoubleClick }: CellProps) {
   const pos = { r, c };
   const style = entry ? cellStyle(entry, baseHotel) : null;
   const label = entry ? cellLabel(entry) : '';
@@ -486,17 +590,26 @@ const ScheduleCell = memo(function ScheduleCell({ r, c, entry, baseHotel, select
       onDoubleClick={() => onDoubleClick(pos)}
       className={cn(
         'relative h-7 max-w-[92px] cursor-cell truncate border-b border-r px-1 leading-7',
-        !style && weekend && 'bg-muted/50',
+        !style && weekend && dayKind !== 'working_saturday' && 'bg-muted/50',
+        !style && (dayKind === 'holiday' || dayKind === 'rest_day') && 'bg-red-50/70 dark:bg-red-950/30',
         !style && isToday && 'bg-primary/5',
         locked && !style && 'bg-[repeating-linear-gradient(135deg,transparent,transparent_4px,hsl(var(--muted))_4px,hsl(var(--muted))_5px)]',
         selected && 'after:pointer-events-none after:absolute after:inset-0 after:bg-primary/20',
         focused && 'outline outline-2 -outline-offset-2 outline-primary',
+        fillPreview && 'outline-dashed outline-1 -outline-offset-1 outline-primary',
       )}
       style={style ? { backgroundColor: style.bg, color: style.fg } : undefined}
     >
       {label}
       {entry?.status === 'draft' && <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500 ring-1 ring-background" aria-label="draft" />}
       {locked && focused && <Lock className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 opacity-60" />}
+      {handle && (
+        <span
+          onMouseDown={handle}
+          title="Drag to fill"
+          className="absolute bottom-0 right-0 z-10 h-[7px] w-[7px] cursor-crosshair border border-background bg-primary"
+        />
+      )}
       {editor}
     </td>
   );

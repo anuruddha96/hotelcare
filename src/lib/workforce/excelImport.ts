@@ -14,7 +14,7 @@
 import { parseCell, WORKING_KINDS, type WorkforceKind } from './cellParser';
 
 export interface WorkbookCell { text: string | null; fill: string | null }
-export interface WorkbookColumn { col: number; label: string | null; name: string }
+export interface WorkbookColumn { col: number; label: string | null; name: string; inferredLabel?: boolean }
 export interface WorkbookMonth {
   sheet: string; year: number; month: number;
   columns: WorkbookColumn[];
@@ -71,6 +71,14 @@ export function readScheduleWorkbook(XLSX: SheetJs, workbook: { SheetNames: stri
       const name = textOf(cell(1, c));
       if (name) columns.push({ col: c, label: textOf(cell(0, c)), name });
     }
+    // A column without a department label belongs to the group it sits in.
+    columns.forEach((column, i) => {
+      if (column.label) return;
+      const left = columns.slice(0, i).reverse().find((x) => x.label)?.label ?? null;
+      const right = columns.slice(i + 1).find((x) => x.label)?.label ?? null;
+      column.label = left ?? right;
+      column.inferredLabel = true;
+    });
     const days = new Map<number, Map<number, WorkbookCell>>();
     const notes = new Map<number, string>();
     const leave = new Map<number, string>();
@@ -113,11 +121,12 @@ export function readScheduleWorkbook(XLSX: SheetJs, workbook: { SheetNames: stri
 export function cleanEmployeeName(raw: string) {
   let s = raw.replace(/\r/g, '').split('\n').map((l) => l.trim()).filter(Boolean).join(' ');
   const nickname = s.match(/\/\s*([^/]+?)\s*\//)?.[1]?.trim() ?? null;
-  const flags = { sixHours: /6\s*órás/i.test(s), partTime: /part\s*-?\s*time/i.test(s), external: /beugrós/i.test(s) };
+  const flags = { sixHours: /6\s*órás/i.test(s), partTime: /part\s*-?\s*time/i.test(s), external: /beugrós/i.test(s), casual: /\balkalmi(s)?\b/i.test(s) };
   s = s.replace(/\/[^/]*\//g, ' ')
     .replace(/\b6\s*órás\b/gi, ' ')
     .replace(/part\s*-?\s*time.*$/i, ' ')
     .replace(/\bbeugrós\b/gi, ' ')
+    .replace(/\balkalmi(s)?\b/gi, ' ')
     .replace(/,\s*(SV|K\d?|HK)\b.*$/i, ' ')
     .replace(/\b(SZ|SV)\s*\d*\s*$/i, ' ')
     .replace(/\s+(HK|SV\d?|K\d?)\s*$/i, ' ')
@@ -164,6 +173,7 @@ export function classifyColumnLabel(label: string | null): { department: string;
   if (l.includes('marketing')) return { department: 'Administration', role: 'Marketing', hotel: null };
   if (l.includes('sales')) return { department: 'Administration', role: 'Sales', hotel: null };
   if (l.includes('trainee')) return { department: 'Administration', role: 'Trainee', hotel: null };
+  if (l === 'otto') return { department: 'Other', role: 'Ottofiori staff', hotel: 'ottofiori' };
   if (l === 'memo/otto') return { department: 'Reception', role: 'Front office manager', hotel: 'memories-budapest' };
   if (l.includes('reci vezeto')) return { department: 'Reception', role: 'Reception lead', hotel };
   if (l.includes('reci')) return { department: 'Reception', role: 'Receptionist', hotel };
@@ -233,6 +243,7 @@ export interface ImportPlan {
   ambiguousLinks: string[];
 }
 
+const ROLE_WORD = /^(konyha|reci|recepci[oó]|hk|sv|karbi|taki|reggeli|felszolg[aá]l[oó])$/i;
 const GENERIC_ACCOUNT = /^(hmb|hmb reception|levante|mika brunch|supervisor|otto reci|laura - control|maryjoy-\d+|reception|test.*)$/i;
 const tokenSet = (s: string) => new Set(plainText(s).split(/[^a-z]+/).filter((t) => t.length >= 2));
 
@@ -247,7 +258,7 @@ export function planWorkforceImport(
   // 1. People across months.
   type Person = {
     key: string; name: string; nickname: string | null; labels: Array<{ ym: number; label: string | null; col: number }>;
-    sixHours: boolean; partTime: boolean; external: boolean; firstYm: number; lastYm: number; aliases: Set<string>;
+    sixHours: boolean; partTime: boolean; external: boolean; casual: boolean; firstYm: number; lastYm: number; aliases: Set<string>;
   };
   const people = new Map<string, Person>();
   const owner = new Map<string, Person>(); // sheet|col
@@ -255,20 +266,24 @@ export function planWorkforceImport(
     const ym = month.year * 100 + month.month;
     for (const column of month.columns) {
       const cleaned = cleanEmployeeName(column.name);
-      const placeholder = !cleaned.name || /^beugr/i.test(cleaned.name);
-      const key = placeholder ? `beugros|${plainText(column.label ?? '')}` : nameKey(cleaned.name);
+      // A column titled only with a job word ("konyha") is an unnamed slot of that job.
+      const slot = ROLE_WORD.test(cleaned.name);
+      const label = slot ? `${(column.label ?? '').split(/[\s/-]+/)[0]} ${cleaned.name}`.trim() : column.label;
+      const placeholder = !cleaned.name || /^beugr/i.test(cleaned.name) || slot;
+      const key = placeholder ? `beugros|${plainText(label ?? '')}` : nameKey(cleaned.name);
       if (!key || key === 'beugros|' && !cleaned.external) continue;
       let person = people.get(key);
       if (!person) {
-        person = { key, name: placeholder ? `Beugrós (${column.label ?? 'extra'})` : cleaned.name, nickname: cleaned.nickname, labels: [],
-          sixHours: false, partTime: false, external: placeholder, firstYm: ym, lastYm: ym, aliases: new Set([key]) };
+        const placeholderName = slot ? `Unnamed slot (${label})` : `Beugrós (${label ?? 'extra'})`;
+        person = { key, name: placeholder ? placeholderName : cleaned.name, nickname: cleaned.nickname, labels: [],
+          sixHours: false, partTime: false, external: placeholder, casual: false, firstYm: ym, lastYm: ym, aliases: new Set([key]) };
         people.set(key, person);
       }
       if (ym > person.lastYm && !placeholder) person.name = cleaned.name;
       if (!placeholder) person.aliases.add(nameKey(cleaned.name));
-      person.labels.push({ ym, label: column.label, col: column.col });
+      person.labels.push({ ym, label, col: column.col });
       person.nickname ??= cleaned.nickname;
-      person.sixHours ||= cleaned.sixHours; person.partTime ||= cleaned.partTime; person.external ||= cleaned.external;
+      person.sixHours ||= cleaned.sixHours; person.partTime ||= cleaned.partTime; person.external ||= cleaned.external; person.casual ||= cleaned.casual;
       person.firstYm = Math.min(person.firstYm, ym); person.lastYm = Math.max(person.lastYm, ym);
       owner.set(`${month.sheet}|${column.col}`, person);
     }
@@ -287,7 +302,7 @@ export function planWorkforceImport(
     if (!target) continue;
     target.labels.push(...shorter.labels);
     target.firstYm = Math.min(target.firstYm, shorter.firstYm); target.lastYm = Math.max(target.lastYm, shorter.lastYm);
-    target.sixHours ||= shorter.sixHours; target.partTime ||= shorter.partTime; target.nickname ??= shorter.nickname;
+    target.sixHours ||= shorter.sixHours; target.partTime ||= shorter.partTime; target.casual ||= shorter.casual; target.nickname ??= shorter.nickname;
     for (const alias of shorter.aliases) target.aliases.add(alias);
     for (const [k, p] of owner) if (p === shorter) owner.set(k, target);
     people.delete(shorter.key);
@@ -334,7 +349,7 @@ export function planWorkforceImport(
     newStaff.push({
       id, full_name: person.name, nickname: person.nickname,
       department_id: deptId(cls.department), job_role_id: roleId(cls.department, cls.role), hotel_id: cls.hotel,
-      employment_type: person.external ? 'external' : person.partTime ? 'part_time' : 'full_time',
+      employment_type: person.external ? 'external' : person.casual ? 'hourly' : person.partTime ? 'part_time' : 'full_time',
       daily_hours: person.sixHours ? 6 : 8,
       is_active: active,
       end_date: active ? null : new Date(Date.UTC(Math.floor(person.lastYm / 100), person.lastYm % 100, 0)).toISOString().slice(0, 10),

@@ -41,7 +41,7 @@ export function accessLevelFor(role?: string | null, isSuperAdmin?: boolean | nu
 export function canEditDate(date: string, today: string, role?: string | null, isSuperAdmin?: boolean | null): boolean {
   const level = accessLevelFor(role, isSuperAdmin);
   if (level === 'self') return false;
-  if (isSuperAdmin || role === 'admin' || role === 'hr') {
+  if (level === 'org') {
     const [y, m] = today.split('-').map(Number);
     const prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
     return date >= prev;

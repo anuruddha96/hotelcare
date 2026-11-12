@@ -25,7 +25,7 @@ export function WorkforceSettings({ data, canEdit }: { data: WorkforceData; canE
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Departments</CardTitle>
-          <CardDescription>Columns of the schedule are grouped by department.</CardDescription>
+          <CardDescription>Columns of the schedule are grouped by department. Merge two departments to move all their staff and roles into one.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {data.departments.map((d) => (
@@ -39,6 +39,7 @@ export function WorkforceSettings({ data, canEdit }: { data: WorkforceData; canE
               </>)} />
           ))}
           {canEdit && <AddRow placeholder="New department" onAdd={(name) => save('workforce_departments', { name, color: '#64748b', sort_order: data.departments.length })} />}
+          {canEdit && data.departments.filter((d) => d.is_active).length > 1 && <MergeDepartments data={data} />}
         </CardContent>
       </Card>
 
@@ -128,5 +129,36 @@ function AddRow({ placeholder, onAdd }: { placeholder: string; onAdd: (value: st
       <Input placeholder={placeholder} value={value} onChange={(e) => setValue(e.target.value)} />
       <Button type="submit" variant="outline" size="icon" aria-label="Add"><Plus className="h-4 w-4" /></Button>
     </form>
+  );
+}
+
+function MergeDepartments({ data }: { data: WorkforceData }) {
+  const active = data.departments.filter((d) => d.is_active);
+  const [from, setFrom] = useState<string>('');
+  const [into, setInto] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+  const count = data.staff.filter((s) => s.department_id === from).length;
+  const merge = async () => {
+    const a = active.find((d) => d.id === from)?.name, b = active.find((d) => d.id === into)?.name;
+    if (!window.confirm(`Move ${count} employees and all job roles from ${a} into ${b}? ${a} will be deactivated. History is kept.`)) return;
+    setBusy(true);
+    try { await data.mergeDepartment(from, into); toast.success(`${a} merged into ${b}`); setFrom(''); setInto(''); }
+    catch (err) { toast.error((err as { message?: string })?.message ?? 'Could not merge'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-2 text-sm">
+      <span className="text-muted-foreground">Merge</span>
+      <Select value={from} onValueChange={setFrom}>
+        <SelectTrigger className="w-40"><SelectValue placeholder="department" /></SelectTrigger>
+        <SelectContent>{active.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
+      </Select>
+      <span className="text-muted-foreground">into</span>
+      <Select value={into} onValueChange={setInto}>
+        <SelectTrigger className="w-40"><SelectValue placeholder="department" /></SelectTrigger>
+        <SelectContent>{active.filter((d) => d.id !== from).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
+      </Select>
+      <Button size="sm" variant="outline" disabled={!from || !into || from === into || busy} onClick={() => void merge()}>Merge</Button>
+    </div>
   );
 }

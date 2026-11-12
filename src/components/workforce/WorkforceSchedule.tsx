@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Download, Info, LayoutGrid, List, Loader2, Rows3, Search, Send } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileSpreadsheet, Info, LayoutGrid, List, Loader2, Rows3, Search, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { entryKey, useWorkforce } from '@/hooks/useWorkforce';
+import { entryKey, fetchAllRows, useWorkforce } from '@/hooks/useWorkforce';
+import { supabase } from '@/integrations/supabase/client';
+import { calendarDay, hungarianCalendar, swapsKnown, workingDays } from '@/lib/workforce/holidays';
+import { DEFAULT_SHIFT_CODES } from '@/lib/workforce/excelImport';
+import { cn } from '@/lib/utils';
 import { todayBudapest } from '@/lib/budapestTime';
 import {
   accessLevelFor, canEditDate, cellLabel, cellStyle, formatHours, HOTEL_STYLE, HOTELS, hotelKey, hotelShort, KIND_STYLE,
@@ -49,7 +53,7 @@ export function WorkforceSchedule() {
 
   if (access === 'self') return <MyWorkforceSchedule />;
 
-  const canImport = isSuper || ['admin', 'hr'].includes(role);
+  const canImport = access === 'org';
   const empty = !data.loading && !data.staff.length;
 
   return (
@@ -72,15 +76,15 @@ export function WorkforceSchedule() {
         </AlertDescription></Alert>
       )}
       <TabsContent value="schedule" className="mt-0">
-        {empty && !data.error ? (
-          <Alert><Info className="h-4 w-4" /><AlertDescription className="flex flex-wrap items-center gap-2">
+        {empty && !data.error && (
+          <Alert className="mb-3"><Info className="h-4 w-4" /><AlertDescription className="flex flex-wrap items-center gap-2">
             No employees in the work schedule yet.
-            {canImport ? <Button size="sm" onClick={() => setTab('import')}>Import the Excel workbook</Button> : 'Ask HR to import the workbook or add staff.'}
+            {canImport ? <Button size="sm" onClick={() => setTab('import')}><FileSpreadsheet className="mr-1 h-4 w-4" />Import the Excel workbook</Button> : 'Ask HR or top management to import the workbook or add staff.'}
             <Button size="sm" variant="outline" onClick={() => setTab('staff')}>Add employees</Button>
           </AlertDescription></Alert>
-        ) : (
-          <ScheduleTab data={data} ym={ym} setYm={setYm} today={today} access={access} currentHotel={currentHotel} role={role} isSuper={isSuper} />
         )}
+        <ScheduleTab data={data} ym={ym} setYm={setYm} today={today} access={access} currentHotel={currentHotel} role={role} isSuper={isSuper}
+          onImport={canImport ? () => setTab('import') : undefined} />
       </TabsContent>
       <TabsContent value="staff" className="mt-0"><WorkforceStaffPanel data={data} access={access} currentHotel={currentHotel} today={today} /></TabsContent>
       <TabsContent value="analytics" className="mt-0"><WorkforceAnalytics data={data} year={ym.y} month={ym.m} /></TabsContent>
@@ -99,9 +103,15 @@ interface ScheduleTabProps {
   currentHotel: string | null;
   role: string;
   isSuper: boolean;
+  onImport?: () => void;
 }
 
-function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSuper }: ScheduleTabProps) {
+const MONTH_TABS = ['Január', 'Február', 'Március', 'Április', 'Május', 'Június', 'Július', 'Augusztus', 'Szeptember', 'Október', 'November', 'December'];
+const NO_COPY_KINDS = new Set(['leave', 'half_leave', 'sick', 'unpaid_leave', 'absent', 'other']);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabase as any;
+
+function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSuper, onImport }: ScheduleTabProps) {
   const [query, setQuery] = useState('');
   const [hotel, setHotel] = useState<string>('all');
   const [department, setDepartment] = useState('all');
@@ -111,6 +121,8 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
   const [details, setDetails] = useState<{ staff: WorkforceStaff; date: string } | null>(null);
   const [noteFor, setNoteFor] = useState<{ staff: WorkforceStaff; text: string } | null>(null);
   const [confirmPublish, setConfirmPublish] = useState(false);
+  const [copyPlan, setCopyPlan] = useState<{ rows: WorkforceEntry[]; staff: number } | null>(null);
+  const [copying, setCopying] = useState(false);
   const [selection, setSelection] = useState<Array<{ staff: WorkforceStaff; date: string }>>([]);
   const [day, setDay] = useState(today);
   const applyRef = useRef<((text: string) => void) | null>(null);
@@ -181,15 +193,61 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
     setConfirmPublish(false);
   };
 
+  /**
+   * Plan the month from the last four weeks: each empty, editable day takes the
+   * shift of the same weekday 28 days earlier (absences are not copied).
+   */
+  const prepareCopy = async () => {
+    setCopying(true);
+    try {
+      const ids = visibleStaff.filter((s) => s.is_active && (access === 'org' || s.hotel_id === currentHotel)).map((s) => s.id);
+      const back = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) - n * 86400000).toISOString().slice(0, 10);
+      const from = back(days[0], 28), to = back(days[0], 1);
+      const prev = ids.length ? await fetchAllRows<WorkforceEntry>((a, b) => db.from('workforce_entries')
+        .select('staff_id,work_date,kind,code,start_time,end_time,day_fraction,extra_minutes,hotel_id,note,status')
+        .in('staff_id', ids).gte('work_date', from).lte('work_date', to).order('work_date').order('staff_id').range(a, b)) : [];
+      const source = new Map<string, WorkforceEntry>(prev.map((e) => [entryKey(e.staff_id, e.work_date), e]));
+      const rows: WorkforceEntry[] = [];
+      const people = new Set<string>();
+      for (const s of visibleStaff.filter((x) => ids.includes(x.id))) {
+        for (const d of days) {
+          if (!canEdit(d, s) || data.entries.has(entryKey(s.id, d))) continue;
+          const key = entryKey(s.id, back(d, 28));
+          const src = source.get(key) ?? data.entries.get(key) ?? rows.find((r) => r.staff_id === s.id && r.work_date === back(d, 28));
+          if (!src || NO_COPY_KINDS.has(src.kind)) continue;
+          rows.push({
+            staff_id: s.id, work_date: d, kind: src.kind, code: src.code, start_time: src.start_time?.slice(0, 5) ?? null,
+            end_time: src.end_time?.slice(0, 5) ?? null, day_fraction: Number(src.day_fraction ?? 1), extra_minutes: 0,
+            hotel_id: src.hotel_id, raw_text: null, note: null, status: 'draft',
+          });
+          people.add(s.id);
+        }
+      }
+      if (!rows.length) toast.info('Nothing to copy: the editable days are already planned, or the last four weeks are empty.');
+      else setCopyPlan({ rows, staff: people.size });
+    } catch (err) { toast.error((err as { message?: string })?.message ?? 'Could not read the last four weeks'); }
+    finally { setCopying(false); }
+  };
+  const runCopy = async () => {
+    if (!copyPlan) return;
+    try { await data.saveEntries(copyPlan.rows); toast.success(`${copyPlan.rows.length} days planned as drafts. Check them, then Publish.`); }
+    catch (err) { toast.error((err as { message?: string })?.message ?? 'Could not save'); }
+    setCopyPlan(null);
+  };
+
+  const monthCalendar = useMemo(() => days.map((d) => calendarDay(d)).filter(Boolean) as NonNullable<ReturnType<typeof calendarDay>>[], [days]);
+  const yearHolidays = useMemo(() => [...hungarianCalendar(ym.y).values()].filter((d) => d.kind === 'holiday').length, [ym.y]);
+
   const exportMonth = async () => {
     const XLSX = await import('xlsx');
     const header1 = ['', ...visibleStaff.map((s) => `${hotelShort(s.hotel_id)} ${roleName.get(s.job_role_id ?? '') ?? ''}`.trim())];
-    const header2 = ['Nap', ...visibleStaff.map((s) => s.full_name)];
-    const body = days.map((d) => [Number(d.slice(8)), ...visibleStaff.map((s) => textOfEntry(data.entries.get(entryKey(s.id, d)), s.hotel_id))]);
-    const notes = ['Megjegyzés', ...visibleStaff.map((s) => data.notes.get(s.id) ?? '')];
-    const hours = ['Órák', ...visibleStaff.map((s) => Math.round(days.reduce((n, d) => n + (data.entries.get(entryKey(s.id, d))?.worked_minutes ?? 0), 0) / 6) / 10)];
-    const ws = XLSX.utils.aoa_to_sheet([header1, header2, ...body, notes, hours]);
-    ws['!cols'] = [{ wch: 5 }, ...visibleStaff.map(() => ({ wch: 14 }))];
+    const header1b = ['', '', ...header1.slice(1)];
+    const header2 = ['Nap', 'Ünnep', ...visibleStaff.map((s) => s.full_name)];
+    const body = days.map((d) => [Number(d.slice(8)), calendarDay(d)?.nameHu ?? '', ...visibleStaff.map((s) => textOfEntry(data.entries.get(entryKey(s.id, d)), s.hotel_id))]);
+    const notes = ['Megjegyzés', '', ...visibleStaff.map((s) => data.notes.get(s.id) ?? '')];
+    const hours = ['Órák', '', ...visibleStaff.map((s) => Math.round(days.reduce((n, d) => n + (data.entries.get(entryKey(s.id, d))?.worked_minutes ?? 0), 0) / 6) / 10)];
+    const ws = XLSX.utils.aoa_to_sheet([header1b, header2, ...body, notes, hours]);
+    ws['!cols'] = [{ wch: 5 }, { wch: 14 }, ...visibleStaff.map(() => ({ wch: 14 }))];
     const wb = XLSX.utils.book_new();
     const title = new Date(Date.UTC(ym.y, ym.m - 1, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
     XLSX.utils.book_append_sheet(wb, ws, title.slice(0, 31));
@@ -199,7 +257,9 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
   const shift = (delta: number) => setYm(({ y, m }) => { const d = new Date(Date.UTC(y, m - 1 + delta, 1)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 }; });
   const monthLabel = new Date(Date.UTC(ym.y, ym.m - 1, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const selectionMinutes = selection.reduce((n, c) => n + (data.entries.get(entryKey(c.staff.id, c.date))?.worked_minutes ?? 0), 0);
-  const palette = data.shiftCodes.filter((c) => c.is_active);
+  const palette = data.shiftCodes.some((c) => c.is_active)
+    ? data.shiftCodes.filter((c) => c.is_active)
+    : DEFAULT_SHIFT_CODES.map((c) => ({ ...c, id: c.code, hotel_id: null, is_active: true }));
   const detailsEntry = details ? data.entries.get(entryKey(details.staff.id, details.date)) : undefined;
 
   return (
@@ -252,9 +312,41 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
         )}
         <label className="ml-auto flex items-center gap-2 text-xs"><Switch checked={showFormer} onCheckedChange={setShowFormer} />Former staff</label>
         <Legend />
-        <Button variant="outline" size="sm" onClick={() => void exportMonth()}><Download className="mr-1 h-4 w-4" />Excel</Button>
+        {onImport && <Button variant="outline" size="sm" onClick={onImport}><FileSpreadsheet className="mr-1 h-4 w-4" />Import Excel</Button>}
+        <Button variant="outline" size="sm" disabled={copying || !visibleStaff.length} onClick={() => void prepareCopy()} title="Fill empty future days with the shifts of the same weekday four weeks earlier">
+          {copying ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Copy className="mr-1 h-4 w-4" />}Copy last 4 weeks
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => void exportMonth()}><Download className="mr-1 h-4 w-4" />Export Excel</Button>
         <Button size="sm" disabled={!drafts.length} onClick={() => setConfirmPublish(true)}><Send className="mr-1 h-4 w-4" />Publish{drafts.length ? ` ${drafts.length} drafts` : ''}</Button>
       </div>
+
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b" role="tablist" aria-label="Months">
+        <Button variant="ghost" size="sm" className="h-7 px-1.5" onClick={() => setYm(({ y, m }) => ({ y: y - 1, m }))} aria-label="Previous year"><ChevronLeft className="h-4 w-4" /></Button>
+        <span className="px-1 text-sm font-semibold tabular-nums">{ym.y}</span>
+        <Button variant="ghost" size="sm" className="h-7 px-1.5" onClick={() => setYm(({ y, m }) => ({ y: y + 1, m }))} aria-label="Next year"><ChevronRight className="h-4 w-4" /></Button>
+        {MONTH_TABS.map((name, i) => {
+          const active = ym.m === i + 1;
+          const isNow = Number(today.slice(0, 4)) === ym.y && Number(today.slice(5, 7)) === i + 1;
+          return (
+            <button key={name} type="button" role="tab" aria-selected={active} onClick={() => setYm(({ y }) => ({ y, m: i + 1 }))}
+              className={cn('-mb-px rounded-t-md border border-b-0 px-2.5 py-1 text-xs transition',
+                active ? 'border-border bg-background font-semibold text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted',
+                isNow && !active && 'text-primary')}>
+              {name}
+            </button>
+          );
+        })}
+      </div>
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span><strong className="text-foreground">{workingDays(days)}</strong> working days · {days.length} days</span>
+        {monthCalendar.map((d) => (
+          <span key={d.date} className={d.kind === 'working_saturday' ? 'text-sky-600 dark:text-sky-400' : 'text-red-600 dark:text-red-400'}>
+            {Number(d.date.slice(8))}. {d.nameHu}
+          </span>
+        ))}
+        {!swapsKnown(ym.y) && <span>Bridge days for {ym.y} are not decreed yet; only statutory holidays are shown.</span>}
+        <span className="ml-auto">{yearHolidays} public holidays in {ym.y}</span>
+      </p>
 
       {data.loading && !data.staff.length ? (
         <div className="flex h-64 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading schedule…</div>
@@ -302,6 +394,22 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
         </DialogContent>
       </Dialog>
 
+      <AlertDialog open={!!copyPlan} onOpenChange={(o) => !o && setCopyPlan(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Copy the last four weeks into {monthLabel}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {copyPlan?.rows.length} empty days for {copyPlan?.staff} employees get the shift of the same weekday four weeks earlier.
+              Leave, sickness and other absences are not copied. Everything is saved as a draft for you to adjust before publishing.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void runCopy()}>Copy as drafts</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={confirmPublish} onOpenChange={setConfirmPublish}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -344,7 +452,8 @@ function DayList({ day, days, setDay, staff, entries, deptName, roleName, onOpen
   const i = days.indexOf(day);
   const groups = new Map<string, WorkforceStaff[]>();
   for (const s of staff) { const k = s.department_id ?? 'none'; groups.set(k, [...(groups.get(k) ?? []), s]); }
-  const label = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  const special = calendarDay(day);
+  const label = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }) + (special ? ` · ${special.nameHu}` : '');
   const working = staff.filter((s) => { const e = entries.get(entryKey(s.id, day)); return e && ['work', 'night', 'training', 'home_office', 'extra_day'].includes(e.kind); }).length;
   return (
     <div className="space-y-3">

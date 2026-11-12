@@ -46,6 +46,7 @@ describe('access and editing window', () => {
     expect(canEditDate('2026-11-12', '2026-11-12', 'manager')).toBe(true);
     expect(canEditDate('2026-10-03', '2026-11-12', 'hr')).toBe(true);
     expect(canEditDate('2026-09-30', '2026-11-12', 'hr')).toBe(false);
+    expect(canEditDate('2026-10-03', '2026-11-12', 'top_management')).toBe(true);
   });
 
   it('summarises a month like the bottom rows of the workbook', () => {

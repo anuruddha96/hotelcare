@@ -104,3 +104,28 @@ export function pasteTargets(block: string[][], selection: CellRange, maxRow: nu
   }
   return out;
 }
+
+/**
+ * Excel fill handle: dragging the corner of a selection repeats the selected
+ * block down, up, right or left (whichever way the pointer moved furthest).
+ */
+export function fillHandleTargets(range: CellRange, to: { r: number; c: number }): {
+  targets: Array<{ r: number; c: number; from: { r: number; c: number } }>; extended: CellRange;
+} {
+  const h = range.r2 - range.r1 + 1, w = range.c2 - range.c1 + 1;
+  const dr = to.r > range.r2 ? to.r - range.r2 : to.r < range.r1 ? to.r - range.r1 : 0;
+  const dc = to.c > range.c2 ? to.c - range.c2 : to.c < range.c1 ? to.c - range.c1 : 0;
+  const targets: Array<{ r: number; c: number; from: { r: number; c: number } }> = [];
+  if (!dr && !dc) return { targets, extended: range };
+  const mod = (n: number, m: number) => ((n % m) + m) % m;
+  if (Math.abs(dr) >= Math.abs(dc)) {
+    const rows = dr > 0 ? [range.r2 + 1, range.r2 + dr] : [range.r1 + dr, range.r1 - 1];
+    for (let r = rows[0]; r <= rows[1]; r++) for (let c = range.c1; c <= range.c2; c++)
+      targets.push({ r, c, from: { r: range.r1 + mod(r - range.r1, h), c } });
+    return { targets, extended: { ...range, r1: Math.min(range.r1, rows[0]), r2: Math.max(range.r2, rows[1]) } };
+  }
+  const cols = dc > 0 ? [range.c2 + 1, range.c2 + dc] : [range.c1 + dc, range.c1 - 1];
+  for (let c = cols[0]; c <= cols[1]; c++) for (let r = range.r1; r <= range.r2; r++)
+    targets.push({ r, c, from: { r, c: range.c1 + mod(c - range.c1, w) } });
+  return { targets, extended: { ...range, c1: Math.min(range.c1, cols[0]), c2: Math.max(range.c2, cols[1]) } };
+}

@@ -51,6 +51,8 @@ export interface WorkforceData {
   saveStaff: (row: Partial<WorkforceStaff> & { full_name: string }) => Promise<WorkforceStaff>;
   saveNote: (staffId: string, note: string) => Promise<void>;
   saveReference: (table: 'workforce_departments' | 'workforce_job_roles' | 'workforce_shift_codes', row: Record<string, unknown>) => Promise<void>;
+  /** Moves staff and job roles of one department into another and retires it. */
+  mergeDepartment: (fromId: string, intoId: string) => Promise<void>;
 }
 
 export function useWorkforce(year: number, month: number): WorkforceData {
@@ -188,8 +190,31 @@ export function useWorkforce(year: number, month: number): WorkforceData {
     await reload();
   }, [org, reload]);
 
+  const mergeDepartment = useCallback(async (fromId: string, intoId: string) => {
+    if (fromId === intoId) return;
+    const target = new Map(jobRoles.filter((r) => r.department_id === intoId).map((r) => [r.name.trim().toLowerCase(), r.id]));
+    for (const role of jobRoles.filter((r) => r.department_id === fromId)) {
+      const same = target.get(role.name.trim().toLowerCase());
+      if (same) {
+        // Same role name exists in the target: move people onto it and retire the duplicate.
+        const { error: e1 } = await db.from('workforce_staff').update({ job_role_id: same }).eq('job_role_id', role.id);
+        if (e1) throw e1;
+        const { error: e2 } = await db.from('workforce_job_roles').update({ is_active: false, name: `${role.name} (merged)` }).eq('id', role.id);
+        if (e2) throw e2;
+      } else {
+        const { error: e3 } = await db.from('workforce_job_roles').update({ department_id: intoId }).eq('id', role.id);
+        if (e3) throw e3;
+      }
+    }
+    const { error: e4 } = await db.from('workforce_staff').update({ department_id: intoId }).eq('department_id', fromId);
+    if (e4) throw e4;
+    const { error: e5 } = await db.from('workforce_departments').update({ is_active: false }).eq('id', fromId);
+    if (e5) throw e5;
+    await reload();
+  }, [jobRoles, reload]);
+
   return useMemo(() => ({
     loading, error, departments, jobRoles, shiftCodes, staff, entries, notes, leaveUsed,
-    reload, saveEntries, deleteEntries, publish, saveStaff, saveNote, saveReference,
-  }), [loading, error, departments, jobRoles, shiftCodes, staff, entries, notes, leaveUsed, reload, saveEntries, deleteEntries, publish, saveStaff, saveNote, saveReference]);
+    reload, saveEntries, deleteEntries, publish, saveStaff, saveNote, saveReference, mergeDepartment,
+  }), [loading, error, departments, jobRoles, shiftCodes, staff, entries, notes, leaveUsed, reload, saveEntries, deleteEntries, publish, saveStaff, saveNote, saveReference, mergeDepartment]);
 }

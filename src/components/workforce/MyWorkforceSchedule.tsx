@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { todayBudapest } from '@/lib/budapestTime';
+import { calendarDay } from '@/lib/workforce/holidays';
 import {
   cellLabel, cellStyle, formatHours, hotelShort, KIND_STYLE, monthDays, pad2, summarizeStaffMonth, WEEKDAY_SHORT, weekdayOf,
   type WorkforceEntry, type WorkforceStaff,
@@ -94,6 +95,7 @@ export function MyWorkforceSchedule({ compact = false }: { compact?: boolean }) 
                 ) : <span className="text-xs text-muted-foreground">Day off</span>}
                 {e && !['work', 'night'].includes(e.kind) && e.kind !== 'fixed_day_off' && <span className="text-xs text-muted-foreground">{KIND_STYLE[e.kind].label}</span>}
                 {away && <span className="text-xs text-muted-foreground">at {away}</span>}
+                {calendarDay(d)?.kind === 'holiday' && <span className="text-xs text-red-600 dark:text-red-400">{calendarDay(d)!.nameHu}</span>}
                 {e?.worked_minutes ? <span className="ml-auto text-xs tabular-nums text-muted-foreground">{formatHours(e.worked_minutes)} h</span> : null}
               </li>
             );
