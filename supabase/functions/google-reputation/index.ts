@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
-import { generateLowCostText } from "../_shared/lowCostAi.ts";
+import { generateLowCostText, containsLikelySensitiveData } from "../_shared/lowCostAi.ts";
 import { buildCuratedReply, CURATED_REPLY_BASE_COUNT, requiresCarefulReview } from "../_shared/reputation-replies.ts";
 import { buildReplyCustomizationPrompt, validateReplyChoices } from "../_shared/reputation-customization.ts";
 
@@ -880,16 +880,27 @@ Deno.serve(async (req) => {
       // Use an inexpensive model for manager-requested revisions only. The
       // positive-review curated library continues to incur zero model cost.
       const chosenModel = Deno.env.get("OPENAI_REVIEW_CUSTOM_MODEL") || "gpt-4.1-mini";
+      // Do not send the reviewer's display name to an unpaid model. Regular
+      // style customizations can use Gemini; genuinely confidential notes,
+      // medical/identity information and confirmed-issue instructions use OpenAI.
+      const previousDraft = String(body.previous_draft || review.ai_draft || "").slice(0, 1000);
+      const sensitiveReviewCustomization =
+        choices.stance === "accept_confirmed_issue" ||
+        containsLikelySensitiveData(String(review.comment || "")) ||
+        containsLikelySensitiveData(choices.notes) ||
+        containsLikelySensitiveData(previousDraft) ||
+        containsLikelySensitiveData(String((review.google_business_locations as any)?.brand_context || ""));
       const input = buildReplyCustomizationPrompt({
-        review: review as any,
+        review: { ...review, reviewer_display_name: "" } as any,
         venue: review.google_business_locations as any,
         choices,
-        previousDraft: String(body.previous_draft || review.ai_draft || "").slice(0, 1000),
+        previousDraft,
       });
       let generated: Awaited<ReturnType<typeof generateLowCostText>>;
       try {
         generated = await generateLowCostText({
           task: "internal",
+          sensitive: sensitiveReviewCustomization,
           json: true,
           instructions: 'You write accurate public hospitality review replies. Return one JSON object with a "replies" array containing exactly three distinct replies. Obey response stance and factual constraints. Do not invent details.',
           prompt: input,

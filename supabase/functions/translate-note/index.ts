@@ -64,7 +64,8 @@ async function translateBatch(texts: string[], targetName: string) {
 }
 
 // Supabase verifies JWTs for this function. Keys stay in server-side secrets.
-// Confidential notes remain on OpenAI until GEMINI_ALLOW_INTERNAL_CONTENT=true.
+// Non-sensitive housekeeping and maintenance notes use Gemini first.
+// Notes with apparent personal/confidential details remain on OpenAI.
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
