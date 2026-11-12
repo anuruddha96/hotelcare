@@ -6,6 +6,7 @@ import type { DayMetrics } from "@/lib/revenueAnalytics";
 import type { ReconciliationDay } from "@/lib/kpiReconciliation";
 
 vi.mock("@/hooks/useTranslation", () => ({ useTranslation: () => ({ language: "en" }) }));
+vi.mock("recharts", async (original) => ({ ...await original<object>(), ResponsiveContainer: () => null }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 vi.mock("@/lib/revenueCurrency", () => ({
   money: (n: number) => `€${Math.round(n)}`,
