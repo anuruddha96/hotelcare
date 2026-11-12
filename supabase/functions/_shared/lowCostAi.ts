@@ -1,8 +1,10 @@
 /**
  * Low-cost text generation for HotelCare's non-critical AI tasks.
- * Gemini is tried first for public/non-confidential content. Internal text
- * requires explicit GEMINI_ALLOW_INTERNAL_CONTENT=true because Google's free
- * API tier has different data-use terms from paid processing.
+ * Gemini is tried first for public and non-sensitive operational content.
+ * Internal notes and manager instructions also prefer Gemini by default,
+ * unless they contain likely personal/confidential details. Sensitive requests
+ * stay with OpenAI. Google's unpaid tier must not receive sensitive data.
+ * This is a conservative heuristic, not a substitute for a privacy review.
  *
  * Secrets are read only on the server; errors/logs never include keys,
  * prompts, guest content, or upstream response bodies.
@@ -15,6 +17,8 @@ type GenerateOptions = {
   instructions?: string;
   json?: boolean;
   task?: LowCostAiTask;
+  /** Explicitly mark content that cannot be sent to Google's unpaid API tier. */
+  sensitive?: boolean;
   maxOutputTokens?: number;
   fallbackModel?: string;
   validate?: (text: string) => boolean;
@@ -38,6 +42,29 @@ function validOutput(text: string, options: GenerateOptions): boolean {
   return options.validate ? options.validate(text) : true;
 }
 
+/**
+ * Screen operator-authored content before it reaches the unpaid Gemini tier.
+ * High-confidence markers only: this is not a complete PII detection engine.
+ * Caller must also set sensitive:true for known confidential context.
+ */
+export function containsLikelySensitiveData(input: string): boolean {
+  const text = String(input || "");
+  if (!text.trim()) return false;
+  return [
+    // Contact details, payment/account identifiers and authentication secrets.
+    /[\w.+-]+@[\w.-]+\.[a-z]{2,}/i,
+    /(?:\+\d[\d\s().-]{7,}|\b\d(?:[\s().-]?\d){9,}\b)/,
+    /\b(?:HU\d{26}|IBAN\s*[:#]?|passport\s*(?:number|no\.?|:)|bank\s+account|card\s+number|payment\s+card|national\s+id|social\s+security)\b/i,
+    /\b(?:password|passcode|pin\s*(?:code|number)|api[_ -]?key|bearer\s+token|access[_ -]?token|credentials?)\s*[:=]\s*\S+/i,
+    // Work records can identify people even without a full name.
+    /\b(?:guest|employee|housekeeper|colleague|staff\s+member)\s+(?:named|called|name\s*(?:is|:))\s+\S+/i,
+    /\b(?:Mr\.?|Mrs\.?|Ms\.?|Miss|Dr\.?)\s+[\p{Lu}][\p{L}-]+/u,
+    /\b(?:patient|diagnos\w*|prescription|medical\s+record|mental\s+health|allerg\w*|injur\w*|sick\s+leave|salary|payroll|disciplinary|confidential|private\s+information)\b/i,
+    // A room identifier plus an operational note can identify an occupied stay.
+    /\b(?:room|szoba|zimmer)\s*(?:number|no\.?|#)?\s*[:#-]?\s*\d{2,5}\b/i,
+  ].some((pattern) => pattern.test(text));
+}
+
 function errorMessage(provider: string, status?: number): Error {
   // Avoid leaking provider response bodies: they can contain user content.
   return new Error(`${provider} text generation failed${status ? ` (HTTP ${status})` : ""}`);
@@ -47,9 +74,13 @@ export async function generateLowCostText(options: GenerateOptions): Promise<Low
   if (!options.prompt || options.prompt.length > 75_000) throw new Error("AI input exceeds safe limit");
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   const openaiKey = Deno.env.get("OPENAI_API_KEY");
-  const allowInternal = Deno.env.get("GEMINI_ALLOW_INTERNAL_CONTENT") === "true";
+  // Owner-approved Gemini-first for ordinary internal text. Explicit opt-out
+  // remains available; sensitive content is always routed to OpenAI.
+  const allowInternal = Deno.env.get("GEMINI_ALLOW_INTERNAL_CONTENT") !== "false";
+  const sensitiveInternal = options.task === "internal" &&
+    (options.sensitive === true || containsLikelySensitiveData(options.prompt));
   const canUseGemini = Boolean(geminiKey) &&
-    (options.task !== "internal" || allowInternal) &&
+    (options.task !== "internal" || (allowInternal && !sensitiveInternal)) &&
     Deno.env.get("GEMINI_DISABLED") !== "true";
   const maxOutput = Math.max(64, Math.min(8192, options.maxOutputTokens ?? 512));
 
