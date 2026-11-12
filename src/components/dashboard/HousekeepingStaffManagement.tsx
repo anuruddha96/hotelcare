@@ -644,7 +644,7 @@ export function HousekeepingStaffManagement() {
       const { data, error } = await supabase.functions.invoke('admin-delete-user', {
         body: {
           target_user_id: deleteUserId,
-          soft_delete: true, // Archive data for 30 days
+          soft_delete: true, // Archive the profile; retain historical records
         },
       });
 
@@ -658,7 +658,7 @@ export function HousekeepingStaffManagement() {
 
       toast({ 
         title: 'User Deleted', 
-        description: `${deleteUserName} has been removed. Data will be kept for 30 days.` 
+        description: `${deleteUserName} has been archived. An administrator can restore access.` 
       });
       setDeleteConfirmOpen(false);
       fetchHousekeepingStaff();
@@ -1324,8 +1324,8 @@ export function HousekeepingStaffManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteUserName}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will archive the staff member's data for 30 days before permanent deletion.
-              Their room assignments and performance data will be preserved for reporting.
+              This will archive the staff member's account and prevent sign-in.
+              Their work and performance history will remain intact. An administrator can restore access later.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
