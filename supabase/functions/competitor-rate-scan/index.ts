@@ -14,7 +14,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { aiFeatureEnabled, checkAiBudget, logAiUsage } from "../_shared/aiBudget.ts";
-import { CRON_HORIZON_DAYS, CRON_SAMPLE_DATES, prioritySampleDates } from "./sampling.ts";
+import { CRON_HORIZON_DAYS, CRON_SAMPLE_DATES, isoAdd, prioritySampleDates } from "./sampling.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -179,6 +179,13 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+  const ignoreRpcFailure = async (fn: string, args: Record<string, unknown>) => {
+    try {
+      await ignoreRpcFailure(fn, args);
+    } catch {
+      // Lease cleanup is best-effort and must not mask the original scanner error.
+    }
+  };
 
   let leaseHeld = false;
 
@@ -443,7 +450,7 @@ Deno.serve(async (req) => {
           const minutes = e.status === 429 ? 60 : 12 * 60;
           await admin.rpc("pause_competitor_scan", {
             _id: LEASE_ID, _minutes: minutes, _reason: e.message.slice(0, 300),
-          }).catch(() => {});
+          });
           leaseHeld = false;
           console.error("competitor-rate-scan blocked", e.message);
           return;
@@ -454,7 +461,7 @@ Deno.serve(async (req) => {
         console.log("competitor-rate-scan finished", { captured, hotels: hotelIds.length, results });
         if (leaseHeld) {
           leaseHeld = false;
-          await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
+          await ignoreRpcFailure("release_competitor_scan_lease", { _id: LEASE_ID });
         }
       });
 
@@ -465,7 +472,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     console.error("competitor-rate-scan error", e);
     if (leaseHeld) {
-      await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
+      await ignoreRpcFailure("release_competitor_scan_lease", { _id: LEASE_ID });
     }
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
