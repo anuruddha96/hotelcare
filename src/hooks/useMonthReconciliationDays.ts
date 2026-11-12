@@ -30,6 +30,6 @@ export function useMonthReconciliationDays(hotelId: string | null | undefined, m
     enabled: Boolean(hotelId) && /^\d{4}-\d{2}$/.test(month),
     staleTime: 60_000,
     retry: false,
-    queryFn: () => fetchMonthReconciliationDays(hotelId as string, month),,
+    queryFn: () => fetchMonthReconciliationDays(hotelId as string, month),
   });
 }
