@@ -77,7 +77,7 @@ describe("MonthPerformanceHeader — whole month", () => {
     expect(screen.getByText("243 of 300 room-nights · whole month")).toBeTruthy();
     // ADR (110 x 100 + 133 x 145) / 243 = €125, labelled as including breakfast.
     expect(screen.getAllByText("€125").length).toBeGreaterThan(0);
-    expect(screen.getByText("whole month · incl. breakfast & extras")).toBeTruthy();
+    expect(screen.getAllByText("whole month · incl. breakfast & extras").length).toBe(2);
     const table = screen.getByTestId("month-breakdown").textContent ?? "";
     expect(table).toMatch(/Already stayed1–11110\/110100%/);
     expect(table).toMatch(/On the books12–30133\/19070%€145/);
