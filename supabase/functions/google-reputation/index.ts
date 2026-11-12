@@ -888,9 +888,9 @@ Deno.serve(async (req) => {
       let generated: Awaited<ReturnType<typeof generateLowCostText>>;
       try {
         generated = await generateLowCostText({
-          task: "public",
+          task: "internal",
           json: true,
-          instructions: "You write accurate public hospitality review replies. Return exactly three distinct alternatives as JSON in the form {\\\"replies\\\":[\\\"...\\\",\\\"...\\\",\\\"...\\\"]}. Obey the response stance and factual constraints. Do not invent details.",
+          instructions: 'You write accurate public hospitality review replies. Return one JSON object with a "replies" array containing exactly three distinct replies. Obey response stance and factual constraints. Do not invent details.',
           prompt: input,
           maxOutputTokens: 1500,
           fallbackModel: chosenModel,
@@ -987,7 +987,7 @@ Risk level: ${analysis.risk}.`;
           task: "public",
           instructions: "Write accurate, concise, venue-specific public Google review replies. Output only the reply, never invent facts.",
           prompt,
-          fallbackModel: Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-4.1-mini",
+          fallbackModel: Deno.env.get("OPENAI_FALLBACK_MODEL") || "gpt-4o-mini",
           maxOutputTokens: 512,
           validate: (text) => text.trim().length >= 8 && text.length <= 4096,
         });
