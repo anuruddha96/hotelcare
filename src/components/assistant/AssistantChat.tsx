@@ -212,17 +212,25 @@ function ChatSession({
   initialMessages,
   language,
   initialPrompt,
+  externalPrompt,
+  onExternalPromptConsumed,
   onThreadUpdated,
   onNavigate,
   workspace = false,
+  suggestedPrompt,
+  onSuggestedPromptConsumed,
 }: {
   threadId: string;
   initialMessages: AssistantUiMessage[];
   language: string;
   initialPrompt?: string | null;
+  externalPrompt?: { id: number; text: string } | null;
+  onExternalPromptConsumed?: () => void;
   onThreadUpdated: () => void;
   onNavigate?: () => void;
   workspace?: boolean;
+  suggestedPrompt?: { id: number; text: string } | null;
+  onSuggestedPromptConsumed?: () => void;
 }) {
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
@@ -309,7 +317,15 @@ function ChatSession({
     initialPromptSentRef.current = true;
     lastQuestionRef.current = initialPrompt;
     void sendMessage({ text: initialPrompt });
-  }, [initialPrompt, sendMessage]);
+  }, [initialPrompt, sendMessage])
+  const lastExternalPromptIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!externalPrompt || lastExternalPromptIdRef.current === externalPrompt.id) return;
+    lastExternalPromptIdRef.current = externalPrompt.id;
+    lastQuestionRef.current = externalPrompt.text;
+    void sendMessage({ text: externalPrompt.text });
+    onExternalPromptConsumed?.();
+  }, [externalPrompt, sendMessage, onExternalPromptConsumed]);;
 
   const { state: dictation, supported, toggle } = useDictation(
     useCallback((text: string) => {
@@ -693,6 +709,12 @@ export default function AssistantChat({
     }
   };
 
+  useEffect(() => {
+    if (!suggestedPrompt || activeThreadId || starting) return;
+    void createAndSend({ text: suggestedPrompt.text });
+    onSuggestedPromptConsumed?.();
+  }, [suggestedPrompt, activeThreadId, starting]);
+
   if (!activeThreadId) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -740,6 +762,8 @@ export default function AssistantChat({
       initialMessages={assistantRowsToUiMessages(rows) as AssistantUiMessage[]}
       language={language}
       initialPrompt={pending?.id === activeThreadId ? pending.text : null}
+      externalPrompt={pending?.id === activeThreadId ? null : suggestedPrompt}
+      onExternalPromptConsumed={onSuggestedPromptConsumed}
       onNavigate={onNavigate}
       workspace={workspace}
       onThreadUpdated={() => {
