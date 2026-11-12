@@ -8,6 +8,8 @@ import { StaffSchedulePlanner as LegacyStaffSchedulePlanner } from './LegacyStaf
 import { MasterStaffSchedulePlanner } from './MasterStaffSchedulePlanner';
 import { SlntTeamAQuickPlanner } from './SlntTeamAQuickPlanner';
 import { UpcomingShiftCard } from './UpcomingShiftCard';
+import { WorkforceSchedule } from '@/components/workforce/WorkforceSchedule';
+import { MyWorkforceSchedule } from '@/components/workforce/MyWorkforceSchedule';
 
 const MASTER_SCHEDULE_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
 const LOCAL_SCHEDULE_ROLES = ['manager', 'housekeeping_manager', 'maintenance_manager', 'reception_manager', 'finance_manager', 'control_manager', 'marketing_manager', 'back_office_manager'];
@@ -42,7 +44,7 @@ export function StaffSchedulePlanner() {
               </div>
             : <SlntSecureStaffSchedulePlanner />)
         : <UpcomingShiftCard />)
-    : (isRdHotels && !canManageHousekeeping ? <UpcomingShiftCard /> : <LegacyStaffSchedulePlanner />);
+    : (isRdHotels && !canManageHousekeeping ? <div className="space-y-4"><MyWorkforceSchedule /><UpcomingShiftCard /></div> : <LegacyStaffSchedulePlanner />);
 
   // Ordinary staff see only their own published shifts; managers stay property-scoped in the master view.
   if (!canManageMaster) return housekeepingView;
@@ -51,10 +53,10 @@ export function StaffSchedulePlanner() {
     <Tabs defaultValue={isRdHotels ? "master" : "housekeeping"} className="space-y-4">
       <TabsList className="h-auto flex-wrap justify-start">
         {canManageHousekeeping && <TabsTrigger value="housekeeping">Housekeeping schedule</TabsTrigger>}
-        <TabsTrigger value="master">Master staff schedule</TabsTrigger>
+        <TabsTrigger value="master">{isRdHotels ? 'Work schedule' : 'Master staff schedule'}</TabsTrigger>
       </TabsList>
       {canManageHousekeeping && <TabsContent value="housekeeping" className="mt-0">{housekeepingView}</TabsContent>}
-      <TabsContent value="master" className="mt-0"><MasterStaffSchedulePlanner /></TabsContent>
+      <TabsContent value="master" className="mt-0">{isRdHotels ? <WorkforceSchedule /> : <MasterStaffSchedulePlanner />}</TabsContent>
     </Tabs>
   );
 }

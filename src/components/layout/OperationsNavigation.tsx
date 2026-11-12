@@ -6,6 +6,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { canAccessLegacyModules } from '@/lib/roleAccess';
 import { cn } from '@/lib/utils';
+import { PROPERTY_ROLES as WORKFORCE_PROPERTY_ROLES } from '@/lib/workforce/model';
 
 type DashboardTab = 'tickets' | 'rooms' | 'housekeeping' | 'attendance' | 'admin';
 type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'channel-manager' | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation';
@@ -28,7 +29,8 @@ export function OperationsNavigation({ current, onDashboardTabChange }: Operatio
   const role = profile?.role || '';
   const manager = ['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager'].includes(role);
   const executive = ['admin', 'top_management', 'top_management_manager'].includes(role);
-  const canOpenSchedule = !!profile?.is_super_admin || ['admin', 'top_management', 'top_management_manager', 'hr'].includes(role);
+  const canOpenSchedule = !!profile?.is_super_admin || ['admin', 'top_management', 'top_management_manager', 'hr'].includes(role)
+    || (profile?.organization_slug === 'rdhotels' && WORKFORCE_PROPERTY_ROLES.includes(role));
   const legacy = canAccessLegacyModules(profile?.nickname);
 
   const openTab = (tab: DashboardTab) => {
@@ -55,7 +57,7 @@ export function OperationsNavigation({ current, onDashboardTabChange }: Operatio
       { key: 'attendance', text: 'HR', icon: Clock, click: () => openTab('attendance'), training: 'attendance-tab' },
     ] : []),
     ...(canOpenSchedule ? [
-      { key: 'staff-schedule', text: 'Master staff schedule', icon: CalendarDays, click: () => navigate(`${basePath}?view=staff-schedule`) },
+      { key: 'staff-schedule', text: profile?.organization_slug === 'rdhotels' ? 'Work schedule' : 'Master staff schedule', icon: CalendarDays, click: () => navigate(`${basePath}?view=staff-schedule`) },
     ] : []),
     ...(executive ? [
       { key: 'revenue', text: 'Revenue Management', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) },
