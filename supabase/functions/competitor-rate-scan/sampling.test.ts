@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { prioritySampleDates } from "./sampling.ts";
+import { isoAdd, prioritySampleDates } from "./sampling.ts";
 
 Deno.test("scheduled competitor sample covers 60 priority dates across 120 days", () => {
   const start = new Date("2026-11-11T00:00:00Z");
@@ -27,4 +27,10 @@ Deno.test("scheduled competitor sample stays bounded for short horizons", () => 
   assertEquals(dates.length, 10);
   assertEquals(dates[0], "2026-11-11");
   assertEquals(dates[9], "2026-11-20");
+});
+
+Deno.test("scanner date helper advances the requested UTC day", () => {
+  const start = new Date("2026-11-12T05:25:00Z");
+  assertEquals(isoAdd(start, 0), "2026-11-12");
+  assertEquals(isoAdd(start, 119), "2027-03-11");
 });
