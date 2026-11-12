@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ShieldCheck } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useMonthReconciliationDays } from "@/hooks/useMonthReconciliationDays";
 import { useTranslation } from "@/hooks/useTranslation";
 import {
-  buildMonthBreakdown,
   summariseReconciliationDays,
   type KpiReconciliationMonth,
   type MonthBreakdownRow,
@@ -16,10 +15,6 @@ export type { KpiReconciliationMonth, MonthBreakdownRow, ReconciliationDay };
 const pct = (v: number | null | undefined) =>
   v === null || v === undefined || !Number.isFinite(Number(v)) ? "—" : `${Math.round(Number(v))}%`;
 
-const eur = (v: number | null | undefined) =>
-  v === null || v === undefined || !Number.isFinite(Number(v)) ? "—" : `€${Math.round(Number(v))}`;
-
-const dayRange = (a: string, b: string) => `${Number(a.slice(8, 10))}–${Number(b.slice(8, 10))}`;
 
 /**
  * Explains, in one place, why the Previo dashboard and HotelCare show different
@@ -28,11 +23,9 @@ const dayRange = (a: string, b: string) => `${Number(a.slice(8, 10))}–${Number
 export function KpiReconciliationView({
   row,
   hu = false,
-  breakdown = [],
 }: {
   row: KpiReconciliationMonth;
   hu?: boolean;
-  breakdown?: MonthBreakdownRow[];
 }) {
   const gap = row.booked_nights_all - row.previo_dashboard_occupied;
   const tiles = [
@@ -107,43 +100,6 @@ export function KpiReconciliationView({
             </div>
           ))}
         </div>
-        {breakdown.length > 1 && (
-          <div data-testid="kpi-month-breakdown" className="rounded-lg border">
-            <div className="px-3 pt-2 text-[11px] font-medium text-muted-foreground">
-              {hu ? "Hogyan áll össze a hónap" : "How this month adds up"}
-            </div>
-            <table className="w-full text-xs tabular-nums">
-              <thead>
-                <tr className="text-[11px] text-muted-foreground">
-                  <th className="px-3 py-1 text-left font-normal">{hu ? "Időszak" : "Period"}</th>
-                  <th className="px-2 py-1 text-right font-normal">{hu ? "Eladott éj" : "Nights sold"}</th>
-                  <th className="px-2 py-1 text-right font-normal">{hu ? "Kihaszn." : "Occ."}</th>
-                  <th className="px-3 py-1 text-right font-normal">ADR*</th>
-                </tr>
-              </thead>
-              <tbody>
-                {breakdown.map((b) => (
-                  <tr key={b.key} className={b.key === "month" ? "border-t font-semibold" : ""}>
-                    <td className="px-3 py-1">
-                      {b.key === "stayed" ? (hu ? "Már eltöltött" : "Already stayed")
-                        : b.key === "books" ? (hu ? "Könyvben (jövő)" : "On the books")
-                        : (hu ? "Teljes hónap" : "Whole month")}
-                      <span className="ml-1 text-[11px] font-normal text-muted-foreground">{dayRange(b.firstDay, b.lastDay)}</span>
-                    </td>
-                    <td className="px-2 py-1 text-right">{b.sold}</td>
-                    <td className="px-2 py-1 text-right">{pct(b.occupancyPct)}</td>
-                    <td className="px-3 py-1 text-right">{eur(b.adrGross)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="px-3 pb-2 text-[11px] text-muted-foreground">
-              {hu
-                ? "*Reggelivel és extrákkal. A fenti csempék csak a mai naptól mutatják a hónapot."
-                : "*Incl. breakfast and extras. The tiles above show this month from today only."}
-            </p>
-          </div>
-        )}
         {reasons.length > 0 && (
           <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
             {reasons.map((r) => <li key={r}>{r}</li>)}
@@ -151,8 +107,8 @@ export function KpiReconciliationView({
         )}
         <p className="text-[11px] text-muted-foreground">
           {hu
-            ? "Az ADR itt a teljes foglalási ár (reggelivel, extrákkal). A Previo irányítópult ADR-je csak a szobaár, ezért vendégenként és éjszakánként kb. 12–13 €-val alacsonyabb. A Previo havi kártyája a friss, aznap reggeli foglalásokat késve mutathatja."
-            : "ADR here is the full reservation price (incl. breakfast and extras). Previo's dashboard ADR is room-only, so it reads about €12–13 lower per guest per night. Previo's month card can also lag bookings made the same morning."}
+            ? "A Previo havi kártyája a friss, aznap reggeli foglalásokat késve mutathatja. Az ADR összetételét a fenti havi táblázat mutatja."
+            : "Previo's month card can lag bookings made the same morning. How ADR is built is shown in the month table above."}
         </p>
       </CardContent>
     </Card>
@@ -162,29 +118,10 @@ export function KpiReconciliationView({
 /** Loads the selected month for one hotel. Renders nothing until data exists. */
 export default function KpiReconciliationCard({ hotelId, month }: { hotelId: string | null; month: string }) {
   const { language } = useTranslation();
-  const [days, setDays] = useState<ReconciliationDay[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setDays([]);
-    if (!hotelId || !/^\d{4}-\d{2}$/.test(month)) return;
-    (async () => {
-      // One access check and one hotel-month on the server; the function is
-      // newer than the generated Supabase types.
-      const { data, error } = await (supabase as unknown as {
-        rpc: (fn: string, args: Record<string, string>) => Promise<{ data: ReconciliationDay[] | null; error: unknown }>;
-      }).rpc("revenue_kpi_reconciliation_days", {
-        p_hotel_id: hotelId,
-        p_from: `${month}-01`,
-        p_to: `${month}-01`,
-      });
-      if (!cancelled && !error && Array.isArray(data)) setDays(data);
-    })();
-    return () => { cancelled = true; };
-  }, [hotelId, month]);
+  // Same cached request as the month header: one call per hotel-month.
+  const { data: days = [] } = useMonthReconciliationDays(hotelId, month);
 
   const row = useMemo(() => summariseReconciliationDays(days), [days]);
-  const breakdown = useMemo(() => buildMonthBreakdown(days), [days]);
   if (!row) return null;
-  return <KpiReconciliationView row={row} breakdown={breakdown} hu={language === "hu"} />;
+  return <KpiReconciliationView row={row} hu={language === "hu"} />;
 }

@@ -1,15 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import KpiReconciliationCard, { KpiReconciliationView } from "../KpiReconciliationCard";
 import {
+  breakfastPriceOf,
   buildMonthBreakdown,
   summariseReconciliationDays,
+  wholeMonthOf,
   type KpiReconciliationMonth,
   type ReconciliationDay,
 } from "@/lib/kpiReconciliation";
 
 const lang = { language: "en" };
 vi.mock("@/hooks/useTranslation", () => ({ useTranslation: () => lang }));
+
+// A fresh cache per render, so one test's response never leaks into the next.
+const render = (ui: ReactElement) =>
+  rtlRender(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 
 const rpc = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({
@@ -71,10 +79,10 @@ describe("KpiReconciliationView", () => {
     expect(screen.getByText("Future: every booking on the books")).toBeTruthy();
   });
 
-  it("says Previo's ADR is room-only and can lag same-morning bookings", () => {
+  it("says Previo's month card can lag same-morning bookings and points to the month table for ADR", () => {
     render(<KpiReconciliationView row={GOZSDU_DEC} />);
-    expect(screen.getByText(/Previo's dashboard ADR is room-only/)).toBeTruthy();
     expect(screen.getByText(/lag bookings made the same morning/)).toBeTruthy();
+    expect(screen.getByText(/How ADR is built is shown in the month table above/)).toBeTruthy();
   });
 
   it("shows no gap or reasons when both systems agree", () => {
@@ -96,7 +104,7 @@ describe("KpiReconciliationView", () => {
     render(<KpiReconciliationView row={GOZSDU_DEC} hu />);
     expect(screen.getByText("Kihasználtság egyeztetés")).toBeTruthy();
     expect(screen.getByText("Eltérés a Previótól: +35 éj")).toBeTruthy();
-    expect(screen.getByText(/csak a szobaár/)).toBeTruthy();
+    expect(screen.getByText(/havi táblázat mutatja/)).toBeTruthy();
   });
 });
 
@@ -148,6 +156,26 @@ describe("month breakdown", () => {
     expect(buildMonthBreakdown(NOV_DAYS.filter((d) => !d.is_past_night)).map((r) => r.key)).toEqual(["books"]);
   });
 
+  it("works out room-only ADR from the breakfasts on the housekeeping lists", () => {
+    const days = NOV_DAYS.map((d, i) => ({ ...d, breakfast_guests: [18, 20, 10, 14][i], breakfast_price_per_guest: "12.5" }));
+    expect(breakfastPriceOf(days)).toBe(12.5);
+    const [stayed, books, month] = buildMonthBreakdown(days);
+    // stayed: (900 + 1000 - 38 x 12.5) / 20 = 71.25
+    expect(stayed).toMatchObject({ breakfasts: 38, revenueRoomOnly: 1425, adrRoomOnly: 71.25, adrGross: 95 });
+    // on the books: (2400 - 24 x 12.5) / 14 = 150
+    expect(books).toMatchObject({ breakfasts: 24, adrRoomOnly: 150 });
+    expect(month).toMatchObject({ breakfasts: 62, revenueRoomOnly: 3525, adrRoomOnly: 103.68, revparRoomOnly: 88.13 });
+    expect(wholeMonthOf([stayed, books, month])).toBe(month);
+  });
+
+  it("shows no room-only ADR when the breakfast price is not set or a sold night has no list", () => {
+    const noPrice = NOV_DAYS.map((d) => ({ ...d, breakfast_guests: 10, breakfast_price_per_guest: null }));
+    expect(wholeMonthOf(buildMonthBreakdown(noPrice))?.adrRoomOnly).toBeNull();
+    const gap = NOV_DAYS.map((d, i) => ({ ...d, breakfast_guests: i === 2 ? null : 10, breakfast_price_per_guest: 12 }));
+    const month = wholeMonthOf(buildMonthBreakdown(gap));
+    expect(month).toMatchObject({ adrRoomOnly: null, breakfastNightsKnown: 3, nightsWithSales: 4 });
+  });
+
   it("summarises days with the same formulas as the database function", () => {
     expect(summariseReconciliationDays(NOV_DAYS)).toMatchObject({
       month_start: "2026-11-01",
@@ -167,7 +195,7 @@ describe("month breakdown", () => {
 describe("KpiReconciliationCard", () => {
   beforeEach(() => { rpc.mockReset(); lang.language = "en"; });
 
-  it("loads one hotel-month through the fast function and shows how it adds up", async () => {
+  it("loads one hotel-month through the fast function", async () => {
     rpc.mockResolvedValue({ data: NOV_DAYS, error: null });
     render(<KpiReconciliationCard hotelId="ottofiori" month="2026-11" />);
     await waitFor(() => expect(screen.getByTestId("kpi-reconciliation")).toBeTruthy());
@@ -176,11 +204,9 @@ describe("KpiReconciliationCard", () => {
       p_from: "2026-11-01",
       p_to: "2026-11-01",
     });
-    const table = screen.getByTestId("kpi-month-breakdown");
-    expect(table.textContent).toMatch(/Already stayed10–11/);
-    expect(table.textContent).toMatch(/On the books12–13/);
-    expect(table.textContent).toMatch(/Whole month10–133485%€126/);
     expect(screen.getByText("Gap vs Previo: +1 room-nights")).toBeTruthy();
+    // The month breakdown now lives in the month header, not here.
+    expect(screen.queryByTestId("kpi-month-breakdown")).toBeNull();
   });
 
   it("renders nothing when the function is missing or access is denied", async () => {
@@ -208,6 +234,5 @@ describe("KpiReconciliationCard", () => {
     rpc.mockResolvedValue({ data: NOV_DAYS, error: null });
     render(<KpiReconciliationCard hotelId="ottofiori" month="2026-11" />);
     await waitFor(() => expect(screen.getByText("Kihasználtság egyeztetés")).toBeTruthy());
-    expect(screen.getByText("Hogyan áll össze a hónap")).toBeTruthy();
   });
 });

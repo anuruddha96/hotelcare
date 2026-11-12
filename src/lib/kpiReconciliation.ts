@@ -45,6 +45,10 @@ export interface ReconciliationDay {
   room_revenue_gross: number | string;
   unpriced_nights: number;
   flags: string[] | null;
+  /** Breakfasts on the housekeeping list for the morning after; null = no list. */
+  breakfast_guests?: number | null;
+  /** Breakfast value included in rates, per guest per night (hotel currency); null = not set. */
+  breakfast_price_per_guest?: number | string | null;
 }
 
 const num = (v: number | string | null | undefined) => {
@@ -87,16 +91,41 @@ export interface MonthBreakdownRow {
   sold: number;
   capacity: number;
   occupancyPct: number | null;
+  /** Commercial room-nights with a price (ADR denominator). */
+  priced: number;
+  /** Booking value of those nights, incl. breakfast and extras. */
+  revenueGross: number;
   /** Booking value per priced sold night, incl. breakfast and extras. */
   adrGross: number | null;
   revparGross: number | null;
+  /** Breakfasts on the housekeeping lists for these nights. */
+  breakfasts: number;
+  /** Nights with sales that have a housekeeping list (breakfast count known). */
+  breakfastNightsKnown: number;
+  /** Nights with sales. */
+  nightsWithSales: number;
+  /** Booking value minus included breakfasts; null when the price or a list is missing. */
+  revenueRoomOnly: number | null;
+  adrRoomOnly: number | null;
+  revparRoomOnly: number | null;
 }
+
+/** Breakfast value included in rates for this hotel, or null when not set. */
+export function breakfastPriceOf(days: ReconciliationDay[]): number | null {
+  const raw = days.find((d) => d.breakfast_price_per_guest !== null && d.breakfast_price_per_guest !== undefined)?.breakfast_price_per_guest;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Splits a month into nights already stayed and nights still on the books, plus
  * the whole month, so a manager can see how the month total is built.
  */
 export function buildMonthBreakdown(days: ReconciliationDay[]): MonthBreakdownRow[] {
+  const breakfastPrice = breakfastPriceOf(days);
   const make = (key: MonthBreakdownRow["key"], part: ReconciliationDay[]): MonthBreakdownRow | null => {
     if (!part.length) return null;
     const sold = part.reduce((s, d) => s + num(d.commercial_sold), 0);
@@ -104,6 +133,14 @@ export function buildMonthBreakdown(days: ReconciliationDay[]): MonthBreakdownRo
     const capacity = part.reduce((s, d) => s + num(d.commercial_capacity), 0);
     const revenue = part.reduce((s, d) => s + num(d.room_revenue_gross), 0);
     const dates = part.map((d) => d.stay_date).sort();
+    const withSales = part.filter((d) => num(d.commercial_sold) > 0);
+    const known = withSales.filter((d) => d.breakfast_guests !== null && d.breakfast_guests !== undefined);
+    const breakfasts = known.reduce((s, d) => s + num(d.breakfast_guests), 0);
+    // Room-only needs the hotel's breakfast price and a list for every sold night;
+    // a partial deduction would make the figure look better than it is.
+    const roomOnly = breakfastPrice !== null && known.length === withSales.length
+      ? Math.max(0, revenue - breakfasts * breakfastPrice)
+      : null;
     return {
       key,
       firstDay: dates[0],
@@ -111,8 +148,16 @@ export function buildMonthBreakdown(days: ReconciliationDay[]): MonthBreakdownRo
       sold,
       capacity,
       occupancyPct: ratioPct(sold, capacity),
-      adrGross: priced > 0 ? Math.round((revenue / priced) * 100) / 100 : null,
-      revparGross: capacity > 0 ? Math.round((revenue / capacity) * 100) / 100 : null,
+      priced,
+      revenueGross: round2(revenue),
+      adrGross: priced > 0 ? round2(revenue / priced) : null,
+      revparGross: capacity > 0 ? round2(revenue / capacity) : null,
+      breakfasts,
+      breakfastNightsKnown: known.length,
+      nightsWithSales: withSales.length,
+      revenueRoomOnly: roomOnly === null ? null : round2(roomOnly),
+      adrRoomOnly: roomOnly !== null && priced > 0 ? round2(roomOnly / priced) : null,
+      revparRoomOnly: roomOnly !== null && capacity > 0 ? round2(roomOnly / capacity) : null,
     };
   };
   const rows = [
@@ -127,3 +172,8 @@ export function buildMonthBreakdown(days: ReconciliationDay[]): MonthBreakdownRo
   return rows;
 }
 
+
+/** The whole-month line of a breakdown (or the only part when the month is all past or all future). */
+export function wholeMonthOf(rows: MonthBreakdownRow[]): MonthBreakdownRow | null {
+  return rows.find((r) => r.key === "month") ?? (rows.length === 1 ? rows[0] : null);
+}

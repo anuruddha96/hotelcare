@@ -10,6 +10,10 @@ import { money, eurEquivalent, setRevenueCurrency, setDisplayCurrency, currencyS
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMonthReconciliationDays } from "@/hooks/useMonthReconciliationDays";
+import { breakfastPriceOf, buildMonthBreakdown, wholeMonthOf, type MonthBreakdownRow } from "@/lib/kpiReconciliation";
+import MonthBreakdownPanel from "./MonthBreakdownPanel";
 
 const PICKUP_WINDOW_HU: Record<number,string> = {
   1: 'Csak ma', 2: 'Tegnap és ma', 3: 'Elmúlt 3 nap', 7: 'Elmúlt 7 nap',
@@ -315,7 +319,47 @@ export default function MonthPerformanceHeader({
   const periodLabel = partialMonth && agg.firstDay && agg.lastDay
     ? `${Number(agg.firstDay.slice(8, 10))}–${Number(agg.lastDay.slice(8, 10))} ${monthLabel} · ${hu ? "mától, a könyvben lévő foglalások" : "from today, on the books"}`
     : monthLabel;
-  const tilesLoading = loading || monthPending;
+  // Whole-month figures (nights already stayed + nights on the books) from the
+  // server, so the tiles no longer cover only "from today". Falls back to the
+  // from-today figures, labelled as such, if the request fails.
+  const queryClient = useQueryClient();
+  const recon = useMonthReconciliationDays(hotelId, month);
+  const breakdown = useMemo(() => buildMonthBreakdown(recon.data ?? []), [recon.data]);
+  const whole = wholeMonthOf(breakdown);
+  const breakfastPrice = useMemo(() => breakfastPriceOf(recon.data ?? []), [recon.data]);
+  const currentMonthKey = monthKey(today);
+  const reconNow = useMonthReconciliationDays(hotelId, currentMonthKey);
+  const wholeNow = useMemo(() => wholeMonthOf(buildMonthBreakdown(reconNow.data ?? [])), [reconNow.data]);
+  const reconPending = Boolean(hotelId) && recon.isLoading;
+  const tilesLoading = loading || monthPending || reconPending;
+  const adrOf = (w: MonthBreakdownRow) => w.adrRoomOnly ?? w.adrGross;
+  const revparOf = (w: MonthBreakdownRow) => w.revparRoomOnly ?? w.revparGross;
+  const partLine = (r: MonthBreakdownRow) => {
+    const name = r.key === "stayed" ? (hu ? "Már eltöltött" : "Already stayed") : r.key === "books" ? (hu ? "Könyvben" : "On the books") : (hu ? "Teljes hónap" : "Whole month");
+    const days = r.firstDay === r.lastDay ? `${Number(r.firstDay.slice(8, 10))}` : `${Number(r.firstDay.slice(8, 10))}–${Number(r.lastDay.slice(8, 10))}`;
+    const adr = r.adrRoomOnly !== null
+      ? `ADR ${money(r.adrRoomOnly)} ${hu ? "szoba" : "room"} / ${money(r.adrGross ?? 0)} ${hu ? "reggelivel" : "incl. breakfast"}`
+      : `ADR ${r.adrGross === null ? "—" : money(r.adrGross)} ${hu ? "reggelivel" : "incl. breakfast"}`;
+    return `• ${name} (${days}): ${r.sold}/${r.capacity} ${hu ? "éj" : "nights"}, ${r.occupancyPct === null ? "—" : Math.round(r.occupancyPct) + "%"}, ${adr}`;
+  };
+  const breakdownText = breakdown.map(partLine).join("\n");
+  const saveBreakfastPrice = async (value: number | null) => {
+    if (!hotelId) return;
+    // The column is newer than the generated Supabase types.
+    const settings = (supabase as unknown as {
+      from: (t: string) => { update: (v: Record<string, unknown>) => { eq: (c: string, v: string) => {
+        select: (cols: string) => Promise<{ data: unknown[] | null; error: unknown }>;
+      } } };
+    }).from("hotel_revenue_settings");
+    const { data, error } = await settings
+      .update({ breakfast_price_per_guest: value })
+      .eq("hotel_id", hotelId)
+      .select("hotel_id");
+    // Row-level security turns a refused update into "0 rows", not an error.
+    if (error || !data?.length) { toast.error(hu ? "A reggeli értékét nem sikerült menteni" : "Could not save the breakfast value"); return; }
+    toast.success(hu ? "Reggeli értéke mentve" : "Breakfast value saved");
+    await queryClient.invalidateQueries({ queryKey: ["kpi-reconciliation-days", hotelId] });
+  };
 
   /**
    * Keep the first, highest-priority KPI readable on arrival. On small screens
@@ -545,26 +589,42 @@ export default function MonthPerformanceHeader({
           <Tile
             loading={tilesLoading}
             label={hu?"Kihasználtság":"Occupancy"}
-            value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
-            sub={`${agg.sold} ${hu?"a(z)":"of"} ${agg.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${periodLabel}`}
+            value={whole ? (whole.occupancyPct === null ? "—" : `${Math.round(whole.occupancyPct)}%`) : agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
+            sub={whole
+              ? `${whole.sold} ${hu?"a(z)":"of"} ${whole.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${hu?"teljes hónap":"whole month"}`
+              : `${agg.sold} ${hu?"a(z)":"of"} ${agg.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${periodLabel}`}
             icon={<BedDouble className="h-3.5 w-3.5" />}
             surface={agg.occupancyPct >= 75 ? "border-l-emerald-500 bg-emerald-500/5" : agg.occupancyPct >= 45 ? "border-l-amber-500 bg-amber-500/5" : "border-l-sky-500 bg-sky-500/5"}
-            explain={{ title: `Occupancy — ${periodLabel}`, body: `Commercial occupied room-nights ÷ commercial room-nights available${partialMonth ? ", from today to the end of the month only. Nights already stayed this month are not included here; the occupancy cross-check below shows stayed + on the books = whole month" : ""}. Source: Previo reservations and active room inventory; non-commercial multi-year holds are removed from both sales and capacity.` }}
+            explain={whole ? {
+              title: `${hu?"Kihasználtság":"Occupancy"} — ${monthLabel}`,
+              body: `${hu?"Eladott kereskedelmi szobaéjszakák ÷ eladható szobaéjszakák, a teljes hónapra.":"Commercial room-nights sold ÷ sellable room-nights, for the whole month."}\n\n${breakdownText}\n\n${hu?"A több éves blokkok és az inaktív szobatípusok kimaradnak az eladásból és a kapacitásból is.":"Multi-year holds and inactive room types are left out of both sales and capacity."}`,
+            } : { title: `Occupancy — ${periodLabel}`, body: `Commercial occupied room-nights ÷ commercial room-nights available${partialMonth ? ", from today to the end of the month only. Nights already stayed this month are not included here; the occupancy cross-check below shows stayed + on the books = whole month" : ""}. Source: Previo reservations and active room inventory; non-commercial multi-year holds are removed from both sales and capacity.` }}
           />
           <Tile
             loading={tilesLoading}
             label="ADR"
-            value={agg.missingPrices ? "—" : money(agg.adr)}
-            sub={eurEquivalent(agg.adr) || `${periodLabel} · ${hu?"reggelivel, extrákkal":"incl. breakfast & extras"}`}
+            value={whole ? (adrOf(whole) === null ? "—" : money(adrOf(whole) as number)) : agg.missingPrices ? "—" : money(agg.adr)}
+            sub={whole
+              ? (whole.adrRoomOnly !== null
+                ? `${hu?"szobaár":"room only"} · ${money(whole.adrGross ?? 0)} ${hu?"reggelivel":"incl. breakfast"}`
+                : `${hu?"teljes hónap · reggelivel, extrákkal":"whole month · incl. breakfast & extras"}`)
+              : eurEquivalent(agg.adr) || `${periodLabel} · ${hu?"reggelivel, extrákkal":"incl. breakfast & extras"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-violet-500 bg-violet-500/5"
-            explain={{ title: "ADR = Average Daily Rate", body: `Booking value ÷ commercially sold room-nights${partialMonth ? ", from today to the end of the month only (nights already stayed are not included)" : ""}. Booking value is the full reservation price from Previo, so it includes breakfast and extras: Previo's dashboard and Booking.com show the room price only, usually about €12–13 per guest per night lower. Group rooms with €0 allocated count as sold. Multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
+            explain={whole ? {
+              title: `ADR — ${monthLabel}`,
+              body: `${hu?"Szobabevétel ÷ áras eladott éjszakák, a teljes hónapra.":"Room revenue ÷ priced nights sold, for the whole month."}\n\n${breakdownText}\n\n${whole.adrRoomOnly !== null
+                ? (hu?`A szobaár a foglalási ár mínusz az árban lévő reggeli (${whole.breakfasts} reggeli × ${money(breakfastPrice ?? 0)}). Ez hasonlítható a Previo irányítópulthoz és a Booking.com-hoz.`:`Room price = booking price minus the breakfast included in it (${whole.breakfasts} breakfasts × ${money(breakfastPrice ?? 0)}). This is the figure to compare with Previo's dashboard and Booking.com.`)
+                : (hu?"A foglalási ár reggelit és extrákat is tartalmaz, ezért magasabb, mint a Previo irányítópult vagy a Booking.com szobaára. Szobaár-ADR-hez add meg a reggeli értékét a táblázat alatt.":"The booking price includes breakfast and extras, so it reads higher than the room price on Previo's dashboard or Booking.com. Set the breakfast value under the table to see room-only ADR.")}`,
+            } : { title: "ADR = Average Daily Rate", body: `Booking value ÷ commercially sold room-nights${partialMonth ? ", from today to the end of the month only (nights already stayed are not included)" : ""}. Booking value is the full reservation price from Previo, so it includes breakfast and extras: Previo's dashboard and Booking.com show the room price only, usually about €12–13 per guest per night lower. Group rooms with €0 allocated count as sold. Multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
           />
           <Tile
             loading={tilesLoading}
             label="RevPAR"
-            value={agg.missingPrices ? "—" : money(agg.revpar)}
-            sub={eurEquivalent(agg.revpar) || `${periodLabel} · ADR × ${hu?"kihasználtság":"occupancy"}`}
+            value={whole ? (revparOf(whole) === null ? "—" : money(revparOf(whole) as number)) : agg.missingPrices ? "—" : money(agg.revpar)}
+            sub={whole
+              ? `${hu?"teljes hónap":"whole month"} · ADR × ${hu?"kihasználtság":"occupancy"}${whole.revparRoomOnly !== null ? (hu?" · szobaár":" · room only") : ""}`
+              : eurEquivalent(agg.revpar) || `${periodLabel} · ADR × ${hu?"kihasználtság":"occupancy"}`}
             icon={<Gauge className="h-3.5 w-3.5" />}
             surface="border-l-cyan-500 bg-cyan-500/5"
             explain={{ title: "RevPAR = ADR × Occupancy", body: `Booking value ÷ all sellable room-nights in ${periodLabel}. What every unit earns on average, sold or not. Uses the same ADR, so it also includes breakfast and extras.` }}
@@ -572,13 +632,15 @@ export default function MonthPerformanceHeader({
           <Tile
             loading={tilesLoading}
             label={hu?"Bevétel":"Revenue"}
-            value={agg.missingPrices ? "—" : money(agg.revenue)}
-            sub={eurEquivalent(agg.revenue) || `${periodLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
+            value={whole ? money(whole.revenueGross) : agg.missingPrices ? "—" : money(agg.revenue)}
+            sub={whole
+              ? `${hu?"foglalási érték · teljes hónap":"booking value · whole month"}${whole.revenueRoomOnly !== null ? ` · ${money(whole.revenueRoomOnly)} ${hu?"szoba":"room"}` : ""}`
+              : eurEquivalent(agg.revenue) || `${periodLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-emerald-500 bg-emerald-500/5"
             explain={{
               title: `Revenue on the books — ${monthLabel}`,
-              body: `Sum of every confirmed room-night with a stay date in ${monthLabel} (${agg.days} day${agg.days === 1 ? "" : "s"} in view), priced at the rate on the booking. Cancellations and no-shows are excluded. It is booked-to-date, not forecast.`,
+              body: whole ? `${hu?"Minden megerősített szobaéjszaka foglalási értéke a hónapban: a már eltöltött éjszakák és a könyvben lévő jövőbeli éjszakák együtt. A lemondások és no-show-k kimaradnak. A foglalási érték reggelit és extrákat is tartalmazhat.":"Booking value of every confirmed room-night in the month: nights already stayed plus nights still on the books. Cancellations and no-shows are excluded. Booking value can include breakfast and extras."}${whole.revenueRoomOnly !== null ? `\n\n${hu?"Szobabevétel (reggeli nélkül)":"Room revenue (without breakfast)"}: ${money(whole.revenueRoomOnly)}` : ""}` : `Sum of every confirmed room-night with a stay date in ${monthLabel} (${agg.days} day${agg.days === 1 ? "" : "s"} in view), priced at the rate on the booking. Cancellations and no-shows are excluded. It is booked-to-date, not forecast.`,
             }}
           />
           <Tile
@@ -619,6 +681,17 @@ export default function MonthPerformanceHeader({
           ))}
         </div>
 
+        {breakdown.length > 0 && !tilesLoading && (
+          <MonthBreakdownPanel
+            rows={breakdown}
+            monthLabel={monthLabel}
+            breakfastPrice={breakfastPrice}
+            hu={hu}
+            canEdit={canEdit}
+            onSaveBreakfastPrice={saveBreakfastPrice}
+          />
+        )}
+
         {/* One place to choose the pickup window, right next to the numbers it drives. */}
         <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5">
           <span className="text-[11px] font-medium">{hu?"Foglalásváltozás időszaka":"Pickup window"}</span>
@@ -642,8 +715,13 @@ export default function MonthPerformanceHeader({
         {/* Six-month outlook, current month highlighted */}
         <div className="-mx-1 overflow-x-auto">
           <div className="flex gap-2 px-1 min-w-0">
-            {outlook.map((o, i) => {
-              const active = o.key === month;
+            {outlook.map((raw, i) => {
+              const active = raw.key === month;
+              // The current month in the strip shows the whole month too
+              // (stayed + on the books), not only the nights from today.
+              const o = raw.key === currentMonthKey && wholeNow
+                ? { ...raw, capacity: wholeNow.capacity, occupancyPct: wholeNow.occupancyPct ?? 0, adr: adrOf(wholeNow) ?? 0, revpar: revparOf(wholeNow) ?? 0 }
+                : raw;
               return (
                 <button
                   key={o.key}

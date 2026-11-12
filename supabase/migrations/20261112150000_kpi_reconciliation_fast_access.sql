@@ -13,10 +13,23 @@
 --
 -- Access: a signed-in user gets rows only for hotels they can access; anon gets
 -- nothing; a direct database / service-role connection (no user JWT) gets all.
--- Housekeeping data is exposed only as a per-night room COUNT, never names.
+-- Housekeeping data is exposed only as per-night COUNTS (rooms, breakfasts),
+-- never names.
+--
+-- Also adds, for the Revenue month card:
+--   * breakfast_guests per night: breakfasts on the housekeeping list for the
+--     morning after (future nights included), so room-only ADR can be shown;
+--   * hotel_revenue_settings.breakfast_price_per_guest: the breakfast value
+--     included in room rates, per guest per night, in the hotel's currency.
+-- Views are replaced in place (same columns, one appended), never dropped.
 
-drop view if exists public.revenue_kpi_reconciliation_monthly;
-drop view if exists public.revenue_kpi_reconciliation_daily;
+alter table public.hotel_revenue_settings
+  add column if not exists breakfast_price_per_guest numeric
+    check (breakfast_price_per_guest is null or (breakfast_price_per_guest >= 0 and breakfast_price_per_guest < 1000000));
+
+comment on column public.hotel_revenue_settings.breakfast_price_per_guest is
+  'Breakfast value included in room rates, per guest per night, in the hotel currency. Used to show room-only ADR next to the full booking value. Null = not set.';
+
 
 -- ---------------------------------------------------------------------------
 -- 1. Access check, once per call.
@@ -76,7 +89,9 @@ returns table (
   unpriced_nights integer,
   flags text[],
   bookings_captured_at timestamptz,
-  housekeeping_captured_at timestamptz
+  housekeeping_captured_at timestamptz,
+  breakfast_guests integer,
+  breakfast_price_per_guest numeric
 )
 language sql
 stable
@@ -106,6 +121,13 @@ win as (
     date_trunc('month', coalesce(p_from, (select first_night from data_bounds)))::date as d_from,
     (date_trunc('month', coalesce(p_to, (select last_night from data_bounds)))
        + interval '1 month - 1 day')::date as d_to
+),
+settings as (
+  -- Read here (as definer) because hotel managers cannot read the settings table.
+  select hrs.breakfast_price_per_guest
+  from public.hotel_revenue_settings hrs
+  where hrs.hotel_id = p_hotel_id
+  limit 1
 ),
 capacity as (
   select sum(coalesce(rt.num_rooms, 0))::int as capacity_rooms
@@ -169,6 +191,24 @@ housekeeping as (
     and (select ok from guard)
   group by o.business_date
 ),
+breakfasts as (
+  -- Breakfasts served the morning after night D, from the housekeeping list for
+  -- business_date D+1. Future lists exist too, so this covers nights ahead.
+  -- One value per room (the list can arrive from more than one source).
+  select x.stay_date, sum(x.bf)::int as breakfast_guests
+  from (
+    select (o.business_date - 1) as stay_date, o.room_label, max(coalesce(o.breakfast, 0)) as bf
+    from public.daily_overview_snapshots o
+    cross join win w
+    where o.hotel_id = p_hotel_id
+      and o.business_date between w.d_from + 1 and w.d_to + 1
+      and o.arrival_date <= o.business_date - 1
+      and o.departure_date >= o.business_date
+      and (select ok from guard)
+    group by 1, 2
+  ) x
+  group by x.stay_date
+),
 spine as (
   -- Every night of every covered month, so empty nights still count toward
   -- capacity exactly like the PMS month card does.
@@ -195,11 +235,13 @@ joined as (
     coalesce(n.room_revenue_gross, 0) as room_revenue_gross,
     coalesce(n.unpriced_nights, 0) as unpriced_nights,
     n.bookings_captured_at,
-    k.housekeeping_captured_at
+    k.housekeeping_captured_at,
+    bf.breakfast_guests
   from spine s
   cross join capacity c
   left join nights n on n.stay_date = s.stay_date
   left join housekeeping k on k.stay_date = s.stay_date
+  left join breakfasts bf on bf.stay_date = s.stay_date
 ),
 checked as (
   select
@@ -281,7 +323,9 @@ select
     case when b.is_past_night and b.housekeeping_occupied is null then 'no_housekeeping_check' end
   ], null),
   b.bookings_captured_at,
-  b.housekeeping_captured_at
+  b.housekeeping_captured_at,
+  b.breakfast_guests,
+  (select st.breakfast_price_per_guest from settings st)
 from best b
 order by b.stay_date;
 $$;
@@ -368,7 +412,7 @@ grant execute on function public.revenue_kpi_reconciliation_months(text, date, d
 -- 4. Same views as before (same columns), now on top of the functions, so ad-hoc
 --    analysis keeps working. Each hotel is computed in one pass after one check.
 -- ---------------------------------------------------------------------------
-create view public.revenue_kpi_reconciliation_daily
+create or replace view public.revenue_kpi_reconciliation_daily
 with (security_invoker = true)
 as
 select d.*
@@ -378,7 +422,7 @@ cross join lateral public.revenue_kpi_reconciliation_days(h.hotel_id) d;
 comment on view public.revenue_kpi_reconciliation_daily is
   'Per hotel-night occupancy from three sources: Previo dashboard definition (rooms with a physical room assigned), HotelCare commercial (all bookings, holds excluded both sides) and next-morning housekeeping list. best_* picks housekeeping for past nights and bookings on the books for future nights. Revenue is gross reservation price. For one hotel and range, call revenue_kpi_reconciliation_days() directly.';
 
-create view public.revenue_kpi_reconciliation_monthly
+create or replace view public.revenue_kpi_reconciliation_monthly
 with (security_invoker = true)
 as
 select m.*
