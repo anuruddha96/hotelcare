@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Flag, MessageCircleQuestion, Pencil, Plus, ShieldQuestion, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,12 +24,14 @@ import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 export default function AssistantLauncher() {
   const { user, profile } = useAuth();
   const [open, setOpen] = useState(false);
+  const revenuePromptId = useRef(0);
   const [revenueQuestion, setRevenueQuestion] = useState<{ id: number; text: string } | null>(null);
   useEffect(() => {
     const openRevenueQuestion = (event: Event) => {
       const question = (event as CustomEvent<{ prompt?: string }>).detail?.prompt?.trim();
       if (!question) return;
-      setRevenueQuestion((prev) => ({ id: (prev?.id ?? 0) + 1, text: question }));
+      revenuePromptId.current += 1;
+      setRevenueQuestion({ id: revenuePromptId.current, text: question });
       setTab("chat");
       setOpen(true);
     };
