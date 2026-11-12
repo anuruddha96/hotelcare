@@ -461,7 +461,9 @@ export default function MonthPerformanceHeader({
 
 
         {kpiIntegrityWarning && !loading && (
-          <div role="status" className="text-[11px] text-muted-foreground rounded-md border border-amber-300/60 px-2 py-1.5">
+          <details className="text-[11px] text-muted-foreground rounded-md border border-amber-300/60 px-2 py-1.5">
+            <summary className="cursor-pointer font-medium text-amber-700 dark:text-amber-300">{hu?"Adatminőség ellenőrzése":"Check data quality"}</summary>
+            <div className="mt-1">
             <strong className="text-foreground">{hu?"Bevételi adatok köre:":"Revenue data scope:"}</strong>
             {agg.holds > 0 ? ` ${agg.holds} ${hu?"többéves blokkolt éjszaka kizárva a kereskedelmi készletből.":"multi-year inventory-hold nights excluded from commercial sales and capacity."}` : ""}
             {agg.inactive > 0 ? ` ${agg.inactive} ${hu?"éjszaka kizárva inaktív szobatípusokban.":"nights in inactive room kinds excluded."}` : ""}
@@ -469,7 +471,8 @@ export default function MonthPerformanceHeader({
             {agg.missingPrices > 0 ? ` ${agg.missingPrices} ${hu?"eladott szobaéjszakához hiányzik az ár; a bevétel, ADR és RevPAR nem teljes.":"sold room-nights are missing prices; revenue, ADR and RevPAR are incomplete."}` : ""}
             {staleSync ? (hu?" Az utolsó Previo-szinkron több mint 14 órás; az adatok elavultak lehetnek.":" The latest Previo sync is more than 14 hours old; figures may be stale.") : ""}
             {agg.sold > agg.capacity ? (hu?" Az eladott éjszakák meghaladják a készletet; ellenőrizd a PMS-szobatérképezést.":" Sold room-nights exceed inventory; verify PMS room mapping.") : ""}
-          </div>
+            </div>
+          </details>
         )}
         <div data-testid="monthly-kpis" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Tile
@@ -493,7 +496,7 @@ export default function MonthPerformanceHeader({
             surface="border-l-violet-500 bg-violet-500/5"
             explain={whole ? {
               title: `ADR — ${monthLabel}`,
-              body: `${hu?"Szobabevétel ÷ áras eladott éjszakák, a teljes hónapra.":"Room revenue ÷ priced nights sold, for the whole month."}\n\n${breakdownText}\n\n${whole.adrRoomOnly !== null
+              body: `${hu?"Teljes foglalási érték (reggelivel és extrákkal) ÷ áras eladott szobaéjszakák, a teljes hónapra.":"Gross booking value (including breakfast and extras) ÷ priced commercial room-nights sold, for the full month."}\n\n${breakdownText}\n\n${whole.adrRoomOnly !== null
                 ? (hu?`A szobaár a foglalási ár mínusz az árban lévő reggeli (${whole.breakfasts} reggeli × ${money(breakfastPrice ?? 0)}). Ez hasonlítható a Previo irányítópulthoz és a Booking.com-hoz.`:`Room price = booking price minus the breakfast included in it (${whole.breakfasts} breakfasts × ${money(breakfastPrice ?? 0)}). This is the figure to compare with Previo's dashboard and Booking.com.`)
                 : (hu?"A foglalási ár reggelit és extrákat is tartalmaz, ezért magasabb, mint a Previo irányítópult vagy a Booking.com szobaára. Szobaár-ADR-hez add meg a reggeli értékét a táblázat alatt.":"The booking price includes breakfast and extras, so it reads higher than the room price on Previo's dashboard or Booking.com. Set the breakfast value under the table to see room-only ADR.")}`,
             } : { title: "ADR = Average Daily Rate", body: `Booking value ÷ commercially sold room-nights${partialMonth ? ", from today to the end of the month only (nights already stayed are not included)" : ""}. Booking value is the full reservation price from Previo, so it includes breakfast and extras: Previo's dashboard and Booking.com show the room price only, usually about €12–13 per guest per night lower. Group rooms with €0 allocated count as sold. Multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
@@ -505,7 +508,7 @@ export default function MonthPerformanceHeader({
             sub={whole ? (hu ? "Teljes hónap · reggelivel" : "whole month · incl. breakfast & extras") : (hu ? "Havi adat nem érhető el" : "Monthly data unavailable")}
             icon={<Gauge className="h-3.5 w-3.5" />}
             surface="border-l-cyan-500 bg-cyan-500/5"
-            explain={{ title: "RevPAR = ADR × Occupancy", body: `Booking value ÷ all sellable room-nights in ${periodLabel}. What every unit earns on average, sold or not. Uses the same ADR, so it also includes breakfast and extras.` }}
+            explain={{ title: "RevPAR = ADR × Occupancy", body: `Gross booking value ÷ all sellable room-nights for the entire month of ${monthLabel}. What every unit earns on average, sold or not. Uses the same ADR, so it also includes breakfast and extras.` }}
           />
           <Tile
             loading={tilesLoading}
@@ -544,9 +547,7 @@ export default function MonthPerformanceHeader({
             loading={tilesLoading}
             label={hu?"Bevétel":"Revenue"}
             value={whole ? money(whole.revenueGross) : "—"}
-            sub={whole
-              ? `${hu?"foglalási érték · teljes hónap":"booking value · whole month"}${whole.revenueRoomOnly !== null ? ` · ${money(whole.revenueRoomOnly)} ${hu?"szoba":"room"}` : ""}`
-              : eurEquivalent(agg.revenue) || `${periodLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
+            sub={whole ? (hu ? "Foglalási érték · teljes hónap" : "Gross booking value · whole month") : (hu ? "Havi adat nem érhető el" : "Monthly data unavailable")}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-emerald-500 bg-emerald-500/5"
             explain={{
@@ -558,7 +559,7 @@ export default function MonthPerformanceHeader({
             loading={tilesLoading}
             label={hu?"Szabad szobaéjszakák":"Rooms left"}
             value={agg.capacity ? String(agg.left) : "—"}
-            sub={`${monthLabel} · ${hu?"teljes hónap":"whole month"}`}
+            sub={`${monthLabel} · ${hu?"mától elérhető":"from today onward"}`}
             icon={<DoorOpen className="h-3.5 w-3.5" />}
             surface="border-l-amber-500 bg-amber-500/5"
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
