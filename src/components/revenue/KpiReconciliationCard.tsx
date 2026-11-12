@@ -1,40 +1,32 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ShieldCheck } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useMonthReconciliationDays } from "@/hooks/useMonthReconciliationDays";
 import { useTranslation } from "@/hooks/useTranslation";
+import {
+  summariseReconciliationDays,
+  type KpiReconciliationMonth,
+  type MonthBreakdownRow,
+  type ReconciliationDay,
+} from "@/lib/kpiReconciliation";
 
-/**
- * One row of public.revenue_kpi_reconciliation_monthly.
- * Only the columns this card reads are typed.
- */
-export interface KpiReconciliationMonth {
-  hotel_id: string;
-  month_start: string;
-  capacity_room_nights: number | null;
-  booked_nights_all: number;
-  hold_nights: number;
-  commercial_sold: number;
-  unassigned_nights: number;
-  option_nights: number;
-  previo_dashboard_occupied: number;
-  past_nights: number;
-  housekeeping_verified_nights: number;
-  housekeeping_mismatch_nights: number;
-  previo_dashboard_occupancy_pct: number | null;
-  hotelcare_commercial_occupancy_pct: number | null;
-  best_physical_occupancy_pct: number | null;
-  best_commercial_occupancy_pct: number | null;
-}
+export type { KpiReconciliationMonth, MonthBreakdownRow, ReconciliationDay };
 
 const pct = (v: number | null | undefined) =>
   v === null || v === undefined || !Number.isFinite(Number(v)) ? "—" : `${Math.round(Number(v))}%`;
+
 
 /**
  * Explains, in one place, why the Previo dashboard and HotelCare show different
  * occupancy for the same month, and which figure to trust.
  */
-export function KpiReconciliationView({ row, hu = false }: { row: KpiReconciliationMonth; hu?: boolean }) {
+export function KpiReconciliationView({
+  row,
+  hu = false,
+}: {
+  row: KpiReconciliationMonth;
+  hu?: boolean;
+}) {
   const gap = row.booked_nights_all - row.previo_dashboard_occupied;
   const tiles = [
     {
@@ -115,8 +107,8 @@ export function KpiReconciliationView({ row, hu = false }: { row: KpiReconciliat
         )}
         <p className="text-[11px] text-muted-foreground">
           {hu
-            ? "Az ADR itt a teljes foglalási ár (reggelivel, extrákkal). A Previo irányítópult ADR-je csak a szobaár, ezért vendégenként és éjszakánként kb. 12–13 €-val alacsonyabb. A Previo havi kártyája a friss, aznap reggeli foglalásokat késve mutathatja."
-            : "ADR here is the full reservation price (incl. breakfast and extras). Previo's dashboard ADR is room-only, so it reads about €12–13 lower per guest per night. Previo's month card can also lag bookings made the same morning."}
+            ? "A Previo havi kártyája a friss, aznap reggeli foglalásokat késve mutathatja. Az ADR összetételét a fenti havi táblázat mutatja."
+            : "Previo's month card can lag bookings made the same morning. How ADR is built is shown in the month table above."}
         </p>
       </CardContent>
     </Card>
@@ -126,33 +118,10 @@ export function KpiReconciliationView({ row, hu = false }: { row: KpiReconciliat
 /** Loads the selected month for one hotel. Renders nothing until data exists. */
 export default function KpiReconciliationCard({ hotelId, month }: { hotelId: string | null; month: string }) {
   const { language } = useTranslation();
-  const [row, setRow] = useState<KpiReconciliationMonth | null>(null);
+  // Same cached request as the month header: one call per hotel-month.
+  const { data: days = [] } = useMonthReconciliationDays(hotelId, month);
 
-  useEffect(() => {
-    let cancelled = false;
-    setRow(null);
-    if (!hotelId || !/^\d{4}-\d{2}$/.test(month)) return;
-    (async () => {
-      // The view is newer than the generated Supabase types.
-      const { data, error } = await (supabase as unknown as {
-        from: (t: string) => {
-          select: (c: string) => {
-            eq: (k: string, v: string) => {
-              eq: (k: string, v: string) => { maybeSingle: () => Promise<{ data: KpiReconciliationMonth | null; error: unknown }> };
-            };
-          };
-        };
-      })
-        .from("revenue_kpi_reconciliation_monthly")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .eq("month_start", `${month}-01`)
-        .maybeSingle();
-      if (!cancelled && !error && data) setRow(data);
-    })();
-    return () => { cancelled = true; };
-  }, [hotelId, month]);
-
+  const row = useMemo(() => summariseReconciliationDays(days), [days]);
   if (!row) return null;
   return <KpiReconciliationView row={row} hu={language === "hu"} />;
 }
