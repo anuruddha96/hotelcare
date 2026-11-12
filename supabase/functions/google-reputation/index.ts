@@ -39,8 +39,8 @@ async function aesKey() {
   } catch {
     bytes = new TextEncoder().encode(raw);
   }
-  if (bytes.length !== 32) bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return crypto.subtle.importKey("raw", bytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  if (bytes.length !== 32) bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as BufferSource));
+  return crypto.subtle.importKey("raw", bytes as BufferSource, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 async function enc(v: string) {
@@ -170,6 +170,7 @@ Deno.serve(async (req) => {
     const token = auth.replace(/^Bearer\s+/i, "");
     const { data: userData, error: userError } = await anon.auth.getUser(token);
     if (userError || !userData.user) return json({ error: "Unauthorized" }, 401);
+    const authenticatedUserId = userData.user.id;
 
     const { data: profile } = await admin
       .from("profiles")
@@ -202,7 +203,7 @@ Deno.serve(async (req) => {
       eventType: string,
       replyText: string | null = null,
       metadata: Record<string, unknown> = {},
-      actorUserId: string | null = userData.user.id,
+      actorUserId: string | null = authenticatedUserId,
     ) {
       await admin.from("google_review_reply_events").insert({
         organization_id: org.id,
