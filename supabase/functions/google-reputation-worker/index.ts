@@ -284,7 +284,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       task: "public",
       prompt,
       instructions: "Write accurate concise human review replies for the correct venue; only output the reply. Never invent facts, compensation or promises.",
-      fallbackModel: Deno.env.get("OPENAI_REVIEW_MODEL") || "gpt-4.1-mini",
+      fallbackModel: Deno.env.get("OPENAI_FALLBACK_MODEL") || "gpt-4o-mini",
       maxOutputTokens: 512,
       validate: (text) => text.trim().length >= 8 && text.length <= 4096,
     });
