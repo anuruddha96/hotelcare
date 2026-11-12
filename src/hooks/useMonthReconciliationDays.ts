@@ -13,23 +13,23 @@ export const monthReconciliationKey = (hotelId: string | null | undefined, month
  * Shared by the month header and the occupancy cross-check, so the page makes
  * one request per hotel-month.
  */
+export async function fetchMonthReconciliationDays(hotelId: string, month: string): Promise<ReconciliationDay[]> {
+  if (!/^\d{4}-\d{2}$/.test(month)) return [];
+  const { data, error } = await (supabase as unknown as {
+    rpc: (fn: string, args: Record<string, string>) => Promise<{ data: ReconciliationDay[] | null; error: unknown }>;
+  }).rpc("revenue_kpi_reconciliation_days", {
+    p_hotel_id: hotelId, p_from: `${month}-01`, p_to: `${month}-01`,
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
 export function useMonthReconciliationDays(hotelId: string | null | undefined, month: string) {
   return useQuery({
     queryKey: monthReconciliationKey(hotelId, month),
     enabled: Boolean(hotelId) && /^\d{4}-\d{2}$/.test(month),
     staleTime: 60_000,
     retry: false,
-    queryFn: async (): Promise<ReconciliationDay[]> => {
-      // The function is newer than the generated Supabase types.
-      const { data, error } = await (supabase as unknown as {
-        rpc: (fn: string, args: Record<string, string>) => Promise<{ data: ReconciliationDay[] | null; error: unknown }>;
-      }).rpc("revenue_kpi_reconciliation_days", {
-        p_hotel_id: hotelId as string,
-        p_from: `${month}-01`,
-        p_to: `${month}-01`,
-      });
-      if (error) throw error;
-      return Array.isArray(data) ? data : [];
-    },
+    queryFn: () => fetchMonthReconciliationDays(hotelId as string, month),
   });
 }

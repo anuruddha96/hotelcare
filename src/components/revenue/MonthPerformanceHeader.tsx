@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMonthReconciliationDays } from "@/hooks/useMonthReconciliationDays";
 import { breakfastPriceOf, buildMonthBreakdown, wholeMonthOf, type MonthBreakdownRow } from "@/lib/kpiReconciliation";
 import MonthBreakdownPanel from "./MonthBreakdownPanel";
+import { Bar, BarChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 
 const PICKUP_WINDOW_HU: Record<number,string> = {
   1: 'Csak ma', 2: 'Tegnap és ma', 3: 'Elmúlt 3 nap', 7: 'Elmúlt 7 nap',
@@ -31,8 +32,6 @@ const PICKUP_WINDOWS = [
   { value: PICKUP_WINDOW_48H, label: "Rolling 48h (automation)" },
 ];
 
-const INITIAL_KPI_HOLD_MS = 10_000;
-const KPI_AUTOSCROLL_INTERVAL_MS = 4_500;
 
 function windowLabel(days: number) {
   return PICKUP_WINDOWS.find((p) => p.value === days)?.label ?? pickupWindowLabel(days);
@@ -62,7 +61,7 @@ function Tile({ label, value, sub, icon, tone, surface, explain, loading }: {
   loading?: boolean;
 }) {
   return (
-    <div className={`snap-start shrink-0 w-[76%] xs:w-[60%] sm:w-auto sm:flex-1 rounded-lg border border-l-4 p-3 min-w-0 sm:min-w-[128px] ${surface ?? "border-l-border"}`}>
+    <div className={`w-full rounded-lg border border-l-4 p-2.5 sm:p-3 min-w-0 ${surface ?? "border-l-border"}`}>
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}<span className="truncate">{label}</span>
         {explain && !loading && <Explain {...explain} />}
@@ -325,15 +324,21 @@ export default function MonthPerformanceHeader({
   const queryClient = useQueryClient();
   const recon = useMonthReconciliationDays(hotelId, month);
   const breakdown = useMemo(() => buildMonthBreakdown(recon.data ?? []), [recon.data]);
-  const whole = wholeMonthOf(breakdown);
+  const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+  const monthComplete = new Set((recon.data ?? []).filter((d) => d.stay_date.startsWith(month + "-")).map((d) => d.stay_date)).size === daysInMonth;
+  const whole = monthComplete ? wholeMonthOf(breakdown) : null;
   const breakfastPrice = useMemo(() => breakfastPriceOf(recon.data ?? []), [recon.data]);
   const currentMonthKey = monthKey(today);
   const reconNow = useMonthReconciliationDays(hotelId, currentMonthKey);
-  const wholeNow = useMemo(() => wholeMonthOf(buildMonthBreakdown(reconNow.data ?? [])), [reconNow.data]);
+  const wholeNow = useMemo(() => {
+    const n = new Date(Date.UTC(Number(currentMonthKey.slice(0, 4)), Number(currentMonthKey.slice(5, 7)), 0)).getUTCDate();
+    return new Set((reconNow.data ?? []).filter((d) => d.stay_date.startsWith(currentMonthKey + "-")).map((d) => d.stay_date)).size === n
+      ? wholeMonthOf(buildMonthBreakdown(reconNow.data ?? [])) : null;
+  }, [reconNow.data, currentMonthKey]);
   const reconPending = Boolean(hotelId) && recon.isLoading;
   const tilesLoading = loading || monthPending || reconPending;
-  const adrOf = (w: MonthBreakdownRow) => w.adrRoomOnly ?? w.adrGross;
-  const revparOf = (w: MonthBreakdownRow) => w.revparRoomOnly ?? w.revparGross;
+  const adrOf = (w: MonthBreakdownRow) => w.adrGross;
+  const revparOf = (w: MonthBreakdownRow) => w.revparGross;
   const partLine = (r: MonthBreakdownRow) => {
     const name = r.key === "stayed" ? (hu ? "Már eltöltött" : "Already stayed") : r.key === "books" ? (hu ? "Könyvben" : "On the books") : (hu ? "Teljes hónap" : "Whole month");
     const days = r.firstDay === r.lastDay ? `${Number(r.firstDay.slice(8, 10))}` : `${Number(r.firstDay.slice(8, 10))}–${Number(r.lastDay.slice(8, 10))}`;
@@ -360,104 +365,6 @@ export default function MonthPerformanceHeader({
     toast.success(hu ? "Reggeli értéke mentve" : "Breakfast value saved");
     await queryClient.invalidateQueries({ queryKey: ["kpi-reconciliation-days", hotelId] });
   };
-
-  /**
-   * Keep the first, highest-priority KPI readable on arrival. On small screens
-   * the strip waits ten seconds before its first automatic move, then advances
-   * at a calm cadence. Manual interaction pauses autoplay so it never fights a
-   * swipe or tap. Reduced-motion users never auto-scroll.
-   */
-  const tileScrollRef = useRef<HTMLDivElement | null>(null);
-  const autoScrollPausedUntilRef = useRef(0);
-  const [activeTile, setActiveTile] = useState(0);
-
-  useEffect(() => {
-    const el = tileScrollRef.current;
-    if (!el) return;
-    el.scrollTo({ left: 0, behavior: "auto" });
-    setActiveTile(0);
-  }, [month]);
-
-  // Keep the dot indicator synchronized with both user and automatic movement.
-  useEffect(() => {
-    const el = tileScrollRef.current;
-    if (!el) return;
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = window.requestAnimationFrame(() => {
-        raf = 0;
-        const node = tileScrollRef.current;
-        if (!node) return;
-        const card = node.firstElementChild as HTMLElement | null;
-        const step = card ? card.offsetWidth + 8 : node.clientWidth;
-        setActiveTile(step > 0 ? Math.round(node.scrollLeft / step) : 0);
-      });
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => { el.removeEventListener("scroll", onScroll); if (raf) window.cancelAnimationFrame(raf); };
-  }, []);
-
-  useEffect(() => {
-    const node = tileScrollRef.current;
-    if (!node || typeof window === "undefined") return;
-
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (reducedMotion.matches) return;
-
-    const pauseForManualInteraction = () => {
-      autoScrollPausedUntilRef.current = Date.now() + 6000;
-    };
-
-    const advance = () => {
-      if (document.hidden || Date.now() < autoScrollPausedUntilRef.current) return;
-      if (node.scrollWidth <= node.clientWidth + 4) return;
-
-      const cards = Array.from(node.children) as HTMLElement[];
-      if (cards.length < 2) return;
-
-      const first = cards[0];
-      const step = first.offsetWidth + 8;
-      if (step <= 0) return;
-
-      const maxLeft = Math.max(0, node.scrollWidth - node.clientWidth);
-      const current = Math.max(0, Math.min(cards.length - 1, Math.round(node.scrollLeft / step)));
-      const atEnd = node.scrollLeft >= maxLeft - 4 || current >= cards.length - 1;
-      const next = atEnd ? 0 : current + 1;
-      const target = next === 0 ? 0 : Math.min(next * step, maxLeft);
-      node.scrollTo({ left: target, behavior: "smooth" });
-    };
-
-    let interval: number | undefined;
-    const initialHold = window.setTimeout(() => {
-      advance();
-      interval = window.setInterval(advance, KPI_AUTOSCROLL_INTERVAL_MS);
-    }, INITIAL_KPI_HOLD_MS);
-
-    node.addEventListener("pointerdown", pauseForManualInteraction, { passive: true });
-    node.addEventListener("wheel", pauseForManualInteraction, { passive: true });
-    node.addEventListener("focusin", pauseForManualInteraction);
-
-    return () => {
-      window.clearTimeout(initialHold);
-      if (interval !== undefined) window.clearInterval(interval);
-      node.removeEventListener("pointerdown", pauseForManualInteraction);
-      node.removeEventListener("wheel", pauseForManualInteraction);
-      node.removeEventListener("focusin", pauseForManualInteraction);
-    };
-  }, [month]);
-
-  const scrollToTile = (i: number) => {
-    const node = tileScrollRef.current;
-    if (!node) return;
-    autoScrollPausedUntilRef.current = Date.now() + 6000;
-    const card = node.firstElementChild as HTMLElement | null;
-    const step = card ? card.offsetWidth + 8 : node.clientWidth;
-    node.scrollTo({ left: i * step, behavior: "smooth" });
-  };
-
-
-
 
   const saveRate = async () => {
     const value = Number(rateInput);
@@ -554,7 +461,9 @@ export default function MonthPerformanceHeader({
 
 
         {kpiIntegrityWarning && !loading && (
-          <div role="status" className="text-[11px] text-muted-foreground rounded-md border border-amber-300/60 px-2 py-1.5">
+          <details className="text-[11px] text-muted-foreground rounded-md border border-amber-300/60 px-2 py-1.5">
+            <summary className="cursor-pointer font-medium text-amber-700 dark:text-amber-300">{hu?"Adatminőség ellenőrzése":"Check data quality"}</summary>
+            <div className="mt-1">
             <strong className="text-foreground">{hu?"Bevételi adatok köre:":"Revenue data scope:"}</strong>
             {agg.holds > 0 ? ` ${agg.holds} ${hu?"többéves blokkolt éjszaka kizárva a kereskedelmi készletből.":"multi-year inventory-hold nights excluded from commercial sales and capacity."}` : ""}
             {agg.inactive > 0 ? ` ${agg.inactive} ${hu?"éjszaka kizárva inaktív szobatípusokban.":"nights in inactive room kinds excluded."}` : ""}
@@ -562,13 +471,68 @@ export default function MonthPerformanceHeader({
             {agg.missingPrices > 0 ? ` ${agg.missingPrices} ${hu?"eladott szobaéjszakához hiányzik az ár; a bevétel, ADR és RevPAR nem teljes.":"sold room-nights are missing prices; revenue, ADR and RevPAR are incomplete."}` : ""}
             {staleSync ? (hu?" Az utolsó Previo-szinkron több mint 14 órás; az adatok elavultak lehetnek.":" The latest Previo sync is more than 14 hours old; figures may be stale.") : ""}
             {agg.sold > agg.capacity ? (hu?" Az eladott éjszakák meghaladják a készletet; ellenőrizd a PMS-szobatérképezést.":" Sold room-nights exceed inventory; verify PMS room mapping.") : ""}
-          </div>
+            </div>
+          </details>
         )}
-        <div
-          ref={tileScrollRef}
-          className="-mx-1 flex touch-pan-x gap-2 overflow-x-auto overscroll-x-contain px-1 snap-x snap-mandatory scrollbar-hide [-webkit-overflow-scrolling:touch]"
-        >
-
+        <button type="button" className="w-fit text-xs font-medium text-primary underline-offset-2 hover:underline"
+          onClick={() => window.dispatchEvent(new CustomEvent("hotelcare:ask-ai", { detail: { prompt:
+            `Explain the revenue dashboard for hotel ${hotelId ?? "current property"}, ${monthLabel}. Check full-month stayed + booked occupancy, gross booking ADR including breakfast/extras, RevPAR, net pickup, and explain any Previo discrepancy. Compare only the same full-month basis and identify actionable issues. Do not mistake forward-only prices for full-month ADR.` } }))}>
+          {hu ? "Kérdezd a HotelCare AI-t a havi számokról" : "Ask HotelCare AI about this month"}
+        </button>
+        <div data-testid="monthly-kpis" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Tile
+            loading={tilesLoading}
+            label={hu?"Kihasználtság":"Occupancy"}
+            value={whole?.occupancyPct == null ? "—" : `${Math.round(whole.occupancyPct)}%`}
+            sub={whole ? `${whole.sold} ${hu?"a(z)":"of"} ${whole.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${hu?"teljes hónap":"whole month"}` : (hu?"Havi adat nem érhető el":"Monthly data unavailable")}
+            icon={<BedDouble className="h-3.5 w-3.5" />}
+            surface={agg.occupancyPct >= 75 ? "border-l-emerald-500 bg-emerald-500/5" : agg.occupancyPct >= 45 ? "border-l-amber-500 bg-amber-500/5" : "border-l-sky-500 bg-sky-500/5"}
+            explain={whole ? {
+              title: `${hu?"Kihasználtság":"Occupancy"} — ${monthLabel}`,
+              body: `${hu?"Eladott kereskedelmi szobaéjszakák ÷ eladható szobaéjszakák, a teljes hónapra.":"Commercial room-nights sold ÷ sellable room-nights, for the whole month."}\n\n${breakdownText}\n\n${hu?"A több éves blokkok és az inaktív szobatípusok kimaradnak az eladásból és a kapacitásból is.":"Multi-year holds and inactive room types are left out of both sales and capacity."}`,
+            } : { title: `Occupancy — ${periodLabel}`, body: `Commercial occupied room-nights ÷ commercial room-nights available${partialMonth ? ", from today to the end of the month only. Nights already stayed this month are not included here; the occupancy cross-check below shows stayed + on the books = whole month" : ""}. Source: Previo reservations and active room inventory; non-commercial multi-year holds are removed from both sales and capacity.` }}
+          />
+          <Tile
+            loading={tilesLoading}
+            label="ADR"
+            value={whole && adrOf(whole) !== null ? money(adrOf(whole)) : "—"}
+            sub={whole ? (hu ? "Teljes hónap · reggelivel" : "whole month · incl. breakfast & extras") : (hu ? "Havi adat nem érhető el" : "Monthly data unavailable")}
+            icon={<Coins className="h-3.5 w-3.5" />}
+            surface="border-l-violet-500 bg-violet-500/5"
+            explain={whole ? {
+              title: `ADR — ${monthLabel}`,
+              body: `${hu?"Teljes foglalási érték (reggelivel és extrákkal) ÷ áras eladott szobaéjszakák, a teljes hónapra.":"Gross booking value (including breakfast and extras) ÷ priced commercial room-nights sold, for the full month."}\n\n${breakdownText}\n\n${whole.adrRoomOnly !== null
+                ? (hu?`A szobaár a foglalási ár mínusz az árban lévő reggeli (${whole.breakfasts} reggeli × ${money(breakfastPrice ?? 0)}). Ez hasonlítható a Previo irányítópulthoz és a Booking.com-hoz.`:`Room price = booking price minus the breakfast included in it (${whole.breakfasts} breakfasts × ${money(breakfastPrice ?? 0)}). This is the figure to compare with Previo's dashboard and Booking.com.`)
+                : (hu?"A foglalási ár reggelit és extrákat is tartalmaz, ezért magasabb, mint a Previo irányítópult vagy a Booking.com szobaára. Szobaár-ADR-hez add meg a reggeli értékét a táblázat alatt.":"The booking price includes breakfast and extras, so it reads higher than the room price on Previo's dashboard or Booking.com. Set the breakfast value under the table to see room-only ADR.")}`,
+            } : { title: "ADR = Average Daily Rate", body: `Booking value ÷ commercially sold room-nights${partialMonth ? ", from today to the end of the month only (nights already stayed are not included)" : ""}. Booking value is the full reservation price from Previo, so it includes breakfast and extras: Previo's dashboard and Booking.com show the room price only, usually about €12–13 per guest per night lower. Group rooms with €0 allocated count as sold. Multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
+          />
+          <Tile
+            loading={tilesLoading}
+            label="RevPAR"
+            value={whole && revparOf(whole) !== null ? money(revparOf(whole)) : "—"}
+            sub={whole ? (hu ? "Teljes hónap · reggelivel" : "whole month · incl. breakfast & extras") : (hu ? "Havi adat nem érhető el" : "Monthly data unavailable")}
+            icon={<Gauge className="h-3.5 w-3.5" />}
+            surface="border-l-cyan-500 bg-cyan-500/5"
+            explain={{ title: "RevPAR = ADR × Occupancy", body: `Gross booking value ÷ all sellable room-nights for the entire month of ${monthLabel}. What every unit earns on average, sold or not. Uses the same ADR, so it also includes breakfast and extras.` }}
+          />
+          <Tile
+            loading={tilesLoading}
+            label={hu?"Nettó foglalásváltozás":"Net pickup"}
+            value={`${agg.pickup > 0 ? "+" : ""}${agg.pickup}`}
+            sub={`${agg.gained} ${hu?"új":"in"} · ${agg.lost} ${hu?"törölt":"out"} · ${localWindow(pickupWindowDays).toLowerCase()}`}
+            icon={agg.pickup >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+            surface={agg.pickup < 0 ? "border-l-destructive bg-destructive/5" : "border-l-emerald-500 bg-emerald-500/5"}
+            tone={agg.pickup < 0 ? "text-destructive" : agg.pickup > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}
+            explain={{
+              title: "Pickup in window",
+              body: `For stay dates in ${monthLabel}, counting only movement during "${windowLabel(pickupWindowDays)}":\n\n• ${agg.gained} room-night${agg.gained === 1 ? "" : "s"} came in\n• ${agg.lost} room-night${agg.lost === 1 ? "" : "s"} were lost (cancellations or no-shows)\n• net ${agg.pickup > 0 ? "+" : ""}${agg.pickup}\n• ${agg.datesUp} date${agg.datesUp === 1 ? "" : "s"} up · ${agg.datesDown} down\n\nChange the window with the selector above.`,
+            }}
+          />
+        </div>
+        {!whole && !tilesLoading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{hu ? "A teljes hónap adatai nem ellenőrizhetők; nem jelenítünk meg részleges havi ADR-t." : "Full-month figures are unavailable or incomplete. Partial ADR is not shown as monthly ADR."}</p>}
+        <details className="rounded-lg border px-3 py-2 text-xs">
+          <summary className="cursor-pointer font-medium">{hu ? "További mutatók" : "More metrics"} · bookings, revenue, rooms left</summary>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Tile
             loading={loading}
             label={hu?"Ma létrehozott foglalások":"Bookings created today"}
@@ -584,58 +548,11 @@ export default function MonthPerformanceHeader({
               body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"} created\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} booked\n• ${money(booked.todayRevenue)} of room revenue\n• ${booked.todayCancelledNights} room-night${booked.todayCancelledNights === 1 ? "" : "s"} cancelled (${booked.todayCancelledRes} reservation${booked.todayCancelledRes === 1 ? "" : "s"})${booked.todayUnpricedNights ? `\n• ${booked.todayUnpricedNights} room-night${booked.todayUnpricedNights === 1 ? "" : "s"} have a €0 rate in Previo. These remain in sold room-night counts; confirm whether they are group-price allocations or complimentary stays.` : ""}\n\nThe pickup row in the calendar below uses the booking window you selected (${windowLabel(pickupWindowDays).toLowerCase()}), so it can show movement even on a quiet morning.`,
             }}
           />
-
-
-          <Tile
-            loading={tilesLoading}
-            label={hu?"Kihasználtság":"Occupancy"}
-            value={whole ? (whole.occupancyPct === null ? "—" : `${Math.round(whole.occupancyPct)}%`) : agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
-            sub={whole
-              ? `${whole.sold} ${hu?"a(z)":"of"} ${whole.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${hu?"teljes hónap":"whole month"}`
-              : `${agg.sold} ${hu?"a(z)":"of"} ${agg.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${periodLabel}`}
-            icon={<BedDouble className="h-3.5 w-3.5" />}
-            surface={agg.occupancyPct >= 75 ? "border-l-emerald-500 bg-emerald-500/5" : agg.occupancyPct >= 45 ? "border-l-amber-500 bg-amber-500/5" : "border-l-sky-500 bg-sky-500/5"}
-            explain={whole ? {
-              title: `${hu?"Kihasználtság":"Occupancy"} — ${monthLabel}`,
-              body: `${hu?"Eladott kereskedelmi szobaéjszakák ÷ eladható szobaéjszakák, a teljes hónapra.":"Commercial room-nights sold ÷ sellable room-nights, for the whole month."}\n\n${breakdownText}\n\n${hu?"A több éves blokkok és az inaktív szobatípusok kimaradnak az eladásból és a kapacitásból is.":"Multi-year holds and inactive room types are left out of both sales and capacity."}`,
-            } : { title: `Occupancy — ${periodLabel}`, body: `Commercial occupied room-nights ÷ commercial room-nights available${partialMonth ? ", from today to the end of the month only. Nights already stayed this month are not included here; the occupancy cross-check below shows stayed + on the books = whole month" : ""}. Source: Previo reservations and active room inventory; non-commercial multi-year holds are removed from both sales and capacity.` }}
-          />
-          <Tile
-            loading={tilesLoading}
-            label="ADR"
-            value={whole ? (adrOf(whole) === null ? "—" : money(adrOf(whole) as number)) : agg.missingPrices ? "—" : money(agg.adr)}
-            sub={whole
-              ? (whole.adrRoomOnly !== null
-                ? `${hu?"szobaár":"room only"} · ${money(whole.adrGross ?? 0)} ${hu?"reggelivel":"incl. breakfast"}`
-                : `${hu?"teljes hónap · reggelivel, extrákkal":"whole month · incl. breakfast & extras"}`)
-              : eurEquivalent(agg.adr) || `${periodLabel} · ${hu?"reggelivel, extrákkal":"incl. breakfast & extras"}`}
-            icon={<Coins className="h-3.5 w-3.5" />}
-            surface="border-l-violet-500 bg-violet-500/5"
-            explain={whole ? {
-              title: `ADR — ${monthLabel}`,
-              body: `${hu?"Szobabevétel ÷ áras eladott éjszakák, a teljes hónapra.":"Room revenue ÷ priced nights sold, for the whole month."}\n\n${breakdownText}\n\n${whole.adrRoomOnly !== null
-                ? (hu?`A szobaár a foglalási ár mínusz az árban lévő reggeli (${whole.breakfasts} reggeli × ${money(breakfastPrice ?? 0)}). Ez hasonlítható a Previo irányítópulthoz és a Booking.com-hoz.`:`Room price = booking price minus the breakfast included in it (${whole.breakfasts} breakfasts × ${money(breakfastPrice ?? 0)}). This is the figure to compare with Previo's dashboard and Booking.com.`)
-                : (hu?"A foglalási ár reggelit és extrákat is tartalmaz, ezért magasabb, mint a Previo irányítópult vagy a Booking.com szobaára. Szobaár-ADR-hez add meg a reggeli értékét a táblázat alatt.":"The booking price includes breakfast and extras, so it reads higher than the room price on Previo's dashboard or Booking.com. Set the breakfast value under the table to see room-only ADR.")}`,
-            } : { title: "ADR = Average Daily Rate", body: `Booking value ÷ commercially sold room-nights${partialMonth ? ", from today to the end of the month only (nights already stayed are not included)" : ""}. Booking value is the full reservation price from Previo, so it includes breakfast and extras: Previo's dashboard and Booking.com show the room price only, usually about €12–13 per guest per night lower. Group rooms with €0 allocated count as sold. Multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
-          />
-          <Tile
-            loading={tilesLoading}
-            label="RevPAR"
-            value={whole ? (revparOf(whole) === null ? "—" : money(revparOf(whole) as number)) : agg.missingPrices ? "—" : money(agg.revpar)}
-            sub={whole
-              ? `${hu?"teljes hónap":"whole month"} · ADR × ${hu?"kihasználtság":"occupancy"}${whole.revparRoomOnly !== null ? (hu?" · szobaár":" · room only") : ""}`
-              : eurEquivalent(agg.revpar) || `${periodLabel} · ADR × ${hu?"kihasználtság":"occupancy"}`}
-            icon={<Gauge className="h-3.5 w-3.5" />}
-            surface="border-l-cyan-500 bg-cyan-500/5"
-            explain={{ title: "RevPAR = ADR × Occupancy", body: `Booking value ÷ all sellable room-nights in ${periodLabel}. What every unit earns on average, sold or not. Uses the same ADR, so it also includes breakfast and extras.` }}
-          />
           <Tile
             loading={tilesLoading}
             label={hu?"Bevétel":"Revenue"}
-            value={whole ? money(whole.revenueGross) : agg.missingPrices ? "—" : money(agg.revenue)}
-            sub={whole
-              ? `${hu?"foglalási érték · teljes hónap":"booking value · whole month"}${whole.revenueRoomOnly !== null ? ` · ${money(whole.revenueRoomOnly)} ${hu?"szoba":"room"}` : ""}`
-              : eurEquivalent(agg.revenue) || `${periodLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
+            value={whole ? money(whole.revenueGross) : "—"}
+            sub={whole ? (hu ? "Foglalási érték · teljes hónap" : "Gross booking value · whole month") : (hu ? "Havi adat nem érhető el" : "Monthly data unavailable")}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-emerald-500 bg-emerald-500/5"
             explain={{
@@ -647,49 +564,28 @@ export default function MonthPerformanceHeader({
             loading={tilesLoading}
             label={hu?"Szabad szobaéjszakák":"Rooms left"}
             value={agg.capacity ? String(agg.left) : "—"}
-            sub={`${monthLabel} · ${hu?"teljes hónap":"whole month"}`}
+            sub={`${monthLabel} · ${hu?"mától elérhető":"from today onward"}`}
             icon={<DoorOpen className="h-3.5 w-3.5" />}
             surface="border-l-amber-500 bg-amber-500/5"
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
           />
-          <Tile
-            loading={tilesLoading}
-            label={hu?"Nettó foglalásváltozás":"Net pickup"}
-            value={`${agg.pickup > 0 ? "+" : ""}${agg.pickup}`}
-            sub={`${agg.gained} ${hu?"új":"in"} · ${agg.lost} ${hu?"törölt":"out"} · ${localWindow(pickupWindowDays).toLowerCase()}`}
-            icon={agg.pickup >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-            surface={agg.pickup < 0 ? "border-l-destructive bg-destructive/5" : "border-l-emerald-500 bg-emerald-500/5"}
-            tone={agg.pickup < 0 ? "text-destructive" : agg.pickup > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}
-            explain={{
-              title: "Pickup in window",
-              body: `For stay dates in ${monthLabel}, counting only movement during "${windowLabel(pickupWindowDays)}":\n\n• ${agg.gained} room-night${agg.gained === 1 ? "" : "s"} came in\n• ${agg.lost} room-night${agg.lost === 1 ? "" : "s"} were lost (cancellations or no-shows)\n• net ${agg.pickup > 0 ? "+" : ""}${agg.pickup}\n• ${agg.datesUp} date${agg.datesUp === 1 ? "" : "s"} up · ${agg.datesDown} down\n\nChange the window with the selector above.`,
-            }}
-          />
+          </div>
+        </details>
 
-        </div>
-
-        {/* Dots: which KPI card you are on (phones only) */}
-        <div className="flex justify-center gap-1.5 sm:hidden">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              aria-label={`Show card ${i + 1}`}
-              onClick={() => scrollToTile(i)}
-              className={`h-1.5 rounded-full transition-all ${i === activeTile ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/30"}`}
-            />
-          ))}
-        </div>
-
-        {breakdown.length > 0 && !tilesLoading && (
-          <MonthBreakdownPanel
+        {monthComplete && breakdown.length > 0 && !tilesLoading && (
+          <details className="rounded-lg border px-3 py-2 text-xs">
+            <summary className="cursor-pointer font-medium">{hu ? "ADR számítás és reggeli beállítások" : "ADR calculation & breakfast settings"}</summary>
+            <div className="mt-2">
+              <MonthBreakdownPanel
             rows={breakdown}
             monthLabel={monthLabel}
             breakfastPrice={breakfastPrice}
             hu={hu}
             canEdit={canEdit}
             onSaveBreakfastPrice={saveBreakfastPrice}
-          />
+              />
+            </div>
+          </details>
         )}
 
         {/* One place to choose the pickup window, right next to the numbers it drives. */}
@@ -703,67 +599,35 @@ export default function MonthPerformanceHeader({
               ))}
             </SelectContent>
           </Select>
-          <span className="text-[11px] text-muted-foreground">
-            <span className="sm:hidden">{hu?"Foglalásváltozás és kereslet":"Pickup & demand"}</span>
-            <span className="hidden sm:inline">{hu?"A naptár, a KPI-k és a kereslet azonos időszakot használ. A Tegnap és ma budapesti naptári napokat jelent; az automatizálás 48 órája gördülő időablak.":"The KPI cards, pickup calendar and demand chart share this period. Yesterday + today follows Budapest calendar dates; automation uses a rolling 48 hours."}</span>
-          </span>
+
         </div>
 
 
 
 
-        {/* Six-month outlook, current month highlighted */}
-        <div className="-mx-1 overflow-x-auto">
-          <div className="flex gap-2 px-1 min-w-0">
-            {outlook.map((raw, i) => {
-              const active = raw.key === month;
-              // The current month in the strip shows the whole month too
-              // (stayed + on the books), not only the nights from today.
-              const o = raw.key === currentMonthKey && wholeNow
-                ? { ...raw, capacity: wholeNow.capacity, occupancyPct: wholeNow.occupancyPct ?? 0, adr: adrOf(wholeNow) ?? 0, revpar: revparOf(wholeNow) ?? 0 }
-                : raw;
-              return (
-                <button
-                  key={o.key}
-                  type="button"
-                  onClick={() => setMonth(o.key)}
-                  className={`shrink-0 w-[118px] rounded-lg border p-2 text-left transition-colors ${
-                    active ? "border-primary bg-primary/5" : "hover:bg-muted/50"
-                  }`}
-                >
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
-                    {localMonth(o.key+"-01")}{i === 0 ? (hu?" · most":" · now") : ""}
-                  </div>
-                  {isMonthPending(o.key) ? (
-                    <div className="animate-pulse space-y-1.5 mt-1">
-                      <div className="h-4 w-12 rounded bg-muted-foreground/20" />
-                      <div className="h-2 w-16 rounded bg-muted-foreground/10" />
-                      <div className="h-2 w-14 rounded bg-muted-foreground/10" />
-                      <div className="text-[9px] text-muted-foreground">{hu?"betöltés…":"loading…"}</div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="text-base font-semibold tabular-nums">
-                        {o.capacity ? `${Math.round(o.occupancyPct)}%` : "—"}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground tabular-nums truncate">
-                        ADR {money(o.adr)}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground tabular-nums truncate">
-                        RevPAR {money(o.revpar)}
-                      </div>
-                    </>
-                  )}
-                </button>
-              );
-            })}
+        <section className="rounded-lg border p-3" aria-label="Six-month occupancy outlook">
+          <p className="mb-2 text-xs font-semibold">{hu ? "Hat hónapos kihasználtság" : "Occupancy · next 6 months"}</p>
+          <div className="h-36 w-full"><ResponsiveContainer width="100%" height="100%">
+            <BarChart data={outlook.map((raw) => {
+              const isCurrent = raw.key === currentMonthKey;
+              const ready = !isMonthPending(raw.key) && (!isCurrent || !!wholeNow);
+              return { month: localMonth(raw.key + "-01").slice(0, 3),
+                occupancy: ready ? Math.round(isCurrent ? wholeNow!.occupancyPct ?? 0 : raw.occupancyPct) : null };
+            })} margin={{ top: 4, right: 5, bottom: 0, left: -22 }}>
+              <XAxis dataKey="month" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis domain={[0,100]} ticks={[0,50,100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(n: number) => n+"%"} />
+              <ChartTooltip formatter={(n: number) => [n+"%", hu ? "Kihasználtság" : "Occupancy"]} />
+              <Bar dataKey="occupancy" fill="hsl(var(--primary))" maxBarSize={38} radius={[4,4,0,0]} />
+            </BarChart>
+          </ResponsiveContainer></div>
+          <div className="mt-2 flex gap-2 overflow-x-auto">
+            {outlook.map((o) => <button key={o.key} type="button" onClick={() => setMonth(o.key)}
+              className={`shrink-0 rounded border px-2 py-1 text-[11px] ${o.key === month ? "border-primary bg-primary/10 font-semibold" : "text-muted-foreground"}`}>
+              {localMonth(o.key+"-01").slice(0,3)}
+            </button>)}
           </div>
-        </div>
-        {pendingMonths > 0 && (
-          <p className="px-1 text-[11px] text-muted-foreground animate-pulse">
-            {hu?"Későbbi hónapok betöltése…":"Loading later months…"}
-          </p>
-        )}
+          <p className="mt-1 text-[10px] text-muted-foreground">{hu ? "Az aktuális hónap korábbi és jövőbeli foglalásokat, a későbbi hónapok az eddigi foglalásokat mutatják." : "Current month includes stayed and booked nights; future months show bookings on the books, not a forecast."}</p>
+        </section>
       </CardContent>
     </Card>
   );

@@ -81,7 +81,14 @@ export function KpiReconciliationView({
 
   return (
     <Card data-testid="kpi-reconciliation">
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="p-3">
+        <details className="group text-xs">
+          <summary className="flex cursor-pointer items-center gap-2 font-medium">
+            <ShieldCheck className="h-4 w-4 text-emerald-600" />
+            {hu ? "Kihasználtság ellenőrzés" : "Occupancy verified"}
+            <span className="ml-auto text-muted-foreground">{gap !== 0 ? (hu ? `Previo eltérés: ${gap > 0 ? "+" : ""}${gap} éj` : `Previo gap: ${gap > 0 ? "+" : ""}${gap} room-nights`) : (hu ? "Nincs eltérés" : "No discrepancy")}</span>
+          </summary>
+          <div className="mt-3 space-y-3">
         <div className="flex items-center gap-2 text-sm font-medium">
           <ShieldCheck className="h-4 w-4 text-emerald-600" />
           {hu ? "Kihasználtság egyeztetés" : "Occupancy cross-check"}
@@ -110,6 +117,8 @@ export function KpiReconciliationView({
             ? "A Previo havi kártyája a friss, aznap reggeli foglalásokat késve mutathatja. Az ADR összetételét a fenti havi táblázat mutatja."
             : "Previo's month card can lag bookings made the same morning. How ADR is built is shown in the month table above."}
         </p>
+          </div>
+        </details>
       </CardContent>
     </Card>
   );
