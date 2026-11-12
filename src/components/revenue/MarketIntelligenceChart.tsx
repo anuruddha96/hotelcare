@@ -578,6 +578,11 @@ export default function MarketIntelligenceChart({
                 <p className="text-xs font-semibold">Hotel comparison</p>
                 <p className="text-[10px] text-muted-foreground">Whole month {selectedMonth} · stayed + booked · ADR and RevPAR include breakfast & extras · EUR converted.</p>
               </div>
+              <Button size="sm" variant="ghost" className="h-8 text-xs"
+                onClick={() => window.dispatchEvent(new CustomEvent("hotelcare:ask-ai", { detail: { prompt:
+                  `Review the hotel portfolio comparison for ${selectedMonth}. Use full-month stayed plus booked, gross booking ADR including breakfast and extras, and show meaningful differences in occupancy and RevPAR. Identify missing reconciliation dates, missing FX data, or actionable revenue opportunities. Never compare a future-only ADR to a whole-month ADR.` } }))}>
+                Ask AI
+              </Button>
               <Button size="sm" variant="outline" className="h-8 text-xs" disabled={comparisonLoading} onClick={() => void Promise.all(monthlyQueries.map((q) => q.refetch()))}>
                 {comparisonLoading ? "Loading comparison…" : comparisonError ? "Retry comparison" : "Refresh comparison"}
               </Button>
