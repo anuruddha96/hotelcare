@@ -1,0 +1,28 @@
+name: Gemini-first AI provider tests
+
+on:
+  pull_request:
+    paths:
+      - "supabase/functions/_shared/lowCostAi.ts"
+      - "supabase/functions/_shared/lowCostAi_test.ts"
+      - "supabase/functions/translate-note/**"
+      - "supabase/functions/translate-room-types/**"
+      - "supabase/functions/google-reputation/**"
+      - "supabase/functions/google-reputation-worker/**"
+      - ".github/workflows/gemini-low-cost-ai.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test Gemini routing, fallback and privacy guard
+        run: deno test --allow-env supabase/functions/_shared/lowCostAi_test.ts
