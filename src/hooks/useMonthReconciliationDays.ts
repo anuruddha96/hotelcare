@@ -14,7 +14,7 @@ export const monthReconciliationKey = (hotelId: string | null | undefined, month
  * one request per hotel-month.
  */
 export async function fetchMonthReconciliationDays(hotelId: string, month: string): Promise<ReconciliationDay[]> {
-  if (!/^\\d{4}-\\d{2}$/.test(month)) return [];
+  if (!/^\d{4}-\d{2}$/.test(month)) return [];
   const { data, error } = await (supabase as unknown as {
     rpc: (fn: string, args: Record<string, string>) => Promise<{ data: ReconciliationDay[] | null; error: unknown }>;
   }).rpc("revenue_kpi_reconciliation_days", {
