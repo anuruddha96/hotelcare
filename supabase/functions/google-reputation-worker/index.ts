@@ -155,59 +155,6 @@ Deno.serve(async (req) => {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  // A short-lived, worker-secret-authorized smoke test. It sends ONLY fixed,
-  // fictional text to Gemini, makes no database changes, never publishes a
-  // review and cannot accept customer-provided prompts. Expires automatically.
-  if (req.method === "POST" && Date.now() < Date.parse("2026-11-13T12:00:00Z")) {
-    const diagnostic = await req.clone().json().catch(() => ({}));
-    if (diagnostic?.action === "_internal_gemini_smoke_test") {
-      const mode = diagnostic?.mode === "json" ? "json" : "translation";
-      const isJson = mode === "json";
-      const instructions = isJson
-        ? 'Return only JSON {"replies":["...","...","..."]} with exactly three distinct friendly English replies. Do not invent a guest visit or promises.'
-        : "Translate the supplied sentence to Hungarian. Output only the translation.";
-      const prompt = isJson
-        ? "Fictional public review: Friendly service and good coffee. Write three different short public business responses."
-        : "Please clean the lobby windows and arrange the chairs.";
-      try {
-        const result = await generateLowCostText({
-          task: isJson ? "public" : "internal",
-          json: isJson,
-          prompt,
-          instructions,
-          maxOutputTokens: isJson ? 1200 : 220,
-          validate: (output) => {
-            if (!output.trim() || output.trim().length < 5) return false;
-            if (!isJson) return true;
-            try {
-              const replies = JSON.parse(output)?.replies;
-              return Array.isArray(replies) && replies.length === 3 &&
-                replies.every((x: unknown) => typeof x === "string" && x.trim().length >= 10);
-            } catch { return false; }
-          },
-        });
-        return json({
-          ok: result.provider === "gemini",
-          provider: result.provider,
-          model: result.model,
-          mode,
-          valid_output: true,
-          sample_output: result.text,
-          gemini_secret_present: Boolean(Deno.env.get("GEMINI_API_KEY")),
-          fallback_secret_present: Boolean(Deno.env.get("OPENAI_API_KEY")),
-        });
-      } catch (err) {
-        return json({
-          ok: false,
-          mode,
-          gemini_secret_present: Boolean(Deno.env.get("GEMINI_API_KEY")),
-          fallback_secret_present: Boolean(Deno.env.get("OPENAI_API_KEY")),
-          error: err instanceof Error ? err.message : "AI generation unavailable",
-        }, 502);
-      }
-    }
-  }
-
   const { data: run, error: runError } = await admin
     .from("google_reputation_worker_runs")
     .insert({ status: "running" })
