@@ -583,7 +583,7 @@ export default function RateStrategyGrid({
    */
   const [keepShape, setKeepShape] = useState(true);
   /** Minimum step between one guest count and the next, from the property settings. */
-  const [guestStep, setGuestStep] = useState(10);
+  const [guestStep, setGuestStep] = useState(1);
   /** "Show all" for the change preview in the day tool. */
   const [dayShowAll, setDayShowAll] = useState(false);
 
@@ -591,6 +591,8 @@ export default function RateStrategyGrid({
   // same shape the revenue engine uses.
   useEffect(() => {
     if (!hotelId) return;
+    // Do not briefly reuse a previous property's supplement while loading.
+    setGuestStep(1);
     let cancelled = false;
     void (async () => {
       const { data } = await supabase
