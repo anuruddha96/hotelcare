@@ -217,8 +217,6 @@ function ChatSession({
   onThreadUpdated,
   onNavigate,
   workspace = false,
-  suggestedPrompt,
-  onSuggestedPromptConsumed,
 }: {
   threadId: string;
   initialMessages: AssistantUiMessage[];
@@ -229,8 +227,6 @@ function ChatSession({
   onThreadUpdated: () => void;
   onNavigate?: () => void;
   workspace?: boolean;
-  suggestedPrompt?: { id: number; text: string } | null;
-  onSuggestedPromptConsumed?: () => void;
 }) {
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
@@ -317,7 +313,7 @@ function ChatSession({
     initialPromptSentRef.current = true;
     lastQuestionRef.current = initialPrompt;
     void sendMessage({ text: initialPrompt });
-  }, [initialPrompt, sendMessage])
+  }, [initialPrompt, sendMessage]);
   const lastExternalPromptIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (!externalPrompt || lastExternalPromptIdRef.current === externalPrompt.id) return;
@@ -325,7 +321,7 @@ function ChatSession({
     lastQuestionRef.current = externalPrompt.text;
     void sendMessage({ text: externalPrompt.text });
     onExternalPromptConsumed?.();
-  }, [externalPrompt, sendMessage, onExternalPromptConsumed]);;
+  }, [externalPrompt, sendMessage, onExternalPromptConsumed]);
 
   const { state: dictation, supported, toggle } = useDictation(
     useCallback((text: string) => {
