@@ -3056,7 +3056,9 @@ export default function RateStrategyGrid({
               </span>
             )}
           </CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
+          <details className="group w-full sm:w-auto">
+            <summary className="w-fit cursor-pointer rounded-md border px-3 py-2 text-xs font-medium">{hu ? "Naptári eszközök" : "Calendar tools"}</summary>
+            <div className="mt-2 flex flex-wrap items-center gap-2 sm:justify-end">
             <Sheet>
               <SheetTrigger asChild>
                 <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
@@ -3108,9 +3110,8 @@ export default function RateStrategyGrid({
               {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               {expanded ? "Close" : "Expand"}
             </Button>
-
-
-          </div>
+            </div>
+          </details>
         </div>
 
         {/* Separate pricing actions from analysis and display settings. */}
@@ -3145,7 +3146,9 @@ export default function RateStrategyGrid({
                 : "Yesterday + today counts booking gains and losses from the start of yesterday in Budapest time through now. The automation view uses a rolling 48-hour window, so the totals may differ. Changing this period also updates pickup figures in the KPI header and market chart."}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <details className="group">
+            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">{hu ? "Szűrők és nézet" : "Filters & display"}</summary>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant={pickupOnly ? "default" : "outline"}
@@ -3191,11 +3194,12 @@ export default function RateStrategyGrid({
                 <ZoomIn className="h-3.5 w-3.5" />
               </Button>
             </div>
-          </div>
+            </div>
+          </details>
         </div>
         {/* Legend — a tidy two-column key on a phone, one line on a desktop. */}
-        <details className="group text-[11px] text-muted-foreground" open={!isMobile}>
-          <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-foreground sm:hidden">
+        <details className="group text-[11px] text-muted-foreground">
+          <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-foreground">
             What the colours mean
             <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
           </summary>
@@ -3228,8 +3232,6 @@ export default function RateStrategyGrid({
               {showMarkers ? "Hide change dots" : "Show change dots"}
             </button>
           </div>
-        </details>
-
         <p className="text-[11px] text-muted-foreground">
           Live Previo prices.
           {canEditRates ? " Tap a price, or a date to change a whole day." : ""}
@@ -3238,6 +3240,8 @@ export default function RateStrategyGrid({
             body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
           />
         </p>
+        </details>
+
         {/* Phone gesture coach — appears once the user has settled on the page. */}
         {gestureHint && (
           <div className="flex items-start gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-[11px] animate-fade-in sm:hidden">
