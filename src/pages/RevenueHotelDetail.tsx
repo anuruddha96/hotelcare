@@ -308,7 +308,6 @@ export default function RevenueHotelDetail() {
   // short status line tells the user an update is landing.
   const [bgRefreshing, setBgRefreshing] = useState(false);
   const [bgFailed, setBgFailed] = useState(false);
-  const [freshConfirm, setFreshConfirm] = useState<{ minutes: number } | null>(null);
   const [syncHistoryOpen, setSyncHistoryOpen] = useState(false);
   const [roomCatalogBusy, setRoomCatalogBusy] = useState(false);
   const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
@@ -460,9 +459,9 @@ export default function RevenueHotelDetail() {
   }
 
   /**
-   * What "Sync now" does, in three honest cases: confirm when the data is
-   * already fresh, explain when an update is already running, refresh when the
-   * data is stale.
+   * "Sync now" is an explicit request to re-read Previo even when the previous
+   * sync is less than 30 minutes old. The backend lease still prevents
+   * overlapping pulls; a manager must not need a second confirmation click.
    */
   async function requestSync() {
     if (!hotelId) return;
@@ -473,12 +472,8 @@ export default function RevenueHotelDetail() {
       );
       return;
     }
-    const info = await fetchRevenueSyncInfo(hotelId).catch(() => null);
-    if (info?.at && !info.stale) {
-      const minutes = Math.max(1, Math.round((Date.now() - new Date(info.at).getTime()) / 60000));
-      setFreshConfirm({ minutes });
-      return;
-    }
+    // Managers use this after editing prices directly in Previo. A recent
+    // automatic sync does not prove that those subsequent edits were imported.
     void runSync(true);
   }
 
@@ -1085,23 +1080,6 @@ export default function RevenueHotelDetail() {
           </div>
         </div>
       )}
-
-      {/* Refreshing fresh data is allowed, but never by accident. */}
-      <Dialog open={!!freshConfirm} onOpenChange={(o) => { if (!o) setFreshConfirm(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Your data is already up to date</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            These figures are from {freshConfirm?.minutes} minute{freshConfirm?.minutes === 1 ? "" : "s"} ago.
-            Refreshing pulls everything from Previo again and takes about a minute.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFreshConfirm(null)}>Keep current data</Button>
-            <Button onClick={() => { setFreshConfirm(null); void runSync(true); }}>Refresh anyway</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Sync progress — engaging status while Previo data lands */}
 

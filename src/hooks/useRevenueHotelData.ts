@@ -388,7 +388,15 @@ export function useRevenueHotelData(
   const reload = useCallback(async () => {
     const current = inFlightRef.current;
     if (current) await current.promise;
+    const before = successfulPublishedLoadsRef.current;
     await runLoad();
+    // runLoad deliberately retains cached prices after an RPC failure. That is
+    // safe for background rendering but NOT sufficient proof of a manual sync:
+    // without this check "Sync now" can appear successful while showing old
+    // values from an earlier browser session.
+    if (successfulPublishedLoadsRef.current <= before) {
+      throw new Error("The latest Previo rates were pulled, but HotelCare could not refresh the displayed prices. Previous rates are still shown; please retry.");
+    }
     // Catalog metadata is supplementary; a temporary read failure must not
     // make an otherwise successful rate/pickup refresh appear to fail.
     await Promise.all([refreshAvailability(), refreshRoomTypes().catch(() => {})]);
@@ -488,6 +496,9 @@ export function useRevenueHotelData(
                   successfulPublishedLoadsRef.current > before) {
                 lastPublishedVersionRef.current = { hotelId, updatedAt };
               }
+            } catch {
+              // Do not acknowledge this published version: a later poll must
+              // retry rather than silently freezing an earlier cached price.
             } finally {
               publishedRefreshQueuedRef.current = false;
             }
