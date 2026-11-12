@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useQueries } from "@tanstack/react-query";
+import { buildMonthBreakdown, wholeMonthOf } from "@/lib/kpiReconciliation";
+import { fetchMonthReconciliationDays, monthReconciliationKey } from "@/hooks/useMonthReconciliationDays";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -287,11 +290,11 @@ export default function MarketIntelligenceChart({
   const isMobile = useIsMobile();
   const [days, setDays] = useState(() => typeof window !== "undefined" && window.innerWidth < 768 ? 14 : 60);
   const [primaryMetric, setPrimaryMetric] = useState<PrimaryMetric>("occ");
-  const [compare, setCompare] = useState(true);
+  const [compare, setCompare] = useState(false);
   const [showEvents, setShowEvents] = useState(true);
   const [customDays, setCustomDays] = useState(7);
   const [baseline, setBaseline] = useState("__ours__");
-  const [eurRateByHotel, setEurRateByHotel] = useState<Map<string, number>>(new Map());
+  const [eurRateByHotel, setEurRateByHotel] = useState<Map<string, number | null>>(new Map());
   const [prefs, setPrefs] = useState<MarketPrefs>(() => loadPrefs(hotelId));
 
   useEffect(() => {
@@ -327,7 +330,7 @@ export default function MarketIntelligenceChart({
       for (const row of data as Array<{ hotel_id: string; base_currency: string | null; eur_conversion_rate: number | null }>) {
         const code = (row.base_currency ?? "EUR").toUpperCase();
         const rate = Number(row.eur_conversion_rate);
-        map.set(row.hotel_id, code === "EUR" ? 1 : rate > 0 ? rate : 1);
+        map.set(row.hotel_id, code === "EUR" ? 1 : rate > 0 ? rate : null);
       }
       setEurRateByHotel(map);
     })();
@@ -447,36 +450,46 @@ export default function MarketIntelligenceChart({
     return { pct: Math.round(((ours - market) / market) * 100), nights };
   }, [data, baselineRate, marketData.marketByDate, portfolioBenchmarkByDate]);
 
+  // Monthly comparisons use the identical stayed + booked reconciliation RPC as
+  // the KPI header, never the future-only pricing-grid data.
+  const monthlyQueries = useQueries({
+    queries: hotels.map((hotel) => ({
+      queryKey: monthReconciliationKey(hotel.hotel_id, selectedMonth),
+      enabled: compare && /^\d{4}-\d{2}$/.test(selectedMonth),
+      staleTime: 60_000,
+      retry: false,
+      queryFn: () => fetchMonthReconciliationDays(hotel.hotel_id, selectedMonth),
+    })),
+  });
+  const comparisonLoading = monthlyQueries.some((q) => q.isFetching);
+  const comparisonError = monthlyQueries.some((q) => q.isError);
   const comparison = useMemo(() => {
     if (!compare) return [];
-    const gridRows = metrics.filter((m) => m.stay_date.slice(0, 7) === selectedMonth && m.roomsAvailable > 0);
-    const dates = new Set(gridRows.map((m) => m.stay_date));
-    return hotels.map((hotel) => {
-      const fx = eurRateByHotel.get(hotel.hotel_id) ?? 1;
-      let sold = 0, capacity = 0, revenue = 0, nights = 0;
-      if (hotel.hotel_id === hotelId && gridRows.length > 0) {
-        for (const m of gridRows) { sold += m.roomsSold; capacity += m.roomsAvailable; revenue += m.revenueEur; nights += 1; }
-      } else {
-        for (const row of latestByHotelDate.values()) {
-          if (row.hotel_id !== hotel.hotel_id) continue;
-          if (dates.size ? !dates.has(row.stay_date) : row.stay_date.slice(0, 7) !== selectedMonth) continue;
-          const cap = Number(row.rooms_available) || 0;
-          if (!cap) continue;
-          sold += Number(row.rooms_sold) || 0; capacity += cap; revenue += Number(row.revenue_eur ?? 0) / fx; nights += 1;
-        }
-      }
-      return { ...hotel, nights, occ: capacity > 0 ? Math.round((sold / capacity) * 100) : null, adr: sold > 0 ? Math.round(revenue / sold) : null, revpar: capacity > 0 ? Math.round(revenue / capacity) : null };
-    }).sort((a, b) => a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : (b.revpar ?? -1) - (a.revpar ?? -1));
-  }, [compare, hotels, metrics, selectedMonth, hotelId, eurRateByHotel, latestByHotelDate]);
+    const daysInMonth = new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).getUTCDate();
+    return hotels.map((hotel, index) => {
+      const query = monthlyQueries[index];
+      const rows = query?.data ?? [];
+      const complete = new Set(rows.filter((d) => d.stay_date.startsWith(selectedMonth + "-")).map((d) => d.stay_date)).size === daysInMonth;
+      const month = complete ? wholeMonthOf(buildMonthBreakdown(rows)) : null;
+      const fx = eurRateByHotel.get(hotel.hotel_id);
+      const occ = month?.occupancyPct == null ? null : Math.round(month.occupancyPct);
+      // Use gross booking ADR consistently, converting actual property currency
+      // to EUR only when a valid exchange rate exists.
+      const adr = month?.adrGross == null || !fx ? null : Math.round(month.adrGross / fx);
+      const revpar = month?.revparGross == null || !fx ? null : Math.round(month.revparGross / fx);
+      return { ...hotel, nights: month ? daysInMonth : 0, occ, adr, revpar,
+        unavailable: query?.isError ? "Could not load month" : !month ? "Full-month data unavailable" : !fx ? "EUR conversion unavailable" : null };
+    }).sort((x,y) => x.hotel_id === hotelId ? -1 : y.hotel_id === hotelId ? 1 : (y.revpar ?? -1) - (x.revpar ?? -1));
+  }, [compare, hotels, monthlyQueries, selectedMonth, hotelId, eurRateByHotel]);
 
   const comparisonBenchmark = useMemo(() => {
     const valid = comparison.filter((x) => x.occ != null && x.adr != null);
-    if (valid.length < 2 || portfolio.isError || portfolio.isPending) return { occ: null as number | null, adr: null as number | null };
+    if (valid.length < 2) return { occ: null as number | null, adr: null as number | null };
     return {
-      occ: Math.round(valid.reduce((s, x) => s + (x.occ ?? 0), 0) / valid.length),
-      adr: Math.round(valid.reduce((s, x) => s + (x.adr ?? 0), 0) / valid.length),
+      occ: Math.round(valid.reduce((sum, hotel) => sum + (hotel.occ ?? 0), 0) / valid.length),
+      adr: Math.round(valid.reduce((sum, hotel) => sum + (hotel.adr ?? 0), 0) / valid.length),
     };
-  }, [comparison, portfolio.isError, portfolio.isPending]);
+  }, [comparison]);
 
   const rateDomain = useMemo<[number, number] | undefined>(() => {
     const values: number[] = [];
@@ -511,7 +524,7 @@ export default function MarketIntelligenceChart({
   };
 
   const demandMetricColor = primaryMetric === "occ" ? OCC_COLOR : primaryMetric === "adr" ? ADR_COLOR : DEMAND_COLOR;
-  const demandMetricLabel = primaryMetric === "occ" ? "Occupancy" : primaryMetric === "adr" ? "ADR" : "City demand";
+  const demandMetricLabel = primaryMetric === "occ" ? "Occupancy" : primaryMetric === "adr" ? "Daily ADR" : "City demand";
   const activeRateLegend = [
     prefs.ourRate ? { label: `${baselineLabel} rate`, color: OUR_RATE_COLOR, dashed: false } : null,
     prefs.marketAvg ? { label: "Market benchmark", color: MARKET_COLOR, dashed: true } : null,
@@ -546,7 +559,7 @@ export default function MarketIntelligenceChart({
             {period === "custom" && <Input type="number" min={1} max={90} value={activeWindow > 0 ? activeWindow : customDays} className="h-9 w-20" onChange={(e) => { const n = Math.max(1, Math.min(90, Number(e.target.value) || 1)); setCustomDays(n); onPickupWindowChange(n); }} />}
           </div>}
           <div className="flex rounded-lg border p-0.5">{ranges.map((r) => <Button key={r.value} size="sm" variant={days === r.value ? "default" : "ghost"} className="h-8 rounded-md px-2.5 text-xs" onClick={() => setDays(r.value)}>{r.label}</Button>)}</div>
-          <div className="flex rounded-lg border p-0.5">{([ ["occ", "Occupancy"], ["adr", "ADR"], ["demand", "Demand"] ] as Array<[PrimaryMetric, string]>).map(([key, label]) => <Button key={key} size="sm" variant={primaryMetric === key ? "default" : "ghost"} className="h-8 rounded-md px-2.5 text-xs" onClick={() => setPrimaryMetric(key)}>{label}</Button>)}</div>
+          <div className="flex rounded-lg border p-0.5">{([ ["occ", "Occupancy"], ["adr", "Daily ADR"], ["demand", "Demand"] ] as Array<[PrimaryMetric, string]>).map(([key, label]) => <Button key={key} size="sm" variant={primaryMetric === key ? "default" : "ghost"} className="h-8 rounded-md px-2.5 text-xs" onClick={() => setPrimaryMetric(key)}>{label}</Button>)}</div>
           <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
             {hotels.length > 1 && <Button size="sm" variant={compare ? "default" : "outline"} className="h-9 text-xs" onClick={() => setCompare((v) => !v)}>Compare hotels</Button>}
             <Popover><PopoverTrigger asChild><Button size="sm" variant="outline" className="h-9 text-xs"><SlidersHorizontal className="mr-1 h-3.5 w-3.5" />Market series</Button></PopoverTrigger><PopoverContent align="end" className="w-80 p-3"><div className="space-y-3"><div><p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Rate comparison</p><SeriesTick label="Our selling rate" checked={prefs.ourRate} onChange={(v) => setPrefs((p) => ({ ...p, ourRate: v }))} /><SeriesTick label="Market average" checked={prefs.marketAvg} onChange={(v) => setPrefs((p) => ({ ...p, marketAvg: v }))} /><SeriesTick label="Market median" checked={prefs.marketMedian} onChange={(v) => setPrefs((p) => ({ ...p, marketMedian: v }))} /><SeriesTick label="Cheapest–dearest band" checked={prefs.band} onChange={(v) => setPrefs((p) => ({ ...p, band: v }))} /><SeriesTick label="Event markers" checked={showEvents} onChange={setShowEvents} /></div><div><p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Competitors {isMobile ? "· max 2 on mobile" : ""}</p><div className="max-h-52 overflow-y-auto">{marketData.competitors.length === 0 && <p className="text-xs text-muted-foreground">No watched competitors yet.</p>}{marketData.competitors.map((c, i) => <SeriesTick key={c.id} label={c.name} color={competitorColor(i)} checked={prefs.competitors.includes(c.id)} onChange={() => toggleCompetitor(c.id)} hint={`${marketData.ratesByCompetitor.get(c.id)?.size ?? 0} nights`} />)}</div></div></div></PopoverContent></Popover>
@@ -554,26 +567,22 @@ export default function MarketIntelligenceChart({
             <Button size="sm" variant="ghost" className="h-9 px-2 text-xs" onClick={exportCsv}><Download className="mr-1 h-3.5 w-3.5" />CSV</Button>
           </div>
         </div>
-        <p className="text-[11px] text-muted-foreground">Pickup measures {pickupWindowLabel(activeWindow).toLowerCase()} of bookings. Hover or tap a date for the full revenue story.</p>
+        <p className="text-[11px] text-muted-foreground">Pickup: {pickupWindowLabel(activeWindow).toLowerCase()}. Daily ADR (when selected) is per stay date, not the whole-month ADR.</p>
       </CardHeader>
 
       <CardContent className="space-y-5 px-2 pb-4 sm:px-4">
         {compare && comparison.length > 0 && (
-          <section aria-label="Hotel comparison" aria-busy={portfolio.isFetching}>
+          <section aria-label="Hotel comparison" aria-busy={comparisonLoading}>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold">Hotel comparison</p>
-                <p className="text-[10px] text-muted-foreground">Same nights in {selectedMonth}. Occupancy, average daily rate and revenue per available room.</p>
+                <p className="text-[10px] text-muted-foreground">Whole month {selectedMonth} · stayed + booked · ADR and RevPAR include breakfast & extras · EUR converted.</p>
               </div>
-              <Button size="sm" variant="outline" className="h-8 text-xs" disabled={portfolio.isFetching} onClick={() => void portfolio.refetch()}>
-                {portfolio.isFetching ? "Loading comparison…" : portfolio.isError ? "Retry comparison" : "Refresh comparison"}
+              <Button size="sm" variant="outline" className="h-8 text-xs" disabled={comparisonLoading} onClick={() => void Promise.all(monthlyQueries.map((q) => q.refetch()))}>
+                {comparisonLoading ? "Loading comparison…" : comparisonError ? "Retry comparison" : "Refresh comparison"}
               </Button>
             </div>
-            {portfolio.isError && (
-              <p role="alert" className="mb-2 text-xs text-destructive">
-                {portfolio.data?.length ? "Comparison could not refresh. Showing the last loaded figures." : "Comparison figures could not load. Please retry."}
-              </p>
-            )}
+            {comparisonError && <p role="alert" className="mb-2 text-xs text-destructive">Some hotels could not be reconciled. Unavailable figures are not estimated.</p>}
             <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
               {comparison.map((s, i) => {
                 const occDelta = s.occ != null && comparisonBenchmark.occ != null ? s.occ - comparisonBenchmark.occ : null;
@@ -606,11 +615,9 @@ export default function MarketIntelligenceChart({
                         vs portfolio:{occDelta != null ? ` OCC ${occDelta >= 0 ? "+" : ""}${occDelta}pt` : ""}{adrDelta != null ? ` · ADR ${adrDelta >= 0 ? "+" : "−"}€${Math.abs(adrDelta)}` : ""}
                       </p>
                     )}
-                    {s.nights === 0 ? (
-                      <p className="mt-2 text-[9px] text-muted-foreground sm:text-[10px]">
-                        {portfolio.isFetching ? "Loading figures…" : portfolio.isError ? "Figures unavailable. Retry above." : "No figures available for these nights."}
-                      </p>
-                    ) : <p className="mt-2 text-[9px] text-muted-foreground sm:text-[10px]">{s.nights} nights with data</p>}
+                    <p className="mt-2 text-[9px] text-muted-foreground sm:text-[10px]">
+                      {s.unavailable ?? (s.nights ? `${s.nights} full-month dates checked` : "Full-month data unavailable")}
+                    </p>
                   </div>
                 );
               })}
