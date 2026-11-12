@@ -1,40 +1,39 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
+import {
+  buildMonthBreakdown,
+  summariseReconciliationDays,
+  type KpiReconciliationMonth,
+  type MonthBreakdownRow,
+  type ReconciliationDay,
+} from "@/lib/kpiReconciliation";
 
-/**
- * One row of public.revenue_kpi_reconciliation_monthly.
- * Only the columns this card reads are typed.
- */
-export interface KpiReconciliationMonth {
-  hotel_id: string;
-  month_start: string;
-  capacity_room_nights: number | null;
-  booked_nights_all: number;
-  hold_nights: number;
-  commercial_sold: number;
-  unassigned_nights: number;
-  option_nights: number;
-  previo_dashboard_occupied: number;
-  past_nights: number;
-  housekeeping_verified_nights: number;
-  housekeeping_mismatch_nights: number;
-  previo_dashboard_occupancy_pct: number | null;
-  hotelcare_commercial_occupancy_pct: number | null;
-  best_physical_occupancy_pct: number | null;
-  best_commercial_occupancy_pct: number | null;
-}
+export type { KpiReconciliationMonth, MonthBreakdownRow, ReconciliationDay };
 
 const pct = (v: number | null | undefined) =>
   v === null || v === undefined || !Number.isFinite(Number(v)) ? "—" : `${Math.round(Number(v))}%`;
+
+const eur = (v: number | null | undefined) =>
+  v === null || v === undefined || !Number.isFinite(Number(v)) ? "—" : `€${Math.round(Number(v))}`;
+
+const dayRange = (a: string, b: string) => `${Number(a.slice(8, 10))}–${Number(b.slice(8, 10))}`;
 
 /**
  * Explains, in one place, why the Previo dashboard and HotelCare show different
  * occupancy for the same month, and which figure to trust.
  */
-export function KpiReconciliationView({ row, hu = false }: { row: KpiReconciliationMonth; hu?: boolean }) {
+export function KpiReconciliationView({
+  row,
+  hu = false,
+  breakdown = [],
+}: {
+  row: KpiReconciliationMonth;
+  hu?: boolean;
+  breakdown?: MonthBreakdownRow[];
+}) {
   const gap = row.booked_nights_all - row.previo_dashboard_occupied;
   const tiles = [
     {
@@ -108,6 +107,43 @@ export function KpiReconciliationView({ row, hu = false }: { row: KpiReconciliat
             </div>
           ))}
         </div>
+        {breakdown.length > 1 && (
+          <div data-testid="kpi-month-breakdown" className="rounded-lg border">
+            <div className="px-3 pt-2 text-[11px] font-medium text-muted-foreground">
+              {hu ? "Hogyan áll össze a hónap" : "How this month adds up"}
+            </div>
+            <table className="w-full text-xs tabular-nums">
+              <thead>
+                <tr className="text-[11px] text-muted-foreground">
+                  <th className="px-3 py-1 text-left font-normal">{hu ? "Időszak" : "Period"}</th>
+                  <th className="px-2 py-1 text-right font-normal">{hu ? "Eladott éj" : "Nights sold"}</th>
+                  <th className="px-2 py-1 text-right font-normal">{hu ? "Kihaszn." : "Occ."}</th>
+                  <th className="px-3 py-1 text-right font-normal">ADR*</th>
+                </tr>
+              </thead>
+              <tbody>
+                {breakdown.map((b) => (
+                  <tr key={b.key} className={b.key === "month" ? "border-t font-semibold" : ""}>
+                    <td className="px-3 py-1">
+                      {b.key === "stayed" ? (hu ? "Már eltöltött" : "Already stayed")
+                        : b.key === "books" ? (hu ? "Könyvben (jövő)" : "On the books")
+                        : (hu ? "Teljes hónap" : "Whole month")}
+                      <span className="ml-1 text-[11px] font-normal text-muted-foreground">{dayRange(b.firstDay, b.lastDay)}</span>
+                    </td>
+                    <td className="px-2 py-1 text-right">{b.sold}</td>
+                    <td className="px-2 py-1 text-right">{pct(b.occupancyPct)}</td>
+                    <td className="px-3 py-1 text-right">{eur(b.adrGross)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="px-3 pb-2 text-[11px] text-muted-foreground">
+              {hu
+                ? "*Reggelivel és extrákkal. A fenti csempék csak a mai naptól mutatják a hónapot."
+                : "*Incl. breakfast and extras. The tiles above show this month from today only."}
+            </p>
+          </div>
+        )}
         {reasons.length > 0 && (
           <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
             {reasons.map((r) => <li key={r}>{r}</li>)}
@@ -126,33 +162,29 @@ export function KpiReconciliationView({ row, hu = false }: { row: KpiReconciliat
 /** Loads the selected month for one hotel. Renders nothing until data exists. */
 export default function KpiReconciliationCard({ hotelId, month }: { hotelId: string | null; month: string }) {
   const { language } = useTranslation();
-  const [row, setRow] = useState<KpiReconciliationMonth | null>(null);
+  const [days, setDays] = useState<ReconciliationDay[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    setRow(null);
+    setDays([]);
     if (!hotelId || !/^\d{4}-\d{2}$/.test(month)) return;
     (async () => {
-      // The view is newer than the generated Supabase types.
+      // One access check and one hotel-month on the server; the function is
+      // newer than the generated Supabase types.
       const { data, error } = await (supabase as unknown as {
-        from: (t: string) => {
-          select: (c: string) => {
-            eq: (k: string, v: string) => {
-              eq: (k: string, v: string) => { maybeSingle: () => Promise<{ data: KpiReconciliationMonth | null; error: unknown }> };
-            };
-          };
-        };
-      })
-        .from("revenue_kpi_reconciliation_monthly")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .eq("month_start", `${month}-01`)
-        .maybeSingle();
-      if (!cancelled && !error && data) setRow(data);
+        rpc: (fn: string, args: Record<string, string>) => Promise<{ data: ReconciliationDay[] | null; error: unknown }>;
+      }).rpc("revenue_kpi_reconciliation_days", {
+        p_hotel_id: hotelId,
+        p_from: `${month}-01`,
+        p_to: `${month}-01`,
+      });
+      if (!cancelled && !error && Array.isArray(data)) setDays(data);
     })();
     return () => { cancelled = true; };
   }, [hotelId, month]);
 
+  const row = useMemo(() => summariseReconciliationDays(days), [days]);
+  const breakdown = useMemo(() => buildMonthBreakdown(days), [days]);
   if (!row) return null;
-  return <KpiReconciliationView row={row} hu={language === "hu"} />;
+  return <KpiReconciliationView row={row} breakdown={breakdown} hu={language === "hu"} />;
 }

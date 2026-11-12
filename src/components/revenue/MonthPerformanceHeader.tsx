@@ -171,8 +171,11 @@ export default function MonthPerformanceHeader({
     const lost = rows.reduce((s, m) => s + (m.pickupLost ?? 0), 0);
     const datesUp = rows.filter((m) => (m.netPickup ?? 0) > 0).length;
     const datesDown = rows.filter((m) => (m.netPickup ?? 0) < 0).length;
+    const stayDates = rows.map((m) => m.stay_date).sort();
     return {
       days: rows.length,
+      firstDay: stayDates[0] ?? null,
+      lastDay: stayDates[stayDates.length - 1] ?? null,
       holds,
       inactive,
       missingPrices,
@@ -304,6 +307,14 @@ export default function MonthPerformanceHeader({
   const canNext = months.length > 0 && month < months[months.length - 1];
 
   const monthLabel = localMonth(month+"-01");
+  // The tiles only hold nights from today onwards, so for the current month
+  // they cover the rest of the month, not all of it. Say so on every tile:
+  // a whole-month figure (nights already stayed + on the books) lives in the
+  // occupancy cross-check card below.
+  const partialMonth = Boolean(agg.firstDay && agg.firstDay > `${month}-01`);
+  const periodLabel = partialMonth && agg.firstDay && agg.lastDay
+    ? `${Number(agg.firstDay.slice(8, 10))}–${Number(agg.lastDay.slice(8, 10))} ${monthLabel} · ${hu ? "mától, a könyvben lévő foglalások" : "from today, on the books"}`
+    : monthLabel;
   const tilesLoading = loading || monthPending;
 
   /**
@@ -535,34 +546,34 @@ export default function MonthPerformanceHeader({
             loading={tilesLoading}
             label={hu?"Kihasználtság":"Occupancy"}
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
-            sub={`${agg.sold} ${hu?"a(z)":"of"} ${agg.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${monthLabel}`}
+            sub={`${agg.sold} ${hu?"a(z)":"of"} ${agg.capacity} ${hu?"szobaéjszakából":"room-nights"} · ${periodLabel}`}
             icon={<BedDouble className="h-3.5 w-3.5" />}
             surface={agg.occupancyPct >= 75 ? "border-l-emerald-500 bg-emerald-500/5" : agg.occupancyPct >= 45 ? "border-l-amber-500 bg-amber-500/5" : "border-l-sky-500 bg-sky-500/5"}
-            explain={{ title: `Occupancy — ${monthLabel}`, body: "Commercial occupied room-nights ÷ commercial room-nights available. Source: Previo reservations and active room inventory; non-commercial multi-year holds are removed from both sales and capacity." }}
+            explain={{ title: `Occupancy — ${periodLabel}`, body: `Commercial occupied room-nights ÷ commercial room-nights available${partialMonth ? ", from today to the end of the month only. Nights already stayed this month are not included here; the occupancy cross-check below shows stayed + on the books = whole month" : ""}. Source: Previo reservations and active room inventory; non-commercial multi-year holds are removed from both sales and capacity.` }}
           />
           <Tile
             loading={tilesLoading}
             label="ADR"
             value={agg.missingPrices ? "—" : money(agg.adr)}
-            sub={eurEquivalent(agg.adr) || `${monthLabel} · ${hu?"bevétel ÷ eladott éjszakák":"revenue ÷ nights sold"}`}
+            sub={eurEquivalent(agg.adr) || `${periodLabel} · ${hu?"reggelivel, extrákkal":"incl. breakfast & extras"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-violet-500 bg-violet-500/5"
-            explain={{ title: "ADR = Average Daily Rate", body: `Commercial room revenue ÷ commercially sold room-nights (including group rooms with €0 allocated). Non-commercial multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
+            explain={{ title: "ADR = Average Daily Rate", body: `Booking value ÷ commercially sold room-nights${partialMonth ? ", from today to the end of the month only (nights already stayed are not included)" : ""}. Booking value is the full reservation price from Previo, so it includes breakfast and extras: Previo's dashboard and Booking.com show the room price only, usually about €12–13 per guest per night lower. Group rooms with €0 allocated count as sold. Multi-year holds and inactive room types are excluded. Shown in ${currency.code}.` }}
           />
           <Tile
             loading={tilesLoading}
             label="RevPAR"
             value={agg.missingPrices ? "—" : money(agg.revpar)}
-            sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × ${hu?"kihasználtság":"occupancy"}`}
+            sub={eurEquivalent(agg.revpar) || `${periodLabel} · ADR × ${hu?"kihasználtság":"occupancy"}`}
             icon={<Gauge className="h-3.5 w-3.5" />}
             surface="border-l-cyan-500 bg-cyan-500/5"
-            explain={{ title: "RevPAR = ADR × Occupancy", body: `Room revenue ÷ all sellable room-nights in ${monthLabel}. What every unit earns on average, sold or not.` }}
+            explain={{ title: "RevPAR = ADR × Occupancy", body: `Booking value ÷ all sellable room-nights in ${periodLabel}. What every unit earns on average, sold or not. Uses the same ADR, so it also includes breakfast and extras.` }}
           />
           <Tile
             loading={tilesLoading}
             label={hu?"Bevétel":"Revenue"}
             value={agg.missingPrices ? "—" : money(agg.revenue)}
-            sub={eurEquivalent(agg.revenue) || `${monthLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
+            sub={eurEquivalent(agg.revenue) || `${periodLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-emerald-500 bg-emerald-500/5"
             explain={{

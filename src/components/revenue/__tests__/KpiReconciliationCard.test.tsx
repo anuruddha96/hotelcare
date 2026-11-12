@@ -1,23 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import KpiReconciliationCard, { KpiReconciliationView, type KpiReconciliationMonth } from "../KpiReconciliationCard";
+import KpiReconciliationCard, { KpiReconciliationView } from "../KpiReconciliationCard";
+import {
+  buildMonthBreakdown,
+  summariseReconciliationDays,
+  type KpiReconciliationMonth,
+  type ReconciliationDay,
+} from "@/lib/kpiReconciliation";
 
 const lang = { language: "en" };
 vi.mock("@/hooks/useTranslation", () => ({ useTranslation: () => lang }));
 
-const query = vi.fn();
+const rpc = vi.fn();
 vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    from: (table: string) => ({
-      select: () => ({
-        eq: (k1: string, v1: string) => ({
-          eq: (k2: string, v2: string) => ({
-            maybeSingle: () => query(table, { [k1]: v1, [k2]: v2 }),
-          }),
-        }),
-      }),
-    }),
-  },
+  supabase: { rpc: (fn: string, args: Record<string, string>) => rpc(fn, args) },
 }));
 
 // Gozsdu Court, December 2026, as the reconciliation view returned it on 2026-11-12.
@@ -104,36 +100,114 @@ describe("KpiReconciliationView", () => {
   });
 });
 
-describe("KpiReconciliationCard", () => {
-  beforeEach(() => { query.mockReset(); lang.language = "en"; });
+/** A small hotel: 10 rooms, 4 nights; two already stayed, two on the books. */
+const day = (stay_date: string, past: boolean, sold: number, revenue: number, extra: Partial<ReconciliationDay> = {}): ReconciliationDay => ({
+  hotel_id: "ottofiori",
+  stay_date,
+  is_past_night: past,
+  capacity_rooms: 10,
+  commercial_capacity: 10,
+  booked_nights_all: sold,
+  hold_nights: 0,
+  commercial_sold: sold,
+  unassigned_nights: 0,
+  option_nights: 0,
+  previo_dashboard_occupied: sold,
+  best_source: past ? "housekeeping_verified" : "bookings_on_the_books",
+  best_physical_occupied: sold,
+  best_commercial_sold: sold,
+  room_revenue_gross: String(revenue),
+  unpriced_nights: 0,
+  flags: [],
+  ...extra,
+});
+const NOV_DAYS: ReconciliationDay[] = [
+  day("2026-11-10", true, 10, 900),
+  day("2026-11-11", true, 10, 1000),
+  day("2026-11-12", false, 6, 900, { unassigned_nights: 1, previo_dashboard_occupied: 5 }),
+  day("2026-11-13", false, 8, 1500),
+];
 
-  it("loads the selected hotel and month from the monthly view", async () => {
-    query.mockResolvedValue({ data: GOZSDU_DEC, error: null });
-    render(<KpiReconciliationCard hotelId="gozsdu-court" month="2026-12" />);
-    await waitFor(() => expect(screen.getByTestId("kpi-reconciliation")).toBeTruthy());
-    expect(query).toHaveBeenCalledWith("revenue_kpi_reconciliation_monthly", {
-      hotel_id: "gozsdu-court",
-      month_start: "2026-12-01",
-    });
+describe("month breakdown", () => {
+  it("adds stayed and on-the-books nights up to the whole month", () => {
+    const rows = buildMonthBreakdown(NOV_DAYS);
+    expect(rows.map((r) => r.key)).toEqual(["stayed", "books", "month"]);
+    const [stayed, books, month] = rows;
+    expect(stayed).toMatchObject({ firstDay: "2026-11-10", lastDay: "2026-11-11", sold: 20, occupancyPct: 100, adrGross: 95 });
+    expect(books).toMatchObject({ sold: 14, occupancyPct: 70, adrGross: 171.43 });
+    expect(month).toMatchObject({ sold: 34, capacity: 40, occupancyPct: 85, adrGross: 126.47 });
+    expect(month.sold).toBe(stayed.sold + books.sold);
   });
 
-  it("renders nothing when the view is missing or access is denied", async () => {
-    query.mockResolvedValue({ data: null, error: { code: "42P01" } });
+  it("leaves unpriced (group / complimentary) nights out of ADR but not out of occupancy", () => {
+    const [only] = buildMonthBreakdown([day("2026-12-01", false, 4, 300, { unpriced_nights: 1 })]);
+    expect(only).toMatchObject({ sold: 4, occupancyPct: 40, adrGross: 100 });
+  });
+
+  it("shows no whole-month line when the month is entirely past or entirely future", () => {
+    expect(buildMonthBreakdown(NOV_DAYS.filter((d) => !d.is_past_night)).map((r) => r.key)).toEqual(["books"]);
+  });
+
+  it("summarises days with the same formulas as the database function", () => {
+    expect(summariseReconciliationDays(NOV_DAYS)).toMatchObject({
+      month_start: "2026-11-01",
+      capacity_room_nights: 40,
+      booked_nights_all: 34,
+      previo_dashboard_occupied: 33,
+      unassigned_nights: 1,
+      past_nights: 2,
+      housekeeping_verified_nights: 2,
+      previo_dashboard_occupancy_pct: 82.5,
+      hotelcare_commercial_occupancy_pct: 85,
+    });
+    expect(summariseReconciliationDays([])).toBeNull();
+  });
+});
+
+describe("KpiReconciliationCard", () => {
+  beforeEach(() => { rpc.mockReset(); lang.language = "en"; });
+
+  it("loads one hotel-month through the fast function and shows how it adds up", async () => {
+    rpc.mockResolvedValue({ data: NOV_DAYS, error: null });
+    render(<KpiReconciliationCard hotelId="ottofiori" month="2026-11" />);
+    await waitFor(() => expect(screen.getByTestId("kpi-reconciliation")).toBeTruthy());
+    expect(rpc).toHaveBeenCalledWith("revenue_kpi_reconciliation_days", {
+      p_hotel_id: "ottofiori",
+      p_from: "2026-11-01",
+      p_to: "2026-11-01",
+    });
+    const table = screen.getByTestId("kpi-month-breakdown");
+    expect(table.textContent).toMatch(/Already stayed10–11/);
+    expect(table.textContent).toMatch(/On the books12–13/);
+    expect(table.textContent).toMatch(/Whole month10–133485%€126/);
+    expect(screen.getByText("Gap vs Previo: +1 room-nights")).toBeTruthy();
+  });
+
+  it("renders nothing when the function is missing or access is denied", async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: "42883" } });
     const { container } = render(<KpiReconciliationCard hotelId="mika-downtown" month="2026-11" />);
-    await waitFor(() => expect(query).toHaveBeenCalled());
+    await waitFor(() => expect(rpc).toHaveBeenCalled());
+    expect(container.innerHTML).toBe("");
+  });
+
+  it("renders nothing for a hotel the user cannot access (no rows)", async () => {
+    rpc.mockResolvedValue({ data: [], error: null });
+    const { container } = render(<KpiReconciliationCard hotelId="memories-budapest" month="2026-11" />);
+    await waitFor(() => expect(rpc).toHaveBeenCalled());
     expect(container.innerHTML).toBe("");
   });
 
   it("does not query without a hotel or with a malformed month", () => {
     render(<KpiReconciliationCard hotelId={null} month="2026-11" />);
     render(<KpiReconciliationCard hotelId="ottofiori" month="November" />);
-    expect(query).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it("uses Hungarian when the app language is Hungarian", async () => {
     lang.language = "hu";
-    query.mockResolvedValue({ data: OTTOFIORI_NOV, error: null });
+    rpc.mockResolvedValue({ data: NOV_DAYS, error: null });
     render(<KpiReconciliationCard hotelId="ottofiori" month="2026-11" />);
     await waitFor(() => expect(screen.getByText("Kihasználtság egyeztetés")).toBeTruthy());
+    expect(screen.getByText("Hogyan áll össze a hónap")).toBeTruthy();
   });
 });
