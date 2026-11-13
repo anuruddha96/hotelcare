@@ -165,14 +165,13 @@ select cron.schedule(
       url := 'https://pcmszqqklkolvvlabohq.supabase.co/functions/v1/network-monitor-worker',
       headers := jsonb_build_object(
         'Content-Type', 'application/json',
-        'x-worker-secret', coalesce(
-          (select decrypted_secret from vault.decrypted_secrets
-           where name = 'network_monitor_worker_secret' limit 1),
-          'not-configured'
-        )
+        'x-worker-secret', v.decrypted_secret
       ),
       body := '{}'::jsonb,
       timeout_milliseconds := 15000
-    );
+    )
+    from vault.decrypted_secrets v
+    where v.name = 'network_monitor_worker_secret'
+    limit 1;
   $job$
 );
