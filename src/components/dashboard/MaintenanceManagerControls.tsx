@@ -102,13 +102,32 @@ export function MaintenanceManagerControls({ ticket, language, onUpdated }: Prop
     let active = true;
     setHistoryLoading(true);
     void (async () => {
-      const { data, error } = await supabase.from('comments')
-        .select('id, content, created_at').eq('ticket_id', ticket.id)
-        .order('created_at', { ascending: false }).limit(100);
+      const [commentsResult, correctionsResult] = await Promise.all([
+        supabase.from('comments').select('id, content, created_at').eq('ticket_id', ticket.id)
+          .order('created_at', { ascending: false }).limit(100),
+        (supabase as any).from('maintenance_room_change_audit')
+          .select('id, old_room_number, new_room_number, source, changed_at')
+          .eq('ticket_id', ticket.id).order('changed_at', { ascending: false }).limit(100),
+      ]);
       if (active) {
-        if (error) toast.error(error.message);
-        setHistory((data || []).filter(entry =>
-          entry.content.startsWith('[Manager maintenance action:') || entry.content.startsWith('[Maintenance review:')));
+        if (commentsResult.error) toast.error(commentsResult.error.message);
+        if (correctionsResult.error) console.warn('Maintenance room audit unavailable:', correctionsResult.error.message);
+        const activity = (commentsResult.data || []).filter(entry =>
+          entry.content.startsWith('[Manager maintenance action:') ||
+          entry.content.startsWith('[Maintenance review:') ||
+          entry.content.startsWith('[Maintenance room correction]'));
+        // System-requested historical corrections have an audit record but no user comment.
+        // Supervisor corrections already appear in comments, avoiding duplicate timeline entries.
+        const initialCorrections = ((correctionsResult.data || []) as Array<{
+          id: string; old_room_number: string | null; new_room_number: string;
+          source: string; changed_at: string;
+        }>).filter(entry => entry.source === 'admin_requested_correction').map(entry => ({
+          id: entry.id,
+          created_at: entry.changed_at,
+          content: `[Maintenance room correction] Room ${entry.old_room_number || 'not set'} → ${entry.new_room_number}. Corrected following manager request.`,
+        }));
+        setHistory([...activity, ...initialCorrections].sort((a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         setHistoryLoading(false);
       }
     })();
