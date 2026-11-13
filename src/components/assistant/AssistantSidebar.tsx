@@ -3,6 +3,8 @@ import {
   ArrowLeft,
   BarChart3,
   ChevronRight,
+  CheckCircle2,
+  CircleDot,
   Flag,
   Folder,
   FolderInput,
@@ -32,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AssistantThread } from "@/hooks/useAssistant";
+import { hasUnreadAssistantReply, isOpenFollowUp } from "@/lib/assistant/threadState";
 import type { AssistantProject } from "@/hooks/useAssistantProjects";
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
@@ -71,6 +74,7 @@ export interface AssistantSidebarProps {
   onRenameThread: (thread: AssistantThread) => void;
   onDeleteThread: (thread: AssistantThread) => void;
   onPinThread: (thread: AssistantThread, pinned: boolean) => void;
+  onFollowUp: (thread: AssistantThread, status: "none" | "open" | "done") => void;
   onMoveThread: (thread: AssistantThread, projectId: string | null) => void;
   onNewProject: () => void;
   onEditProject: (project: AssistantProject) => void;
@@ -92,8 +96,9 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
     () => threads.filter((t) => t.pinned_at).sort((a, b) => String(b.pinned_at).localeCompare(String(a.pinned_at))),
     [threads],
   );
+  const followUps = useMemo(() => threads.filter((t) => isOpenFollowUp(t) && !t.pinned_at && !inProject(t)), [threads, knownProjects]);
   const recents = useMemo(
-    () => groupThreadsByRecency(threads.filter((t) => !t.pinned_at && !inProject(t))),
+    () => groupThreadsByRecency(threads.filter((t) => !t.pinned_at && !isOpenFollowUp(t) && !inProject(t))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [threads, knownProjects],
   );
@@ -108,12 +113,19 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
     >
       <button
         type="button"
-        className="min-w-0 flex-1 truncate px-2.5 py-2 text-left"
+        className="min-w-0 flex-1 px-2.5 py-2 text-left"
         title={thread.title}
         aria-current={thread.id === activeThreadId ? "page" : undefined}
+        aria-label={thread.title + (hasUnreadAssistantReply(thread) ? ", unread reply" : "") + (isOpenFollowUp(thread) ? ", needs follow-up" : "")}
         onClick={() => props.onOpenThread(thread.id)}
       >
-        {thread.title}
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 flex-1 truncate font-medium">{thread.title}</span>
+          {isOpenFollowUp(thread) && <CircleDot aria-label="Needs follow-up" className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
+          {thread.follow_up_status === "done" && <CheckCircle2 aria-label="Marked done" className="h-3.5 w-3.5 shrink-0 text-emerald-600" />}
+          {hasUnreadAssistantReply(thread) && <span className="h-2 w-2 shrink-0 rounded-full bg-sky-500" aria-label="Unread reply" />}
+        </span>
+        {thread.preview && <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{thread.preview}</span>}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -126,11 +138,16 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-52">
-          {props.projectsAvailable && (
-            <DropdownMenuItem onClick={() => props.onPinThread(thread, !thread.pinned_at)}>
-              {thread.pinned_at ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />}
-              {thread.pinned_at ? "Unpin" : "Pin"}
-            </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => props.onPinThread(thread, !thread.pinned_at)}>
+            {thread.pinned_at ? <PinOff className="mr-2 h-4 w-4" /> : <Pin className="mr-2 h-4 w-4" />}
+            {thread.pinned_at ? "Unpin conversation" : "Pin important conversation"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => props.onFollowUp(thread, thread.follow_up_status === "open" ? "done" : "open")}>
+            {thread.follow_up_status === "open" ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <CircleDot className="mr-2 h-4 w-4" />}
+            {thread.follow_up_status === "open" ? "Mark task done" : thread.follow_up_status === "done" ? "Reopen follow-up" : "Needs follow-up"}
+          </DropdownMenuItem>
+          {Boolean(thread.follow_up_status && thread.follow_up_status !== "none") && (
+            <DropdownMenuItem onClick={() => props.onFollowUp(thread, "none")}>Clear task status</DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={() => props.onRenameThread(thread)}>
             <Pencil className="mr-2 h-4 w-4" /> Rename
@@ -182,8 +199,8 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
       <div className="flex items-center gap-2 px-3 pb-2 pt-3">
         <img src={hotelCareMark} alt="" className="h-8 w-8 rounded-lg" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold leading-tight">HotelCare AI</p>
-          <p className="truncate text-[11px] text-muted-foreground">Role-controlled · verified data</p>
+          <p className="truncate text-sm font-semibold leading-tight">Mira <span className="font-normal text-muted-foreground">by HotelCare</span></p>
+          <p className="truncate text-[11px] text-muted-foreground">Your hotel operations companion</p>
         </div>
         {props.onCollapse && (
           <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Hide sidebar" onClick={props.onCollapse}>
@@ -284,6 +301,13 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
           <>
             {heading("Pinned")}
             {pinned.map(row)}
+          </>
+        )}
+
+        {followUps.length > 0 && (
+          <>
+            {heading("Needs follow-up")}
+            {followUps.map(row)}
           </>
         )}
 

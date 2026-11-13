@@ -11,6 +11,12 @@ export interface AssistantThread {
   preview?: string | null;
   /** Set while the conversation is pinned to the top of the sidebar. */
   pinned_at?: string | null;
+  /** New replies only: server records when the last assistant message was saved. */
+  last_reply_at?: string | null;
+  /** Last response the user actually opened. Never cleared merely by entering workspace. */
+  last_read_at?: string | null;
+  /** Explicit task follow-up is independent of unread and pinned status. */
+  follow_up_status?: "none" | "open" | "done";
   /** The project this conversation is filed under, if any. */
   project_id?: string | null;
 }
@@ -82,7 +88,9 @@ export function useAssistant(threadId: string | null) {
     };
     // Pins and projects arrive with the workspace migration; until it has been
     // applied the history still loads from the original columns.
-    let { data, error } = await run("id,title,updated_at,pinned_at,project_id");
+    let { data, error } = await run("id,title,updated_at,pinned_at,project_id,last_reply_at,last_read_at,follow_up_status");
+    // Deploy migration before expecting unread / follow-up across devices.
+    if (error) ({ data, error } = await run("id,title,updated_at,pinned_at,project_id"));
     if (error) ({ data, error } = await run("id,title,updated_at"));
     if (error) {
       console.error("Failed to load assistant threads", error);
@@ -226,7 +234,11 @@ export function useAssistant(threadId: string | null) {
   }, [user?.id]);
 
   const patchThread = useCallback(
-    async (id: string, patch: { pinned_at?: string | null; project_id?: string | null }) => {
+    async (id: string, patch: {
+      pinned_at?: string | null;
+      project_id?: string | null;
+      follow_up_status?: "none" | "open" | "done";
+    }) => {
       const { error } = await (supabase as any)
         .from("assistant_threads")
         .update(patch)
@@ -252,6 +264,37 @@ export function useAssistant(threadId: string | null) {
     [patchThread],
   );
 
+  /** Mark an unresolved task as open, done or clear. Does not affect unread replies. */
+  const setThreadFollowUpStatus = useCallback(
+    (id: string, status: "none" | "open" | "done") => patchThread(id, { follow_up_status: status }),
+    [patchThread],
+  );
+
+  /** Acknowledge the timestamp actually rendered, never unseen newer replies. */
+  const markThreadRead = useCallback(async (id: string, visibleAssistantAt: string) => {
+    if (!user?.id || typeof document === "undefined" || document.visibilityState !== "visible") return false;
+    if (!Number.isFinite(Date.parse(visibleAssistantAt))) return false;
+    // Atomic DB function keeps multi-device acknowledgments monotonic.
+    const { error } = await (supabase as any).rpc("hc_mira_mark_thread_read", {
+      p_thread_id: id,
+      p_last_seen_at: visibleAssistantAt,
+    });
+    if (error) {
+      console.error("assistant: mark read failed", error);
+      return false;
+    }
+    setThreads((current) => {
+      const next = current.map((t) => {
+        if (t.id !== id || !t.last_reply_at) return t;
+        const seenMs = Math.min(Date.parse(t.last_reply_at), Date.parse(visibleAssistantAt));
+        return { ...t, last_read_at: new Date(Math.max(Date.parse(t.last_read_at ?? "") || 0, seenMs)).toISOString() };
+      });
+      threadCache.set(cacheKeyRef.current, next);
+      return next;
+    });
+    return true;
+  }, [user?.id]);
+
   /** File a conversation under a project, or take it out with `null`. */
   const moveThreadToProject = useCallback(
     (id: string, projectId: string | null) => patchThread(id, { project_id: projectId }),
@@ -268,6 +311,8 @@ export function useAssistant(threadId: string | null) {
     deleteThread,
     loadThreads,
     setThreadPinned,
+    setThreadFollowUpStatus,
+    markThreadRead,
     moveThreadToProject,
   };
 }

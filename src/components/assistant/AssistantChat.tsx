@@ -216,6 +216,7 @@ function ChatSession({
   externalPrompt,
   onExternalPromptConsumed,
   onThreadUpdated,
+  onReplyViewed,
   onNavigate,
   workspace = false,
 }: {
@@ -226,12 +227,14 @@ function ChatSession({
   externalPrompt?: { id: number; text: string } | null;
   onExternalPromptConsumed?: () => void;
   onThreadUpdated: () => void;
+  onReplyViewed?: (persistedAssistantAt: string) => void;
   onNavigate?: () => void;
   workspace?: boolean;
 }) {
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
   const [draft, setDraft] = useState("");
+  const [showResume, setShowResume] = useState(initialMessages.length > 0);
   const [modelTier, setModelTier] = useState<"auto" | "fast" | "balanced" | "deep">("auto");
   const [usage, setUsage] = useState<{ used: number; remaining: number | null; unlimited: boolean; resets_on?: string } | null>(null);
   const refreshUsage = useCallback(async () => {
@@ -293,6 +296,15 @@ function ChatSession({
         if (error) console.error("Failed to persist stopped assistant reply", error);
       }
       onThreadUpdated();
+      // Only a persisted assistant message can be marked read; an aborted or
+      // failed stream never counts as a completed unread answer.
+      if (!isAbort && document.visibilityState === "visible") {
+        const { data: savedReply } = await supabase.from("assistant_messages")
+          .select("created_at").eq("thread_id", threadId)
+          .eq("user_id", user?.id ?? "").eq("role", "assistant")
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (savedReply?.created_at) onReplyViewed?.(savedReply.created_at);
+      }
       void refreshUsage();
       window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
     },
@@ -349,6 +361,7 @@ function ChatSession({
     const value = text.trim();
     if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return;
     setDraft("");
+    setShowResume(false);
     setFailed(null);
     lastQuestionRef.current = value;
     await sendMessage({ text: value });
@@ -416,7 +429,13 @@ function ChatSession({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <Conversation className="min-h-0">
-        <ConversationContent className={cn("gap-4 px-2 py-4 sm:px-3", workspace && "mx-auto w-full max-w-3xl gap-6 sm:px-4")}>
+        <ConversationContent className={cn("gap-4 px-2 py-5 sm:px-3", workspace && "mx-auto w-full max-w-4xl gap-6 sm:px-6")}>
+          {workspace && showResume && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+              <span>You're continuing this conversation. Mira remembers the discussion above.</span>
+              <Button variant="ghost" size="sm" onClick={() => setShowResume(false)}>Got it</Button>
+            </div>
+          )}
           {messages.length === 0 && (
             <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} />
           )}
@@ -449,7 +468,7 @@ function ChatSession({
                         return (
                           <div key={key} className="mt-2 flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-xs">
                             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                            <div><p className="font-semibold">{toolPart.output.status === "queued" ? "Queued by HotelCare AI Operator" : toolPart.output.status === "recorded" ? "Recorded by HotelCare AI Operator" : "Completed by HotelCare AI Operator"}</p>
+                            <div><p className="font-semibold">{toolPart.output.status === "queued" ? "Queued by Mira by HotelCare" : toolPart.output.status === "recorded" ? "Recorded by Mira by HotelCare" : "Completed by Mira by HotelCare"}</p>
                               <p className="mt-1">{String(toolPart.output.summary)}</p>
                               {toolPart.output.actor && <p className="mt-1 text-muted-foreground">Requested by {String(toolPart.output.actor)}</p>}
                             </div>
@@ -559,6 +578,8 @@ function ChatSession({
                         <EmailDraftCard key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
                       ) : isReviewReply(attachment) ? (
                         <ReviewReplyCard key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
+                      ) : isAssistantActions(attachment) ? (
+                        <AssistantActions key={`${message.id}-saved-${attachmentIndex}`} payload={attachment} page={page} onNavigate={onNavigate} />
                       ) : null,
                     )}
                   {needsScope && isLast && (
@@ -593,7 +614,7 @@ function ChatSession({
                     <Sparkles className="h-4 w-4 animate-pulse" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">HotelCare AI Operator</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Mira by HotelCare</p>
                     <Shimmer className="text-sm font-medium">{analysisLabel}</Shimmer>
                   </div>
                 </div>
@@ -618,9 +639,9 @@ function ChatSession({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-3xl sm:px-4" : "border-t")}>
+      <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-4xl sm:px-6" : "border-t")}>
         <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] text-muted-foreground">
-          <span>HotelCare AI Operator · {page.hotelId || profile?.assigned_hotel || "Select a hotel"}</span>
+          <span>Mira by HotelCare · {page.hotelId || profile?.assigned_hotel || "Select a hotel"}</span>
           {usage && <span>{usage.unlimited ? "Unlimited messages" : `${usage.used}/20 messages this month`}</span>}
         </div>
         {profile?.role === "admin" && (
@@ -647,12 +668,12 @@ function ChatSession({
             ref={textareaRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask HotelCare to do something…"
-            rows={1}
+            placeholder="Ask Mira about operations, revenue, guests or a task…"
+            rows={2}
             enterKeyHint="send"
             autoCapitalize="sentences"
             autoCorrect="on"
-            className="min-h-12 max-h-32 text-base leading-snug"
+            className="min-h-16 max-h-44 text-base leading-relaxed"
           />
           <PromptInputFooter>
             <PromptInputTools>
@@ -705,6 +726,7 @@ export default function AssistantChat({
   threadId,
   onNeedThread,
   onThreadUpdated,
+  onReplyViewed,
   onNavigate,
   workspace = false,
   suggestedPrompt,
@@ -713,6 +735,7 @@ export default function AssistantChat({
   threadId: string | null;
   onNeedThread: () => Promise<string | null>;
   onThreadUpdated?: () => void;
+  onReplyViewed?: (persistedAssistantAt: string) => void;
   onNavigate?: () => void;
   /** Full-page workspace layout: centred column and the live opening screen. */
   workspace?: boolean;
@@ -721,6 +744,20 @@ export default function AssistantChat({
 }) {
   const { language } = useTranslation();
   const { messages: rows, loadingMessages, loadThreads } = useAssistant(threadId);
+  const latestVisibleReply = rows.filter((item) => item.role === "assistant").at(-1)?.created_at ?? null;
+  useEffect(() => {
+    if (loadingMessages || !latestVisibleReply || document.visibilityState !== "visible") return;
+    onReplyViewed?.(latestVisibleReply);
+    // Only mark on actual transcript changes, not on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, latestVisibleReply, loadingMessages]);
+  useEffect(() => {
+    const whenVisible = () => {
+      if (document.visibilityState === "visible" && latestVisibleReply) onReplyViewed?.(latestVisibleReply);
+    };
+    document.addEventListener("visibilitychange", whenVisible);
+    return () => document.removeEventListener("visibilitychange", whenVisible);
+  }, [latestVisibleReply, onReplyViewed]);
   // The first question of a brand-new chat is kept together with the thread it
   // belongs to. Keeping them in one value means the URL update that follows
   // thread creation can no longer race the transcript into dropping it.
@@ -756,15 +793,15 @@ export default function AssistantChat({
         <div className="flex-1 min-h-0 overflow-y-auto">
           <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} />
         </div>
-        <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-3xl sm:px-4" : "border-t")}>
+        <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-4xl sm:px-6" : "border-t")}>
           <PromptInput onSubmit={createAndSend} className={cn("bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
             <PromptInputTextarea
-              rows={1}
+              rows={2}
               enterKeyHint="send"
               autoCapitalize="sentences"
               autoCorrect="on"
-              className="min-h-12 max-h-32 text-base leading-snug"
-              placeholder="Ask anything…"
+              className="min-h-16 max-h-44 text-base leading-relaxed"
+              placeholder="Ask Mira anything about your hotel…"
               autoFocus
             />
             <PromptInputFooter className="justify-end">
@@ -801,6 +838,7 @@ export default function AssistantChat({
       onExternalPromptConsumed={onSuggestedPromptConsumed}
       onNavigate={onNavigate}
       workspace={workspace}
+      onReplyViewed={onReplyViewed}
       onThreadUpdated={() => {
         setPending(null);
         void loadThreads();

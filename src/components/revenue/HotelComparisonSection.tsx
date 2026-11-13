@@ -112,6 +112,11 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
                   title="ADR and RevPAR leader ranks first; otherwise occupancy, ADR and RevPAR are equally weighted, with RevPAR breaking ties.">
                   Ranked by occupancy, ADR and RevPAR
                 </p>
+                {comparison.find((s) => s.hotel_id === hotelId) && (
+                  <p className="mb-3 text-xs font-medium text-sky-700 dark:text-sky-300" aria-live="polite">
+                    Viewing: {comparison.find((s) => s.hotel_id === hotelId)?.hotel_name} · #{comparison.find((s) => s.hotel_id === hotelId)?.rank ?? "—"} of {comparison.length}
+                  </p>
+                )}
                 {comparisonError && <p role="alert" className="mb-2 text-xs text-destructive">Some hotels could not be reconciled. Unavailable figures are not estimated.</p>}
                 <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
                   {comparison.map((s, i) => {
@@ -139,7 +144,7 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
                             <div className="mt-1 h-4">
                               {isCurrent ? (
                                 <span className="inline-flex items-center rounded bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-medium leading-none text-sky-700 dark:text-sky-300">
-                                  Viewing
+                                  YOU ARE HERE
                                 </span>
                               ) : s.rank === 1 ? (
                                 <span className="inline-flex items-center gap-1 text-[9px] font-medium leading-4 text-amber-700 dark:text-amber-300">
