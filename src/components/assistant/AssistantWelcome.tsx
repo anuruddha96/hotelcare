@@ -122,18 +122,18 @@ export default function AssistantWelcome({
 
   const loading = cards === null;
   return (
-    <div className="mx-auto w-full max-w-2xl px-3 pb-6 pt-[8vh] sm:pt-[12vh]">
+    <div className="mx-auto w-full max-w-2xl px-3 pb-6 pt-8 sm:pt-14">
       <div className="flex items-center gap-3">
         <img src={hotelCareMark} alt="" className="h-10 w-10 rounded-xl" />
         <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{greeting(profile?.full_name)}</h2>
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
-        Ask about your hotel, or start with what needs attention{hotelName ? ` at ${hotelName}` : ""} today.
+        Check what's happening{hotelName ? ` at ${hotelName}` : " across your hotels"}, make decisions, and ask Mira to handle tasks within your access.
       </p>
 
       {(loading || (cards?.length ?? 0) > 0) && (
         <section className="mt-7" aria-label="Where to start">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Where to start</h3>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Live priorities</h3>
           <div className="grid gap-2">
             {loading
               ? [0, 1, 2].map((row) => <Skeleton key={row} className="h-[68px] w-full rounded-xl" />)
