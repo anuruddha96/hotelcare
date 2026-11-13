@@ -1586,6 +1586,145 @@ function buildTools(
   );
   // Personal mailbox: search, read and draft. Sending happens only on the card.
   Object.assign(tools, buildMailTools({ service, profile, threadId, attachments }));
+
+  // Unlike get_my_day, this is a ROLE-WIDE operational briefing. A hotel manager
+  // does not need a housekeeping shift or a personal room assignment to have
+  // outstanding work. Every read stays inside the resolved hotel/organization
+  // and only registered scopes are considered. This tool NEVER mutates data.
+  tools.get_attention_briefing = tool({
+    description:
+      "Use FIRST when someone asks what needs their attention today, what is urgent, or for a cross-department daily briefing. Check the departments accessible to their role, NOT only their personal shift. Return prioritized issues and checked/unchecked areas. Use portfolio=true ONLY when they explicitly request every property.",
+    inputSchema: jsonSchema<{ hotelId: string | null; date: string | null; portfolio: boolean }>({
+      type: "object",
+      properties: {
+        hotelId: { type: ["string", "null"], description: "Named authorized hotel, or null to use the current/assigned hotel" },
+        date: { type: ["string", "null"], description: "Business date YYYY-MM-DD, or null for today" },
+        portfolio: { type: "boolean", description: "True only when user explicitly asks about the full portfolio / all their hotels" },
+      },
+      required: ["hotelId", "date", "portfolio"],
+      additionalProperties: false,
+    }),
+    execute: async ({ hotelId, date, portfolio }) => {
+      const targetDate = date ?? today();
+      const preferredHotel = portfolio ? null : (hotelId ?? pageHotelId ?? profile.assigned_hotel);
+      const ids = resolve(preferredHotel);
+      const selectedHotels = hotels.filter((hotel) => ids.includes(hotel.hotel_id));
+      const checkedAt = new Date().toISOString();
+      const safely = async (fn: () => Promise<any>) => {
+        try {
+          const data = await fn();
+          if (data?.ok === false) return { ok: false, error: String(data.error ?? "Data unavailable") };
+          return { ok: true, data };
+        } catch (error) {
+          return { ok: false, error: String((error as Error)?.message ?? error) };
+        }
+      };
+      const [housekeeping, maintenance, reception, revenue, reputation, finance] = await Promise.all([
+        scopes.has("housekeeping") ? safely(() => housekeepingSnapshot(ids, targetDate)) : null,
+        scopes.has("maintenance") ? safely(() => maintenanceTickets(ids, null)) : null,
+        scopes.has("reception") ? safely(() => receptionOverview(ids, targetDate)) : null,
+        scopes.has("revenue") && ids.length === 1 && tools.review_pricing
+          ? safely(() => tools.review_pricing.execute(
+              { hotelId: ids[0], startDate: null, days: 7 },
+              { toolCallId: "attention-revenue", messages: [] },
+            )) : null,
+        canReadReputation(profile.role) && tools.get_reputation_overview
+          ? safely(() => tools.get_reputation_overview.execute(
+              { days: 14 }, { toolCallId: "attention-reputation", messages: [] },
+            )) : null,
+        scopes.has("finance") && tools.get_purchase_invoices
+          ? safely(() => tools.get_purchase_invoices.execute(
+              { hotelId: preferredHotel, status: null, startDate: null, endDate: null },
+              { toolCallId: "attention-finance", messages: [] },
+            )) : null,
+      ]);
+      const issues: Array<{ severity: "urgent" | "attention" | "information"; area: string; count: number; detail: string; records?: unknown[] }> = [];
+      const h = housekeeping?.ok ? housekeeping.data : null;
+      if (h?.totals?.unassignedDirty > 0) issues.push({
+        severity: "urgent", area: "housekeeping", count: h.totals.unassignedDirty,
+        detail: "Dirty rooms without a housekeeper",
+        records: (h.unassignedDirtyRooms ?? []).slice(0, 12),
+      });
+      const m = maintenance?.ok ? maintenance.data : null;
+      const openTickets = (m?.tickets ?? []).filter((ticket: any) => ticket.status !== "completed");
+      const highTickets = openTickets.filter((ticket: any) =>
+        ticket.slaBreached || ["high", "urgent"].includes(String(ticket.priority ?? "").toLowerCase()));
+      if (highTickets.length) issues.push({
+        severity: "urgent", area: "maintenance", count: highTickets.length,
+        detail: "Overdue or high-priority maintenance tickets",
+        records: highTickets.slice(0, 12).map((ticket: any) => ({
+          ticket: ticket.ticket_number, title: ticket.title, room: ticket.room_number,
+          hotel: ticket.hotel, status: ticket.status, priority: ticket.priority,
+          assignedTo: ticket.assigned_to, slaBreached: ticket.slaBreached,
+        })),
+      });
+      const p = reception?.ok ? reception.data : null;
+      if (p && !p.verified) issues.push({
+        severity: "attention", area: "reception", count: 1,
+        detail: "Today's arrivals and departures could not be verified from a fresh PMS sync",
+      });
+      const r = revenue?.ok ? revenue.data?.data : null;
+      const rateDates = (r?.dates ?? []).filter((item: any) =>
+        ["raise", "lower"].includes(item.stance) && item.has_data !== false);
+      if (rateDates.length) issues.push({
+        severity: "attention", area: "revenue", count: rateDates.length,
+        detail: "Upcoming stay dates flagged for a verified pricing review, not automatic publication",
+        records: rateDates.slice(0, 8).map((item: any) => ({
+          date: item.stay_date, stance: item.stance, occupancyPct: item.occupancy_pct,
+          roomsLeft: item.rooms_left, eventImpact: item.event_impact,
+        })),
+      });
+      const rep = reputation?.ok ? reputation.data?.data : null;
+      if (rep && Number(rep.unanswered ?? 0) > 0) issues.push({
+        severity: Number(rep.reply_first?.length ?? 0) > 0 ? "urgent" : "attention",
+        area: "reputation", count: Number(rep.unanswered),
+        detail: "Google reviews awaiting a reply (organization-wide, last 14 days)",
+      });
+      const f = finance?.ok ? finance.data : null;
+      if (f && Number(f.waitingForReview ?? 0) > 0) issues.push({
+        severity: "attention", area: "finance", count: Number(f.waitingForReview),
+        detail: "Purchase invoices waiting for review",
+      });
+      const rank = { urgent: 0, attention: 1, information: 2 };
+      issues.sort((a, b) => rank[a.severity] - rank[b.severity]);
+      return {
+        date: targetDate, checkedAt,
+        properties: selectedHotels.map((hotel) => hotel.hotel_name),
+        scope: portfolio ? "authorized_portfolio" : ids.length === 1 ? "single_property" : "authorized_properties",
+        availableActions: availableActions,
+        issues,
+        sections: {
+          housekeeping: housekeeping && (housekeeping.ok
+            ? { verified: true, totals: h.totals, progressPct: h.progressPct,
+                unassignedDirtyRooms: (h.unassignedDirtyRooms ?? []).slice(0, 15),
+                attentionRooms: (h.attentionRooms ?? []).slice(0, 8), note: h.dataFreshness }
+            : housekeeping),
+          maintenance: maintenance && (maintenance.ok
+            ? { verified: true, counts: m.counts, highPriority: highTickets.slice(0, 12) }
+            : maintenance),
+          reception: reception && (reception.ok
+            ? { verified: p.verified, source: p.source, arrivals: p.arrivals,
+                departures: p.departures, breakfastCount: p.breakfastCount,
+                arrivalRooms: p.arrivalRooms.slice(0, 15), note: p.note }
+            : reception),
+          revenue: revenue && (revenue.ok
+            ? { confidence: revenue.data?.provenance?.confidence ?? "unknown",
+                lastSyncAt: revenue.data?.provenance?.lastSyncAt ?? null,
+                summary: r?.summary ?? null, datesNeedingReview: rateDates.slice(0, 8) }
+            : revenue),
+          reputation: reputation && (reputation.ok
+            ? { unanswered: rep?.unanswered ?? null, lowStarFirst: rep?.reply_first?.length ?? null,
+                periodDays: 14, scope: "organization" }
+            : reputation),
+          finance: finance && (finance.ok
+            ? { waitingForReview: f?.waitingForReview ?? null,
+                totalsByApprovalStatus: f?.totalsByApprovalStatus ?? null }
+            : finance),
+        },
+        note: "A missing or failed section is NOT a zero. This is an operational overview, not a personal attendance check. No actions were executed.",
+      };
+    },
+  });
   return tools;
 }
 
@@ -1922,7 +2061,10 @@ HOTEL AND DATE
 - "today", "tomorrow", "this weekend", "next Friday" are resolved in Europe/Budapest time.
 
 OPERATIONAL READS
-- Own shift, rooms or tickets ("what do I do now", "my rooms", "am I signed in") → get_my_day first.
+- "What needs my attention today?", "what is urgent?", "brief me" and similarly broad questions → get_attention_briefing FIRST. For managers, supervisors and department leads, check ALL accessible operational departments, not their own attendance or personal room assignments. Distinguish urgent, important and informational findings; name rooms/ticket numbers/dates, and give a specific next action for each. A manager not clocked in is NOT evidence that the hotel has no work.
+- "My shift", "my assigned rooms", "my tickets", "am I signed in" → get_my_day first. For front-line staff, personal workload questions may start with get_my_day, but do not assume every question about today's work means their own shift.
+- On a briefing with an unverified PMS/revenue/department response, explicitly identify what could not be checked. Do not turn missing data into a clean bill of health. If everything verified is on track, say so and provide the best next useful check.
+- If an item can be handled within this caller's registered actions, say what Mira can do and invite an exact instruction, or call execute_action if the user ALREADY clearly requested that specific safe action. Where propose_action is required, present its confirmation card. Never silently act on a broad "what needs attention" question.
 - Arrivals, departures, in-house rooms, breakfast → get_reception_overview, and answer with its room-level detail. Never say "no arrivals" unless it actually returned zero for that date and hotel; if PMS rows are missing, say the data has not synced yet.
 - Housekeeping → get_housekeeping_status, or get_housekeeping_briefing for a broad "how are we doing today". Lead with done / in progress / not started plus the progress percentage, then each housekeeper by name with their completed-of-assigned count, then the exceptions with room numbers: DND, no-service, unassigned dirty rooms, unresolved notes, linen due, SLA-breached tickets.
 - Do not call the same tool twice unless the user disputes the data, you are comparing periods, or the first attempt failed. Most questions need one to four reads.
@@ -1935,6 +2077,8 @@ GUIDANCE AND ACTIONS
 - Contradictory directions such as "increase by -2" must be clarified before any change.
 - Roles and hotel boundaries are enforced server-side. A user without top-management/admin privileges cannot change rates.
 - Unavailable tools are unavailable because of authorization. Say access is required, without speculating about the data. Never reveal another organization, hotel, venue, guest identity, credential or staff pay.
+- Be an operator, not a passive Q&A bot: for a supported job, explain whether you can complete it now, need a single missing detail, or need confirmation. Do not default to "Would you like me to help?" when the next action is already clear.
+- After an action, state precisely "completed", "recorded", "queued", "awaiting confirmation", or "not completed" based on the returned status. Never imply a queued price publication is already live. Never offer to sign in someone's shift unless a real authorized sign-in action exists.
 - For Hotel Care usage questions, use the workflow reference tool. For general (non Hotel Care) knowledge you already know confidently, answer normally.
 
 WEB SEARCH — for facts not stored in Hotel Care
