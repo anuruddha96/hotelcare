@@ -1,5 +1,5 @@
 /**
- * HotelCare purpose-based OpenAI model policy.
+ * HotelCare purpose-based OpenAI model policy.\n * Use broadly available API models; a previously configured GPT-6.1 Terra\n * returned "project does not have access" in production and broke chat.
  * Low-stakes UI text never needs the analysis model; revenue root-cause and
  * consequential recommendations remain on the explicit premium path.
  * Public models and rates should be reviewed periodically against OpenAI docs.
@@ -7,9 +7,9 @@
 export type AiPurpose = "routine" | "standard" | "premium" | "verified-search";
 
 export const MODEL_BY_PURPOSE: Record<AiPurpose, string> = {
-  routine: "gpt-6-luna",
-  standard: "gpt-6.1-terra",
-  premium: "gpt-5.6-sol",
+  routine: "gpt-4o-mini",
+  standard: "gpt-4.1-mini",
+  premium: "gpt-4.1-mini",
   "verified-search": "gpt-4.1",
 };
 
