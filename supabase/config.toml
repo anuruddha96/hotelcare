@@ -313,3 +313,11 @@ verify_jwt = false
 # The function itself must validate every request (no public table grants).
 [functions.insuite-api]
 verify_jwt = false
+
+# Per-device token authentication for heartbeat; managers verified by user JWT in handler.
+[functions.network-monitor]
+verify_jwt = false
+
+# Server-only watchdog called with the dedicated Vault/Edge worker secret.
+[functions.network-monitor-worker]
+verify_jwt = false
