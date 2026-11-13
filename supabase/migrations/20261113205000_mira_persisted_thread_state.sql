@@ -46,3 +46,18 @@ DROP TRIGGER IF EXISTS hc_assistant_reply_insert ON public.assistant_messages;
 CREATE TRIGGER hc_assistant_reply_insert
 AFTER INSERT ON public.assistant_messages
 FOR EACH ROW EXECUTE FUNCTION public.hc_assistant_record_reply();
+
+-- Atomic, monotonic read acknowledgment. Only the reply actually displayed
+-- can be acknowledged; a newer reply arriving concurrently stays unread.
+CREATE OR REPLACE FUNCTION public.hc_mira_mark_thread_read(
+  p_thread_id uuid, p_last_seen_at timestamptz
+) RETURNS void LANGUAGE sql SECURITY INVOKER SET search_path = public AS $$
+  UPDATE public.assistant_threads t
+     SET last_read_at = GREATEST(t.last_read_at, LEAST(t.last_reply_at, p_last_seen_at))
+   WHERE t.id = p_thread_id
+     AND t.user_id = auth.uid()
+     AND t.last_reply_at IS NOT NULL
+     AND p_last_seen_at IS NOT NULL;
+$$;
+REVOKE ALL ON FUNCTION public.hc_mira_mark_thread_read(uuid, timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.hc_mira_mark_thread_read(uuid, timestamptz) TO authenticated;
