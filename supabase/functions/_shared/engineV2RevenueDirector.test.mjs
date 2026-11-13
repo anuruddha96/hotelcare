@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { confirmedHighImpactEvent, decideRevenueDirector, committedMovement } from './engineV2RevenueDirector.ts';
+import { confirmedHighImpactEvent, decideRevenueDirector, committedMovement, sameDayMarkdownStep } from './engineV2RevenueDirector.ts';
 import { DEFAULT_DECISION_SETTINGS } from './engineV2Core.ts';
 const settings = {
  ...DEFAULT_DECISION_SETTINGS, now:new Date('2026-11-05T12:00:00Z'),minMovementEur:1,
@@ -28,14 +28,14 @@ test('unprotected final-week rooms sell down; high occupancy is protected',()=>{
 });
 test('last four days can sell a quiet final room, while fresh demand and real events protect it',()=>{
  for (const daysOut of [0,1,2,3]) {
-  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).movement,-1);
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).movement, daysOut===0 ? -2 : -1);
   assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:2}).direction,'hold');
   assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8},{confirmedHighEvent:true}).direction,'hold');
  }
  assert.equal(decide({daysOut:4,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).direction,'hold');
 });
-test('same-day genuine pickup can increase even at high occupancy',()=>{
- assert.equal(decide({daysOut:0,occupancyPct:95.2,roomsRemaining:1,pickup24h:1,pickup6h:1}).direction,'increase');
+test('same-day genuine pickup holds instead of discounting a converting offer',()=>{
+ assert.equal(decide({daysOut:0,occupancyPct:95.2,roomsRemaining:1,pickup24h:1,pickup6h:1,hoursSinceLastPickup:0.2}).direction,'hold');
 });
 test('one soft-date conversion earns a small uplift, fast pickup earns more',()=>{
  assert.equal(decide({pickup24h:1,pickup6h:1}).movement,2);
@@ -43,9 +43,9 @@ test('one soft-date conversion earns a small uplift, fast pickup earns more',()=
  assert.equal(decide({daysOut:2,pickup24h:1,pickup6h:1}).movement,1);
 });
 test('single-booking uplift cap applies even at high occupancy',()=>{
- assert.equal(decide({daysOut:0,occupancyPct:90.5,roomsRemaining:2,pickup24h:1,pickup6h:1}).movement,1);
+ assert.equal(decide({daysOut:0,occupancyPct:90.5,roomsRemaining:2,pickup24h:1,pickup6h:1}).direction,'hold');
  assert.equal(decide({daysOut:40,occupancyPct:90.5,roomsRemaining:2,pickup24h:1,pickup6h:1}).movement,2);
- assert.ok(decide({daysOut:0,occupancyPct:90.5,roomsRemaining:2,pickup24h:3,pickup6h:3}).movement>1);
+ assert.equal(decide({daysOut:0,occupancyPct:90.5,roomsRemaining:2,pickup24h:3,pickup6h:3}).direction,'hold');
 });
 test('consumed pickup cannot repeat an increase, while booked-price brake prevents immediate cut',()=>{
  const d=decide({pickup24h:0,pickup6h:0,hoursSinceLastPickup:1,lastDirection:'increase',lastDecisionAt:'2026-11-05T11:00:00Z',movedUpTodayEur:2});
@@ -132,4 +132,28 @@ test('old unconsumed pickup cannot cause a late increase when the offer is now q
 });
 test('quiet soft dates still respect the absolute hotel floor',()=>{
  assert.equal(decide({currentPrice:80,minPrice:80}).direction,'hold');
+});
+
+test('same-day step becomes more aggressive as the Budapest day advances',()=>{
+ assert.equal(sameDayMarkdownStep(9*60,1),2);
+ assert.equal(sameDayMarkdownStep(14*60+59,5),3);
+ assert.equal(sameDayMarkdownStep(15*60,1),4);
+ assert.equal(sameDayMarkdownStep(17*60,5),5);
+ assert.equal(sameDayMarkdownStep(18*60,1),5);
+ assert.equal(sameDayMarkdownStep(18*60,4),6);
+});
+test('same-day hourly markdown is €2 before 15h, €5 after 18h and respects a €75 floor',()=>{
+ const today={daysOut:0,stayDate:'2026-11-05',roomsRemaining:1,occupancyPct:95.2,currentPrice:199,minPrice:75,hoursSinceLastPickup:25,observedPickup6h:0};
+ assert.equal(decide(today).movement,-2);
+ const late={...settings,now:new Date('2026-11-05T18:30:00Z')}; // 19:30 Budapest
+ assert.equal(decideRevenueDirector(input({...today,currentPrice:81}),late,context).movement,-5);
+ assert.equal(decideRevenueDirector(input({...today,currentPrice:76}),late,context).movement,-1);
+ assert.equal(decideRevenueDirector(input({...today,currentPrice:75}),late,context).direction,'hold');
+});
+test('one hour minimum between same-day markdowns, manager hold and stale data still block',()=>{
+ const today={daysOut:0,roomsRemaining:4,currentPrice:200,minPrice:75,occupancyPct:80,hoursSinceLastPickup:25,observedPickup6h:0};
+ assert.equal(decide({...today,lastDecreaseAt:'2026-11-05T11:30:00Z'}).direction,'hold');
+ assert.equal(decide({...today,lastDecreaseAt:'2026-11-05T10:30:00Z'}).movement,-3);
+ assert.equal(decide({...today,manualHoldUntil:'2026-11-06T12:00:00Z',holdKind:'soft'}).direction,'hold');
+ assert.equal(decide({...today,dataStale:true}).direction,'hold');
 });
