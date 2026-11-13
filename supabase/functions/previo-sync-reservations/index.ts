@@ -5,7 +5,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { callPrevioXml, hasPrevioCredentials, loadPrevioCredentials, resolvePrevioSecretName } from "../_shared/previoCredentials.ts";
 import {
-  addDays, buildReservationTermXml, groupGuestNames, isPrevioBusyResponse, isReservationOwnedByImportChunk,
+  addDays, buildReservationTermXml, groupGuestNames, IncomingBookingSet, isPrevioBusyResponse, isReservationOwnedByImportChunk,
   mapPrevioStatus, mergePrevioFinancials, mergePrevioStatus, parsePrevioReservations, pmsFieldsEqual,
   PMS_RESERVATION_COLUMNS, resolveImportTarget, type PrevioReservationRow,
 } from "../_shared/previoReservations.ts";
@@ -52,6 +52,8 @@ serve(async req => {
   let unmappedRooms = 0;
   let attempted = 0;
   const errors: string[] = [];
+  // Bookings set aside without failing the run (day-use, conflicting duplicates).
+  let warnings: string[] = [];
   const accountsSummary: Array<{ label: string; received: number; error?: string }> = [];
   let window: { from: string; to: string } | null = null;
   // "horizon": full stay-overlap import of the booking window (manual Sync button, scheduled refresh).
@@ -71,7 +73,7 @@ serve(async req => {
       changed_by: userId, synced_by_user_id: userId, synced_by_name: userName,
       error_message: errors.length ? errors.join("; ").slice(0, 900) : null,
       data: { received, inserted: committedInserted, updated: committedUpdated,
-        skipped, attempted, unmapped_rooms: unmappedRooms, errors, window, accounts: accountsSummary,
+        skipped, attempted, unmapped_rooms: unmappedRooms, errors, warnings, window, accounts: accountsSummary,
         mode, schema_pending: !extendedSchema, completed_batches_only: true },
     });
     if (error) console.error("Previo reservation sync history write failed", error.code);
@@ -93,7 +95,7 @@ serve(async req => {
 
     const back = Number(body?.daysBack ?? 7);
     const forward = Number(body?.daysForward ?? 365);
-    if (!Number.isInteger(back) || back < 0 || back > 60 || !Number.isInteger(forward) || forward < 30 || forward > 540) {
+    if (!Number.isInteger(back) || back < 0 || back > 120 || !Number.isInteger(forward) || forward < 30 || forward > 540) {
       return json({ success: false, error: "Reservation window out of range" }, 400);
     }
     if (body?.mode != null && body.mode !== "horizon" && body.mode !== "incremental") {
@@ -161,7 +163,8 @@ serve(async req => {
       ranges.push({ from, to: next < window.to ? next : window.to });
     }
     const termType = mode === "incremental" ? "modified" : "overlap";
-    const parsed = new Map<string, PrevioReservationRow>();
+    const incoming = new IncomingBookingSet();
+    const parsed = incoming.rows;
     for (const account of accounts) {
       const creds = loadPrevioCredentials(account.credentials_secret_name);
       let accountReceived = 0;
@@ -190,29 +193,29 @@ serve(async req => {
           // Never paper over conflicting duplicates inside a single chunk.
           // A "modified" search is not a stay-overlap search, so chunk ownership does not apply.
           if (mode === "horizon" && !isReservationOwnedByImportChunk(row.arrivalDate, from, to, from === window.from)) continue;
-          if (row.arrivalDate >= row.departureDate || !row.sourceRef) {
-            errors.push("Previo returned an invalid reservation date or reference");
-            await writeHistory("failed");
-            return json({ success: false, complete: false, inserted: 0, updated: 0, errors }, 502);
-          }
-          const sourceRef = accounts.length > 1 ? `${account.pms_hotel_id}:${row.sourceRef}` : row.sourceRef;
-          const old = parsed.get(sourceRef);
-          if (old && JSON.stringify(old) !== JSON.stringify({ ...row, sourceRef })) {
-            errors.push("Previo returned inconsistent duplicate booking references");
-            await writeHistory("failed");
-            return json({ success: false, complete: false, inserted: 0, updated: 0, errors }, 502);
-          }
-          parsed.set(sourceRef, { ...row, sourceRef });
-          if (parsed.size > MAX_INCOMING) throw new Error("Too many Previo bookings; narrow the import window");
+          // One odd booking (day-use, conflicting duplicate) is set aside and reported;
+          // it no longer blocks every other booking of the hotel from updating.
+          const sourceRef = row.sourceRef
+            ? (accounts.length > 1 ? `${account.pms_hotel_id}:${row.sourceRef}` : row.sourceRef)
+            : "";
+          incoming.add(row, sourceRef);
+          if (incoming.size > MAX_INCOMING) throw new Error("Too many Previo bookings; narrow the import window");
         }
       }
       accountsSummary.push({ label: account.label, received: accountReceived });
+    }
+    warnings = incoming.warnings();
+    if (incoming.tooManyRejected()) {
+      // Many unusable rows means the response format changed: write nothing.
+      errors.push("Previo returned too many unusable bookings; nothing was imported", ...warnings);
+      await writeHistory("failed");
+      return json({ success: false, complete: false, inserted: 0, updated: 0, errors }, 502);
     }
 
     // Nothing changed in Previo since the last look: no local reads, no writes, no history row.
     if (mode === "incremental" && parsed.size === 0) {
       return json({ success: true, complete: true, status: "success", mode, inserted: 0, updated: 0,
-        skipped: 0, attempted: 0, received, unmapped_rooms: 0, errors, window, accounts: accountsSummary });
+        skipped: 0, attempted: 0, received, unmapped_rooms: 0, errors, warnings, window, accounts: accountsSummary });
     }
 
     const roomByPmsId = new Map<string, string>();
@@ -427,7 +430,7 @@ serve(async req => {
       .update({ last_sync_status: status, last_sync_error: errors.join("; ").slice(0, 500) }).eq("id", account.id);
     return json({ success: status === "success", complete: status === "success", status,
       inserted: committedInserted, updated: committedUpdated, skipped, attempted,
-      received, unmapped_rooms: unmappedRooms, errors, window, accounts: accountsSummary,
+      received, unmapped_rooms: unmappedRooms, errors, warnings, window, accounts: accountsSummary,
       mode, schema_pending: !extendedSchema }, status === "failed" ? 502 : 200);
   } catch (error) {
     errors.push(errorMessage(error));
