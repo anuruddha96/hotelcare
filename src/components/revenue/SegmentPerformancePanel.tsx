@@ -22,8 +22,8 @@ export interface ChannelNight {
  * Format them for people without changing the underlying sale classification. */
 export function normaliseRevenueSource(source: string | null): string {
   if (!source?.trim()) return "Unspecified source";
-  const cleaned = source.replace(/^\s*\d{1,6}\s+/, "").replace(/\s+/g, " ").trim()
-    .replace(/(?:XML|V2XML)$/i, "").trim();
+  const cleaned = source.replace(/\\n/g, " ").replace(/^\s*\d{1,6}\s+/, "").replace(/\s+/g, " ").trim()
+    .replace(/(?:V2XML|XML)$/i, "").trim();
   return cleaned || "Unspecified source";
 }
 
