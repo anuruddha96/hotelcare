@@ -27,7 +27,7 @@ export interface ChannelResult {
   recent: number;
 }
 function booked(n: ChannelNight): boolean {
-  if (n.status_id === 7 || n.status_id === 8) return false;
+  if (n.status_id == null || n.status_id === 7 || n.status_id === 8) return false;
   if (n.stay_from && n.stay_to && n.stay_to <= n.stay_from) return false;
   // Long source-less Previo blocks reserve inventory; they are not sales.
   const duration = n.stay_from && n.stay_to
@@ -47,7 +47,7 @@ export function aggregateChannels(nights: ChannelNight[], selectedMonth: string,
     }
     row.sold += 1;
     const price = Number(n.nightly_price_eur ?? 0);
-    if (price > 0 && Number.isFinite(price)) {
+    if (price !== 0 && Number.isFinite(price)) {
       row.revenue += price;
       row.priced += 1;
     }
