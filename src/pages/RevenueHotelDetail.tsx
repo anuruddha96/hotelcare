@@ -1192,6 +1192,7 @@ export default function RevenueHotelDetail() {
             inventoryMismatch={live.inventoryMismatch}
             configuredRooms={live.configuredRooms}
             selectedMonth={selectedMonth}
+            comparisonHotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))}
             onSelectedMonthChange={setSelectedMonth}
             nights={live.nights}
             cancellations={live.cancellations}
