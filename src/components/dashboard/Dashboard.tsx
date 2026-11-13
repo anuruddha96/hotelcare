@@ -17,6 +17,7 @@ import { AutoAssignmentService } from './AutoAssignmentService';
 import { RoomManagement } from './RoomManagement';
 import { HotelRoomOverview } from './HotelRoomOverview';
 import { CompanySettings } from './CompanySettings';
+import InternetMonitoringPanel from './InternetMonitoringPanel';
 import { HousekeepingTab } from './HousekeepingTab';
 import { MinibarTrackingView } from './MinibarTrackingView';
 import { LostAndFoundManagement } from './LostAndFoundManagement';
@@ -36,7 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MyWorkforceSchedule } from '@/components/workforce/MyWorkforceSchedule';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Users, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, CalendarDays } from 'lucide-react';
+import { Plus, Search, Users, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, CalendarDays, Wifi } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Ticket {
@@ -410,6 +411,10 @@ export function Dashboard() {
           <div className="flex flex-col gap-4 justify-between items-start">
             <div><h1 className="text-2xl sm:text-3xl font-bold text-foreground">{hotelDisplayName || t('dashboard.title')}</h1>
               <p className="text-sm sm:text-base text-muted-foreground">{hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}</p></div>
+            {isManager && profile?.organization_slug === 'rdhotels' && (
+              <Button variant="outline" onClick={() => setActiveTab('network-monitoring')}
+                className="gap-2"><Wifi className="h-4 w-4" /> Internet Monitoring</Button>
+            )}
             <div className="w-full overflow-x-auto">
               {profile?.role === 'housekeeping' ? (
                 <TabsList className={(profile?.role === 'hr' || profile?.is_super_admin) ? 'inline-flex h-10 sm:h-12 w-auto min-w-max gap-1' : 'grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12'} data-training="main-tabs">
@@ -567,6 +572,7 @@ export function Dashboard() {
 
           {profile?.role === 'reception' && <>{!noMinibar && <TabsContent value="minibar" className="space-y-6"><MinibarTrackingView /></TabsContent>}<TabsContent value="lost-found" className="space-y-6"><LostAndFoundManagement /></TabsContent></>}
           {profile?.role === 'admin' && <TabsContent value="admin" className="space-y-6"><AdminTabs /></TabsContent>}
+          {isManager && profile?.organization_slug === 'rdhotels' && <TabsContent value="network-monitoring" className="space-y-6"><InternetMonitoringPanel /></TabsContent>}
         </Tabs>
 
         <CreateTicketDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} onTicketCreated={fetchTickets} onOpenTicket={id => void openCreatedMaintenanceIssue(id)} />

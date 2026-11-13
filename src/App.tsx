@@ -12,6 +12,7 @@ import { LocationPermissionBoot } from "@/components/dashboard/LocationPermissio
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { PointerEventsGuard } from "@/components/system/PointerEventsGuard";
 import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
+import { NetworkMonitorHeartbeat } from "@/components/system/NetworkMonitorHeartbeat";
 import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSessionGuard";
@@ -251,6 +252,7 @@ const MainApp = () => (
           <PointerEventsGuard />
           <ExecutiveResumeRefresh />
           <ServiceOutageBanner />
+          <NetworkMonitorHeartbeat />
           <SystemAnnouncementBanner />
           <BrowserRouter>
             <AuthenticatedShell>
