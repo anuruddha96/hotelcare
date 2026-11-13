@@ -316,3 +316,17 @@ verify_jwt = false
 # The function itself must validate every request (no public table grants).
 [functions.insuite-api]
 verify_jwt = false
+
+# Channex channel manager. channex-admin requires a user JWT and re-checks hotel access + role.
+# Webhook and workers are called by Channex / pg_cron and authenticate with Vault secrets instead.
+[functions.channex-admin]
+verify_jwt = true
+
+[functions.channex-webhook]
+verify_jwt = false
+
+[functions.channex-booking-worker]
+verify_jwt = false
+
+[functions.channex-ari-worker]
+verify_jwt = false
