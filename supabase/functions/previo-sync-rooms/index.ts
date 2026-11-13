@@ -37,6 +37,18 @@ interface PrevioRoom {
   order: number;
 }
 
+// Canonical English labels for three Ottofiori Previo room kinds.
+// Previo room-kind and physical-room IDs remain authoritative and unchanged.
+const OTTOFIORI_ENGLISH_ROOM_NAMES: Record<string, string> = {
+  '982505': 'Economy Double Room',
+  '982615': 'Deluxe Triple Room',
+  '982617': 'Deluxe Quadruple Room',
+};
+function displayRoomKindName(hotelId: string, roomKindId: string | number, sourceName: string): string {
+  if (hotelId === 'ottofiori') return OTTOFIORI_ENGLISH_ROOM_NAMES[String(roomKindId)] ?? sourceName;
+  return sourceName;
+}
+
 // Keep one canonical housekeeping-status mapping for both Fresh Sync/import
 // and the normal room-status sync path. Previo's closed operational states must
 // remain visibly blocked in HotelCare, not collapse into an ordinary dirty room.
@@ -220,13 +232,14 @@ serve(async (req) => {
           const roomNumber = (numberCounts.get(extracted) ?? 0) > 1
             ? String(rawName ?? '').trim()
             : extracted;
-          const roomType = r.roomKindName || '';
-          const roomCategory = r.roomKindName || null;
+          const roomType = displayRoomKindName(hotelCareHotelId, r.roomKindId, r.roomKindName || '');
+          const roomCategory = roomType || null;
           const capacity = (r.capacity ?? 0) + (r.extraCapacity ?? 0);
           const pmsMetadata = {
             roomId: r.roomId,
             roomKindId: r.roomKindId,
-            roomKindName: r.roomKindName,
+            roomKindName: roomType,
+            ...(roomType !== (r.roomKindName || '') ? { previoOriginalRoomKindName: r.roomKindName } : {}),
             roomTypeId: r.roomTypeId,
             roomCleanStatusId: r.roomCleanStatusId,
             isHourlyBased: r.isHourlyBased,
@@ -411,7 +424,7 @@ serve(async (req) => {
         // match on the physical roomId.
         const physicalRoomId = String(roomData.roomId);
         const roomKindId = String(roomData.roomKindId);
-        const roomType = roomData.roomKindName || '';
+        const roomType = displayRoomKindName(hotelCareHotelId, roomData.roomKindId, roomData.roomKindName || '');
         const status = mapPrevioStatus(roomData.roomCleanStatusId);
 
         const mapping = roomMappings.find(m => m.pms_room_id === physicalRoomId);
@@ -446,7 +459,8 @@ serve(async (req) => {
             ...((existingRoom as any).pms_metadata || {}),
             roomId: roomData.roomId,
             roomKindId: roomData.roomKindId,
-            roomKindName: roomData.roomKindName,
+            roomKindName: roomType,
+            ...(roomType !== (roomData.roomKindName || '') ? { previoOriginalRoomKindName: roomData.roomKindName } : {}),
             roomTypeId: roomData.roomTypeId,
             roomCleanStatusId: roomData.roomCleanStatusId,
           },
