@@ -61,7 +61,7 @@ const portfolioReady = () => ({ data: [], isError: false, isPending: false, isFe
 
 async function openComparison() {
   await act(async () => { render(<MarketIntelligenceChart hotels={hotels} hotelId="ottofiori" selectedMonth="2026-09" metrics={metrics} />); });
-  fireEvent.click(screen.getByRole("button", { name: "Compare hotels" }));
+  if (!screen.queryByRole("region", { name: "Hotel comparison" })) fireEvent.click(screen.getByRole("button", { name: "Compare hotels" }));
   return screen.getByRole("region", { name: "Hotel comparison" });
 }
 
