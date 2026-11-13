@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { aggregateChannels, type ChannelNight } from "./SegmentPerformancePanel";
+import { aggregateChannels, normaliseRevenueSource, type ChannelNight } from "./SegmentPerformancePanel";
 
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 vi.mock("@/hooks/useMonthReconciliationDays", () => ({ useMonthReconciliationDays: () => ({ data: [] }) }));
@@ -17,6 +17,11 @@ const row = (override: Partial<ChannelNight> = {}): ChannelNight => ({
   ...override,
 });
 describe("channel report reconciliation", () => {
+  it("strips Previo numeric identifiers and technical XML suffixes from channel labels", () => {
+    expect(normaliseRevenueSource("770\\n            Booking.com XML")).toBe("Booking.com");
+    expect(normaliseRevenueSource("1509\\n            AgodaXML")).toBe("Agoda");
+    expect(normaliseRevenueSource(null)).toBe("Unspecified source");
+  });
   it("excludes cancelled, unconfirmed statuses and long inventory holds", () => {
     const result = aggregateChannels([
       row(), row({ res_id: "X", status_id: 7 }),
