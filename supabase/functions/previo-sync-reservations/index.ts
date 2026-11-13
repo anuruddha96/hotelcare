@@ -4,9 +4,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { callPrevioXml, hasPrevioCredentials, loadPrevioCredentials, resolvePrevioSecretName } from "../_shared/previoCredentials.ts";
+import { fetchPrevioWithAuth } from "../_shared/previoAuth.ts";
 import {
   addDays, buildReservationTermXml, groupGuestNames, IncomingBookingSet, isPrevioBusyResponse, isReservationOwnedByImportChunk,
-  mapPrevioStatus, mergePrevioFinancials, mergePrevioStatus, parsePrevioReservations, pmsFieldsEqual,
+  bookingsMissingFromPrevio, mapPrevioStatus, mergePrevioFinancials, mergePrevioStatus, parsePrevioReservations,
+  paymentFromPrevioAccount, pmsFieldsEqual, type PrevioPaymentStatus,
   PMS_RESERVATION_COLUMNS, resolveImportTarget, type PrevioReservationRow,
 } from "../_shared/previoReservations.ts";
 
@@ -24,6 +26,10 @@ const BUSY_RETRY_MS = 2500;
 const LEGACY_SELECT = "id,source_reservation_id,status,actual_check_in,room_id,guest_id,total_amount,balance_due,payment_status,adults,children,check_in_date,check_out_date,pms_guest_name,special_requests,currency";
 const EXTENDED_SELECT = `${LEGACY_SELECT},${PMS_RESERVATION_COLUMNS.join(",")}`;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Paid amounts come from one Previo REST call per booking, so they are only
+// checked where reception needs them: in house, and arrivals up to 2 days out.
+const PAYMENT_CHECK_LIMIT = 40;
+const PAYMENT_ARRIVAL_DAYS = 2;
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 const errorMessage = (value: unknown) => value instanceof Error ? value.message : String(value);
 function hotelToday() {
@@ -54,6 +60,7 @@ serve(async req => {
   const errors: string[] = [];
   // Bookings set aside without failing the run (day-use, conflicting duplicates).
   let warnings: string[] = [];
+  let payments: { checked: number; ok: number; failed: number; error: string | null } | null = null;
   const accountsSummary: Array<{ label: string; received: number; error?: string }> = [];
   let window: { from: string; to: string } | null = null;
   // "horizon": full stay-overlap import of the booking window (manual Sync button, scheduled refresh).
@@ -74,7 +81,7 @@ serve(async req => {
       error_message: errors.length ? errors.join("; ").slice(0, 900) : null,
       data: { received, inserted: committedInserted, updated: committedUpdated,
         skipped, attempted, unmapped_rooms: unmappedRooms, errors, warnings, window, accounts: accountsSummary,
-        mode, schema_pending: !extendedSchema, completed_batches_only: true },
+        payments, mode, schema_pending: !extendedSchema, completed_batches_only: true },
     });
     if (error) console.error("Previo reservation sync history write failed", error.code);
   };
@@ -165,6 +172,7 @@ serve(async req => {
     const termType = mode === "incremental" ? "modified" : "overlap";
     const incoming = new IncomingBookingSet();
     const parsed = incoming.rows;
+    const accountByRef = new Map<string, Account>();
     for (const account of accounts) {
       const creds = loadPrevioCredentials(account.credentials_secret_name);
       let accountReceived = 0;
@@ -199,6 +207,7 @@ serve(async req => {
             ? (accounts.length > 1 ? `${account.pms_hotel_id}:${row.sourceRef}` : row.sourceRef)
             : "";
           incoming.add(row, sourceRef);
+          if (sourceRef) accountByRef.set(sourceRef, account);
           if (incoming.size > MAX_INCOMING) throw new Error("Too many Previo bookings; narrow the import window");
         }
       }
@@ -249,9 +258,10 @@ serve(async req => {
     // Are the pms_* columns there yet? If the migration has not been applied the
     // importer must keep importing the core booking fields exactly as before.
     {
-      const { error: probeError } = await db.from("reservations").select("pms_room_reservation_id").eq("hotel_id", hotelId).limit(1);
+      // Probe the newest pms_* column: until every column exists, import the core fields only.
+      const { error: probeError } = await db.from("reservations").select("pms_missing_since").eq("hotel_id", hotelId).limit(1);
       if (probeError) {
-        if (probeError.code === "42703" || /pms_room_reservation_id/.test(probeError.message ?? "")) extendedSchema = false;
+        if (probeError.code === "42703" || /pms_missing_since/.test(probeError.message ?? "")) extendedSchema = false;
         else throw new Error("Unable to read all existing Previo reservations");
       }
     }
@@ -311,6 +321,55 @@ serve(async req => {
     }
     for (const [comId, row] of existingByComId) if (row.ambiguous) existingByComId.delete(comId);
 
+    // Paid amounts (full imports only). Best effort: a failed check changes nothing,
+    // and the last payment state Previo reported is kept until a new check replaces it.
+    const paymentByResKey = new Map<string, { total: number; paid: number; status: PrevioPaymentStatus; rooms: number }>();
+    const paymentStats = { checked: 0, ok: 0, failed: 0, error: null as string | null };
+    const resKey = (ref: string, resId: string) => `${accountByRef.get(ref)?.pms_hotel_id ?? ""}:${resId}`;
+    if (mode === "horizon" && extendedSchema) {
+      const soon = addDays(today, PAYMENT_ARRIVAL_DAYS);
+      const groups = new Map<string, { account: Account; resId: string; rooms: number; arrival: string }>();
+      for (const [ref, row] of parsed) {
+        const live = ["pending", "confirmed", "checked_in"].includes(mapPrevioStatus(row.statusId));
+        if (!live || row.arrivalDate > soon || row.departureDate <= today) continue;
+        const account = accountByRef.get(ref);
+        if (!account) continue;
+        const key = resKey(ref, row.resId);
+        const group = groups.get(key);
+        if (group) group.rooms++;
+        else groups.set(key, { account, resId: row.resId, rooms: 1, arrival: row.arrivalDate });
+      }
+      let consecutiveFailures = 0;
+      const ordered = [...groups].sort((a, b) => a[1].arrival.localeCompare(b[1].arrival)).slice(0, PAYMENT_CHECK_LIMIT);
+      for (const [key, group] of ordered) {
+        if (consecutiveFailures >= 3) break; // endpoint unavailable for this account: stop asking
+        paymentStats.checked++;
+        try {
+          const { response } = await fetchPrevioWithAuth({
+            credentialsSecretName: group.account.credentials_secret_name,
+            path: `/rest/account?resId=${encodeURIComponent(group.resId)}`,
+            pmsHotelId: group.account.pms_hotel_id,
+          });
+          if (!response.ok) { await response.text().catch(() => ""); throw new Error(`HTTP ${response.status}`); }
+          const contentType = response.headers.get("content-type") ?? "";
+          const text = await response.text();
+          if (!contentType.toLowerCase().includes("json")) throw new Error("non-JSON response");
+          const payment = paymentFromPrevioAccount(JSON.parse(text));
+          if (!payment) throw new Error("unrecognised account format");
+          paymentByResKey.set(key, { ...payment, rooms: group.rooms });
+          paymentStats.ok++;
+          consecutiveFailures = 0;
+        } catch (error) {
+          paymentStats.failed++;
+          consecutiveFailures++;
+          // Category only: never copy a response body (guest data) into the sync history.
+          const message = errorMessage(error);
+          paymentStats.error ??= /^HTTP \d+$|^non-JSON response$|^unrecognised account format$/.test(message) ? message
+            : /authentication/i.test(message) ? "authentication failed" : "request failed";
+        }
+      }
+    }
+
     const payload: Array<{ record: Record<string, unknown>; kind: "insert" | "update" }> = [];
     const statusEvents: Array<Record<string, unknown>> = [];
     const usedRefs = new Set<string>();
@@ -335,11 +394,21 @@ serve(async req => {
         : mappedRoom ?? ((existing?.room_id as string | null) ?? null);
       const nights = Math.max(1, row.nights);
       const total = row.totalPrice ?? (existing ? Number(existing.total_amount ?? 0) : 0);
+      // Payment: this run's account check, else the search response, else the last known Previo state.
+      const check = paymentByResKey.get(resKey(row.sourceRef, row.resId));
+      const storedPayment = (existing?.pms_payment_status as PrevioPaymentStatus | null | undefined) ?? null;
+      const paymentStatus: PrevioPaymentStatus | null = check?.status ?? row.paymentStatus ?? storedPayment;
+      // A group account covers all its rooms; the per-room split is unknown, so only a
+      // single-room booking gets an exact paid amount.
+      const paidAmount = check
+        ? (check.rooms === 1 ? check.paid : null)
+        : ((existing?.pms_paid_amount as number | string | null | undefined) ?? null);
       const money = mergePrevioFinancials({
-        total, paymentStatus: row.paymentStatus,
+        total, paymentStatus, previoPaidAmount: paidAmount == null ? null : Number(paidAmount),
         existingTotal: existing ? Number(existing.total_amount ?? 0) : null,
         existingBalance: existing ? Number(existing.balance_due ?? 0) : null,
-        existingPmsPaymentStatus: (existing?.pms_payment_status as string | null) ?? null,
+        existingPmsPaymentStatus: storedPayment,
+        existingPmsPaidAmount: (existing?.pms_paid_amount as number | string | null | undefined) ?? null,
       });
       const balance = money.balance;
       const children = existing ? Number(existing.children ?? 0) : 0;
@@ -366,7 +435,10 @@ serve(async req => {
           pms_room_reservation_id: keep(row.comId, "pms_room_reservation_id"),
           pms_voucher: keep(row.voucher, "pms_voucher"),
           pms_status_id: row.statusId > 0 ? row.statusId : keep(null, "pms_status_id"),
-          pms_payment_status: row.paymentStatus,
+          pms_payment_status: paymentStatus,
+          pms_paid_amount: paidAmount == null ? null : Number(paidAmount),
+          // Returned by Previo in this run: visible on the plan again if it was hidden.
+          pms_missing_since: null,
           pms_channel: keep(row.channel, "pms_channel"),
           pms_channel_id: keep(row.channelId, "pms_channel_id"),
           pms_rate_plan_id: keep(row.ratePlanId, "pms_rate_plan_id"),
@@ -418,6 +490,32 @@ serve(async req => {
         if (error) { console.error("Previo status audit insert failed", error.code); break; }
       }
     }
+    // Bookings Previo no longer returns (cancelled/deleted, or stored under an older
+    // room reference): hidden from the plan, never deleted. Full imports only.
+    let hidden = 0;
+    if (mode === "horizon" && status === "success" && extendedSchema && window) {
+      const missing = bookingsMissingFromPrevio({
+        stored: existingByRef.values(), returnedRefs: usedRefs,
+        setAsideRefs: new Set(incoming.rejected.map(r => r.ref)), window, incomingCount: parsed.size,
+      });
+      if (missing === null) {
+        warnings.push("Many stored bookings were not returned by Previo; none were hidden. Check the import.");
+      } else if (missing.length) {
+        const stamp = new Date().toISOString();
+        const ids = missing.map(row => String(row.id)).filter(Boolean);
+        for (let i = 0; i < ids.length; i += UPSERT_BATCH) {
+          const { error } = await db.from("reservations").update({ pms_missing_since: stamp })
+            .eq("hotel_id", hotelId).eq("source", "previo").is("pms_missing_since", null).in("id", ids.slice(i, i + UPSERT_BATCH));
+          if (error) { warnings.push("Could not hide bookings that are no longer in Previo"); break; }
+          hidden += Math.min(UPSERT_BATCH, ids.length - i);
+        }
+        if (hidden) warnings.push(`${hidden} booking(s) no longer returned by Previo were hidden from the plan`);
+      }
+    }
+    if (paymentStats.checked && paymentStats.failed) {
+      warnings.push(`Paid amounts: ${paymentStats.ok} of ${paymentStats.checked} checks succeeded (${paymentStats.error ?? "error"})`);
+    }
+    payments = paymentStats;
     await writeHistory(status);
     if (mode === "incremental") {
       // last_sync_at keeps meaning "last full import"; an incremental run does not move it.
@@ -431,7 +529,7 @@ serve(async req => {
     return json({ success: status === "success", complete: status === "success", status,
       inserted: committedInserted, updated: committedUpdated, skipped, attempted,
       received, unmapped_rooms: unmappedRooms, errors, warnings, window, accounts: accountsSummary,
-      mode, schema_pending: !extendedSchema }, status === "failed" ? 502 : 200);
+      payments, hidden, mode, schema_pending: !extendedSchema }, status === "failed" ? 502 : 200);
   } catch (error) {
     errors.push(errorMessage(error));
     await writeHistory(committedInserted + committedUpdated > 0 ? "partial" : "failed");

@@ -193,6 +193,9 @@ const ReservationDetail = () => {
                 </Badge>
               )}
               {pmsHoldKind(reservation) === 'waiting_list' && <Badge variant="outline">{t('pms.res.waitingList')}</Badge>}
+              {reservation.pms_missing_since && (
+                <Badge variant="destructive" title={new Date(reservation.pms_missing_since).toLocaleString()}>{t('pms.res.notInPrevio')}</Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
               <span className="font-mono">{reservation.reservation_number}</span>

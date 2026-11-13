@@ -34,6 +34,9 @@ export interface ReservationLike {
   pms_option_expires_at?: string | null;
   pms_contact_name?: string | null;
   pms_contact_email?: string | null;
+  pms_paid_amount?: number | string | null;
+  /** Set when Previo no longer returns this booking; hidden from the plan. */
+  pms_missing_since?: string | null;
 }
 
 export const ACTIVE_STATUSES = ["pending", "confirmed", "checked_in"] as const;
@@ -109,7 +112,8 @@ const CHANNEL_LETTERS: ReadonlyArray<readonly [RegExp, string]> = [
 export function reservationChannel(
   r: Pick<ReservationLike, "source" | "pms_channel">,
 ): { label: string; letter: string } {
-  const channel = (r.pms_channel ?? "").trim();
+  // Older imports stored Previo's technical names ("Booking.com XML", "AgodaXML").
+  const channel = (r.pms_channel ?? "").trim().replace(/\s*XML$/i, "").replace(/V\d+$/i, "").trim();
   const source = (r.source ?? "").trim();
   const label = channel || SOURCE_LABELS[source.toLowerCase()] || source.replaceAll("_", " ") || "—";
   const name = (channel || source).toLowerCase();

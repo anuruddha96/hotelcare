@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildReservationTermXml, groupGuestNames, isPrevioBusyResponse, mapPrevioPaymentStatus, mapPrevioStatus,
+  bookingsMissingFromPrevio, buildReservationTermXml, cleanChannelName, groupGuestNames, isPrevioBusyResponse, mapPrevioPaymentStatus, mapPrevioStatus, paymentFromPrevioAccount,
   mergePrevioFinancials, mergePrevioStatus, parsePrevioReservations, pmsFieldsEqual, resolveImportTarget,
 } from '../../supabase/functions/_shared/previoReservations';
 
@@ -287,5 +287,78 @@ describe('a room item repeated in one response is one room, not two', () => {
     const noCom = (obj: string) => reservation({ objId: obj }).replace(/<comId>[^<]*<\/comId>/, '');
     const rows = parsePrevioReservations(xml(noCom('801'), noCom('801')));
     expect(rows.map((r) => r.sourceRef)).toEqual(['54855023:801', '54855023:801#1']);
+  });
+});
+
+describe('Previo paid amounts (account check)', () => {
+  it('reads total and paid from the REST account body', () => {
+    expect(paymentFromPrevioAccount({ resId: 1, groupAccount: { total: 300.19, paid: 300.19, curId: 2 } })).toEqual({ total: 300.19, paid: 300.19, status: 'paid' });
+    expect(paymentFromPrevioAccount({ groupAccount: { total: 300, paid: 100 } })).toEqual({ total: 300, paid: 100, status: 'partial' });
+    expect(paymentFromPrevioAccount({ groupAccount: { total: 300, paid: 0 } })?.status).toBe('unpaid');
+    expect(paymentFromPrevioAccount({ total: '300', paid: '299.8' })?.status).toBe('paid');
+    expect(paymentFromPrevioAccount({ groupAccount: { total: 'x' } })).toBeNull();
+    expect(paymentFromPrevioAccount(null)).toBeNull();
+  });
+
+  it('turns a reported paid amount into an exact balance', () => {
+    expect(mergePrevioFinancials({ total: 300, paymentStatus: 'partial', previoPaidAmount: 100 })).toEqual({ balance: 200, paymentStatus: 'partial' });
+    expect(mergePrevioFinancials({ total: 300, paymentStatus: 'unpaid', previoPaidAmount: 0 })).toEqual({ balance: 300, paymentStatus: 'unpaid' });
+  });
+
+  it('does not count a Previo payment twice on the next run', () => {
+    // Stored balance 200 came from Previo reporting 100 paid; Previo still reports 100.
+    expect(mergePrevioFinancials({ total: 300, paymentStatus: 'partial', previoPaidAmount: 100, existingTotal: 300, existingBalance: 200, existingPmsPaymentStatus: 'partial', existingPmsPaidAmount: 100 }))
+      .toEqual({ balance: 200, paymentStatus: 'partial' });
+  });
+
+  it('keeps a larger payment recorded in HotelCare', () => {
+    expect(mergePrevioFinancials({ total: 300, paymentStatus: 'partial', previoPaidAmount: 100, existingTotal: 300, existingBalance: 50 }))
+      .toEqual({ balance: 50, paymentStatus: 'partial' });
+  });
+});
+
+describe('channel names', () => {
+  it('drops Previo technical suffixes', () => {
+    expect(cleanChannelName('Booking.com XML')).toBe('Booking.com');
+    expect(cleanChannelName('AgodaXML')).toBe('Agoda');
+    expect(cleanChannelName('HotelTonightV2XML')).toBe('HotelTonight');
+    expect(cleanChannelName('Expedia')).toBe('Expedia');
+    expect(cleanChannelName('RESERVATION+')).toBe('RESERVATION+');
+    expect(cleanChannelName('  ')).toBeNull();
+  });
+
+  it('is applied by the parser', () => {
+    const [row] = parsePrevioReservations(xml(reservation()).replace('<name>Booking.com</name>', '<name>Booking.com XML</name>'));
+    expect(row.channel).toBe('Booking.com');
+  });
+});
+
+describe('bookings Previo no longer returns', () => {
+  const window = { from: '2026-11-06', to: '2027-11-13' };
+  const row = (ref: string, over: Record<string, unknown> = {}) => ({
+    id: ref, source_reservation_id: ref, status: 'confirmed', check_in_date: '2026-12-01', check_out_date: '2026-12-03',
+    actual_check_in: null, pms_missing_since: null, ...over,
+  });
+
+  it('hides live bookings in the searched window that were not returned', () => {
+    const stored = [row('a'), row('b'), row('old-room', { check_in_date: '2026-11-20', check_out_date: '2026-11-22' })];
+    const missing = bookingsMissingFromPrevio({ stored, returnedRefs: new Set(['a']), setAsideRefs: new Set(), window, incomingCount: 100 });
+    expect(missing?.map((r) => r.id)).toEqual(['b', 'old-room']);
+  });
+
+  it('leaves alone: outside the window, set aside this run, checked in by HotelCare, finished, already hidden', () => {
+    const stored = [
+      row('past', { check_in_date: '2026-09-01', check_out_date: '2026-09-03' }),
+      row('dup'),
+      row('hc', { status: 'checked_in', actual_check_in: '2026-11-12T14:00:00Z' }),
+      row('done', { status: 'checked_out' }),
+      row('hidden', { pms_missing_since: '2026-11-12T10:00:00Z' }),
+    ];
+    expect(bookingsMissingFromPrevio({ stored, returnedRefs: new Set(), setAsideRefs: new Set(['dup']), window, incomingCount: 100 })).toEqual([]);
+  });
+
+  it('refuses when too many would disappear at once', () => {
+    const stored = Array.from({ length: 50 }, (_, i) => row(`r${i}`));
+    expect(bookingsMissingFromPrevio({ stored, returnedRefs: new Set(['r0']), setAsideRefs: new Set(), window, incomingCount: 50 })).toBeNull();
   });
 });

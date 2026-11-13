@@ -94,6 +94,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [rooms, setRooms] = useState<any[]>([]);
   const [importHistory, setImportHistory] = useState<ImportHistory | null>(null);
   const [lastImportSuccess, setLastImportSuccess] = useState<string | null>(null);
+  // Bookings Previo no longer returns: hidden from the plan and counts, but never silently.
+  const [hiddenNotInPrevio, setHiddenNotInPrevio] = useState(0);
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
@@ -136,7 +138,10 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         setLoadError(true); // Never show previous-property data when a read fails.
         return;
       }
-      setReservations(res.data ?? []);
+      const allRows = res.data ?? [];
+      const visible = allRows.filter((row: any) => !row.pms_missing_since);
+      setReservations(visible);
+      setHiddenNotInPrevio(allRows.length - visible.length);
       setRooms(rm.data ?? []);
       setSnapshots((snap.data ?? []) as SnapshotRow[]);
       setImportHistory(history.data?.[0] ?? null);
@@ -256,7 +261,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     </div>
 
     {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Reception data could not be verified. Previous property data has been cleared. Retry refresh.</div>}
-    {!loadingData && !loadError && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0) &&
+    {!loadingData && !loadError && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0 || hiddenNotInPrevio > 0) &&
       <details role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
         <summary className="cursor-pointer select-none flex items-center gap-2 font-medium">
           ⚠️ PMS data needs attention
@@ -266,6 +271,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           {importStale ? `Latest reservation import: ${importHistory?.created_at ? new Date(importHistory.created_at).toLocaleString() : 'not recorded'} (${importHistory?.sync_status ?? 'unknown'}). ` : ''}
           {snapshotReservations.length > 0 ? `${snapshotReservations.length} PMS observations could not be matched to HotelCare reservations. ` : ''}
           {(snapshotAudit?.ambiguousRooms ?? 0) > 0 ? `${snapshotAudit?.ambiguousRooms} room labels could not be mapped uniquely. ` : ''}
+          {hiddenNotInPrevio > 0 ? `${hiddenNotInPrevio} ${t('pms.fd.hiddenNotInPrevio')} ` : ''}
           Verify the affected reservation in Previo before changing it.
         </div>
       </details>}
