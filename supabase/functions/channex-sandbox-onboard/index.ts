@@ -185,14 +185,173 @@ async function renameOttofioriSandbox() {
  return {ok:results.every(x=>x.ok),hotel:"ottofiori",environment:"staging",results};
 }
 
+
+/**
+ * Isolated native PMS certification fixture. Never reads or writes an RD Hotels
+ * record, a real OTA channel, or a production Channex API endpoint.
+ */
+const NATIVE_TEST_ID = "channex-test-property";
+const NATIVE_TEST_TITLE = "HotelCare Channex Sandbox - Test Property";
+const NATIVE_TEST_EMAIL = "channex-test@example.com";
+async function nativeTestPrerequisites() {
+ const sup=db();
+ const {data:cfg,error:e}=await sup.from("hotel_configurations")
+  .select("hotel_id,hotel_name,organization_id,is_active,settings")
+  .eq("hotel_id",NATIVE_TEST_ID).single();
+ if(e||!cfg||!cfg.is_active||cfg.settings?.native_ari!==true||cfg.settings?.sandbox!==true)
+  throw new Error("Isolated HotelCare sandbox fixture is not correctly configured");
+ const {data:org,error:oe}=await sup.from("organizations")
+  .select("slug").eq("id",cfg.organization_id).single();
+ if(oe||org?.slug!=="channex")throw new Error("Test fixture does not belong to Channex Sandbox");
+ const [types,plans,units]=await Promise.all([
+  rows("room_types","id,name,num_rooms,is_sellable,organization_slug",q=>q.eq("hotel_id",NATIVE_TEST_ID).eq("is_sellable",true)),
+  rows("rate_plans","id,name,room_type_id,currency,base_rate,is_active",q=>q.eq("hotel_id",NATIVE_TEST_ID).eq("is_active",true)),
+  rows("rooms","room_number,room_type,organization_slug",q=>q.eq("hotel","Test Property - HotelCare").eq("organization_slug","channex"))
+ ]);
+ if(types.length!==2||plans.length!==4||units.length!==15||types.reduce((n:number,t:any)=>n+Number(t.num_rooms||0),0)!==15)
+  throw new Error("Sandbox fixture does not have the expected 2 room types, 4 plans, 15 units");
+ for(const t of types){
+  if(t.organization_slug!=="channex"||Number(t.num_rooms)!==units.filter((u:any)=>u.room_type===t.name).length)
+   throw new Error("Test room type / physical inventory mismatch");
+ }
+ for(const r of plans){
+  if(r.currency!=="USD"||!types.some((t:any)=>t.id===r.room_type_id))
+   throw new Error("Test rate plan has invalid currency or room type");
+ }
+ const {data:conn,error:ce}=await sup.from("channex_connections")
+  .select("*").eq("hotel_id",NATIVE_TEST_ID).maybeSingle();
+ if(ce)throw new Error("Sandbox connection query failed");
+ if(conn&&(conn.organization_slug!=="channex"||conn.environment!=="staging"||conn.mode!=="off"||conn.kill_switch!==true||conn.is_sandbox_hotel!==true||conn.currency!=="USD"))
+  throw new Error("Safety gate: native test connection must be OFF, staging, USD and kill-switch protected");
+ return {types,plans,conn};
+}
+async function nativeTestProperties(){
+ const all:any[]=[];
+ for(let page=1;page<=15;page++){
+  const response=await channex("GET","/properties?pagination[page]="+page+"&pagination[limit]=100");
+  const data=Array.isArray(response.data)?response.data:[];
+  all.push(...data);
+  if(data.length<100)return all;
+ }
+ throw new Error("Too many properties in staging account; cannot safely check for duplicates");
+}
+async function probeNativeTest(){
+ const fixture=await nativeTestPrerequisites();
+ if(!apiKey())return {ok:false,environment:"staging",keyConfigured:false,error:"Staging API key missing"};
+ const existing=await nativeTestProperties();
+ const matches=existing.filter((x:any)=>String(x.attributes?.title||"").trim()===NATIVE_TEST_TITLE);
+ return {ok:true,environment:"staging",keyConfigured:true,hotel_id:NATIVE_TEST_ID,
+  existingMatchingProperties:matches.length,connectionExists:Boolean(fixture.conn),
+  roomTypes:fixture.types.length,ratePlans:fixture.plans.length};
+}
+async function bootstrapNativeTest(){
+ const sup=db();
+ const {types,plans,conn}=await nativeTestPrerequisites();
+ if(!apiKey())throw new Error("Channex staging key not configured");
+ const existing=await nativeTestProperties();
+ const matches=existing.filter((x:any)=>String(x.attributes?.title||"").trim()===NATIVE_TEST_TITLE);
+ if(matches.length>1)throw new Error("Duplicate matching certification properties in Channex staging");
+ let remote:any=matches[0];let created=false;
+ if(conn?.channex_property_id){
+  remote=(await channex("GET","/properties/"+conn.channex_property_id)).data;
+  if(getId(remote)!==String(conn.channex_property_id))throw new Error("Existing sandbox property ID mismatch");
+ }
+ if(remote){
+  if(String(remote.attributes?.title||"")!==NATIVE_TEST_TITLE
+   ||String(remote.attributes?.currency||"").toUpperCase()!=="USD"
+   ||String(remote.attributes?.email||"").toLowerCase()!==NATIVE_TEST_EMAIL)
+   throw new Error("Staging property title, currency or email mismatch: refusing to link");
+ }else{
+  remote=(await channex("POST","/properties",{property:{
+   title:NATIVE_TEST_TITLE,currency:"USD",email:NATIVE_TEST_EMAIL,
+   phone:"+3610000000",address:"Sandbox Test Street 1",zip_code:"1000",
+   city:"Budapest",state:"Budapest",country:"HU",timezone:"Europe/Budapest",
+   property_type:"hotel"
+  }})).data;created=true;
+ }
+ const propertyId=getId(remote);
+ if(!/^[0-9a-f-]{36}$/i.test(propertyId))throw new Error("Invalid staging Channex property UUID");
+ if(conn&&conn.channex_property_id&&String(conn.channex_property_id)!==propertyId)
+  throw new Error("Refusing to change an existing sandbox property link");
+ if(!conn){
+  const {error}=await sup.from("channex_connections").insert({
+   hotel_id:NATIVE_TEST_ID,organization_slug:"channex",environment:"staging",
+   mode:"off",kill_switch:true,is_sandbox_hotel:true,channex_property_id:propertyId,
+   currency:"USD",timezone:"Europe/Budapest",primary_occupancy:2,
+   ntak_reporting_path:"unconfirmed"
+  });
+  if(error)throw new Error("Could not save sandbox connection: "+error.message);
+ }else if(!conn.channex_property_id){
+  const {error}=await sup.from("channex_connections").update({channex_property_id:propertyId})
+   .eq("hotel_id",NATIVE_TEST_ID).eq("mode","off").eq("kill_switch",true);
+  if(error)throw new Error("Could not link sandbox property: "+error.message);
+ }
+ const rt=(await channex("GET","/room_types?filter[property_id]="+encodeURIComponent(propertyId)+"&pagination[limit]=100")).data||[];
+ let roomTypesCreated=0,ratePlansCreated=0;
+ const remoteRoomIds=new Map<string,string>();
+ for(const t of types){
+  const found=rt.filter((x:any)=>x.attributes?.title===t.name);
+  if(found.length>1)throw new Error("Duplicate remote room type: "+t.name);
+  let x=found[0];
+  if(x){
+   if(Number(x.attributes?.count_of_rooms)!==Number(t.num_rooms)||Number(x.attributes?.occ_adults)!==2)
+    throw new Error("Remote test inventory mismatches: "+t.name);
+  }else{
+   x=(await channex("POST","/room_types",{room_type:{
+    property_id:propertyId,title:t.name,count_of_rooms:t.num_rooms,
+    occ_adults:2,occ_children:0,occ_infants:0,default_occupancy:2,room_kind:"room"
+   }})).data;rt.push(x);roomTypesCreated++;
+  }
+  const remoteId=getId(x);
+  if(!/^[0-9a-f-]{36}$/i.test(remoteId))throw new Error("Invalid remote room type ID");
+  remoteRoomIds.set(String(t.id),remoteId);
+  await ensureMapping(NATIVE_TEST_ID,"room_type",t.id,remoteId,String(t.name),{mode:"sandbox_no_publish",unit_count:t.num_rooms});
+ }
+ const rp=(await channex("GET","/rate_plans?filter[property_id]="+encodeURIComponent(propertyId)+"&pagination[limit]=100")).data||[];
+ for(const rate of plans){
+  const remoteRoomId=remoteRoomIds.get(String(rate.room_type_id));
+  if(!remoteRoomId)throw new Error("Unmapped sandbox room type for rate");
+  const room=types.find((t:any)=>t.id===rate.room_type_id);
+  const title=String(room.name)+" | "+String(rate.name);
+  const found=rp.filter((x:any)=>String(x.attributes?.title||"")===title);
+  if(found.length>1)throw new Error("Duplicate remote rate plan: "+title);
+  let x=found[0];
+  if(x){
+   const linked=String(x.attributes?.room_type_id||x.relationships?.room_type?.data?.id||"");
+   if(linked&&linked!==remoteRoomId)throw new Error("Remote rate plan linked to other room: "+title);
+  }else{
+   x=(await channex("POST","/rate_plans",{rate_plan:{
+    property_id:propertyId,room_type_id:remoteRoomId,title,currency:"USD",
+    sell_mode:"per_room",rate_mode:"manual",
+    options:[{occupancy:2,is_primary:true,rate:0}]
+   }})).data;rp.push(x);ratePlansCreated++;
+  }
+  const remoteRateId=getId(x);
+  if(!/^[0-9a-f-]{36}$/i.test(remoteRateId))throw new Error("Invalid remote rate plan ID");
+  await ensureMapping(NATIVE_TEST_ID,"rate_plan",rate.id,remoteRateId,title,{
+   room_type_id:remoteRoomId,mode:"sandbox_no_publish",currency:"USD"
+  });
+ }
+ const {data:verified}=await sup.from("channex_mappings")
+  .select("kind").eq("hotel_id",NATIVE_TEST_ID);
+ if((verified||[]).filter((x:any)=>x.kind==="room_type").length!==2||
+    (verified||[]).filter((x:any)=>x.kind==="rate_plan").length!==4)
+  throw new Error("Channex sandbox mapping readback incomplete");
+ return {ok:true,environment:"staging",hotel_id:NATIVE_TEST_ID,propertyId,
+  propertyCreated:created,roomTypesCreated,ratePlansCreated,mappedRoomTypes:2,mappedRatePlans:4,
+  mode:"off",killSwitch:true};
+}
+
 Deno.serve(async(req:Request)=>{
  if(req.method!=="POST")return json({ok:false,error:"Method not allowed"},405);
  const sup=db();const {data:secret,error:se}=await sup.rpc("get_channex_worker_secret");
  if(se||!safeEqual(req.headers.get("x-worker-secret")||"",String(secret||"")))return json({ok:false,error:"Unauthorized"},401);
  try{
   const body=await req.json().catch(()=>({}));const action=body?.action;
-  if(action!=="probe"&&action!=="bootstrap"&&action!=="rename_ottofiori")return json({ok:false,error:"Invalid action"},400);
+  if(action!=="probe"&&action!=="bootstrap"&&action!=="rename_ottofiori"&&action!=="probe_native_test"&&action!=="bootstrap_native_test")return json({ok:false,error:"Invalid action"},400);
   if(action==="rename_ottofiori")return json(await renameOttofioriSandbox());
+  if(action==="probe_native_test")return json(await probeNativeTest());
+  if(action==="bootstrap_native_test")return json(await bootstrapNativeTest());
   const checks=await Promise.all(HOTEL_DEFS.map(async h=>({hotel:h.title,source:await prepare(h).then(x=>({rooms:x.rooms,categories:x.types.length})).catch(e=>({error:String(e.message||e)}))})));
   if(!apiKey())return json({ok:false,keyConfigured:false,checks,error:"Channex sandbox API key secret not found"},400);
   const pr=await channex("GET","/properties?pagination[limit]=100");
