@@ -349,8 +349,9 @@ serve(async req => {
             credentialsSecretName: group.account.credentials_secret_name,
             path: `/rest/account?resId=${encodeURIComponent(group.resId)}`,
             pmsHotelId: group.account.pms_hotel_id,
-            // Previo answered 406 Not Acceptable without an explicit JSON Accept header.
-            headers: { Accept: "application/json" },
+            // Previo's account endpoint requires a language (406 "Required parameter
+            // 'X-Previo-Language-ID' is missing"). 2 = English; only item names depend on it.
+            headers: { Accept: "application/json", "X-Previo-Language-ID": "2" },
           });
           if (!response.ok) { await response.text().catch(() => ""); throw new Error(`HTTP ${response.status}`); }
           const contentType = response.headers.get("content-type") ?? "";
