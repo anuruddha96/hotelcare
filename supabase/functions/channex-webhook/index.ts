@@ -23,7 +23,10 @@ Deno.serve(async (req) => {
   const revisionId = String(body?.payload?.revision_id || body?.payload?.booking_revision_id || "");
   const bookingId = String(body?.payload?.booking_id || "");
 
-  const { data: conn } = await db.from("channex_connections").select("hotel_id, bookings_enabled").eq("channex_property_id", propertyId).maybeSingle();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(propertyId);
+  const { data: conn } = isUuid
+    ? await db.from("channex_connections").select("hotel_id, bookings_enabled").eq("channex_property_id", propertyId).maybeSingle()
+    : { data: null };
   const { data: row } = await db.from("channex_webhook_events").insert({
     event, property_id: propertyId || null, hotel_id: conn?.hotel_id || null, revision_id: revisionId || null, booking_id: bookingId || null,
   }).select("id").single();

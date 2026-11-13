@@ -18,8 +18,9 @@
 -- ============================================================================
 
 -- 0. Channex connection + mapping tables ------------------------------------
--- These exist in production (created during the October sandbox probe) but were
--- never committed as a migration. Create if missing, then add phase-1 columns.
+-- These exist in production (created during the October sandbox probe, uuid ids,
+-- more columns and CHECK gates) but were never committed as a migration.
+-- Create a compatible minimum if missing, then add phase-1 columns.
 CREATE TABLE IF NOT EXISTS public.channex_connections (
   hotel_id text PRIMARY KEY,
   organization_slug text NOT NULL,
@@ -27,7 +28,7 @@ CREATE TABLE IF NOT EXISTS public.channex_connections (
   mode text NOT NULL DEFAULT 'off',
   kill_switch boolean NOT NULL DEFAULT true,
   is_sandbox_hotel boolean NOT NULL DEFAULT true,
-  channex_property_id text,
+  channex_property_id uuid UNIQUE,
   currency text,
   timezone text,
   primary_occupancy integer,
@@ -47,8 +48,8 @@ CREATE TABLE IF NOT EXISTS public.channex_mappings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   hotel_id text NOT NULL,
   kind text NOT NULL,
-  local_id text NOT NULL,
-  channex_id text NOT NULL,
+  local_id uuid NOT NULL,
+  channex_id uuid NOT NULL,
   channex_title text,
   settings jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -607,7 +608,7 @@ BEGIN
     RAISE EXCEPTION 'Revision without id or booking_id';
   END IF;
   SELECT * INTO v_conn FROM public.channex_connections WHERE hotel_id = _hotel_id;
-  IF NOT FOUND OR v_conn.channex_property_id IS DISTINCT FROM v_property THEN
+  IF NOT FOUND OR v_conn.channex_property_id::text IS DISTINCT FROM v_property THEN
     RAISE EXCEPTION 'Revision property % does not belong to hotel %', v_property, _hotel_id;
   END IF;
   IF NOT public.pms_ari_native_hotel(_hotel_id) THEN
@@ -650,9 +651,9 @@ BEGIN
       v_key := COALESCE(NULLIF(v_room->>'booking_room_id', ''), v_booking || ':' || v_idx);
       v_keys := v_keys || v_key;
       SELECT local_id::uuid INTO v_rt FROM public.channex_mappings
-       WHERE hotel_id = _hotel_id AND kind = 'room_type' AND channex_id = v_room->>'room_type_id';
+       WHERE hotel_id = _hotel_id AND kind = 'room_type' AND channex_id::text = v_room->>'room_type_id';
       SELECT local_id::uuid INTO v_rp FROM public.channex_mappings
-       WHERE hotel_id = _hotel_id AND kind = 'rate_plan' AND channex_id = v_room->>'rate_plan_id';
+       WHERE hotel_id = _hotel_id AND kind = 'rate_plan' AND channex_id::text = v_room->>'rate_plan_id';
       IF v_rt IS NULL THEN
         v_review := array_append(v_review, ('Unmapped Channex room type ' || COALESCE(v_room->>'room_type_id', '?'))::text);
       END IF;
