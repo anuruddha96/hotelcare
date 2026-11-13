@@ -27,6 +27,19 @@ describe("rankHotelsByPerformance", () => {
     expect(ranked.map((hotel) => hotel.rank)).toEqual([1, 2, 3]);
   });
 
+  it("always places the hotel leading both ADR and RevPAR at #1, even with low occupancy", () => {
+    const ranked = rankHotelsByPerformance([
+      { hotel_id: "high-revenue", occ: 30, adr: 700, revpar: 210 },
+      { hotel_id: "balanced", occ: 95, adr: 200, revpar: 190 },
+      { hotel_id: "strong", occ: 90, adr: 190, revpar: 171 },
+      { hotel_id: "mid", occ: 87, adr: 180, revpar: 157 },
+      { hotel_id: "low", occ: 82, adr: 170, revpar: 139 },
+      { hotel_id: "last", occ: 80, adr: 160, revpar: 128 },
+    ]);
+    expect(ranked[0]).toMatchObject({ hotel_id: "high-revenue", rank: 1 });
+    expect(ranked[0].rankPoints).toBeGreaterThan(ranked[1].rankPoints as number);
+  });
+
   it("breaks equal composite scores with RevPAR first", () => {
     const ranked = rankHotelsByPerformance([
       { hotel_id: "a", occ: 90, adr: 150, revpar: 100 },
