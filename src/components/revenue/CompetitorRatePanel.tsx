@@ -130,16 +130,28 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
     return () => { cancelled = true; };
   }, [showSiblings, hotelId, siblings.length]);
 
+  // Comparing unconverted HUF/USD rates with a EUR selling rate produces a
+  // meaningless percentage. Only use an active property's comparable EUR
+  // observations that pass the existing confidence threshold.
+  const comparableRates = useMemo(() => {
+    const active = new Set(competitors.filter((c) => c.active).map((c) => c.id));
+    return rates.filter((r) =>
+      active.has(r.competitor_id)
+      && r.currency?.toUpperCase() === "EUR"
+      && r.rate !== null && Number.isFinite(Number(r.rate)) && Number(r.rate) > 0
+      && (r.confidence == null || Number(r.confidence) >= 0.45)
+    );
+  }, [competitors, rates]);
+  const withheldRates = rates.length - comparableRates.length;
   const byDate = useMemo(() => {
     const m = new Map<string, number[]>();
-    for (const r of rates) {
-      if (r.rate == null) continue;
+    for (const r of comparableRates) {
       const arr = m.get(r.stay_date) ?? [];
       arr.push(Number(r.rate));
       m.set(r.stay_date, arr);
     }
     return m;
-  }, [rates]);
+  }, [comparableRates]);
 
   const comparison = useMemo(() => {
     const dates = [...byDate.keys()].sort().slice(0, 30);
@@ -155,8 +167,7 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
   /** Chart rows: our price, the set average, and optionally each hotel. */
   const chartData = useMemo(() => {
     const perCompetitor = new Map<string, Map<string, number>>();
-    for (const r of rates) {
-      if (r.rate == null) continue;
+    for (const r of comparableRates) {
       const m = perCompetitor.get(r.competitor_id) ?? new Map<string, number>();
       m.set(r.stay_date, Number(r.rate));
       perCompetitor.set(r.competitor_id, m);
@@ -175,7 +186,7 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
       }
       return point;
     });
-  }, [comparison, rates, competitors, showEach, showSiblings, siblings]);
+  }, [comparison, comparableRates, competitors, showEach, showSiblings, siblings]);
 
   const insert = async (n: string, u: string | null) => {
     if (!hotelId || !organizationSlug) return false;
@@ -393,15 +404,35 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h4 className="text-sm font-semibold">You against the set</h4>
           <p className="text-[11px] text-muted-foreground">
-            Chart moved to the Market intelligence horizon, where each hotel can be ticked on or off.
+            Same stay date, EUR rates only. The set average is the arithmetic mean of available, active and sufficiently confident competitor prices; it is not booked ADR.
           </p>
         </div>
 
 
+        {withheldRates > 0 && <p className="text-xs text-amber-700 dark:text-amber-300">{withheldRates} rate observations excluded (inactive property, low confidence, missing price, or different currency). Non-EUR quotes are never assumed to be EUR.</p>}
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer font-medium">How we calculate the rate comparison</summary>
+          <p className="mt-1">HotelCare compares the selected hotel's published selling rate with the mean of independently observed, comparable EUR rates for the exact stay date. Gap = (our rate − competitor-set average) ÷ competitor-set average × 100. Both rates are public selling prices, not ADR or RevPAR. Missing or stale competitor coverage must not trigger a price change alone.</p>
+        </details>
         {comparison.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No competitor prices captured yet — run a scan.</p>
+          <p className="text-xs text-muted-foreground">No comparable EUR competitor prices available. Scan the set or verify currencies and coverage before comparing.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border">
+          <>
+            <div className="space-y-2 sm:hidden" aria-label="Mobile competitor rate comparison">
+              {comparison.map((r) => <div key={r.date} className="rounded-lg border p-3">
+                <div className="flex items-baseline justify-between gap-2"><strong className="text-sm">{r.date}</strong>
+                  <span className={`text-sm font-semibold tabular-nums ${r.diff == null ? "text-muted-foreground" : r.diff > 10 ? "text-amber-700 dark:text-amber-300" : r.diff < -10 ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
+                    {r.diff == null ? "Comparison unavailable" : `${r.diff >= 0 ? "+" : ""}${r.diff.toFixed(0)}% vs set`}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                  <div><p className="text-muted-foreground">Our selling price</p><strong className="text-lg tabular-nums">{r.ours != null ? money(r.ours) : "—"}</strong></div>
+                  <div><p className="text-muted-foreground">Set average</p><strong className="text-lg tabular-nums">{money(r.avg)}</strong></div>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">Based on {r.n} comparable EUR {r.n === 1 ? "quote" : "quotes"} for this date</p>
+              </div>)}
+            </div>
+            <div className="hidden overflow-x-auto rounded-lg border sm:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
@@ -424,7 +455,8 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </section>
     </div>
