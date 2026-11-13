@@ -17,6 +17,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest, tomorrowBudapest } from '@/lib/budapestTime';
 import { auditReceptionSnapshots, type ReceptionSnapshot } from '@/lib/receptionSnapshotAudit';
 import { reservationChannel, reservationGuestLabel, reservationSearchText, RESERVATION_STATUS_COLORS } from '@/lib/reservations';
+import { importFreshness } from '@/lib/receptionAttention';
 
 const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status), rooms:room_id(id, room_number, room_type, status)';
 type ViewMode = 'planner' | 'list';
@@ -28,6 +29,20 @@ type SnapshotRow = ReceptionSnapshot & {
 };
 
 type ImportHistory = { created_at: string; sync_status: string | null };
+
+const FRESHNESS_STYLE = {
+  fresh: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300',
+  aging: 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300',
+  stale: 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300',
+  never: 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300',
+} as const;
+
+function agoLabel(minutes: number, t: (key: string) => string): string {
+  if (minutes < 1) return t('pms.sync.justNow');
+  if (minutes < 60) return `${minutes} ${t('pms.sync.minAgo')}`;
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} ${t('pms.sync.hoursAgo')}`;
+  return `${Math.round(minutes / 1440)} ${t('pms.sync.daysAgo')}`;
+}
 
 function snapshotStatus(value: string | null): string {
   const status = String(value ?? '').trim().toLowerCase();
@@ -78,6 +93,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [importHistory, setImportHistory] = useState<ImportHistory | null>(null);
+  const [lastImportSuccess, setLastImportSuccess] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
@@ -101,7 +117,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     const to = new Date(); to.setDate(to.getDate() + 210);
     const keys = hotelKeys.length ? hotelKeys : [hotelId];
     try {
-      const [res, rm, snap, history] = await Promise.all([
+      const [res, rm, snap, history, lastSuccess] = await Promise.all([
         supabase.from('reservations').select(RES_SELECT).in('hotel_id', keys)
           .gte('check_out_date', from.toISOString().slice(0, 10)).lte('check_in_date', to.toISOString().slice(0, 10))
           .order('check_in_date', { ascending: true }).limit(2000),
@@ -111,6 +127,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           .eq('hotel_id', hotelId).order('captured_at', { ascending: false }).limit(5000),
         supabase.from('pms_sync_history').select('created_at, sync_status').eq('hotel_id', hotelId)
           .eq('sync_type', 'reservations').order('created_at', { ascending: false }).limit(1),
+        supabase.from('pms_sync_history').select('created_at').eq('hotel_id', hotelId)
+          .eq('sync_type', 'reservations').eq('sync_status', 'success').order('created_at', { ascending: false }).limit(1),
       ]);
       if (seq !== requestId.current) return; // Ignore responses from a previously selected property.
       if (res.error || rm.error || snap.error || history.error) {
@@ -122,6 +140,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       setRooms(rm.data ?? []);
       setSnapshots((snap.data ?? []) as SnapshotRow[]);
       setImportHistory(history.data?.[0] ?? null);
+      setLastImportSuccess(lastSuccess.error ? null : lastSuccess.data?.[0]?.created_at ?? null);
     } catch {
       if (seq !== requestId.current) return;
       setReservations([]); setRooms([]); setSnapshots([]); setImportHistory(null);
@@ -132,6 +151,33 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   }, [ready, hotelId, isPortfolio, keysKey]);
 
   useEffect(() => { void fetchAll(); return () => { requestId.current += 1; }; }, [fetchAll]);
+
+  // Live updates: a scheduled Previo import, another receptionist's check-in or a
+  // housekeeper finishing a room refreshes the plan. Bursts (an import writes
+  // hundreds of rows) collapse into one refresh.
+  useEffect(() => {
+    if (!ready || !hotelId || isPortfolio) return;
+    const keys = hotelKeys.length ? hotelKeys : [hotelId];
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void fetchAll(); }, 2500);
+    };
+    // Separate channels: if one table is not streamed yet, the other keeps working.
+    const bookings = supabase.channel(`reception-bookings-${hotelId}`);
+    const roomStates = supabase.channel(`reception-rooms-${hotelId}`);
+    for (const key of keys) {
+      bookings.on('postgres_changes', { event: '*', schema: 'public', table: 'reservations', filter: `hotel_id=eq.${key}` }, schedule);
+      roomStates.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `hotel=eq.${key}` }, schedule);
+    }
+    bookings.subscribe();
+    roomStates.subscribe();
+    return () => {
+      if (timer) clearTimeout(timer);
+      void supabase.removeChannel(bookings);
+      void supabase.removeChannel(roomStates);
+    };
+  }, [ready, hotelId, isPortfolio, keysKey, fetchAll]);
 
   const snapshotAudit = useMemo(() => hotelId
     ? auditReceptionSnapshots(hotelId, snapshots, rooms, reservations, Date.now())
@@ -167,6 +213,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const tomorrowCheckIns = useMemo(() => reservations.filter((row) =>
     row.check_in_date === tomorrow && ['pending', 'confirmed'].includes(row.status),
   ), [reservations, tomorrow]);
+  const freshness = importFreshness(lastImportSuccess);
   const lastImportTime = importHistory?.created_at ? Date.parse(importHistory.created_at) : NaN;
   const importStale = !Number.isFinite(lastImportTime) || lastImportTime > Date.now() || Date.now() - lastImportTime > 24 * 60 * 60 * 1000 || importHistory?.sync_status !== 'success';
 
@@ -178,7 +225,21 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
       <div className="min-w-0">
         <h1 className="text-xl font-bold">{t('pms.fd.title')}</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">{today}</p>
+        <div className="mt-0.5 flex flex-wrap items-center gap-2">
+          <p className="text-xs text-muted-foreground">{today}</p>
+          {!loadingData && !loadError && (
+            <span
+              role="status"
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${FRESHNESS_STYLE[freshness.state]}`}
+              title={lastImportSuccess ? new Date(lastImportSuccess).toLocaleString() : undefined}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${freshness.state === 'fresh' ? 'bg-emerald-500' : freshness.state === 'aging' ? 'bg-amber-500' : 'bg-red-500'}`} aria-hidden="true" />
+              {freshness.minutes == null
+                ? t('pms.sync.neverImported')
+                : `${t('pms.sync.previoBookings')} · ${agoLabel(freshness.minutes, t)}`}
+            </span>
+          )}
+        </div>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative min-w-[210px] flex-1 xl:flex-none"><Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
