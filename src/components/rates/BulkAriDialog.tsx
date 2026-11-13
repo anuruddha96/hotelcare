@@ -4,7 +4,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { AriChanges, AriGrid, RateChange } from '@/integrations/channex/api';
+import type { AriChanges, AriGrid, RateChange } from '@/integrations/channex/ariApi';
 
 type Tri = 'keep' | 'on' | 'off';
 const WEEKDAYS = [

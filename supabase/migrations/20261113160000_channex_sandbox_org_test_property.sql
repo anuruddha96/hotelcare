@@ -60,7 +60,7 @@ CREATE OR REPLACE FUNCTION public.get_hotel_name_from_id(hotel_id text)
 RETURNS text
 LANGUAGE sql
 STABLE
-SET search_path = public
+SET search_path TO ''
 AS $$
   SELECT CASE
     WHEN hotel_id = 'memories-budapest' THEN 'Hotel Memories Budapest'

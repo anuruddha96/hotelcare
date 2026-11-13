@@ -317,14 +317,16 @@ verify_jwt = false
 [functions.insuite-api]
 verify_jwt = false
 
-# Channex integration (staging). Each function validates its own callers:
-# worker secret for cron/webhook fan-out, user JWT + hotel access for UI actions,
-# and a shared-secret header for the Channex webhook (Channex sends no JWT).
-[functions.channex-ari-worker]
+# Channex channel manager. channex-admin requires a user JWT and re-checks hotel access + role.
+# Webhook and workers are called by Channex / pg_cron and authenticate with Vault secrets instead.
+[functions.channex-admin]
+verify_jwt = true
+
+[functions.channex-webhook]
 verify_jwt = false
 
 [functions.channex-booking-worker]
 verify_jwt = false
 
-[functions.channex-webhook]
+[functions.channex-ari-worker]
 verify_jwt = false

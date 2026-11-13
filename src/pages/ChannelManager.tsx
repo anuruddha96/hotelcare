@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, CheckCircle2, History, Plus, Radio, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, History, Plus, Radio, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
@@ -45,7 +45,6 @@ const ChannelManager = () => {
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
-  const [nativeHotel, setNativeHotel] = useState(false);
 
   const fetchChannels = useCallback(async () => {
     if (!hotelId || !scopedOrg) { setLoadingData(false); return; }
@@ -68,9 +67,6 @@ const ChannelManager = () => {
       }
       setChannels((channelResult.data ?? []) as Channel[]);
       setSyncEntries((history.data ?? []) as SyncEntry[]);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: native } = await (supabase as any).rpc('pms_ari_native_hotel', { _hotel_id: hotelId });
-      setNativeHotel(Boolean(native));
       const connected = Boolean(accounts.data?.length || legacy.data?.length);
       setPrevioConnected(connected);
       setPrevioLastSync(accounts.data?.[0]?.last_sync_at || legacy.data?.[0]?.last_sync_at || null);
@@ -118,18 +114,15 @@ const ChannelManager = () => {
         <div><h1 className="text-xl font-bold flex gap-2 items-center"><Radio className="h-5 w-5" />{t('pms.channelManager')}</h1><p className="text-xs text-muted-foreground mt-1">Property: {hotelId} · Channel connections are property-specific.</p></div>
         <Button variant="outline" size="sm" disabled={loadingData} onClick={() => void fetchChannels()} className="gap-1.5"><RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} />{t('pms.fd.refresh')}</Button>
       </div>
-      {nativeHotel && scopedOrg && <ChannexPanel hotelId={hotelId} orgSlug={scopedOrg} />}
       {loadError && <div role="alert" className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-destructive" />Could not verify channel status for this hotel. No connection settings have been changed.</div>}
-      <div className="grid gap-3 lg:grid-cols-2">
-        <Card className="border-primary/30"><CardHeader className="pb-2"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base">Previo · existing PMS / channel workflow</CardTitle><Badge variant={previoConnected ? 'default' : 'outline'}>{loadingData ? 'Checking' : previoConnected ? 'PMS configured' : 'Not configured'}</Badge></div></CardHeader><CardContent className="space-y-3 text-sm"><p className="text-muted-foreground">Keep Previo as the source of truth for existing hotels during the transition. A configured PMS account alone does not prove OTA synchronization is healthy.</p><p className="text-xs text-muted-foreground">Latest configuration sync: {previoLastSync ? new Date(previoLastSync).toLocaleString() : 'Not recorded'}</p><Button asChild size="sm" variant="outline" className="gap-1.5"><Link to={`/${scopedOrg}/reception`}>Open reception and Previo sync <ArrowRight className="h-3.5 w-3.5" /></Link></Button></CardContent></Card>
-        <Card className="border-dashed"><CardHeader className="pb-2"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base">HotelCare Channel Manager</CardTitle><Badge variant="outline">Development mode · not live</Badge></div></CardHeader><CardContent className="space-y-3 text-sm"><p className="text-muted-foreground">Planned alternative for hotel-specific OTA connections, availability, rates and reservation delivery. No live channel publishing or provider switch is enabled yet.</p><div className="text-xs flex gap-2 items-start rounded-md bg-muted/50 p-2"><ShieldCheck className="h-4 w-4 shrink-0" />Before activation: OTA approval and credentials, room/rate mapping, incoming-booking deduplication, outbound inventory tests, reconciliation, monitoring and rollback.</div><Button size="sm" variant="outline" disabled aria-label="HotelCare Channel Manager not yet available">HotelCare CHM · setup pending</Button></CardContent></Card>
-      </div>
-      <Card><CardHeader className="pb-2"><CardTitle className="text-base">Channels for this hotel</CardTitle><p className="text-xs text-muted-foreground">Adding a draft does not connect an OTA. No reservations or rates are sent until the official integration and verification are completed.</p></CardHeader><CardContent className="space-y-3">
+      <ChannexPanel hotelId={hotelId} />
+        <Card><CardHeader className="pb-2"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base">Previo · existing PMS / channel workflow</CardTitle><Badge variant={previoConnected ? 'default' : 'outline'}>{loadingData ? 'Checking' : previoConnected ? 'PMS configured' : 'Not configured'}</Badge></div></CardHeader><CardContent className="space-y-3 text-sm"><p className="text-muted-foreground">Keep Previo as the source of truth for existing hotels until the Channex connection above is live and the OTA channels are disconnected from Previo. Never let both publish rates.</p><p className="text-xs text-muted-foreground">Latest configuration sync: {previoLastSync ? new Date(previoLastSync).toLocaleString() : 'Not recorded'}</p><Button asChild size="sm" variant="outline" className="gap-1.5"><Link to={`/${scopedOrg}/reception`}>Open reception and Previo sync <ArrowRight className="h-3.5 w-3.5" /></Link></Button></CardContent></Card>
+      <Card><CardHeader className="pb-2"><CardTitle className="text-base">Channels for this hotel</CardTitle><p className="text-xs text-muted-foreground">Internal notes per channel. OTA connections themselves are made in Channex (step 6 above).</p></CardHeader><CardContent className="space-y-3">
         {loadingData ? <p className="text-sm text-muted-foreground">Loading hotel connections…</p> : channels.length === 0 ? <p className="text-sm text-muted-foreground">No hotel-specific channels configured yet.</p> : <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{channels.map((channel) => <div key={channel.id} className="rounded-lg border p-3 space-y-1"><div className="flex justify-between gap-2"><span className="font-semibold text-sm">{channel.channel_name}</span><Badge variant={channel.is_active ? 'default' : 'outline'}>{channel.is_active ? 'Active flag' : 'Draft / inactive'}</Badge></div><p className="text-xs text-muted-foreground">{channel.channel_type || 'OTA'} · {channel.sync_status || 'Not verified'}</p><p className="text-[11px] text-muted-foreground">Last channel sync: {channel.last_sync_at ? new Date(channel.last_sync_at).toLocaleString() : 'Never'}</p>{channel.is_active && channel.sync_status !== 'success' && <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">Active flag is set but successful channel sync is unverified.</p>}</div>)}</div>}
         {available.length > 0 && <div className="border-t pt-3"><p className="text-xs font-semibold text-muted-foreground mb-2">Create inactive channel draft</p><div className="flex flex-wrap gap-2">{available.map((entry) => <Button key={entry.name} size="sm" type="button" variant="outline" disabled={Boolean(adding) || loadingData || loadError} onClick={() => void addDraft(entry)} className="gap-1"><Plus className="h-3.5 w-3.5" />{entry.name}</Button>)}</div></div>}
       </CardContent></Card>
       <Card><CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><History className="h-4 w-4" />Latest property PMS activity</CardTitle></CardHeader><CardContent className="space-y-1">{syncEntries.length === 0 ? <p className="text-sm text-muted-foreground">No sync history recorded for this hotel.</p> : syncEntries.map((entry) => <div key={entry.id} className="flex items-center justify-between flex-wrap gap-2 border-b border-border/50 py-2 text-xs"><span className="flex gap-1 items-center">{entry.sync_status === 'success' ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />}{entry.sync_type.replaceAll('_', ' ')}</span><span className="text-muted-foreground">{entry.sync_status || 'unknown'} · {new Date(entry.created_at).toLocaleString()}</span></div>)}</CardContent></Card>
-      <p className="text-xs text-muted-foreground">NTAK/VIZA PMS approvals are a separate process from OTA channel connectivity. No live channel provider is switched on this screen.</p>
+      <p className="text-xs text-muted-foreground">NTAK and VIZA reporting stay with the hotel’s registered accommodation software; see the Hungary compliance tab before going live.</p>
     </main>
   </div>;
 };
