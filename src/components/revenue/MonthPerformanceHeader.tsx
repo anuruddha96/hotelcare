@@ -14,6 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMonthReconciliationDays } from "@/hooks/useMonthReconciliationDays";
 import { breakfastPriceOf, buildMonthBreakdown, wholeMonthOf, type MonthBreakdownRow } from "@/lib/kpiReconciliation";
 import MonthBreakdownPanel from "./MonthBreakdownPanel";
+import KpiReconciliationCard from "./KpiReconciliationCard";
 import { Bar, BarChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 
 const PICKUP_WINDOW_HU: Record<number,string> = {
@@ -479,6 +480,13 @@ export default function MonthPerformanceHeader({
             `Explain the revenue dashboard for hotel ${hotelId ?? "current property"}, ${monthLabel}. Check full-month stayed + booked occupancy, gross booking ADR including breakfast/extras, RevPAR, net pickup, and explain any Previo discrepancy. Compare only the same full-month basis and identify actionable issues. Do not mistake forward-only prices for full-month ADR.` } }))}>
           {hu ? "Kérdezd a HotelCare AI-t a havi számokról" : "Ask HotelCare AI about this month"}
         </button>
+        <nav className="flex gap-2 overflow-x-auto pb-1" aria-label={hu ? "Teljesítményhónap kiválasztása" : "Select performance month"}>
+          {outlook.map((o) => <button key={o.key} type="button" onClick={() => setMonth(o.key)}
+            aria-current={o.key === month ? "date" : undefined}
+            className={`shrink-0 rounded-md border px-3 py-2 text-xs font-semibold ${o.key === month ? "border-primary bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-muted"}`}>
+            {localMonth(o.key + "-01").slice(0, 3)}
+          </button>)}
+        </nav>
         <div data-testid="monthly-kpis" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Tile
             loading={tilesLoading}
@@ -530,9 +538,7 @@ export default function MonthPerformanceHeader({
           />
         </div>
         {!whole && !tilesLoading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{hu ? "A teljes hónap adatai nem ellenőrizhetők; nem jelenítünk meg részleges havi ADR-t." : "Full-month figures are unavailable or incomplete. Partial ADR is not shown as monthly ADR."}</p>}
-        <details className="rounded-lg border px-3 py-2 text-xs">
-          <summary className="cursor-pointer font-medium">{hu ? "További mutatók" : "More metrics"} · bookings, revenue, rooms left</summary>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div data-testid="additional-monthly-kpis" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Tile
             loading={loading}
             label={hu?"Ma létrehozott foglalások":"Bookings created today"}
@@ -569,8 +575,7 @@ export default function MonthPerformanceHeader({
             surface="border-l-amber-500 bg-amber-500/5"
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
           />
-          </div>
-        </details>
+        </div>
 
         {monthComplete && breakdown.length > 0 && !tilesLoading && (
           <details className="rounded-lg border px-3 py-2 text-xs">
@@ -620,13 +625,8 @@ export default function MonthPerformanceHeader({
               <Bar dataKey="occupancy" fill="hsl(var(--primary))" maxBarSize={38} radius={[4,4,0,0]} />
             </BarChart>
           </ResponsiveContainer></div>
-          <div className="mt-2 flex gap-2 overflow-x-auto">
-            {outlook.map((o) => <button key={o.key} type="button" onClick={() => setMonth(o.key)}
-              className={`shrink-0 rounded border px-2 py-1 text-[11px] ${o.key === month ? "border-primary bg-primary/10 font-semibold" : "text-muted-foreground"}`}>
-              {localMonth(o.key+"-01").slice(0,3)}
-            </button>)}
-          </div>
           <p className="mt-1 text-[10px] text-muted-foreground">{hu ? "Az aktuális hónap korábbi és jövőbeli foglalásokat, a későbbi hónapok az eddigi foglalásokat mutatják." : "Current month includes stayed and booked nights; future months show bookings on the books, not a forecast."}</p>
+          <KpiReconciliationCard hotelId={hotelId ?? null} month={month} embedded />
         </section>
       </CardContent>
     </Card>
