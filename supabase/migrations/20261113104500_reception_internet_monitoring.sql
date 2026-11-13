@@ -13,10 +13,11 @@ create table if not exists public.network_monitors (
   created_by uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  last_heartbeat_at timestamptz not null default now(),
-  constraint network_monitors_hotel_fk foreign key (hotel_id)
-    references public.hotel_configurations(hotel_id) on update cascade
+  last_heartbeat_at timestamptz not null default now()
 );
+-- hotel_id is a canonical, organization-scoped hotel key (not necessarily a
+-- globally unique foreign-key target across tenants). The Edge Function
+-- validates the hotel against hotel_configurations + organizations.
 create index if not exists network_monitors_due_idx
   on public.network_monitors (last_heartbeat_at) where enabled;
 create index if not exists network_monitors_hotel_idx
