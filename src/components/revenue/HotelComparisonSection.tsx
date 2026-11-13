@@ -76,7 +76,8 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
       return { ...hotel, nights: month ? daysInMonth : 0, occ, adr, revpar,
         unavailable: query?.isError ? "Could not load month" : !month ? "Full-month data unavailable" : !fx ? "EUR conversion unavailable" : null };
     });
-    // All complete hotels compete equally on occupancy, ADR and RevPAR.
+    // The hotel leading both ADR and RevPAR is #1; other complete hotels
+    // compete equally on the three monthly KPIs.
     // The selected hotel is highlighted in the UI, never pinned above better performers.
     return rankHotelsByPerformance(snapshots);
   }, [hotels, monthlyQueries, selectedMonth, eurRateByHotel]);
@@ -119,7 +120,7 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
                     </Badge>
                   )}
                   <span className="text-[10px] text-muted-foreground sm:text-[11px]">
-                    Overall rank: equal-weight occupancy, ADR and RevPAR positions · RevPAR breaks ties
+                    Rank criteria: highest ADR + RevPAR leads; otherwise equal-weight occupancy, ADR and RevPAR · RevPAR breaks ties
                   </span>
                 </div>
                 {comparisonError && <p role="alert" className="mb-2 text-xs text-destructive">Some hotels could not be reconciled. Unavailable figures are not estimated.</p>}
