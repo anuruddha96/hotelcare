@@ -9,7 +9,8 @@ import {
   Clock,
   Radio,
   TrendingUp,
-  Receipt
+  Receipt,
+  CalendarRange
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -67,6 +68,13 @@ const PMS_NAV_ITEMS: NavigationItem[] = [
     roles: ['admin', 'top_management', 'top_management_manager'],
   },
   {
+    key: 'rates-availability',
+    icon: CalendarRange,
+    label: 'Rates & Availability',
+    href: (basePath) => `${basePath}/rates-availability`,
+    roles: ['admin', 'manager', 'reception', 'front_office', 'top_management', 'top_management_manager'],
+  },
+  {
     key: 'channel-manager',
     icon: Radio,
     label: 'Channel Manager',
@@ -92,6 +100,8 @@ export function PMSNavigation() {
   const visibleItems = PMS_NAV_ITEMS.filter((item) => {
     if (!profile) return false;
     if (item.key === 'purchase-invoices') return canAccessLegacyModules(profile.nickname);
+    // Native rates & availability exists only where HotelCare is the main PMS (Channex sandbox for now).
+    if (item.key === 'rates-availability' && organizationSlug !== 'channex') return false;
     return item.roles.includes(profile.role);
   });
 
@@ -106,6 +116,7 @@ export function PMSNavigation() {
   const activeKey = (() => {
     if (isReceptionPath) return 'reception';
     if (location.pathname.startsWith(`${basePath}/revenue`)) return 'revenue';
+    if (location.pathname.startsWith(`${basePath}/rates-availability`)) return 'rates-availability';
     if (location.pathname.startsWith(`${basePath}/channel-manager`)) return 'channel-manager';
     if (location.pathname.startsWith(`${basePath}/purchase-invoices`)) return 'purchase-invoices';
     if (location.pathname === basePath || location.pathname === `${basePath}/`) {
