@@ -4,6 +4,7 @@ import { streamText } from "npm:ai@7";
 import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
 import { detectAssistantWorkflow, MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
+import { generateLowCostText } from "../_shared/lowCostAi.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -142,6 +143,68 @@ function classifyRatio(current: number | null, baseline: number | null) {
   if (ratio < 0.9) return "slightly_below";
   if (ratio <= 1.1) return "around_baseline";
   return "above_baseline";
+}
+
+
+/** Only verified aggregate monthly explanations use the safe, non-tool path.
+ * The Gemini request contains generic metric definitions, NEVER hotel figures,
+ * reservations, staff/guest data, confidential financials or tool results.
+ */
+function isReadOnlyRevenueReport(question: string) {
+  return /(?:explain the revenue dashboard|review the hotel portfolio comparison)/i.test(question);
+}
+function reportMonth(question: string): string | null {
+  const numeric = question.match(/\b(20\d{2})-(0[1-9]|1[0-2])\b/);
+  if (numeric) return `${numeric[1]}-${numeric[2]}`;
+  const names = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+  const lower = question.toLowerCase();
+  for (let i = 0; i < names.length; i++) {
+    const match = lower.match(new RegExp(`\\b${names[i]}\\s+(20\\d{2})\\b`));
+    if (match) return `${match[1]}-${String(i + 1).padStart(2,"0")}`;
+  }
+  return null;
+}
+
+async function buildVerifiedRevenueReport(db: any, hotels: any[], question: string, page: any) {
+  const month = reportMonth(question);
+  if (!month) return "Choose a month in Revenue Management to see a verified monthly breakdown.";
+  const isPortfolio = /portfolio comparison/i.test(question);
+  const named = hotels.find((h) => question.toLowerCase().includes(String(h.hotel_id).toLowerCase()) ||
+    question.toLowerCase().includes(String(h.hotel_name).toLowerCase()));
+  const fromPage = hotels.find((h) => h.hotel_id === page?.hotelId);
+  const targets = isPortfolio ? hotels.slice(0, 12) : [named ?? fromPage].filter(Boolean);
+  if (!targets.length) return "I couldn't identify an authorised property for this report. Select the hotel first.";
+  const start = `${month}-01`;
+  const lastDay = new Date(Date.UTC(Number(month.slice(0,4)), Number(month.slice(5,7)), 0)).getUTCDate();
+  const end = `${month}-${String(lastDay).padStart(2,"0")}`;
+  const today = budapestDay();
+  const output: string[] = [];
+  for (const hotel of targets) {
+    // This runs with a service client only after the requested hotel is proven
+    // to belong to the authenticated manager's authorised organisation.
+    const { data, error } = await db.from("revenue_kpi_reconciliation_daily")
+      .select("stay_date,commercial_sold,commercial_capacity,room_revenue_gross,unpriced_nights,booked_nights_all,previo_dashboard_occupied,unassigned_nights,option_nights")
+      .eq("hotel_id", hotel.hotel_id).gte("stay_date", start).lte("stay_date", end).order("stay_date");
+    if (error || !Array.isArray(data) || new Set(data.map((x: any) => x.stay_date)).size !== lastDay) {
+      output.push(`**${hotel.hotel_name}** — full-month reconciliation unavailable; no values have been estimated.`);
+      continue;
+    }
+    const sum = (field: string) => data.reduce((total: number, row: any) => total + (Number(row[field]) || 0), 0);
+    const sold = sum("commercial_sold"), capacity = sum("commercial_capacity"), gross = sum("room_revenue_gross");
+    const priced = sold - sum("unpriced_nights"), assigned = sum("previo_dashboard_occupied");
+    const booked = sum("booked_nights_all"), unassigned = sum("unassigned_nights");
+    const futureRoomsLeft = data.filter((d: any) => d.stay_date >= today)
+      .reduce((total: number, d: any) => total + Math.max(0, Number(d.commercial_capacity) - Number(d.commercial_sold)), 0);
+    const eur = (v: number) => "€" + Math.round(v).toLocaleString("en-US");
+    output.push(
+      `**${hotel.hotel_name} · ${month} (full stay month)**\n` +
+      `• Occupancy: ${capacity ? Math.round(100 * sold / capacity) + "%" : "unavailable"} (${sold}/${capacity} commercially sold room-nights).\n` +
+      `• Gross booking ADR: ${priced ? eur(gross / priced) : "unavailable"}; gross RevPAR: ${capacity ? eur(gross / capacity) : "unavailable"}; booking value: ${eur(gross)}. Breakfast and extras can be included.\n` +
+      `• Previo assigned-room gap: ${booked - assigned > 0 ? "+" : ""}${booked - assigned} room-nights (${unassigned} not assigned; ${sum("option_nights")} options counted).\n` +
+      `• Still available on current/future nights of this month: ${futureRoomsLeft} sellable room-nights. This excludes past unsold inventory.`
+    );
+  }
+  return output.join("\n\n") + "\n\n**Interpretation:** Full-month ADR combines already-stayed nights with on-the-books nights; a future-only ADR is not the same metric. Previo's assigned-room count can be lower because sold reservations have not yet been allocated a room. Review exceptional unassigned bookings and unpriced nights, but do not alter rates from this summary alone.";
 }
 
 function manualStream(text: string, metadata: Record<string, unknown>) {
@@ -831,8 +894,9 @@ Deno.serve(async (req) => {
 
   // A pricing review, a chart or an image needs the tool-using agent. The deep
   // analysis below is text-only and can neither draw nor prepare a change.
-  const needsAgent = detectAssistantWorkflow(question) !== null && body?.model_tier !== "deep";
-  if (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep")) {
+  const readOnlyRevenueReport = isReadOnlyRevenueReport(question);
+  const needsAgent = !readOnlyRevenueReport && detectAssistantWorkflow(question) !== null && body?.model_tier !== "deep";
+  if (!readOnlyRevenueReport && (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep"))) {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/assistant-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: authHeader },
@@ -957,6 +1021,38 @@ Deno.serve(async (req) => {
         await finalize(false);
         return json({ error: "Could not save your question" }, 500);
       }
+    }
+
+    if (readOnlyRevenueReport) {
+      const verified = await buildVerifiedRevenueReport(db, hotels, question, page);
+      // Gemini gets only a static public definition prompt. No private HotelCare
+      // financials or guest/staff information are transmitted to an unpaid tier.
+      let explanation = "";
+      let modelUsed = "verified-revenue-report";
+      try {
+        const generated = await generateLowCostText({
+          task: "public",
+          prompt: "Explain in one concise sentence why a hotel full-month ADR may differ from its future-only ADR, and why unassigned sold rooms can cause a Previo occupancy discrepancy. General metric definitions only, no numbers, no claims about specific hotels.",
+          instructions: "Explain common revenue-management KPI concepts. No invented details, prices, dates, hotel names, personal data or numerical claims. Maximum 65 words.",
+          fallbackModel: "gpt-4o-mini",
+          maxOutputTokens: 130,
+          validate: (v) => v.length > 20 && v.length < 600,
+        });
+        explanation = generated.text.trim();
+        modelUsed = generated.model;
+      } catch (modelError) {
+        console.warn("revenue explanation model unavailable; using verified on-server report");
+      }
+      const answer = verified + (explanation ? "\n\n**About the metrics:** " + explanation : "");
+      const { error: saveError } = await db.from("assistant_messages").insert({
+        thread_id: threadId, user_id: authData.user.id, role: "assistant",
+        content: answer, model: modelUsed, refused: false,
+      });
+      if (saveError) console.error("verified revenue report save failed", saveError.message);
+      await db.from("assistant_threads").update({ updated_at: new Date().toISOString() })
+        .eq("id", threadId).eq("user_id", authData.user.id);
+      await finalize?.(true);
+      return manualStream(answer, { verified: true, report: "full-month-revenue" });
     }
 
     const openai = createOpenAI({ apiKey: openAiKey });
