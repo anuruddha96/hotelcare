@@ -1,5 +1,4 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Globe } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useLanguagePreference } from '@/hooks/useLanguagePreference';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -34,9 +33,9 @@ export function LanguageSwitcher() {
   };
 
   return (
-    <div className="flex items-center gap-2" data-training="language-switch">
+    <div className="flex shrink-0 items-center" data-training="language-switch">
     <Select value={language} onValueChange={handleLanguageChange}>
-      <SelectTrigger className="w-auto h-9 px-3 gap-2 bg-background/50 border-border/40 hover:bg-background/80 transition-colors [&>span]:flex [&>span]:items-center [&>span]:gap-2 [&>span]:whitespace-nowrap [&>span]:overflow-visible">
+      <SelectTrigger aria-label={`Language: ${current.name}`} className="h-9 w-[68px] shrink-0 gap-1.5 rounded-lg border-border/60 bg-background px-2.5 transition-colors hover:bg-secondary/60 sm:w-auto sm:gap-2 sm:px-3 [&>span]:flex [&>span]:items-center [&>span]:gap-2 [&>span]:whitespace-nowrap">
         <SelectValue>
           <span className="text-base leading-none">{current.flag}</span>
           <span className="font-medium hidden sm:inline whitespace-nowrap">{current.name}</span>

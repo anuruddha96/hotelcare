@@ -109,10 +109,10 @@ export function Header() {
 
   return (
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
-      <div className="container mx-auto px-3 sm:px-4 py-3 flex items-center justify-between overflow-hidden max-w-full">
+      <div className="container mx-auto max-w-full flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
         {/* Logo Section - More space on mobile */}
-        <div className="min-w-0 shrink flex items-center">
-          <div className="flex items-center gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-xl bg-secondary/60 ring-1 ring-border hover:ring-primary/40 transition">
+        <div className="flex w-full min-w-0 items-center justify-between gap-3 sm:w-auto sm:shrink-0">
+          <div className="flex min-w-0 items-center gap-2 rounded-xl bg-secondary/60 p-1.5 ring-1 ring-border transition hover:ring-primary/40 sm:gap-3 sm:p-2">
             <img
               src={hotelcareLogo}
               alt="Hotel Care Logo"
@@ -127,17 +127,21 @@ export function Header() {
               )}
             </div>
           </div>
+          {/* On phones, keep the language control in its own stable slot beside the brand. */}
+          <div className="shrink-0 sm:hidden">
+            <LanguageSwitcher />
+          </div>
         </div>
-        
-        {/* Right Section with Horizontal Scroll */}
-        <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-hide flex-1 min-w-0 justify-end">
+
+        {/* Mobile actions scroll on a separate row instead of colliding with the language control. */}
+        <div className="flex w-full min-w-0 items-center justify-start gap-1 overflow-x-auto overscroll-x-contain scrollbar-hide sm:w-auto sm:flex-1 sm:justify-end sm:gap-2">
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <div className="shrink-0">
               <DirtyLinenCartBadge />
             </div>
             <OrganizationSwitcher />
             <HotelSwitcher />
-            <LanguageSwitcher />
+            <div className="hidden shrink-0 sm:block"><LanguageSwitcher /></div>
             <InstallAppPrompt />
             {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
               <LiveSyncIndicator />
