@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NewFeatureBadge, useFeatureSeen } from "@/components/common/NewFeatureBadge";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export interface RevenueTool {
   key: string;
@@ -22,6 +23,7 @@ export interface RevenueTool {
  */
 export default function RevenueToolsBar({ tools }: { tools: RevenueTool[] }) {
   const [open, setOpen] = useState<string | null>(null);
+  const isMobile = useIsMobile();
   const { language } = useTranslation();
   const active = tools.find((t) => t.key === open) ?? null;
   const { isNew, markSeen } = useFeatureSeen();
@@ -49,9 +51,11 @@ export default function RevenueToolsBar({ tools }: { tools: RevenueTool[] }) {
 
 
       <Sheet open={!!active} onOpenChange={(o) => !o && setOpen(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-4">
+        <SheetContent side={isMobile ? "bottom" : "right"} className={isMobile
+          ? "h-[94dvh] max-h-[94dvh] w-full max-w-full min-w-0 flex flex-col gap-2 overflow-hidden rounded-t-xl border-t bg-background p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+          : "h-full w-full max-w-2xl min-w-0 flex flex-col gap-2 overflow-hidden bg-background p-4"}>
           {/* Own close button: the sheet's corner X can sit under a toast on mobile. */}
-          <SheetHeader className="pb-2 pr-10">
+          <SheetHeader className="shrink-0 border-b pb-2 pr-10">
             <div className="flex items-center justify-between gap-2">
               <SheetTitle className="text-base">{active?.label}</SheetTitle>
               <Button
@@ -65,7 +69,7 @@ export default function RevenueToolsBar({ tools }: { tools: RevenueTool[] }) {
               </Button>
             </div>
           </SheetHeader>
-          <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain px-1 pb-5" style={{ WebkitOverflowScrolling: "touch" }}>
             {active?.render()}
           </div>
         </SheetContent>

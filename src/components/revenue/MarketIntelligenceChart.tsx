@@ -128,6 +128,8 @@ interface Props {
   selectedMonth: string;
   eventsByDate?: Map<string, { title: string; impact: string }[]>;
   ourRateByDate?: Map<string, number>;
+  /** Optional booking movement between market-position and demand charts. */
+  reservationMovement?: ReactNode;
 }
 
 type PrimaryMetric = "occ" | "adr" | "demand";
@@ -286,11 +288,12 @@ export default function MarketIntelligenceChart({
   selectedMonth,
   eventsByDate,
   ourRateByDate,
+  reservationMovement,
 }: Props) {
   const isMobile = useIsMobile();
   const [days, setDays] = useState(() => typeof window !== "undefined" && window.innerWidth < 768 ? 14 : 60);
   const [primaryMetric, setPrimaryMetric] = useState<PrimaryMetric>("occ");
-  const [compare, setCompare] = useState(false);
+  const [compare, setCompare] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
   const [customDays, setCustomDays] = useState(7);
   const [baseline, setBaseline] = useState("__ours__");
@@ -534,45 +537,8 @@ export default function MarketIntelligenceChart({
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="space-y-3 pb-3">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base sm:text-lg"><Activity className="h-5 w-5 text-primary" />Market intelligence</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">What is selling, how full you are becoming, and where your rate sits against the market.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant={totalPickup >= 0 ? "secondary" : "destructive"} className="font-normal">{totalPickup > 0 ? "+" : ""}{totalPickup} net rooms <span className="ml-1 text-muted-foreground">(+{totalGained} booked · −{totalLost} lost)</span></Badge>
-            {peak && peak.pickup > 0 && <Badge variant={peak.pickup >= 3 ? "destructive" : "secondary"}>Peak {peak.label}: +{peak.pickup}</Badge>}
-            {marketStanding && <Badge variant="outline" className="font-normal">{baselineLabel} {marketStanding.pct === 0 ? "at market" : `${Math.abs(marketStanding.pct)}% ${marketStanding.pct > 0 ? "above" : "below"} market`}<span className="ml-1 text-muted-foreground">· {marketStanding.nights} nights</span></Badge>}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          <SummaryTile icon={<TrendingUp className="h-3.5 w-3.5" />} label="Pickup" value={`${totalPickup > 0 ? "+" : ""}${totalPickup}`} detail={`${totalGained} booked · ${totalLost} lost`} />
-          <SummaryTile icon={<Percent className="h-3.5 w-3.5" />} label="Occupancy" value={todayPoint ? `${todayPoint.occ}%` : "—"} detail={todayPoint ? `${todayPoint.roomsLeft} room${todayPoint.roomsLeft === 1 ? "" : "s"} left` : "No current data"} />
-          <SummaryTile icon={<BedDouble className="h-3.5 w-3.5" />} label="Peak pickup" value={peak && peak.pickup > 0 ? `+${peak.pickup}` : "—"} detail={peak && peak.pickup > 0 ? peak.label : "No positive pickup"} />
-        </div>
-
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-          {onPickupWindowChange && <div className="flex min-w-0 items-center gap-2">
-            <Select value={period} onValueChange={(v) => applyPeriod(v as PeriodKey)}><SelectTrigger className="h-9 min-w-0 flex-1 lg:w-[210px] lg:flex-none"><SelectValue /></SelectTrigger><SelectContent>{PERIODS.map((p) => <SelectItem key={p.key} value={p.key}>Pickup: {p.label}</SelectItem>)}</SelectContent></Select>
-            {period === "custom" && <Input type="number" min={1} max={90} value={activeWindow > 0 ? activeWindow : customDays} className="h-9 w-20" onChange={(e) => { const n = Math.max(1, Math.min(90, Number(e.target.value) || 1)); setCustomDays(n); onPickupWindowChange(n); }} />}
-          </div>}
-          <div className="flex rounded-lg border p-0.5">{ranges.map((r) => <Button key={r.value} size="sm" variant={days === r.value ? "default" : "ghost"} className="h-8 rounded-md px-2.5 text-xs" onClick={() => setDays(r.value)}>{r.label}</Button>)}</div>
-          <div className="flex rounded-lg border p-0.5">{([ ["occ", "Occupancy"], ["adr", "Daily ADR"], ["demand", "Demand"] ] as Array<[PrimaryMetric, string]>).map(([key, label]) => <Button key={key} size="sm" variant={primaryMetric === key ? "default" : "ghost"} className="h-8 rounded-md px-2.5 text-xs" onClick={() => setPrimaryMetric(key)}>{label}</Button>)}</div>
-          <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
-            {hotels.length > 1 && <Button size="sm" variant={compare ? "default" : "outline"} className="h-9 text-xs" onClick={() => setCompare((v) => !v)}>Compare hotels</Button>}
-            <Popover><PopoverTrigger asChild><Button size="sm" variant="outline" className="h-9 text-xs"><SlidersHorizontal className="mr-1 h-3.5 w-3.5" />Market series</Button></PopoverTrigger><PopoverContent align="end" className="w-80 p-3"><div className="space-y-3"><div><p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Rate comparison</p><SeriesTick label="Our selling rate" checked={prefs.ourRate} onChange={(v) => setPrefs((p) => ({ ...p, ourRate: v }))} /><SeriesTick label="Market average" checked={prefs.marketAvg} onChange={(v) => setPrefs((p) => ({ ...p, marketAvg: v }))} /><SeriesTick label="Market median" checked={prefs.marketMedian} onChange={(v) => setPrefs((p) => ({ ...p, marketMedian: v }))} /><SeriesTick label="Cheapest–dearest band" checked={prefs.band} onChange={(v) => setPrefs((p) => ({ ...p, band: v }))} /><SeriesTick label="Event markers" checked={showEvents} onChange={setShowEvents} /></div><div><p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Competitors {isMobile ? "· max 2 on mobile" : ""}</p><div className="max-h-52 overflow-y-auto">{marketData.competitors.length === 0 && <p className="text-xs text-muted-foreground">No watched competitors yet.</p>}{marketData.competitors.map((c, i) => <SeriesTick key={c.id} label={c.name} color={competitorColor(i)} checked={prefs.competitors.includes(c.id)} onChange={() => toggleCompetitor(c.id)} hint={`${marketData.ratesByCompetitor.get(c.id)?.size ?? 0} nights`} />)}</div></div></div></PopoverContent></Popover>
-            {!isMobile && hotels.length > 1 && <Select value={baseline} onValueChange={setBaseline}><SelectTrigger className="h-9 w-[210px] text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__ours__">Baseline: this property</SelectItem>{hotels.filter((h) => h.hotel_id !== hotelId).map((h) => <SelectItem key={h.hotel_id} value={h.hotel_id}>Baseline: {h.hotel_name}</SelectItem>)}</SelectContent></Select>}
-            <Button size="sm" variant="ghost" className="h-9 px-2 text-xs" onClick={exportCsv}><Download className="mr-1 h-3.5 w-3.5" />CSV</Button>
-          </div>
-        </div>
-        <p className="text-[11px] text-muted-foreground">Pickup: {pickupWindowLabel(activeWindow).toLowerCase()}. Daily ADR (when selected) is per stay date, not the whole-month ADR.</p>
-      </CardHeader>
-
-      <CardContent className="space-y-5 px-2 pb-4 sm:px-4">
         {compare && comparison.length > 0 && (
-          <section aria-label="Hotel comparison" aria-busy={comparisonLoading}>
+          <section aria-label="Hotel comparison" aria-busy={comparisonLoading} className="border-b bg-muted/10 p-3 sm:p-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-semibold">Hotel comparison</p>
@@ -630,16 +596,54 @@ export default function MarketIntelligenceChart({
           </section>
         )}
 
-        <section className="rounded-xl border bg-card p-2 sm:p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-sm font-semibold">Pickup & demand</p><p className="text-[10px] text-muted-foreground">Bookings and cancellations with one clear demand signal.</p></div><div className="flex items-center gap-3 text-[10px]"><LegendChip color={PICKUP_COLOR} label="Booked" shape="bar" /><LegendChip color={CANCEL_COLOR} label="Cancelled" shape="bar" /><LegendChip color={demandMetricColor} label={demandMetricLabel} /></div></div>
-          <div className="h-[19rem]"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={data} syncId="market-intelligence-v2" margin={{ top: 10, right: 6, left: -8, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" /><XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(data.length / (isMobile ? 5 : 9)))} /><YAxis yAxisId="pickup" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={34} allowDecimals={false} domain={[(min: number) => Math.min(0, min) - 1, (max: number) => Math.max(2, max) + 1]} />{primaryMetric === "adr" ? <YAxis yAxisId="metric" orientation="right" width={48} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`} domain={adrDomain ?? ["auto", "auto"]} /> : <YAxis yAxisId="metric" orientation="right" width={42} domain={[0, 100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}%`} />}{showEvents && <EventLines data={data} yAxisId="pickup" />}<ReferenceLine yAxisId="pickup" y={0} stroke="hsl(var(--muted-foreground) / 0.45)" /><RTooltip content={<DemandTooltip />} cursor={{ fill: "hsl(var(--muted) / 0.35)" }} /><Bar yAxisId="pickup" dataKey="gained" name="Booked" stackId="pickup" radius={[2, 2, 0, 0]} maxBarSize={20} minPointSize={2} isAnimationActive={false}>{data.map((d) => <Cell key={d.date} fill={barColor(d.gained)} />)}</Bar><Bar yAxisId="pickup" dataKey="lost" name="Cancelled" stackId="pickup" fill={CANCEL_COLOR} radius={[0, 0, 2, 2]} maxBarSize={20} minPointSize={2} isAnimationActive={false} />{primaryMetric === "occ" && <Line yAxisId="metric" type="monotone" dataKey="occ" name="Occupancy" stroke={OCC_COLOR} strokeWidth={2.5} dot={false} isAnimationActive={false} />}{primaryMetric === "adr" && <Line yAxisId="metric" type="monotone" dataKey="adr" name="Daily ADR" stroke={ADR_COLOR} strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} />}{primaryMetric === "demand" && <><Line yAxisId="metric" type="monotone" dataKey="demand" name="City demand" stroke={DEMAND_COLOR} strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} /><Line yAxisId="metric" type="monotone" dataKey="demandForecast" name="Demand forecast" stroke={DEMAND_COLOR} strokeWidth={2} strokeDasharray="4 3" dot={false} connectNulls opacity={0.55} isAnimationActive={false} /></>}</ComposedChart></ResponsiveContainer></div>
-        </section>
+      <CardHeader className="space-y-3 pb-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base sm:text-lg"><Activity className="h-5 w-5 text-primary" />Market intelligence</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">What is selling, how full you are becoming, and where your rate sits against the market.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={totalPickup >= 0 ? "secondary" : "destructive"} className="font-normal">{totalPickup > 0 ? "+" : ""}{totalPickup} net rooms <span className="ml-1 text-muted-foreground">(+{totalGained} booked · −{totalLost} lost)</span></Badge>
+            {peak && peak.pickup > 0 && <Badge variant={peak.pickup >= 3 ? "destructive" : "secondary"}>Peak {peak.label}: +{peak.pickup}</Badge>}
+            {marketStanding && <Badge variant="outline" className="font-normal">{baselineLabel} {marketStanding.pct === 0 ? "at market" : `${Math.abs(marketStanding.pct)}% ${marketStanding.pct > 0 ? "above" : "below"} market`}<span className="ml-1 text-muted-foreground">· {marketStanding.nights} nights</span></Badge>}
+          </div>
+        </div>
 
+        <div className="grid grid-cols-3 gap-2">
+          <SummaryTile icon={<TrendingUp className="h-3.5 w-3.5" />} label="Pickup" value={`${totalPickup > 0 ? "+" : ""}${totalPickup}`} detail={`${totalGained} booked · ${totalLost} lost`} />
+          <SummaryTile icon={<Percent className="h-3.5 w-3.5" />} label="Occupancy" value={todayPoint ? `${todayPoint.occ}%` : "—"} detail={todayPoint ? `${todayPoint.roomsLeft} room${todayPoint.roomsLeft === 1 ? "" : "s"} left` : "No current data"} />
+          <SummaryTile icon={<BedDouble className="h-3.5 w-3.5" />} label="Peak pickup" value={peak && peak.pickup > 0 ? `+${peak.pickup}` : "—"} detail={peak && peak.pickup > 0 ? peak.label : "No positive pickup"} />
+        </div>
+
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+          {onPickupWindowChange && <div className="flex min-w-0 items-center gap-2">
+            <Select value={period} onValueChange={(v) => applyPeriod(v as PeriodKey)}><SelectTrigger className="h-9 min-w-0 flex-1 lg:w-[210px] lg:flex-none"><SelectValue /></SelectTrigger><SelectContent>{PERIODS.map((p) => <SelectItem key={p.key} value={p.key}>Pickup: {p.label}</SelectItem>)}</SelectContent></Select>
+            {period === "custom" && <Input type="number" min={1} max={90} value={activeWindow > 0 ? activeWindow : customDays} className="h-9 w-20" onChange={(e) => { const n = Math.max(1, Math.min(90, Number(e.target.value) || 1)); setCustomDays(n); onPickupWindowChange(n); }} />}
+          </div>}
+          <div className="flex rounded-lg border p-0.5">{ranges.map((r) => <Button key={r.value} size="sm" variant={days === r.value ? "default" : "ghost"} className="h-8 rounded-md px-2.5 text-xs" onClick={() => setDays(r.value)}>{r.label}</Button>)}</div>
+          <div className="flex rounded-lg border p-0.5">{([ ["occ", "Occupancy"], ["adr", "Daily ADR"], ["demand", "Demand"] ] as Array<[PrimaryMetric, string]>).map(([key, label]) => <Button key={key} size="sm" variant={primaryMetric === key ? "default" : "ghost"} className="h-8 rounded-md px-2.5 text-xs" onClick={() => setPrimaryMetric(key)}>{label}</Button>)}</div>
+          <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+            {hotels.length > 1 && <Button size="sm" variant={compare ? "default" : "outline"} className="h-9 text-xs" onClick={() => setCompare((v) => !v)}>Compare hotels</Button>}
+            <Popover><PopoverTrigger asChild><Button size="sm" variant="outline" className="h-9 text-xs"><SlidersHorizontal className="mr-1 h-3.5 w-3.5" />Market series</Button></PopoverTrigger><PopoverContent align="end" className="w-80 p-3"><div className="space-y-3"><div><p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Rate comparison</p><SeriesTick label="Our selling rate" checked={prefs.ourRate} onChange={(v) => setPrefs((p) => ({ ...p, ourRate: v }))} /><SeriesTick label="Market average" checked={prefs.marketAvg} onChange={(v) => setPrefs((p) => ({ ...p, marketAvg: v }))} /><SeriesTick label="Market median" checked={prefs.marketMedian} onChange={(v) => setPrefs((p) => ({ ...p, marketMedian: v }))} /><SeriesTick label="Cheapest–dearest band" checked={prefs.band} onChange={(v) => setPrefs((p) => ({ ...p, band: v }))} /><SeriesTick label="Event markers" checked={showEvents} onChange={setShowEvents} /></div><div><p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Competitors {isMobile ? "· max 2 on mobile" : ""}</p><div className="max-h-52 overflow-y-auto">{marketData.competitors.length === 0 && <p className="text-xs text-muted-foreground">No watched competitors yet.</p>}{marketData.competitors.map((c, i) => <SeriesTick key={c.id} label={c.name} color={competitorColor(i)} checked={prefs.competitors.includes(c.id)} onChange={() => toggleCompetitor(c.id)} hint={`${marketData.ratesByCompetitor.get(c.id)?.size ?? 0} nights`} />)}</div></div></div></PopoverContent></Popover>
+            {!isMobile && hotels.length > 1 && <Select value={baseline} onValueChange={setBaseline}><SelectTrigger className="h-9 w-[210px] text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__ours__">Baseline: this property</SelectItem>{hotels.filter((h) => h.hotel_id !== hotelId).map((h) => <SelectItem key={h.hotel_id} value={h.hotel_id}>Baseline: {h.hotel_name}</SelectItem>)}</SelectContent></Select>}
+            <Button size="sm" variant="ghost" className="h-9 px-2 text-xs" onClick={exportCsv}><Download className="mr-1 h-3.5 w-3.5" />CSV</Button>
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground">Pickup: {pickupWindowLabel(activeWindow).toLowerCase()}. Daily ADR (when selected) is per stay date, not the whole-month ADR.</p>
+      </CardHeader>
+
+      <CardContent className="space-y-5 px-2 pb-4 sm:px-4">
         <section className="rounded-xl border bg-card p-2 sm:p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-sm font-semibold">Rate position</p><p className="text-[10px] text-muted-foreground">Your selling rate against the market. No occupancy scale is mixed into this chart.</p></div><div className="flex flex-wrap items-center gap-2">{activeRateLegend.map((item) => <LegendChip key={item.label} color={item.color} label={item.label} dashed={item.dashed} />)}</div></div>
           <div className={isMobile ? "h-[16rem]" : "h-[17rem]"}><ResponsiveContainer width="100%" height="100%"><ComposedChart data={data} syncId="market-intelligence-v2" margin={{ top: 10, right: 4, left: 0, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" /><XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(data.length / (isMobile ? 5 : 9)))} /><YAxis yAxisId="rate" orientation="right" width={52} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`} domain={rateDomain ?? ["auto", "auto"]} />{showEvents && <EventLines data={data} yAxisId="rate" />}<RTooltip content={<RateTooltip />} cursor={{ stroke: "hsl(var(--foreground) / 0.22)", strokeWidth: 1 }} />{prefs.band && <><Area yAxisId="rate" dataKey="bandLow" stackId="market-band" stroke="none" fill="transparent" isAnimationActive={false} /><Area yAxisId="rate" dataKey="bandSpan" stackId="market-band" stroke="none" fill="hsl(var(--foreground) / 0.08)" isAnimationActive={false} /></>}{prefs.marketAvg && <Line yAxisId="rate" type="monotone" dataKey="marketAvg" name="Market benchmark" stroke={MARKET_COLOR} strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false} isAnimationActive={false} />}{prefs.marketMedian && <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_MEDIAN_COLOR} strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls={false} isAnimationActive={false} />}{prefs.ourRate && <Line yAxisId="rate" type="monotone" dataKey="ourRate" name={`${baselineLabel} rate`} stroke={OUR_RATE_COLOR} strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />}{visibleCompetitors.map((c, i) => <Line key={c.id} yAxisId="rate" type="monotone" dataKey={`c_${c.id}`} name={c.name} stroke={competitorColor(i)} strokeWidth={1.75} dot={false} connectNulls={false} opacity={0.9} isAnimationActive={false} />)}</ComposedChart></ResponsiveContainer></div>
           <div className="mt-1 flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] text-muted-foreground"><span>{marketData.loading || portfolioBenchmark.isFetching ? "Refreshing market benchmark…" : marketData.coverageEnd ? `${marketData.ratesByCompetitor.size} of ${marketData.competitors.length} watched hotels reported · external prices reach ${shortDate(marketData.coverageEnd)} · HotelCare portfolio fills low-coverage dates` : portfolioBenchmark.data?.available ? `HotelCare ${portfolioBenchmark.data.marketCity} portfolio benchmark · ${portfolioBenchmark.data.propertiesReporting} anonymized properties · based on booked ADR` : "No market benchmark available in this horizon."}</span>{isMobile && shownCompetitors.length > 2 && <span>Only 2 competitors are shown at once on mobile.</span>}</div>
         </section>
+        {reservationMovement && <div aria-label="Recent booking movement">{reservationMovement}</div>}
+        <section className="rounded-xl border bg-card p-2 sm:p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-sm font-semibold">Pickup & demand</p><p className="text-[10px] text-muted-foreground">Bookings and cancellations with one clear demand signal.</p></div><div className="flex items-center gap-3 text-[10px]"><LegendChip color={PICKUP_COLOR} label="Booked" shape="bar" /><LegendChip color={CANCEL_COLOR} label="Cancelled" shape="bar" /><LegendChip color={demandMetricColor} label={demandMetricLabel} /></div></div>
+          <div className="h-[19rem]"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={data} syncId="market-intelligence-v2" margin={{ top: 10, right: 6, left: -8, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" /><XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(data.length / (isMobile ? 5 : 9)))} /><YAxis yAxisId="pickup" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={34} allowDecimals={false} domain={[(min: number) => Math.min(0, min) - 1, (max: number) => Math.max(2, max) + 1]} />{primaryMetric === "adr" ? <YAxis yAxisId="metric" orientation="right" width={48} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`} domain={adrDomain ?? ["auto", "auto"]} /> : <YAxis yAxisId="metric" orientation="right" width={42} domain={[0, 100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}%`} />}{showEvents && <EventLines data={data} yAxisId="pickup" />}<ReferenceLine yAxisId="pickup" y={0} stroke="hsl(var(--muted-foreground) / 0.45)" /><RTooltip content={<DemandTooltip />} cursor={{ fill: "hsl(var(--muted) / 0.35)" }} /><Bar yAxisId="pickup" dataKey="gained" name="Booked" stackId="pickup" radius={[2, 2, 0, 0]} maxBarSize={20} minPointSize={2} isAnimationActive={false}>{data.map((d) => <Cell key={d.date} fill={barColor(d.gained)} />)}</Bar><Bar yAxisId="pickup" dataKey="lost" name="Cancelled" stackId="pickup" fill={CANCEL_COLOR} radius={[0, 0, 2, 2]} maxBarSize={20} minPointSize={2} isAnimationActive={false} />{primaryMetric === "occ" && <Line yAxisId="metric" type="monotone" dataKey="occ" name="Occupancy" stroke={OCC_COLOR} strokeWidth={2.5} dot={false} isAnimationActive={false} />}{primaryMetric === "adr" && <Line yAxisId="metric" type="monotone" dataKey="adr" name="Daily ADR" stroke={ADR_COLOR} strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} />}{primaryMetric === "demand" && <><Line yAxisId="metric" type="monotone" dataKey="demand" name="City demand" stroke={DEMAND_COLOR} strokeWidth={2.5} dot={false} connectNulls={false} isAnimationActive={false} /><Line yAxisId="metric" type="monotone" dataKey="demandForecast" name="Demand forecast" stroke={DEMAND_COLOR} strokeWidth={2} strokeDasharray="4 3" dot={false} connectNulls opacity={0.55} isAnimationActive={false} /></>}</ComposedChart></ResponsiveContainer></div>
+        </section>
+
       </CardContent>
     </Card>
   );

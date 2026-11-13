@@ -55,7 +55,7 @@ import MarketIntelligenceChart from "@/components/revenue/MarketIntelligenceChar
 import { useTenant } from "@/contexts/TenantContext";
 import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
 import MonthPerformanceHeader from "@/components/revenue/MonthPerformanceHeader";
-import KpiReconciliationCard from "@/components/revenue/KpiReconciliationCard";
+
 import { buildDemandBoard } from "@/lib/demandScore";
 import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePanel";
 
@@ -1200,7 +1200,7 @@ export default function RevenueHotelDetail() {
             refreshing={serverRefreshing || live.extending}
             lastSyncAt={live.lastSyncAt}
           />
-          <KpiReconciliationCard hotelId={hotelId ?? null} month={selectedMonth} />
+
 
 
 
@@ -1237,24 +1237,26 @@ export default function RevenueHotelDetail() {
             selectedMonth={selectedMonth} 
             eventsByDate={eventsByDate}
             ourRateByDate={ourRateByDate}
+            reservationMovement={
+              <PickupMovementBoard
+                          metrics={live.metrics}
+                          windowDays={pickupWindow}
+                          nights={live.nights}
+                          cancellations={live.cancellations}
+                          hotelId={hotelId ?? null}
+                          organizationSlug={organizationSlug ?? null}
+                          rates={live.rates}
+                          canEdit={revAdmin}
+                          onRatesUpdated={live.reload}
+                          lastSyncAt={live.lastSyncAt}
+                        />
+            }
 
           />
 
-          <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
-          <PickupMovementBoard
-            metrics={live.metrics}
-            windowDays={pickupWindow}
-            nights={live.nights}
-            cancellations={live.cancellations}
-            hotelId={hotelId ?? null}
-            organizationSlug={organizationSlug ?? null}
-            rates={live.rates}
-            canEdit={revAdmin}
-            onRatesUpdated={live.reload}
-            lastSyncAt={live.lastSyncAt}
-          />
 
           <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
+          <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
 
 
            <RevenueToolsBar
@@ -1265,7 +1267,7 @@ export default function RevenueHotelDetail() {
                 icon: <PieChart className="h-4 w-4" />,
                 featureKey: "revenue.segments",
                 render: () => (
-                  <SegmentPerformancePanel nights={live.nights} selectedMonth={selectedMonth} />
+                  <SegmentPerformancePanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
                 ),
               },
               {

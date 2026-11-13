@@ -2530,7 +2530,7 @@ export default function RateStrategyGrid({
   // using position:fixed ONLY at the entry boundary. Never translate/reposition
   // the header on individual scroll frames: iOS inertia remains compositor-owned.
   useLayoutEffect(() => {
-    if (expanded) return; // Fullscreen keeps its existing nested sticky layout.
+    // Mobile Safari can detach a fixed-position summary during reverse rubber-band\n    // scrolling, leaving a large blank placeholder while its table keeps moving.\n    // Keep the real summary in flow on phones; a lightweight CSS-sticky navigation\n    // strip below supplies the page-level anchor without moving table DOM nodes.\n    if (expanded || isMobile) return; // Fullscreen retains its own nested layout.
     const placeholder = stickyPlaceholderRef.current;
     const surface = stickySurfaceRef.current;
     const grid = gridRef.current;
@@ -2621,7 +2621,7 @@ export default function RateStrategyGrid({
       if (frame) window.cancelAnimationFrame(frame);
       unpin();
     };
-  }, [expanded, hotelId, reviewOnly, dates.length, rows.length, zoom, railed, historyMonth, monthFilter]);
+  }, [expanded, isMobile, hotelId, reviewOnly, dates.length, rows.length, zoom, railed, historyMonth, monthFilter]);
 
   // Only deliberate hotel/date-view navigation resets the horizontal viewport.
   // Briefly empty rows during a background refresh must NOT snap the reader back.
@@ -3390,6 +3390,14 @@ export default function RateStrategyGrid({
               naturally after the final rate-plan section. The two x-scrollers
               are synchronized without moving either element on vertical scroll. */}
           <div data-rate-grid-native-sticky="true" className="relative">
+            {!expanded && isMobile && (
+              <div data-mobile-rate-nav="true" className="sticky top-[7.5rem] z-30 flex items-center justify-between gap-2 border-y bg-card/95 px-2 py-1.5 shadow-sm backdrop-blur">
+                <span className="min-w-0 truncate text-[11px] font-semibold">{visibleMonth} · {hu ? "Árak és kihasználtság" : "Rates & occupancy"}</span>
+                <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 px-2 text-[11px]" onClick={scrollToToday}>
+                  {hu ? "Ma" : "Today"}
+                </Button>
+              </div>
+            )}
             <div ref={stickyPlaceholderRef} data-rate-grid-sticky-placeholder="true">
               <div
                 ref={stickySurfaceRef}

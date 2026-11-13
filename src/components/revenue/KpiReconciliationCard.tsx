@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { ShieldCheck } from "lucide-react";
 import { useMonthReconciliationDays } from "@/hooks/useMonthReconciliationDays";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -23,9 +22,11 @@ const pct = (v: number | null | undefined) =>
 export function KpiReconciliationView({
   row,
   hu = false,
+  embedded = false,
 }: {
   row: KpiReconciliationMonth;
   hu?: boolean;
+  embedded?: boolean;
 }) {
   const gap = row.booked_nights_all - row.previo_dashboard_occupied;
   const tiles = [
@@ -80,8 +81,8 @@ export function KpiReconciliationView({
   }
 
   return (
-    <Card data-testid="kpi-reconciliation">
-      <CardContent className="p-3">
+    <div data-testid="kpi-reconciliation" className={embedded ? "mt-3 border-t pt-3" : "rounded-lg border p-3"}>
+
         <details className="group text-xs">
           <summary className="flex cursor-pointer items-center gap-2 font-medium">
             <ShieldCheck className="h-4 w-4 text-emerald-600" />
@@ -119,18 +120,17 @@ export function KpiReconciliationView({
         </p>
           </div>
         </details>
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 
 /** Loads the selected month for one hotel. Renders nothing until data exists. */
-export default function KpiReconciliationCard({ hotelId, month }: { hotelId: string | null; month: string }) {
+export default function KpiReconciliationCard({ hotelId, month, embedded = false }: { hotelId: string | null; month: string; embedded?: boolean }) {
   const { language } = useTranslation();
   // Same cached request as the month header: one call per hotel-month.
   const { data: days = [] } = useMonthReconciliationDays(hotelId, month);
 
   const row = useMemo(() => summariseReconciliationDays(days), [days]);
   if (!row) return null;
-  return <KpiReconciliationView row={row} hu={language === "hu"} />;
+  return <KpiReconciliationView row={row} hu={language === "hu"} embedded={embedded} />;
 }
