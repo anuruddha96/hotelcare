@@ -74,7 +74,9 @@ async function run(admin: any, apiKey: string) {
       d.peer_signal=peerPriceSignal((peerDates.get(d.date) ?? []) as any[],now);
       d.last_ai_review_at=reviewed.get(d.date) ?? null;
     }
-    const dates = selectAiDates(context.dates ?? [],now);
+    // Arrival today is owned by the hourly rule engine; prevent four-hour AI
+    // offers and their observation hold from competing with the same-day price.
+    const dates = selectAiDates(context.dates ?? [],now).filter((d:any)=>d.lead > 0);
     if (!dates.length) {
       await admin.from('ottofiori_ai_review_runs').update({status:'no_candidates',finished_at:now.toISOString(),summary:'No fresh sellable complete date columns.'}).eq('id',reviewId);
       return;
