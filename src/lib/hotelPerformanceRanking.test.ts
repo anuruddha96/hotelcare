@@ -35,10 +35,11 @@ describe("rankHotelsByPerformance", () => {
     // a leads on occupancy and ADR, b leads on RevPAR.
     expect(ranked.map((hotel) => hotel.hotel_id)).toEqual(["a", "b"]);
     const actualTie = rankHotelsByPerformance([
-      { hotel_id: "a", occ: 90, adr: 100, revpar: 120 },
+      { hotel_id: "a", occ: 95, adr: 100, revpar: 120 },
       { hotel_id: "b", occ: 80, adr: 110, revpar: 130 },
-      { hotel_id: "c", occ: 70, adr: 90, revpar: 100 },
+      { hotel_id: "c", occ: 90, adr: 90, revpar: 100 },
     ]);
+    expect(actualTie[0].rankPoints).toBe(actualTie[1].rankPoints);
     expect(actualTie.map((hotel) => hotel.hotel_id)).toEqual(["b", "a", "c"]);
   });
 
