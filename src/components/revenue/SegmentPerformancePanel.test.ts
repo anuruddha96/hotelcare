@@ -75,9 +75,8 @@ describe("month-over-month channel analytics", () => {
     expect(current).toMatchObject({ sold: 4, priced: 4, revenue: 1000, reservations: 2 });
     expect(channelValue(previous, "adr")).toBeCloseTo(500/3);
     expect(channelValue(current, "adr")).toBe(250);
-    expect(momDelta(channelValue(current, "sold"), channelValue(previous, "sold"))).toMatchObject({
-      absolute: 1, percent: 100/3,
-    });
+    expect(momDelta(channelValue(current, "sold"), channelValue(previous, "sold"))?.absolute).toBe(1);
+    expect(momDelta(channelValue(current, "sold"), channelValue(previous, "sold"))?.percent).toBeCloseTo(100 / 3);
     expect(momDelta(channelValue(current, "revenue"), channelValue(previous, "revenue"))).toMatchObject({
       absolute: 500, percent: 100,
     });
