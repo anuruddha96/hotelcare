@@ -57,7 +57,7 @@ export function HousekeepingAutomationSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [enabled, setEnabled] = useState(true);
-  const [alertTime, setAlertTime] = useState('08:45');
+  const [alertTime, setAlertTime] = useState('09:00');
   const [timezone, setTimezone] = useState('Europe/Budapest');
   const [emails, setEmails] = useState(DEFAULT_EMAIL);
   const [learning, setLearning] = useState<LearningProfile | null>(null);
@@ -100,7 +100,7 @@ export function HousekeepingAutomationSettings() {
         if (settingsResult.error) console.warn('[HousekeepingAutomationSettings] load failed', settingsResult.error);
         if (settingsResult.data) {
           setEnabled(settingsResult.data.inactivity_alert_enabled !== false);
-          setAlertTime(String(settingsResult.data.inactivity_alert_time || '08:45:00').slice(0, 5));
+          setAlertTime(String(settingsResult.data.inactivity_alert_time || '09:00:00').slice(0, 5));
           setTimezone(settingsResult.data.timezone || 'Europe/Budapest');
           setEmails(Array.isArray(settingsResult.data.alert_emails) && settingsResult.data.alert_emails.length ? settingsResult.data.alert_emails.join(', ') : DEFAULT_EMAIL);
         }
@@ -187,7 +187,7 @@ export function HousekeepingAutomationSettings() {
                 <div className="space-y-1.5">
                   <Label htmlFor="hk-alert-time">Daily cutoff</Label>
                   <Input id="hk-alert-time" type="time" value={alertTime} onChange={(event) => setAlertTime(event.target.value)} />
-                  <p className="text-[10px] text-muted-foreground">Default: 08:45</p>
+                  <p className="text-[10px] text-muted-foreground">Default: 09:00 (hotel local time)</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="hk-alert-timezone">Hotel timezone</Label>
