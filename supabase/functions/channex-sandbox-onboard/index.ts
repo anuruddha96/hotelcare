@@ -244,6 +244,26 @@ async function probeNativeTest(){
   existingMatchingProperties:matches.length,connectionExists:Boolean(fixture.conn),
   roomTypes:fixture.types.length,ratePlans:fixture.plans.length};
 }
+/** Read-only verification against the isolated property in the Channex staging API. */
+async function verifyNativeTest(){
+ const {conn}=await nativeTestPrerequisites();
+ if(!conn?.channex_property_id)throw new Error("Sandbox property is not linked");
+ const propertyId=String(conn.channex_property_id);
+ const remote=(await channex("GET","/properties/"+encodeURIComponent(propertyId))).data;
+ if(getId(remote)!==propertyId||remote.attributes?.title!==NATIVE_TEST_TITLE)
+  throw new Error("Remote property does not match isolated test fixture");
+ const dates={from:"2026-11-23",to:"2026-11-24"};
+ const path="/availability?filter[property_id]="+encodeURIComponent(propertyId)
+  +"&filter[date][gte]="+dates.from+"&filter[date][lte]="+dates.to;
+ const ratePath="/restrictions?filter[property_id]="+encodeURIComponent(propertyId)
+  +"&filter[date][gte]="+dates.from+"&filter[date][lte]="+dates.to
+  +"&filter[restrictions]=rate,min_stay_arrival,max_stay,stop_sell";
+ const [availability,restrictions]=await Promise.all([channex("GET",path),channex("GET",ratePath)]);
+ const compact=(x:any)=>JSON.stringify(x?.data??null).slice(0,5500);
+ return {ok:true,mode:"read_only",environment:"staging",hotel_id:NATIVE_TEST_ID,
+  propertyId,dates,availability:compact(availability),restrictions:compact(restrictions)};
+}
+
 async function bootstrapNativeTest(){
  const sup=db();
  const {types,plans,conn}=await nativeTestPrerequisites();
@@ -348,10 +368,11 @@ Deno.serve(async(req:Request)=>{
  if(se||!safeEqual(req.headers.get("x-worker-secret")||"",String(secret||"")))return json({ok:false,error:"Unauthorized"},401);
  try{
   const body=await req.json().catch(()=>({}));const action=body?.action;
-  if(action!=="probe"&&action!=="bootstrap"&&action!=="rename_ottofiori"&&action!=="probe_native_test"&&action!=="bootstrap_native_test")return json({ok:false,error:"Invalid action"},400);
+  if(action!=="probe"&&action!=="bootstrap"&&action!=="rename_ottofiori"&&action!=="probe_native_test"&&action!=="bootstrap_native_test"&&action!=="verify_native_test")return json({ok:false,error:"Invalid action"},400);
   if(action==="rename_ottofiori")return json(await renameOttofioriSandbox());
   if(action==="probe_native_test")return json(await probeNativeTest());
   if(action==="bootstrap_native_test")return json(await bootstrapNativeTest());
+  if(action==="verify_native_test")return json(await verifyNativeTest());
   const checks=await Promise.all(HOTEL_DEFS.map(async h=>({hotel:h.title,source:await prepare(h).then(x=>({rooms:x.rooms,categories:x.types.length})).catch(e=>({error:String(e.message||e)}))})));
   if(!apiKey())return json({ok:false,keyConfigured:false,checks,error:"Channex sandbox API key secret not found"},400);
   const pr=await channex("GET","/properties?pagination[limit]=100");
