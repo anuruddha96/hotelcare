@@ -65,7 +65,7 @@ export function pricingReviewApprovals(
   if (!ALLOWED_ROLES.has(role ?? "")) return [];
   if (!output || typeof output !== "object") return [];
   const response = output as Partial<ReviewEnvelope>;
-  if (response.source !== "revenue_published_payload" || response.confidence === "unverified") return [];
+  if (response.source !== "revenue_published_payload" || !["verified", "partial"].includes(response.confidence ?? "")) return [];
   const review = response.data;
   if (!review || typeof review !== "object") return [];
   if (typeof review.hotel_id !== "string" || !review.hotel_id.trim()) return [];
