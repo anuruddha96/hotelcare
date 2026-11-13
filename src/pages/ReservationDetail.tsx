@@ -22,6 +22,7 @@ import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { EditReservationDialog } from '@/components/reservations/EditReservationDialog';
 import { ReservationNotesPanel } from '@/components/reservations/ReservationNotesPanel';
+import { PrevioWritebackStatus } from '@/components/reservations/PrevioWritebackStatus';
 import { ReservationAccountPanel } from '@/components/reservations/ReservationAccountPanel';
 import { LifecycleError, setReservationStatus } from '@/lib/pmsLifecycle';
 import {
@@ -208,6 +209,11 @@ const ReservationDetail = () => {
                 <><span>·</span><span className="font-mono text-xs">{reservation.source_reservation_id}</span></>
               )}
             </p>
+            {reservation.source === 'previo' && (
+              <div className="mt-2 max-w-xl">
+                <PrevioWritebackStatus reservationId={reservation.id} refreshKey={`${reservation.status}|${reservation.actual_check_in ?? ''}|${reservation.actual_check_out ?? ''}`} />
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <Button size="sm" variant="outline" className="gap-1" onClick={() => setEditOpen(true)}>
