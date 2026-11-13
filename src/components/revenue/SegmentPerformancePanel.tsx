@@ -18,6 +18,15 @@ export interface ChannelNight {
   nightly_price_eur: number | string | null;
   created_at_pms: string | null;
 }
+/** Previo sometimes prefixes source labels with numeric IDs and line breaks.
+ * Format them for people without changing the underlying sale classification. */
+export function normaliseRevenueSource(source: string | null): string {
+  if (!source?.trim()) return "Unspecified source";
+  const cleaned = source.replace(/^\s*\d{1,6}\s+/, "").replace(/\s+/g, " ").trim()
+    .replace(/(?:XML|V2XML)$/i, "").trim();
+  return cleaned || "Unspecified source";
+}
+
 export interface ChannelResult {
   name: string;
   sold: number;
@@ -39,7 +48,7 @@ export function aggregateChannels(nights: ChannelNight[], selectedMonth: string,
   for (const n of nights) {
     if (!n.stay_date?.startsWith(selectedMonth) || !booked(n)) continue;
     // Missing source is not necessarily a direct booking.
-    const channel = n.source_name?.trim() || "Unspecified source";
+    const channel = normaliseRevenueSource(n.source_name);
     let row = out.get(channel);
     if (!row) {
       row = { name: channel, sold: 0, priced: 0, reservations: 0, revenue: 0, recent: 0, reservationIds: new Set() };
