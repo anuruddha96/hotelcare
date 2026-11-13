@@ -10,6 +10,12 @@ Deno.test("investigative and complex questions require standard or premium routi
   assertEquals(classifyAssistantQuestion("Recommend changes to the pricing strategy"), "standard");
   assertEquals(classifyAssistantQuestion("a".repeat(200)), "standard");
 });
+Deno.test("daily attention briefings use the smarter tool-planning tier", () => {
+  assertEquals(classifyAssistantQuestion("What needs my attention today?"), "standard");
+  assertEquals(classifyAssistantQuestion("What are today's priorities across all hotels?"), "standard");
+  assertEquals(planAssistantTurn("What needs my attention today?").routine, false);
+});
+
 Deno.test("focused room status and housekeeping requests use the efficient tier", () => {
   assertEquals(classifyAssistantQuestion("rom 109 guest checked out, mark ready to clean"), "routine");
   assertEquals(classifyAssistantQuestion("Is room 109 still dirty?"), "routine");
