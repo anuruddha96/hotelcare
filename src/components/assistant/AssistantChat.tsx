@@ -429,7 +429,7 @@ function ChatSession({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <Conversation className="min-h-0">
-        <ConversationContent className={cn("gap-4 px-2 py-5 sm:px-3", workspace && "mx-auto w-full max-w-4xl gap-6 sm:px-6")}>
+        <ConversationContent className={cn("gap-4 px-2 py-5 sm:px-3", workspace && "mx-auto w-full max-w-3xl gap-5 px-3 sm:px-6")}>
           {workspace && showResume && (
             <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
               <span>You're continuing this conversation. Mira remembers the discussion above.</span>
@@ -456,7 +456,18 @@ function ChatSession({
                       : "w-full bg-transparent px-0 py-0"
                   }
                 >
-                  {message.role === "assistant" ? <MessageResponse>{text}</MessageResponse> : <p>{text}</p>}
+                  {message.role === "assistant" ? (
+                    <>
+                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                        <span className="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-primary">
+                          <Sparkles className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="text-foreground">Mira</span>
+                        <span className="font-normal">HotelCare Operator</span>
+                      </div>
+                      <MessageResponse>{text}</MessageResponse>
+                    </>
+                  ) : <p className="whitespace-pre-wrap">{text}</p>}
                   {message.role === "assistant" &&
                     message.parts.map((part, partIndex) => {
                       if (!(part.type.startsWith("tool-") || part.type === "dynamic-tool")) return null;
@@ -594,6 +605,19 @@ function ChatSession({
                     </Button>
                   )}
                   {premiumRequired && isLast && <PremiumTopupCard packages={premiumPackages} />}
+                  {message.role === "assistant" && isLast && !generating &&
+                    /(?:attention|priorit|urgent|issues?|tasks?|what next|what should i do)/i.test(previousQuestion) && (
+                    <div className="mt-4 flex flex-wrap gap-2" aria-label="Continue with Mira">
+                      <Button size="sm" variant="outline" className="h-9 rounded-full text-xs"
+                        onClick={() => void submit({ text: "From the latest verified results, what is the single most urgent action I can take now? If Mira is authorized, explain the exact action and what information or confirmation is needed." })}>
+                        <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Next best action
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-9 rounded-full text-xs"
+                        onClick={() => void submit({ text: "Which of these outstanding issues can Mira handle for me with my current permissions, and which need my approval? Do not make changes yet." })}>
+                        What can Mira handle?
+                      </Button>
+                    </div>
+                  )}
                   {message.role === "assistant" && !generating && text.length > 0 && (
                     <AnswerFeedback threadId={threadId} messageId={message.id} />
                   )}
@@ -639,9 +663,9 @@ function ChatSession({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-4xl sm:px-6" : "border-t")}>
+      <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-3xl px-2 sm:px-6" : "border-t")}>
         <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] text-muted-foreground">
-          <span>Mira by HotelCare · {page.hotelId || profile?.assigned_hotel || "Select a hotel"}</span>
+          <span className="truncate">Mira · {page.hotelId || profile?.assigned_hotel || "Your authorized hotels"} · Permission-aware</span>
           {usage && <span>{usage.unlimited ? "Unlimited messages" : `${usage.used}/20 messages this month`}</span>}
         </div>
         {profile?.role === "admin" && (
@@ -668,12 +692,12 @@ function ChatSession({
             ref={textareaRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask Mira about operations, revenue, guests or a task…"
-            rows={2}
+            placeholder="Ask Mira to check, explain, or handle a task…"
+            rows={1}
             enterKeyHint="send"
             autoCapitalize="sentences"
             autoCorrect="on"
-            className="min-h-16 max-h-44 text-base leading-relaxed"
+            className="min-h-12 max-h-36 resize-none text-base leading-relaxed"
           />
           <PromptInputFooter>
             <PromptInputTools>
@@ -796,7 +820,7 @@ export default function AssistantChat({
         <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-4xl sm:px-6" : "border-t")}>
           <PromptInput onSubmit={createAndSend} className={cn("bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
             <PromptInputTextarea
-              rows={2}
+              rows={1}
               enterKeyHint="send"
               autoCapitalize="sentences"
               autoCorrect="on"
