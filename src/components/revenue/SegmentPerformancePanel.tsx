@@ -97,7 +97,7 @@ export function channelTotals(rows: ChannelResult[]) {
   }), { sold: 0, priced: 0, revenue: 0, reservations: 0, recent: 0 });
 }
 export function channelValue(row: Pick<ChannelResult, "sold" | "revenue" | "priced" | "reservations"> | null, metric: ChannelMetric): number | null {
-  if (!row) return 0;
+  if (!row) return metric === "adr" ? null : 0;
   if (metric === "adr") return row.priced > 0 ? row.revenue / row.priced : null;
   return row[metric];
 }
