@@ -267,7 +267,6 @@ export default function MarketIntelligenceChart({
   onPickupWindowChange,
   hotels = [],
   hotelId,
-  selectedMonth,
   eventsByDate,
   ourRateByDate,
   reservationMovement,
