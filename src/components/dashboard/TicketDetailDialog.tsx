@@ -31,6 +31,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileUpload } from './FileUpload';
 import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
 import { MaintenanceManualEmail } from './MaintenanceManualEmail';
+import { MaintenanceRoomCorrection } from './MaintenanceRoomCorrection';
 import { isOttofiori, OttofioriMaintenanceAssignment } from './OttofioriMaintenanceAssignment';
 import { AttachmentUpload } from './AttachmentUpload';
 import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip, Trash2 } from 'lucide-react';
@@ -380,7 +381,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="!fixed !inset-0 !left-0 !top-0 !h-[100dvh] !max-h-[100dvh] !w-screen !max-w-none !translate-x-0 !translate-y-0 overflow-y-auto overscroll-contain bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:!inset-auto sm:!left-1/2 sm:!top-1/2 sm:!h-auto sm:!max-h-[90dvh] sm:!w-full sm:!max-w-2xl sm:!translate-x-[-50%] sm:!translate-y-[-50%] sm:rounded-lg sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             <span>{ticket.ticket_number}</span>
@@ -476,6 +477,10 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
           {/* Actions */}
           <div className="space-y-4">
+            {ticket.department === 'maintenance' && (
+              <MaintenanceRoomCorrection ticket={ticket} language={language}
+                onUpdated={() => { onTicketUpdated(); onOpenChange(false); }} />
+            )}
             {ticket.department === 'maintenance' && canManageMaintenance(profile?.role) && (
               <MaintenanceManagerControls ticket={{ ...ticket, resolution_text: ticket.resolution_text || null }}
                 language={language} onUpdated={() => { onTicketUpdated(); onOpenChange(false); }} />
