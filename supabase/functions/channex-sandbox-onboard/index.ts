@@ -106,13 +106,93 @@ async function bootstrapHotel(h:any,existing:any[]){
  }
  return {hotel:h.title,previoHotelId:h.pmsHotelId,propertyId,rooms:p.rooms,roomTypes:p.types.length,propertyCreated,roomTypesCreated:typesCreated,ratePlansCreated:plansCreated,mode:"off",killSwitch:true};
 }
+
+/** A narrow, idempotent display-name correction for existing Ottofiori sandbox room categories. */
+const OTTO_NAMES = [
+  {previo:"982505",old:"Ekonomický dvoulůžkový pokoj",newName:"Economy Double Room"},
+  {previo:"982615",old:"Luxusní třílůžkový pokoj",newName:"Deluxe Triple Room"},
+  {previo:"982617",old:"Deluxe Čtyřlůžkový Pokoj",newName:"Deluxe Quadruple Room"}
+] as const;
+
+async function renameOttofioriSandbox() {
+ const sup=db();
+ const {data:conn,error:ce}=await sup.from("channex_connections")
+   .select("hotel_id,environment,mode,kill_switch,channex_property_id")
+   .eq("hotel_id","ottofiori").maybeSingle();
+ if(ce)throw ce;
+ if(!conn||conn.environment!=="staging"||conn.mode!=="off"||conn.kill_switch!==true||!conn.channex_property_id)
+   throw new Error("Safety gate: Ottofiori is not in disabled sandbox mode");
+ const results:any[]=[];
+ for(const item of OTTO_NAMES){
+  try{
+   const {data:local,error:le}=await sup.from("room_types")
+     .select("id,pms_room_id,name,name_translations,num_rooms")
+     .eq("hotel_id","ottofiori").eq("pms_room_id",item.previo).single();
+   if(le||!local)throw new Error("Local Previo room kind not found: "+item.previo);
+   if(![item.old,item.newName].includes(String(local.name).trim()))throw new Error("Unexpected local category name");
+   const {data:maps,error:me}=await sup.from("channex_mappings")
+     .select("kind,channex_id,channex_title,settings")
+     .eq("hotel_id","ottofiori").eq("local_id",local.id);
+   if(me||!maps||maps.length!==2)throw new Error("Expected exactly two existing Channex mappings");
+   const rm=maps.find((x:any)=>x.kind==="room_type"),pm=maps.find((x:any)=>x.kind==="rate_plan");
+   if(!rm||!pm)throw new Error("Missing room type or rate plan mapping");
+   if(String(rm.settings?.previo_room_kind_id)!==item.previo || String(pm.settings?.previo_room_kind_id)!==item.previo)
+     throw new Error("Previo mapping mismatch");
+   const room=(await channex("GET","/room_types/"+rm.channex_id)).data;
+   if(room.id!==rm.channex_id||!([item.old,item.newName].includes(String(room.attributes?.title||"").trim())))
+     throw new Error("Remote room type has unexpected ID or title");
+   if(Number(room.attributes?.count_of_rooms)!==Number(local.num_rooms))
+     throw new Error("Remote room count mismatch: will not change inventory");
+   const oldPlan="Previo Standard — "+item.old, newPlan="Previo Standard — "+item.newName;
+   const plan=(await channex("GET","/rate_plans/"+pm.channex_id)).data;
+   if(plan.id!==pm.channex_id||!([oldPlan,newPlan].includes(String(plan.attributes?.title||"").trim())))
+     throw new Error("Remote rate plan unexpected title or ID");
+   const roomRelation=String(plan.attributes?.room_type_id||plan.relationships?.room_type?.data?.id||"");
+   if(roomRelation&&roomRelation!==rm.channex_id)throw new Error("Rate plan linked to a different category");
+   // Update ONLY the display title: no occupancy, availability, rates or ID changes.
+   if(room.attributes.title!==item.newName)
+     await channex("PUT","/room_types/"+rm.channex_id,{room_type:{title:item.newName}});
+   const roomVerified=(await channex("GET","/room_types/"+rm.channex_id)).data;
+   if(roomVerified.attributes?.title!==item.newName)throw new Error("Room category rename could not be read back");
+   if(plan.attributes.title!==newPlan)
+     await channex("PUT","/rate_plans/"+pm.channex_id,{rate_plan:{title:newPlan}});
+   const planVerified=(await channex("GET","/rate_plans/"+pm.channex_id)).data;
+   if(planVerified.attributes?.title!==newPlan)throw new Error("Rate plan rename could not be read back");
+   const {error:ue}=await sup.from("room_types").update({
+     name:item.newName,name_translations:{...(local.name_translations||{}),en:item.newName}
+   }).eq("id",local.id).eq("hotel_id","ottofiori");
+   if(ue)throw ue;
+   for(const m of [{kind:"room_type",title:item.newName},{kind:"rate_plan",title:newPlan}]){
+     const {error:e}=await sup.from("channex_mappings").update({channex_title:m.title})
+       .eq("hotel_id","ottofiori").eq("local_id",local.id).eq("kind",m.kind);
+     if(e)throw e;
+   }
+   const {data:units,error:re}=await sup.from("rooms").select("id,room_number,room_type,room_category,pms_metadata")
+     .eq("hotel","Hotel Ottofiori").eq("pms_metadata->>roomKindId",item.previo);
+   if(re)throw re;
+   if(!units||units.length!==local.num_rooms)throw new Error("Physical room count mismatch");
+   for(const u of units){
+     const {error:e}=await sup.from("rooms").update({
+       room_type:item.newName,room_category:item.newName,
+       pms_metadata:{...(u.pms_metadata||{}),roomKindName:item.newName,
+         previoOriginalRoomKindName:item.old}
+     }).eq("id",u.id);
+     if(e)throw e;
+   }
+   results.push({id:item.previo,name:item.newName,rooms:units.map((u:any)=>u.room_number),roomTypeId:rm.channex_id,ratePlanId:pm.channex_id,ok:true});
+  }catch(error){results.push({id:item.previo,name:item.newName,ok:false,error:String(error instanceof Error?error.message:error).slice(0,450)});}
+ }
+ return {ok:results.every(x=>x.ok),hotel:"ottofiori",environment:"staging",results};
+}
+
 Deno.serve(async(req:Request)=>{
  if(req.method!=="POST")return json({ok:false,error:"Method not allowed"},405);
  const sup=db();const {data:secret,error:se}=await sup.rpc("get_channex_worker_secret");
  if(se||!safeEqual(req.headers.get("x-worker-secret")||"",String(secret||"")))return json({ok:false,error:"Unauthorized"},401);
  try{
   const body=await req.json().catch(()=>({}));const action=body?.action;
-  if(action!=="probe"&&action!=="bootstrap")return json({ok:false,error:"Invalid action"},400);
+  if(action!=="probe"&&action!=="bootstrap"&&action!=="rename_ottofiori")return json({ok:false,error:"Invalid action"},400);
+  if(action==="rename_ottofiori")return json(await renameOttofioriSandbox());
   const checks=await Promise.all(HOTEL_DEFS.map(async h=>({hotel:h.title,source:await prepare(h).then(x=>({rooms:x.rooms,categories:x.types.length})).catch(e=>({error:String(e.message||e)}))})));
   if(!apiKey())return json({ok:false,keyConfigured:false,checks,error:"Channex sandbox API key secret not found"},400);
   const pr=await channex("GET","/properties?pagination[limit]=100");
