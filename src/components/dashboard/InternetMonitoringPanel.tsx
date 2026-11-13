@@ -22,6 +22,7 @@ type Monitor = {
   last_heartbeat_at: string | null;
   created_at: string;
 };
+type EmailAlert = { incident_id: string; kind: "outage" | "recovery"; status: string; sent_at: string | null; last_error: string | null; };
 type Incident = {
   id: string;
   monitor_id: string;
@@ -47,6 +48,7 @@ export default function InternetMonitoringPanel() {
   const [name, setName] = useState("Reception PC");
   const [devices, setDevices] = useState<Monitor[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [emailAlerts, setEmailAlerts] = useState<EmailAlert[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +90,7 @@ export default function InternetMonitoringPanel() {
       const result = await call("list");
       setDevices(result.monitors || []);
       setIncidents(result.incidents || []);
+      setEmailAlerts(result.alerts || []);
       setLocal(readLocalNetworkMonitor());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load monitoring devices");
@@ -245,6 +248,7 @@ export default function InternetMonitoringPanel() {
         {!incidents.length && <p className="text-sm text-muted-foreground">No interruptions recorded.</p>}
         {incidents.map((incident) => {
           const device = devices.find((x) => x.id === incident.monitor_id);
+          const messages = emailAlerts.filter((x) => x.incident_id === incident.id);
           return <div key={incident.id} className="rounded-lg border p-3 space-y-1 text-sm">
             <div className="flex flex-wrap items-center gap-2">
               {incident.recovered_at ? <CheckCircle2 className="h-4 w-4 text-green-600" /> :
@@ -257,6 +261,11 @@ export default function InternetMonitoringPanel() {
             </div>
             <p className="text-muted-foreground">Detected: {fmt(incident.detected_at)} (Budapest)</p>
             {incident.recovered_at && <p className="text-muted-foreground">Ended: {fmt(incident.recovered_at)} (Budapest)</p>}
+            {messages.map((message) => <p key={message.kind} className="text-xs text-muted-foreground">
+              Admin {message.kind === "outage" ? "outage" : "recovery"} email: {message.status}
+              {message.sent_at ? ` · sent ${fmt(message.sent_at)} (Budapest)` : ""}
+              {message.last_error ? ` · ${message.last_error}` : ""}
+            </p>)}
           </div>;
         })}
       </CardContent>
