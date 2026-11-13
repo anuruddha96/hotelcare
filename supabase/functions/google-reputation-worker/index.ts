@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
   const errors: Array<Record<string, unknown>> = [];
 
   async function audit(review: any, eventType: string, replyText: string | null = null, metadata: Record<string, unknown> = {}) {
-    await admin.from("google_review_reply_events").insert({
+    const { error: auditError } = await admin.from("google_review_reply_events").insert({
       organization_id: review.organization_id,
       hotel_id: review.hotel_id || null,
       google_location_id: review.google_location_id || null,
@@ -181,6 +181,9 @@ Deno.serve(async (req) => {
       reply_text: replyText,
       metadata: { worker: true, ...metadata },
     });
+    if (auditError) {
+      errors.push({ review_id: review.id, event_type: eventType, error: `Audit insert failed: ${auditError.message}` });
+    }
   }
 
   async function tokenFor(connection: any) {
@@ -502,7 +505,8 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                     updated_at: new Date().toISOString(),
                   })
                   .eq("id", saved.id);
-                await audit(saved, isHistorical ? "historical_auto_published" : "auto_published", draft, {
+                await audit(saved, "auto_published", draft, {
+                  auto_reply_kind: isHistorical ? "historical_14d" : "new_positive",
                   google_update_time: publishResult.updateTime || null,
                   published_by: "HotelCare AI", venue_name: location.reply_brand_name || location.google_location_title,
                   reply_policy: isHistorical ? "explicit_14_day_backfill" : "new_positive_low_risk",
