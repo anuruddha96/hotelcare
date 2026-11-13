@@ -32,7 +32,8 @@ END $$;
 CREATE OR REPLACE FUNCTION public.hc_assistant_record_reply()
 RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = public AS $$
 BEGIN
-  IF NEW.role = 'assistant' THEN
+  -- A user-stopped partial stream is saved for history but is not a finished reply.
+  IF NEW.role = 'assistant' AND right(trim(NEW.content), 10) <> '_Stopped._' THEN
     UPDATE public.assistant_threads t
        SET last_reply_at = GREATEST(COALESCE(t.last_reply_at, '-infinity'::timestamptz), NEW.created_at),
            updated_at = GREATEST(t.updated_at, NEW.created_at)
