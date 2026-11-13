@@ -1237,21 +1237,23 @@ export default function RevenueHotelDetail() {
             selectedMonth={selectedMonth} 
             eventsByDate={eventsByDate}
             ourRateByDate={ourRateByDate}
+            reservationMovement={
+              <PickupMovementBoard
+                          metrics={live.metrics}
+                          windowDays={pickupWindow}
+                          nights={live.nights}
+                          cancellations={live.cancellations}
+                          hotelId={hotelId ?? null}
+                          organizationSlug={organizationSlug ?? null}
+                          rates={live.rates}
+                          canEdit={revAdmin}
+                          onRatesUpdated={live.reload}
+                          lastSyncAt={live.lastSyncAt}
+                        />
+            }
 
           />
 
-          <PickupMovementBoard
-            metrics={live.metrics}
-            windowDays={pickupWindow}
-            nights={live.nights}
-            cancellations={live.cancellations}
-            hotelId={hotelId ?? null}
-            organizationSlug={organizationSlug ?? null}
-            rates={live.rates}
-            canEdit={revAdmin}
-            onRatesUpdated={live.reload}
-            lastSyncAt={live.lastSyncAt}
-          />
 
           <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
           <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
