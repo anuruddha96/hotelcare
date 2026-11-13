@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { classifyAssistantQuestion, detectAssistantWorkflow, MODEL_BY_PURPOSE, planAssistantTurn } from "./aiModelPolicy.ts";
+import { classifyAssistantQuestion, detectAssistantWorkflow, isPricingApprovalContinuation, MODEL_BY_PURPOSE, planAssistantTurn } from "./aiModelPolicy.ts";
 
 Deno.test("short navigation and factual reads are routine", () => {
   assertEquals(classifyAssistantQuestion("Where can I find room 105?"), "routine");
@@ -55,4 +55,20 @@ Deno.test("mail and review-reply requests use the tool-using agent", () => {
   assertEquals(detectAssistantWorkflow("Reply to the email from Booking.com"), "mail");
   assertEquals(detectAssistantWorkflow("Reply to the 2-star reviews from this week"), "mail");
   assertEquals(planAssistantTurn("Check my emails").routine, false);
+});
+
+Deno.test("approval requests without a date still use review_pricing", () => {
+  assertEquals(
+    detectAssistantWorkflow("Check where i can improve the rates and you can give me an option to review and i can do it and approve"),
+    "pricing_review",
+  );
+  assertEquals(detectAssistantWorkflow("Suggest changes to prices and let me approve them"), "pricing_review");
+});
+Deno.test("a verbal approval after rate advice is a tool workflow, not a publishing instruction", () => {
+  const earlier = "I can help you review and approve these proposed rate increases in the Revenue Price Calendar.";
+  assertEquals(isPricingApprovalContinuation("Yes pls go ahead", earlier), true);
+  assertEquals(isPricingApprovalContinuation("Yes, please go ahead", earlier), true);
+  assertEquals(isPricingApprovalContinuation("Go ahead", earlier), true);
+  assertEquals(isPricingApprovalContinuation("Yes pls go ahead", "Here is the housekeeping briefing"), false);
+  assertEquals(isPricingApprovalContinuation("Raise by €5 for 15 November", earlier), false);
 });
