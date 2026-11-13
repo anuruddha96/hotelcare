@@ -3,7 +3,7 @@ import { createOpenAI } from "npm:@ai-sdk/openai@4";
 import { streamText } from "npm:ai@7";
 import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
-import { detectAssistantWorkflow, MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
+import { detectAssistantWorkflow, isPricingApprovalContinuation, MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
 import { generateLowCostText } from "../_shared/lowCostAi.ts";
 
 const CORS = {
@@ -895,7 +895,12 @@ Deno.serve(async (req) => {
   // A pricing review, a chart or an image needs the tool-using agent. The deep
   // analysis below is text-only and can neither draw nor prepare a change.
   const readOnlyRevenueReport = isReadOnlyRevenueReport(question);
-  const needsAgent = !readOnlyRevenueReport && detectAssistantWorkflow(question) !== null && body?.model_tier !== "deep";
+  const lastAssistantTurn = [...messages].reverse().find((m: any) => m?.role === "assistant");
+  const pricingApprovalFollowup = isPricingApprovalContinuation(question, extractText(lastAssistantTurn));
+  // Rates can be changed only by the authenticated, tool-using assistant with
+  // explicit approval. Deep text-only analysis must never take its place.
+  const needsAgent = !readOnlyRevenueReport &&
+    (detectAssistantWorkflow(question) !== null || pricingApprovalFollowup);
   if (!readOnlyRevenueReport && (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep"))) {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/assistant-chat`, {
       method: "POST",
