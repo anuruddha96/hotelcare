@@ -536,9 +536,8 @@ export default function MonthPerformanceHeader({
               body: `For stay dates in ${monthLabel}, counting only movement during "${windowLabel(pickupWindowDays)}":\n\n• ${agg.gained} room-night${agg.gained === 1 ? "" : "s"} came in\n• ${agg.lost} room-night${agg.lost === 1 ? "" : "s"} were lost (cancellations or no-shows)\n• net ${agg.pickup > 0 ? "+" : ""}${agg.pickup}\n• ${agg.datesUp} date${agg.datesUp === 1 ? "" : "s"} up · ${agg.datesDown} down\n\nChange the window with the selector above.`,
             }}
           />
-        </div>
-        {!whole && !tilesLoading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{hu ? "A teljes hónap adatai nem ellenőrizhetők; nem jelenítünk meg részleges havi ADR-t." : "Full-month figures are unavailable or incomplete. Partial ADR is not shown as monthly ADR."}</p>}
-        <div data-testid="additional-monthly-kpis" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {/* All seven cards share the same sizing; the fourth cell in the last
+            row is intentionally left free when there are seven indicators. */}
           <Tile
             loading={loading}
             label={hu?"Ma létrehozott foglalások":"Bookings created today"}
@@ -576,6 +575,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
           />
         </div>
+        {!whole && !tilesLoading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{hu ? "A teljes hónap adatai nem ellenőrizhetők; nem jelenítünk meg részleges havi ADR-t." : "Full-month figures are unavailable or incomplete. Partial ADR is not shown as monthly ADR."}</p>}
 
         {monthComplete && breakdown.length > 0 && !tilesLoading && (
           <details className="rounded-lg border px-3 py-2 text-xs">
