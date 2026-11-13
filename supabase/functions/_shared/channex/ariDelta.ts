@@ -103,7 +103,10 @@ const normalizedPatch = (patch: RestrictionPatch): RestrictionPatch => {
     throw new Error("Choose scalar rate OR occupancy rate array");
   for (const k of ["min_stay_arrival", "min_stay_through", "max_stay"] as const) {
     if (patch[k] !== undefined) {
-      if (!validPositiveInt(patch[k])) throw new Error("Invalid positive stay limit");
+      // Channex explicitly accepts max_stay = 0 to remove a maximum stay
+      // restriction. Minimum stays must remain positive integers.
+      if (k === "max_stay" ? !validNonNegativeInt(patch[k]) : !validPositiveInt(patch[k]))
+        throw new Error(k === "max_stay" ? "Invalid non-negative maximum stay" : "Invalid positive stay limit");
       value[k] = patch[k];
     }
   }
