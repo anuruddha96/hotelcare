@@ -111,6 +111,24 @@ describe("hotel comparison — reconciled full months", () => {
   });
 });
 
+describe("revenue section ordering", () => {
+  it("shows hotel comparisons first, then market rates, booking movement, and finally pickup demand", async () => {
+    await act(async () => {
+      render(<MarketIntelligenceChart hotels={hotels} hotelId="ottofiori" selectedMonth="2026-09"
+        metrics={metrics} reservationMovement={<div>Recent booking movement</div>} />);
+    });
+    const comparison = screen.getByRole("region", { name: "Hotel comparison" });
+    const market = screen.getByText("Market intelligence");
+    const rates = screen.getByText("Rate position");
+    const movement = screen.getByText("Recent booking movement");
+    const pickup = screen.getByText("Pickup & demand");
+    expect(comparison.compareDocumentPosition(market) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(market.compareDocumentPosition(rates) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rates.compareDocumentPosition(movement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(movement.compareDocumentPosition(pickup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
 describe("rate benchmark fallback", () => {
   it("keeps the rate-position benchmark when external competitors are missing", async () => {
     benchmark.mockReturnValue({ data: { available: true, marketCity: "Budapest", propertiesReporting: 7,
