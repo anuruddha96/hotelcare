@@ -93,7 +93,15 @@ Deno.serve(async (req) => {
         .in("monitor_id", monitorIds).order("detected_at", { ascending: false }).limit(30)
       : { data: [], error: null };
     if (incidentError) return json({ error: incidentError.message }, 500);
-    return json({ hotel: hotel.hotel_name, monitors: devices || [], incidents: incidents || [], recipient: "anu@rdhotels.hu" });
+    const incidentIds = (incidents || []).map((incident) => incident.id);
+    const { data: alerts, error: alertError } = incidentIds.length
+      ? await admin.from("network_monitor_alerts")
+        .select("incident_id,kind,status,sent_at,last_error")
+        .in("incident_id", incidentIds)
+      : { data: [], error: null };
+    if (alertError) return json({ error: alertError.message }, 500);
+    return json({ hotel: hotel.hotel_name, monitors: devices || [],
+      incidents: incidents || [], alerts: alerts || [], recipient: "anu@rdhotels.hu" });
   }
 
   if (action === "register") {
