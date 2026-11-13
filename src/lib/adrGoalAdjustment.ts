@@ -19,7 +19,7 @@ export function bookingGoalScope(rooms: Array<{ roomType: string; dates: string[
   const keys = new Set<string>();
   const result: GoalPriceScope[] = [];
   for (const room of rooms) {
-    if (!room.roomType || room.roomType === "Room") continue;
+    if (!room.roomType) continue;
     for (const date of room.dates) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
       const key = scopeKey(date, room.roomType);
