@@ -2,6 +2,9 @@
 
 **Status: staging documentation + a read-only smoke-test helper only. NOT connected, certified, or enabled for production.**
 
+> Update 13 November 2026: the full staging integration (migration, four Edge Functions, Channel Manager panel,
+> Hungarian compliance gate, tests) is on branch `feat/channex-channel-manager`. See `RUNBOOK.md`.
+
 ## Existing HotelCare architecture: reuse, do not duplicate
 - Strategic scope: [#551](https://github.com/anuruddha96/hotelcare/issues/551), [#553](https://github.com/anuruddha96/hotelcare/issues/553), Channex delivery [#556](https://github.com/anuruddha96/hotelcare/issues/556).
 - Existing distribution foundation [PR #74](https://github.com/anuruddha96/hotelcare/pull/74) is an unmerged, currently non-mergeable draft on `feat/distribution-foundation`, not available on `main`. Contains `src/integrations/distribution`, secure connection metadata and `supabase/functions/distribution-channex`. Rebase/review its approach and security; avoid wholesale cherry-pick until re-evaluated.

@@ -1,48 +1,70 @@
-// channex-webhook — receives Channex webhooks (booking events).
-//
-// Channex webhooks have no built-in signature, so the webhook is configured in
-// Channex with a custom header `x-hotelcare-webhook-secret` holding a long
-// random secret (vault: channex_webhook_secret). Requests without it get 401.
-//
-// The webhook is only a notification: we store the ids, answer 200 fast, and
-// let channex-booking-worker fetch the full revision, apply it and ACK it.
-// Guest data from the webhook body is not stored.
-import { corsHeaders, integrationSecrets, json, safeEqual, serviceClient } from "../_shared/channexClient.ts";
+/**
+ * channex-webhook — receives Channex notifications (verify_jwt = false).
+ *
+ *   * Authenticated by the Vault secret Channex sends in the x-hotelcare-webhook-secret header
+ *     (Channex webhooks carry no signature). HTTPS only (Supabase).
+ *   * Booking events: the revision id is stored DURABLY before we answer 200, then the full
+ *     revision is pulled from the API (the webhook body is a notification, never the authority).
+ *     If anything fails, channex-booking-worker retries from the stored stub and the feed.
+ *   * Other events (sync_error, rate_error, non_acked_booking, unmapped room/rate…) are written to
+ *     the hotel's audit log and surfaced on the Channel Manager screen.
+ *   * No guest data is logged here.
+ */
+import { json, safeEqual, serviceDb } from "../_shared/channex/http.ts";
+import { ChannexClient, type ChannexEnvironment } from "../_shared/channex/client.ts";
+import { BOOKING_EVENTS, parseWebhook } from "../_shared/channex/revision.ts";
+import { audit, ingestRevision, loadConnectionByProperty, recordRevisionStub } from "../_shared/channex/bookingProcessor.ts";
+
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
+const ALERT_EVENTS = new Set(["sync_error", "sync_warning", "rate_error", "non_acked_booking", "booking_unmapped_room", "booking_unmapped_rate", "disconnect_channel", "alteration_request"]);
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false }, 405);
-  const db = serviceClient();
-  const secrets = await integrationSecrets(db).catch(() => null);
-  if (!secrets || !safeEqual(req.headers.get("x-hotelcare-webhook-secret") || "", secrets.webhook)) {
-    return json({ ok: false, error: "Unauthorized" }, 401);
+  const db = serviceDb();
+
+  const { data: secret } = await db.rpc("get_channex_webhook_secret");
+  if (!safeEqual(req.headers.get("x-hotelcare-webhook-secret") ?? "", String(secret ?? ""))) {
+    return json({ ok: false }, 401);
   }
-  const body = await req.json().catch(() => ({}));
-  const event = String(body?.event || "");
-  const propertyId = String(body?.property_id || body?.payload?.property_id || "");
-  const revisionId = String(body?.payload?.revision_id || body?.payload?.booking_revision_id || "");
-  const bookingId = String(body?.payload?.booking_id || "");
+  const envParam = new URL(req.url).searchParams.get("env");
+  if (envParam !== "staging" && envParam !== "production") return json({ ok: false, error: "env" }, 400);
+  const env = envParam as ChannexEnvironment;
 
-  const { data: conn } = await db.from("channex_connections").select("hotel_id, bookings_enabled").eq("channex_property_id", propertyId).maybeSingle();
-  const { data: row } = await db.from("channex_webhook_events").insert({
-    event, property_id: propertyId || null, hotel_id: conn?.hotel_id || null, revision_id: revisionId || null, booking_id: bookingId || null,
-  }).select("id").single();
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, error: "json" }, 400); }
+  const hook = parseWebhook(body);
+  const conn = await loadConnectionByProperty(db, hook.propertyId, env);
 
-  if (conn?.bookings_enabled && event.startsWith("booking")) {
-    const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/channex-booking-worker`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-worker-secret": secrets.worker },
-      body: JSON.stringify(revisionId
-        ? { action: "revision", revision_id: revisionId, property_id: propertyId, trigger: "webhook" }
-        : { action: "poll", trigger: "webhook" }),
-    }).then(async (r) => {
-      await db.from("channex_webhook_events").update({ processed_at: new Date().toISOString(), error: r.ok ? null : `worker HTTP ${r.status}` }).eq("id", row?.id);
-    }).catch(async (e) => {
-      await db.from("channex_webhook_events").update({ error: String(e?.message || e).slice(0, 300) }).eq("id", row?.id);
-    });
-    // deno-lint-ignore no-explicit-any
-    const rt = (globalThis as any).EdgeRuntime;
-    if (rt?.waitUntil) rt.waitUntil(work); else await work;
+  if (BOOKING_EVENTS.has(hook.event) && hook.revisionId) {
+    // Durable first: if the pull below fails, the worker still knows this revision exists.
+    await recordRevisionStub(db, env, hook.revisionId, hook.propertyId, hook.bookingId, conn?.hotel_id ?? null);
+    if (conn && conn.mode !== "off") {
+      const work = (async () => {
+        try {
+          const client = ChannexClient.fromEnv(env, (k) => Deno.env.get(k));
+          const rev = await client.getRevision(hook.revisionId!);
+          await ingestRevision(db, client, rev.data, "webhook");
+        } catch (err) {
+          await db.from("channex_booking_revisions").update({
+            last_error: `Webhook pull failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
+            updated_at: new Date().toISOString(),
+          }).eq("revision_id", hook.revisionId).is("acked_at", null);
+        }
+      })();
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work);
+      else await work;
+    }
+    return json({ ok: true });
+  }
+
+  // "*" also delivers routine events (e.g. ari after every push we make): acknowledge, do not log.
+  if (!ALERT_EVENTS.has(hook.event)) return json({ ok: true, ignored: true });
+  await audit(db, conn?.hotel_id ?? null, null, `webhook_${hook.event}`.slice(0, 60), {
+    environment: env, property_id: hook.propertyId, booking_id: hook.bookingId,
+  });
+  if (conn) {
+    await db.from("channex_connections").update({ last_error: `Channex reported ${hook.event} at ${new Date().toISOString()}`, updated_at: new Date().toISOString() })
+      .eq("hotel_id", conn.hotel_id);
   }
   return json({ ok: true });
 });

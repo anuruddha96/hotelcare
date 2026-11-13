@@ -1,90 +1,106 @@
-// Browser-side helpers for the native ARI store and the Channex workers.
-// All writes go through SECURITY DEFINER RPCs or edge functions that check
-// hotel access server-side; the browser never sees the Channex API key.
-import { supabase } from "@/integrations/supabase/client";
+import { FunctionsHttpError } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
 
-// The generated Database types do not include the Channex tables/RPCs yet.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as any;
+/** Browser side of the Channex integration. All provider calls happen in the channex-admin edge function. */
 
-export type AriRoomType = { id: string; name: string; num_rooms: number };
-export type AriRatePlan = { id: string; name: string; room_type_id: string | null; base_rate: number; currency: string | null; code: string | null };
-export type AriAvailabilityRow = { room_type_id: string; date: string; total_rooms: number; booked: number; out_of_order: number; sell_limit: number | null; availability: number };
-export type AriRateRow = {
-  rate_plan_id: string; date: string; rate: number | null; min_stay_arrival: number | null; min_stay_through: number | null;
-  max_stay: number | null; closed_to_arrival: boolean | null; closed_to_departure: boolean | null; stop_sell: boolean | null;
+export type ChannexMode = 'off' | 'dry_run' | 'live';
+export type ChannexEnvironment = 'staging' | 'production';
+export type NtakPath = 'unconfirmed' | 'hotelcare_registered' | 'previo_receives_bookings' | 'other_registered_software';
+
+export type ChannexConnection = {
+  hotel_id: string;
+  environment: ChannexEnvironment;
+  mode: ChannexMode;
+  kill_switch: boolean;
+  is_sandbox_hotel: boolean;
+  channex_property_id: string | null;
+  channex_webhook_id: string | null;
+  currency: string;
+  primary_occupancy: number;
+  ntak_reporting_path: NtakPath;
+  viza_document_scan_confirmed: boolean;
+  tax_settings_confirmed: boolean;
+  dpa_signed: boolean;
+  single_publisher_confirmed: boolean;
+  certified_at: string | null;
+  owner_approved_at: string | null;
+  last_feed_ok_at: string | null;
+  last_ari_push_at: string | null;
+  last_error: string | null;
 };
-export type AriGrid = {
-  native: boolean; publishing: boolean; room_types: AriRoomType[]; rate_plans: AriRatePlan[];
-  availability: AriAvailabilityRow[]; rates: AriRateRow[]; pending_outbox: number;
+
+export type ProductionGate = Record<'ntak' | 'viza' | 'tax' | 'dpa' | 'single_publisher' | 'certified' | 'owner_approved' | 'not_sandbox', boolean>;
+
+export type ChannexStatus = {
+  hotel_name: string | null;
+  connection: ChannexConnection | null;
+  gate: ProductionGate | null;
+  keys: Record<ChannexEnvironment, boolean>;
+  webhook_url: string | null;
+  room_types: { id: string; name: string; num_rooms: number; is_sellable: boolean }[];
+  mappings: { id: string; kind: 'room_type' | 'rate_plan'; local_id: string; channex_id: string; channex_title: string | null }[];
+  outbox: {
+    id: string; kind: string; mode: string; status: string; is_full_sync: boolean; value_count: number; attempts: number;
+    task_ids: string[] | null; warnings: unknown[] | null; last_error: string | null; created_at: string; sent_at: string | null;
+  }[];
+  revisions: {
+    revision_id: string; revision_status: string | null; ota_name: string | null; ota_reservation_code: string | null;
+    arrival_date: string | null; departure_date: string | null; state: string; received_via: string;
+    acked_at: string | null; last_error: string | null; ack_error: string | null; created_at: string;
+  }[];
+  review_cases: { id: string; reason: string; details: Record<string, unknown>; status: string; created_at: string; resolution_note: string | null }[];
+  audit: { id: number; action: string; details: Record<string, unknown>; created_at: string }[];
+  health: { oldest_unacked_minutes: number | null };
+  permissions: { manage: boolean; owner: boolean; review: boolean; super_admin: boolean };
 };
 
-export type RateField = "rate" | "min_stay_arrival" | "min_stay_through" | "max_stay" | "closed_to_arrival" | "closed_to_departure" | "stop_sell";
-export type RateChange = { rate_plan_id: string; date_from: string; date_to: string; weekdays?: number[] } & Partial<Record<RateField, number | boolean>>;
-export type AvailabilityChange = { room_type_id: string; date_from: string; date_to: string; weekdays?: number[]; availability?: number };
-export type AriChanges = { rates: RateChange[]; availability: AvailabilityChange[] };
+export class ChannexApiError extends Error {}
 
-export async function loadAriGrid(hotelId: string, from: string, to: string): Promise<AriGrid> {
-  const { data, error } = await db.rpc("pms_ari_grid", { _hotel_id: hotelId, _from: from, _to: to });
-  if (error) throw new Error(error.message);
-  return data as AriGrid;
-}
-
-export async function saveAri(hotelId: string, changes: AriChanges) {
-  const { data, error } = await db.rpc("pms_ari_save", { _hotel_id: hotelId, _changes: changes });
-  if (error) throw new Error(error.message);
-  return data as { ok: boolean; rate_days: number; availability_days: number; publishing: boolean };
-}
-
-export type WorkerResult = { ok: boolean; error?: string; [key: string]: unknown };
-
-async function invoke(fn: string, body: Record<string, unknown>): Promise<WorkerResult> {
-  const { data, error } = await supabase.functions.invoke(fn, { body });
+export async function channexAdmin<T = Record<string, unknown>>(action: string, hotelId: string, params: Record<string, unknown> = {}): Promise<T> {
+  const { data, error } = await supabase.functions.invoke('channex-admin', { body: { action, hotel_id: hotelId, ...params } });
   if (error) {
-    // supabase-js wraps non-2xx; surface the function's own message when present.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ctx = (error as any)?.context;
-    try {
-      const parsed = ctx && typeof ctx.json === "function" ? await ctx.json() : null;
-      if (parsed?.error) return { ok: false, error: String(parsed.error) };
-    } catch { /* ignore */ }
-    return { ok: false, error: error.message };
-  }
-  return data as WorkerResult;
-}
-
-export const channexAri = (action: string, hotelId: string, extra: Record<string, unknown> = {}) =>
-  invoke("channex-ari-worker", { action, hotel_id: hotelId, ...extra });
-export const channexBookings = (action: string, hotelId: string) =>
-  invoke("channex-booking-worker", { action, hotel_id: hotelId });
-
-export function collectTaskIds(result: WorkerResult): string[] {
-  const out: string[] = [];
-  const walk = (v: unknown) => {
-    if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === "object") {
-      for (const [k, val] of Object.entries(v)) {
-        if (k === "task_ids" && Array.isArray(val)) out.push(...val.map(String));
-        else walk(val);
-      }
+    let message = 'The channel manager service could not be reached';
+    if (error instanceof FunctionsHttpError) {
+      const body = await error.context.json().catch(() => null);
+      if (body?.error) message = String(body.error);
     }
-  };
-  walk(result);
-  return out;
+    throw new ChannexApiError(message);
+  }
+  if (!data?.ok) throw new ChannexApiError(String(data?.error ?? 'Request failed'));
+  return data as T;
 }
 
-export function isoDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+export const MODE_LABEL: Record<ChannexMode, string> = { off: 'Off', dry_run: 'Dry run', live: 'Live' };
 
-export function addDaysIso(date: string, days: number): string {
-  const d = new Date(`${date}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  return isoDate(d);
-}
+export const NTAK_OPTIONS: { value: NtakPath; label: string }[] = [
+  { value: 'unconfirmed', label: 'Not confirmed yet' },
+  { value: 'hotelcare_registered', label: 'HotelCare is the hotel’s NTAK-registered software' },
+  { value: 'previo_receives_bookings', label: 'Previo stays the NTAK software and receives every OTA booking' },
+  { value: 'other_registered_software', label: 'Another NTAK-registered software receives every booking' },
+];
 
-export function datesBetween(from: string, to: string): string[] {
-  const out: string[] = [];
-  for (let d = from; d <= to; d = addDaysIso(d, 1)) out.push(d);
-  return out;
-}
+export const GATE_LABEL: Record<keyof ProductionGate, string> = {
+  ntak: 'NTAK reporting path confirmed',
+  viza: 'VIZA: guest ID scanned with the document reader at check-in',
+  tax: 'Invoicing: 5% accommodation VAT, IFA and TFH configured',
+  dpa: 'GDPR data processing agreement with Channex signed',
+  single_publisher: 'Only one system publishes rates and availability',
+  certified: 'Channex PMS certification passed',
+  owner_approved: 'Owner approval recorded',
+  not_sandbox: 'Not a sandbox/test hotel',
+};
+
+/** Plain-language labels for revision / review states shown to front office. */
+export const REVIEW_REASON: Record<string, string> = {
+  ota_modification: 'Guest changed the booking on the OTA: update the reservation by hand',
+  cancellation_for_unknown_booking: 'Cancellation for a booking HotelCare never received',
+  unmapped_room_type: 'Booked room type is not mapped: assign a room type',
+  currency_mismatch: 'Booking currency differs from the hotel currency',
+  property_mismatch: 'Booking belongs to a different Channex property',
+  booking_without_dates: 'Booking arrived without usable dates',
+  unknown_revision_status: 'Unknown booking status from Channex',
+  ota_modification_after_check_in: 'Guest changed the booking on the OTA after check-in: update it by hand',
+  modification_for_unknown_booking: 'Change for a booking HotelCare never received',
+};
+export const reviewReasonLabel = (reason: string) =>
+  reason.split('+').map((r) => REVIEW_REASON[r] ?? r.replaceAll('_', ' ')).join(' · ');

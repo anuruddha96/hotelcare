@@ -1,117 +1,111 @@
-// channex-booking-worker — pulls booking revisions from Channex, stores them in
-// HotelCare, then acknowledges them.
-//
-//   poll        (cron / webhook, x-worker-secret)  feed for every hotel with bookings_enabled
-//   poll_hotel  (user)                              feed for one hotel ("Check bookings now")
-//   revision    (x-worker-secret)                   one revision id (from the webhook)
-//
-// Uses GET /booking_revisions/feed and GET /booking_revisions/:id only
-// (never GET /bookings). ACK happens only after channex_apply_booking_revision
-// has committed. Revisions for properties that are not ours are never acked.
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2.49.8";
-import { authoriseUser, channexRequest, corsHeaders, isWorkerCall, json, logSync, serviceClient, stripCardData } from "../_shared/channexClient.ts";
-import { classifyStatus } from "../_shared/channexAri.ts";
+/**
+ * channex-booking-worker — cron every 5 minutes while any hotel is connected (verify_jwt = false,
+ * authenticated by the Vault worker secret).
+ *
+ *   1. Drain the booking revision feed PER LINKED PROPERTY (never the whole account, so revisions
+ *      of properties that are not ours are never touched or acknowledged).
+ *   2. Retry webhook stubs / failed revisions by pulling the full revision.
+ *   3. Retry ACKs for revisions already saved (booking or review case) but not yet acknowledged.
+ *   4. Alert: un-ACKed > 10 min = warning, > 25 min = urgent (Channex drops un-ACKed revisions
+ *      from the feed after ~30 min; recovery is then a manual, date-scoped action).
+ */
+import { json, serviceDb, workerAuthorized } from "../_shared/channex/http.ts";
+import { ChannexClient, channexKeyConfigured, type ChannexEnvironment } from "../_shared/channex/client.ts";
+import { ackRow, audit, ingestRevision } from "../_shared/channex/bookingProcessor.ts";
 
-type Conn = { hotel_id: string; channex_property_id: string; bookings_enabled: boolean; environment: string };
-
-async function bookingConnections(db: SupabaseClient, hotelId?: string): Promise<Conn[]> {
-  let q = db.from("channex_connections").select("hotel_id, channex_property_id, bookings_enabled, environment")
-    .eq("bookings_enabled", true).not("channex_property_id", "is", null);
-  if (hotelId) q = q.eq("hotel_id", hotelId);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  const out: Conn[] = [];
-  for (const c of (data || []) as Conn[]) {
-    const { data: native } = await db.rpc("pms_ari_native_hotel", { _hotel_id: c.hotel_id });
-    if (native && c.environment === "staging") out.push(c);
-  }
-  return out;
-}
-
-async function applyAndAck(db: SupabaseClient, conn: Conn, revision: any, via: string) {
-  const attrs = revision?.attributes || revision || {};
-  const revId = String(revision?.id || attrs.id || "");
-  if (String(attrs.property_id || "") !== conn.channex_property_id) {
-    return { revision_id: revId, skipped: "foreign_property" };
-  }
-  const clean = stripCardData(revision);
-  const { data, error } = await db.rpc("channex_apply_booking_revision", { _hotel_id: conn.hotel_id, _revision: clean, _received_via: via });
-  if (error) {
-    await db.from("channex_booking_revisions").upsert({
-      revision_id: revId, booking_id: String(attrs.booking_id || "?"), property_id: conn.channex_property_id, hotel_id: conn.hotel_id,
-      status: String(attrs.status || "new"), ota_name: attrs.ota_name || null, ota_reservation_code: attrs.ota_reservation_code || null,
-      payload: clean, received_via: via, apply_error: error.message.slice(0, 1000),
-    }, { onConflict: "revision_id", ignoreDuplicates: false });
-    return { revision_id: revId, applied: false, error: error.message };
-  }
-  const ack = await channexRequest("POST", `/booking_revisions/${revId}/ack`);
-  const ok = classifyStatus(ack.status) === "ok";
-  await db.from("channex_booking_revisions").update(ok ? { acked_at: new Date().toISOString(), ack_error: null } : { ack_error: `HTTP ${ack.status ?? "network"}` }).eq("revision_id", revId);
-  await logSync(db, { hotel_id: conn.hotel_id, kind: "booking_ack", request_type: "ack", ok, http_status: ack.status,
-    response_body: { revision_id: revId, booking_id: attrs.booking_id, status: attrs.status, review_required: data?.review_required ?? false },
-    duration_ms: ack.durationMs, trigger_source: via, error: ok ? null : (ack.error || JSON.stringify(ack.body || {}).slice(0, 500)) });
-  return { revision_id: revId, applied: true, acked: ok, duplicate: Boolean(data?.duplicate), review_required: Boolean(data?.review_required) };
-}
-
-async function pollHotel(db: SupabaseClient, conn: Conn, via: string) {
-  const results: any[] = [];
-  for (let page = 0; page < 10; page++) {
-    const res = await channexRequest("GET", `/booking_revisions/feed?filter[property_id]=${conn.channex_property_id}`);
-    if (classifyStatus(res.status) !== "ok") {
-      await logSync(db, { hotel_id: conn.hotel_id, kind: "booking_feed", request_type: "feed", ok: false, http_status: res.status,
-        duration_ms: res.durationMs, trigger_source: via, error: res.error || JSON.stringify(res.body || {}).slice(0, 500) });
-      break;
-    }
-    const list: any[] = Array.isArray(res.body?.data) ? res.body.data : [];
-    if (!list.length) break;
-    let progressed = false;
-    for (const rev of list) {
-      const r = await applyAndAck(db, conn, rev, via);
-      results.push(r);
-      if (r.acked) progressed = true;
-    }
-    if (!progressed) break; // nothing could be acked: stop instead of looping on the same page
-  }
-  await db.from("channex_connections").update({ last_feed_poll_at: new Date().toISOString() }).eq("hotel_id", conn.hotel_id);
-  return { hotel_id: conn.hotel_id, processed: results.length, results };
-}
+const MAX_FEED_PAGES = 10;
+const MAX_RETRIES = 20;
+const getEnv = (k: string) => Deno.env.get(k);
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-  const db = serviceClient();
-  try {
-    const body = await req.json().catch(() => ({}));
-    const action = String(body?.action || "poll");
+  if (req.method !== "POST") return json({ ok: false }, 405);
+  const db = serviceDb();
+  if (!(await workerAuthorized(req, db))) return json({ ok: false }, 401);
 
-    if (action === "poll" || action === "revision") {
-      if (!(await isWorkerCall(req, db))) return json({ ok: false, error: "Unauthorized" }, 401);
-      const via = String(body?.trigger || (action === "revision" ? "webhook" : "cron"));
-      if (action === "revision") {
-        const [conn] = (await bookingConnections(db)).filter((c) => c.channex_property_id === String(body?.property_id || ""));
-        if (!conn) return json({ ok: false, error: "Unknown or disabled property" }, 404);
-        const res = await channexRequest("GET", `/booking_revisions/${encodeURIComponent(String(body?.revision_id || ""))}`);
-        if (classifyStatus(res.status) !== "ok" || !res.body?.data) {
-          // Fall back to the feed so nothing is lost.
-          return json({ ok: true, fallback: await pollHotel(db, conn, via) });
-        }
-        return json({ ok: true, result: await applyAndAck(db, conn, res.body.data, via) });
+  const summary: Record<string, unknown>[] = [];
+  for (const env of ["staging", "production"] as ChannexEnvironment[]) {
+    const { data: conns } = await db.from("channex_connections")
+      .select("hotel_id,mode,channex_property_id,environment")
+      .eq("environment", env).neq("mode", "off").not("channex_property_id", "is", null);
+    if (!conns?.length) continue;
+
+    if (!channexKeyConfigured(env, getEnv)) {
+      for (const c of conns) {
+        await db.from("channex_connections").update({ last_error: `No ${env} API key configured: bookings are not being fetched`, last_feed_poll_at: new Date().toISOString() }).eq("hotel_id", c.hotel_id);
       }
-      const results = [];
-      for (const c of await bookingConnections(db)) results.push(await pollHotel(db, c, via));
-      return json({ ok: true, results });
+      continue;
     }
+    const client = ChannexClient.fromEnv(env, getEnv);
 
-    if (action === "poll_hotel") {
-      const hotelId = String(body?.hotel_id || "");
-      await authoriseUser(req, db, hotelId, false);
-      const [conn] = await bookingConnections(db, hotelId);
-      if (!conn) return json({ ok: false, error: "Booking intake is off for this hotel" }, 409);
-      return json({ ok: true, ...(await pollHotel(db, conn, "ui")) });
+    for (const conn of conns) {
+      const line: Record<string, unknown> = { hotel_id: conn.hotel_id, env, feed: 0, retried: 0, acked: 0 };
+      const now = new Date().toISOString();
+      try {
+        // 1. Feed for this property.
+        for (let page = 0; page < MAX_FEED_PAGES; page++) {
+          const res = await client.bookingFeed(String(conn.channex_property_id));
+          const items = Array.isArray(res.data) ? res.data : [];
+          if (!items.length) break;
+          let ackedThisPage = 0;
+          for (const item of items) {
+            const r = await ingestRevision(db, client, item, "feed");
+            line.feed = Number(line.feed) + 1;
+            if (r.acked) ackedThisPage++;
+          }
+          // Dry run / failures: items stay in the feed; do not spin on the same page.
+          if (ackedThisPage === 0) break;
+        }
+        await db.from("channex_connections").update({ last_feed_poll_at: now, last_feed_ok_at: now }).eq("hotel_id", conn.hotel_id);
+      } catch (err) {
+        line.feed_error = err instanceof Error ? err.message : String(err);
+        await db.from("channex_connections").update({ last_feed_poll_at: now, last_error: `Booking feed failed: ${line.feed_error}`.slice(0, 300) }).eq("hotel_id", conn.hotel_id);
+      }
+
+      // 2. Stubs and failures: pull the full revision again.
+      const { data: pending } = await db.from("channex_booking_revisions")
+        .select("id,revision_id,attempts")
+        .eq("hotel_id", conn.hotel_id).eq("environment", env).is("acked_at", null)
+        .in("state", ["received", "failed"]).lt("attempts", MAX_RETRIES).order("created_at").limit(25);
+      for (const row of pending ?? []) {
+        try {
+          const rev = await client.getRevision(row.revision_id);
+          await ingestRevision(db, client, rev.data, "feed");
+          line.retried = Number(line.retried) + 1;
+        } catch (err) {
+          await db.from("channex_booking_revisions").update({
+            attempts: (row.attempts ?? 0) + 1, last_error: `Retry failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300), updated_at: new Date().toISOString(),
+          }).eq("id", row.id);
+        }
+      }
+
+      // 3. Saved but not acknowledged.
+      if (conn.mode === "live") {
+        const { data: unacked } = await db.from("channex_booking_revisions")
+          .select("id,revision_id,state").eq("hotel_id", conn.hotel_id).eq("environment", env)
+          .is("acked_at", null).in("state", ["applied", "review"]).limit(50);
+        for (const row of unacked ?? []) {
+          const r = await ackRow(db, client, row.id, row.revision_id, row.state);
+          if (r.acked) line.acked = Number(line.acked) + 1;
+        }
+      }
+
+      // 4. Lag alerts (live only; dry run never acknowledges by design).
+      if (conn.mode === "live") {
+        const { data: oldest } = await db.from("channex_booking_revisions").select("created_at")
+          .eq("hotel_id", conn.hotel_id).is("acked_at", null).in("state", ["received", "failed", "applied", "review"])
+          .order("created_at").limit(1);
+        const ageMin = oldest?.[0] ? (Date.now() - Date.parse(oldest[0].created_at)) / 60000 : 0;
+        if (ageMin > 25) {
+          const msg = `URGENT: an OTA booking has not been acknowledged for ${Math.round(ageMin)} minutes. Check the Channel Manager; after 30 minutes run booking recovery.`;
+          await db.from("channex_connections").update({ last_error: msg }).eq("hotel_id", conn.hotel_id);
+          await audit(db, conn.hotel_id, null, "booking_ack_lag_urgent", { minutes: Math.round(ageMin) });
+        } else if (ageMin > 10) {
+          await audit(db, conn.hotel_id, null, "booking_ack_lag_warning", { minutes: Math.round(ageMin) });
+        }
+        line.oldest_unacked_min = Math.round(ageMin);
+      }
+      summary.push(line);
     }
-    return json({ ok: false, error: "Unknown action" }, 400);
-  } catch (e) {
-    const status = Number((e as any)?.status) || 500;
-    return json({ ok: false, error: String((e as Error)?.message || e).slice(0, 800) }, status);
   }
+  return json({ ok: true, summary });
 });

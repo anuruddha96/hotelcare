@@ -13,9 +13,8 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { BulkAriDialog } from '@/components/rates/BulkAriDialog';
 import {
-  type AriChanges, type AriGrid, type RateChange, type RateField, addDaysIso, channexAri, collectTaskIds, datesBetween,
-  isoDate, loadAriGrid, saveAri,
-} from '@/integrations/channex/api';
+  type AriChanges, type AriGrid, type RateChange, type RateField, addDaysIso, datesBetween, isoDate, loadAriGrid, saveAri,
+} from '@/integrations/channex/ariApi';
 
 const WINDOW_DAYS = 14;
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -98,15 +97,8 @@ export default function RatesAvailability() {
       const saved = await saveAri(hotelId, buildChanges());
       setEdits({});
       setBulk({ rates: [], availability: [] });
-      if (saved.publishing) {
-        const pushed = await channexAri('push_now', hotelId);
-        const tasks = collectTaskIds(pushed);
-        if (pushed.ok && tasks.length) toast.success(`Saved and sent to Channex · task ${tasks.join(', ')}`);
-        else if (pushed.ok) toast.success('Saved. Channex will receive it within a minute.');
-        else toast.warning(`Saved in HotelCare. Channex send will retry automatically (${pushed.error}).`);
-      } else {
-        toast.success('Saved in HotelCare. Channex publishing is off for this hotel.');
-      }
+      if (saved.publishing) toast.success('Saved. Sent to Channex as one update within a minute — task IDs appear in Channel Manager → Activity.');
+      else toast.success('Saved in HotelCare. Channex is not live for this hotel, so nothing was sent.');
       await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save');
@@ -132,7 +124,7 @@ export default function RatesAvailability() {
         <p className="text-xs text-muted-foreground mt-1">Prices in {currency}. Edit cells or use Bulk update, then press Save. One save is sent to the channel manager as one update.</p>
       </div>
       <div className="flex items-center gap-2">
-        <Badge variant={grid?.publishing ? 'default' : 'outline'}>{grid?.publishing ? 'Channex: publishing' : 'Channex: off'}</Badge>
+        <Badge variant={grid?.publishing ? 'default' : 'outline'}>{grid?.publishing ? 'Channex: live' : grid?.mode === 'dry_run' ? 'Channex: dry run' : 'Channex: off'}</Badge>
         {Boolean(grid?.pending_outbox) && <Badge variant="secondary">{grid?.pending_outbox} waiting to send</Badge>}
       </div>
     </div>
