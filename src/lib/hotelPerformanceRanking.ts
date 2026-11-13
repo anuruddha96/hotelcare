@@ -4,7 +4,8 @@
  * weighted ordinal position. Lowest sum of positions performs best.
  *
  * Missing/invalid metrics are never ranked as zero-performing hotels.
- * RevPAR, then ADR, then occupancy break aggregate-score ties.
+ * A hotel leading BOTH ADR and RevPAR always takes first place, even when
+ * its occupancy rank is lower. RevPAR, ADR and occupancy break remaining ties.
  */
 export type HotelPerformanceMetrics = {
   hotel_id: string;
@@ -30,6 +31,11 @@ export function rankHotelsByPerformance<T extends HotelPerformanceMetrics>(
     }),
   );
 
+  const highestAdr = Math.max(...eligible.map((hotel) => hotel.adr as number));
+  const highestRevpar = Math.max(...eligible.map((hotel) => hotel.revpar as number));
+  const leadsBothRevenueMetrics = (hotel: RankedHotel<T>): boolean =>
+    hotel.rankPoints !== null && hotel.adr === highestAdr && hotel.revpar === highestRevpar;
+
   const scored: Array<RankedHotel<T>> = hotels.map((hotel) => ({
     ...hotel,
     rank: null,
@@ -41,6 +47,10 @@ export function rankHotelsByPerformance<T extends HotelPerformanceMetrics>(
   }));
 
   scored.sort((a, b) => {
+    // Explicit portfolio rule: a hotel leading both key revenue KPIs is #1.
+    if (leadsBothRevenueMetrics(a) !== leadsBothRevenueMetrics(b)) {
+      return leadsBothRevenueMetrics(a) ? -1 : 1;
+    }
     if (a.rankPoints === null) return b.rankPoints === null ? a.hotel_id.localeCompare(b.hotel_id) : 1;
     if (b.rankPoints === null) return -1;
     return a.rankPoints - b.rankPoints
