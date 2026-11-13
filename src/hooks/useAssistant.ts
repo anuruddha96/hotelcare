@@ -270,26 +270,25 @@ export function useAssistant(threadId: string | null) {
     [patchThread],
   );
 
-  /** Only invoke after the finished reply is visible to this user. */
-  const markThreadRead = useCallback(async (id: string) => {
+  /** Acknowledge the timestamp actually rendered, never unseen newer replies. */
+  const markThreadRead = useCallback(async (id: string, visibleAssistantAt: string) => {
     if (!user?.id || typeof document === "undefined" || document.visibilityState !== "visible") return false;
-    const query = (supabase as any).from("assistant_threads");
-    const { data, error } = await query
-      .select("last_reply_at,last_read_at")
-      .eq("id", id).eq("user_id", user.id).maybeSingle();
-    if (error || !data?.last_reply_at) return false;
-    const seen = Date.parse(data.last_read_at ?? "");
-    const latest = Date.parse(data.last_reply_at);
-    if (!Number.isFinite(latest) || (Number.isFinite(seen) && seen >= latest)) return true;
-    if (document.visibilityState !== "visible") return false;
-    const { error: updateError } = await (supabase as any).from("assistant_threads")
-      .update({ last_read_at: data.last_reply_at }).eq("id", id).eq("user_id", user.id);
-    if (updateError) {
-      console.error("assistant: mark read failed", updateError);
+    if (!Number.isFinite(Date.parse(visibleAssistantAt))) return false;
+    // Atomic DB function keeps multi-device acknowledgments monotonic.
+    const { error } = await (supabase as any).rpc("hc_mira_mark_thread_read", {
+      p_thread_id: id,
+      p_last_seen_at: visibleAssistantAt,
+    });
+    if (error) {
+      console.error("assistant: mark read failed", error);
       return false;
     }
     setThreads((current) => {
-      const next = current.map((t) => t.id === id ? { ...t, last_read_at: data.last_reply_at } : t);
+      const next = current.map((t) => {
+        if (t.id !== id || !t.last_reply_at) return t;
+        const seenMs = Math.min(Date.parse(t.last_reply_at), Date.parse(visibleAssistantAt));
+        return { ...t, last_read_at: new Date(Math.max(Date.parse(t.last_read_at ?? "") || 0, seenMs)).toISOString() };
+      });
       threadCache.set(cacheKeyRef.current, next);
       return next;
     });
