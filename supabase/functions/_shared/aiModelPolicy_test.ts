@@ -20,11 +20,11 @@ Deno.test("focused room status and housekeeping requests use the efficient tier"
   assertEquals(classifyAssistantQuestion("Where do I change the room rate?"), "standard");
 });
 Deno.test("updated model defaults balance cost with intelligence", () => {
-  assertEquals(MODEL_BY_PURPOSE.routine, "gpt-6-luna");
-  assertEquals(MODEL_BY_PURPOSE.standard, "gpt-6.1-terra");
+  assertEquals(MODEL_BY_PURPOSE.routine, "gpt-4o-mini");
+  assertEquals(MODEL_BY_PURPOSE.standard, "gpt-4.1-mini");
 });
 Deno.test("premium routing retains flagship model", () => {
-  assertEquals(MODEL_BY_PURPOSE.premium, "gpt-5.6-sol");
+  assertEquals(MODEL_BY_PURPOSE.premium, "gpt-4.1-mini");
 });
 
 Deno.test("a period price review is routed to the agent workflow", () => {
