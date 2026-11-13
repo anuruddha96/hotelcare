@@ -77,7 +77,7 @@ describe("hotel comparison — reconciled full months", () => {
     const comparison = await openComparison();
     await waitFor(() => expect(within(comparison).getByText("€150")).toBeInTheDocument());
     for (const [index, hotel] of hotels.entries()) {
-      const card = within(comparison).getByText(hotel.hotel_name).parentElement!.parentElement!;
+      const card = within(comparison).getByText(hotel.hotel_name).closest("article")!;
       const sold = 10 + index, adr = 150 - index * 10;
       expect(within(card).getByText(`${Math.round(sold / 20 * 100)}%`)).toBeInTheDocument();
       expect(within(card).getByText(`€${adr}`)).toBeInTheDocument();
@@ -87,10 +87,24 @@ describe("hotel comparison — reconciled full months", () => {
     expect(within(comparison).getByText(/stayed \+ booked · ADR and RevPAR include breakfast/)).toBeInTheDocument();
   });
 
+  it("sorts all venues by performance and distinctly highlights the currently viewed hotel", async () => {
+    const comparison = await openComparison();
+    await waitFor(() => expect(within(comparison).getByText("€150")).toBeInTheDocument());
+    const cards = within(comparison).getAllByRole("article");
+    expect(cards.map((card) => card.getAttribute("data-testid"))).toEqual([
+      "hotel-rank-memories-budapest", "hotel-rank-mika-downtown",
+      "hotel-rank-gozsdu-court", "hotel-rank-ottofiori",
+    ]);
+    expect(within(comparison).getByText(/Viewing: Hotel Ottofiori · #4 of 4/)).toBeInTheDocument();
+    expect(cards[3]).toHaveAttribute("aria-current", "true");
+    expect(cards[0]).not.toHaveAttribute("aria-current");
+    expect(within(cards[3]).getByText(/YOU ARE HERE/)).toBeInTheDocument();
+  });
+
   it("refuses to show a partial 19-day ADR as full-month ADR", async () => {
     monthQueries.mockImplementation(() => queries().map((query, i) => i === 0 ? { ...query, data: query.data.slice(11) } : query));
     const comparison = await openComparison();
-    const card = within(comparison).getByText("Hotel Ottofiori").parentElement!.parentElement!;
+    const card = within(comparison).getByText("Hotel Ottofiori").closest("article")!;
     expect(within(card).getByText("Full-month data unavailable")).toBeInTheDocument();
     expect(within(card).queryByText("€150")).toBeNull();
   });

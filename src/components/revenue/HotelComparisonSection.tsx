@@ -5,6 +5,8 @@ import { fetchMonthReconciliationDays, monthReconciliationKey } from "@/hooks/us
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Eye, Trophy } from "lucide-react";
+import { rankHotelsByPerformance } from "@/lib/hotelPerformanceRanking";
 
 type ComparisonHotel = { hotel_id: string; hotel_name: string };
 type Props = { hotels: ComparisonHotel[]; hotelId: string | null; selectedMonth: string };
@@ -60,7 +62,7 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
   const comparisonError = monthlyQueries.some((q) => q.isError);
   const comparison = useMemo(() => {
     const daysInMonth = new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).getUTCDate();
-    return hotels.map((hotel, index) => {
+    const snapshots = hotels.map((hotel, index) => {
       const query = monthlyQueries[index];
       const rows = query?.data ?? [];
       const complete = new Set(rows.filter((d) => d.stay_date.startsWith(selectedMonth + "-")).map((d) => d.stay_date)).size === daysInMonth;
@@ -73,8 +75,12 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
       const revpar = month?.revparGross == null || !fx ? null : Math.round(month.revparGross / fx);
       return { ...hotel, nights: month ? daysInMonth : 0, occ, adr, revpar,
         unavailable: query?.isError ? "Could not load month" : !month ? "Full-month data unavailable" : !fx ? "EUR conversion unavailable" : null };
-    }).sort((x,y) => x.hotel_id === hotelId ? -1 : y.hotel_id === hotelId ? 1 : (y.revpar ?? -1) - (x.revpar ?? -1));
-  }, [hotels, monthlyQueries, selectedMonth, hotelId, eurRateByHotel]);
+    });
+    // The hotel leading both ADR and RevPAR is #1; other complete hotels
+    // compete equally on the three monthly KPIs.
+    // The selected hotel is highlighted in the UI, never pinned above better performers.
+    return rankHotelsByPerformance(snapshots);
+  }, [hotels, monthlyQueries, selectedMonth, eurRateByHotel]);
 
   const comparisonBenchmark = useMemo(() => {
     const valid = comparison.filter((x) => x.occ != null && x.adr != null);
@@ -85,6 +91,9 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
     };
   }, [comparison]);
 
+
+  const viewedHotel = comparison.find((hotel) => hotel.hotel_id === hotelId);
+  const rankedCount = comparison.filter((hotel) => hotel.rank != null).length;
 
   if (!hotels.length || !/^\d{4}-\d{2}$/.test(selectedMonth)) return null;
   return (
@@ -103,17 +112,56 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
                     {comparisonLoading ? "Loading comparison…" : comparisonError ? "Retry comparison" : "Refresh comparison"}
                   </Button>
                 </div>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  {viewedHotel && (
+                    <Badge className="gap-1.5 border border-sky-500/40 bg-sky-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm hover:bg-sky-600 sm:text-xs">
+                      <Eye className="h-3.5 w-3.5" />
+                      Viewing: {viewedHotel.hotel_name} · {viewedHotel.rank != null ? `#${viewedHotel.rank} of ${rankedCount}` : "Not ranked"}
+                    </Badge>
+                  )}
+                  <span className="text-[10px] text-muted-foreground sm:text-[11px]">
+                    Rank criteria: highest ADR + RevPAR leads; otherwise equal-weight occupancy, ADR and RevPAR · RevPAR breaks ties
+                  </span>
+                </div>
                 {comparisonError && <p role="alert" className="mb-2 text-xs text-destructive">Some hotels could not be reconciled. Unavailable figures are not estimated.</p>}
                 <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
                   {comparison.map((s, i) => {
+                    const isCurrent = s.hotel_id === hotelId;
                     const occDelta = s.occ != null && comparisonBenchmark.occ != null ? s.occ - comparisonBenchmark.occ : null;
                     const adrDelta = s.adr != null && comparisonBenchmark.adr != null ? s.adr - comparisonBenchmark.adr : null;
                     return (
-                      <div key={s.hotel_id} className={`min-w-0 rounded-xl border p-2 sm:p-3 ${s.hotel_id === hotelId ? "border-primary bg-primary/[0.03]" : ""}`}>
-                        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-                          <span className="h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5" style={{ background: colorFor(s.hotel_id, i) }} />
-                          <p className="min-w-0 flex-1 truncate text-[10px] font-semibold sm:text-xs">{s.hotel_name}</p>
-                          {s.hotel_id === hotelId && <Badge variant="secondary" className="h-4 shrink-0 px-1 text-[8px] sm:h-5 sm:px-1.5 sm:text-[9px]">This hotel</Badge>}
+                      <article key={s.hotel_id} data-testid={`hotel-rank-${s.hotel_id}`} aria-current={isCurrent ? "true" : undefined}
+                        aria-label={`${s.hotel_name}, ${s.rank != null ? `rank ${s.rank}` : "unranked"}${isCurrent ? ", currently viewing" : ""}`}
+                        className={`relative min-w-0 rounded-xl border p-2.5 transition-colors duration-300 sm:p-3 ${isCurrent
+                          ? "border-sky-500/80 bg-sky-500/[0.07] ring-2 ring-sky-500/30 shadow-md shadow-sky-500/10 dark:bg-sky-400/[0.08]"
+                          : "border-border/70 bg-card hover:bg-muted/30"}`}>
+                        {isCurrent && <span aria-hidden="true" className="pointer-events-none absolute inset-y-2 left-0 w-1 rounded-r-full bg-sky-500" />}
+                        <div className="flex min-w-0 items-start gap-2 sm:gap-2.5">
+                          <span title={s.rank != null ? `Portfolio rank #${s.rank}` : "Not ranked — missing monthly data"}
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold tabular-nums sm:h-8 sm:w-8 sm:text-base ${s.rank === 1
+                              ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300/70 dark:bg-amber-400/20 dark:text-amber-200"
+                              : isCurrent ? "bg-sky-600 text-white" : "bg-muted text-foreground"}`}>
+                            {s.rank ?? "—"}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span className="h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5" style={{ background: colorFor(s.hotel_id, i) }} />
+                              <p className="min-w-0 truncate text-[10px] font-semibold sm:text-xs" title={s.hotel_name}>{s.hotel_name}</p>
+                            </div>
+                            {isCurrent ? (
+                              <div className="mt-1 flex items-center gap-1.5 text-[10px] font-semibold text-sky-700 dark:text-sky-300">
+                                <span aria-hidden="true" className="relative flex h-2 w-2 shrink-0">
+                                  <span className="absolute inline-flex h-full w-full rounded-full bg-sky-500/60 motion-safe:animate-ping" />
+                                  <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-600" />
+                                </span>
+                                YOU ARE HERE · Currently viewing
+                              </div>
+                            ) : s.rank === 1 ? (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
+                                <Trophy className="h-3 w-3" /> Best overall this month
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                         <div className="mt-2 grid grid-cols-3 gap-1 sm:mt-3 sm:gap-2">
                           <div className="min-w-0">
@@ -139,7 +187,7 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
                         <p className="mt-2 text-[9px] text-muted-foreground sm:text-[10px]">
                           {s.unavailable ?? (s.nights ? `${s.nights} full-month dates checked` : "Full-month data unavailable")}
                         </p>
-                      </div>
+                      </article>
                     );
                   })}
                 </div>
