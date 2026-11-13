@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useMaintenanceAutoTranslation } from '@/hooks/useMaintenanceAutoTranslation';
-import { canManageMaintenance, MaintenanceManagerControls } from './MaintenanceManagerControls';
+import { canManageMaintenance } from './MaintenanceManagerControls';
 import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
 import { maintenanceLocation, maintenanceQueueBucket } from '@/lib/maintenanceQueue';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -41,10 +41,9 @@ interface TicketCardProps {
   onUpdated?: () => void;
 }
 
-export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
+export function TicketCard({ ticket, onClick }: TicketCardProps) {
   const { t, language } = useTranslation();
   const { profile } = useAuth();
-  const [showActions, setShowActions] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [translationRetry, setTranslationRetry] = useState(0);
   const canManage = ticket.department === 'maintenance' && canManageMaintenance(profile?.role);
@@ -186,11 +185,9 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
           {overdue && <p role="status" className="text-xs font-medium text-red-700">{language === 'hu' ? 'Lejárt javítási határidő' : 'Repair deadline missed'}</p>}
         </div>
         {canManage && <div className="border-t pt-2" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
-          <Button type="button" size="sm" variant="outline" onClick={() => setShowActions(value => !value)}>{language === 'hu' ? 'Hiba kezelése' : 'Manage issue'}</Button>
-          {showActions && <MaintenanceManagerControls ticket={ticket} language={language} onUpdated={() => {
-            setShowActions(false); onUpdated?.();
-            window.dispatchEvent(new CustomEvent('maintenance-ticket-created'));
-          }} />}
+          <Button type="button" size="sm" variant="outline" onClick={onClick}>
+            {language === 'hu' ? 'Hiba kezelése' : 'Manage issue'}
+          </Button>
         </div>}
       </CardContent>
     </Card>
