@@ -13,7 +13,7 @@
  *   6. Dry run records exactly what would be sent. Kill switch / off: nothing is sent.
  */
 import { addDays, budapestToday, json, serviceDb, workerAuthorized } from "../_shared/channex/http.ts";
-import { ChannexClient, ChannexError, summarizeAriResponse, type ChannexEnvironment } from "../_shared/channex/client.ts";
+import { ChannexClient, ChannexError, readChannexKey, summarizeAriResponse, type ChannexEnvironment } from "../_shared/channex/client.ts";
 import { callsAllowedNow, FULL_SYNC_DAYS, planAvailability, planRestrictions, type RateChangeRow } from "../_shared/channex/ariPlan.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -130,10 +130,39 @@ async function sendHotel(db: Db, client: ChannexClient, conn: any) {
   return sent;
 }
 
+/**
+ * Read-only key check (GET one property). Returns only status codes and a count, never the key or
+ * property details. If a key is rejected, the other environment is tried read-only to spot a
+ * staging/production mix-up.
+ */
+async function probeKeys() {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const env of ["staging", "production"] as ChannexEnvironment[]) {
+    const key = readChannexKey(env, getEnv);
+    if (!key) { out[env] = { configured: false }; continue; }
+    try {
+      const r = await new ChannexClient(env, key, fetch, 0).probe();
+      const total = Number((r.meta as Record<string, unknown> | undefined)?.total ?? (Array.isArray(r.data) ? r.data.length : 0));
+      out[env] = { configured: true, ok: true, properties_visible: Number.isFinite(total) ? total : null };
+    } catch (err) {
+      const status = err instanceof ChannexError ? err.status : 0;
+      out[env] = { configured: true, ok: false, status };
+      if (status === 401 || status === 403) {
+        const other: ChannexEnvironment = env === "staging" ? "production" : "staging";
+        try { await new ChannexClient(other, key, fetch, 0).probe(); out[env].works_on = other; }
+        catch (e2) { out[env].other_environment_status = e2 instanceof ChannexError ? e2.status : 0; }
+      }
+    }
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ ok: false }, 405);
   const db = serviceDb();
   if (!(await workerAuthorized(req, db))) return json({ ok: false }, 401);
+  const body = await req.json().catch(() => ({}));
+  if (body?.trigger === "probe") return json({ ok: true, probe: await probeKeys() });
 
   // Recover messages stuck in "sending" (function crashed mid-call): retry; Channex ARI writes are idempotent.
   await db.from("channex_ari_outbox").update({ status: "pending", last_error: "Recovered after interrupted send", updated_at: new Date().toISOString() })

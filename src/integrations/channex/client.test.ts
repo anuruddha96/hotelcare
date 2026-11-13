@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannexClient, ChannexError, summarizeAriResponse } from '../../../supabase/functions/_shared/channex/client.ts';
+import { ChannexClient, ChannexError, readChannexKey, summarizeAriResponse } from '../../../supabase/functions/_shared/channex/client.ts';
 
 const res = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(body === undefined ? '' : JSON.stringify(body), { status, headers });
@@ -46,6 +46,12 @@ describe('Channex client', () => {
     expect(err).toMatchObject({ status: 422, code: 'validation_error', details: ['rate is invalid'] });
     expect(err.retryable).toBe(false);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the project secret HOTELCARE_CHANNEX_API for staging only', () => {
+    const env = (k: string) => ({ HOTELCARE_CHANNEX_API: ' stg-key ' } as Record<string, string>)[k];
+    expect(readChannexKey('staging', env)).toBe('stg-key');
+    expect(readChannexKey('production', env)).toBeNull();
   });
 
   it('refuses to start without a key', () => {

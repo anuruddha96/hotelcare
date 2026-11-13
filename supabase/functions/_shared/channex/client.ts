@@ -2,8 +2,10 @@
  * Thin Channex API client. Server-side only: the API key is read from an
  * edge-function secret and never returned to a browser or written to a log.
  *
- *   CHANNEX_STAGING_API_KEY     -> https://staging.channex.io/api/v1
- *   CHANNEX_PRODUCTION_API_KEY  -> https://app.channex.io/api/v1
+ *   staging:    HOTELCARE_CHANNEX_API (current project secret) or CHANNEX_STAGING_API_KEY
+ *               -> https://staging.channex.io/api/v1
+ *   production: CHANNEX_PRODUCTION_API_KEY -> https://app.channex.io/api/v1
+ * A staging key is never used against production and vice versa.
  *
  * Responses: {"data": ...} (+ "meta" on lists). Errors: {"errors": {code, title, details?}}.
  */
@@ -14,10 +16,19 @@ export const CHANNEX_BASE_URL: Record<ChannexEnvironment, string> = {
   production: "https://app.channex.io/api/v1",
 };
 
-export const CHANNEX_KEY_SECRET: Record<ChannexEnvironment, string> = {
-  staging: "CHANNEX_STAGING_API_KEY",
-  production: "CHANNEX_PRODUCTION_API_KEY",
+/** Accepted secret names per environment, first match wins. */
+export const CHANNEX_KEY_SECRETS: Record<ChannexEnvironment, string[]> = {
+  staging: ["HOTELCARE_CHANNEX_API", "CHANNEX_STAGING_API_KEY"],
+  production: ["CHANNEX_PRODUCTION_API_KEY"],
 };
+
+export function readChannexKey(env: ChannexEnvironment, getEnv: (k: string) => string | undefined): string | null {
+  for (const name of CHANNEX_KEY_SECRETS[env]) {
+    const value = getEnv(name)?.trim();
+    if (value) return value;
+  }
+  return null;
+}
 
 export class ChannexError extends Error {
   constructor(
@@ -39,7 +50,7 @@ export type ChannexResponse<T> = { data: T; meta?: Record<string, unknown> };
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export function channexKeyConfigured(env: ChannexEnvironment, getEnv: (k: string) => string | undefined): boolean {
-  return Boolean(getEnv(CHANNEX_KEY_SECRET[env])?.trim());
+  return readChannexKey(env, getEnv) !== null;
 }
 
 export class ChannexClient {
@@ -55,7 +66,7 @@ export class ChannexClient {
   }
 
   static fromEnv(env: ChannexEnvironment, getEnv: (k: string) => string | undefined): ChannexClient {
-    const key = getEnv(CHANNEX_KEY_SECRET[env])?.trim();
+    const key = readChannexKey(env, getEnv);
     if (!key) throw new ChannexError(`Channex ${env} API key is not configured`, 0, "missing_key", null);
     return new ChannexClient(env, key);
   }

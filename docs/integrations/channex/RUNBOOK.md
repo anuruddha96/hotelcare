@@ -36,7 +36,7 @@ Read with `SKILL_REVIEW.md` (design decisions) and `STAGING_READINESS.md` (offic
 1. Review and merge the PR. Apply the migration (it creates two Vault secrets and three cron jobs; the jobs are idle
    until a hotel is connected).
 2. Create a staging organisation and API key at https://staging.channex.io and set the edge function secret
-   `CHANNEX_STAGING_API_KEY` (Supabase dashboard → Edge Functions → Secrets). Never paste it in chat, issues or code.
+   `HOTELCARE_CHANNEX_API` (set on 13 Nov 2026; `CHANNEX_STAGING_API_KEY` is also accepted) (Supabase dashboard → Edge Functions → Secrets). Never paste it in chat, issues or code.
 3. Deploy `channex-admin`, `channex-webhook`, `channex-booking-worker`, `channex-ari-worker`
    (`config.toml` already sets `verify_jwt`).
 4. Production later: `CHANNEX_PRODUCTION_API_KEY`, only after certification and commercial/DPA terms.

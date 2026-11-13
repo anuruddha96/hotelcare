@@ -115,7 +115,7 @@ export function ChannexSetup({ status, run, busy }: Props) {
             <p className="text-xs text-muted-foreground">
               {keyReady
                 ? `The ${conn.environment} API key is stored as a server secret. It is never shown in the browser.`
-                : `Ask a HotelCare administrator to add the ${conn.environment === 'production' ? 'CHANNEX_PRODUCTION_API_KEY' : 'CHANNEX_STAGING_API_KEY'} secret to the Supabase edge functions.`}
+                : `Ask a HotelCare administrator to add the ${conn.environment === 'production' ? 'CHANNEX_PRODUCTION_API_KEY' : 'HOTELCARE_CHANNEX_API'} secret to the Supabase edge functions.`}
             </p>
             {perms.manage && <Button size="sm" variant="outline" disabled={!keyReady || busy !== null} onClick={async () => {
               const r = await run<{ ok: boolean; message?: string; latency_ms?: number }>('health');
