@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Folder, MessageSquare, PanelLeft, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import { searchAssistantThreads, useAssistant, type AssistantSearchHit, type Ass
 import { useAssistantProjects, type AssistantProject } from "@/hooks/useAssistantProjects";
 import AssistantChat from "@/components/assistant/AssistantChat";
 import AssistantSidebar from "@/components/assistant/AssistantSidebar";
+import AssistantAccessRequests, { canApproveAssistantAccess } from "@/components/assistant/AssistantAccessRequests";
 import ReportProblemDialog from "@/components/assistant/ReportProblemDialog";
 import MailboxesDialog from "@/components/assistant/MailboxesDialog";
 import { canConnectMailbox } from "@/lib/assistant/mail";
@@ -43,6 +44,7 @@ export default function AssistantPage() {
   const { threadId } = useParams<{ threadId: string }>();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     threads,
     loadingThreads,
@@ -51,6 +53,8 @@ export default function AssistantPage() {
     deleteThread,
     loadThreads,
     setThreadPinned,
+    setThreadFollowUpStatus,
+    markThreadRead,
     moveThreadToProject,
   } = useAssistant(threadId ?? null);
   const { projects, projectsAvailable, createProject, updateProject, deleteProject } = useAssistantProjects();
@@ -64,6 +68,7 @@ export default function AssistantPage() {
   });
   const [mobileNav, setMobileNav] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [requestsOpen, setRequestsOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -85,9 +90,10 @@ export default function AssistantPage() {
   const organizationSlug = profile?.organization_slug ?? null;
   const activeThread = threads.find((t) => t.id === threadId) ?? null;
   const activeProject = projects.find((p) => p.id === activeThread?.project_id) ?? null;
+  const requestedPrompt = (location.state as { miraPrompt?: { id: number; text: string } } | null)?.miraPrompt ?? null;
 
   useEffect(() => {
-    document.title = activeThread?.title && activeThread.title !== "New chat" ? `${activeThread.title} · HotelCare AI` : "HotelCare AI";
+    document.title = activeThread?.title && activeThread.title !== "New chat" ? `${activeThread.title} · Mira by HotelCare` : "Mira by HotelCare";
   }, [activeThread?.title]);
 
   useEffect(() => {
@@ -266,6 +272,9 @@ export default function AssistantPage() {
       onPinThread={async (thread, pinned) => {
         if (!(await setThreadPinned(thread.id, pinned))) toast.error("Could not update the pin");
       }}
+      onFollowUp={async (thread, status) => {
+        if (!(await setThreadFollowUpStatus(thread.id, status))) toast.error("Could not update follow-up status");
+      }}
       onMoveThread={async (thread, projectId) => {
         if (!(await moveThreadToProject(thread.id, projectId))) toast.error("Could not move the chat");
       }}
@@ -295,7 +304,7 @@ export default function AssistantPage() {
       </Sheet>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-1 px-2 sm:px-3">
+        <header className="flex h-14 shrink-0 items-center gap-1 border-b bg-background/90 px-2 sm:px-4">
           <Button size="icon" variant="ghost" className="h-9 w-9 md:hidden" aria-label="Open conversations" onClick={() => setMobileNav(true)}>
             <PanelLeft className="h-4 w-4" />
           </Button>
@@ -312,17 +321,36 @@ export default function AssistantPage() {
                 <span className="hidden text-muted-foreground sm:inline">/</span>
               </>
             )}
-            <h1 className="truncate font-medium">{activeThread?.title && activeThread.title !== "New chat" ? activeThread.title : "New chat"}</h1>
+            <h1 className="truncate font-medium"><span className="text-primary">Mira</span> <span className="hidden font-normal text-muted-foreground sm:inline">/</span> {activeThread?.title && activeThread.title !== "New chat" ? activeThread.title : "New conversation"}</h1>
           </div>
+          {canApproveAssistantAccess(profile?.role) && (
+            <Button size="sm" variant="ghost" className="hidden text-xs sm:inline-flex" onClick={() => setRequestsOpen(true)}>Requests</Button>
+          )}
           <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="New chat" onClick={startBlank}>
             <Plus className="h-4 w-4" />
           </Button>
         </header>
 
-        <div className="min-h-0 flex-1 px-1 pb-1 sm:px-2">
-          <AssistantChat workspace threadId={threadId ?? null} onNeedThread={() => newThread()} onThreadUpdated={markThreadActive} />
+        <div className="min-h-0 flex-1 px-1 pb-1 sm:px-4">
+          <AssistantChat
+            workspace
+            threadId={threadId ?? null}
+            onNeedThread={() => newThread()}
+            onThreadUpdated={markThreadActive}
+            onReplyViewed={() => { if (threadId) void markThreadRead(threadId); }}
+            suggestedPrompt={requestedPrompt}
+            onSuggestedPromptConsumed={() => navigate(location.pathname + location.search, { replace: true, state: null })}
+          />
         </div>
       </main>
+
+      <Dialog open={requestsOpen} onOpenChange={setRequestsOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader><DialogTitle>Team access requests</DialogTitle>
+            <DialogDescription>Review temporary access requests for Mira.</DialogDescription></DialogHeader>
+          <div className="max-h-[65vh] overflow-y-auto"><AssistantAccessRequests /></div>
+        </DialogContent>
+      </Dialog>
 
       {/* Search ----------------------------------------------------------- */}
       <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
