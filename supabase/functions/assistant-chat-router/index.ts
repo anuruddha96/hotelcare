@@ -9,7 +9,9 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-const PREMIUM_MODEL = Deno.env.get("OPENAI_PREMIUM_MODEL") || MODEL_BY_PURPOSE.premium;
+const configuredPremium = Deno.env.get("OPENAI_PREMIUM_MODEL") || MODEL_BY_PURPOSE.premium;
+const PREMIUM_MODEL = /^gpt-(?:6(?:\\.|-|$)|5\\.6(?:\\.|-|$))/i.test(configuredPremium)
+  ? "gpt-4.1-mini" : configuredPremium;
 const HOTEL_TZ = "Europe/Budapest";
 
 type Scope = "revenue" | "housekeeping" | "maintenance" | "reception";
@@ -1028,7 +1030,7 @@ Never expose table names, database fields, internal ids, tools, model names, quo
         });
       },
       providerOptions: {
-        openai: { store: false, reasoningEffort: "xhigh", reasoningSummary: "auto" },
+        openai: { store: false },
       },
     });
 
