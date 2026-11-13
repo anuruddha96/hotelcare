@@ -191,3 +191,12 @@ describe("Previo-reported reservation facts", () => {
     expect(text).toContain("istvan holbach");
   });
 });
+
+describe("channel labels from older imports", () => {
+  it("drops Previo's technical suffixes", async () => {
+    const { reservationChannel } = await import("./reservations");
+    expect(reservationChannel({ source: "previo", pms_channel: "Booking.com XML" })).toEqual({ label: "Booking.com", letter: "B" });
+    expect(reservationChannel({ source: "previo", pms_channel: "AgodaXML" })).toEqual({ label: "Agoda", letter: "G" });
+    expect(reservationChannel({ source: "previo", pms_channel: "HotelTonightV2XML" }).label).toBe("HotelTonight");
+  });
+});

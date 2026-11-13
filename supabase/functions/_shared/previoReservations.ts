@@ -265,9 +265,9 @@ export function parsePrevioReservations(xml: string): PrevioReservationRow[] {
     const partnerIsStructured = !!partnerBlock && /<[a-zA-Z]/.test(partnerBlock);
     const partnerName = partnerIsStructured ? cleanText(grab(partnerBlock!, "name")) : cleanText(partnerBlock);
     const channelId = partnerIsStructured ? cleanId(grab(partnerBlock!, "prpId")) : null;
-    const channel = partnerName ?? cleanText(
+    const channel = cleanChannelName(partnerName ?? cleanText(
       grab(top, "sourceName") ?? grab(top, "source") ?? grab(top, "channel") ?? grab(top, "marketCode") ?? null,
-    );
+    ));
 
     const cancelledAtIso = isCancelled
       ? pmsTimestampToIso(
@@ -451,6 +451,8 @@ export const PMS_RESERVATION_COLUMNS = [
   "pms_contact_name",
   "pms_contact_email",
   "pms_contact_phone",
+  "pms_paid_amount",
+  "pms_missing_since",
 ] as const;
 
 type StoredRow = Record<string, unknown>;
@@ -483,31 +485,100 @@ export function resolveImportTarget<T extends StoredRow>(
 /**
  * Balance and payment status for an imported Previo booking.
  *
- * - Previo says paid  -> nothing is due.
+ * - Previo says paid -> nothing is due.
+ * - Previo reported a paid amount (account check) -> balance = total - paid.
+ *   When the stored balance itself came from Previo, it is not counted again.
  * - Otherwise the amount already settled in HotelCare is kept, except when the
  *   earlier "settled" state only came from Previo having reported paid before.
- * Previo's search response carries no paid amount, so a partially paid booking
- * keeps the full remaining balance and is only labelled "partial".
  */
 export function mergePrevioFinancials(input: {
   total: number;
   paymentStatus: PrevioPaymentStatus | null;
+  previoPaidAmount?: number | null;
   existingTotal?: number | null;
   existingBalance?: number | null;
   existingPmsPaymentStatus?: string | null;
+  existingPmsPaidAmount?: number | string | null;
 }): { balance: number; paymentStatus: "paid" | "partial" | "unpaid" } {
   const total = Number.isFinite(input.total) ? input.total : 0;
   if (input.paymentStatus === "paid") return { balance: 0, paymentStatus: "paid" };
   const hasExisting = input.existingTotal != null || input.existingBalance != null;
+  const existingFromPrevio = input.existingPmsPaymentStatus === "paid" || input.existingPmsPaidAmount != null;
   let previouslyPaid = hasExisting
     ? Math.max(0, Number(input.existingTotal ?? 0) - Number(input.existingBalance ?? 0))
     : 0;
   if (input.existingPmsPaymentStatus === "paid") previouslyPaid = 0;
+  const previoPaid = Number(input.previoPaidAmount);
+  if (input.previoPaidAmount != null && Number.isFinite(previoPaid)) {
+    previouslyPaid = Math.max(previoPaid, existingFromPrevio ? 0 : previouslyPaid);
+  }
   const balance = Math.max(0, Math.round((total - previouslyPaid) * 100) / 100);
   const paymentStatus = balance <= 0 && total > 0
     ? "paid"
     : previouslyPaid > 0 || input.paymentStatus === "partial" ? "partial" : "unpaid";
   return { balance, paymentStatus };
+}
+
+/** Payment state from a Previo account (REST `account`): total and paid of the booking. */
+export function paymentFromPrevioAccount(body: unknown): { total: number; paid: number; status: PrevioPaymentStatus } | null {
+  if (!body || typeof body !== "object") return null;
+  const root = body as Record<string, unknown>;
+  const account = (root.groupAccount && typeof root.groupAccount === "object" ? root.groupAccount : root) as Record<string, unknown>;
+  const total = Number(account.total);
+  const paid = Number(account.paid);
+  if (!Number.isFinite(total) || !Number.isFinite(paid) || total < 0 || paid < 0) return null;
+  const status: PrevioPaymentStatus = paid <= 0 ? "unpaid" : paid + 0.5 >= total ? "paid" : "partial";
+  return { total, paid: Math.round(paid * 100) / 100, status };
+}
+
+/**
+ * Previo appends technical suffixes to channel names ("Booking.com XML",
+ * "AgodaXML", "HotelTonightV2XML"). Reception should read the brand.
+ */
+export function cleanChannelName(raw: string | null | undefined): string | null {
+  const text = (raw ?? "").trim();
+  if (!text) return null;
+  const cleaned = text
+    .replace(/\s*XML$/i, "")
+    .replace(/V\d+$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const known: Record<string, string> = { agoda: "Agoda", hoteltonight: "HotelTonight", expedia: "Expedia", airbnb: "Airbnb" };
+  return known[cleaned.toLowerCase()] ?? (cleaned || text);
+}
+
+/**
+ * Stored Previo bookings that a complete, successful full import did not
+ * return: cancelled or deleted in Previo, or stored under an older reference
+ * after a room move. They are hidden from the plan (pms_missing_since), never
+ * deleted, and shown again automatically if Previo returns them later.
+ *
+ * Returns null when too many would be hidden at once, which means the import
+ * itself is suspect rather than the bookings.
+ */
+export function bookingsMissingFromPrevio<T extends StoredRow>(input: {
+  stored: Iterable<T>;
+  returnedRefs: ReadonlySet<string>;
+  setAsideRefs: ReadonlySet<string>;
+  window: { from: string; to: string };
+  incomingCount: number;
+}): T[] | null {
+  const live = new Set(["pending", "confirmed", "checked_in"]);
+  const missing: T[] = [];
+  let inWindow = 0;
+  for (const row of input.stored) {
+    const ref = String(row.source_reservation_id ?? "");
+    const arrival = String(row.check_in_date ?? "");
+    const departure = String(row.check_out_date ?? "");
+    if (!ref || !(departure > input.window.from && arrival < input.window.to)) continue;
+    inWindow++;
+    if (input.returnedRefs.has(ref) || input.setAsideRefs.has(ref)) continue;
+    if (!live.has(String(row.status ?? ""))) continue;
+    if (row.actual_check_in != null || row.pms_missing_since != null) continue;
+    missing.push(row);
+  }
+  const limit = Math.max(10, Math.ceil(Math.max(inWindow, input.incomingCount) * 0.2));
+  return missing.length > limit ? null : missing;
 }
 
 /** True when every pms_* column of the stored row already equals the new record. */
@@ -519,8 +590,10 @@ export function pmsFieldsEqual(existing: StoredRow, record: StoredRow): boolean 
       if (a !== b) return false;
       continue;
     }
-    if (key === "pms_option_expires_at") {
+    if (key === "pms_option_expires_at" || key === "pms_missing_since") {
       if (Date.parse(String(a)) !== Date.parse(String(b))) return false;
+    } else if (key === "pms_paid_amount") {
+      if (Number(a) !== Number(b)) return false;
     } else if (String(a) !== String(b)) return false;
   }
   return true;
