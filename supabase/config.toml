@@ -316,3 +316,15 @@ verify_jwt = false
 # The function itself must validate every request (no public table grants).
 [functions.insuite-api]
 verify_jwt = false
+
+# Channex integration (staging). Each function validates its own callers:
+# worker secret for cron/webhook fan-out, user JWT + hotel access for UI actions,
+# and a shared-secret header for the Channex webhook (Channex sends no JWT).
+[functions.channex-ari-worker]
+verify_jwt = false
+
+[functions.channex-booking-worker]
+verify_jwt = false
+
+[functions.channex-webhook]
+verify_jwt = false

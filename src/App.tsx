@@ -31,6 +31,7 @@ const ReservationDetail = lazy(() => import("./pages/ReservationDetail"));
 const Guests = lazy(() => import("./pages/Guests"));
 const GuestDetail = lazy(() => import("./pages/GuestDetail"));
 const ChannelManager = lazy(() => import("./pages/ChannelManager"));
+const RatesAvailability = lazy(() => import("./pages/RatesAvailability"));
 const Revenue = lazy(() => import("./pages/Revenue"));
 const RevenueHotelDetail = lazy(() => import("./pages/RevenueHotelDetail"));
 const Reputation = lazy(() => import("./pages/Reputation"));
@@ -155,6 +156,7 @@ const TenantRouter = () => {
           <Route path="/guests" element={<Guests />} />
           <Route path="/guests/:guestId" element={<GuestDetail />} />
           <Route path="/channel-manager" element={<ChannelManager />} />
+          <Route path="/rates-availability" element={<RatesAvailability />} />
           <Route path="/revenue" element={<Revenue />} />
           <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
           <Route path="/reputation" element={<Reputation />} />

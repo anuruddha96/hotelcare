@@ -11,6 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChannexPanel } from '@/components/channel-manager/ChannexPanel';
 
 const CHANNEL_CATALOGUE = [
   { name: 'Booking.com', type: 'ota' },
@@ -44,6 +45,7 @@ const ChannelManager = () => {
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
+  const [nativeHotel, setNativeHotel] = useState(false);
 
   const fetchChannels = useCallback(async () => {
     if (!hotelId || !scopedOrg) { setLoadingData(false); return; }
@@ -66,6 +68,9 @@ const ChannelManager = () => {
       }
       setChannels((channelResult.data ?? []) as Channel[]);
       setSyncEntries((history.data ?? []) as SyncEntry[]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: native } = await (supabase as any).rpc('pms_ari_native_hotel', { _hotel_id: hotelId });
+      setNativeHotel(Boolean(native));
       const connected = Boolean(accounts.data?.length || legacy.data?.length);
       setPrevioConnected(connected);
       setPrevioLastSync(accounts.data?.[0]?.last_sync_at || legacy.data?.[0]?.last_sync_at || null);
@@ -113,6 +118,7 @@ const ChannelManager = () => {
         <div><h1 className="text-xl font-bold flex gap-2 items-center"><Radio className="h-5 w-5" />{t('pms.channelManager')}</h1><p className="text-xs text-muted-foreground mt-1">Property: {hotelId} · Channel connections are property-specific.</p></div>
         <Button variant="outline" size="sm" disabled={loadingData} onClick={() => void fetchChannels()} className="gap-1.5"><RefreshCw className={`h-4 w-4 ${loadingData ? 'animate-spin' : ''}`} />{t('pms.fd.refresh')}</Button>
       </div>
+      {nativeHotel && scopedOrg && <ChannexPanel hotelId={hotelId} orgSlug={scopedOrg} />}
       {loadError && <div role="alert" className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-destructive" />Could not verify channel status for this hotel. No connection settings have been changed.</div>}
       <div className="grid gap-3 lg:grid-cols-2">
         <Card className="border-primary/30"><CardHeader className="pb-2"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base">Previo · existing PMS / channel workflow</CardTitle><Badge variant={previoConnected ? 'default' : 'outline'}>{loadingData ? 'Checking' : previoConnected ? 'PMS configured' : 'Not configured'}</Badge></div></CardHeader><CardContent className="space-y-3 text-sm"><p className="text-muted-foreground">Keep Previo as the source of truth for existing hotels during the transition. A configured PMS account alone does not prove OTA synchronization is healthy.</p><p className="text-xs text-muted-foreground">Latest configuration sync: {previoLastSync ? new Date(previoLastSync).toLocaleString() : 'Not recorded'}</p><Button asChild size="sm" variant="outline" className="gap-1.5"><Link to={`/${scopedOrg}/reception`}>Open reception and Previo sync <ArrowRight className="h-3.5 w-3.5" /></Link></Button></CardContent></Card>
