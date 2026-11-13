@@ -863,8 +863,12 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         : null;
 
       const occ = occByDate.get(stayDate) ?? { pct: null, sold: null, left: null, revenue: null };
+      // The €75 absolute boundary is deliberately ONLY for arrival today.
+      // Other nights retain Ottofiori's previous €80 minimum ADR boundary.
       const refBounds = dateColumnLockstepEnabled
-        ? hotelSafetyBounds
+        ? (rule.hotel_id === "ottofiori" && daysOut > 0
+          ? { ...hotelSafetyBounds, min: Math.max(hotelSafetyBounds.min, Number(rule.minimum_adr ?? 80)) }
+          : hotelSafetyBounds)
         : boundsFor(reference?.room_type_name ?? null, 2);
       const pendingEvent = eventUplift.get(stayDate);
       const last = lastDecisionByDate.get(stayDate);
@@ -940,7 +944,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       } else {
         decision = decideDate(input, settings);
       }
-      if (rule.hotel_id === "ottofiori" && observeAiPrice(aiPolicies.get(stayDate), now, lastPickup, lastCancel.get(stayDate) ?? null)) {
+      if (rule.hotel_id === "ottofiori" && daysOut > 0 && observeAiPrice(aiPolicies.get(stayDate), now, lastPickup, lastCancel.get(stayDate) ?? null)) {
         decision = { ...decision, direction: "hold", movement: 0,
           targetPrice: input.currentPrice, blocked: true, reason: "ai_supervisor_observation",
           reasonDetail: "The AI supervisor's current offer is being observed for up to four hours. A new genuine booking or cancellation releases the fast engine to respond." };

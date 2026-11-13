@@ -37,4 +37,7 @@ jobs:
           node --check supabase/functions/_shared/engineV2DateBudget.ts
           node --check supabase/functions/_shared/engineV2QueueSafety.ts
           node --check supabase/functions/revenue-pickup-automation/index.ts
-          node --check supabase/functions/revenue-pickup-automation/runV2.ts
+          # Node --check cannot strip ambient TypeScript declarations (e.g. `declare const Deno`).
+          # Transpile the changed engine first, then validate the resulting JavaScript syntax.
+          npx --yes esbuild supabase/functions/revenue-pickup-automation/runV2.ts --format=esm --outfile=/tmp/hotelcare-runV2-check.js
+          node --check /tmp/hotelcare-runV2-check.js

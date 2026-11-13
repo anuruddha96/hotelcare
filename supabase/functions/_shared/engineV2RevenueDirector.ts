@@ -49,6 +49,21 @@ export function confirmedHighImpactEvent(row: {
   }
 }
 
+/** The local-hour, demand-sensitive step for genuinely unsold arrival-day inventory. */
+export function sameDayMarkdownStep(localMinutes: number, roomsRemaining: number): number {
+  if (localMinutes < 15 * 60) return roomsRemaining >= 3 ? 3 : 2;
+  if (localMinutes < 18 * 60) return roomsRemaining >= 3 ? 5 : 4;
+  return roomsRemaining >= 3 ? 6 : 5;
+}
+
+function budapestMinutes(now: Date): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Budapest", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(now);
+  const at = (name: string) => Number(parts.find((part) => part.type === name)?.value ?? 0);
+  return at("hour") * 60 + at("minute");
+}
+
 /** Ottofiori's commercial planner. Core safety checks remain the final authority. */
 export function decideRevenueDirector(input: DecisionInput, settings: DecisionSettings, context: RevenueDirectorContext): Decision {
   const win = windowFor(input.daysOut, settings.windowRules);
@@ -62,6 +77,49 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   if (input.holdKind === "hard" && input.manualHoldUntil && Date.parse(input.manualHoldUntil) > settings.now.getTime()) {
     return hold("manual_lock", "A manager locked this date; no automatic changes are permitted.");
   }
+  // Arrival-day rooms are perishable. Keep only today on this hourly sell-out
+  // path: every future date retains its separate pacing, event and ADR strategy.
+  if (input.daysOut === 0) {
+    const minute = budapestMinutes(settings.now);
+    if (minute < 8 * 60 || minute >= 23 * 60) {
+      return hold("same_day_outside_selling_hours", "Automatic arrival-day markdowns run from 08:00 to 23:00 Budapest time.");
+    }
+    if (input.roomsRemaining != null && input.roomsRemaining <= 0) {
+      return hold("sold_out", "No rooms remain; keep the last selling price.");
+    }
+    if (context.confirmedHighEvent && minute < 18 * 60 && (input.occupancyPct ?? 0) >= 85) {
+      return hold("verified_event_protected", "A verified high-impact event protects scarce inventory until the evening selling window.");
+    }
+    if ((input.hoursSinceLastPickup != null && input.hoursSinceLastPickup <= 2)
+      || input.pickup1h > 0 || (input.observedPickup6h ?? 0) >= 2) {
+      return hold("same_day_pickup_observation", "A recent booking or strong six-hour pickup justifies observing conversion rather than discounting again.");
+    }
+    const step = sameDayMarkdownStep(minute, input.roomsRemaining ?? 0);
+    const hourlyWindow = {
+      ...win, min_days_out: 0, max_days_out: 0,
+      no_pickup_wait_hours: 1, min_hours_between_decreases: 1,
+      max_daily_decrease: 140,
+    };
+    const sameDayPolicy: DecisionSettings = {
+      ...settings, respectConfiguredWindows: true, windowRules: [hourlyWindow, ...settings.windowRules],
+      maxMarkdownsPerDay: 24, minMovementEur: 1, maxMarkdownDepthPct: 0,
+      soldOutOccupancyPct: 101, occupancyLiftEnabled: false, microPriceTests: false,
+      allowSameDayReversal: true, fill: { enabled: true, windowDays: 0, maxTotalDropPct: 100 },
+      // The ordinary cancellation and manager protections remain in coreDecision.
+      bookedDateBrakeHours: 0,
+    };
+    const sameDayInput: DecisionInput = {
+      ...input, adrFloor: null, hardAdrFloor: null, monthFloor: null,
+      monthMarkdownsFrozen: false, pendingEventUplift: 0,
+      commercialIntent: {
+        raw: -step,
+        reason: "same_day_hourly_sellout",
+        detail: `Arrival today, ${input.roomsRemaining} room(s) unsold; no recent converting pickup. Budapest local time ${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}; test a €${step} markdown this hour, stopping at the €75 same-day safety floor.`,
+      },
+    };
+    return coreDecision(sameDayInput, sameDayPolicy);
+  }
+
   const effective: DecisionInput = {
     ...input, hardAdrFloor: null, adrFloor: null, monthFloor: null, monthMarkdownsFrozen: false,
     pendingEventUplift: 0,
