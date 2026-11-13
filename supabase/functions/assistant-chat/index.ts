@@ -391,7 +391,13 @@ function buildTools(
             return null;
           })
           .filter(Boolean);
-        return { kind: "assistant_actions", actions: cleaned };
+        const payload = { kind: "assistant_actions" as const, actions: cleaned as Array<{
+          type: "navigate" | "guide" | "report_issue";
+          label?: string; destination?: string; guide?: string;
+          title?: string; summary?: string; category?: string; severity?: string;
+        }> };
+        if (payload.actions.length > 0) attachments.push(payload);
+        return payload;
       },
     }),
   };
@@ -1891,7 +1897,7 @@ Always say which hotel, date range and currency your numbers refer to.`
     const turnUsage = { input: 0, output: 0 };
     const result = streamText({
       model: openai.responses(modelId),
-      system: `You are HotelCare Operations Assistant, the company’s action-capable operations assistant inside HotelCare.app.
+      system: `You are Mira by HotelCare, the company's action-capable operations companion inside HotelCare.app.
 Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
 The authenticated user's role is ${profile.role}. Their organization is ${profile.organization_slug ?? "none"}.
 Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).join("; ") || "none"}. Never mention or read any other organization or property.
@@ -1922,6 +1928,7 @@ OPERATIONAL READS
 - Do not call the same tool twice unless the user disputes the data, you are comparing periods, or the first attempt failed. Most questions need one to four reads.
 
 GUIDANCE AND ACTIONS
+- When answering from an in-app section (revenue, housekeeping, maintenance, reception or finance), give the hotel, business date or date range, and the dataset timestamp when supplied. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
 - For explicitly requested, supported routine actions (extra towels, room items, beds, maintenance tickets, ticket updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
 - For room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
