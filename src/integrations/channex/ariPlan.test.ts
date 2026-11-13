@@ -52,6 +52,17 @@ describe('Channex ARI planning', () => {
     expect(skipped[2].reason).toMatch(/currency/);
   });
 
+  it('accepts Channex max_stay zero as unlimited while minimum stays remain positive', () => {
+    const { values, skipped } = planRestrictions([
+      { id: 11, room_type_id: 'rt-double', stay_date: '2027-01-15', currency: 'EUR', patch: { rate: '120.00', max_stay: 0, min_stay_arrival: 1 } },
+    ], ctx);
+    expect(skipped).toEqual([]);
+    expect(values[0]).toMatchObject({ rate: 12000, max_stay: 0, min_stay_arrival: 1 });
+    expect(() => planRestrictions([
+      { id: 12, room_type_id: 'rt-double', stay_date: '2027-01-15', currency: 'EUR', patch: { min_stay_arrival: 0 } },
+    ], ctx)).toThrow('Invalid positive stay limit');
+  });
+
   it('stays under the Channex per-property call limit', () => {
     expect(callsAllowedNow(0)).toBe(5);
     expect(callsAllowedNow(7)).toBe(2);
