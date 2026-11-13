@@ -1000,6 +1000,9 @@ export default function RateStrategyGrid({
     obk?: string | null;
   } | null>(null);
 
+  /** Make revenue calendar actions immediately visible on every visit; users may collapse them. */
+  const [calendarToolsOpen, setCalendarToolsOpen] = useState(true);
+
   /** Full-screen pricing mode — the calendar and nothing else. */
   const [expanded, setExpanded] = useState(false);
 
@@ -3056,7 +3059,7 @@ export default function RateStrategyGrid({
               </span>
             )}
           </CardTitle>
-          <details className="group w-full sm:w-auto">
+          <details className="group w-full sm:w-auto" open={calendarToolsOpen} onToggle={(event) => setCalendarToolsOpen(event.currentTarget.open)}>
             <summary className="w-fit cursor-pointer rounded-md border px-3 py-2 text-xs font-medium">{hu ? "Naptári eszközök" : "Calendar tools"}</summary>
             <div className="mt-2 flex flex-wrap items-center gap-2 sm:justify-end">
             <Sheet>
