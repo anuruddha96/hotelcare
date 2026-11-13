@@ -23,6 +23,17 @@ export type WorkspaceAttachment =
       series: { name: string; values: (number | null)[] }[];
     }
   | { kind: "image"; path: string; prompt: string; size: string }
+  /** Registry-checked screen references survive chat reloads. */
+  | { kind: "assistant_actions"; actions: Array<{
+    type: "navigate" | "guide" | "report_issue";
+    label?: string;
+    destination?: string;
+    guide?: string;
+    title?: string;
+    summary?: string;
+    category?: string;
+    severity?: string;
+  }> }
   | {
       kind: "review_reply";
       reviewId: string;
