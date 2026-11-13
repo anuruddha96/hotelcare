@@ -438,6 +438,94 @@ Deno.serve(async (req) => {
       });
     }
 
+
+    if (action === "automation_health") {
+      // Only authenticated, authorized organization managers reach this action.
+      // Worker runs are infrastructure-wide; review counts and examples are
+      // strictly scoped to the requested organization.
+      const cutoff24 = new Date(Date.now() - 24 * 3_600_000).toISOString();
+      const cutoff7 = new Date(Date.now() - 7 * 86_400_000).toISOString();
+      const cutoff14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
+      const [
+        { data: workerRuns, error: workerError },
+        { data: locations, error: locationError },
+        { data: recentPending, error: pendingError },
+        { data: recentAutomatic, error: recentError },
+        { count: auto24, error: auto24Error },
+        { count: auto7, error: auto7Error },
+        { count: autoAll, error: autoAllError },
+      ] = await Promise.all([
+        admin.from("google_reputation_worker_runs")
+          .select("started_at,finished_at,status,connections_checked,locations_checked,reviews_synced,drafts_generated,replies_published,errors")
+          .order("started_at", { ascending: false }).limit(100),
+        admin.from("google_business_locations")
+          .select("id,reply_brand_name,google_location_title,is_active,reply_mode,auto_reply_enabled,auto_reply_enabled_at,auto_reply_delay_minutes")
+          .eq("organization_id", org.id),
+        admin.from("google_reviews")
+          .select("id,google_location_id,star_rating,review_create_time,ai_risk_level,reply_status,google_reply_comment,draft_edited_at")
+          .eq("organization_id", org.id).gte("review_create_time", cutoff14)
+          .gte("star_rating", 4).neq("reply_status", "published").limit(1000),
+        admin.from("google_reviews")
+          .select("id,google_location_id,reviewer_display_name,star_rating,review_create_time,google_reply_comment,google_reply_update_time,auto_reply_kind")
+          .eq("organization_id", org.id).eq("reply_status", "published")
+          .eq("reply_origin", "automatic")
+          .order("google_reply_update_time", { ascending: false }).limit(12),
+        admin.from("google_reviews")
+          .select("id", { count: "exact", head: true }).eq("organization_id", org.id)
+          .eq("reply_status", "published").eq("reply_origin", "automatic")
+          .gte("google_reply_update_time", cutoff24),
+        admin.from("google_reviews")
+          .select("id", { count: "exact", head: true }).eq("organization_id", org.id)
+          .eq("reply_status", "published").eq("reply_origin", "automatic")
+          .gte("google_reply_update_time", cutoff7),
+        admin.from("google_reviews")
+          .select("id", { count: "exact", head: true }).eq("organization_id", org.id)
+          .eq("reply_status", "published").eq("reply_origin", "automatic"),
+      ]);
+      const healthError = [workerError, locationError, pendingError, recentError, auto24Error, auto7Error, autoAllError]
+        .find(Boolean);
+      if (healthError) throw healthError;
+      const venueMap = new Map((locations || []).map((venue: any) => [venue.id, venue]));
+      const due = (recentPending || []).filter((review: any) => {
+        const venue: any = venueMap.get(review.google_location_id);
+        if (!venue?.is_active || !venue.auto_reply_enabled || venue.reply_mode === "draft_only") return false;
+        if (!venue.auto_reply_enabled_at || review.ai_risk_level !== "low" || review.draft_edited_at) return false;
+        if (Number(review.star_rating) < 4 || review.google_reply_comment) return false;
+        const reviewMs = new Date(review.review_create_time || "").getTime();
+        const startMs = new Date(venue.auto_reply_enabled_at).getTime();
+        if (!Number.isFinite(reviewMs) || !Number.isFinite(startMs) || reviewMs < startMs) return false;
+        return Date.now() - reviewMs >= Math.max(0, Math.min(1440, Number(venue.auto_reply_delay_minutes || 0))) * 60_000;
+      });
+      const lastRun = (workerRuns || [])[0] || null;
+      const runs24 = (workerRuns || []).filter((run: any) => run.started_at >= cutoff24);
+      const incomplete24 = runs24.filter((run: any) => run.status !== "completed").length;
+      const lastErrors = Array.isArray(lastRun?.errors) ? lastRun.errors.length : 0;
+      return json({
+        ok: true,
+        worker: {
+          last_run_at: lastRun?.started_at || null,
+          last_completed_at: (workerRuns || []).find((run: any) => run.status === "completed")?.finished_at || null,
+          last_status: lastRun?.status || "unknown",
+          last_errors: lastErrors,
+          last_reviews_synced: lastRun?.reviews_synced || 0,
+          last_drafts_generated: lastRun?.drafts_generated || 0,
+          last_replies_published: lastRun?.replies_published || 0,
+          runs_24h: runs24.length,
+          incomplete_runs_24h: incomplete24,
+        },
+        counts: {
+          automatic_24h: auto24 || 0,
+          automatic_7d: auto7 || 0,
+          automatic_all: autoAll || 0,
+          new_positive_ready: due.length,
+          recent_positive_unreplied: (recentPending || []).length,
+          enabled_venues: (locations || []).filter((venue: any) => venue.is_active && venue.auto_reply_enabled && venue.reply_mode !== "draft_only").length,
+          total_venues: (locations || []).filter((venue: any) => venue.is_active).length,
+        },
+        recent_automatic: recentAutomatic || [],
+      });
+    }
+
     if (action === "list_published") {
       const page = Math.max(0, Math.min(10000, Number(body.page || 0) || 0));
       const limit = 50;
