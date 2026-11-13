@@ -146,7 +146,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
             {thread.follow_up_status === "open" ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <CircleDot className="mr-2 h-4 w-4" />}
             {thread.follow_up_status === "open" ? "Mark task done" : thread.follow_up_status === "done" ? "Reopen follow-up" : "Needs follow-up"}
           </DropdownMenuItem>
-          {thread.follow_up_status !== "none" && (
+          {Boolean(thread.follow_up_status && thread.follow_up_status !== "none") && (
             <DropdownMenuItem onClick={() => props.onFollowUp(thread, "none")}>Clear task status</DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={() => props.onRenameThread(thread)}>
