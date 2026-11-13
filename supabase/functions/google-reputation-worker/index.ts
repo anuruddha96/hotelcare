@@ -351,10 +351,15 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 .maybeSingle();
 
               const updateTime = googleReview.updateTime || googleReview.createTime || null;
+              // Postgres normalizes timestamptz (+00:00) while Google sends Z.
+              // Comparing those strings regenerated the same 20 drafts every run.
+              const existingTime = Date.parse(String(existing?.review_update_time || ""));
+              const incomingTime = Date.parse(String(updateTime || ""));
+              const timeChanged = Number.isFinite(existingTime) && Number.isFinite(incomingTime)
+                ? existingTime !== incomingTime
+                : String(existing?.review_update_time || "") !== String(updateTime || "");
               const changed = Boolean(
-                existing &&
-                  ((existing.comment || null) !== comment ||
-                    String(existing.review_update_time || "") !== String(updateTime || "")),
+                existing && ((existing.comment || null) !== comment || timeChanged),
               );
               const hasGoogleReply = Boolean(googleReview.reviewReply?.comment);
               const retainedDraft = !changed ? existing?.ai_draft || null : null;
