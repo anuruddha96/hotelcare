@@ -15,6 +15,7 @@ import { useMonthReconciliationDays } from "@/hooks/useMonthReconciliationDays";
 import { breakfastPriceOf, buildMonthBreakdown, wholeMonthOf, type MonthBreakdownRow } from "@/lib/kpiReconciliation";
 import MonthBreakdownPanel from "./MonthBreakdownPanel";
 import KpiReconciliationCard from "./KpiReconciliationCard";
+import HotelComparisonSection from "./HotelComparisonSection";
 import { Bar, BarChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 
 const PICKUP_WINDOW_HU: Record<number,string> = {
@@ -104,7 +105,7 @@ export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
   selectedMonth, onSelectedMonthChange, nights = [], cancellations = [], loading = false, loadedThrough,
   excludedRoomTypeIds, inventoryMismatch = false, configuredRooms = 0,
-  refreshing = false, lastSyncAt = null,
+  refreshing = false, lastSyncAt = null, comparisonHotels = [],
 }: {
   today: string;
   metrics: DayMetrics[];
@@ -130,6 +131,7 @@ export default function MonthPerformanceHeader({
   refreshing?: boolean;
   /** When the visible figures were last pulled from Previo. */
   lastSyncAt?: string | null;
+  comparisonHotels?: Array<{ hotel_id: string; hotel_name: string }>;
 }) {
 
   const { language } = useTranslation();
@@ -576,6 +578,10 @@ export default function MonthPerformanceHeader({
           />
         </div>
         {!whole && !tilesLoading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{hu ? "A teljes hónap adatai nem ellenőrizhetők; nem jelenítünk meg részleges havi ADR-t." : "Full-month figures are unavailable or incomplete. Partial ADR is not shown as monthly ADR."}</p>}
+
+        {/* Show the same reconciled full-month portfolio comparison directly
+            after the monthly KPIs, before the optional ADR calculation. */}
+        <HotelComparisonSection hotels={comparisonHotels} hotelId={hotelId ?? null} selectedMonth={month} />
 
         {monthComplete && breakdown.length > 0 && !tilesLoading && (
           <details className="rounded-lg border px-3 py-2 text-xs">

@@ -7,6 +7,7 @@ import type { ReconciliationDay } from "@/lib/kpiReconciliation";
 
 vi.mock("@/hooks/useTranslation", () => ({ useTranslation: () => ({ language: "en" }) }));
 vi.mock("recharts", async (original) => ({ ...await original<object>(), ResponsiveContainer: () => null }));
+vi.mock("../HotelComparisonSection", () => ({ default: () => <section aria-label="Hotel comparison">Hotel comparison block</section> }));
 vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 vi.mock("@/lib/revenueCurrency", () => ({
   money: (n: number) => `€${Math.round(n)}`,
@@ -47,7 +48,7 @@ const DAYS: ReconciliationDay[] = Array.from({ length: 30 }, (_, i) => {
   };
 });
 
-const renderHeader = () =>
+const renderHeader = (withComparison = false) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MonthPerformanceHeader
@@ -56,6 +57,7 @@ const renderHeader = () =>
         pickupWindowDays={2}
         onPickupWindowChange={() => {}}
         hotelId="ottofiori"
+        comparisonHotels={withComparison ? [{ hotel_id: "ottofiori", hotel_name: "Hotel Ottofiori" }] : []}
         roomsAvailable={10}
         loadedThrough="2026-12-31"
       />
@@ -63,6 +65,18 @@ const renderHeader = () =>
   );
 
 describe("MonthPerformanceHeader — whole month", () => {
+  it("places Hotel comparison after performance KPIs, immediately before optional ADR settings", () => {
+    recon.data = DAYS; recon.isLoading = false;
+    renderHeader(true);
+    const kpis = screen.getByTestId("monthly-kpis");
+    const comparison = screen.getByRole("region", { name: "Hotel comparison" });
+    const adrSettings = screen.getByText("ADR calculation & breakfast settings").closest("details");
+    expect(adrSettings).toBeTruthy();
+    expect(kpis.compareDocumentPosition(comparison) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(comparison.compareDocumentPosition(adrSettings!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(adrSettings!.previousElementSibling).toBe(comparison);
+  });
+
   beforeAll(() => {
     // jsdom has no layout: the KPI strip's scroll helpers need stubs.
     Element.prototype.scrollTo = vi.fn() as unknown as Element["scrollTo"];

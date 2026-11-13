@@ -29,6 +29,7 @@ vi.mock("@/hooks/useMarketRates", () => ({
   useMarketRates: () => ({ competitors: [], marketByDate: new Map(), ratesByCompetitor: new Map(), reliabilityByCompetitor: new Map() }),
 }));
 import MarketIntelligenceChart from "./MarketIntelligenceChart";
+import HotelComparisonSection from "./HotelComparisonSection";
 
 const hotels = [
   { hotel_id: "ottofiori", hotel_name: "Hotel Ottofiori" },
@@ -60,8 +61,7 @@ const queries = () => hotels.map((hotel, index) => ({
 const portfolioReady = () => ({ data: [], isError: false, isPending: false, isFetching: false, refetch });
 
 async function openComparison() {
-  await act(async () => { render(<MarketIntelligenceChart hotels={hotels} hotelId="ottofiori" selectedMonth="2026-09" metrics={metrics} />); });
-  if (!screen.queryByRole("region", { name: "Hotel comparison" })) fireEvent.click(screen.getByRole("button", { name: "Compare hotels" }));
+  await act(async () => { render(<HotelComparisonSection hotels={hotels} hotelId="ottofiori" selectedMonth="2026-09" />); });
   return screen.getByRole("region", { name: "Hotel comparison" });
 }
 
@@ -112,18 +112,16 @@ describe("hotel comparison — reconciled full months", () => {
 });
 
 describe("revenue section ordering", () => {
-  it("shows hotel comparisons first, then market rates, booking movement, and finally pickup demand", async () => {
+  it("keeps comparisons out of the Market intelligence section while preserving its charts", async () => {
     await act(async () => {
       render(<MarketIntelligenceChart hotels={hotels} hotelId="ottofiori" selectedMonth="2026-09"
         metrics={metrics} reservationMovement={<div>Recent booking movement</div>} />);
     });
-    const comparison = screen.getByRole("region", { name: "Hotel comparison" });
-    const market = screen.getByText("Market intelligence");
+    expect(screen.queryByRole("region", { name: "Hotel comparison" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Compare hotels" })).toBeNull();
     const rates = screen.getByText("Rate position");
     const movement = screen.getByText("Recent booking movement");
     const pickup = screen.getByText("Pickup & demand");
-    expect(comparison.compareDocumentPosition(market) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(market.compareDocumentPosition(rates) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(rates.compareDocumentPosition(movement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(movement.compareDocumentPosition(pickup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
