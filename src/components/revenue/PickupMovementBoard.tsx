@@ -12,6 +12,7 @@ import {
 import { buildReservationMovementRows, sumReservationMovementRows } from "@/lib/pickupMovementAccuracy";
 import { bookingGoalScope } from "@/lib/adrGoalAdjustment";
 import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjustDialog";
+import AdrGoalAdjustDialog, { type GoalAdjustTarget } from "./AdrGoalAdjustDialog";
 import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
 import { supabase } from "@/integrations/supabase/client";
 import BookingMovementAnalytics from "./BookingMovementAnalytics";
@@ -69,6 +70,7 @@ export default function PickupMovementBoard({
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
+  const [goalAdjust, setGoalAdjust] = useState<GoalAdjustTarget | null>(null);
   const [targetAdr, setTargetAdr] = useState<number | null>(null);
   const [currencyCode, setCurrencyCode] = useState<string | null>(null);
   useEffect(() => {
@@ -253,11 +255,11 @@ export default function PickupMovementBoard({
                               : "At or above goal"}
                           </Badge>
                         )}
-                        {canEdit && row.kind === "booked" && goalGap > 0 && goalScope.length > 0 && (
+                        {canEdit && row.kind === "booked" && adr !== null && targetAdr !== null && goalGap > 0 && goalScope.length > 0 && (
                           <Button type="button" variant="outline" size="sm"
                             className="h-7 max-w-full gap-1 border-emerald-500/40 px-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"
                             title="Preview a rate increase on only the booked room types and actual stay nights"
-                            onClick={() => setAdjust({
+                            onClick={() => setGoalAdjust({
                               from: row.from,
                               to: addDays(row.checkout, -1),
                               roomTypeName: row.rooms.length === 1 ? row.rooms[0].roomType : null,
@@ -314,6 +316,15 @@ export default function PickupMovementBoard({
         )}
 
         <BookingMovementAnalytics hotelId={hotelId} lastSyncAt={lastSyncAt} />
+        <AdrGoalAdjustDialog
+          target={goalAdjust}
+          hotelId={hotelId}
+          organizationSlug={organizationSlug}
+          currencyCode={currencyCode}
+          canPush={canEdit}
+          onClose={() => setGoalAdjust(null)}
+          onApplied={() => onRatesUpdated?.()}
+        />
         <QuickRateAdjustDialog
           target={adjust}
           hotelId={hotelId}
