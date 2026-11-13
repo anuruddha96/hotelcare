@@ -90,7 +90,7 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
     if (context.confirmedHighEvent && minute < 18 * 60 && (input.occupancyPct ?? 0) >= 85) {
       return hold("verified_event_protected", "A verified high-impact event protects scarce inventory until the evening selling window.");
     }
-    if ((input.hoursSinceLastPickup != null && input.hoursSinceLastPickup < 2)
+    if ((input.hoursSinceLastPickup != null && input.hoursSinceLastPickup <= 2)
       || input.pickup1h > 0 || (input.observedPickup6h ?? 0) >= 2) {
       return hold("same_day_pickup_observation", "A recent booking or strong six-hour pickup justifies observing conversion rather than discounting again.");
     }
