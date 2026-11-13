@@ -827,10 +827,17 @@ Deno.serve(async (req) => {
               draft_edited_by: savedDraft ? existing.draft_edited_by : null,
               reply_status: hasReply ? "published" : savedDraft ? "draft" : "unreplied",
               auto_reply_eligible:
-                stars >= Number(l.min_auto_rating || 4) &&
+                !hasReply &&
+                Boolean(l.is_active && l.auto_reply_enabled && l.auto_reply_enabled_at) &&
+                l.reply_mode !== "draft_only" &&
+                stars >= Math.max(4, Number(l.min_auto_rating || 4), Number(l.require_approval_below_rating || 4)) &&
                 analysis.risk === "low" &&
-                Boolean(l.auto_reply_enabled) &&
-                l.reply_mode !== "draft_only",
+                !requiresCarefulReview(r.comment || "") &&
+                !existing?.draft_edited_at &&
+                Number.isFinite(new Date(r.createTime || "").getTime()) &&
+                new Date(r.createTime || "").getTime() >= new Date(l.auto_reply_enabled_at || "").getTime() &&
+                Date.now() - new Date(r.createTime || "").getTime() >=
+                  Math.max(0, Math.min(1440, Number(l.auto_reply_delay_minutes || 0))) * 60_000,
               raw: r,
               updated_at: new Date().toISOString(),
             };
