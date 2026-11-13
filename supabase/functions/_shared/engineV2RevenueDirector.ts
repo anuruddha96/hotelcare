@@ -101,7 +101,7 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
       max_daily_decrease: 140,
     };
     const sameDayPolicy: DecisionSettings = {
-      ...settings, respectConfiguredWindows: true, maxMarkdownsPerDay: Math.min(6, settings.maxMarkdownsPerDay ?? 6), windowRules: [hourlyWindow, ...settings.windowRules],
+      ...settings, respectConfiguredWindows: true, windowRules: [hourlyWindow, ...settings.windowRules],
       maxMarkdownsPerDay: 24, minMovementEur: 1, maxMarkdownDepthPct: 0,
       soldOutOccupancyPct: 101, occupancyLiftEnabled: false, microPriceTests: false,
       allowSameDayReversal: true, fill: { enabled: true, windowDays: 0, maxTotalDropPct: 100 },
