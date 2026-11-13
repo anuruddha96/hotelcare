@@ -1811,9 +1811,13 @@ Deno.serve(async (req) => {
     const tier = profile.role === "admin" ? String(body?.model_tier ?? "auto") : "auto";
     const plan = planAssistantTurn(question, Deno.env.get("OPENAI_STANDARD_MODEL"));
     const forcedFast = tier === "fast" && plan.workflow === null;
-    const modelId = forcedFast ? (Deno.env.get("OPENAI_ROUTINE_MODEL") || MODEL_BY_PURPOSE.routine)
+    const requestedModel = forcedFast ? (Deno.env.get("OPENAI_ROUTINE_MODEL") || MODEL_BY_PURPOSE.routine)
       : tier === "balanced" && plan.workflow !== "pricing_review" ? (Deno.env.get("OPENAI_STANDARD_MODEL") || MODEL_BY_PURPOSE.standard)
       : plan.model;
+    // Legacy environment overrides may still reference the unavailable Terra/
+    // Luna API aliases. They caused a live 404-access error on November 13.
+    const modelId = /^gpt-(?:6(?:\\.|-|$)|5\\.6(?:\\.|-|$))/i.test(requestedModel)
+      ? (forcedFast || plan.routine ? "gpt-4o-mini" : "gpt-4.1-mini") : requestedModel;
     const routine = forcedFast || (tier !== "balanced" && plan.routine);
     const attachments: WorkspaceAttachment[] = [];
 
@@ -1941,12 +1945,7 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
         });
       },
       providerOptions: {
-        openai: {
-          store: false,
-          reasoningEffort: routine ? "low" : plan.reasoningEffort,
-          reasoningSummary: "auto",
-          include: ["reasoning.encrypted_content"],
-        },
+        openai: { store: false },
       },
     });
 
