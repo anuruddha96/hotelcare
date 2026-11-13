@@ -219,3 +219,73 @@ describe('change detection and request building', () => {
     expect(isPrevioBusyResponse({ errorMessage: 'Invalid login', text: '' })).toBe(false);
   });
 });
+
+describe('IncomingBookingSet — one odd booking no longer blocks the import', () => {
+  const base = parsePrevioReservations(xml(reservation()))[0];
+  const make = (over: Partial<typeof base>) => ({ ...base, ...over });
+
+  it('keeps normal bookings and ignores an exact repeat', async () => {
+    const { IncomingBookingSet } = await import('../../supabase/functions/_shared/previoReservations');
+    const set = new IncomingBookingSet();
+    set.add(base, base.sourceRef);
+    set.add(base, base.sourceRef);
+    expect(set.size).toBe(1);
+    expect(set.rejected).toEqual([]);
+    expect(set.warnings()).toEqual([]);
+  });
+
+  it('sets aside a live day-use booking and silently drops a cancelled one', async () => {
+    const { IncomingBookingSet } = await import('../../supabase/functions/_shared/previoReservations');
+    const set = new IncomingBookingSet();
+    set.add(base, base.sourceRef);
+    set.add(make({ resId: '2', sourceRef: '2', departureDate: base.arrivalDate }), '2');
+    set.add(make({ resId: '3', sourceRef: '3', departureDate: base.arrivalDate, statusId: 7 }), '3');
+    expect(set.size).toBe(1);
+    expect(set.rejected.map((r) => r.reason)).toEqual(['day_use']);
+    expect(set.tooManyRejected()).toBe(false);
+    expect(set.warnings()[0]).toMatch(/1 day-use booking/);
+  });
+
+  it('leaves a conflicting duplicate untouched, including any third copy', async () => {
+    const { IncomingBookingSet } = await import('../../supabase/functions/_shared/previoReservations');
+    const set = new IncomingBookingSet();
+    set.add(base, 'X');
+    set.add(make({ totalPrice: 999 }), 'X');
+    set.add(base, 'X');
+    expect(set.size).toBe(0);
+    expect(set.rejected).toEqual([{ ref: 'X', reason: 'conflicting_duplicate', arrival: base.arrivalDate }]);
+    expect(set.warnings()[0]).toMatch(/twice with different details.*X$/);
+  });
+
+  it('still refuses the run when many rows are unusable (format change)', async () => {
+    const { IncomingBookingSet } = await import('../../supabase/functions/_shared/previoReservations');
+    const set = new IncomingBookingSet();
+    for (let i = 0; i < 100; i++) set.add(make({ resId: `${i}`, sourceRef: `${i}` }), `${i}`);
+    for (let i = 0; i < 6; i++) set.add(make({ arrivalDate: 'garbage' }), `bad${i}`);
+    expect(set.tooManyRejected()).toBe(true);
+    // Day-use bookings are a business fact, not a parser failure: they never trip the stop.
+    const dayUse = new IncomingBookingSet();
+    for (let i = 0; i < 20; i++) dayUse.add(make({ resId: `${i}`, sourceRef: `${i}`, departureDate: base.arrivalDate }), `${i}`);
+    expect(dayUse.tooManyRejected()).toBe(false);
+  });
+});
+
+describe('a room item repeated in one response is one room, not two', () => {
+  it('gives repeated comIds the same reference so the importer can compare them', () => {
+    const rows = parsePrevioReservations(xml(reservation({ comId: '5' }), reservation({ comId: '5' })));
+    expect(rows.map((r) => r.sourceRef)).toEqual(['54855023', '54855023']);
+  });
+
+  it('still separates genuinely different rooms of a group booking', () => {
+    const rows = parsePrevioReservations(xml(
+      reservation({ comId: '1', objId: '801' }), reservation({ comId: '2', objId: '802' }), reservation({ comId: '1', objId: '801' }),
+    ));
+    expect(rows.map((r) => r.sourceRef)).toEqual(['54855023:801', '54855023:802', '54855023:801']);
+  });
+
+  it('keeps the old behaviour when Previo sends no comId', () => {
+    const noCom = (obj: string) => reservation({ objId: obj }).replace(/<comId>[^<]*<\/comId>/, '');
+    const rows = parsePrevioReservations(xml(noCom('801'), noCom('801')));
+    expect(rows.map((r) => r.sourceRef)).toEqual(['54855023:801', '54855023:801#1']);
+  });
+});

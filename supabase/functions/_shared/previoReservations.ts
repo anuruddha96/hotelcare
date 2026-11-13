@@ -198,14 +198,22 @@ export function parsePrevioReservations(xml: string): PrevioReservationRow[] {
   const out: PrevioReservationRow[] = [];
   const perRes = new Map<string, number>();
   const seenRoomKey = new Map<string, number>();
+  // resId|comId -> sourceRef already given to that room item in this response.
+  const refByComId = new Map<string, string>();
 
-  // First pass: count blocks per resId so single-room bookings keep a plain ref.
+  // First pass: count distinct room items per resId so single-room bookings keep
+  // a plain ref. Blocks repeating the same comId are one room item, not two.
   const rawBlocks = blocks(xml, "reservation");
-  for (const r of rawBlocks) {
+  const distinctItems = new Map<string, Set<string>>();
+  rawBlocks.forEach((r, index) => {
     const resId = grab(r, "resId");
-    if (!resId) continue;
-    perRes.set(resId, (perRes.get(resId) ?? 0) + 1);
-  }
+    if (!resId) return;
+    const comId = cleanId(grab(stripBlocks(r, RESERVATION_NESTED_BLOCKS), "comId"));
+    const items = distinctItems.get(resId) ?? new Set<string>();
+    items.add(comId ? `c:${comId}` : `i:${index}`);
+    distinctItems.set(resId, items);
+  });
+  for (const [resId, items] of distinctItems) perRes.set(resId, items.size);
 
   for (const r of rawBlocks) {
     const resId = grab(r, "resId");
@@ -269,15 +277,20 @@ export function parsePrevioReservations(xml: string): PrevioReservationRow[] {
       : null;
 
     const cpsRaw = parseInt(grab(top, "cpsId") ?? "", 10);
+    const comId = cleanId(grab(top, "comId"));
 
-    // Stable per-room-item ref for multi-room bookings.
+    // Stable per-room-item ref for multi-room bookings. A repeated comId gets the
+    // ref it already has, so the importer sees a duplicate instead of a new room.
     let sourceRef = resId;
-    if ((perRes.get(resId) ?? 1) > 1) {
+    const knownRef = comId ? refByComId.get(`${resId}|${comId}`) : undefined;
+    if (knownRef) sourceRef = knownRef;
+    else if ((perRes.get(resId) ?? 1) > 1) {
       const baseKey = objId ?? obkId ?? "room";
       const seen = seenRoomKey.get(`${resId}|${baseKey}`) ?? 0;
       seenRoomKey.set(`${resId}|${baseKey}`, seen + 1);
       sourceRef = seen === 0 ? `${resId}:${baseKey}` : `${resId}:${baseKey}#${seen}`;
     }
+    if (comId && !knownRef) refByComId.set(`${resId}|${comId}`, sourceRef);
 
     out.push({
       resId,
@@ -298,7 +311,7 @@ export function parsePrevioReservations(xml: string): PrevioReservationRow[] {
       channel,
       createdAtIso: created,
       cancelledAtIso,
-      comId: cleanId(grab(top, "comId")),
+      comId,
       voucher: cleanText(grab(top, "voucher")),
       paymentStatus: mapPrevioPaymentStatus(Number.isFinite(cpsRaw) ? cpsRaw : null),
       channelId,
@@ -516,4 +529,74 @@ export function pmsFieldsEqual(existing: StoredRow, record: StoredRow): boolean 
 /** Previo answers 1030 while another call on the same API key is still running. Reads are safe to retry. */
 export function isPrevioBusyResponse(result: { text?: string | null; errorMessage?: string | null }): boolean {
   return /\b1030\b|simultaneous/i.test(`${result.errorMessage ?? ""} ${(result.text ?? "").slice(0, 400)}`);
+}
+
+/* ---------------- Incoming booking triage (pure, unit-tested) ----------- */
+
+export type RejectReason = "day_use" | "invalid" | "conflicting_duplicate";
+
+/**
+ * Collects the bookings of one import run and sets aside the few that cannot
+ * be imported safely, instead of failing the whole run on one of them.
+ *
+ * - A zero-night booking (arrival on or after departure) has no place on a
+ *   nightly room plan. Cancelled/no-show ones are ignored silently; live ones
+ *   are reported as "day_use".
+ * - Two copies of one booking reference with different contents: neither copy
+ *   is trusted, the booking is left as currently stored and reported.
+ *
+ * `tooManyRejected()` keeps the old fail-closed behaviour for the case that
+ * matters: many rejected rows mean the parser no longer understands Previo.
+ */
+export class IncomingBookingSet {
+  readonly rows = new Map<string, PrevioReservationRow>();
+  readonly rejected: Array<{ ref: string; reason: RejectReason; arrival: string | null }> = [];
+  private readonly conflicted = new Set<string>();
+  private seen = 0;
+
+  add(row: PrevioReservationRow, sourceRef: string): void {
+    this.seen++;
+    if (!sourceRef || !/^\d{4}-\d{2}-\d{2}$/.test(row.arrivalDate) || !/^\d{4}-\d{2}-\d{2}$/.test(row.departureDate)) {
+      this.rejected.push({ ref: sourceRef || "(blank)", reason: "invalid", arrival: row.arrivalDate || null });
+      return;
+    }
+    if (row.arrivalDate >= row.departureDate) {
+      const dead = row.statusId === PREVIO_CANCELLED_STATUS || row.statusId === PREVIO_NOSHOW_STATUS;
+      if (!dead) this.rejected.push({ ref: sourceRef, reason: "day_use", arrival: row.arrivalDate });
+      return;
+    }
+    if (this.conflicted.has(sourceRef)) return;
+    const candidate = { ...row, sourceRef };
+    const old = this.rows.get(sourceRef);
+    if (old && JSON.stringify(old) !== JSON.stringify(candidate)) {
+      this.rows.delete(sourceRef);
+      this.conflicted.add(sourceRef);
+      this.rejected.push({ ref: sourceRef, reason: "conflicting_duplicate", arrival: row.arrivalDate });
+      return;
+    }
+    this.rows.set(sourceRef, candidate);
+  }
+
+  get size(): number {
+    return this.rows.size;
+  }
+
+  /** More than 2% of rows (and more than 5) rejected: something is structurally wrong. */
+  tooManyRejected(): boolean {
+    const counted = this.rejected.filter((r) => r.reason !== "day_use").length;
+    return counted > 5 && counted > this.seen * 0.02;
+  }
+
+  /** Short, privacy-safe summary for the response and the sync history (no guest data). */
+  warnings(): string[] {
+    const by = (reason: RejectReason) => this.rejected.filter((r) => r.reason === reason);
+    const out: string[] = [];
+    const dayUse = by("day_use");
+    if (dayUse.length) out.push(`${dayUse.length} day-use booking(s) without an overnight stay were not imported`);
+    const dup = by("conflicting_duplicate");
+    if (dup.length) out.push(`${dup.length} booking(s) came back from Previo twice with different details and were left unchanged: ${dup.slice(0, 5).map((r) => r.ref).join(", ")}`);
+    const invalid = by("invalid");
+    if (invalid.length) out.push(`${invalid.length} booking(s) had no usable dates or reference and were not imported`);
+    return out;
+  }
 }

@@ -11,6 +11,7 @@
 // rejects simultaneous calls on one API key), least recently imported first,
 // inside a time budget. Hotels that do not fit are picked up by the next tick.
 // Read-only towards Previo. No self-invocation, no queue.
+// One-off catch-up after a long outage: { "mode": "horizon", "staleAfterHours": 1, "daysBack": 120 }.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
@@ -51,6 +52,8 @@ serve(async (req) => {
     const mode = body?.mode === "horizon" ? "horizon" : "incremental";
     const only = typeof body?.hotelId === "string" && body.hotelId.trim() ? body.hotelId.trim() : null;
     const staleAfterHours = Math.min(Math.max(Number(body?.staleAfterHours) || 6, 1), 48);
+    // Optional one-off catch-up ({ mode: "horizon", daysBack: 120 }); the importer validates the range.
+    const daysBack = Number.isInteger(body?.daysBack) ? Number(body.daysBack) : undefined;
 
     const [configs, accounts] = await Promise.all([
       db.from("pms_configurations").select("hotel_id").eq("pms_type", "previo").eq("is_active", true).limit(500),
@@ -93,7 +96,7 @@ serve(async (req) => {
         const response = await fetch(`${url}/functions/v1/previo-sync-reservations`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}`, apikey: serviceKey },
-          body: JSON.stringify({ hotelId, mode }),
+          body: JSON.stringify(mode === "horizon" && daysBack !== undefined ? { hotelId, mode, daysBack } : { hotelId, mode }),
         });
         const payload = await response.json().catch(() => ({} as Record<string, unknown>));
         const ok = response.ok && payload?.success === true;
