@@ -51,7 +51,7 @@ export function detectAssistantWorkflow(question: string): AssistantWorkflow {
   const q = question.toLowerCase();
   const priceTopic = /\b(prices?|pricing|rates?|adr)\b/.test(q);
   const period = /\b(next|coming|following|upcoming)\s+(\d{1,3}\s+)?(days?|weeks?|month|weekend)\b|\b(this|next) (week|month|weekend)\b|\b\d{1,3}\s*days?\b|\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/.test(q);
-  const reviewVerb = /\b(review|check|optimi[sz]e|update|adjust|change|set|fix|identify|which dates|what should|best rates?|recommend|events?)\b/.test(q);
+  const reviewVerb = /\b(review|check|suggest|optimi[sz]e|update|adjust|change|set|fix|identify|which dates|what should|best rates?|recommend|events?)\b/.test(q);
   // "Raise prices by €5 for the next three days" is a direct instruction with
   // its own amount, not a request for a recommendation.
   const explicitAmount = /[€$]\s*\d|\d+\s*(?:eur|euros?|€)|\bby\s*[+-]?\d/.test(q);
