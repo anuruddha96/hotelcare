@@ -60,5 +60,7 @@ CREATE OR REPLACE FUNCTION public.hc_mira_mark_thread_read(
      AND t.last_reply_at IS NOT NULL
      AND p_last_seen_at IS NOT NULL;
 $$;
-REVOKE ALL ON FUNCTION public.hc_mira_mark_thread_read(uuid, timestamptz) FROM PUBLIC;
+-- Supabase may grant EXECUTE to anon through explicit default privileges,
+-- so revoke the anon grant as well as PUBLIC before granting authenticated.
+REVOKE ALL ON FUNCTION public.hc_mira_mark_thread_read(uuid, timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hc_mira_mark_thread_read(uuid, timestamptz) TO authenticated;
