@@ -337,7 +337,7 @@ export default function AssistantPage() {
             threadId={threadId ?? null}
             onNeedThread={() => newThread()}
             onThreadUpdated={markThreadActive}
-            onReplyViewed={() => { if (threadId) void markThreadRead(threadId); }}
+            onReplyViewed={(at) => { if (threadId) void markThreadRead(threadId, at); }}
             suggestedPrompt={requestedPrompt}
             onSuggestedPromptConsumed={() => navigate(location.pathname + location.search, { replace: true, state: null })}
           />
