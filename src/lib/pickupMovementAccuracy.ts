@@ -8,6 +8,8 @@ export interface MovementRoom {
   roomType: string;
   nights: number;
   value: number;
+  /** Exactly which stay dates in this room were part of this movement event. */
+  dates: string[];
 }
 
 export interface ReservationMovementRow {
@@ -83,6 +85,7 @@ export function buildReservationMovementRows(
         key: id,
         roomType: roomRows[0].room_type_name ?? "Room",
         nights: new Set(roomRows.map((row) => row.stay_date)).size,
+        dates: [...new Set(roomRows.map((row) => row.stay_date))].sort(),
         value: roundMoney(roomRows.reduce((sum, row) => sum + (Number(row.nightly_price_eur) || 0), 0)),
       }));
       // Previo group reservations repeat the per-room guest count on every
