@@ -65,6 +65,21 @@ function isOperationalWrite(question: string): boolean {
     && !/\b(should|would|recommend|why|what if)\b/i.test(question);
 }
 
+/**
+ * A user asking Mira to DO a permitted job must reach the tool-using agent,
+ * even when the request also says "fix", "investigate", or "problem".
+ * Text-only deep analysis cannot inspect live authorization or act.
+ */
+function requestsOperationalAction(question: string): boolean {
+  const q = question.toLowerCase().trim();
+  if (/^(?:why|what if|should (?:i|we)|would it|how does)/.test(q)) return false;
+  const asks = /\b(?:please|pls|can you|could you|i need (?:you|mira) to|go ahead and|help me|i want you to)\b/.test(q)
+    || /^(?:assign|update|complete|close|open|create|send|change|set|mark|record|raise|lower|adjust|fix|move)\b/.test(q);
+  const operation = /\b(?:assign|update|complete|close|create|send|change|set|mark|record|raise|lower|adjust|fix|move|publish|reply)\b/.test(q);
+  const target = /\b(?:room|rooms|cleaning|housekeep|ticket|maintenance|guest|request|rate|price|pricing|minimum stay|review|reservation|bed|towel|shift|assignment)\b/.test(q);
+  return asks && operation && target;
+}
+
 function requestedScope(question: string): Scope | null {
   const q = question.toLowerCase();
   if (/\b(sales?|sold|bookings?|booked|pickup|pace|revenue|adr|revpar|occupancy|rates?|prices?|pricing|demand|automation|min.?stay)\b/.test(q)) return "revenue";
@@ -900,7 +915,7 @@ Deno.serve(async (req) => {
   // Rates can be changed only by the authenticated, tool-using assistant with
   // explicit approval. Deep text-only analysis must never take its place.
   const needsAgent = !readOnlyRevenueReport &&
-    (detectAssistantWorkflow(question) !== null || pricingApprovalFollowup);
+    (detectAssistantWorkflow(question) !== null || pricingApprovalFollowup || requestsOperationalAction(question));
   if (!readOnlyRevenueReport && (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep"))) {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/assistant-chat`, {
       method: "POST",

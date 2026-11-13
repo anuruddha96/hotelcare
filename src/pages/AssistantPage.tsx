@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { Folder, MessageSquare, PanelLeft, Plus } from "lucide-react";
+import { Folder, MessageSquare, PanelLeft, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -304,7 +304,7 @@ export default function AssistantPage() {
       </Sheet>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-1 border-b bg-background/90 px-2 sm:px-4">
+        <header className="flex h-16 shrink-0 items-center gap-1 border-b bg-background/95 px-2 backdrop-blur-xl sm:px-4">
           <Button size="icon" variant="ghost" className="h-9 w-9 md:hidden" aria-label="Open conversations" onClick={() => setMobileNav(true)}>
             <PanelLeft className="h-4 w-4" />
           </Button>
@@ -313,15 +313,20 @@ export default function AssistantPage() {
               <PanelLeft className="h-4 w-4" />
             </Button>
           )}
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1 text-sm">
-            {activeProject && (
-              <>
-                <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="hidden max-w-[10rem] truncate text-muted-foreground sm:inline">{activeProject.name}</span>
-                <span className="hidden text-muted-foreground sm:inline">/</span>
-              </>
-            )}
-            <h1 className="truncate font-medium"><span className="text-primary">Mira</span> <span className="hidden font-normal text-muted-foreground sm:inline">/</span> {activeThread?.title && activeThread.title !== "New chat" ? activeThread.title : "New conversation"}</h1>
+          <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary" aria-hidden="true">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="flex items-center gap-2 text-sm font-semibold leading-5">
+                <span>Mira</span>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">AI Operator</span>
+              </h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {activeProject ? `${activeProject.name} · ` : ""}
+                {activeThread?.title && activeThread.title !== "New chat" ? activeThread.title : "Ask, decide, and get things done"}
+              </p>
+            </div>
           </div>
           {canApproveAssistantAccess(profile?.role) && (
             <Button size="sm" variant="ghost" className="hidden text-xs sm:inline-flex" onClick={() => setRequestsOpen(true)}>Requests</Button>

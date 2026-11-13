@@ -21,6 +21,10 @@ export const MODEL_BY_PURPOSE: Record<AiPurpose, string> = {
 export function classifyAssistantQuestion(question: string): "routine" | "standard" {
   const q = question.trim().toLowerCase();
   if (!q || q.length > 170 || q.includes("\n")) return "standard";
+  // A daily operational briefing synthesizes several live departments and
+  // possibly proposes next actions. It needs more reliable tool planning than
+  // the fast tier used for single factual questions.
+  if (/\b(what needs (?:my|our|the) attention|today'?s priorities|daily briefing|brief me|what should (?:i|we) focus on|urgent issues|across (?:all |my |the )?(?:hotels|departments))\b/.test(q)) return "standard";
   if (/\b(why|investigat|analy[sz]|compar|strateg|optim|recommend|forecast|price chang|should we|should i|root cause|error|incident|security|financial|risk|urgent|exception|incorrect|problem)\b/i.test(q)) return "standard";
   // Risky/financial actions must never be downgraded by a leading "how" or
   // "where" phrase that would otherwise match the generic navigation rule.

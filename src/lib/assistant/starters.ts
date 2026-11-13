@@ -49,13 +49,16 @@ const FINANCE: StarterPrompt[] = [
 ];
 
 const MANAGER: StarterPrompt[] = [
-  { label: "Needs attention", prompt: "What needs my attention today?" },
+  { label: "Today's priorities", prompt: "What needs my attention today across the departments I can access? Prioritize verified issues and tell me what Mira can help resolve." },
   { label: "Housekeeping", prompt: "How is housekeeping doing today?" },
   { label: "Maintenance", prompt: "What maintenance issues are open?" },
   { label: "Today's arrivals", prompt: "How many guests arrive today?" },
 ];
 
 const ADMIN: StarterPrompt[] = [
+  { label: "Today's priorities", prompt: "What needs my attention today? Review all departments within my access and suggest actions." },
+  { label: "Review urgent tickets", prompt: "Which urgent or overdue maintenance tickets can I act on today?" },
+  { label: "Revenue opportunities", prompt: "Which near-term nights need a verified pricing review?" },
   { label: "Send housekeeping items", prompt: "Please send 3 extra towels to room 202." },
   { label: "Change room bed setup", prompt: "Room 108 beds together." },
   { label: "Access requests", prompt: "Are there any pending assistant access requests?" },
