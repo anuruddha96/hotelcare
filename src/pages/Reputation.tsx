@@ -175,6 +175,33 @@ type Status = {
   }>;
 };
 
+type AutomationHealth = {
+  worker: {
+    last_run_at: string | null;
+    last_completed_at: string | null;
+    last_status: string;
+    last_errors: number;
+    last_reviews_synced: number;
+    last_drafts_generated: number;
+    last_replies_published: number;
+    runs_24h: number;
+    incomplete_runs_24h: number;
+  };
+  counts: {
+    automatic_24h: number;
+    automatic_7d: number;
+    automatic_all: number;
+    new_positive_ready: number;
+    recent_positive_unreplied: number;
+    enabled_venues: number;
+    total_venues: number;
+  };
+  recent_automatic: Array<Pick<Review,
+    "id" | "google_location_id" | "reviewer_display_name" | "star_rating" |
+    "review_create_time" | "google_reply_comment" | "google_reply_update_time" | "auto_reply_kind"
+  >>;
+};
+
 type E2EState = {
   status: "idle" | "running" | "blocked" | "partial" | "passed";
   message: string;
@@ -295,6 +322,8 @@ export default function Reputation() {
   const [backfillConsent, setBackfillConsent] = useState(false);
   const [backfillBusy, setBackfillBusy] = useState(false);
   const [publishedKind, setPublishedKind] = useState("all");
+  const [automationHealth, setAutomationHealth] = useState<AutomationHealth | null>(null);
+  const [automationHealthBusy, setAutomationHealthBusy] = useState(false);
 
   const invokeRaw = async (action: string, extra: Record<string, unknown> = {}) => {
     if (!organizationSlug) throw new Error("Organization is missing");
@@ -309,6 +338,19 @@ export default function Reputation() {
     const result = await invokeRaw(action, extra);
     if (result?.error) throw new Error(result.error);
     return result;
+  };
+
+  const loadAutomationHealth = async () => {
+    if (!organizationSlug) return;
+    setAutomationHealthBusy(true);
+    try {
+      const result = (await invoke("automation_health")) as AutomationHealth;
+      setAutomationHealth(result);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not check live auto-reply automation");
+    } finally {
+      setAutomationHealthBusy(false);
+    }
   };
 
   const hydrateLocalState = (result: Status) => {
@@ -391,6 +433,7 @@ export default function Reputation() {
       setData(result);
       hydrateLocalState(result);
       if (activeTab === "published") void loadPublished(publishedPage, publishedSource, historyVenue);
+      if (activeTab === "automation") void loadAutomationHealth();
       const latestError = result.connections.find((connection) => connection.last_error)?.last_error || null;
       setSetupError(latestError);
       return result;
@@ -491,6 +534,11 @@ export default function Reputation() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, organizationSlug]);
+
+  useEffect(() => {
+    if (activeTab === "automation" && organizationSlug) void loadAutomationHealth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, organizationSlug]);
 
   useEffect(() => {
     if (searchParams.get("google_business") !== "connected") return;
@@ -1316,6 +1364,115 @@ export default function Reputation() {
           </TabsContent>
 
           <TabsContent value="automation" className="space-y-4">
+
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <CardTitle className="flex items-center gap-2 text-lg"><Bot className="h-5 w-5" />AI auto-reply monitoring</CardTitle>
+                    <p className="text-sm text-muted-foreground">Live publishing activity — not just AI-generated drafts. Counts are confirmed Google replies attributed to HotelCare automation.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" disabled={automationHealthBusy} onClick={() => void loadAutomationHealth()}>
+                      <RefreshCw className={`h-4 w-4 mr-2 ${automationHealthBusy ? "animate-spin" : ""}`} />Refresh status
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      setAllAutoVenueIds(locations.filter((venue) => venue.is_active && !venue.auto_reply_enabled).map((venue) => venue.id));
+                      setAllAutoConsent(false); setAllAutoDialogOpen(true);
+                    }}><Settings2 className="h-4 w-4 mr-2" />Manage auto replies</Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {automationHealth ? <>
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Auto-published · 24h</p><p className="text-2xl font-semibold mt-1">{automationHealth.counts.automatic_24h}</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Auto-published · 7 days</p><p className="text-2xl font-semibold mt-1">{automationHealth.counts.automatic_7d}</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">All-time automatic</p><p className="text-2xl font-semibold mt-1">{automationHealth.counts.automatic_all}</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">New eligible · ready</p><p className="text-2xl font-semibold mt-1">{automationHealth.counts.new_positive_ready}</p><p className="text-[11px] text-muted-foreground">4–5★ · low risk · delay elapsed</p></div>
+                    <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Venues with auto replies</p><p className="text-2xl font-semibold mt-1">{automationHealth.counts.enabled_venues}<span className="text-sm text-muted-foreground"> / {automationHealth.counts.total_venues}</span></p></div>
+                  </div>
+                  <div className="rounded-lg border p-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <Activity className="h-5 w-5 mt-0.5 text-muted-foreground" />
+                      <div className="space-y-1">
+                        <p className="font-medium text-sm">Google review worker
+                          <Badge className="ml-2" variant={
+                            automationHealth.worker.last_status === "completed" &&
+                            Boolean(automationHealth.worker.last_run_at) &&
+                            Date.now() - new Date(automationHealth.worker.last_run_at || "").getTime() < 45 * 60_000
+                              ? "outline" : "destructive"
+                          }>{automationHealth.worker.last_status === "completed" ? "Last run completed" : automationHealth.worker.last_status}</Badge>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Last run: {fmtDate(automationHealth.worker.last_run_at)} ·
+                          {automationHealth.worker.last_reviews_synced} review records synced ·
+                          {automationHealth.worker.last_drafts_generated} drafts reported ·
+                          {automationHealth.worker.last_replies_published} automatic replies published
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {automationHealth.worker.runs_24h} worker runs in 24h · {automationHealth.worker.incomplete_runs_24h} incomplete ·
+                          {automationHealth.worker.last_errors} last-run errors
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  {automationHealth.counts.new_positive_ready > 0 ? (
+                    <div className="rounded-lg border border-amber-300 p-3 text-sm text-amber-800 dark:text-amber-300">
+                      <AlertTriangle className="h-4 w-4 inline-block mr-2" />
+                      {automationHealth.counts.new_positive_ready} eligible new review(s) are still waiting for automatic publication. Check the next worker run and investigate if they remain pending.
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No new, eligible 4–5★ reviews are waiting for automatic publication. Older reviews remain outside ongoing automation unless separately authorized for catch-up. Reviews needing care or rated 1–3★ always require manual approval.</p>
+                  )}
+                  <div className="grid xl:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-sm font-semibold">Recent replies published by HotelCare AI</h3>
+                        <Button size="sm" variant="link" onClick={() => {
+                          setActiveTab("published"); setPublishedSource("automatic");
+                          void loadPublished(0, "automatic", "all");
+                        }}>View full auto-reply history</Button>
+                      </div>
+                      {automationHealth.recent_automatic.length === 0 ? (
+                        <p className="rounded-lg border p-3 text-sm text-muted-foreground">No confirmed automatic publications yet. This is separate from existing Google replies and manager-approved batches.</p>
+                      ) : automationHealth.recent_automatic
+                        .filter((review) => recentVenue === "all" || review.google_location_id === recentVenue)
+                        .slice(0, 6).map((review) => (
+                          <div key={review.id} className="rounded-lg border p-3 text-sm space-y-2">
+                            <div className="flex justify-between flex-wrap items-center gap-2">
+                              <span className="font-medium">{review.reviewer_display_name || "Google guest"} · {review.star_rating}★</span>
+                              <Badge variant="outline">AI auto-published</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{locationById.get(review.google_location_id)?.reply_brand_name || locationById.get(review.google_location_id)?.google_location_title || "Google business"} · {fmtDate(review.google_reply_update_time)}</p>
+                            <p className="line-clamp-3 whitespace-pre-wrap">{review.google_reply_comment}</p>
+                          </div>
+                        ))}
+                      {automationHealth.recent_automatic.length > 0 &&
+                        recentVenue !== "all" &&
+                        !automationHealth.recent_automatic.some((review) => review.google_location_id === recentVenue) &&
+                        <p className="text-sm text-muted-foreground">No recent automatic replies for the selected venue.</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-semibold">Automation by Google business</h3>
+                      <div className="divide-y rounded-lg border">
+                        {locations.filter((location) => location.is_active).map((location) => (
+                          <div key={location.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
+                            <div className="min-w-0">
+                              <p className="font-medium truncate max-w-[320px]" title={location.google_location_title}>{location.reply_brand_name || location.google_location_title}</p>
+                              <p className="text-xs text-muted-foreground">{summary[location.id]?.automatic || 0} automatic replies · Synced {fmtDate(location.last_sync_at)}</p>
+                            </div>
+                            <Badge variant={location.auto_reply_enabled && location.reply_mode !== "draft_only" ? "outline" : "secondary"}>
+                              {location.auto_reply_enabled && location.reply_mode !== "draft_only" ? "4–5★ auto: on" : "Approval only"}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </> : <p className="text-sm text-muted-foreground">{automationHealthBusy ? "Checking live Google automation…" : "Automatic publishing health has not loaded. Select Refresh status to retry."}</p>}
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader><div className="flex flex-wrap justify-between items-center gap-3">
                 <CardTitle className="flex items-center gap-2 text-lg"><Zap className="h-5 w-5" />Recent review automation · last 14 days</CardTitle>
