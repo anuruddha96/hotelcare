@@ -40,6 +40,7 @@ import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
 import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
 import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
 import ActionConfirmCard, { isActionProposal } from "./ActionConfirmCard";
+import { pricingProposalKey, pricingReviewApprovals } from "@/lib/assistant/pricingApproval";
 import AssistantActions, { isAssistantActions } from "./AssistantActions";
 import ActivityLine from "./ActivityLine";
 import PremiumTopupCard, { type PremiumPackage } from "./PremiumTopupCard";
@@ -469,6 +470,40 @@ function ChatSession({
                       }
                       if (toolName === "draft_review_reply" && isReviewReply(toolPart.output)) {
                         return <ReviewReplyCard key={`${key}-review`} spec={toolPart.output} />;
+                      }
+
+                      if (toolName === "review_pricing" && toolPart.state === "output-available") {
+                        const reviewed = pricingReviewApprovals(toolPart.output, profile?.role);
+                        // If the model also created confirmation cards, display
+                        // each rate/date proposal once, not two approval buttons.
+                        const explicit = new Set(message.parts.flatMap((p) => {
+                          if (!(p.type.startsWith("tool-") || p.type === "dynamic-tool")) return [];
+                          const result = (p as any).output;
+                          return isActionProposal(result)
+                            ? [pricingProposalKey(result.action, result.input ?? {})] : [];
+                        }));
+                        const unmatched = reviewed.filter((proposal) =>
+                          !explicit.has(pricingProposalKey(proposal.action, proposal.input)));
+                        if (unmatched.length > 0) return (
+                          <div key={key} className="mt-3 rounded-xl border border-primary/30 p-3" data-testid="pricing-review-approval-cards">
+                            <p className="text-sm font-semibold">Review & approve suggested prices</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {unmatched.length} verified pricing proposal{unmatched.length === 1 ? "" : "s"}.
+                              No rates have been changed. Each approval is checked again against
+                              the live Previo prices and HotelCare safety rules before queuing.
+                            </p>
+                            {toolPart.output?.confidence === "partial" && (
+                              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                                Some market data is incomplete or stale. Check the reasoning before approving.
+                              </p>
+                            )}
+                            {unmatched.map((proposal) =>
+                              <ActionConfirmCard
+                                key={pricingProposalKey(proposal.action, proposal.input)}
+                                proposal={proposal}
+                              />)}
+                          </div>
+                        );
                       }
                       if (isAutomationProposal(toolPart.output)) {
                         return <AutomationChangeCard key={`${key}-proposal`} proposal={toolPart.output} />;

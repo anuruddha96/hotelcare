@@ -13,7 +13,7 @@ import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_sha
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
 import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
-import { MODEL_BY_PURPOSE, planAssistantTurn } from "../_shared/aiModelPolicy.ts";
+import { isPricingApprovalContinuation, MODEL_BY_PURPOSE, planAssistantTurn } from "../_shared/aiModelPolicy.ts";
 import { buildWorkspaceTools, canGenerateImages, canReadReputation, workspacePrompt, type WorkspaceAttachment } from "../_shared/assistantWorkspace.ts";
 import { buildMailTools, mailPrompt, mailToolsAvailable } from "../_shared/assistantMailTools.ts";
 import { logAiUsage } from "../_shared/aiBudget.ts";
@@ -143,6 +143,7 @@ function buildTools(
   question: string,
   attachments: WorkspaceAttachment[],
   threadId: string | null = null,
+  pricingApprovalFollowup = false,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -1307,6 +1308,12 @@ function buildTools(
       execute: async ({ kind, input }) => {
         if (!directActions.includes(kind as any)) return { ok: false, error: "Not authorized for this action." };
         const raw = (input ?? {}) as Record<string, unknown>;
+        // A manager saying "go ahead" after advice has NOT approved any
+        // specific verified tool proposal yet. Never convert that into a
+        // silent multi-date rate write. First show confirmation cards.
+        if (kind === "adjust_revenue_prices" && pricingApprovalFollowup) {
+          return { ok: false, error: "This is a price-review approval request. Use review_pricing and its approval cards; no prices were changed." };
+        }
         if (kind === "adjust_revenue_prices" &&
           /\b(increase|raise|higher|up)\b/i.test(question) && Number(raw.deltaEur) < 0) {
           return { ok: false, error: "You requested an increase with a negative amount. Did you mean decrease by €2? No prices were changed." };
@@ -1741,6 +1748,11 @@ Deno.serve(async (req) => {
       ...storedMessages,
       { id: latest?.id ?? crypto.randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: question }] },
     ];
+    const precedingAssistantTurn = [...(storedRows ?? [])].reverse()
+      .find((row: any) => row.role === "assistant");
+    const pricingApprovalFollowup = isPricingApprovalContinuation(
+      question, String(precedingAssistantTurn?.content ?? ""),
+    );
 
     const scopes = allowedScopes(profile.role);
     const requestedScope = detectRequestedScope(question);
@@ -1809,7 +1821,14 @@ Deno.serve(async (req) => {
     // A multi-step job (pricing review, charts) always gets the analysis model.
     // Explicit model tier is an administrator setting; users never choose raw model IDs.
     const tier = profile.role === "admin" ? String(body?.model_tier ?? "auto") : "auto";
-    const plan = planAssistantTurn(question, Deno.env.get("OPENAI_STANDARD_MODEL"));
+    // "Yes, go ahead" after a suggested price review means prepare
+    // CONFIRMATION CARDS, not auto-publish, and not edit global automation.
+    const plan = planAssistantTurn(
+      pricingApprovalFollowup
+        ? "Review pricing for the next 30 days and prepare date-specific price approval proposals"
+        : question,
+      Deno.env.get("OPENAI_STANDARD_MODEL"),
+    );
     const forcedFast = tier === "fast" && plan.workflow === null;
     const requestedModel = forcedFast ? (Deno.env.get("OPENAI_ROUTINE_MODEL") || MODEL_BY_PURPOSE.routine)
       : tier === "balanced" && plan.workflow !== "pricing_review" ? (Deno.env.get("OPENAI_STANDARD_MODEL") || MODEL_BY_PURPOSE.standard)
@@ -1863,7 +1882,9 @@ You also act as an experienced city-hotel revenue manager: sell early, build occ
 Simple factual revenue questions (occupancy, ADR, price, rooms left on a date) get ONE read and a direct one- or two-sentence answer. Do not turn them into an analysis.
 Only for advice questions ("should I raise prices for 18 Sep?") gather the supporting evidence — occupancy and rooms left, booking window, recent pickup, current rates and the room-type/occupancy ladder, demand or events, recent automation activity — then answer in three short parts: recommendation, reason with numbers, suggested action.
 All revenue numbers come from the published Revenue dataset, which is the same dataset the Revenue screen shows. Quote it as returned; never recompute occupancy or ADR yourself from other tables.
-When a rule change would help, call propose_automation_change. It only creates a proposal the user taps Apply on, so never claim you changed anything.
+Never substitute a global automation-rule change for a specific stay-date price review. HotelCare supports authorised date-specific price changes through propose_action with kind adjust_revenue_prices, and explicit confirmation cards.
+${pricingApprovalFollowup ? "FOLLOW-UP RATE APPROVAL: The manager accepted an earlier rate review in words. That acceptance is NOT authorization to publish unverified prices. Re-run review_pricing for the selected hotel and up to 30 upcoming nights; its proposals are rendered as confirmation cards automatically. Do not call execute_action on this followup. Do not call propose_automation_change unless the manager explicitly requests global rules. Do not say date-specific changes are unsupported." : ""}
+When a rule change would help AND the user explicitly requests automation configuration, call propose_automation_change. It only creates a proposal the user taps Apply on, so never claim you changed anything.
 Respect and mention the app's guardrails when relevant: whole-number prices, room-type/occupancy ladder safety, sold-out and high-occupancy guards, minimum ADR, far-out floors and top-ups, manual-price hold.
 Always say which hotel, date range and currency your numbers refer to.`
       : "";
@@ -1923,7 +1944,7 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
         canWriteRates: actionsForRole(profile.role).includes("adjust_revenue_prices"),
       })}${mailToolsAvailable(profile.role) ? mailPrompt() : ""}${projectBrief}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId),
+      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.

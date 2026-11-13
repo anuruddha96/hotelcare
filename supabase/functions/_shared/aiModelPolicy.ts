@@ -51,10 +51,15 @@ export function detectAssistantWorkflow(question: string): AssistantWorkflow {
   const q = question.toLowerCase();
   const priceTopic = /\b(prices?|pricing|rates?|adr)\b/.test(q);
   const period = /\b(next|coming|following|upcoming)\s+(\d{1,3}\s+)?(days?|weeks?|month|weekend)\b|\b(this|next) (week|month|weekend)\b|\b\d{1,3}\s*days?\b|\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/.test(q);
-  const reviewVerb = /\b(review|check|optimi[sz]e|update|adjust|change|set|fix|identify|which dates|what should|best rates?|recommend|events?)\b/.test(q);
+  const reviewVerb = /\b(review|check|suggest|optimi[sz]e|update|adjust|change|set|fix|identify|which dates|what should|best rates?|recommend|events?)\b/.test(q);
   // "Raise prices by €5 for the next three days" is a direct instruction with
   // its own amount, not a request for a recommendation.
   const explicitAmount = /[€$]\s*\d|\d+\s*(?:eur|euros?|€)|\bby\s*[+-]?\d/.test(q);
+  // Managers frequently ask "check where I can improve rates, let me review
+  // and approve" without specifying a time window. This still needs the
+  // deterministic pricing-review tool and confirmation workflow.
+  const approvalRequest = /\b(approve|approval|confirm|proposals?|suggested changes?|improv(?:e|ement))\b/.test(q);
+  if (priceTopic && reviewVerb && approvalRequest && !explicitAmount) return "pricing_review";
   if (priceTopic && period && reviewVerb && !explicitAmount) return "pricing_review";
   if (/\b(pricing review|rate review|review (?:my|our|the) (?:prices|rates|pricing))\b/.test(q)) return "pricing_review";
   if (/\b(charts?|graphs?|plot|visuali[sz]e|diagram|trend line|images?|pictures?|illustration|posters?|draw)\b/.test(q)) return "visual";
@@ -62,6 +67,20 @@ export function detectAssistantWorkflow(question: string): AssistantWorkflow {
   if (/\b(e-?mails?|inbox|mailbox|gmail|outlook)\b/.test(q)) return "mail";
   if (/\b(reply|respond|answer)\b.*\breviews?\b|\breview repl(y|ies)\b/.test(q)) return "mail";
   return null;
+}
+
+/**
+ * "Yes, go ahead" after a free-form rate recommendation approves creating
+ * REVIEW CARDS, not blindly publishing rates or changing automation rules.
+ * This examines only the immediately preceding assistant message.
+ */
+export function isPricingApprovalContinuation(question: string, priorAssistantText: string): boolean {
+  const reply = question.trim().toLowerCase();
+  const consent = /^(?:yes|yep|yeah|sure|ok(?:ay)?|please|pls|go ahead|proceed|do it|approved?)(?:[\s,.!:-]+(?:please|pls|go ahead|proceed|do it|yes|sure|okay|now|with that|the changes|the review|the proposals|the rate changes))*[\s.!?]*$/.test(reply);
+  if (!consent || !priorAssistantText) return false;
+  const last = priorAssistantText.toLowerCase();
+  return /\b(rates?|prices?|pricing)\b/.test(last)
+    && /\b(review|approv|propos|adjust|increas|decreas|chang|proceed|go ahead)\w*/.test(last);
 }
 
 /** Model, depth and step budget for one assistant turn. */

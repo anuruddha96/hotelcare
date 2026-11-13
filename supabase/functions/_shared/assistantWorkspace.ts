@@ -724,6 +724,8 @@ export function workspacePrompt(params: { hasRevenue: boolean; hasReputation: bo
         : "6. This user may not change rates. Present the recommendation and say that an administrator or top management applies rate changes.",
       "7. The step is the same number of euros for every room type and occupancy of that night, which keeps the room-type ladder intact. Say that once.",
       "8. Never claim a price was changed. A confirmed card is queued through the Revenue safety checks and the calendar shows the PMS-confirmed value.",
+      "9. HotelCare DOES support authorised date-specific rate changes using verified proposals and the existing publishing queue. Never say they are unavailable. If the user asks to review and approve, run review_pricing; its verified proposals appear as approval cards automatically even if the model cannot call propose_action.",
+      "10. Saying 'yes, go ahead' after a recommendation is NOT approval to publish unseen price cells. Recheck current pricing, show date-specific cards, and wait for individual Confirm. Never substitute propose_automation_change unless the manager specifically asks to edit global pricing rules.",
       "- For a market question only (\"how are we priced against competitors\"), use get_competitor_rates.",
     );
   }

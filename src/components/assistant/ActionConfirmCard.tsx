@@ -64,6 +64,12 @@ export default function ActionConfirmCard({ proposal }: { proposal: ActionPropos
         ))}
       </dl>
 
+      {proposal.action === "adjust_revenue_prices" && state === "idle" && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Not published yet. This is a relative adjustment to the latest live prices;
+          the safe publishing queue will confirm the result.
+        </p>
+      )}
       {state === "done" ? (
         <p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-primary">
           <Check className="h-4 w-4" /> {summary}
@@ -74,7 +80,7 @@ export default function ActionConfirmCard({ proposal }: { proposal: ActionPropos
         <div className="mt-3 flex gap-2">
           <Button size="sm" className="gap-1.5" disabled={state === "saving"} onClick={confirm}>
             <Check className="h-3.5 w-3.5" />
-            {state === "saving" ? "Working…" : "Confirm"}
+            {state === "saving" ? "Checking & queuing…" : proposal.action === "adjust_revenue_prices" ? "Approve & queue" : "Confirm"}
           </Button>
           <Button size="sm" variant="ghost" className="gap-1.5" onClick={() => setState("dismissed")}>
             <X className="h-3.5 w-3.5" /> Cancel
