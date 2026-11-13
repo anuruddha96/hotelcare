@@ -104,7 +104,7 @@ export default function InternetMonitoringPanel() {
 
   const enable = async () => {
     if (!selectedHotelId || !profile?.organization_slug) return;
-    if (local && devices.some((device) => device.id === local.id && device.enabled)) {
+    if (local && (local.hotelId !== selectedHotelId || devices.some((device) => device.id === local.id && device.enabled))) {
       toast.error("This browser already monitors a computer. Disable it before enrolling again.");
       return;
     }
@@ -142,8 +142,8 @@ export default function InternetMonitoringPanel() {
     }
   };
 
-  const activeLocal = !!local && devices.some((device) => device.id === local.id && device.enabled);
-  const localOtherHotel = !!local && activeLocal && local.hotelId !== selectedHotelId;
+  const localOtherHotel = !!local && local.hotelId !== selectedHotelId;
+  const activeLocal = localOtherHotel || (!!local && devices.some((device) => device.id === local.id && device.enabled));
   const currentHotel = hotelOptions.find((hotel) => hotel.value === selectedHotelId)?.label;
   if (profile?.organization_slug !== "rdhotels") return null;
 
