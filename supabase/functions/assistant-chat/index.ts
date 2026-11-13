@@ -143,6 +143,7 @@ function buildTools(
   question: string,
   attachments: WorkspaceAttachment[],
   threadId: string | null = null,
+  pricingApprovalFollowup = false,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -1307,6 +1308,12 @@ function buildTools(
       execute: async ({ kind, input }) => {
         if (!directActions.includes(kind as any)) return { ok: false, error: "Not authorized for this action." };
         const raw = (input ?? {}) as Record<string, unknown>;
+        // A manager saying "go ahead" after advice has NOT approved any
+        // specific verified tool proposal yet. Never convert that into a
+        // silent multi-date rate write. First show confirmation cards.
+        if (kind === "adjust_revenue_prices" && pricingApprovalFollowup) {
+          return { ok: false, error: "This is a price-review approval request. Use review_pricing and its approval cards; no prices were changed." };
+        }
         if (kind === "adjust_revenue_prices" &&
           /\b(increase|raise|higher|up)\b/i.test(question) && Number(raw.deltaEur) < 0) {
           return { ok: false, error: "You requested an increase with a negative amount. Did you mean decrease by €2? No prices were changed." };
@@ -1937,7 +1944,7 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
         canWriteRates: actionsForRole(profile.role).includes("adjust_revenue_prices"),
       })}${mailToolsAvailable(profile.role) ? mailPrompt() : ""}${projectBrief}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId),
+      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
