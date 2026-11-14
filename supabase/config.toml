@@ -330,3 +330,12 @@ verify_jwt = false
 
 [functions.channex-ari-worker]
 verify_jwt = false
+
+# Both invoicing functions authenticate the user with auth.getUser() and check
+# hotel permission/role server-side, like channex-admin. Keep the gateway
+# compatible with Supabase's current JWT signing formats.
+[functions.szamlazz-invoice]
+verify_jwt = false
+
+[functions.invoice-issuers-admin]
+verify_jwt = false
