@@ -18,6 +18,7 @@ import {
 } from '@/lib/pmsLifecycle';
 import { balanceOf, formatMoney, reservationGuestLabel } from '@/lib/reservations';
 import { summarizeReservationNote } from '@/lib/previoReservationNote';
+import { GuestDetailsSection } from '@/components/frontdesk/GuestDetailsSection';
 
 interface CheckInDialogProps {
   reservation: any;
@@ -34,6 +35,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [showAll, setShowAll] = useState(false);
   const [override, setOverride] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [vizaMissing, setVizaMissing] = useState<string[]>([]);
 
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
@@ -65,7 +67,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const selected = rooms.find((r) => r.room_id === selectedRoom);
   const capacityWarn = !!selected && selected.capacity > 0 && pax > selected.capacity;
   const notCleanWarn = !!selected && selected.room_status !== 'clean';
-  const needsOverride = capacityWarn || notCleanWarn;
+  const vizaWarn = !!reservation.guest_id && vizaMissing.length > 0;
+  const needsOverride = capacityWarn || notCleanWarn || vizaWarn;
 
   const handleCheckIn = async () => {
     if (!selectedRoom) {
@@ -87,7 +90,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" data-training="fd-checkin-dialog">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto" data-training="fd-checkin-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <LogIn className="h-5 w-5 text-primary" /> {t('pms.checkIn.checkInGuest')}
@@ -101,6 +104,10 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
               {reservation.check_in_date} → {reservation.check_out_date} · {reservation.total_nights}N · {reservation.adults}A {reservation.children > 0 ? `${reservation.children}C` : ''}
             </p>
           </div>
+
+          {reservation.guest_id && (
+            <GuestDetailsSection guestId={reservation.guest_id} onCompletenessChange={setVizaMissing} />
+          )}
 
           {(noteSummary || balance > 0 || missingContact) && (
             <div className="space-y-1.5">
@@ -163,6 +170,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
                 {t('pms.ci.overrideLabel')}
                 {capacityWarn && ` · ${t('pms.err.capacityExceeded')}`}
                 {notCleanWarn && ` · ${t('pms.err.roomNotClean')}`}
+                {vizaWarn && ` · ${t('pms.guest.incompleteWarn')}`}
               </label>
             </div>
           )}
@@ -171,7 +179,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
-            disabled={submitting || !selectedRoom}
+            disabled={submitting || !selectedRoom || (vizaWarn && !override)}
             className="gap-1"
             data-training="fd-checkin-confirm"
           >

@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { ReservationCalendar } from '@/components/reservations/ReservationCalendar';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
+import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
+import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -55,11 +57,14 @@ function snapshotStatus(value: string | null): string {
 
 function isSnapshotOnly(row: any): boolean { return row?.snapshotOnly === true; }
 
-function SideSection({ title, icon: Icon, items, onOpen }: {
+function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction }: {
   title: string;
   icon: typeof Users;
   items: any[];
   onOpen: (row: any) => void;
+  /** One-tap action per row (e.g. Check in / Check out) so reception never has to hunt. */
+  actionLabel?: string;
+  onAction?: (row: Record<string, unknown>) => void;
 }) {
   const { t } = useTranslation();
   return <details open className="border-b border-border last:border-b-0 group">
@@ -69,14 +74,22 @@ function SideSection({ title, icon: Icon, items, onOpen }: {
     </summary>
     <div className="divide-y divide-border/70">
       {items.length === 0 ? <div className="px-3 py-3 text-xs text-muted-foreground">—</div> : items.slice(0, 12).map((row) =>
-        <button type="button" key={row.id} onClick={() => onOpen(row)} disabled={isSnapshotOnly(row)}
-          className="w-full text-left px-3 py-2 hover:bg-accent/40 disabled:hover:bg-transparent transition-colors disabled:cursor-default"
-          title={isSnapshotOnly(row) ? t('pms.unified.snapshotReadOnly') : undefined}>
-          <div className="flex items-start justify-between gap-2"><div className="min-w-0">
-            <div className="text-xs font-semibold truncate">{reservationGuestLabel(row)}</div>
-            <div className="text-[10px] text-muted-foreground truncate mt-0.5">{row.rooms?.room_number || row.room_label || t('pms.unified.unassigned')} · {row.check_in_date?.slice(5)} → {row.check_out_date?.slice(5)}</div>
-          </div><span className="text-[10px] text-primary shrink-0 font-medium">{reservationChannel(row).label}</span></div>
-        </button>,
+        <div key={row.id} className="flex items-stretch">
+          <button type="button" onClick={() => onOpen(row)} disabled={isSnapshotOnly(row)}
+            className="flex-1 min-w-0 text-left px-3 py-2 hover:bg-accent/40 disabled:hover:bg-transparent transition-colors disabled:cursor-default"
+            title={isSnapshotOnly(row) ? t('pms.unified.snapshotReadOnly') : undefined}>
+            <div className="flex items-start justify-between gap-2"><div className="min-w-0">
+              <div className="text-xs font-semibold truncate">{reservationGuestLabel(row)}</div>
+              <div className="text-[10px] text-muted-foreground truncate mt-0.5">{row.rooms?.room_number || row.room_label || t('pms.unified.unassigned')} · {row.check_in_date?.slice(5)} → {row.check_out_date?.slice(5)}</div>
+            </div><span className="text-[10px] text-primary shrink-0 font-medium">{reservationChannel(row).label}</span></div>
+          </button>
+          {actionLabel && onAction && !isSnapshotOnly(row) && (
+            <button type="button" onClick={() => onAction(row)}
+              className="shrink-0 px-2 my-1.5 mr-1.5 rounded-md border border-border text-[11px] font-medium text-primary hover:bg-primary hover:text-primary-foreground transition-colors">
+              {actionLabel}
+            </button>
+          )}
+        </div>,
       )}
     </div>
   </details>;
@@ -101,6 +114,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewMode>('planner');
   const [createOpen, setCreateOpen] = useState(false);
+  // One-tap check-in / check-out straight from the side lists.
+  const [actioned, setActioned] = useState<{ row: Record<string, unknown>; dialog: 'checkin' | 'checkout' } | null>(null);
   const today = todayBudapest();
   const tomorrow = tomorrowBudapest();
   const isOttofiori = hotelId?.toLowerCase() === 'ottofiori';
@@ -317,13 +332,23 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     </div>
       <aside className="border border-border rounded-lg overflow-hidden bg-card 2xl:sticky 2xl:top-3">
         <SideSection title={t('pms.planner.unassignedSection')} icon={AlertTriangle} items={unassigned} onOpen={openReservation} />
-        <SideSection title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation} />
-        <SideSection title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation} />
+        <SideSection title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
+          actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
+        <SideSection title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation}
+          actionLabel={t('pms.checkOut')} onAction={(row) => setActioned({ row, dialog: 'checkout' })} />
         <SideSection title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
         {isOttofiori && <SideSection title={`Tomorrow check-ins · ${tomorrow}${importStale ? ' · unverified' : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
         <SideSection title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
     </div>
     <CreateReservationDialog open={createOpen} onOpenChange={setCreateOpen} onSuccess={() => { setCreateOpen(false); void fetchAll(); }} />
+    {actioned?.dialog === 'checkin' && (
+      <CheckInDialog reservation={actioned.row} open onOpenChange={(next) => { if (!next) setActioned(null); }}
+        onSuccess={() => { setActioned(null); void fetchAll(); }} />
+    )}
+    {actioned?.dialog === 'checkout' && (
+      <CheckOutDialog reservation={actioned.row} open onOpenChange={(next) => { if (!next) setActioned(null); }}
+        onSuccess={() => { setActioned(null); void fetchAll(); }} />
+    )}
   </div>;
 }
