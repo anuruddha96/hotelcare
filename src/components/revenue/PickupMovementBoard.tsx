@@ -10,7 +10,6 @@ import {
   type DayMetrics, type BookingNight, type CancelledNight, type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
 import { buildReservationMovementRows, sumReservationMovementRows } from "@/lib/pickupMovementAccuracy";
-import { bookingGoalScope } from "@/lib/adrGoalAdjustment";
 import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjustDialog";
 import AdrGoalAdjustDialog, { type GoalAdjustTarget } from "./AdrGoalAdjustDialog";
 import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
@@ -203,7 +202,7 @@ export default function PickupMovementBoard({
                 const changedOriginal = row.from !== row.originalFrom || row.checkout !== row.originalCheckout;
                 const adr = row.kind === "booked" ? movementAdr(row) : null;
                 const goalGap = adr !== null && targetAdr !== null ? Math.round(targetAdr - adr) : 0;
-                const goalScope = goalGap > 0 ? bookingGoalScope(row.rooms) : [];
+                const goalRoomTypes = goalGap > 0 ? [...new Set(row.rooms.map((room) => room.roomType).filter(Boolean))] : [];
                 return (
                   <div key={row.key} className={fresh ? "bg-primary/5" : undefined}>
                     <div className="relative grid grid-cols-1 gap-2 py-2.5 pl-3 pr-12 md:grid-cols-[minmax(150px,1.2fr)_minmax(180px,1.4fr)_70px_70px_90px_100px_38px] md:items-center md:pr-3">
@@ -255,10 +254,10 @@ export default function PickupMovementBoard({
                               : "At or above goal"}
                           </Badge>
                         )}
-                        {canEdit && row.kind === "booked" && adr !== null && targetAdr !== null && goalGap > 0 && goalScope.length > 0 && (
+                        {canEdit && row.kind === "booked" && adr !== null && targetAdr !== null && goalGap > 0 && goalRoomTypes.length > 0 && (
                           <Button type="button" variant="outline" size="sm"
                             className="h-7 max-w-full gap-1 border-emerald-500/40 px-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300"
-                            title="Preview a rate increase on only the booked room types and actual stay nights"
+                            title="Preview the same price adjustment on every date in the selected period for the booked room types"
                             onClick={() => setGoalAdjust({
                               from: row.from,
                               to: addDays(row.checkout, -1),
@@ -268,7 +267,7 @@ export default function PickupMovementBoard({
                               bookedAdr: adr,
                               targetAdr,
                               bookingId: row.resId,
-                              allowedCells: goalScope,
+                              roomTypeNames: goalRoomTypes,
                             })}>
                             <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
                             Adjust +{formatBookingMoney(goalGap, currencyCode)}
