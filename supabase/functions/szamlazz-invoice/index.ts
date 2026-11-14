@@ -57,7 +57,7 @@ async function historicalAuth(db: Db, invoice: { issuer_id?: string | null; orga
   }
   const issuer = await issuerById(db, invoice.organization_slug, invoice.issuer_id);
   if (!issuer) throw new UserError("The original invoice company no longer exists.", 409);
-  return authArg(await decryptProviderAuth(issuer));
+  return authArg(await decryptProviderAuth(issuer, db));
 }
 async function hotelOrgSlug(db: Db, hotelId: string): Promise<string> {
   const { data: hotel } = await db.from("hotel_configurations").select("organization_id")
@@ -206,7 +206,7 @@ Deno.serve(async (req) => {
         const kind = payload.kind === "proforma" ? "proforma" : "invoice";
         const r = await loadReservation(db, hotelId, String(payload.reservation_id ?? ""));
         const issuer = await currentIssuer(db, r.organization_slug, hotelId);
-        const auth = await decryptProviderAuth(issuer);
+        const auth = await decryptProviderAuth(issuer, db);
         if (["cancelled", "no_show"].includes(String(r.status))) throw new UserError("This reservation is cancelled; nothing to invoice.");
         const lines = parseLines(payload.lines);
         const buyer = parseBuyer(payload.buyer);
