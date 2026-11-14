@@ -34,3 +34,27 @@ export function effectiveDateColumnBounds(input: EffectiveDateColumnBoundsInput)
   const globalMax = Math.max(globalMin, wholePositive(input.globalMax, globalMin));
   return { min: globalMin, max: globalMax, source: "hotel_safety_lockstep" };
 }
+
+
+export interface HotelDateSafetyBoundsInput {
+  hotelId: string;
+  daysOut: number;
+  hotelMin: number;
+  hotelMax: number;
+  ruleMinimumAdr?: number | null;
+}
+
+/**
+ * Resolve the shared absolute boundary for a stay-date column. Ottofiori's
+ * exceptional EUR75 arrival-day floor must never leak into future dates:
+ * D+1 and beyond retain the saved hotel minimum (EUR80 at activation).
+ */
+export function hotelDateSafetyBounds(input: HotelDateSafetyBoundsInput): EffectiveDateColumnBounds {
+  const hotelMin = wholePositive(input.hotelMin, 1);
+  const configuredFutureMin = wholePositive(Number(input.ruleMinimumAdr ?? 80), 80);
+  const min = input.hotelId === "ottofiori" && input.daysOut > 0
+    ? Math.max(hotelMin, configuredFutureMin)
+    : hotelMin;
+  const max = Math.max(min, wholePositive(input.hotelMax, min));
+  return { min, max, source: "hotel_safety_lockstep" };
+}
