@@ -44,6 +44,17 @@ ALTER TABLE public.guest_invoices
   ADD COLUMN IF NOT EXISTS issuer_id uuid REFERENCES public.invoice_issuers(id) ON DELETE RESTRICT;
 CREATE INDEX IF NOT EXISTS guest_invoices_issuer_idx ON public.guest_invoices(issuer_id,created_at DESC);
 
+-- Invoice numbers belong to the legal issuer, not to the HotelCare organization.
+-- Two unrelated invoicing companies may validly have the same invoice number.
+DROP INDEX IF EXISTS public.guest_invoices_number_unique;
+CREATE UNIQUE INDEX guest_invoices_issuer_number_unique
+  ON public.guest_invoices(issuer_id,invoice_number)
+  WHERE issuer_id IS NOT NULL AND invoice_number IS NOT NULL;
+-- Preserve legacy single-account deduplication on invoices without issuer_id.
+CREATE UNIQUE INDEX guest_invoices_legacy_number_unique
+  ON public.guest_invoices(organization_slug,invoice_number)
+  WHERE issuer_id IS NULL AND invoice_number IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS public.invoice_issuer_audit (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   organization_slug text NOT NULL,
