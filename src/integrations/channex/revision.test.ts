@@ -89,4 +89,18 @@ describe('Channex booking revision mapping', () => {
     expect(parseWebhook({ event: 'booking', payload: { revision_id: 'r1', property_id: PROPERTY, booking_id: 'b1' } }))
       .toEqual({ event: 'booking', revisionId: 'r1', propertyId: PROPERTY, bookingId: 'b1' });
   });
+
+  it('parses a webhook whose payload is the full revision (id = revision id)', () => {
+    expect(parseWebhook({ event: 'booking', payload: { id: 'r2', booking_id: 'b2', property_id: PROPERTY, status: 'new' } }))
+      .toEqual({ event: 'booking', revisionId: 'r2', propertyId: PROPERTY, bookingId: 'b2' });
+    // API-shaped payload {id, attributes:{...}}
+    expect(parseWebhook({ event: 'booking', payload: { id: 'r3', attributes: { booking_id: 'b3', property_id: PROPERTY } } }))
+      .toEqual({ event: 'booking', revisionId: 'r3', propertyId: PROPERTY, bookingId: 'b3' });
+  });
+
+  it('reads a top-level property_id and never treats a non-booking payload id as a revision', () => {
+    expect(parseWebhook({ event: 'booking', property_id: PROPERTY, payload: { revision_id: 'r4' } }).propertyId).toBe(PROPERTY);
+    expect(parseWebhook({ event: 'ari', payload: { id: 'not-a-revision' } }).revisionId).toBeNull();
+    expect(parseWebhook({ event: 'booking', payload: { id: 'plain-id-no-booking-fields' } }).revisionId).toBeNull();
+  });
 });
