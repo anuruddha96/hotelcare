@@ -42,18 +42,20 @@ export function calendarGoalRowScope(roomTypes: string[], from: string, to: stri
   return scope;
 }
 
-/** Default the booking shortcut to the full calendar month(s) containing its
- * actual stay nights, starting today when part of the month is historical. */
-export function goalMonthRange(fromNight: string, toNight: string, today: string): { from: string; to: string } {
-  const from = fromNight.slice(0, 7) + "-01";
-  const lastMonth = toNight.slice(0, 7);
-  const lastMonthStart = utcDay(lastMonth + "-01");
-  if (utcDay(from) === null || lastMonthStart === null || from > toNight) {
-    return { from: today, to: today };
+/** Default the ADR shortcut to the reservation's actual stay dates,
+ * ending on its last occupied night (checkout is never included by default).
+ * Historical nights cannot be repriced. Invalid/past stays fail closed.
+ */
+export function goalReservationRange(
+  firstStayNight: string, lastStayNight: string, today: string,
+): { from: string; to: string } {
+  const start = utcDay(firstStayNight);
+  const end = utcDay(lastStayNight);
+  const now = utcDay(today);
+  if (start === null || end === null || now === null || start > end || end < now) {
+    return { from: "", to: "" };
   }
-  const to = new Date(new Date(lastMonthStart).setUTCMonth(new Date(lastMonthStart).getUTCMonth() + 1) - DAY_MS)
-    .toISOString().slice(0, 10);
-  return { from: from < today ? today : from, to };
+  return { from: start < now ? today : firstStayNight, to: lastStayNight };
 }
 
 export function bookingGoalScope(rooms: Array<{ roomType: string; dates: string[] }>): GoalPriceScope[] {

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { budapestToday, type RoomTypeRate } from "@/lib/revenueAnalytics";
-import { buildGoalPriceChanges, calendarGoalRowScope, goalMonthRange } from "@/lib/adrGoalAdjustment";
+import { buildGoalPriceChanges, calendarGoalRowScope, goalReservationRange } from "@/lib/adrGoalAdjustment";
 import { beginRevenueEdit } from "@/lib/revenueEditGuard";
 import { formatBookingMoney } from "@/lib/bookingInsights";
 import { logRateChanges } from "@/lib/rateAudit";
@@ -17,7 +17,7 @@ export interface GoalAdjustTarget {
   bookingId: string;
   label: string;
   from: string;
-  to: string; // Last booked stay night; used for the default calendar period
+  to: string; // Inclusive final stay night (the checkout date is excluded)
   bookedAdr: number;
   targetAdr: number;
   goalDelta: number;
@@ -52,7 +52,7 @@ export default function AdrGoalAdjustDialog({
   useEffect(() => {
     setAmount(target ? Math.max(1, Math.round(Math.abs(target.goalDelta))) : 0);
     setDirection(1);
-    const initial = target ? goalMonthRange(target.from, target.to, budapestToday()) : { from: "", to: "" };
+    const initial = target ? goalReservationRange(target.from, target.to, budapestToday()) : { from: "", to: "" };
     setRangeFrom(initial.from);
     setRangeTo(initial.to);
     setRates(null);
@@ -94,7 +94,8 @@ export default function AdrGoalAdjustDialog({
   const selectedScope = useMemo(() => calendarGoalRowScope(
     target?.roomTypeNames ?? [], rangeFrom, rangeTo,
   ), [target, rangeFrom, rangeTo]);
-  const rangeValid = selectedScope.length > 0 && rangeFrom >= budapestToday();
+  const rangeValid = !!target && selectedScope.length > 0
+    && rangeFrom >= budapestToday() && rangeFrom >= target.from && rangeTo <= target.to;
 
   useEffect(() => {
     if (!target || !hotelId) return;
@@ -103,7 +104,7 @@ export default function AdrGoalAdjustDialog({
     setError(null);
     if (!rangeValid) {
       setLoading(false);
-      setError("Choose future dates in a period of no more than 366 days.");
+      setError("Choose stay dates within this reservation (excluding checkout), up to 366 days.");
       return () => { active = false; };
     }
     setLoading(true);
@@ -169,7 +170,7 @@ export default function AdrGoalAdjustDialog({
         organizationSlug: organizationSlug ?? null,
         source: "pickup-board",
         action: "sent_to_previo",
-        notes: `ADR goal adjustment for booking #${target.bookingId}; booked ADR ${target.bookedAdr.toFixed(2)}, goal ${target.targetAdr.toFixed(2)}, requested delta ${signedDelta > 0 ? "+" : ""}${signedDelta} across full room row ${rangeFrom} to ${rangeTo}, all guest occupancies; run ${result.runId}`,
+        notes: `ADR goal adjustment for booking #${target.bookingId}; booked ADR ${target.bookedAdr.toFixed(2)}, goal ${target.targetAdr.toFixed(2)}, requested delta ${signedDelta > 0 ? "+" : ""}${signedDelta} across reservation stay ${rangeFrom} to ${rangeTo}, all guest occupancies; run ${result.runId}`,
         changes: accepted.map((c) => ({
           stay_date: c.rate.stay_date,
           room_type_name: c.rate.room_type_name ?? "",
@@ -182,7 +183,7 @@ export default function AdrGoalAdjustDialog({
       if (result.rejected.length > 0) {
         toast.warning(`${result.queued} prices queued; ${result.rejected.length} rejected, ${result.skippedSoldOut} sold-out skipped. ${result.rejected[0].reason}`);
       } else {
-        toast.success(`${result.queued} room-row prices queued for Previo${result.skippedSoldOut ? ` · ${result.skippedSoldOut} sold-out skipped` : ""}${note ? ` · ${note}` : ""}`);
+        toast.success(`${result.queued} reservation-stay prices queued for Previo${result.skippedSoldOut ? ` · ${result.skippedSoldOut} sold-out skipped` : ""}${note ? ` · ${note}` : ""}`);
       }
       onApplied?.();
       onClose();
@@ -195,13 +196,14 @@ export default function AdrGoalAdjustDialog({
 
   return (
     <Dialog open={!!target} onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="shrink-0 border-b px-4 py-3 pr-10 sm:px-6 sm:py-4 sm:pr-10">
           <DialogTitle className="flex items-center gap-2 text-base">
             <ArrowUpRight className="h-4 w-4 text-emerald-600" /> ADR goal · Adjust selling prices
           </DialogTitle>
           <p className="text-xs text-muted-foreground">{target?.label}</p>
         </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-6 sm:py-4">
         {target && <div className="space-y-3">
           <div className="grid grid-cols-3 gap-2 rounded-lg border p-3 text-center">
             <div><p className="text-[10px] text-muted-foreground">Booked ADR</p><p className="font-semibold">{formatBookingMoney(target.bookedAdr, currencyCode)}</p></div>
@@ -209,20 +211,22 @@ export default function AdrGoalAdjustDialog({
             <div><p className="text-[10px] text-muted-foreground">Gap / night</p><p className="font-semibold text-rose-600">−{formatBookingMoney(target.goalDelta, currencyCode)}</p></div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Increase or decrease the entire selling-price row for {target.roomTypeNames.join(", ")}.
-            Every date in the selected period and every guest-occupancy price moves by the same amount.
-            This includes unbooked dates and the checkout date when it falls inside the range.
-            Confirmed guest reservation prices are never modified.
+            Changes apply to {target.roomTypeNames.join(", ")} on the reservation's stay dates only.
+            Every guest-occupancy selling price moves by the same amount. Checkout and
+            dates outside this reservation are excluded. Confirmed guest booking prices remain unchanged.
           </p>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label htmlFor="goal-row-from" className="text-xs">Row from</Label>
+              <Label htmlFor="goal-row-from" className="text-xs">Stay from</Label>
               <Input id="goal-row-from" type="date" value={rangeFrom} disabled={saving}
+                min={target.from > budapestToday() ? target.from : budapestToday()}
+                max={target.to}
                 onChange={(e) => { setRates(null); setRangeFrom(e.target.value); }} />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="goal-row-to" className="text-xs">Row to (inclusive)</Label>
+              <Label htmlFor="goal-row-to" className="text-xs">Last stay night (inclusive)</Label>
               <Input id="goal-row-to" type="date" value={rangeTo} disabled={saving}
+                min={rangeFrom || target.from} max={target.to}
                 onChange={(e) => { setRates(null); setRangeTo(e.target.value); }} />
             </div>
           </div>
@@ -268,18 +272,19 @@ export default function AdrGoalAdjustDialog({
               </table>
             </div>
             <p className="text-xs text-muted-foreground">
-              {changes.length} prices across {selectedScope.length} room/date combinations
+              {changes.length} prices across {selectedScope.length} reservation room/date combinations
               {changes.length > 150 ? " (showing the first 150 in preview)" : ""} · average
               {" "}{formatBookingMoney(averageBefore, currencyCode)} → {formatBookingMoney(averageAfter, currencyCode)}.
-              The difference is added to every existing selling price, not used to replace it with the ADR goal.
+              Only selected stay nights change; the ADR gap is added to each existing selling price.
             </p>
           </>}
         </div>}
-        <DialogFooter className="gap-2">
+        </div>
+        <DialogFooter className="z-10 shrink-0 border-t bg-background px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
           <Button variant="outline" disabled={saving} onClick={onClose}>Cancel</Button>
           <Button onClick={() => void apply()} disabled={!valid}>
             {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
-            Apply to full room rows
+            {direction > 0 ? "Apply +" : "Apply −"}{formatBookingMoney(Math.abs(signedDelta), currencyCode)} to {changes.length} prices
           </Button>
         </DialogFooter>
       </DialogContent>
