@@ -1,3 +1,4 @@
+import { GuestFolioPanel } from '@/components/reservations/GuestFolioPanel';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Banknote, BookOpen, CreditCard, Plus, Receipt, Settings2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -356,16 +357,10 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   }
 
   if (loadError || !folio) {
-    return (
-      <Card data-training="reservation-account">
-        <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Receipt className="h-4 w-4" /> Account</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          <p className="text-sm text-destructive">Financial account is not available.</p>
-          <p className="text-xs text-muted-foreground">{loadError || 'Unknown account error.'}</p>
-          <Button size="sm" variant="outline" onClick={() => void loadAccount()}>Retry</Button>
-        </CardContent>
-      </Card>
-    );
+    // The financial-core account is not deployed everywhere yet: fall back to
+    // the guest folio that check-in/out and invoicing already use, so reception
+    // can always see the bill, add extras and take payments.
+    return <GuestFolioPanel reservation={reservation as never} onChanged={onFinancialChanged} />;
   }
 
   return (

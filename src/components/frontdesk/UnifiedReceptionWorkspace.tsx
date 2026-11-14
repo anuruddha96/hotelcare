@@ -235,6 +235,18 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     const term = search.trim().toLowerCase();
     return term ? plannerRows.filter((row) => reservationSearchText(row).includes(term)) : plannerRows;
   }, [plannerRows, search]);
+  // Instant results for the main search: real reservations only, soonest first.
+  const quickMatches = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (term.length < 2) return [];
+    return reservations
+      .filter((row) => reservationSearchText(row).includes(term))
+      .sort((a, b) => {
+        const rank = (r: any) => (r.status === 'checked_in' ? 0 : ['pending', 'confirmed'].includes(r.status) ? 1 : 2);
+        return rank(a) - rank(b) || String(a.check_in_date).localeCompare(String(b.check_in_date));
+      })
+      .slice(0, 8);
+  }, [reservations, search]);
   const arrivals = useMemo(() => reservations.filter((row) => row.check_in_date === today && ['pending', 'confirmed'].includes(row.status)), [reservations, today]);
   const departures = useMemo(() => reservations.filter((row) => row.check_out_date === today && row.status === 'checked_in'), [reservations, today]);
   const inHouse = useMemo(() => reservations.filter((row) => row.status === 'checked_in' && row.check_in_date <= today && row.check_out_date > today), [reservations, today]);
@@ -274,17 +286,48 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </div>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative min-w-[210px] flex-1 xl:flex-none"><Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('pms.fd.searchPlaceholder')} className="h-9 pl-8 xl:w-64" />
-        </div>
         <div className="flex border border-border rounded-md overflow-hidden">
-          <Button type="button" size="sm" title="See every room and its bookings on a calendar. Tap a booking to open it." variant={view === 'planner' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('planner')}>🗓️ <span className="hidden sm:inline">{t('pms.planner.title')}</span></Button>
-          <Button type="button" size="sm" title="A simple list of all bookings you can search." variant={view === 'list' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('list')}>📋 <span className="hidden sm:inline">{t('pms.reservations.title')}</span></Button>
+          <Button type="button" size="sm" title={t('pms.tip.planner')} variant={view === 'planner' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('planner')}>🗓️ <span className="hidden sm:inline">{t('pms.planner.title')}</span></Button>
+          <Button type="button" size="sm" title={t('pms.tip.list')} variant={view === 'list' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('list')}>📋 <span className="hidden sm:inline">{t('pms.reservations.title')}</span></Button>
         </div>
-        {breakfastUploadPath && <Link to={breakfastUploadPath} title="Upload the breakfast list file for today."><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5">🥐 <span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
+        {breakfastUploadPath && <Link to={breakfastUploadPath} title={t('pms.tip.breakfast')}><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5">🥐 <span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
         {canSync && hotelId && !nativeHotel && <span title="🔄 Pull the latest bookings from Previo."><PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact /></span>}
-        <Button type="button" size="sm" title="Make a new booking for a guest." className="h-9 gap-1" onClick={() => setCreateOpen(true)}>➕ {t('pms.fd.newReservation')}</Button>
+        <Button type="button" size="sm" title={t('pms.tip.newReservation')} className="h-9 gap-1" onClick={() => setCreateOpen(true)}>➕ {t('pms.fd.newReservation')}</Button>
       </div>
+    </div>
+
+    <div className="relative" data-training="fd-quick-search">
+      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+      <Input
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Enter' && quickMatches[0]) openReservation(quickMatches[0]); if (event.key === 'Escape') setSearch(''); }}
+        placeholder={t('pms.fd.searchPlaceholder')}
+        aria-label={t('pms.fd.searchPlaceholder')}
+        autoFocus
+        className="h-12 pl-11 text-base rounded-xl border-2 border-primary/30 focus-visible:border-primary shadow-sm"
+      />
+      {search.trim().length >= 2 && (
+        <div className="absolute z-40 mt-1 w-full rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
+          {quickMatches.length === 0
+            ? <div className="px-4 py-3 text-sm text-muted-foreground">{t('pms.cal.noMatches')}</div>
+            : quickMatches.map((row) => (
+              <div key={row.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-border/60 last:border-b-0 hover:bg-accent/40">
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openReservation(row)}>
+                  <div className="text-sm font-semibold truncate">{reservationGuestLabel(row)} <span className="text-xs font-normal text-muted-foreground">· {row.reservation_number}</span></div>
+                  <div className="text-xs text-muted-foreground truncate">{row.rooms?.room_number || t('pms.unified.unassigned')} · {row.check_in_date} → {row.check_out_date} · {String(row.status).replace('_', ' ')}</div>
+                </button>
+                {['pending', 'confirmed'].includes(row.status) && (
+                  <Button type="button" size="sm" className="h-8 shrink-0" onClick={() => { setSearch(''); setActioned({ row, dialog: 'checkin' }); }}>{t('pms.checkIn')}</Button>
+                )}
+                {row.status === 'checked_in' && (
+                  <Button type="button" size="sm" variant="outline" className="h-8 shrink-0" onClick={() => { setSearch(''); setActioned({ row, dialog: 'checkout' }); }}>{t('pms.checkOut')}</Button>
+                )}
+                <Button type="button" size="sm" variant="ghost" className="h-8 shrink-0" onClick={() => openReservation(row)}>{t('pms.open')}</Button>
+              </div>
+            ))}
+        </div>
+      )}
     </div>
 
     {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Reception data could not be verified. Previous property data has been cleared. Retry refresh.</div>}
@@ -321,7 +364,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     </div>
 
     <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
-      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned={nativeHotel} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
+      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned={nativeHotel} editable={nativeHotel} onChanged={fetchAll} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-card z-10 border-b border-border"><tr className="text-left text-xs text-muted-foreground">
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>
