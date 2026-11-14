@@ -8,7 +8,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { IdCard, Loader2 } from 'lucide-react';
+import { IdCard, Loader2, ScanLine } from 'lucide-react';
+import { IdScanDialog } from '@/components/frontdesk/IdScanDialog';
+import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { useTranslation } from '@/hooks/useTranslation';
 
 /**
@@ -50,6 +52,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
 
   useEffect(() => {
     if (!guestId) { setGuest(null); onCompletenessChange?.(vizaMissingFields(null)); return; }
@@ -75,10 +78,30 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
     setDirty(true);
   };
 
+  // Fill from a scanned passport/ID: only the fields the document holds; the
+  // receptionist reviews them and presses Save (nothing is stored before that).
+  const applyScan = (scan: MrzReadResult) => {
+    const f = scan.fields;
+    setGuest((g) => g ? {
+      ...g,
+      first_name: g.first_name?.trim() && !/^(ota|sandbox)/i.test(g.first_name) ? g.first_name : f.firstName || g.first_name,
+      last_name: g.last_name?.trim() && !/^guest$/i.test(g.last_name) ? g.last_name : f.lastName || g.last_name,
+      nationality: f.nationality || g.nationality,
+      date_of_birth: f.dateOfBirth || g.date_of_birth,
+      gender: f.gender || g.gender,
+      id_document_type: f.documentType,
+      id_document_number: f.documentNumber || g.id_document_number,
+    } : g);
+    setDirty(true);
+    toast.success(t('pms.scan.applied'));
+  };
+
   const save = async () => {
     if (!guest) return;
     setSaving(true);
     const payload = {
+      first_name: guest.first_name,
+      last_name: guest.last_name,
       nationality: guest.nationality, date_of_birth: guest.date_of_birth || null,
       birth_place: guest.birth_place, gender: guest.gender,
       id_document_type: guest.id_document_type, id_document_number: guest.id_document_number,
@@ -114,6 +137,9 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
       </summary>
       {guest && (
         <div className="px-3 pb-3 space-y-2.5">
+          <Button type="button" size="sm" className="h-9 w-full gap-1.5" onClick={() => setScanOpen(true)} data-training="fd-id-scan-open">
+            <ScanLine className="h-4 w-4" /> {t('pms.scan.button')}
+          </Button>
           {missing.length > 0 && (
             <p className="text-xs text-muted-foreground">
               {t('pms.guest.missing')}: {missing.map((f) => fieldLabel[f] ?? f).join(', ')}
@@ -168,6 +194,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
           </Button>
         </div>
       )}
+      <IdScanDialog open={scanOpen} onOpenChange={setScanOpen} onApply={applyScan} />
     </details>
   );
 }
