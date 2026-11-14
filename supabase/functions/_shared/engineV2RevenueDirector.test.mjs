@@ -115,6 +115,10 @@ test('quiet dates behind pace reduce without competitor data; on-pace dates hold
  for(const market of [{median:null,sampleSize:0,ageHours:null},{median:150,sampleSize:1,ageHours:1},{median:150,sampleSize:4,ageHours:90}])
  assert.equal(decide({...base,market}).direction,'decrease');
  assert.equal(decide({daysOut:35,occupancyPct:64,roomsRemaining:8,currentPrice:220}).reason,'on_pace');
+ // Beyond a month the rules engine never tests below the seasonal anchor (€160 in these settings).
+ assert.equal(decide({...base,currentPrice:160}).reason,'at_anchor');
+ assert.equal(decide({...base,currentPrice:140}).reason,'at_anchor');
+ assert.equal(decide({...base,daysOut:20,occupancyPct:30,roomsRemaining:15,currentPrice:140}).direction,'decrease');
 });
 test('a booking can raise, then a genuinely quiet interval can lower on the same local day',()=>{
  const rise=decide({pickup24h:1,pickup6h:1,unspentPickupInQuietWindow:1});
