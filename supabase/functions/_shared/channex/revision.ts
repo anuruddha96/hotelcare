@@ -259,15 +259,26 @@ function roomSummaries(a: Record<string, any>, ctx: PlanContext) {
   }));
 }
 
-/** Webhook body {event, payload: {booking_id, property_id, revision_id}, user_id, timestamp}. */
+/**
+ * Webhook body {event, payload, property_id?, user_id, timestamp}.
+ * Channex is not consistent about where ids live: payload may be
+ * {booking_id, property_id, revision_id}, or the full revision object
+ * (whose own id IS the revision id), and property_id may sit at the top
+ * level. Accept all shapes; the revision is always re-pulled from the API,
+ * so a wrong guess can only cause a fetch that fails closed.
+ */
 export function parseWebhook(body: any): { event: string; revisionId: string | null; propertyId: string | null; bookingId: string | null } {
   const payload = (body?.payload && typeof body.payload === "object") ? body.payload : {};
+  const attrs = (payload.attributes && typeof payload.attributes === "object") ? payload.attributes : payload;
+  const event = str(body?.event) ?? "";
+  const looksLikeRevision = attrs.booking_id !== undefined || attrs.revision_id !== undefined || attrs.system_id !== undefined;
   return {
-    event: str(body?.event) ?? "",
-    revisionId: str(payload.revision_id),
-    propertyId: str(payload.property_id),
-    bookingId: str(payload.booking_id),
+    event,
+    revisionId: str(attrs.revision_id) ?? str(payload.revision_id)
+      ?? ((BOOKING_EVENTS.has(event) && looksLikeRevision) ? str(payload.id) ?? str(attrs.id) : null),
+    propertyId: str(attrs.property_id) ?? str(payload.property_id) ?? str(body?.property_id),
+    bookingId: str(attrs.booking_id) ?? str(payload.booking_id),
   };
 }
 
-export const BOOKING_EVENTS = new Set(["booking", "booking_new", "booking_modification", "booking_cancellation"]);
+export const BOOKING_EVENTS = new Set(["booking", "booking_new", "booking_modification", "booking_cancellation", "booking_any"]);
