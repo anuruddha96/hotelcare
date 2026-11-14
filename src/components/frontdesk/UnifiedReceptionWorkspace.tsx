@@ -104,6 +104,18 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const today = todayBudapest();
   const tomorrow = tomorrowBudapest();
   const isOttofiori = hotelId?.toLowerCase() === 'ottofiori';
+  // Hotels where HotelCare itself is the PMS (no Previo): no import freshness,
+  // no Previo warnings, and bookings without a room must stay visible.
+  const [nativeHotel, setNativeHotel] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setNativeHotel(false);
+    if (!hotelId) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc('pms_ari_native_hotel', { _hotel_id: hotelId })
+      .then(({ data }: { data: boolean | null }) => { if (alive) setNativeHotel(Boolean(data)); });
+    return () => { alive = false; };
+  }, [hotelId]);
   const keysKey = hotelKeys.join('|');
 
   const fetchAll = useCallback(async () => {
@@ -232,7 +244,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         <h1 className="text-xl font-bold">{t('pms.fd.title')}</h1>
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           <p className="text-xs text-muted-foreground">{today}</p>
-          {!loadingData && !loadError && (
+          {!loadingData && !loadError && !nativeHotel && (
             <span
               role="status"
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${FRESHNESS_STYLE[freshness.state]}`}
@@ -255,13 +267,13 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <Button type="button" size="sm" title="A simple list of all bookings you can search." variant={view === 'list' ? 'default' : 'ghost'} className="rounded-none h-9 gap-1" onClick={() => setView('list')}>📋 <span className="hidden sm:inline">{t('pms.reservations.title')}</span></Button>
         </div>
         {breakfastUploadPath && <Link to={breakfastUploadPath} title="Upload the breakfast list file for today."><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5">🥐 <span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
-        {canSync && hotelId && <span title="🔄 Pull the latest bookings from Previo."><PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact /></span>}
+        {canSync && hotelId && !nativeHotel && <span title="🔄 Pull the latest bookings from Previo."><PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact /></span>}
         <Button type="button" size="sm" title="Make a new booking for a guest." className="h-9 gap-1" onClick={() => setCreateOpen(true)}>➕ {t('pms.fd.newReservation')}</Button>
       </div>
     </div>
 
     {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Reception data could not be verified. Previous property data has been cleared. Retry refresh.</div>}
-    {!loadingData && !loadError && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0 || hiddenNotInPrevio > 0) &&
+    {!loadingData && !loadError && !nativeHotel && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0 || hiddenNotInPrevio > 0) &&
       <details role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
         <summary className="cursor-pointer select-none flex items-center gap-2 font-medium">
           ⚠️ PMS data needs attention
@@ -294,7 +306,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     </div>
 
     <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
-      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned={false} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
+      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned={nativeHotel} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-card z-10 border-b border-border"><tr className="text-left text-xs text-muted-foreground">
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>

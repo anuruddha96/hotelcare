@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -72,6 +73,27 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
   }, [open, hotelId, form.check_in_date, form.check_out_date]);
 
   const freeRooms = rooms.filter((r) => !r.has_conflict);
+
+  // Room types and the hotel's own currency, so reception picks from a list
+  // instead of typing a free-text type (a typo would not reduce availability).
+  const [roomTypes, setRoomTypes] = useState<string[]>([]);
+  useEffect(() => {
+    if (!open || !hotelId) return;
+    let alive = true;
+    (async () => {
+      const [types, config] = await Promise.all([
+        supabase.from('room_types').select('name, sort_order').eq('hotel_id', hotelId).eq('is_sellable', true).order('sort_order'),
+        supabase.from('hotel_configurations').select('settings').eq('hotel_id', hotelId).maybeSingle(),
+      ]);
+      if (!alive) return;
+      setRoomTypes((types.data ?? []).map((row: { name: string }) => row.name));
+      const currency = (config.data?.settings as { currency?: string } | null)?.currency;
+      if (currency && CURRENCIES.includes(currency)) {
+        setForm((f) => (f.rate_per_night || f.guest_id ? f : { ...f, currency }));
+      }
+    })();
+    return () => { alive = false; };
+  }, [open, hotelId]);
 
   const handleCreate = async () => {
     if (!hotelId) {
@@ -153,7 +175,10 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
             <Label>{t('pms.res.room')}</Label>
             <Select
               value={form.room_id}
-              onValueChange={(v) => setForm({ ...form, room_id: v })}
+              onValueChange={(v) => {
+                const room = freeRooms.find((r) => r.room_id === v);
+                setForm({ ...form, room_id: v, room_type_requested: room?.room_type ?? form.room_type_requested });
+              }}
               disabled={!datesValid || loadingRooms}
             >
               <SelectTrigger>
@@ -179,13 +204,22 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
           {form.room_id === UNASSIGNED && (
             <div>
               <Label>{t('pms.createReservation.roomType')}</Label>
-              <Input placeholder={t('pms.createReservation.roomTypePlaceholder')} value={form.room_type_requested} onChange={(e) => setForm({ ...form, room_type_requested: e.target.value })} />
+              {roomTypes.length > 0 ? (
+                <Select value={form.room_type_requested || undefined} onValueChange={(v) => setForm({ ...form, room_type_requested: v })}>
+                  <SelectTrigger aria-label={t('pms.createReservation.roomType')}><SelectValue placeholder={t('pms.createReservation.roomTypePlaceholder')} /></SelectTrigger>
+                  <SelectContent>
+                    {roomTypes.map((name) => <SelectItem key={name} value={name}>{name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input placeholder={t('pms.createReservation.roomTypePlaceholder')} value={form.room_type_requested} onChange={(e) => setForm({ ...form, room_type_requested: e.target.value })} />
+              )}
             </div>
           )}
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <Label>{t('pms.createReservation.ratePerNight')}</Label>
+              <Label>{t('pms.createReservation.ratePerNight').replace(/\((HUF|EUR|CZK|USD|GBP)\)/, `(${form.currency})`)}</Label>
               <Input type="number" min={0} value={form.rate_per_night} onChange={(e) => setForm({ ...form, rate_per_night: Number(e.target.value) })} />
             </div>
             <div>
