@@ -13,7 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Company {
@@ -121,7 +120,7 @@ export default function InvoicingSettings() {
     }
     const warning = company.environment === 'live'
       ? 'LIVE invoices are legally issued and may be sent to NAV. Verify the legal entity, registered tax number, company account, NAV connectivity, tax rules and delegated permissions before you continue.'
-      : 'Only enable this TEST account if the Számlázz.hu account really is in Tesztüzem. Test documents are not real invoices.';
+      : 'HotelCare cannot switch Számlázz.hu to test mode by itself. Confirm that this provider account is actually in Tesztüzem before enabling; otherwise real invoices could be issued.';
     if (!window.confirm(warning)) return;
     void action('enable', { issuer_id: company.id, confirm: true,
       nav_confirmed: company.environment === 'live',
