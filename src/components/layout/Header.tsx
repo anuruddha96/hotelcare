@@ -22,7 +22,7 @@ import { SubscriptionStatusMenu } from '@/components/layout/SubscriptionStatusMe
 import { RevenueAutomationNotifications } from '@/components/revenue/RevenueAutomationNotifications';
 import { AnnouncementsBell } from '@/components/system/AnnouncementsBell';
 import { ReputationAlertsBell } from '@/components/reputation/ReputationAlertsBell';
-import { Building2, CreditCard, LogOut, Settings, User } from 'lucide-react';
+import { Building2, CreditCard, FileText, LogOut, Settings, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { isExecutiveRole } from '@/lib/roleAccess';
@@ -222,7 +222,11 @@ export function Header() {
                 </DropdownMenuItem>
                 {(profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role)) && (
                   <>
-                    <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}>
+                    <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}`/admin/invoicing`) }>
+                      <FileText className="mr-2 h-4 w-4" />
+                      Legal companies & invoicing
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}`/billing`)}>
                       <CreditCard className="mr-2 h-4 w-4" />
                       Payments
                     </DropdownMenuItem>
