@@ -57,7 +57,7 @@ import {
 } from "../_shared/netRateFactor.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
 import { loadGuestStep, maxGuestGapFor, repairLadder } from "../_shared/rateSafety.ts";
-import { effectiveDateColumnBounds } from "../_shared/engineV2DateColumnLockstep.ts";
+import { effectiveDateColumnBounds, hotelDateSafetyBounds } from "../_shared/engineV2DateColumnLockstep.ts";
 import { confirmedHighImpactEvent, decideRevenueDirector, committedMovement, MOVEMENT_HISTORY_STATUSES } from "../_shared/engineV2RevenueDirector.ts";
 
 
@@ -864,11 +864,18 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
       const occ = occByDate.get(stayDate) ?? { pct: null, sold: null, left: null, revenue: null };
       // The €75 absolute boundary is deliberately ONLY for arrival today.
-      // Other nights retain Ottofiori's previous €80 minimum ADR boundary.
+      // Other nights retain Ottofiori's saved minimum ADR boundary. Resolve it
+      // once and reuse it for both the reference and every child cell so a
+      // cheaper guest-count sibling cannot slip below the whole-column floor.
+      const dateSafetyBounds = hotelDateSafetyBounds({
+        hotelId: String(rule.hotel_id),
+        daysOut,
+        hotelMin: hotelSafetyBounds.min,
+        hotelMax: hotelSafetyBounds.max,
+        ruleMinimumAdr: Number(rule.minimum_adr ?? 80),
+      });
       const refBounds = dateColumnLockstepEnabled
-        ? (rule.hotel_id === "ottofiori" && daysOut > 0
-          ? { ...hotelSafetyBounds, min: Math.max(hotelSafetyBounds.min, Number(rule.minimum_adr ?? 80)) }
-          : hotelSafetyBounds)
+        ? dateSafetyBounds
         : boundsFor(reference?.room_type_name ?? null, 2);
       const pendingEvent = eventUplift.get(stayDate);
       const last = lastDecisionByDate.get(stayDate);
@@ -971,7 +978,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         const prepared: Array<{ cell: typeof cells[number]; bounds: { min: number; max: number }; old: number; allowed: number }> = [];
         for (const cell of cells) {
           const old = whole(cell.price);
-          let resolvedBounds: { min: number; max: number; source: string } = hotelSafetyBounds;
+          let resolvedBounds: { min: number; max: number; source: string } = dateSafetyBounds;
 
           if (!dateColumnLockstepEnabled) {
             const cellBounds = boundsFor(cell.room_type_name, cell.occupancy);
@@ -986,8 +993,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             lockstep: dateColumnLockstepEnabled,
             cellMin: resolvedBounds.min,
             cellMax: resolvedBounds.max,
-            globalMin: globalSafetyMin,
-            globalMax: globalSafetyMax,
+            globalMin: dateSafetyBounds.min,
+            globalMax: dateSafetyBounds.max,
           });
           const allowed = headroom(effectiveBounds, old, dir);
           prepared.push({
