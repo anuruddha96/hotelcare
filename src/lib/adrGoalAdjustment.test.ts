@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookingGoalScope, buildGoalPriceChanges, calendarGoalRowScope, goalMonthRange } from "@/lib/adrGoalAdjustment";
+import { bookingGoalScope, buildGoalPriceChanges, calendarGoalRowScope, goalReservationRange } from "@/lib/adrGoalAdjustment";
 import type { RoomTypeRate } from "@/lib/revenueAnalytics";
 
 const rate = (date: string, type: string, occupancy: number, price: number): RoomTypeRate => ({
@@ -73,12 +73,17 @@ describe("ADR goal full calendar-row changes", () => {
     ]);
   });
 
-  it("covers the whole booking month by default rather than only the booked stay", () => {
-    expect(goalMonthRange("2026-12-10", "2026-12-10", "2026-11-14"))
-      .toEqual({ from: "2026-12-01", to: "2026-12-31" });
-    expect(calendarGoalRowScope(["Deluxe Twin Room"], "2026-12-01", "2026-12-31")).toHaveLength(31);
-    expect(goalMonthRange("2026-11-10", "2026-11-10", "2026-11-14"))
-      .toEqual({ from: "2026-11-14", to: "2026-11-30" });
+  it("defaults to only booked stay nights, never the full calendar month or checkout", () => {
+    const oneNight = goalReservationRange("2026-12-10", "2026-12-10", "2026-11-14");
+    expect(oneNight).toEqual({ from: "2026-12-10", to: "2026-12-10" });
+    expect(calendarGoalRowScope(["Deluxe Twin Room"], oneNight.from, oneNight.to))
+      .toEqual([{ stayDate: "2026-12-10", roomTypeName: "Deluxe Twin Room" }]);
+    expect(goalReservationRange("2026-12-10", "2026-12-12", "2026-11-14"))
+      .toEqual({ from: "2026-12-10", to: "2026-12-12" });
+    expect(goalReservationRange("2026-11-10", "2026-11-17", "2026-11-14"))
+      .toEqual({ from: "2026-11-14", to: "2026-11-17" });
+    expect(goalReservationRange("2026-11-01", "2026-11-07", "2026-11-14"))
+      .toEqual({ from: "", to: "" });
   });
 
   it("blocks a partial room row when a required occupancy price is missing", () => {
