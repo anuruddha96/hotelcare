@@ -15,6 +15,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { addFolioItem, checkOutReservation, LifecycleError } from '@/lib/pmsLifecycle';
 import { formatMoney, reservationGuestLabel } from '@/lib/reservations';
 import { InvoiceDialog } from '@/components/frontdesk/InvoiceDialog';
+import { AddChargeDialog } from '@/components/frontdesk/AddChargeDialog';
 
 interface CheckOutDialogProps {
   reservation: any;
@@ -36,6 +37,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
   const [payMethod, setPayMethod] = useState('card');
   const [payBusy, setPayBusy] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [chargeOpen, setChargeOpen] = useState(false);
 
   const payMethods: Array<{ value: string; key: string }> = [
     { value: 'card', key: 'pms.pay.card' },
@@ -195,6 +197,9 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
           <Button type="button" variant="outline" className="gap-1.5 sm:mr-auto" onClick={() => setInvoiceOpen(true)} data-training="fd-checkout-invoice">
             <FileText className="h-4 w-4" /> {t('pms.inv.title')}
           </Button>
+          <Button type="button" variant="outline" className="gap-1.5" title={t('pms.charge.tip')} onClick={() => setChargeOpen(true)} data-training="fd-checkout-charge">
+            ➕ {t('pms.charge.add')}
+          </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckOut}
@@ -206,6 +211,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
             <LogOut className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : t('pms.checkOut')}
           </Button>
         </DialogFooter>
+        <AddChargeDialog reservation={reservation} open={chargeOpen} onOpenChange={setChargeOpen} onAdded={(due) => setBalance(due)} />
         {invoiceOpen && (
           <InvoiceDialog
             reservation={reservation}
