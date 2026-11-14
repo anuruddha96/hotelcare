@@ -222,11 +222,11 @@ export function Header() {
                 </DropdownMenuItem>
                 {(profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role)) && (
                   <>
-                    <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}`/admin/invoicing`) }>
+                    <DropdownMenuItem onClick={() => navigate('/' + (profile?.organization_slug ?? '') + '/admin/invoicing')>
                       <FileText className="mr-2 h-4 w-4" />
                       Legal companies & invoicing
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}`/billing`)}>
+                    <DropdownMenuItem onClick={() => navigate('/' + (profile?.organization_slug ?? '') + '/billing')}>
                       <CreditCard className="mr-2 h-4 w-4" />
                       Payments
                     </DropdownMenuItem>
