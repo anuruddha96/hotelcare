@@ -185,7 +185,7 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
               <div><p className="text-xs text-muted-foreground">Invoice issued by</p>
                 <p className="font-semibold">{issuer.legal_name}</p></div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={issuer.environment === 'test' ? 'secondary' : 'default'}>{issuer.environment === 'test' ? 'TEST — sample documents only' : 'LIVE — legal invoice'}</Badge>
+                <Badge variant={issuer.environment === 'test' ? 'secondary' : 'default'}>{issuer.environment === 'test' ? 'TEST — verify provider Tesztüzem' : 'LIVE — legal invoice'}</Badge>
                 {issuer.invoice_prefix && <Badge variant="outline">Prefix: {issuer.invoice_prefix}</Badge>}
               </div>
             </div>}
