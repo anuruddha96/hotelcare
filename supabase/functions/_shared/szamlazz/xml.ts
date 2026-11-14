@@ -258,14 +258,16 @@ export function buildPaymentXml(agentKey: AgentCredential, invoiceNumber: string
   if (!invoiceNumber) throw new Error("Invoice number is required");
   if (payments.length === 0 || payments.length > 5) throw new Error("1–5 payment entries are required");
   const items = payments.map((p) =>
-    "<kifizetes>" + tag("datum", p.date) + tag("jogcim", p.title) + tag("osszeg", p.amount) + tag("megjegyzes", p.comment) + "</kifizetes>"
+    "<kifizetes>" + tag("datum", p.date) + tag("jogcim", p.title) + tag("osszeg", p.amount) + tag("leiras", p.comment) + "</kifizetes>"
   ).join("");
   return `<?xml version="1.0" encoding="UTF-8"?>` +
     `<xmlszamlakifiz xmlns="http://www.szamlazz.hu/xmlszamlakifiz" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
     `xsi:schemaLocation="http://www.szamlazz.hu/xmlszamlakifiz https://www.szamlazz.hu/szamla/docs/xsds/agentkifiz/xmlszamlakifiz.xsd">` +
+    "<beallitasok>" +
     authXml(agentKey) +
     tag("szamlaszam", invoiceNumber) +
     tag("additiv", additive) +
+    "</beallitasok>" +
     items +
     "</xmlszamlakifiz>";
 }
