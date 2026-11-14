@@ -15,18 +15,20 @@ HotelCare's PMS guest invoicing is separate from HotelCare's own SaaS subscripti
 
 **Official seller identity:** The legally registered seller name, address, tax number and NAV details shown on the Számlázz.hu invoice come from the actual connected **provider account**. Editing the corresponding profile in HotelCare does not modify the provider account. Verify the two match before enabling.
 
-## Mandatory secrets and rollout order
+## Deployment and rollout order
 
-1. Generate a random 32-byte symmetric encryption key **outside GitHub or chat**, for example using `openssl rand -base64 32`.
-2. Set Supabase **Edge Functions secret** `SZAMLAZZ_CONFIG_ENCRYPTION_KEY` to the generated base64 string. Treat this as a critical long-lived secret. Back it up in approved secure storage; losing it makes encrypted provider credentials unusable.
-3. Apply migration `supabase/migrations/20261114210000_invoicing_company_accounts.sql` **before** deploying changed invoicing functions or frontend.
-4. Deploy the Edge functions `invoice-issuers-admin` and updated `szamlazz-invoice` and shared code. Check JWT verification configuration and production access.
-5. Deploy the frontend only after schema and functions pass authenticated role-scoping, test/live, and provider API tests. Until then, users should continue using the existing feature state.
-6. In the Számlázz.hu website, create a dedicated **TEST** account with no previous live invoices, and turn on **Tesztüzem** before obtaining its key. Do not touch the existing production accounts while testing. The HotelCare TEST label does *not* enable test mode on Számlázz.hu. Test invoices can still be live if the incorrect API credentials are entered.
-7. From HotelCare's administrator account: select the correct organization/hotel, add the legal company, fill registered details, enter the Agent key in the password field, save, assign the issuer to a test hotel, then explicitly enable it after provider test-mode verification.
-8. On a test reservation: view the selected issuer; issue a proforma, then an e-invoice; download the PDF and verify TEST watermark; test payment registration and storno, then review `guest_invoices`, `invoice_issuer_audit` and `reservation_events` for correct issuer and hotel isolation.
-9. Before **LIVE** activation have the accountant approve tax codes, invoice dates, fulfillment rules, local tax/IFA treatment, foreign currency/MNB rate, invoice prefix, and Számlázz.hu's NAV Online Számla connection. Only the admin may enable it with explicit acknowledgment. Do not infer NAV status from the checkbox.
-10. Test rotating credentials, disabling company, hotel reassignment, access denial (other org, receptionist, hotel manager), and retrieving/stornoing invoices from a previously assigned legal company.
+1. Apply `supabase/migrations/20261114210000_invoicing_company_accounts.sql` to create company profiles, hotel assignments, and audit tables.
+2. Apply `supabase/migrations/20261114222000_invoice_issuer_vault_key.sql`. This generates a unique **32-byte AES-GCM encryption key directly inside Supabase Vault** if absent. The key is stored encrypted by Vault and is retrievable **only** by the service role's protected RPC. No plaintext key is committed to GitHub, passed through chat, or typed into the browser.
+3. Deploy `invoice-issuers-admin` and `szamlazz-invoice` plus their shared code. Both verify the user JWT and hotel authorization in application code; gateway JWT checking remains off for compatibility with the current Supabase Auth signing mode. Test authorization on both functions.
+4. Deploy the admin interface and reception invoice editor only after steps 1–3.
+5. Use the company account's own Számlázz.hu Agent key only inside the administrator form. The app encrypts the key with the Vault-held key before storing it. It never reveals keys to browser readers or other companies.
+6. For external provider testing, create a **separate Számlázz.hu test-mode account**; confirm actual **Tesztüzem** before issuing any document. The HotelCare TEST label does *not* change provider account mode; no account may be assumed to be in test mode from the label alone.
+7. In HotelCare Admin: select a hotel, add legal company, enter Agent key, save, assign company to test hotel, then explicitly enable.
+8. On an authorized test reservation: issue a proforma and an e-invoice, download a PDF and verify TEST watermark, test payment registration/storno and audit records.
+9. Before **LIVE** activation have the accountant approve tax codes, invoice dates, fulfillment rules, local IFA treatment, currency/MNB rate, prefix, and Számlázz.hu's NAV connection. Live activation requires deliberate admin acknowledgment; a checkbox cannot verify provider state.
+10. Test credential rotation, company reassignment, historical invoice retrieval, role denial, and other-organization isolation.
+
+**Key management:** The Vault encryption key must never be rotated without re-encrypting all existing `invoice_issuers` credentials. Supabase Vault's root key is stored outside your database; database backups retain encrypted secrets. The `invoice_credential_key_internal()` RPC is service-role-only. Do **not** create a conflicting `SZAMLAZZ_CONFIG_ENCRYPTION_KEY` Edge Function secret; this implementation uses Vault instead.
 
 ## Delegated invoicing (issuing on behalf of a different supplier)
 
