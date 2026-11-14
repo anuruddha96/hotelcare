@@ -90,16 +90,14 @@ Deno.serve(async (req) => {
       const newSecret = field(input, "credential", 512);
       const username = field(input, "username", 200);
       const password = field(input, "password", 256);
-      if ((newSecret || username || password) && !Deno.env.get("SZAMLAZZ_CONFIG_ENCRYPTION_KEY")) {
-        throw new InputError("Secure credential storage is not initialized. Add SZAMLAZZ_CONFIG_ENCRYPTION_KEY to Supabase Edge Function Secrets.", 409);
-      }
+      // Vault-managed key availability is checked when encrypting credentials.
       let secret: { credential_ciphertext: string; credential_iv: string } | object = {};
       if (clean.connection_mode === "own_account") {
-        if (newSecret) secret = await encryptProviderAuth({ agentKey: newSecret });
+        if (newSecret) secret = await encryptProviderAuth({ agentKey: newSecret }, db);
       } else if (username || password) {
         if (!username || !password) throw new InputError("Both delegated user email and password are required");
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username)) throw new InputError("Invalid delegated user email");
-        secret = await encryptProviderAuth({ username, password } as ProviderAuth);
+        secret = await encryptProviderAuth({ username, password } as ProviderAuth, db);
       }
       const modeChanged = !!existing && existing.connection_mode !== clean.connection_mode;
       if (modeChanged && !Object.keys(secret).length) throw new InputError("Enter credentials when changing connection type");
