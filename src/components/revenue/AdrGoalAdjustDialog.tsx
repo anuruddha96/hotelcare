@@ -102,6 +102,7 @@ export default function AdrGoalAdjustDialog({
     setRates(null);
     setError(null);
     if (!rangeValid) {
+      setLoading(false);
       setError("Choose future dates in a period of no more than 366 days.");
       return () => { active = false; };
     }
