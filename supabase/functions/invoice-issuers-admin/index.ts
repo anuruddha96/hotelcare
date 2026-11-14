@@ -90,6 +90,9 @@ Deno.serve(async (req) => {
       const newSecret = field(input, "credential", 512);
       const username = field(input, "username", 200);
       const password = field(input, "password", 256);
+      if ((newSecret || username || password) && !Deno.env.get("SZAMLAZZ_CONFIG_ENCRYPTION_KEY")) {
+        throw new InputError("Secure credential storage is not initialized. Add SZAMLAZZ_CONFIG_ENCRYPTION_KEY to Supabase Edge Function Secrets.", 409);
+      }
       let secret: { credential_ciphertext: string; credential_iv: string } | object = {};
       if (clean.connection_mode === "own_account") {
         if (newSecret) secret = await encryptProviderAuth({ agentKey: newSecret });
