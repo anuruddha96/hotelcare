@@ -6,6 +6,8 @@ const settings = {
  ...DEFAULT_DECISION_SETTINGS, now:new Date('2026-11-05T12:00:00Z'),minMovementEur:1,
  directionChangeHours:3, maxMarkdownsPerDay:4, maxMarkdownDepthPct:25, rebookWindowHours:12, bookedDateBrakeHours:12,
  fill:{enabled:true,windowDays:120,maxTotalDropPct:25},
+ // Production Ottofiori ladder (14 Nov 2026): lifts from day 0 on scarce, high-occupancy dates.
+ occupancyLiftLadder:[{min_occupancy_pct:90,min_days_out:0,pct:12,min_eur:15},{min_occupancy_pct:85,min_days_out:0,pct:10,min_eur:12},{min_occupancy_pct:80,min_days_out:3,pct:8,min_eur:10},{min_occupancy_pct:75,min_days_out:7,pct:6,min_eur:8},{min_occupancy_pct:70,min_days_out:14,pct:5,min_eur:6},{min_occupancy_pct:60,min_days_out:30,pct:4,min_eur:5},{min_occupancy_pct:50,min_days_out:60,pct:3,min_eur:4}],
  windowRules:[
  {id:'w0_2',min_days_out:0,max_days_out:2,max_daily_decrease:12,max_daily_increase:12,no_pickup_wait_hours:2,min_hours_between_decreases:2,require_above_anchor:false},
  {id:'w3_7',min_days_out:3,max_days_out:7,max_daily_decrease:10,max_daily_increase:15,no_pickup_wait_hours:3,min_hours_between_decreases:3,require_above_anchor:false},
@@ -20,31 +22,37 @@ test('only committed movements consume budgets and cooldowns',()=>{
  for(const status of ['held','shadow','superseded','failed'])assert.equal(committedMovement({status,direction:'decrease',movement:-6}),false);
  for(const status of ['queued','accepted','confirmed','published','partial'])assert.equal(committedMovement({status,direction:'decrease',movement:-6}),true);
 });
-test('unprotected final-week rooms sell down; high occupancy is protected',()=>{
+test('unprotected final-week rooms sell down; scarce high-occupancy inventory lifts on fresh demand',()=>{
  for(const daysOut of [0,1,4,7]) {
  assert.equal(decide({daysOut,roomsRemaining:5,occupancyPct:71.4}).direction,'decrease');
- assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,observedPickup6h:2}).direction,'hold');
+ // The last room with two bookings in six hours is never cut; future dates lift, today holds.
+ assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,observedPickup6h:2}).direction, daysOut===0?'hold':'increase');
  }
+ // Scarce inventory without fresh demand holds its price rather than discounting.
+ assert.equal(decide({daysOut:5,roomsRemaining:2,occupancyPct:90.5,hoursSinceLastPickup:80}).reason,'strong_demand_protected');
 });
-test('last four days can sell a quiet final room, while fresh demand and real events protect it',()=>{
- for (const daysOut of [0,1,2,3]) {
-  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).movement, daysOut===0 ? -2 : -1);
-  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:2}).direction,'hold');
-  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8},{confirmedHighEvent:true}).direction,'hold');
+test('the last room is never discounted close in; it lifts while demand is fresh and holds otherwise',()=>{
+ for (const daysOut of [1,2,3,4]) {
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).direction,'increase');
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8},{confirmedHighEvent:true}).direction,'increase');
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8,lastDirection:'increase',lastDecisionAt:'2026-11-05T10:00:00Z'}).reason,'occupancy_lift_spacing');
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:80}).direction,'hold');
  }
- assert.equal(decide({daysOut:4,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).direction,'hold');
+ // Arrival day: strong occupancy holds its price until the evening instead of an hourly rescue cut.
+ assert.equal(decide({daysOut:0,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).reason,'same_day_strong_occupancy');
 });
 test('same-day genuine pickup holds instead of discounting a converting offer',()=>{
  assert.equal(decide({daysOut:0,occupancyPct:95.2,roomsRemaining:1,pickup24h:1,pickup6h:1,hoursSinceLastPickup:0.2}).direction,'hold');
 });
-test('one soft-date conversion earns a small uplift, fast pickup earns more',()=>{
- assert.equal(decide({pickup24h:1,pickup6h:1}).movement,2);
- assert.ok(decide({pickup24h:3,pickup6h:3}).movement>2);
- assert.equal(decide({daysOut:2,pickup24h:1,pickup6h:1}).movement,1);
+test('every genuine booking earns the full lead-time ladder step; more bookings earn more',()=>{
+ assert.equal(decide({pickup24h:1,pickup6h:1}).movement,8); // 8–30 days: one=8
+ assert.ok(decide({pickup24h:3,pickup6h:3}).movement>8);
+ assert.equal(decide({daysOut:2,pickup24h:1,pickup6h:1}).movement,4); // 0–2 days: one=4
 });
-test('single-booking uplift cap applies even at high occupancy',()=>{
+test('scarce high-occupancy inventory earns a larger pickup rise, bounded by the daily window cap',()=>{
  assert.equal(decide({daysOut:0,occupancyPct:90.5,roomsRemaining:2,pickup24h:1,pickup6h:1}).direction,'hold');
- assert.equal(decide({daysOut:40,occupancyPct:90.5,roomsRemaining:2,pickup24h:1,pickup6h:1}).movement,2);
+ const d=decide({daysOut:40,occupancyPct:90.5,roomsRemaining:2,pickup24h:1,pickup6h:1});
+ assert.equal(d.direction,'increase'); assert.equal(d.movement,22); assert.equal(d.capApplied,22);
  assert.equal(decide({daysOut:0,occupancyPct:90.5,roomsRemaining:2,pickup24h:3,pickup6h:3}).direction,'hold');
 });
 test('consumed pickup cannot repeat an increase, while booked-price brake prevents immediate cut',()=>{
@@ -100,12 +108,13 @@ test('audit detail reports the applied reduction after the daily cap clips the r
 test('no-pickup waits and far-date reduction frequency prevent hourly churn',()=>{
  assert.equal(decide({daysOut:90,hoursSinceLastPickup:5}).direction,'hold');
  assert.equal(decide({daysOut:90,lastDecreaseAt:'2026-11-05T10:00:00Z'}).direction,'hold');
- assert.equal(decide({daysOut:90,hoursSinceLastPickup:48}).movement,-2);
+ assert.equal(decide({daysOut:90,hoursSinceLastPickup:48}).movement,-4); // 15 points behind pace
 });
-test('quiet soft dates reduce without requiring fresh competitor data or a pace deficit',()=>{
- const base={daysOut:35,occupancyPct:64,roomsRemaining:8,currentPrice:220};
+test('quiet dates behind pace reduce without competitor data; on-pace dates hold',()=>{
+ const base={daysOut:35,occupancyPct:40,roomsRemaining:13,currentPrice:220};
  for(const market of [{median:null,sampleSize:0,ageHours:null},{median:150,sampleSize:1,ageHours:1},{median:150,sampleSize:4,ageHours:90}])
  assert.equal(decide({...base,market}).direction,'decrease');
+ assert.equal(decide({daysOut:35,occupancyPct:64,roomsRemaining:8,currentPrice:220}).reason,'on_pace');
 });
 test('a booking can raise, then a genuinely quiet interval can lower on the same local day',()=>{
  const rise=decide({pickup24h:1,pickup6h:1,unspentPickupInQuietWindow:1});
@@ -142,10 +151,11 @@ test('same-day step becomes more aggressive as the Budapest day advances',()=>{
  assert.equal(sameDayMarkdownStep(18*60,1),5);
  assert.equal(sameDayMarkdownStep(18*60,4),6);
 });
-test('same-day hourly markdown is €2 before 15h, €5 after 18h and respects a €75 floor',()=>{
+test('same-day hourly markdown is €2 before 15h, €5 after 20h and respects a €75 floor',()=>{
  const today={daysOut:0,stayDate:'2026-11-05',roomsRemaining:1,occupancyPct:95.2,currentPrice:199,minPrice:75,hoursSinceLastPickup:25,observedPickup6h:0};
- assert.equal(decide(today).movement,-2);
- const late={...settings,now:new Date('2026-11-05T18:30:00Z')}; // 19:30 Budapest
+ assert.equal(decide(today).reason,'same_day_strong_occupancy'); // >=90% holds until 20:00
+ assert.equal(decide({...today,roomsRemaining:2,occupancyPct:81}).movement,-2);
+ const late={...settings,now:new Date('2026-11-05T19:30:00Z')}; // 20:30 Budapest
  assert.equal(decideRevenueDirector(input({...today,currentPrice:81}),late,context).movement,-5);
  assert.equal(decideRevenueDirector(input({...today,currentPrice:76}),late,context).movement,-1);
  assert.equal(decideRevenueDirector(input({...today,currentPrice:75}),late,context).direction,'hold');
