@@ -13,6 +13,8 @@ HotelCare's PMS guest invoicing is separate from HotelCare's own SaaS subscripti
 * Reception can see the legal issuer (without its credentials) and select language, due date, and electronic invoice; still supports proforma, invoice, PDF, cancellation/storno and payment registration.
 * Issued invoice records keep their original issuer_id for PDF, storno, payment and audit after a hotel is reassigned. Legacy invoice records without issuer_id still use legacy `SZAMLAZZ_AGENT_KEY` for retrieval if available. New invoice numbers are unique **per issuer**, while old unmapped invoices keep legacy uniqueness per organization.
 
+**Official seller identity:** The legally registered seller name, address, tax number and NAV details shown on the Számlázz.hu invoice come from the actual connected **provider account**. Editing the corresponding profile in HotelCare does not modify the provider account. Verify the two match before enabling.
+
 ## Mandatory secrets and rollout order
 
 1. Generate a random 32-byte symmetric encryption key **outside GitHub or chat**, for example using `openssl rand -base64 32`.
