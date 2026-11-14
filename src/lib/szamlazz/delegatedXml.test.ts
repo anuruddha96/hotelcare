@@ -51,3 +51,12 @@ describe("company-specific Számla Agent authentication", () => {
     })).toThrow("Provider authentication is required");
   });
 });
+
+describe("payment XML validates provider structure", () => {
+  it("places authentication and invoice number inside settings, with payments as siblings", () => {
+    const xml = buildPaymentXml("test-agent", "TEST-101", [{ date:"2026-11-14", title:"bankkártya", amount:10500, comment:"Deposit" }], true);
+    expect(xml).toContain("<beallitasok><szamlaagentkulcs>test-agent</szamlaagentkulcs><szamlaszam>TEST-101</szamlaszam><additiv>true</additiv></beallitasok><kifizetes>");
+    expect(xml).toContain("<leiras>Deposit</leiras>");
+    expect(xml).not.toContain("<megjegyzes>Deposit</megjegyzes>");
+  });
+});
