@@ -261,7 +261,6 @@ export default function PickupMovementBoard({
                             onClick={() => setGoalAdjust({
                               from: row.from,
                               to: addDays(row.checkout, -1),
-                              roomTypeName: row.rooms.length === 1 ? row.rooms[0].roomType : null,
                               label: `#${row.resId} · ${fmtDay(row.from)} – ${fmtDay(row.checkout)} (checkout)`,
                               goalDelta: goalGap,
                               bookedAdr: adr,
