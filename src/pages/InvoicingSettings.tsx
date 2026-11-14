@@ -190,7 +190,7 @@ export default function InvoicingSettings() {
             </CardContent></Card>
         </div>
         <Card><CardHeader><CardTitle className="text-lg">{form.id ? 'Edit company' : 'New company'}</CardTitle>
-          <p className="text-xs text-muted-foreground">Editing a connected company pauses invoice issuance until an administrator reviews and enables it again.</p></CardHeader>
+          <p className="text-xs text-muted-foreground">Editing a connected company pauses invoice issuance until an administrator reviews and enables it again. The official seller identity printed on invoices comes from the connected Számlázz.hu account; editing these HotelCare fields does not update that provider account.</p></CardHeader>
           <CardContent className="space-y-5">
             <section className="space-y-3">
               <h2 className="text-sm font-semibold">Legal business details</h2>
