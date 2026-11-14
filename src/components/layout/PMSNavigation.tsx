@@ -1,159 +1,16 @@
-import { useLocation, useParams, Link } from 'react-router-dom';
-import { useAuth } from '@/hooks/useAuth';
-import { useTranslation } from '@/hooks/useTranslation';
-import { canAccessLegacyModules } from '@/lib/roleAccess';
-import {
-  Wrench,
-  DoorOpen,
-  Users,
-  Clock,
-  Radio,
-  TrendingUp,
-  Receipt,
-  CalendarRange
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
 
-type NavigationItem = {
-  key: string;
-  icon: typeof DoorOpen;
-  label: string;
-  href: (basePath: string) => string;
-  roles: string[];
-};
-
-const MANAGEMENT_ROLES = [
-  'admin',
-  'manager',
-  'housekeeping_manager',
-  'top_management',
-  'top_management_manager',
-];
-
-const PMS_NAV_ITEMS: NavigationItem[] = [
-  {
-    key: 'maintenance',
-    icon: Wrench,
-    label: 'Maintenance',
-    href: (basePath) => `${basePath}?tab=tickets`,
-    roles: MANAGEMENT_ROLES,
-  },
-  {
-    key: 'reception',
-    icon: DoorOpen,
-    label: 'Reception',
-    href: (basePath) => `${basePath}/reception`,
-    roles: [...MANAGEMENT_ROLES, 'reception', 'front_office'],
-  },
-  {
-    key: 'housekeeping',
-    icon: Users,
-    label: 'Housekeeping',
-    href: (basePath) => `${basePath}?tab=housekeeping`,
-    roles: MANAGEMENT_ROLES,
-  },
-  {
-    key: 'hr',
-    icon: Clock,
-    label: 'HR',
-    href: (basePath) => `${basePath}?tab=attendance`,
-    roles: MANAGEMENT_ROLES,
-  },
-  {
-    key: 'revenue',
-    icon: TrendingUp,
-    label: 'Revenue Management',
-    href: (basePath) => `${basePath}/revenue`,
-    roles: ['admin', 'top_management', 'top_management_manager'],
-  },
-  {
-    key: 'rates-availability',
-    icon: CalendarRange,
-    label: 'Rates & Availability',
-    href: (basePath) => `${basePath}/rates-availability`,
-    roles: ['admin', 'manager', 'reception', 'front_office', 'top_management', 'top_management_manager'],
-  },
-  {
-    key: 'channel-manager',
-    icon: Radio,
-    label: 'Channel Manager',
-    href: (basePath) => `${basePath}/channel-manager`,
-    roles: ['admin', 'manager', 'top_management', 'top_management_manager'],
-  },
-  {
-    key: 'purchase-invoices',
-    icon: Receipt,
-    label: 'Invoices',
-    href: (basePath) => `${basePath}/purchase-invoices`,
-    roles: [],
-  },
-];
-
+/**
+ * Kept for existing pages (Reservations, Guests, Rates, Channel Manager…).
+ * Renders the single shared module navigation so every page shows the same
+ * tabs, names and order.
+ */
 export function PMSNavigation() {
-  const location = useLocation();
-  const { organizationSlug } = useParams<{ organizationSlug: string }>();
-  const { profile } = useAuth();
-  const { t } = useTranslation();
-  const basePath = `/${organizationSlug || 'rdhotels'}`;
-
-  const visibleItems = PMS_NAV_ITEMS.filter((item) => {
-    if (!profile) return false;
-    if (item.key === 'purchase-invoices') return canAccessLegacyModules(profile.nickname);
-    // Native rates & availability exists only where HotelCare is the main PMS (Channex sandbox for now).
-    if (item.key === 'rates-availability' && organizationSlug !== 'channex') return false;
-    return item.roles.includes(profile.role);
-  });
-
-  if (!profile || visibleItems.length === 0) return null;
-
-  const isReceptionPath =
-    location.pathname.startsWith(`${basePath}/reception`) ||
-    location.pathname.startsWith(`${basePath}/reservations`) ||
-    location.pathname.startsWith(`${basePath}/front-desk`) ||
-    location.pathname.startsWith(`${basePath}/guests`);
-
-  const activeKey = (() => {
-    if (isReceptionPath) return 'reception';
-    if (location.pathname.startsWith(`${basePath}/revenue`)) return 'revenue';
-    if (location.pathname.startsWith(`${basePath}/rates-availability`)) return 'rates-availability';
-    if (location.pathname.startsWith(`${basePath}/channel-manager`)) return 'channel-manager';
-    if (location.pathname.startsWith(`${basePath}/purchase-invoices`)) return 'purchase-invoices';
-    if (location.pathname === basePath || location.pathname === `${basePath}/`) {
-      const tab = new URLSearchParams(location.search).get('tab');
-      if (tab === 'tickets') return 'maintenance';
-      if (tab === 'attendance') return 'hr';
-      return 'housekeeping';
-    }
-    return '';
-  })();
-
   return (
-    <nav className="w-full bg-card border-b border-border" aria-label={t('pms.operations')}>
-      <div className="container mx-auto px-3 sm:px-4">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide py-1">
-          {visibleItems.map((item) => {
-            const isActive = activeKey === item.key;
-            return (
-              <Link key={item.key} to={item.href(basePath)}>
-                <Button
-                  variant={isActive ? 'default' : 'ghost'}
-                  size="sm"
-                  className={cn(
-                    'shrink-0 gap-1.5 text-xs',
-                    isActive
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{item.label}</span>
-                </Button>
-              </Link>
-            );
-          })}
-        </div>
+    <div className="w-full bg-card border-b border-border">
+      <div className="container mx-auto px-3 sm:px-4 py-1.5">
+        <OperationsNavigation />
       </div>
-    </nav>
+    </div>
   );
 }
