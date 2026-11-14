@@ -127,8 +127,18 @@ export interface Seller {
   emailBody?: string;
 }
 
+export type AgentCredential = string | { username: string; password: string };
+
+function authXml(credentials: AgentCredential): string {
+  if (typeof credentials === "string") return tag("szamlaagentkulcs", credentials);
+  if (!credentials.username || !credentials.password) throw new Error("Delegated user and password are required");
+  return tag("felhasznalo", credentials.username) + tag("jelszo", credentials.password);
+}
+
 export interface InvoiceOptions {
-  agentKey: string;
+  agentKey?: string;
+  delegatedUser?: string;
+  delegatedPassword?: string;
   eInvoice?: boolean;       // default false → PDF invoice
   downloadPdf?: boolean;    // default false; PDF fetched on demand via buildPdfQueryXml
   proforma?: boolean;       // díjbekérő
@@ -149,7 +159,7 @@ export interface InvoiceOptions {
 }
 
 export function buildInvoiceXml(o: InvoiceOptions): string {
-  if (!o.agentKey) throw new Error("Agent key is required");
+  if (!o.agentKey && !(o.delegatedUser && o.delegatedPassword)) throw new Error("Provider authentication is required");
   if (o.lines.length === 0) throw new Error("At least one invoice line is required");
   const nonHuf = o.currency.toUpperCase() !== "HUF";
   if (nonHuf && !o.exchangeBank) throw new Error("exchangeBank (e.g. MNB) is required for non-HUF invoices");
@@ -170,7 +180,7 @@ export function buildInvoiceXml(o: InvoiceOptions): string {
     `<xmlszamla xmlns="http://www.szamlazz.hu/xmlszamla" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
     `xsi:schemaLocation="http://www.szamlazz.hu/xmlszamla https://www.szamlazz.hu/szamla/docs/xsds/agent/xmlszamla.xsd">` +
     "<beallitasok>" +
-    tag("szamlaagentkulcs", o.agentKey) +
+    authXml(o.agentKey || { username: o.delegatedUser!, password: o.delegatedPassword! }) +
     tag("eszamla", o.eInvoice === true) +
     tag("szamlaLetoltes", o.downloadPdf === true) +
     tag("valaszVerzio", 1) +
@@ -210,13 +220,13 @@ export function buildInvoiceXml(o: InvoiceOptions): string {
     "</xmlszamla>";
 }
 
-export function buildStornoXml(agentKey: string, invoiceNumber: string, eInvoice = false): string {
+export function buildStornoXml(agentKey: AgentCredential, invoiceNumber: string, eInvoice = false): string {
   if (!invoiceNumber) throw new Error("Invoice number is required");
   return `<?xml version="1.0" encoding="UTF-8"?>` +
     `<xmlszamlast xmlns="http://www.szamlazz.hu/xmlszamlast" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
     `xsi:schemaLocation="http://www.szamlazz.hu/xmlszamlast https://www.szamlazz.hu/szamla/docs/xsds/agentst/xmlszamlast.xsd">` +
     "<beallitasok>" +
-    tag("szamlaagentkulcs", agentKey) +
+    authXml(agentKey) +
     tag("eszamla", eInvoice) +
     tag("szamlaLetoltes", false) +
     "</beallitasok>" +
@@ -226,14 +236,12 @@ export function buildStornoXml(agentKey: string, invoiceNumber: string, eInvoice
     "</xmlszamlast>";
 }
 
-export function buildPdfQueryXml(agentKey: string, invoiceNumber: string): string {
+export function buildPdfQueryXml(agentKey: AgentCredential, invoiceNumber: string): string {
   if (!invoiceNumber) throw new Error("Invoice number is required");
   return `<?xml version="1.0" encoding="UTF-8"?>` +
     `<xmlszamlapdf xmlns="http://www.szamlazz.hu/xmlszamlapdf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
     `xsi:schemaLocation="http://www.szamlazz.hu/xmlszamlapdf https://www.szamlazz.hu/szamla/docs/xsds/agentpdf/xmlszamlapdf.xsd">` +
-    tag("felhasznalo", "") +
-    tag("jelszo", "") +
-    tag("szamlaagentkulcs", agentKey) +
+    authXml(agentKey) +
     tag("szamlaszam", invoiceNumber) +
     tag("valaszVerzio", 1) +
     "</xmlszamlapdf>";
@@ -246,7 +254,7 @@ export interface PaymentEntry {
   comment?: string;
 }
 
-export function buildPaymentXml(agentKey: string, invoiceNumber: string, payments: PaymentEntry[], additive = false): string {
+export function buildPaymentXml(agentKey: AgentCredential, invoiceNumber: string, payments: PaymentEntry[], additive = false): string {
   if (!invoiceNumber) throw new Error("Invoice number is required");
   if (payments.length === 0 || payments.length > 5) throw new Error("1–5 payment entries are required");
   const items = payments.map((p) =>
@@ -255,7 +263,7 @@ export function buildPaymentXml(agentKey: string, invoiceNumber: string, payment
   return `<?xml version="1.0" encoding="UTF-8"?>` +
     `<xmlszamlakifiz xmlns="http://www.szamlazz.hu/xmlszamlakifiz" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
     `xsi:schemaLocation="http://www.szamlazz.hu/xmlszamlakifiz https://www.szamlazz.hu/szamla/docs/xsds/agentkifiz/xmlszamlakifiz.xsd">` +
-    tag("szamlaagentkulcs", agentKey) +
+    authXml(agentKey) +
     tag("szamlaszam", invoiceNumber) +
     tag("additiv", additive) +
     items +
