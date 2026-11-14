@@ -1,61 +1,60 @@
-# Számlázz.hu guest invoicing (Számla Agent)
+# Számlázz.hu: multiple legal companies in HotelCare
 
-Guest-facing invoices (proforma / díjbekérő, final invoice, storno, payment
-registration, PDF) issued from reception through the `szamlazz-invoice` edge
-function. The SaaS-billing use of Számlázz.hu in `billing-manage` is separate
-and unchanged.
+HotelCare's PMS guest invoicing is separate from HotelCare's own SaaS subscription billing.
 
-## One-time setup (owner does this; ~5 minutes, free)
+## What is now supported in this PR
 
-1. Register a free account at <https://www.szamlazz.hu> (use a dedicated
-   test account first — do **not** switch Hotel Memories' live account).
-2. On the dashboard turn on **Tesztüzem** ("Tesztüzem bekapcsolása"). This only
-   works on an account with no real invoices and no NAV connection; test-mode
-   invoices are free and carry a TEST watermark.
-3. Settings → **Számla Agent kulcsok** → generate an Agent key.
-4. Add it as a Supabase function secret named `SZAMLAZZ_AGENT_KEY`
-   (Dashboard → Edge Functions → Secrets). Never paste the key in chat, code
-   or the browser.
-5. In the app, the invoice panel's **status** call reports `configured: true`
-   once the secret is set. No redeploy needed.
+* An administrator can visit **Account menu → Legal companies & invoicing** at `/:organizationSlug/admin/invoicing`.
+* Register multiple **legal issuing companies**, including the exact legal name, Hungarian tax number, registered address, billing email, bank details, optional invoice prefix and invoice language.
+* Connect each company either to **its own Számla Agent key**, or to an **already approved delegated-invoicing dedicated user** (username/password).
+* Bind one issuer to each hotel. Only the **hotel's assigned and enabled** issuer can issue new guest invoices.
+* Credentials are encrypted at rest with AES-256-GCM; no credential is returned by the admin API. The browser sends credentials once over HTTPS to the authenticated admin Edge function. There is no direct client access to the credential tables.
+* Editing a company **disables** it until explicitly reviewed and re-enabled. Test/live are *operator labels*, **not** an API control that toggles the Számlázz.hu account itself.
+* Reception can see the legal issuer (without its credentials) and select language, due date, and electronic invoice; still supports proforma, invoice, PDF, cancellation/storno and payment registration.
+* Issued invoice records keep their original issuer_id for PDF, storno, payment and audit after a hotel is reassigned. Legacy invoice records without issuer_id still use legacy `SZAMLAZZ_AGENT_KEY` for retrieval if available. New invoice numbers are unique **per issuer**, while old unmapped invoices keep legacy uniqueness per organization.
 
-Going live later = replacing the secret with the production account's Agent
-key and confirming VAT defaults with the accountant. Nothing else changes.
+**Official seller identity:** The legally registered seller name, address, tax number and NAV details shown on the Számlázz.hu invoice come from the actual connected **provider account**. Editing the corresponding profile in HotelCare does not modify the provider account. Verify the two match before enabling.
 
-## What the function does
+## Mandatory secrets and rollout order
 
-`POST /functions/v1/szamlazz-invoice` with the signed-in user's JWT:
+1. Generate a random 32-byte symmetric encryption key **outside GitHub or chat**, for example using `openssl rand -base64 32`.
+2. Set Supabase **Edge Functions secret** `SZAMLAZZ_CONFIG_ENCRYPTION_KEY` to the generated base64 string. Treat this as a critical long-lived secret. Back it up in approved secure storage; losing it makes encrypted provider credentials unusable.
+3. Apply migration `supabase/migrations/20261114210000_invoicing_company_accounts.sql` **before** deploying changed invoicing functions or frontend.
+4. Deploy the Edge functions `invoice-issuers-admin` and updated `szamlazz-invoice` and shared code. Check JWT verification configuration and production access.
+5. Deploy the frontend only after schema and functions pass authenticated role-scoping, test/live, and provider API tests. Until then, users should continue using the existing feature state.
+6. In the Számlázz.hu website, create a dedicated **TEST** account with no previous live invoices, and turn on **Tesztüzem** before obtaining its key. Do not touch the existing production accounts while testing. The HotelCare TEST label does *not* enable test mode on Számlázz.hu. Test invoices can still be live if the incorrect API credentials are entered.
+7. From HotelCare's administrator account: select the correct organization/hotel, add the legal company, fill registered details, enter the Agent key in the password field, save, assign the issuer to a test hotel, then explicitly enable it after provider test-mode verification.
+8. On a test reservation: view the selected issuer; issue a proforma, then an e-invoice; download the PDF and verify TEST watermark; test payment registration and storno, then review `guest_invoices`, `invoice_issuer_audit` and `reservation_events` for correct issuer and hotel isolation.
+9. Before **LIVE** activation have the accountant approve tax codes, invoice dates, fulfillment rules, local tax/IFA treatment, foreign currency/MNB rate, invoice prefix, and Számlázz.hu's NAV Online Számla connection. Only the admin may enable it with explicit acknowledgment. Do not infer NAV status from the checkbox.
+10. Test rotating credentials, disabling company, hotel reassignment, access denial (other org, receptionist, hotel manager), and retrieving/stornoing invoices from a previously assigned legal company.
 
-| action    | roles                 | effect |
-|-----------|-----------------------|--------|
-| `status`  | all PMS view roles    | configured? + a reservation's invoices |
-| `prepare` | all PMS view roles    | suggested lines from the folio (no side effects) |
-| `issue`   | reception & managers  | create invoice or proforma from confirmed lines |
-| `storno`  | reception & managers  | reverse an issued invoice (one storno per invoice) |
-| `payment` | reception & managers  | register a payment on an issued invoice |
-| `pdf`     | all PMS view roles    | fetch the PDF (base64) |
+## Delegated invoicing (issuing on behalf of a different supplier)
 
-Rules enforced server-side:
+This is distinct from giving different hotels separate issuing accounts. The company issuing *for* a supplier needs authorization, and the supplier controls its Számlázz.hu account.
 
-- The caller confirms every line (description, quantity, unit, **gross** unit
-  price, VAT key); the server recomputes net/VAT/gross and rejects unknown VAT
-  keys. Defaults suggested by `prepare`: accommodation **5%**, services
-  **27%**, city tax (IFA) **THK** (outside VAT scope).
-- Every attempt is stored in `guest_invoices` *before* the API call
-  (status `pending` → `issued`/`failed`), so a crash can never lose an issued
-  invoice number. One pending attempt per reservation at a time; one storno
-  per invoice; invoice numbers unique per organization.
-- Non-HUF invoices are sent with MNB as the exchange-rate bank.
-- `invoice_issued` / `invoice_stornoed` land in `reservation_events`, so the
-  rest of HotelCare (BI, audit, reception timeline) sees them.
+* Establish and approve the delegated relationship in Számlázz.hu's UI for **existing** supplier accounts, or use its `action-agent_ceg_mb` API for automated onboarding. That special onboarding API needs a separate licence from Számlázz.hu support and is **not** implemented in this PR.
+* After the supplier approves, use a **dedicated username/password belonging to one supplier account only**. Users with multiple linked accounts return Agent error 164. The approved supplier's exact tax number and an agreed uppercase alphanumeric invoice prefix (1–5 characters) are essential.
+* For LIVE supplier invoicing the supplier's NAV Online Számla connection must be completed. HotelCare's setup form only records admin confirmation; it cannot validate external approval/NAV state automatically in this PR.
+* Reference: https://docs.szamlazz.hu/third-party-invoicing/ and https://docs.szamlazz.hu/third-party-invoicing/szamla-agent
 
-## Test checklist (once the secret is set)
+## APIs
 
-1. `status` → `configured: true`.
-2. On a test reservation with folio items: `prepare` → confirm lines →
-   `issue` kind `proforma`, then kind `invoice` (expect `szlahu_szamlaszam`
-   back as `invoice_number`).
-3. `pdf` → opens; TEST watermark visible.
-4. `payment` with the gross total → Számlázz.hu marks it settled.
-5. `storno` → storno number recorded, original stays listed.
-6. `issue` with VAT key `31` → clean 400, nothing stored as issued.
+`POST /functions/v1/invoice-issuers-admin` with the logged-in JWT:
+`{ "action": "list"|"save"|"enable"|"disable"|"assign"|"unassign", "hotel_id": "..." }`
+— the `save` request additionally contains `company`; `enable` needs explicit confirmations. No secret in list responses. Requires organization-level admin role and current hotel access. The server determines the organization's slug from the authorized hotel, never from browser input.
+
+`POST /functions/v1/szamlazz-invoice` has original guest invoice actions:
+`status`, `prepare`, `issue` (`proforma` or `invoice`), `storno`, `payment`, `pdf`.
+New invoices require enabled issuer for reservation's hotel. The issue request also accepts `e_invoice`, `due_date`, and `language`.
+
+## Limitations / controls not yet automated
+
+* No background sync of supplier registration, delegated invitations/approval, actual NAV state, or Számlázz.hu's actual TEST/LIVE setting.
+* No real provider credential validation until a test invoice is issued; no provider documents are issued by the admin configuration page.
+* No automatic accounting-rule validation. Accommodation 5%, service 27%, and city tax THK remain *editable suggestions*, not universal legal tax advice.
+* No provider invoice template preview or real-time reconciliation dashboard yet. Existing invoice list/PDF/receipt functions remain.
+* This migration/code is **not applied to Supabase merely by merging the PR**. Verify deployment pipeline, migrations, secrets and actual provider tests separately.
+
+## Previous single-key backend
+
+The previous flow used the single `SZAMLAZZ_AGENT_KEY` Edge function secret for every hotel. That key is **not** used for issuing NEW invoices after the multi-company feature is deployed. It remains a fallback for historical invoices created before `issuer_id` existed.

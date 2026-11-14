@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { FileText, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { formatMoney, reservationGuestLabel } from '@/lib/reservations';
+import { todayBudapest } from '@/lib/budapestTime';
 
 /**
  * Issue Számlázz.hu documents (proforma / invoice / storno / PDF) for one
@@ -30,6 +31,7 @@ interface InvoiceDialogProps {
   onIssued?: () => void;
 }
 
+interface InvoiceIssuerSummary { legal_name: string; environment: 'test' | 'live'; invoice_prefix: string; connection_mode: string; enabled: boolean }
 interface EditableLine { description: string; quantity: number; unit: string; gross_unit_price: number; vat_key: string }
 interface ExistingInvoice {
   id: string; kind: string; status: string; invoice_number: string | null; currency: string;
@@ -64,13 +66,18 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [issuer, setIssuer] = useState<InvoiceIssuerSummary | null>(null);
+  const [canIssue, setCanIssue] = useState(false);
+  const [eInvoice, setEInvoice] = useState(true);
+  const [invoiceLanguage, setInvoiceLanguage] = useState('hu');
+  const [dueDate, setDueDate] = useState(todayBudapest());
   const [invoices, setInvoices] = useState<ExistingInvoice[]>([]);
   const [lines, setLines] = useState<EditableLine[]>([]);
   const [currency, setCurrency] = useState<string>(String(reservation.currency ?? 'HUF'));
   const [buyer, setBuyer] = useState({ name: '', zip: '', city: '', address: '', email: '', tax_number: '' });
   const [method, setMethod] = useState('bankkártya');
   const [emailInvoice, setEmailInvoice] = useState(false);
-  const [markPaid, setMarkPaid] = useState(true);
+  const [markPaid, setMarkPaid] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -80,6 +87,10 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
         callInvoiceFn({ action: 'prepare', hotel_id: reservation.hotel_id, reservation_id: reservation.id }),
       ]);
       setConfigured(status.configured === true);
+      const selectedIssuer = (status.issuer ?? null) as InvoiceIssuerSummary | null;
+      setIssuer(selectedIssuer);
+      setCanIssue(status.can_issue === true);
+      setInvoiceLanguage(String((selectedIssuer as {language?: string} | null)?.language ?? 'hu'));
       setInvoices((status.invoices ?? []) as ExistingInvoice[]);
       setCurrency(String(prepare.currency ?? 'HUF'));
       setLines(((prepare.suggested_lines ?? []) as EditableLine[]).map((l) => ({
@@ -107,7 +118,8 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
       const result = await callInvoiceFn({
         action: 'issue', hotel_id: reservation.hotel_id, reservation_id: reservation.id, kind,
         lines, buyer: { ...buyer, send_email: emailInvoice }, payment_method: method, currency,
-        language: 'hu', paid: kind === 'invoice' && markPaid, email_invoice: emailInvoice,
+        language: invoiceLanguage, due_date: dueDate, e_invoice: eInvoice && kind === 'invoice',
+        paid: kind === 'invoice' && markPaid, email_invoice: emailInvoice,
       });
       toast.success(`${t(kind === 'invoice' ? 'pms.inv.issueInvoice' : 'pms.inv.issueProforma')} ✓ ${result.invoice_number ?? ''}`);
       onIssued?.();
@@ -150,7 +162,7 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-training="fd-invoice-dialog">
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto" data-training="fd-invoice-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-primary" /> {t('pms.inv.title')} · {reservationGuestLabel(reservation)}
@@ -162,11 +174,21 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
             <Loader2 className="h-4 w-4 animate-spin" /> {t('pms.loading')}
           </div>
         ) : configured === false ? (
-          <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200">
-            {t('pms.inv.notConfigured')}
+          <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200 space-y-2">
+            <p className="font-semibold">Invoice issuing is not enabled for this hotel.</p>
+            <p>{issuer ? issuer.legal_name + ' is assigned but disabled or missing provider credentials.' : 'No legal invoicing company has been assigned to this property.'}</p>
+            <p>Ask your organization administrator to configure Számlázz.hu under Account → Legal companies & invoicing.</p>
           </div>
         ) : (
           <div className="space-y-4">
+            {issuer && <div className="rounded-lg border bg-muted/30 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 text-sm" data-training="fd-invoice-issuer">
+              <div><p className="text-xs text-muted-foreground">Invoice issued by</p>
+                <p className="font-semibold">{issuer.legal_name}</p></div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={issuer.environment === 'test' ? 'secondary' : 'default'}>{issuer.environment === 'test' ? 'TEST — verify provider Tesztüzem' : 'LIVE — legal invoice'}</Badge>
+                {issuer.invoice_prefix && <Badge variant="outline">Prefix: {issuer.invoice_prefix}</Badge>}
+              </div>
+            </div>}
             {invoices.length > 0 && (
               <div className="rounded-lg border border-border">
                 <p className="px-3 py-2 text-xs font-semibold uppercase tracking-wide bg-muted/45">{t('pms.inv.existing')}</p>
@@ -229,12 +251,12 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
 
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('pms.inv.lines')} · {currency}</p>
-              <div className="space-y-1.5">
-                <div className="grid grid-cols-[1fr_64px_72px_96px_88px_28px] gap-1.5 text-[11px] text-muted-foreground px-0.5">
+              <div className="space-y-1.5 overflow-x-auto">
+                <div className="grid min-w-[610px] grid-cols-[1fr_64px_72px_96px_88px_28px] gap-1.5 text-[11px] text-muted-foreground px-0.5">
                   <span>{t('pms.inv.description')}</span><span>{t('pms.inv.qty')}</span><span>Unit</span><span>{t('pms.inv.unitPrice')}</span><span>{t('pms.inv.vat')}</span><span />
                 </div>
                 {lines.map((l, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_64px_72px_96px_88px_28px] gap-1.5 items-center">
+                  <div key={i} className="grid min-w-[610px] grid-cols-[1fr_64px_72px_96px_88px_28px] gap-1.5 items-center">
                     <Input className="h-8" value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} />
                     <Input className="h-8" type="number" min={0.001} step="any" value={l.quantity} onChange={(e) => setLine(i, { quantity: Number(e.target.value) })} />
                     <Input className="h-8" value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} />
@@ -258,6 +280,19 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="min-w-[130px]"><Label className="text-xs">Invoice language</Label>
+                <Select value={invoiceLanguage} onValueChange={setInvoiceLanguage}>
+                  <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>{[['hu','Magyar'],['en','English'],['de','Deutsch'],['fr','Français'],['it','Italiano'],['es','Español']].map(([code,name]) =>
+                    <SelectItem key={code} value={code}>{name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div><Label className="text-xs">Payment due date</Label>
+                <Input className="h-8 w-40" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              </div>
+              <label className="flex items-center gap-2 text-xs mt-4 cursor-pointer">
+                <Checkbox checked={eInvoice} onCheckedChange={c => setEInvoice(!!c)} /> Electronic invoice (e-számla)
+              </label>
               <div>
                 <Label className="text-xs">{t('pms.pay.method')}</Label>
                 <Select value={method} onValueChange={setMethod}>
@@ -275,10 +310,10 @@ export function InvoiceDialog({ reservation, open, onOpenChange, onIssued }: Inv
 
             <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
-              <Button type="button" variant="outline" disabled={busy !== null || lines.length === 0} onClick={() => issue('proforma')} className="gap-1">
+              <Button type="button" variant="outline" disabled={!canIssue || busy !== null || lines.length === 0 || !dueDate} onClick={() => issue('proforma')} className="gap-1">
                 {busy === 'proforma' && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {t('pms.inv.issueProforma')}
               </Button>
-              <Button type="button" disabled={busy !== null || lines.length === 0} onClick={() => issue('invoice')} className="gap-1" data-training="fd-invoice-issue">
+              <Button type="button" disabled={!canIssue || busy !== null || lines.length === 0 || !dueDate} onClick={() => issue('invoice')} className="gap-1" data-training="fd-invoice-issue">
                 {busy === 'invoice' && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {t('pms.inv.issueInvoice')}
               </Button>
             </div>

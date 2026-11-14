@@ -27,6 +27,11 @@ import {
   type AgentLine, type Buyer, type PaymentMethod, type VatKey,
 } from "../_shared/szamlazz/xml.ts";
 
+import {
+  decryptProviderAuth, issuerById, issuerCanIssue, issuerForHotel, publicIssuer,
+  type InvoiceIssuer, type ProviderAuth,
+} from "../_shared/szamlazz/issuer.ts";
+
 const AGENT_URL = "https://www.szamlazz.hu/szamla/";
 const ISSUE_ROLES = [...MANAGE_ROLES, "reception_manager", "reception", "front_office"];
 
@@ -37,11 +42,31 @@ class UserError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
 }
 
-const agentKey = () => {
-  const key = Deno.env.get("SZAMLAZZ_AGENT_KEY") ?? "";
-  if (!key) throw new UserError("Számlázz.hu is not configured yet: add the SZAMLAZZ_AGENT_KEY secret (Számla Agent kulcs) on the server.", 409);
-  return key;
-};
+async function currentIssuer(db: Db, organizationSlug: string, hotelId: string): Promise<InvoiceIssuer> {
+  const issuer = await issuerForHotel(db, organizationSlug, hotelId);
+  if (!issuerCanIssue(issuer)) throw new UserError("This hotel has no enabled invoice issuer. Ask an administrator to assign a configured legal company.", 409);
+  return issuer!;
+}
+const authArg = (auth: ProviderAuth) => "agentKey" in auth ? auth.agentKey : { username: auth.username, password: auth.password };
+async function historicalAuth(db: Db, invoice: { issuer_id?: string | null; organization_slug: string }): Promise<ReturnType<typeof authArg>> {
+  if (!invoice.issuer_id) {
+    // Read legacy invoices against the legacy provider account only.
+    const legacy = Deno.env.get("SZAMLAZZ_AGENT_KEY");
+    if (!legacy) throw new UserError("Legacy invoice credentials unavailable; contact administrator.", 409);
+    return legacy;
+  }
+  const issuer = await issuerById(db, invoice.organization_slug, invoice.issuer_id);
+  if (!issuer) throw new UserError("The original invoice company no longer exists.", 409);
+  return authArg(await decryptProviderAuth(issuer));
+}
+async function hotelOrgSlug(db: Db, hotelId: string): Promise<string> {
+  const { data: hotel } = await db.from("hotel_configurations").select("organization_id")
+    .eq("hotel_id", hotelId).eq("is_active", true).maybeSingle();
+  if (!hotel) throw new UserError("Hotel configuration missing", 404);
+  const { data: org } = await db.from("organizations").select("slug").eq("id", hotel.organization_id).maybeSingle();
+  if (!org?.slug) throw new UserError("Hotel organization missing", 404);
+  return String(org.slug);
+}
 
 async function callAgent(field: string, xml: string): Promise<{ result: ReturnType<typeof parseAgentHeaders>; body: Uint8Array }> {
   const form = new FormData();
@@ -134,15 +159,19 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case "status": {
-        const configured = !!Deno.env.get("SZAMLAZZ_AGENT_KEY");
+        const slug = await hotelOrgSlug(db, hotelId);
+        const issuer = await issuerForHotel(db, slug, hotelId);
+        const configured = issuerCanIssue(issuer);
         let invoices: unknown[] = [];
         if (payload.reservation_id) {
           const { data } = await db.from("guest_invoices")
             .select("id, kind, status, invoice_number, currency, gross_total, payment_method, issued_at, error_message, origin_invoice_id, created_at")
-            .eq("reservation_id", payload.reservation_id).order("created_at", { ascending: false }).limit(20);
+            .eq("reservation_id", payload.reservation_id).eq("hotel_id", hotelId)
+            .eq("organization_slug", slug).order("created_at", { ascending: false }).limit(20);
           invoices = data ?? [];
         }
-        return json({ ok: true, configured, can_issue: hasRole(caller, ISSUE_ROLES), payment_methods: PAYMENT_METHODS, invoices });
+        return json({ ok: true, configured, issuer: issuer ? publicIssuer(issuer) : null,
+          can_issue: configured && hasRole(caller, ISSUE_ROLES), payment_methods: PAYMENT_METHODS, invoices });
       }
 
       case "prepare": {
@@ -174,9 +203,10 @@ Deno.serve(async (req) => {
 
       case "issue": {
         if (!hasRole(caller, ISSUE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
-        const key = agentKey();
         const kind = payload.kind === "proforma" ? "proforma" : "invoice";
         const r = await loadReservation(db, hotelId, String(payload.reservation_id ?? ""));
+        const issuer = await currentIssuer(db, r.organization_slug, hotelId);
+        const auth = await decryptProviderAuth(issuer);
         if (["cancelled", "no_show"].includes(String(r.status))) throw new UserError("This reservation is cancelled; nothing to invoice.");
         const lines = parseLines(payload.lines);
         const buyer = parseBuyer(payload.buyer);
@@ -190,7 +220,7 @@ Deno.serve(async (req) => {
 
         const { data: pending, error: insErr } = await db.from("guest_invoices").insert({
           organization_slug: r.organization_slug, hotel_id: hotelId, reservation_id: r.id,
-          kind, currency, payment_method: method, due_date: due, language: lang,
+          issuer_id: issuer.id, kind, currency, payment_method: method, due_date: due, language: lang,
           buyer, lines, net_total: totals.net, vat_total: totals.vat, gross_total: totals.gross,
           created_by: caller.userId,
         }).select("id").single();
@@ -200,7 +230,12 @@ Deno.serve(async (req) => {
         }
 
         const xml = buildInvoiceXml({
-          agentKey: key, proforma: kind === "proforma",
+          ...("agentKey" in auth ? { agentKey: auth.agentKey } : { delegatedUser: auth.username, delegatedPassword: auth.password }),
+          proforma: kind === "proforma", eInvoice: payload.e_invoice === true,
+          invoiceNumberPrefix: issuer.invoice_prefix || undefined,
+          seller: issuer.connection_mode === "own_account"
+            ? { bank: issuer.bank_name, bankAccount: issuer.bank_account, emailReplyTo: issuer.reply_to_email }
+            : undefined,
           issueDate: today, fulfillmentDate: today, dueDate: due,
           paymentMethod: method as PaymentMethod, currency,
           language: lang as "hu", exchangeBank: currency === "HUF" ? undefined : "MNB",
@@ -231,15 +266,15 @@ Deno.serve(async (req) => {
 
       case "storno": {
         if (!hasRole(caller, ISSUE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
-        const key = agentKey();
         const inv = await loadInvoice(db, hotelId, String(payload.invoice_id ?? ""));
+        const credential = await historicalAuth(db, inv);
         if (inv.kind === "storno") throw new UserError("That record is already a storno.");
         if (inv.status !== "issued" || !inv.invoice_number) throw new UserError("Only an issued invoice can be reversed.");
         if (inv.kind === "proforma") throw new UserError("A proforma has no fiscal effect; issue the final invoice instead of a storno.");
 
         const { data: pending, error: insErr } = await db.from("guest_invoices").insert({
           organization_slug: inv.organization_slug, hotel_id: hotelId, reservation_id: inv.reservation_id,
-          kind: "storno", origin_invoice_id: inv.id, currency: inv.currency, payment_method: inv.payment_method,
+          issuer_id: inv.issuer_id, kind: "storno", origin_invoice_id: inv.id, currency: inv.currency, payment_method: inv.payment_method,
           language: inv.language, buyer: inv.buyer, lines: inv.lines,
           net_total: -Number(inv.net_total), vat_total: -Number(inv.vat_total), gross_total: -Number(inv.gross_total),
           created_by: caller.userId,
@@ -249,7 +284,7 @@ Deno.serve(async (req) => {
           throw new Error(insErr.message);
         }
 
-        const { result } = await callAgent(ACTION_FIELDS.storno, buildStornoXml(key, String(inv.invoice_number)));
+        const { result } = await callAgent(ACTION_FIELDS.storno, buildStornoXml(credential, String(inv.invoice_number)));
         await db.from("guest_invoices").update(result.ok
           ? { status: "issued", invoice_number: result.invoiceNumber, issued_at: new Date().toISOString() }
           : { status: "failed", error_code: result.errorCode, error_message: result.errorMessage?.slice(0, 500) },
@@ -267,24 +302,24 @@ Deno.serve(async (req) => {
 
       case "payment": {
         if (!hasRole(caller, ISSUE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
-        const key = agentKey();
         const inv = await loadInvoice(db, hotelId, String(payload.invoice_id ?? ""));
+        const credential = await historicalAuth(db, inv);
         if (inv.status !== "issued" || !inv.invoice_number) throw new UserError("Only an issued invoice can record a payment.");
         const amount = Number(payload.amount ?? NaN);
         if (!Number.isFinite(amount) || amount === 0) throw new UserError("A non-zero payment amount is required.");
         const date = String(payload.date ?? budapestToday());
         const method = String(payload.method ?? inv.payment_method);
         const { result } = await callAgent(ACTION_FIELDS.payment,
-          buildPaymentXml(key, String(inv.invoice_number), [{ date, title: method, amount }], payload.additive === true));
+          buildPaymentXml(credential, String(inv.invoice_number), [{ date, title: method, amount }], payload.additive === true));
         if (!result.ok) throw new UserError(`Számlázz.hu rejected the payment: ${result.errorMessage ?? result.errorCode ?? "unknown error"}`, 502);
         return json({ ok: true, invoice_number: inv.invoice_number, amount, date, method });
       }
 
       case "pdf": {
-        const key = agentKey();
         const inv = await loadInvoice(db, hotelId, String(payload.invoice_id ?? ""));
+        const credential = await historicalAuth(db, inv);
         if (inv.status !== "issued" || !inv.invoice_number) throw new UserError("Only an issued invoice has a PDF.");
-        const { result, body } = await callAgent(ACTION_FIELDS.pdf, buildPdfQueryXml(key, String(inv.invoice_number)));
+        const { result, body } = await callAgent(ACTION_FIELDS.pdf, buildPdfQueryXml(credential, String(inv.invoice_number)));
         if (!result.ok) throw new UserError(`Számlázz.hu rejected the PDF request: ${result.errorMessage ?? result.errorCode ?? "unknown error"}`, 502);
         return json({ ok: true, invoice_number: inv.invoice_number, pdf_base64: b64(body) });
       }
