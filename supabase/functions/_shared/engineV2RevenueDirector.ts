@@ -1,4 +1,25 @@
-import { decideDate as coreDecision, paceTargetFor, windowFor, pickupLadderFor, pickupStep, type Decision, type DecisionInput, type DecisionSettings } from "./engineV2Core.ts";
+import { decideDate as coreDecision, paceTargetFor, windowFor, pickupLadderFor, pickupStep, occupancyLiftBandFor, DEFAULT_OCCUPANCY_LIFT_LADDER, type Decision, type DecisionInput, type DecisionSettings } from "./engineV2Core.ts";
+
+/**
+ * Policy (owner instruction, 14 Nov 2026): sell every room at the highest
+ * possible ADR by selling out LATE. A date that is full a week early was
+ * underpriced. Therefore:
+ *  - every genuine booking earns the full lead-time ladder step (no €1–2 cap);
+ *  - scarce inventory (≤ SCARCE_ROOMS left) and strong occupancy are never
+ *    marked down, and earn occupancy-led lifts while demand is fresh;
+ *  - markdowns are reserved for genuinely soft dates after a quiet window.
+ */
+export const SCARCE_ROOMS = 3;
+/** Occupancy-led lifts repeat no more often than this per date. */
+export const OCCUPANCY_LIFT_SPACING_HOURS = 6;
+/** Demand counts as fresh for an occupancy lift inside this many hours. */
+export const FRESH_DEMAND_HOURS = 48;
+
+function hoursBetween(iso: string | null | undefined, now: Date): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? (now.getTime() - t) / 3_600_000 : null;
+}
 
 export interface RevenueDirectorContext {
   targetAdr: number;
@@ -90,6 +111,11 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
     if (context.confirmedHighEvent && minute < 18 * 60 && (input.occupancyPct ?? 0) >= 85) {
       return hold("verified_event_protected", "A verified high-impact event protects scarce inventory until the evening selling window.");
     }
+    // Strong arrival-day occupancy holds its price until the evening: the last
+    // one or two rooms are worth more than an hourly discount.
+    if ((input.occupancyPct ?? 0) >= 90 && minute < 20 * 60) {
+      return hold("same_day_strong_occupancy", `${input.occupancyPct}% sold today; the last rooms keep their price until 20:00.`);
+    }
     if ((input.hoursSinceLastPickup != null && input.hoursSinceLastPickup <= 2)
       || input.pickup1h > 0 || (input.observedPickup6h ?? 0) >= 2) {
       return hold("same_day_pickup_observation", "A recent booking or strong six-hour pickup justifies observing conversion rather than discounting again.");
@@ -126,7 +152,9 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   };
   const policy: DecisionSettings = {
     ...settings, respectConfiguredWindows: true,
-    fill: { ...settings.fill!, enabled: true, windowDays: settings.fill?.windowDays ?? 120, maxTotalDropPct: settings.fill?.maxTotalDropPct ?? 25 },
+    fill: { ...settings.fill!, enabled: true, windowDays: settings.fill?.windowDays ?? 14, maxTotalDropPct: settings.fill?.maxTotalDropPct ?? 15 },
+    // Occupancy-led lifts are decided here (with freshness and spacing rules),
+    // so the core must not add a second one on top.
     occupancyLiftEnabled: false, microPriceTests: false, allowSameDayReversal: true,
     // A cancelled room must be resold, especially after the free-cancellation deadline.
     rebookWindowHours: Math.min(settings.rebookWindowHours ?? 4, input.daysOut <= 7 ? 2 : 4),
@@ -140,6 +168,7 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   if (input.occupancyPct == null || input.roomsRemaining == null) return hold("no_occupancy", "Fresh occupancy and remaining-room evidence are required.");
   const current = input.currentPrice;
   const occ = input.occupancyPct;
+  const left = input.roomsRemaining;
   const quietHours = Math.max(1, win.no_pickup_wait_hours ?? 6);
   const hoursQuiet = input.hoursSinceLastPickup;
   const netUnspent = Math.max(0, input.pickup24h - input.cancellations24h);
@@ -147,51 +176,70 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
     ?? (hoursQuiet != null && hoursQuiet < quietHours ? netUnspent : 0);
   const pickup = Math.min(netUnspent, Math.max(0, recentUnspent));
   const observed6h = Math.max(0, input.observedPickup6h ?? input.pickup6h);
-  const fastPickup = input.pickup6h >= 2 && pickup >= 2;
-  // Empty last rooms still need conversion. After a genuinely quiet selling
-  // period the owner's close-in rescue takes precedence over static 85% holds.
-  const quietLastRooms = input.daysOut <= 3 && observed6h === 0
-    && (hoursQuiet == null || hoursQuiet >= 4) && !context.confirmedHighEvent;
-  const strong = (occ >= 85 && !quietLastRooms)
+  const scarce = left <= SCARCE_ROOMS;
+  // Strong = the date is ahead of where it should be for its lead time, or the
+  // inventory is already scarce. Strong dates are never marked down.
+  const strong = occ >= 85 || scarce
     || (input.daysOut > 7 && occ >= Math.max(50, (pace ?? 70) + 10));
+  const demandFresh = observed6h > 0 || input.pickup48h > 0
+    || (hoursQuiet != null && hoursQuiet <= FRESH_DEMAND_HOURS);
+  const sinceLastRise = input.lastDirection === "increase" ? hoursBetween(input.lastDecisionAt, settings.now) : null;
   const waited = hoursQuiet == null || hoursQuiet >= quietHours;
+  const behind = gap == null ? 0 : Math.max(0, -gap);
   let raw = 0;
   let reason = "awaiting_no_pickup_window";
   let detail = `Observe ${quietHours} hours without a new booking before reducing this offer.`;
 
   if (pickup > 0) {
+    // Every genuine booking earns the full lead-time ladder step. Scarce
+    // inventory earns more: the remaining rooms are the most valuable ones.
     const band = pickupLadderFor(input.daysOut, settings.pickupLadder ?? undefined);
     raw = pickupStep(band, pickup, occ, settings.strongOccupancyPct ?? 85);
-    // One conversion earns only the owner's small uplift even when occupancy
-    // is already strong. Several fresh bookings may use the saved ladder.
-    if (pickup === 1) raw = Math.min(raw, input.daysOut <= 7 ? 1 : 2);
-    else if (!strong && !fastPickup) raw = Math.min(raw, input.daysOut <= 7 ? 1 : 2);
+    if (left <= 1) raw = Math.round(raw * 1.5);
+    else if (scarce) raw = Math.round(raw * 1.25);
     reason = "pickup_yield";
-    detail = `${pickup} fresh unconsumed net booking(s) inside ${quietHours}h; ${observed6h} active booking(s) in six hours: demand-led increase, consumed once.`;
-  } else if (context.confirmedHighEvent) {
-    reason = "event_demand_protected";
-    detail = "A verified high-impact event protects this date; no markdown and no event-only repeated increase.";
-  } else if (strong) {
-    reason = "strong_demand_protected";
-    detail = `${occ}% occupancy supports the current offer; only a fresh booking can justify another increase.`;
-  } else if (observed6h >= 2) {
-    reason = "recent_pickup_protected";
-    detail = `${observed6h} active bookings in six hours protect the converting offer, including bookings already consumed for an increase.`;
-  } else if (waited) {
-    // Quiet demand is itself a reason to test a lower offer. Being nominally
-    // on pace or having raised earlier today must not freeze a soft date.
-    const behind = gap == null ? 0 : Math.max(0, -gap);
-    const step = input.roomsRemaining <= 2 ? 1
-      : input.daysOut <= 2 ? (occ < 60 ? 6 : 4)
-      : input.daysOut <= 7 ? (occ < 70 ? 5 : 3)
-      : input.daysOut <= 30 ? (behind >= 20 ? 4 : 2)
-      : 2;
-    raw = -Math.max(0, Math.min(step, current - input.minPrice));
-    reason = raw < 0 ? "quiet_demand_test" : "price_floor";
-    detail = raw < 0
-      ? `${hoursQuiet == null ? "No active booking in the observation history" : `No booking for ${Math.floor(hoursQuiet)}h`}; ${input.roomsRemaining} rooms unsold, ${occ}% occupied. Test a lower offer by €${Math.abs(raw)}; reassess conversion before another step. An earlier rise does not prohibit a later reduction.`
-      : "The offer is at its absolute hotel price floor; no further reduction is permitted.";
-    if (quietLastRooms && occ >= 85 && raw < 0) detail += " Close-in last-room rescue after four quiet hours; static occupancy alone must not leave the final room unsold.";
+    detail = `${pickup} fresh net booking(s) inside ${quietHours}h (${observed6h} in six hours), ${left} room(s) left: demand-led increase from the ${band.min_days_out}+ day ladder.`;
+  } else {
+    const liftBand = occupancyLiftBandFor(occ, input.daysOut, settings.occupancyLiftLadder ?? DEFAULT_OCCUPANCY_LIFT_LADDER);
+    if (liftBand && demandFresh && (sinceLastRise == null || sinceLastRise >= OCCUPANCY_LIFT_SPACING_HOURS)) {
+      // The occupancy itself is the evidence; demand must still be alive and
+      // the previous lift must have had time to be tested by the market.
+      raw = Math.max(Math.round(Number(liftBand.min_eur) || 0), Math.round(current * (Number(liftBand.pct) || 0) / 100));
+      reason = "occupancy_lift";
+      detail = `${occ}% sold ${input.daysOut} days out with ${left} room(s) left and demand inside ${FRESH_DEMAND_HOURS}h: lifting on strength of occupancy (${liftBand.pct}%).`;
+    } else if (liftBand && sinceLastRise != null && sinceLastRise < OCCUPANCY_LIFT_SPACING_HOURS) {
+      reason = "occupancy_lift_spacing";
+      detail = `${occ}% sold; the last lift was ${Math.round(sinceLastRise)}h ago and is still being tested by the market.`;
+    } else if (context.confirmedHighEvent) {
+      reason = "event_demand_protected";
+      detail = "A verified high-impact event protects this date; no markdown.";
+    } else if (strong) {
+      reason = "strong_demand_protected";
+      detail = scarce
+        ? `${left} room(s) left (${occ}% sold): scarce inventory is never discounted.`
+        : `${occ}% occupancy versus ${pace ?? "unknown"}% pace supports the current offer; no markdown.`;
+    } else if (observed6h >= 2) {
+      reason = "recent_pickup_protected";
+      detail = `${observed6h} active bookings in six hours protect the converting offer.`;
+    } else if (waited) {
+      // Genuinely soft: quiet for the whole window, not strong, not scarce.
+      // Step sizes are at least the publishable minimum (€3).
+      let step = 0;
+      if (input.daysOut <= 3) step = occ < 60 ? 8 : 5;
+      else if (input.daysOut <= 7) step = occ < 70 ? 6 : 4;
+      else if (input.daysOut <= 30) step = behind >= 20 ? 5 : behind >= 5 || occ < 60 ? 3 : 0;
+      else step = behind >= 15 ? 4 : behind >= 8 ? 3 : 0;
+      if (step === 0) {
+        reason = "on_pace";
+        detail = `${occ}% sold versus ${pace ?? "unknown"}% pace ${input.daysOut} days out: on pace, the price holds.`;
+      } else {
+        raw = -Math.max(0, Math.min(step, current - input.minPrice));
+        reason = raw < 0 ? "quiet_demand_test" : "price_floor";
+        detail = raw < 0
+          ? `${hoursQuiet == null ? "No active booking in the observation history" : `No booking for ${Math.floor(hoursQuiet)}h`}; ${left} rooms unsold, ${occ}% occupied versus ${pace ?? "unknown"}% pace. Test a lower offer by €${Math.abs(raw)}; a new booking reverses it upward.`
+          : "The offer is at its absolute hotel price floor; no further reduction is permitted.";
+      }
+    }
   }
   if (raw === 0) return hold(reason, detail);
   effective.commercialIntent = { raw, reason, detail };
@@ -204,7 +252,7 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
       );
     }
     decision.reason = decision.direction === "increase" ? "revenue_director_yield" : "revenue_director_fill";
-    decision.reasonDetail += ` ${occ}% occupied versus ${pace ?? "unknown"}% pace; ${input.roomsRemaining} rooms left. Goal: 100% occupancy, sell early by D-7; monthly ADR target €${context.targetAdr}${context.requiredRemainingAdr == null ? "" : `, remaining ADR need €${Math.round(context.requiredRemainingAdr)}`}.`;
+    decision.reasonDetail += ` ${occ}% occupied versus ${pace ?? "unknown"}% pace; ${left} rooms left. Goal: sell out late at the highest ADR; monthly ADR target €${context.targetAdr}${context.requiredRemainingAdr == null ? "" : `, remaining ADR need €${Math.round(context.requiredRemainingAdr)}`}.`;
   }
   return decision;
 }

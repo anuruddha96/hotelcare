@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { observeAiPrice, selectAiDates, validateAiMoves, estimateSupervisorCost, availableSupervisorModel, softEventTest, peerPriceSignal } from './ottofioriAiSupervisor.ts';
+import { observeAiPrice, selectAiDates, validateAiMoves, aiMoveLimit, estimateSupervisorCost, availableSupervisorModel, softEventTest, peerPriceSignal } from './ottofioriAiSupervisor.ts';
 const now = new Date('2026-11-06T15:00:00Z');
 const policy = {created_at:'2026-11-06T14:00:00Z',valid_until:'2026-11-06T18:00:00Z'};
 test('AI observation outranks timer changes, expires, and releases for new pickup',()=>{
@@ -13,10 +13,11 @@ test('AI observation outranks timer changes, expires, and releases for new picku
   assert.equal(observeAiPrice(null,now,null),false);
   assert.equal(observeAiPrice({...policy,valid_until:'invalid'},now,null),false);
 });
-test('verified events allow only a small AI test after demonstrably weak conversion',()=>{
- const weak=date({occ:42.9,left:12,pickup_6h:0,quiet_hours:48});
+test('verified events allow only a bounded AI test (<=8% of reference) after demonstrably weak conversion',()=>{
+ const weak=date({occ:42.9,left:12,pickup_6h:0,quiet_hours:48}); // reference 150 → max 12
  assert.equal(softEventTest(weak,-2),true);
- for (const [patch,delta] of [[{},-3],[{occ:75},-2],[{left:4},-2],[{pickup_6h:1},-2],[{quiet_hours:2},-2]])
+ assert.equal(softEventTest(weak,-12),true);
+ for (const [patch,delta] of [[{},-13],[{occ:75},-2],[{left:4},-2],[{pickup_6h:1},-2],[{quiet_hours:2},-2]])
   assert.equal(softEventTest({...weak,...patch},delta),false);
 });
 const date=(patch={})=>({date:'2027-01-10',lead:65,occ:0,left:21,reference:150,captured_at:now.toISOString(),cells:Array.from({length:13},(_,i)=>({obk_id:String(i),occupancy:1,price:140})),...patch});
@@ -59,10 +60,14 @@ test('all last-four-day offers beat distant weak nights; stale or incomplete dat
  assert.deepEqual(selectAiDates([date(),date({date:'2026-11-08',lead:2,occ:52}),urgent],now,2).map(d=>d.date),['2026-11-06','2026-11-08']);
  assert.equal(selectAiDates([date({captured_at:'2026-11-06T10:00Z'}),date({cells:[]}),date({occ:null}),date({left:0})],now).length,0);
 });
+test('AI authority is 15% of the reference inside 14 days and 25% beyond, between €10 and €80',()=>{
+ assert.equal(aiMoveLimit(65,150),38); assert.equal(aiMoveLimit(10,150),23);
+ assert.equal(aiMoveLimit(3,40),10); assert.equal(aiMoveLimit(90,500),80); assert.equal(aiMoveLimit(5,null),10);
+});
 test('unknown dates, duplicates, fractional steps, oversized steps, malformed confidence fail closed',()=>{
- const valid={date:'2027-01-10',delta:-6,confidence:.9,reason:'No pickup and 21 rooms left; test a lower offer.'};
- assert.equal(validateAiMoves([valid],[date()])[0].delta,-6);
- for(const row of [{...valid,date:'2027-02-01'},{...valid,delta:-7},{...valid,delta:-1.5},{...valid,confidence:2},{...valid,reason:'x'}])
+ const valid={date:'2027-01-10',delta:-38,confidence:.9,reason:'No pickup and 21 rooms left; test a lower offer.'};
+ assert.equal(validateAiMoves([valid],[date()])[0].delta,-38);
+ for(const row of [{...valid,date:'2027-02-01'},{...valid,delta:-39},{...valid,delta:-1.5},{...valid,confidence:2},{...valid,reason:'x'}])
    assert.throws(()=>validateAiMoves([row],[date()]));
  assert.throws(()=>validateAiMoves([valid,valid],[date()]));
  assert.throws(()=>validateAiMoves([],[date()]));

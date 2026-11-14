@@ -80,6 +80,19 @@ export function selectAiDates(dates: AiDate[], now: Date, limit = 56): AiDate[] 
   return [...selected.values()];
 }
 
+/**
+ * Authority of one AI review on one date, in whole EUR on the reference offer.
+ * Owner policy (14 Nov 2026): the AI layer must be able to make real revenue
+ * decisions — ±15% inside two weeks, ±25% further out — never €1–2 nudges.
+ * Mirrors public.ottofiori_ai_apply; keep the two in step.
+ */
+export function aiMoveLimit(lead: number, reference: number | null): number {
+  const ref = Number(reference);
+  if (!Number.isFinite(ref) || ref <= 0) return 10;
+  const pct = lead <= 14 ? 0.15 : 0.25;
+  return Math.min(80, Math.max(10, Math.round(ref * pct)));
+}
+
 /** Reject malformed/unrequested dates before the independent database gate. */
 export function validateAiMoves(raw: unknown, dates: AiDate[]): { date: string; delta: number; reason: string; confidence: number }[] {
   if (!Array.isArray(raw)) throw new Error('AI response has no decisions array');
@@ -89,7 +102,7 @@ export function validateAiMoves(raw: unknown, dates: AiDate[]): { date: string; 
   return raw.map(row => {
     const d = allowed.get(row?.date);
     if (!d || seen.has(row.date) || !Number.isInteger(row.delta)
-      || Math.abs(row.delta) > (d.lead <= 3 ? 12 : 6)
+      || Math.abs(row.delta) > aiMoveLimit(d.lead, d.reference)
       || typeof row.reason !== 'string' || row.reason.trim().length < 20
       || !Number.isFinite(row.confidence) || row.confidence < 0 || row.confidence > 1) {
       throw new Error('AI returned an invalid, duplicate, or unrequested price decision');
@@ -111,9 +124,9 @@ export function availableSupervisorModel(ids: string[]): string {
     .find(id=>ids.includes(id)) ?? 'gpt-4.1';
 }
 
-/** An event is context; persistently empty inventory can earn a small AI test. */
+/** An event is context; persistently empty inventory can earn a bounded AI test. */
 export function softEventTest(date: AiDate, delta: number): boolean {
-  return delta < 0 && delta >= -2 && date.occ != null && date.occ < 70
+  return delta < 0 && Math.abs(delta) <= Math.max(5, Math.round(Number(date.reference ?? 0) * 0.08)) && date.occ != null && date.occ < 70
     && Number(date.left) >= 5 && date.pickup_6h === 0
     && (Number(date.quiet_hours) >= 24 || date.occ === 0);
 }
