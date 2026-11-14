@@ -20,7 +20,7 @@ const DAY_MS = 86_400_000;
 const MAX_ROW_SCOPE_DAYS = 366;
 
 function utcDay(value: string): number | null {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return null;
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value)) return null;
   const parsed = Date.parse(`${value}T00:00:00Z`);
   return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value ? parsed : null;
 }
