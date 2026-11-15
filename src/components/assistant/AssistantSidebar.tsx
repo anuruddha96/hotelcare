@@ -343,8 +343,13 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
         <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onReport}>
           <Flag className="h-3.5 w-3.5" /> Report a problem
         </Button>
-        <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onBack}>
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to Hotel Care
+        <Button
+          variant="secondary"
+          className="mt-1 h-9 w-full justify-start gap-2 border border-primary/30 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/15"
+          onClick={props.onBack}
+          title="Return to the Hotel Care screen you came from. Your conversation and anything you typed are kept; the Ask Mira button brings you straight back."
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to Hotel Care
         </Button>
         <div className="mt-1 flex items-center gap-2 rounded-lg px-2 py-1.5">
           <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
