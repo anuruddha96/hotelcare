@@ -15,8 +15,17 @@ const LABEL: Record<MarketDemandDay["band"], string> = {
   weak: "Low",
 };
 
+import { priceSignalCellLabel, priceSignalTitle, type PriceSignalRow } from "@/lib/revenue/priceSignal";
+
+const SIGNAL_REFRESH_MS = 5 * 60_000;
+
 const marketDemandCss = `
   [data-hc-competitor-pricing-row="1"] { min-height: 30px !important; align-items: stretch !important; }
+  [data-price-signal-band="surge"] { background: rgb(185 28 28) !important; color: white !important; }
+  [data-price-signal-band="strong"] { background: rgb(249 115 22) !important; color: white !important; }
+  [data-price-signal-band="on_pace"] { background: hsl(var(--muted)) !important; color: hsl(var(--foreground)) !important; }
+  [data-price-signal-band="soft"] { background: rgb(186 230 253) !important; color: rgb(12 74 110) !important; }
+  [data-price-signal-band="weak"] { background: rgb(59 130 246) !important; color: white !important; }
   [data-hc-competitor-pricing-row="1"] > * { min-height: 30px !important; height: auto !important; align-self: stretch !important; }
   [data-market-demand-band="very_strong"] { background: rgb(239 68 68) !important; color: white !important; }
   [data-market-demand-band="strong"] { background: rgb(253 186 116) !important; color: rgb(67 20 7) !important; }
@@ -98,10 +107,48 @@ function applyMarketDemand(board: Map<string, MarketDemandDay>) {
   });
 }
 
+function applyPriceSignals(signals: Map<string, PriceSignalRow>, board: Map<string, MarketDemandDay>, marketAvailable: boolean) {
+  document.querySelectorAll<HTMLElement>(GRID_CARD).forEach((card) => {
+    const row = findDemandRow(card);
+    if (!row) return;
+    const dates = dateOrder(card);
+    const cells = Array.from(row.children).slice(1).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    cells.forEach((cell, index) => {
+      const date = dates[index];
+      const signal = date ? signals.get(date) : undefined;
+      if (!signal) {
+        // Past or unscored dates keep the shared market grade when it exists.
+        if (cell.dataset.priceSignalBand) { delete cell.dataset.priceSignalBand; delete cell.dataset.priceSignalScore; }
+        const day = date && marketAvailable ? board.get(date) : undefined;
+        if (!day) return;
+        const label = LABEL[day.band];
+        if (cell.dataset.marketDemandBand !== day.band) cell.dataset.marketDemandBand = day.band;
+        if ((cell.textContent ?? "").trim() !== label) cell.textContent = label;
+        return;
+      }
+      const label = priceSignalCellLabel(signal);
+      const title = priceSignalTitle(signal);
+      if (cell.dataset.marketDemandBand) { delete cell.dataset.marketDemandBand; delete cell.dataset.marketDemandScore; }
+      if (cell.dataset.priceSignalBand !== signal.band) cell.dataset.priceSignalBand = signal.band;
+      if (cell.dataset.priceSignalScore !== String(signal.score)) cell.dataset.priceSignalScore = String(signal.score);
+      // The competitor bridge mirrors textContent into its visible first line
+      // and merges the title with the market evidence, so both are set here.
+      if ((cell.textContent ?? "").trim() !== label) cell.textContent = label;
+      if (cell.dataset.hcDemandLabel !== label) cell.dataset.hcDemandLabel = label;
+      if (cell.dataset.hcDemandTitle !== title) cell.dataset.hcDemandTitle = title;
+      if (!(cell.getAttribute("title") ?? "").startsWith(title.split("\n")[0])) cell.setAttribute("title", title);
+      const aria = title.replace(/\n/g, ". ");
+      if (cell.getAttribute("aria-label") !== aria) cell.setAttribute("aria-label", aria);
+    });
+  });
+}
+
 function clearMarketDemand() {
-  document.querySelectorAll<HTMLElement>("[data-market-demand-band]").forEach((cell) => {
+  document.querySelectorAll<HTMLElement>("[data-market-demand-band],[data-price-signal-band]").forEach((cell) => {
     delete cell.dataset.marketDemandBand;
     delete cell.dataset.marketDemandScore;
+    delete cell.dataset.priceSignalBand;
+    delete cell.dataset.priceSignalScore;
   });
 }
 
@@ -127,10 +174,45 @@ export function installRateCalendarMarketDemand() {
   let loadingFor: string | null = null;
   let lastAttemptAt = 0;
   let frame: number | null = null;
+  let signals = new Map<string, PriceSignalRow>();
+  let signalsHotel: string | null = null;
+  let signalsLoadedAt = 0;
+  let signalsLoading = false;
 
   const render = () => {
     frame = null;
-    if (available) applyMarketDemand(board);
+    if (signals.size > 0) applyPriceSignals(signals, board, available);
+    else if (available) applyMarketDemand(board);
+  };
+
+  // The hotel's own Price Signal takes precedence over the shared market grade.
+  const loadSignals = async () => {
+    const hotelId = routeHotelId();
+    if (!hotelId) { signals = new Map(); signalsHotel = null; return; }
+    if (signalsLoading) return;
+    if (hotelId === signalsHotel && Date.now() - signalsLoadedAt < SIGNAL_REFRESH_MS) return;
+    signalsLoading = true;
+    try {
+      const from = budapestToday();
+      const to = new Date(`${from}T00:00:00Z`);
+      to.setUTCDate(to.getUTCDate() + HORIZON_DAYS);
+      const { data, error } = await (supabase as any).rpc("revenue_price_signals", {
+        p_hotel_id: hotelId, p_from: from, p_to: to.toISOString().slice(0, 10),
+      });
+      if (error) throw error;
+      if (disposed || routeHotelId() !== hotelId) return;
+      if (hotelId !== signalsHotel) clearMarketDemand();
+      signalsHotel = hotelId;
+      signalsLoadedAt = Date.now();
+      signals = new Map(((data ?? []) as PriceSignalRow[]).map((row) => [row.stay_date, row]));
+      scheduleRender();
+    } catch (error) {
+      console.warn("[price-signal] unavailable, using market demand", error);
+      if (hotelId !== signalsHotel) { signals = new Map(); signalsHotel = hotelId; }
+      signalsLoadedAt = Date.now();
+    } finally {
+      signalsLoading = false;
+    }
   };
   const scheduleRender = () => {
     if (frame !== null) return;
@@ -190,9 +272,11 @@ export function installRateCalendarMarketDemand() {
 
   const observer = new MutationObserver(() => scheduleRender());
   observer.observe(document.body, { childList: true, subtree: true });
-  const routeTimer = window.setInterval(() => { void load(); }, 1200);
+  const routeTimer = window.setInterval(() => { void load(); void loadSignals(); }, 1200);
   window.addEventListener("popstate", load);
+  window.addEventListener("focus", () => { signalsLoadedAt = 0; void loadSignals(); });
   void load();
+  void loadSignals();
 
   return () => {
     disposed = true;

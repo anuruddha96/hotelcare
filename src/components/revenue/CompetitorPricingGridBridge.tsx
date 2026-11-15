@@ -374,9 +374,9 @@ export default function CompetitorPricingGridBridge() {
       const label = row.firstElementChild as HTMLElement | null;
       if (!label) return;
       const railed = label.getBoundingClientRect().width < 70;
-      label.dataset.hcMarketLabel = railed ? "Rate" : "Rate Scanner";
-      label.title = "Demand is Hotel Care's property-level demand grade from your own booking pace, pickup and inventory pressure. Market is a robust median of fresh validated competitor prices. The two are shown together because competitor price is useful context, but it is not the same thing as market occupancy or demand.";
-      label.setAttribute("aria-label", "Rate Scanner Budapest. Shared Budapest demand grade with validated market-rate evidence and confidence.");
+      label.dataset.hcMarketLabel = railed ? "Signal" : "Price signal";
+      label.title = "Price signal 0–100 per stay date, from the same facts the pricing engine uses: pace vs. lead-time target (35), 7-day pickup (25), approved events (20), competitor median vs. our rate (10), inventory and weekend (10). Dark red ≥80 Surge · orange ≥60 Strong · grey On pace · light blue Soft · blue Weak. ▲ price up · ● hold · ▼ price down. Second line: validated competitor median and coverage.";
+      label.setAttribute("aria-label", "Price signal. Hotel demand score per date with recommended price direction and validated market-rate evidence.");
 
       const grid = row.parentElement;
       if (!grid) return;
