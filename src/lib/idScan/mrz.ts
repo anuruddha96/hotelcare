@@ -8,12 +8,15 @@
  * Supported: TD3 (passports, 2×44), TD1 (ID cards, 3×30), TD2 (2×36).
  */
 import { parse } from 'mrz';
+import { iso3ToIso2 } from '../../../supabase/functions/_shared/viza/country';
 
 export interface MrzGuestFields {
   firstName: string;
   lastName: string;
-  /** ISO 3166-1 alpha-3 as printed in the MRZ, e.g. "HUN" (VIZA uses 3-letter codes). */
+  /** ISO 3166-1 alpha-2 (converted from the document's alpha-3; VIZA/NTAK use alpha-2). */
   nationality: string;
+  /** The alpha-3 code exactly as printed in the MRZ. */
+  nationalityIso3: string;
   /** YYYY-MM-DD */
   dateOfBirth: string | null;
   gender: 'male' | 'female' | 'other' | null;
@@ -119,7 +122,8 @@ export function readMrz(ocrText: string, today = new Date()): MrzReadResult | nu
     fields: {
       firstName: title(clean(f.firstName)),
       lastName: title(clean(f.lastName)),
-      nationality: (clean(f.nationality) || rawNationality).toUpperCase(),
+      nationality: iso3ToIso2((clean(f.nationality) || rawNationality).toUpperCase()) ?? (clean(f.nationality) || rawNationality).toUpperCase(),
+      nationalityIso3: (clean(f.nationality) || rawNationality).toUpperCase(),
       dateOfBirth: mrzDate(f.birthDate, 'birth', today),
       gender: sex,
       documentType: docCode === 'P' ? 'passport' : 'id_card',

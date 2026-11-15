@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { IdCard, Loader2, ScanLine } from 'lucide-react';
 import { IdScanDialog } from '@/components/frontdesk/IdScanDialog';
 import type { MrzReadResult } from '@/lib/idScan/mrz';
+import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
 import { useTranslation } from '@/hooks/useTranslation';
 
 /**
@@ -53,6 +54,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [pendingScan, setPendingScan] = useState<VizaDocumentScan | null>(null);
 
   useEffect(() => {
     if (!guestId) { setGuest(null); onCompletenessChange?.(vizaMissingFields(null)); return; }
@@ -92,6 +94,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
       id_document_type: f.documentType,
       id_document_number: f.documentNumber || g.id_document_number,
     } : g);
+    setPendingScan(toVizaDocumentScan(scan));
     setDirty(true);
     toast.success(t('pms.scan.applied'));
   };
@@ -106,6 +109,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
       birth_place: guest.birth_place, gender: guest.gender,
       id_document_type: guest.id_document_type, id_document_number: guest.id_document_number,
       visa_number: guest.visa_number,
+      ...(pendingScan ? { document_scan: pendingScan } : {}),
     };
     // Generated types may lag behind the latest migration for the new columns.
     const { error } = await (supabase.from('guests') as never as {
