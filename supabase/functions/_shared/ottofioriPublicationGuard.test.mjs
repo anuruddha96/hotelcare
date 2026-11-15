@@ -128,16 +128,23 @@ test('cancelled or absent pickup cannot override a protected manager price',()=>
   }
 });
 
-test('single booking cannot publish an oversized rise on a soft date', () => {
-  const f = fixture();
-  Object.assign(f.decisions[0], {
-    direction: 'increase', movement: 4, pickup_24h: 1, cancellations_24h: 0,
-    occupancy_pct: 40, pace_target_pct: 65, rooms_remaining: 4, days_out: 54,
-    decision_reason: 'revenue_director_yield',
-  });
-  f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
-  const result = blocked(f);
-  assert.match(result.blocked[0].reason, /before PMS write/);
+test('one booking publishes the full ladder rise on a soft date; oversized or unattributed rises are blocked', () => {
+  const soft = { direction: 'increase', pickup_24h: 1, cancellations_24h: 0,
+    occupancy_pct: 40, pace_target_pct: 65, rooms_remaining: 4, days_out: 54 };
+  for (const movement of [4, 25, 45, 80]) {
+    const f = fixture();
+    Object.assign(f.decisions[0], { ...soft, movement, decision_reason: 'revenue_director_yield' });
+    f.drafts.forEach((d) => { d.new_price = d.old_price + movement; });
+    assert.equal(guardOttofioriPublication(f).allowed.length, 13, `movement ${movement}`);
+  }
+  const big = fixture();
+  Object.assign(big.decisions[0], { ...soft, movement: 81, decision_reason: 'revenue_director_yield' });
+  big.drafts.forEach((d) => { d.new_price = d.old_price + 81; });
+  assert.match(blocked(big).blocked[0].reason, /before PMS write/);
+  const unattributed = fixture();
+  Object.assign(unattributed.decisions[0], { ...soft, movement: 4, decision_reason: 'pickup_increase' });
+  unattributed.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
+  assert.match(blocked(unattributed).blocked[0].reason, /before PMS write/);
 });
 test('strong early occupancy can support the planner rise with one fresh booking', () => {
   const f = fixture();
@@ -149,12 +156,12 @@ test('strong early occupancy can support the planner rise with one fresh booking
   f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
   assert.equal(guardOttofioriPublication(f).allowed.length, 13);
 });
-test('AI uses the identical measured single-booking limit at final publication',()=>{
- for (const movement of [1,2,3]) {
+test('AI uses the identical single-booking rise limit at final publication',()=>{
+ for (const movement of [1,2,38,80,81]) {
   const f=fixture();
   Object.assign(f.decisions[0],{direction:'increase',movement,pickup_24h:1,cancellations_24h:0,
     occupancy_pct:40,pace_target_pct:65,rooms_remaining:10,days_out:54,decision_reason:'ai_supervisor'});
   f.drafts.forEach(d=>{d.new_price=d.old_price+movement;});
-  assert.equal(guardOttofioriPublication(f).allowed.length,movement<=2?13:0);
+  assert.equal(guardOttofioriPublication(f).allowed.length,movement<=80?13:0);
  }
 });
