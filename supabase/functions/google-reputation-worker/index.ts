@@ -128,6 +128,14 @@ function friendlyGoogleError(status: number, rawMessage: string) {
   return `Google Business Profile API ${status}: ${message.slice(0, 420)}`;
 }
 
+/**
+ * Auto-reply policy: 4–5★ low-risk reviews no older than AUTO_REPLY_WINDOW_DAYS
+ * are answered automatically for venues that have auto-reply on. Anything
+ * older stays a draft for managers to reply manually (the explicitly
+ * authorized historical backfill path is separate and unchanged).
+ */
+const AUTO_REPLY_WINDOW_DAYS = 7;
+
 function autoEligible(location: any, stars: number, risk: string, reviewTime: string | null) {
   if (!location?.auto_reply_enabled || !location?.auto_reply_enabled_at) return false;
   if (risk !== "low" || location.reply_mode === "draft_only") return false;
@@ -137,8 +145,9 @@ function autoEligible(location: any, stars: number, risk: string, reviewTime: st
   if (location.reply_mode === "auto_positive" && stars < Math.max(4, minimum)) return false;
   if (location.reply_mode === "auto_all" && stars < minimum) return false;
   const reviewMs = new Date(reviewTime || "").getTime();
-  const enabledMs = new Date(location.auto_reply_enabled_at).getTime();
-  if (!Number.isFinite(reviewMs) || !Number.isFinite(enabledMs) || reviewMs < enabledMs) return false;
+  if (!Number.isFinite(reviewMs)) return false;
+  // Fresh reviews only: within the rolling window, never older.
+  if (Date.now() - reviewMs > AUTO_REPLY_WINDOW_DAYS * 86_400_000) return false;
   const delayMs = Math.max(0, Math.min(1440, Number(location.auto_reply_delay_minutes || 0))) * 60_000;
   return Date.now() - reviewMs >= delayMs;
 }
