@@ -51,31 +51,55 @@ async function loadReservation(db: Db, hotelId: string, reservationId: string) {
   return data as { id: string; hotel_id: string; channex_booking_id: string | null };
 }
 
-/** Fetch the Channex booking THROUGH PCI Booking so the card is tokenized in transit. */
+/** 5-minute PCI Booking session token (the API key never leaves the server). */
+async function tempSession(apiKey: string): Promise<string> {
+  const res = await fetch(`${PCIB}/tempsession`, { method: "POST", headers: { Authorization: `APIKEY ${apiKey}` } });
+  if (res.status !== 200) throw new UserError(`PCI Booking session failed (HTTP ${res.status})`, 502);
+  return (await res.text()).trim();
+}
+
+/**
+ * Fetch the Channex booking THROUGH PCI Booking so the card is tokenized in
+ * transit, using PCI Booking's preset Channex profile (the target URL lives
+ * in the profile; the booking id fills its :id path segment).
+ * Presets on this account: ChannexStagingSecure (staging), Channex (production).
+ */
 async function captureCard(bookingId: string) {
   const apiKey = env("PCIBOOKING_API_KEY");
   if (!apiKey) throw new UserError("PCI Booking is not configured yet (PCIBOOKING_API_KEY secret missing).", 409);
   const channexKey = channexApiKey();
   if (!channexKey) throw new UserError("Channex API key is not configured.", 409);
+  const profile = env("PCIBOOKING_PROFILE", "channex");
   const secureBase = env("CHANNEX_SECURE_BASE", "https://secure-staging.channex.io");
-  const target = `${secureBase}/api/v1/bookings/${encodeURIComponent(bookingId)}`;
-  const params = new URLSearchParams({
-    profileName: env("PCIBOOKING_PROFILE", "channex"),
-    targetURI: target,
+  const passThrough = { "user-api-key": channexKey, Accept: "application/json" };
+
+  // Strategy 1: generic capture proxy (API-key auth) pointing the preset
+  // profile at the booking URL explicitly.
+  let res = await fetch(`${PCIB}/capture?${new URLSearchParams({
+    profileName: profile,
+    targetURI: `${secureBase}/api/v1/bookings/${encodeURIComponent(bookingId)}`,
     httpMethod: "GET",
     timeout: "25",
     ref: `channex-${bookingId}`,
-  });
-  const res = await fetch(`${PCIB}/capture?${params}`, {
-    method: "POST",
-    headers: {
-      "x-pcibooking-api-key": apiKey,
-      // Passed through to Channex (its API auth header):
-      "user-api-key": channexKey,
-      Accept: "application/json",
-    },
-  });
-  const tokenHeader = res.headers.get("X-pciBooking-cardUri") ?? "";
+  })}`, { method: "POST", headers: { "x-pcibooking-api-key": apiKey, ...passThrough } });
+
+  // Strategy 2: preset-profile route (session-token auth; target URL comes
+  // from the profile, booking id fills its :id segment).
+  if (res.status === 400 || res.status === 401 || res.status === 403) {
+    const firstStatus = res.status;
+    const firstBody = (await res.text()).slice(0, 150);
+    const sessionToken = await tempSession(apiKey);
+    res = await fetch(`https://service.pcibooking.net/api/booker/${encodeURIComponent(profile)}/reservation?${new URLSearchParams({
+      sessionToken,
+      pathSegments: `id=${bookingId}`,
+      ref: `channex-${bookingId}`,
+    })}`, { method: "POST", headers: passThrough });
+    if (res.status !== 200) {
+      const secondBody = (await res.text()).slice(0, 150);
+      throw new UserError(`PCI capture failed: capture route HTTP ${firstStatus} (${firstBody || "no body"}); preset route HTTP ${res.status} (${secondBody || "no body"})`, 502);
+    }
+  }
+  const tokenHeader = res.headers.get("X-token") ?? res.headers.get("X-pciBooking-cardUri") ?? "";
   const tokenizationError = res.headers.get("X-pciBooking-Tokenization-Errors");
   if (res.status !== 200) {
     const text = (await res.text()).slice(0, 200);
@@ -162,17 +186,46 @@ Deno.serve(async (req) => {
         const { data: token } = await db.from("pci_card_tokens")
           .select("id, hotel_id, card_token_uri").eq("id", String(payload.token_id ?? "")).maybeSingle();
         if (!token || token.hotel_id !== hotelId) throw new UserError("Card token not found", 404);
-        // 5-minute session token so the browser can load PCI Booking's iframe;
-        // the API key itself never leaves this function.
-        const sessionRes = await fetch(`${PCIB}/tempsession`, {
-          method: "POST", headers: { Authorization: `APIKEY ${apiKey}` },
-        });
-        if (sessionRes.status !== 200) throw new UserError(`PCI Booking session failed (HTTP ${sessionRes.status})`, 502);
-        const sessionToken = (await sessionRes.text()).trim();
+        // 5-minute session token so the browser can load PCI Booking's iframe.
+        const sessionToken = await tempSession(apiKey);
         const cardToken = token.card_token_uri.split("/").filter(Boolean).pop() ?? "";
         const display = new URLSearchParams({ sessionToken, language: "en", formatCardNumber: "true" });
         await db.from("pci_card_views").insert({ card_token_id: token.id, hotel_id: hotelId, viewed_by: caller.userId });
         return json({ ok: true, display_url: `${PCIB}/${encodeURIComponent(cardToken)}/display?${display}`, expires_in_seconds: 300 });
+      }
+
+      case "diagnose": {
+        // Managers only: verify the PCI Booking account and list the preset
+        // tokenization profiles, so the right Channex profile can be chosen.
+        if (!hasRole(caller, MANAGE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
+        const apiKey = env("PCIBOOKING_API_KEY");
+        if (!apiKey) return json({ ok: true, configured: false });
+        const res = await fetch("https://service.pcibooking.net/api/booker", {
+          headers: { Authorization: `APIKEY ${apiKey}`, Accept: "application/json" },
+        });
+        const text = await res.text();
+        let profiles: unknown = null;
+        try { profiles = JSON.parse(text); } catch { profiles = text.slice(0, 1500); }
+        return json({ ok: true, configured: true, http: res.status, profiles });
+      }
+
+      case "probe": {
+        // Temporary sandbox probe: which auth the preset booker route accepts.
+        if (!hasRole(caller, MANAGE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
+        const apiKey = env("PCIBOOKING_API_KEY");
+        const channexKey = channexApiKey();
+        const bookingId = String(payload.booking_id ?? "");
+        const base = `https://service.pcibooking.net/api/booker/ChannexStagingSecure/reservation`;
+        const sessionToken = await tempSession(apiKey);
+        const attempts: Record<string, unknown> = { sessionTokenLength: sessionToken.length };
+        const tryOne = async (label: string, url: string, headers: Record<string, string>) => {
+          const r = await fetch(url, { method: "POST", headers });
+          attempts[label] = { status: r.status, body: (await r.text()).slice(0, 120), cardUri: r.headers.get("X-pciBooking-cardUri") ? "yes" : null, tokErr: r.headers.get("X-pciBooking-Tokenization-Errors") };
+        };
+        await tryOne("session_query", `${base}?${new URLSearchParams({ sessionToken, pathSegments: `id=${bookingId}` })}`, { "user-api-key": channexKey, Accept: "application/json" });
+        await tryOne("apikey_header", `${base}?${new URLSearchParams({ pathSegments: `id=${bookingId}` })}`, { "x-pcibooking-api-key": apiKey, "user-api-key": channexKey, Accept: "application/json" });
+        await tryOne("apikey_auth", `${base}?${new URLSearchParams({ pathSegments: `id=${bookingId}` })}`, { Authorization: `APIKEY ${apiKey}`, "x-pcibooking-thirdparty-user-api-key": channexKey, "user-api-key": channexKey, Accept: "application/json" });
+        return json({ ok: true, attempts });
       }
 
       default:
