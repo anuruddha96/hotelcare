@@ -4977,40 +4977,46 @@ export default function RateStrategyGrid({
         </div>
       )}
 
-      {/* Tap a price on a phone: who changed it, when, and by how much. */}
+      {/* A phone tap opens a compact, self-contained price story. Its history
+          alone scrolls, so the primary edit action never disappears below the
+          calendar or behind the iOS home indicator. */}
       <Sheet open={!!cellInfo} onOpenChange={(o) => !o && setCellInfo(null)}>
-        <SheetContent side="bottom" className="flex h-[85dvh] max-h-[85dvh] flex-col gap-0 p-4">
+        <SheetContent
+          side="bottom"
+          className="flex h-[min(78dvh,640px)] max-h-[calc(100dvh-0.5rem)] min-h-0 flex-col gap-0 overflow-hidden rounded-t-2xl border-t bg-background p-0 shadow-2xl"
+        >
           {cellInfo && (
             <>
-              <SheetHeader className="flex-none text-left pb-2">
-                <SheetTitle className="text-sm">
-                  {cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
-                </SheetTitle>
-              </SheetHeader>
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-                <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+              <div className="shrink-0 space-y-3 border-b px-4 pb-3 pt-4">
+                <SheetHeader className="pr-10 text-left">
+                  <SheetTitle className="text-sm leading-snug">
+                    {cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
+                  </SheetTitle>
+                </SheetHeader>
+                <div className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-2 text-sm">
                   <span className="text-muted-foreground">Current price</span>
                   <span className="tabular-nums font-semibold">{moneyBase(cellInfo.published)}</span>
                 </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+                <p className="mb-2 text-xs font-semibold text-foreground">Recent price changes</p>
                 <RateCellHistory
                   history={cellHistoryByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
                     ?? auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
                     ?? []}
-
                   automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
                   hold={automationHolds.get(cellInfo.date) ?? null}
                   names={actorNames}
                   draftPrice={cellInfo.draft}
                   sendingPrice={inFlight.get(`${cellInfo.date}|${cellInfo.roomTypeName}|${cellInfo.occ}`) ?? null}
-                  expanded
                 />
-
               </div>
 
-              <div className="flex-none pt-3">
-                {canEditRates && (
+              {canEditRates && (
+                <div className="shrink-0 border-t bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
                   <Button
-                    className="w-full"
+                    className="h-11 w-full font-semibold"
                     onClick={() => {
                       setApplyDays(1); setApplyWeekdays("all"); setApplyAllOcc(false); setEditMode("set");
                       setEdit({
@@ -5026,13 +5032,12 @@ export default function RateStrategyGrid({
                   >
                     Edit price
                   </Button>
-                )}
-              </div>
+                </div>
+              )}
             </>
           )}
         </SheetContent>
       </Sheet>
-
 
 
       <InitializeRoomRatesDialog room={initialRatesRoom} hotelId={hotelId ?? null}
