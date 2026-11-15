@@ -2,6 +2,9 @@
  * A held decision can retain a non-zero movement: direction alone is unsafe.
  * This contract is deliberately scoped to Ottofiori's mapped 13-cell column.
  */
+/** Largest single-booking rise the guard lets through (matches the DB trigger). */
+export const SINGLE_BOOKING_RISE_LIMIT_EUR = 80;
+
 export interface PublicationDecision {
   id: string;
   hotel_id: string;
@@ -108,12 +111,15 @@ export function guardOttofioriPublication<T extends PublicationDraft>(params: {
     const singleBookingSoftRise = decision?.direction === "increase" &&
       netPickup24h === 1 && !strongOccupancy &&
       Number(decision?.rooms_remaining ?? 99) > 2;
-    const measuredSingleBookingLimit = Number(decision?.days_out ?? 999) <= 7 ? 1 : 2;
+    // Owner policy 14 Nov 2026: a genuine booking earns its full lead-time
+    // ladder step. The rise must still come from the planner or the AI
+    // supervisor and stay inside the ladder ceiling (mirrors the database
+    // trigger enforce_ottofiori_push_direction_integrity).
     if (singleBookingSoftRise && !(
       ["revenue_director_yield", "ai_supervisor"].includes(String(decision?.decision_reason)) &&
-      movement > 0 && movement <= measuredSingleBookingLimit
+      movement > 0 && movement <= SINGLE_BOOKING_RISE_LIMIT_EUR
     )) {
-      reject("Whole date blocked before PMS write: one net booking with soft occupancy is not enough for this increase.");
+      reject("Whole date blocked before PMS write: a single-booking rise must come from the planner or AI supervisor and stay within the EUR 80 ladder limit.");
       continue;
     }
     const manifest = params.manifest?.[stayDate];
