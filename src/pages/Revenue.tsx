@@ -71,7 +71,12 @@ export default function Revenue() {
 
   useEffect(() => {
     if (loading) return;
-    if (!profile || !ALLOWED.includes(profile.role)) {
+    // Native-PMS organizations (Channex sandbox) host the Rate & Pickup
+    // calendar here, so their managers and front desk may enter too; they are
+    // redirected below to their hotel's detail page.
+    const nativeStaff = organizationSlug === "channex"
+      && ["manager", "reception_manager", "reception", "front_office"].includes(profile?.role ?? "");
+    if (!profile || (!ALLOWED.includes(profile.role) && !nativeStaff)) {
       navigate(organizationSlug ? `/${organizationSlug}` : "/");
       return;
     }
