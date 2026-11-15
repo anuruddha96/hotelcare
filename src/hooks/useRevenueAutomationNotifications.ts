@@ -13,6 +13,8 @@ export interface AutomationChangeRow {
   push_run_id?: string | null;
   push_requested_count?: number | null;
   push_accepted_count?: number | null;
+  push_confirmed_count?: number | null;
+  push_superseded_count?: number | null;
   push_failed_count?: number | null;
   room_type_name?: string | null;
   occupancy?: number | null;
@@ -156,6 +158,9 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
       const pushRunById = new Map<string, {
         status: string; requested_count: number; accepted_count: number; failed_count: number;
       }>();
+      const confirmationByRun = new Map<string, {
+        total_count: number; confirmed_count: number; superseded_count: number; pending_count: number;
+      }>();
       if (pushIds.length > 0) {
         const { data: pushRuns } = await supabase
           .from('revenue_rate_push_runs')
@@ -164,6 +169,12 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
         for (const push of (pushRuns ?? []) as Array<{
           id: string; status: string; requested_count: number; accepted_count: number; failed_count: number;
         }>) pushRunById.set(push.id, push);
+        // Readback: Previo confirmation lives on the reconciled draft rows.
+        const { data: confirmations } = await supabase
+          .rpc('revenue_push_run_confirmations', { p_run_ids: pushIds.slice(0, 200) });
+        for (const row of (confirmations ?? []) as Array<{
+          push_run_id: string; total_count: number; confirmed_count: number; superseded_count: number; pending_count: number;
+        }>) confirmationByRun.set(row.push_run_id, row);
       }
       const readIds = new Set<string>();
       if (ids.length > 0) {
@@ -218,12 +229,15 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
                       : push.status === 'failed'
                         ? 'failed'
                         : 'queued';
+                const confirmation = change.push_run_id ? confirmationByRun.get(change.push_run_id) : null;
                 return {
                   ...change,
                   status,
                   push_requested_count: requested,
                   push_accepted_count: accepted,
                   push_failed_count: failed,
+                  push_confirmed_count: confirmation?.confirmed_count ?? null,
+                  push_superseded_count: confirmation?.superseded_count ?? null,
                 };
               })
               : [],

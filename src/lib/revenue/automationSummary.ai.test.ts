@@ -25,8 +25,21 @@ describe('AI supervisor revenue notifications', () => {
 
   it('distinguishes accepted price cells from independently verified prices', () => {
     expect(runStatus(aiRun).text).toContain('accepted by Previo');
-    expect(runStatus(aiRun).text).toContain('Readback not yet confirmed');
+    expect(runStatus(aiRun).text).toContain('Readback confirmation follows');
     expect(runPreview(aiRun)).toContain('26 prices accepted by Previo');
+  });
+
+  it('reports Previo readback once every accepted cell is confirmed', () => {
+    const confirmed = { ...aiRun, changes: aiRun.changes.map((c) => ({ ...c, push_confirmed_count: 13, push_superseded_count: 0 })) };
+    expect(runStatus(confirmed)).toEqual({ text: 'All 2 stay dates confirmed in Previo (26 room/guest prices read back).', tone: 'done' });
+    expect(runPreview(confirmed)).toBe('2 dates updated · 26 prices confirmed in Previo');
+  });
+
+  it('flags cells Previo changed again after acceptance', () => {
+    const changed = { ...aiRun, changes: aiRun.changes.map((c, i) => ({ ...c, push_confirmed_count: i === 0 ? 13 : 0, push_superseded_count: i === 0 ? 0 : 13 })) };
+    const status = runStatus(changed);
+    expect(status.tone).toBe('attention');
+    expect(status.text).toContain('13 later changed in Previo');
   });
 
   it('does not claim older queued AI updates are already live', () => {
@@ -55,5 +68,17 @@ describe('AI supervisor revenue notifications', () => {
     };
     expect(runHeadline(algorithm)).toBe('Automatic pricing changed 3 stay dates');
     expect(runStatus(algorithm).text).toContain('accepted by Previo');
+  });
+});
+
+describe('engine run previews', () => {
+  const base = { notification_type: 'engine_v2_run', run_source: 'automatic', actions_count: 0, pushed_count: 0, failed_count: 0 };
+  it('a run that changed nothing never reads as "sending"', () => {
+    const run = { ...base, run: { mode: 'live', status: 'completed', dates_evaluated: 121, dates_increased: 0, dates_decreased: 0, dates_held: 121, cells_queued: 0 } };
+    expect(runPreview(run)).toBe('Reviewed — no price changes needed · 121 dates checked');
+  });
+  it('a run with queued cells that are not yet accepted is still sending', () => {
+    const run = { ...base, actions_count: 6, run: { mode: 'live', status: 'completed', dates_evaluated: 121, dates_increased: 6, dates_decreased: 0, dates_held: 115, cells_queued: 78 } };
+    expect(runPreview(run)).toBe('6 dates · 78 prices sending to Previo…');
   });
 });
