@@ -569,7 +569,7 @@ serve(async (req) => {
       }]
     : [];
 
-  if (accounts.length === 0) return json({ error: `No Previo configuration for ${hotelId}` }, 404);
+  if (accounts.length === 0) return json({ success: true, skipped: true, reason: "no_previo_configuration", message: `No Previo configuration for ${hotelId}; sync skipped (non-Previo property)` }, 200);
   const missingCreds = accounts.filter((a) => !a.secretName || !a.hotId);
   if (missingCreds.length === accounts.length) {
     return json({
