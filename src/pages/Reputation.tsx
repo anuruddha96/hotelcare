@@ -553,7 +553,7 @@ export default function Reputation() {
 
   useEffect(() => {
     if (!data?.locations?.length) return;
-    const activeHotel = String(profile?.assigned_hotel || profile?.hotel_id || "").trim();
+    const activeHotel = String(profile?.assigned_hotel || (profile as any)?.hotel_id || "").trim();
     if (!activeHotel) return;
     const scope = String(profile?.organization_slug || "") + ":" + activeHotel;
     if (venueSelectionScope.current === scope) return;
@@ -569,7 +569,7 @@ export default function Reputation() {
     setLocationFilter(venueId);
     setRecentVenue(venueId);
     setHistoryVenue(venueId);
-  }, [data?.locations, data?.hotels, profile?.assigned_hotel, profile?.hotel_id,
+  }, [data?.locations, data?.hotels, profile?.assigned_hotel, (profile as any)?.hotel_id,
       profile?.organization_slug, searchParams]);
 
   useEffect(() => {

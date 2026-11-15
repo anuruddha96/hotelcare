@@ -124,7 +124,7 @@ export function FutureHousekeepingOverview({
             .select('room_id,assigned_to,source,recommendation_context').eq('plan_id', plan.id);
           if (planItemsError) throw planItemsError;
           const items = planItems || [];
-          const staffIds = Array.from(new Set(items.map((item: any) => String(item.assigned_to))));
+          const staffIds = Array.from(new Set<string>(items.map((item: any) => String(item.assigned_to))));
           const staffResult = staffIds.length
             ? await supabase.from('profiles').select('id,full_name')
                 .eq('organization_slug', organizationSlug).in('id', staffIds)
