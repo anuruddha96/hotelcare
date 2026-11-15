@@ -7,6 +7,8 @@
 
 export interface AutomationRunLike {
   hotel_name?: string;
+  /** When the run was recorded; lets the feed call out deliveries that never completed. */
+  created_at?: string | null;
   notification_type?: string;
   run_source?: string;
   source?: 'ai' | 'automation' | 'manual';
@@ -50,6 +52,15 @@ export interface RunReason {
 }
 
 export type RunTone = "attention" | "done" | "working" | "quiet";
+
+/** After this long a queued run that Previo has not accepted is reported, not left "sending…". */
+export const DELIVERY_STALE_MINUTES = 30;
+
+export function deliveryStale(run: AutomationRunLike, now: Date = new Date()): boolean {
+  if (!run.created_at) return false;
+  const started = Date.parse(run.created_at);
+  return Number.isFinite(started) && now.getTime() - started > DELIVERY_STALE_MINUTES * 60_000;
+}
 
 const isMinStay = (run: AutomationRunLike) => run.notification_type === "min_stay_automation";
 const isAiReferenceRun = (run: AutomationRunLike) =>
@@ -225,9 +236,10 @@ export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone
       if (failed > 0) return { text: `${accepted.toLocaleString()} accepted · ${verified.toLocaleString()} confirmed · ${failed.toLocaleString()} failed`, tone: "attention" };
       if (verified >= run.run.cells_queued) return { text: `All ${verified.toLocaleString()} price cells confirmed in Previo`, tone: "done" };
       if (accepted > 0) return { text: `${accepted.toLocaleString()} accepted by Previo · ${verified.toLocaleString()} confirmed`, tone: "working" };
+      if (deliveryStale(run)) return { text: `${run.run.cells_queued.toLocaleString()} price cells were queued over ${DELIVERY_STALE_MINUTES} minutes ago and Previo has not accepted them — check the rate queue`, tone: "attention" };
       return { text: `${run.run.cells_queued.toLocaleString()} price cells queued for Previo`, tone: "working" };
     }
-    return { text: "No prices needed to be sent", tone: "done" };
+    return { text: `Reviewed ${run.run.dates_evaluated.toLocaleString()} dates — no price change was needed`, tone: "done" };
   }
   const failed = run.failed_count ?? 0;
   const sent = run.pushed_count ?? 0;
@@ -264,8 +276,11 @@ export function runPreview(run: AutomationRunLike): string {
     const accepted = run.run.cells_published ?? 0;
     const failed = run.run.cells_failed ?? 0;
     if (failed > 0) return `Failed: ${failed.toLocaleString()} prices not accepted · ${changed.toLocaleString()} dates`;
+    // A run that changed nothing is finished, not "sending".
+    if (run.run.cells_queued === 0 || changed === 0) return `Reviewed ${run.run.dates_evaluated.toLocaleString()} dates · no change needed · ${run.run.dates_held.toLocaleString()} held`;
     if (verified >= run.run.cells_queued && verified > 0) return `${changed.toLocaleString()} dates · ${verified.toLocaleString()} prices confirmed in Previo`;
     if (accepted > 0) return `${changed.toLocaleString()} dates · ${accepted.toLocaleString()} prices sent to Previo`;
+    if (deliveryStale(run)) return `${changed.toLocaleString()} dates · ${run.run.cells_queued.toLocaleString()} prices not accepted by Previo after ${DELIVERY_STALE_MINUTES} min`;
     return `${changed.toLocaleString()} dates · ${run.run.cells_queued.toLocaleString()} prices sending to Previo…`;
   }
   const failed = run.failed_count ?? 0;
