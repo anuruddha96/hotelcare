@@ -145,7 +145,7 @@ export function pmsPaymentNote(
  * joined guest profile -> PMS-provided guest label -> PMS booking ref.
  */
 export function reservationGuestLabel(
-  r: ReservationLike,
+  r: Partial<ReservationLike> & Record<string, unknown>,
   pmsFallbackPrefix = "Previo",
 ): string {
   const g = r.guests;

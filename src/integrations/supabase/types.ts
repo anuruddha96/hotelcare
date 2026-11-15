@@ -4590,6 +4590,7 @@ export type Database = {
           id: string
           invoice_number: string | null
           issued_at: string | null
+          issuer_id: string | null
           kind: string
           language: string
           lines: Json
@@ -4616,6 +4617,7 @@ export type Database = {
           id?: string
           invoice_number?: string | null
           issued_at?: string | null
+          issuer_id?: string | null
           kind: string
           language?: string
           lines: Json
@@ -4642,6 +4644,7 @@ export type Database = {
           id?: string
           invoice_number?: string | null
           issued_at?: string | null
+          issuer_id?: string | null
           kind?: string
           language?: string
           lines?: Json
@@ -4656,6 +4659,13 @@ export type Database = {
           vat_total?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "guest_invoices_issuer_id_fkey"
+            columns: ["issuer_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_issuers"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "guest_invoices_origin_invoice_id_fkey"
             columns: ["origin_invoice_id"]
@@ -7682,6 +7692,158 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      invoice_hotel_issuers: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          hotel_id: string
+          issuer_id: string
+          organization_slug: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          hotel_id: string
+          issuer_id: string
+          organization_slug: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          hotel_id?: string
+          issuer_id?: string
+          organization_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_hotel_issuers_issuer_id_organization_slug_fkey"
+            columns: ["issuer_id", "organization_slug"]
+            isOneToOne: false
+            referencedRelation: "invoice_issuers"
+            referencedColumns: ["id", "organization_slug"]
+          },
+          {
+            foreignKeyName: "invoice_hotel_issuers_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
+      invoice_issuer_audit: {
+        Row: {
+          actor_id: string
+          created_at: string
+          hotel_id: string | null
+          id: number
+          issuer_id: string | null
+          operation: string
+          organization_slug: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          hotel_id?: string | null
+          id?: never
+          issuer_id?: string | null
+          operation: string
+          organization_slug: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          hotel_id?: string | null
+          id?: never
+          issuer_id?: string | null
+          operation?: string
+          organization_slug?: string
+        }
+        Relationships: []
+      }
+      invoice_issuers: {
+        Row: {
+          bank_account: string
+          bank_name: string
+          billing_email: string
+          city: string
+          connection_mode: string
+          created_at: string
+          created_by: string | null
+          credential_ciphertext: string | null
+          credential_iv: string | null
+          enabled: boolean
+          environment: string
+          id: string
+          invoice_prefix: string
+          language: string
+          legal_name: string
+          organization_slug: string
+          reply_to_email: string
+          street_address: string
+          tax_number: string
+          updated_at: string
+          updated_by: string | null
+          zip: string
+        }
+        Insert: {
+          bank_account?: string
+          bank_name?: string
+          billing_email: string
+          city: string
+          connection_mode?: string
+          created_at?: string
+          created_by?: string | null
+          credential_ciphertext?: string | null
+          credential_iv?: string | null
+          enabled?: boolean
+          environment?: string
+          id?: string
+          invoice_prefix?: string
+          language?: string
+          legal_name: string
+          organization_slug: string
+          reply_to_email?: string
+          street_address: string
+          tax_number: string
+          updated_at?: string
+          updated_by?: string | null
+          zip: string
+        }
+        Update: {
+          bank_account?: string
+          bank_name?: string
+          billing_email?: string
+          city?: string
+          connection_mode?: string
+          created_at?: string
+          created_by?: string | null
+          credential_ciphertext?: string | null
+          credential_iv?: string | null
+          enabled?: boolean
+          environment?: string
+          id?: string
+          invoice_prefix?: string
+          language?: string
+          legal_name?: string
+          organization_slug?: string
+          reply_to_email?: string
+          street_address?: string
+          tax_number?: string
+          updated_at?: string
+          updated_by?: string | null
+          zip?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_issuers_organization_slug_fkey"
+            columns: ["organization_slug"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["slug"]
+          },
+        ]
       }
       lead_time_adjustments: {
         Row: {
@@ -19149,6 +19311,7 @@ export type Database = {
         }
         Returns: number
       }
+      invoice_credential_key_internal: { Args: never; Returns: string }
       invoke_ottofiori_ai_supervisor: { Args: never; Returns: number }
       invoke_ottofiori_market_scan: {
         Args: { _force?: boolean }

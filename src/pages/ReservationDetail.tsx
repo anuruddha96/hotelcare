@@ -24,6 +24,7 @@ import { EditReservationDialog } from '@/components/reservations/EditReservation
 import { ReservationNotesPanel } from '@/components/reservations/ReservationNotesPanel';
 import { PrevioWritebackStatus } from '@/components/reservations/PrevioWritebackStatus';
 import { ReservationAccountPanel } from '@/components/reservations/ReservationAccountPanel';
+import { PciCardPanel } from '@/components/reservations/PciCardPanel';
 import { LifecycleError, setReservationStatus } from '@/lib/pmsLifecycle';
 import {
   formatMoney, isPmsManaged, pmsHoldKind, pmsPaymentNote, reservationChannel, reservationGuestLabel, RESERVATION_STATUS_COLORS,
@@ -298,6 +299,7 @@ const ReservationDetail = () => {
 
         <div className="grid xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] gap-4 items-start">
           <ReservationAccountPanel reservation={reservation} onFinancialChanged={fetchData} />
+          {reservation.hotel_id && <PciCardPanel hotelId={reservation.hotel_id} reservationId={reservation.id} />}
 
           <Card>
             <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><History className="h-4 w-4" /> {t('pms.res.auditTimeline')}</CardTitle></CardHeader>

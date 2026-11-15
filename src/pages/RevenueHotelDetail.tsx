@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { claimRevenueSync, fetchRevenueSyncInfo, fetchRevenueWaitState } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
@@ -66,6 +66,7 @@ import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
 import TrialEndedNotice from "@/components/revenue/TrialEndedNotice";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
+import { NativeAriCalendar } from "@/components/rates/NativeAriCalendar";
 import { formatDistance } from "date-fns";
 import { setTabHotel } from "@/lib/tabHotel";
 import { HotelSwitchOverlay } from "@/components/layout/HotelSwitchOverlay";
@@ -108,7 +109,47 @@ function startOfMonth(d: Date) { const x = new Date(d); x.setUTCDate(1); x.setUT
 function addDays(d: Date, n: number) { const x = new Date(d); x.setUTCDate(x.getUTCDate()+n); return x; }
 function iso(d: Date) { return d.toISOString().slice(0,10); }
 
+/**
+ * Route component: hotels where HotelCare is the PMS of record get the native
+ * revenue experience (Rate & Pickup calendar with multi-OTA pricing); Previo
+ * hotels keep the full Previo-driven revenue page below. One Revenue module —
+ * there is no separate "Rates & availability" section.
+ */
+const NATIVE_VIEW_ROLES = ["admin", "top_management", "top_management_manager", "manager", "reception_manager", "reception", "front_office"];
+
 export default function RevenueHotelDetail() {
+  const { hotelId, organizationSlug } = useParams<{ hotelId: string; organizationSlug: string }>();
+  const { profile: navProfile } = useAuth();
+  const [native, setNative] = useState<boolean | null>(null);
+  useEffect(() => {
+    let on = true;
+    setNative(null);
+    if (!hotelId) { setNative(false); return; }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).rpc('pms_ari_native_hotel', { _hotel_id: hotelId })
+      .then(({ data }: { data: boolean | null }) => { if (on) setNative(data === true); })
+      .catch(() => { if (on) setNative(false); });
+    return () => { on = false; };
+  }, [hotelId]);
+
+  if (native === null) {
+    return <div className="min-h-screen bg-background"><Header /><div className="flex items-center justify-center py-24"><RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" /></div></div>;
+  }
+  if (native && hotelId) {
+    if (navProfile && !navProfile.is_super_admin && !NATIVE_VIEW_ROLES.includes(navProfile.role)) {
+      return <Navigate to={organizationSlug ? `/${organizationSlug}` : "/"} replace />;
+    }
+    return <div className="min-h-screen bg-background"><Header />
+      <main className="container mx-auto px-3 sm:px-6 py-4 space-y-4">
+        <MainTabsBar current="revenue" />
+        <NativeAriCalendar hotelId={hotelId} />
+      </main>
+    </div>;
+  }
+  return <PrevioRevenueHotelDetail />;
+}
+
+function PrevioRevenueHotelDetail() {
   const { profile, loading, applyAssignedHotel } = useAuth();
   const { language } = useTranslation();
   const hu = language === 'hu';

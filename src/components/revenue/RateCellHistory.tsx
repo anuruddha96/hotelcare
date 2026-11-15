@@ -173,6 +173,7 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
   const shown = entries.slice(0, limit);
   const rest = entries.length - shown.length;
   const hiddenMinStay = Math.max(0, minStayEntries.length - (expanded || showAll ? minStayEntries.length : 3));
+  const hasMoreHistory = entries.length > 3 || minStayEntries.length > 3;
   let lastBucket: string | null = null;
 
   return <div className="space-y-2">
@@ -192,6 +193,6 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
     <p className={`text-[11px] font-medium leading-snug ${status.tone}`}>{status.text}</p>
     {authoritativeSyncNote}{holdNote}{minStayBlock}
     {shown.length > 0 && <div className="space-y-2">{shown.map((e) => { const bucket = dayBucket(e.at); const heading = bucket !== lastBucket ? bucket : null; lastBucket = bucket; return <div key={e.id} className="space-y-1">{heading && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{heading}</p>}{block(e)}</div>; })}</div>}
-    {!expanded && (rest > 0 || hiddenMinStay > 0) && <button type="button" className="text-[11px] text-primary underline underline-offset-2" onClick={(ev) => { ev.stopPropagation(); setShowAll((v) => !v); }}>{showAll ? "Show less" : `${rest + hiddenMinStay} more change${rest + hiddenMinStay === 1 ? "" : "s"}`}</button>}
+    {!expanded && hasMoreHistory && <button type="button" className="text-[11px] text-primary underline underline-offset-2" onClick={(ev) => { ev.stopPropagation(); setShowAll((v) => !v); }}>{showAll ? "Show less" : `${rest + hiddenMinStay} more change${rest + hiddenMinStay === 1 ? "" : "s"}`}</button>}
   </div>;
 }

@@ -50,7 +50,7 @@ const unb64 = (value: string): Uint8Array => {
 };
 
 /** Copy into a plain ArrayBuffer so WebCrypto's BufferSource typing is happy. */
-const bytes = (input: Uint8Array | ArrayBuffer): Uint8Array => {
+const bytes = (input: Uint8Array | ArrayBuffer): Uint8Array<ArrayBuffer> => {
   const src = input instanceof Uint8Array ? input : new Uint8Array(input);
   const out = new Uint8Array(new ArrayBuffer(src.byteLength));
   out.set(src);
