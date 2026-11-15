@@ -1,6 +1,6 @@
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  CalendarDays, CalendarRange, CarFront, Clock, DoorOpen, Home, Radio, Receipt,
+  CalendarDays, CarFront, Clock, DoorOpen, Home, Radio, Receipt,
   Settings, TabletSmartphone, Ticket, TrendingUp, Users, MessageSquareText,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,7 +27,7 @@ function moduleFromLocation(pathname: string, search: string, basePath: string):
   const under = (segment: string) => pathname.startsWith(`${basePath}/${segment}`);
   if (under('reception') || under('reservations') || under('front-desk') || under('guests')) return 'reception';
   if (under('revenue')) return 'revenue';
-  if (under('rates-availability')) return 'rates-availability';
+  if (under('rates-availability')) return 'revenue'; // merged into Revenue Management
   if (under('channel-manager')) return 'channel-manager';
   if (under('purchase-invoices')) return 'invoices';
   if (under('parking-tickets')) return 'parking';
@@ -83,8 +83,9 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     ] : []),
     ...(manager || role === 'hr' ? [{ key: 'attendance' as const, label: 'nav.hr', icon: Clock, click: () => openTab('attendance'), training: 'attendance-tab' }] : []),
     ...(canOpenSchedule ? [{ key: 'staff-schedule' as const, label: 'nav.schedule', icon: CalendarDays, click: () => navigate(`${basePath}?view=staff-schedule`) }] : []),
-    ...(executive ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
-    ...(nativePms && (executive || role === 'manager' || frontDesk) ? [{ key: 'rates-availability' as const, label: 'nav.rates', icon: CalendarRange, click: () => navigate(`${basePath}/rates-availability`) }] : []),
+    // Revenue Management hosts the Rate & Pickup calendar (no separate rates
+    // module), so on native-PMS hotels managers and the front desk open it too.
+    ...(executive || (nativePms && (role === 'manager' || frontDesk)) ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
     ...(['admin', 'manager', 'top_management', 'top_management_manager'].includes(role) ? [{ key: 'channel-manager' as const, label: 'nav.channels', icon: Radio, click: () => navigate(`${basePath}/channel-manager`) }] : []),
     ...(executive || (role === 'manager' && organizationSlug === 'rdhotels') ? [{ key: 'reputation' as const, label: 'nav.reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) }] : []),
     ...(legacy && manager ? [
