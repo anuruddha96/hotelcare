@@ -115,6 +115,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewMode>('planner');
   const [createOpen, setCreateOpen] = useState(false);
+  const [statPanel, setStatPanel] = useState<'arrivals' | 'departures' | 'inhouse' | 'unassigned' | null>(null);
   // One-tap check-in / check-out straight from the side lists.
   const [actioned, setActioned] = useState<{ row: Record<string, unknown>; dialog: 'checkin' | 'checkout' } | null>(null);
   const today = todayBudapest();
@@ -355,16 +356,49 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         <p>HotelCare has {tomorrowCheckIns.length} older reservation records for this date, but the latest reservation import has not succeeded. Do not use this number as tomorrow’s arrivals. Use Sync now above, and verify the guest list in Previo until the import succeeds.</p>
       </div>
     )}
-    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label="HotelCare records only; not validated against Previo">
-      {[
-        { label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, value: arrivals.length, icon: LogIn },
-        { label: `🧳 ${t('pms.fd.departuresRemaining')}`, value: departures.length, icon: LogOut },
-        { label: `🛏️ ${t('pms.fd.inHouseNow')}`, value: inHouse.length, icon: Users },
-        { label: `❓ ${t('pms.planner.unassignedSection')}`, value: unassigned.length, icon: AlertTriangle },
-      ].map((stat) => <div key={stat.label} title="HotelCare database only; not independently confirmed by Previo" className="h-8 shrink-0 rounded-md border border-border bg-card px-2.5 flex items-center gap-1.5 text-xs">
-        <span className="text-muted-foreground">{stat.label}</span><span className="font-semibold">{loadingData || loadError ? '—' : stat.value}</span>
-      </div>)}
+    <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label="HotelCare records only; not validated against Previo" data-training="fd-today-strip">
+      {([
+        { key: 'arrivals' as const, label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, rows: arrivals, tone: 'border-emerald-300 dark:border-emerald-800' },
+        { key: 'departures' as const, label: `🧳 ${t('pms.fd.departuresRemaining')}`, rows: departures, tone: 'border-sky-300 dark:border-sky-800' },
+        { key: 'inhouse' as const, label: `🛏️ ${t('pms.fd.inHouseNow')}`, rows: inHouse, tone: 'border-border' },
+        { key: 'unassigned' as const, label: `❓ ${t('pms.planner.unassignedSection')}`, rows: unassigned, tone: unassigned.length ? 'border-amber-400 dark:border-amber-700' : 'border-border' },
+      ]).map((stat) => (
+        <button key={stat.key} type="button" title={t('pms.fd.todayChipTip')}
+          aria-expanded={statPanel === stat.key}
+          onClick={() => setStatPanel(statPanel === stat.key ? null : stat.key)}
+          className={`h-8 shrink-0 rounded-md border bg-card px-2.5 flex items-center gap-1.5 text-xs transition-colors hover:bg-accent/40 ${stat.tone} ${statPanel === stat.key ? 'ring-2 ring-primary/50 bg-accent/30' : ''}`}>
+          <span className="text-muted-foreground">{stat.label}</span><span className="font-semibold">{loadingData || loadError ? '—' : stat.rows.length}</span>
+        </button>
+      ))}
+      <div className="h-8 shrink-0 rounded-md border border-dashed border-border px-2.5 flex items-center gap-2 text-[11px] text-muted-foreground" aria-hidden="true">
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />{t('pms.status.checkedIn')}</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />{t('pms.status.confirmed')}</span>
+        <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-400" />{t('pms.status.checkedOut')}</span>
+      </div>
     </div>
+
+    {statPanel && (() => {
+      const rows = statPanel === 'arrivals' ? arrivals : statPanel === 'departures' ? departures : statPanel === 'inhouse' ? inHouse : unassigned;
+      return <div className="rounded-xl border border-border bg-card divide-y divide-border/60 overflow-hidden" data-training="fd-today-panel">
+        {rows.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">{t('pms.fd.nothingHere')}</div>}
+        {rows.slice(0, 12).map((row) => (
+          <div key={row.id} className="flex items-center gap-3 px-4 py-2 hover:bg-accent/30">
+            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openReservation(row)}>
+              <div className="text-sm font-medium truncate">{reservationGuestLabel(row)} <span className="text-xs font-normal text-muted-foreground">· {row.rooms?.room_number || t('pms.unified.unassigned')}</span></div>
+              <div className="text-xs text-muted-foreground truncate">{row.check_in_date} → {row.check_out_date}</div>
+            </button>
+            <Badge className={`${RESERVATION_STATUS_COLORS[row.status] || 'bg-muted'} text-[10px]`}>{String(row.status).replace('_', ' ')}</Badge>
+            {['pending', 'confirmed'].includes(row.status) && (
+              <Button type="button" size="sm" className="h-8 shrink-0" onClick={() => setActioned({ row, dialog: 'checkin' })}>{t('pms.checkIn')}</Button>
+            )}
+            {row.status === 'checked_in' && statPanel !== 'inhouse' && (
+              <Button type="button" size="sm" variant="outline" className="h-8 shrink-0" onClick={() => setActioned({ row, dialog: 'checkout' })}>{t('pms.checkOut')}</Button>
+            )}
+          </div>
+        ))}
+        {rows.length > 12 && <div className="px-4 py-2 text-xs text-muted-foreground">+{rows.length - 12}…</div>}
+      </div>;
+    })()}
 
     <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
       {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned={nativeHotel} editable={nativeHotel} onChanged={fetchAll} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
