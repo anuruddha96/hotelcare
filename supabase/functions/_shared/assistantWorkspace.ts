@@ -423,18 +423,25 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
   if (canReadReputation(profile.role) && orgSlug) {
     tools.get_reputation_overview = tool({
       description:
-        "Google reviews for the organization: rating and review count per location for a period, how many are still unanswered, the unanswered low-star reviews that need a reply first, and a weekly rating trend. Use for reputation, reviews, guest feedback and rating questions.",
-      inputSchema: jsonSchema<{ days: number | null }>({
+        "Google reviews for ONE hotel (default: the hotel the user is working in) or, only when they explicitly ask for every property / the whole group, the organization: rating and review count per location for a period, how many are still unanswered, the unanswered low-star reviews that need a reply first, and a weekly rating trend. Use for reputation, reviews, guest feedback and rating questions.",
+      inputSchema: jsonSchema<{ days: number | null; hotelId: string | null; portfolio: boolean }>({
         type: "object",
-        properties: { days: { type: ["number", "null"], description: "Look-back period in days, default 30, max 365" } },
-        required: ["days"],
+        properties: {
+          days: { type: ["number", "null"], description: "Look-back period in days, default 30, max 365" },
+          hotelId: { type: ["string", "null"], description: "Named authorized hotel, or null for the current hotel" },
+          portfolio: { type: "boolean", description: "true ONLY when the user explicitly asks for all properties / the whole group" },
+        },
+        required: ["days", "hotelId", "portfolio"],
         additionalProperties: false,
       }),
-      execute: async ({ days }) => {
+      execute: async ({ days, hotelId, portfolio }) => {
         const period = Math.min(Math.max(Math.round(Number(days ?? 30)) || 30, 1), 365);
         const since = new Date(Date.now() - period * 86_400_000).toISOString();
         const { data: org } = await service.from("organizations").select("id").eq("slug", orgSlug).maybeSingle();
         if (!org?.id) return { ok: false, error: "The organization could not be resolved." };
+        // Scope: the hotel the user works in, unless they asked for the group.
+        const scopedHotelIds = portfolio ? [] : ctx.resolve(hotelId ?? ctx.pageHotelId ?? null);
+        const scopedHotel = scopedHotelIds.length === 1 ? hotels.find((h) => h.hotel_id === scopedHotelIds[0]) ?? null : null;
         const [locations, reviews] = await Promise.all([
           service
             .from("google_business_locations")
@@ -451,8 +458,19 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
         ]);
         if (locations.error) throw new Error(`Location lookup failed: ${locations.error.message}`);
         if (reviews.error) throw new Error(`Review lookup failed: ${reviews.error.message}`);
-        const title = new Map<string, string>((locations.data ?? []).map((l: any) => [String(l.id), l.google_location_title]));
-        const rows = reviews.data ?? [];
+        const allLocations = (locations.data ?? []) as any[];
+        const scopedLocations = scopedHotelIds.length > 0
+          ? allLocations.filter((l) => l.hotel_id && scopedHotelIds.includes(String(l.hotel_id)))
+          : allLocations;
+        if (scopedHotelIds.length > 0 && scopedLocations.length === 0) {
+          return {
+            ok: false,
+            error: `${scopedHotel?.hotel_name ?? "This hotel"} has no Google Business location linked in Hotel Care, so its reviews cannot be read. Link the location under Reputation, or ask for the whole group explicitly.`,
+          };
+        }
+        const scopedLocationIds = new Set(scopedLocations.map((l) => String(l.id)));
+        const title = new Map<string, string>(scopedLocations.map((l: any) => [String(l.id), l.google_location_title]));
+        const rows = (reviews.data ?? []).filter((r: any) => scopedLocationIds.has(String(r.google_location_id)));
         const unanswered = (r: any) => r.reply_status !== "published" && !r.google_reply_comment;
         const perLocation = new Map<string, any>();
         const weekly = new Map<string, { sum: number; count: number }>();
@@ -474,10 +492,11 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
           weekly.set(week, bucket);
           if (Number(r.star_rating) <= 3) for (const topic of r.ai_categories ?? []) topics.set(topic, (topics.get(topic) ?? 0) + 1);
         }
-        const lastSync = (locations.data ?? []).map((l: any) => l.last_sync_at).filter(Boolean).sort().at(-1) ?? null;
+        const lastSync = scopedLocations.map((l: any) => l.last_sync_at).filter(Boolean).sort().at(-1) ?? null;
         return envelope(
           {
             period_days: period,
+            scope: scopedHotel ? `${scopedHotel.hotel_name} only` : scopedHotelIds.length > 0 ? "selected hotels" : "whole organization",
             total_reviews: rows.length,
             average_rating: rows.length ? Math.round((rows.reduce((n: number, r: any) => n + (Number(r.star_rating) || 0), 0) / rows.length) * 100) / 100 : null,
             unanswered: rows.filter(unanswered).length,

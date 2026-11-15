@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistant } from "@/hooks/useAssistant";
 import { hasUnreadAssistantReply } from "@/lib/assistant/threadState";
-import { getRememberedAssistantThread } from "@/lib/assistant/activeThread";
+import { getRememberedAssistantThread, rememberAssistantReturnPath } from "@/lib/assistant/activeThread";
 import { canUseAssistant } from "@/lib/assistantAccess";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
@@ -23,12 +23,13 @@ export default function AssistantLauncher() {
 
   const openMira = useCallback((question?: string) => {
     if (!user?.id || !org) return;
+    rememberAssistantReturnPath(user.id, org, `${location.pathname}${location.search}`);
     const remembered = params.get("assistant") || getRememberedAssistantThread(user.id, org);
     const target = "/" + org + "/assistant" + (remembered ? "/" + remembered : "");
     navigate(target, question
       ? { state: { miraPrompt: { id: Date.now(), text: question } } }
       : undefined);
-  }, [navigate, org, params, user?.id]);
+  }, [navigate, org, params, user?.id, location.pathname, location.search]);
 
   useEffect(() => {
     const handler = (event: Event) => {
