@@ -10,6 +10,7 @@ import {
   Users, AlertTriangle,
 } from 'lucide-react';
 import { ReservationCalendar } from '@/components/reservations/ReservationCalendar';
+import { VizaStatusCard } from '@/components/frontdesk/VizaStatusCard';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
@@ -295,6 +296,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         <Button type="button" size="sm" title={t('pms.tip.newReservation')} className="h-9 gap-1" onClick={() => setCreateOpen(true)}>➕ {t('pms.fd.newReservation')}</Button>
       </div>
     </div>
+
+    {hotelId && <VizaStatusCard hotelId={hotelId} />}
 
     <div className="relative" data-training="fd-quick-search">
       <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
