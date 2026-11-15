@@ -46,15 +46,18 @@ export default function AdrGoalAdjustDialog({
   const [saving, setSaving] = useState(false);
   const [amount, setAmount] = useState(0);
   const [direction, setDirection] = useState<1 | -1>(1);
-  const [rangeFrom, setRangeFrom] = useState("");
-  const [rangeTo, setRangeTo] = useState("");
+  // The dialog is keyed to the selected booking by its caller. Derive the
+  // initial range synchronously from those booked stay dates so both date
+  // inputs are populated on the very first render, without a user edit or
+  // a post-render effect (which briefly displayed blank dates).
+  const [selectedRange, setSelectedRange] = useState(() =>
+    target ? goalReservationRange(target.from, target.to, budapestToday()) : { from: "", to: "" },
+  );
+  const { from: rangeFrom, to: rangeTo } = selectedRange;
 
   useEffect(() => {
     setAmount(target ? Math.max(1, Math.round(Math.abs(target.goalDelta))) : 0);
     setDirection(1);
-    const initial = target ? goalReservationRange(target.from, target.to, budapestToday()) : { from: "", to: "" };
-    setRangeFrom(initial.from);
-    setRangeTo(initial.to);
     setRates(null);
     setError(null);
   }, [target]);
@@ -215,19 +218,23 @@ export default function AdrGoalAdjustDialog({
             Every guest-occupancy selling price moves by the same amount. Checkout and
             dates outside this reservation are excluded. Confirmed guest booking prices remain unchanged.
           </p>
+          <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+            <span aria-hidden="true">✓</span>
+            Dates automatically filled from reservation #{target.bookingId}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label htmlFor="goal-row-from" className="text-xs">Stay from</Label>
               <Input id="goal-row-from" type="date" value={rangeFrom} disabled={saving}
                 min={target.from > budapestToday() ? target.from : budapestToday()}
                 max={target.to}
-                onChange={(e) => { setRates(null); setRangeFrom(e.target.value); }} />
+                onChange={(e) => { setRates(null); setSelectedRange((previous) => ({ ...previous, from: e.target.value })); }} />
             </div>
             <div className="space-y-1">
               <Label htmlFor="goal-row-to" className="text-xs">Last stay night (inclusive)</Label>
               <Input id="goal-row-to" type="date" value={rangeTo} disabled={saving}
                 min={rangeFrom || target.from} max={target.to}
-                onChange={(e) => { setRates(null); setRangeTo(e.target.value); }} />
+                onChange={(e) => { setRates(null); setSelectedRange((previous) => ({ ...previous, to: e.target.value })); }} />
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

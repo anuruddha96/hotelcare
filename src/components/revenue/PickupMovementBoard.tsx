@@ -315,6 +315,11 @@ export default function PickupMovementBoard({
 
         <BookingMovementAnalytics hotelId={hotelId} lastSyncAt={lastSyncAt} />
         <AdrGoalAdjustDialog
+          // Remount with a fresh, fully populated booking range every time
+          // an ADR shortcut opens (or a different booking is selected).
+          key={goalAdjust
+            ? `${hotelId}|${goalAdjust.bookingId}|${goalAdjust.from}|${goalAdjust.to}|${goalAdjust.goalDelta}`
+            : "adr-goal-closed"}
           target={goalAdjust}
           hotelId={hotelId}
           organizationSlug={organizationSlug}
