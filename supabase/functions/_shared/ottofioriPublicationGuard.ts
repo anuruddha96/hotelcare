@@ -57,6 +57,9 @@ export function activePublicationDecision(
      (decision.direction === "decrease" && move < 0));
 }
 
+/** Largest whole-date rise one net booking may publish on a soft date (mirrors the DB trigger). */
+export const SINGLE_BOOKING_RISE_LIMIT_EUR = 80;
+
 const cellKey = (cell: { obk_id: string | null; occupancy: number }) =>
   `${cell.obk_id ?? ""}|${cell.occupancy}`;
 
@@ -108,10 +111,13 @@ export function guardOttofioriPublication<T extends PublicationDraft>(params: {
     const singleBookingSoftRise = decision?.direction === "increase" &&
       netPickup24h === 1 && !strongOccupancy &&
       Number(decision?.rooms_remaining ?? 99) > 2;
-    const measuredSingleBookingLimit = Number(decision?.days_out ?? 999) <= 7 ? 1 : 2;
+    // Owner policy (14 Nov 2026): one genuine booking earns the full lead-time
+    // ladder step, so a single-booking rise is accepted from the planner or the
+    // AI supervisor up to SINGLE_BOOKING_RISE_LIMIT_EUR; the per-cell integrity
+    // checks below still require every cell to move by exactly the decision.
     if (singleBookingSoftRise && !(
       ["revenue_director_yield", "ai_supervisor"].includes(String(decision?.decision_reason)) &&
-      movement > 0 && movement <= measuredSingleBookingLimit
+      movement > 0 && movement <= SINGLE_BOOKING_RISE_LIMIT_EUR
     )) {
       reject("Whole date blocked before PMS write: one net booking with soft occupancy is not enough for this increase.");
       continue;
