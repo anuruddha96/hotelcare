@@ -316,7 +316,66 @@ export default function InSuiteGuest() {
     body ? <section className={card}><div className="flex items-center gap-3 mb-2"><Icon className="h-5 w-5" style={{ color: accent }} />
       <h3 className="font-bold">{label}</h3></div><p className="whitespace-pre-line text-slate-600 leading-relaxed">{body}</p></section> : null;
 
-  return <div className="min-h-screen bg-[#f5f7fa] text-slate-900">
+  return <AnimatePresence mode="wait" initial={false}>
+    {welcomeOpen ? (
+      <motion.section key="suite-welcome" role="region" aria-label={t("concierge")}
+        className="relative isolate flex min-h-[100svh] w-full flex-col overflow-hidden bg-[#121b26] text-white"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+        exit={{ opacity: 0, scale: reducedMotion ? 1 : 0.98 }}
+        transition={{ duration: reducedMotion ? 0 : 0.34, ease: "easeInOut" }}>
+        {config?.hero_url && <motion.img src={config.hero_url} alt=""
+          className="absolute inset-0 h-full w-full object-cover object-center"
+          initial={{ scale: reducedMotion ? 1 : 1.08 }} animate={{ scale: 1 }}
+          transition={{ duration: reducedMotion ? 0 : 1.5, ease: "easeOut" }} />}
+        <div className="absolute inset-0 bg-black/30" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-black/85" />
+        <header className="relative z-10 flex items-start justify-between gap-3 px-5 pb-3 pt-[calc(env(safe-area-inset-top)+1.25rem)] sm:px-9">
+          <div className="flex min-w-0 items-center gap-3">
+            {config?.logo_url ? <img src={config.logo_url} alt="" className="h-11 w-11 shrink-0 rounded-xl bg-white/90 p-1 object-contain" />
+              : <Hotel className="h-9 w-9 shrink-0" />}
+            <span className="truncate text-sm font-semibold tracking-wide sm:text-base">{config?.hotel_name || "Your hotel"}</span>
+          </div>
+          <label className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-white/25 bg-black/30 px-3 py-2 text-sm backdrop-blur-md">
+            <Languages className="h-4 w-4" />
+            <select value={lang} onChange={(e) => setLang(e.target.value as Language)}
+              aria-label="Language" className="max-w-24 bg-transparent font-medium text-white outline-none [&>option]:text-slate-900">
+              <option value="en">English</option><option value="de">Deutsch</option><option value="hu">Magyar</option>
+            </select>
+          </label>
+        </header>
+        <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 py-10 text-center sm:px-8">
+          <motion.div className="w-full max-w-3xl"
+            initial={reducedMotion ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reducedMotion ? 0 : 0.75, delay: reducedMotion ? 0 : 0.08 }}>
+            <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/30 bg-black/30 px-4 py-2 text-sm font-semibold backdrop-blur-md">
+              <BedDouble className="h-4 w-4" /> {t("room")} {room}
+            </span>
+            <h1 className="mx-auto max-w-3xl text-balance text-[clamp(2.2rem,7vw,4.7rem)] font-semibold leading-[1.09] tracking-tight drop-shadow-lg">
+              {t("welcomeTo")} <span className="block">{config?.hotel_name || "our hotel"}</span>
+            </h1>
+            {stayActive && guestWelcome?.name && <p className="mx-auto mt-7 max-w-2xl break-words text-balance text-[clamp(1.35rem,4vw,2.3rem)] font-semibold leading-tight drop-shadow-lg [overflow-wrap:anywhere]">
+              {t("greeting")} {guestWelcome.name}
+            </p>}
+            <div className="mx-auto my-6 h-px w-16 bg-white/60" />
+            <p className="text-lg font-semibold tracking-wide sm:text-xl">{t("concierge")}</p>
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-white/85 sm:text-base">{t("suiteHint")}</p>
+            <button type="button" onClick={() => { setWelcomeOpen(false); setView("home"); }}
+              className="group mx-auto mt-9 inline-flex min-h-14 w-full max-w-sm items-center justify-center gap-3 rounded-2xl bg-white px-6 py-4 text-base font-bold text-slate-950 shadow-2xl transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-white active:scale-[0.98]">
+              {t("enterSuite")}
+              <ArrowRight className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1" />
+            </button>
+            {!stayActive && <p className="mx-auto mt-5 max-w-md text-xs leading-relaxed text-white/80">{t("awaiting")}</p>}
+          </motion.div>
+        </main>
+        <footer className="relative z-10 px-6 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] text-center text-xs tracking-wide text-white/65">
+          HotelCare In-Suite · {t("room")} {room}
+        </footer>
+      </motion.section>
+    ) : (
+      <motion.div key="suite-services" initial={{ opacity: 0, y: reducedMotion ? 0 : 18 }}
+        animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+        transition={{ duration: reducedMotion ? 0 : 0.36 }}
+        className="min-h-screen bg-[#f5f7fa] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-8">
         <div className="flex min-w-0 items-center gap-3 select-none"
@@ -540,5 +599,7 @@ export default function InSuiteGuest() {
         <button className="block text-sm underline" onClick={() => { setPinOpen(false); setMaintenanceUnlocked(false); setStaffPin(""); }}>Close</button>
       </div>
     </div>}
-  </div>;
+      </motion.div>
+    )}
+  </AnimatePresence>;
 }
