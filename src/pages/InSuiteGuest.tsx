@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BedDouble, BellRing, ChevronLeft, CheckCircle2, Clock3, Coffee, Copy, Hotel,
   Info, Languages, LockKeyhole, MessageCircle, Phone, Send,
-  Sparkles, Wifi, Wrench, CarTaxiFront, Leaf, UtensilsCrossed, RefreshCw,
+  Sparkles, Wifi, Wrench, CarTaxiFront, Leaf, UtensilsCrossed, RefreshCw, ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { InSuiteGuestCommerce, type InSuiteOrder, type InSuiteBooking } from "@/components/insuite/InSuiteGuestCommerce";
 import {
   INSUITE_DEVICE_KEY, inSuiteGuest, type InSuiteContent,
@@ -29,6 +30,7 @@ const words: Record<Language, Record<string, string>> = {
     guests: "guests", checkout: "Check-out", welcomeTo: "Welcome to",
     servicesHint: "Towels, cleaning & more", chatHint: "Message reception", diningHint: "Breakfast, food & drinks",
     travelHint: "Transfers & facilities", infoHint: "Wi-Fi, hours & hotel details",
+    enterSuite: "Explore In-Suite services", concierge: "Your In-Suite Concierge", suiteHint: "Everything you need, right from your room.", greeting: "Dear", touchHint: "Tap a service to get started", welcomeBack: "Welcome screen",
   },
   de: {
     welcome: "Fühlen Sie sich wie zu Hause", intro: "Alles für Ihren Aufenthalt.",
@@ -45,6 +47,7 @@ const words: Record<Language, Record<string, string>> = {
     guests: "Gäste", checkout: "Abreise", welcomeTo: "Willkommen im",
     servicesHint: "Handtücher, Reinigung & mehr", chatHint: "Rezeption kontaktieren", diningHint: "Frühstück, Essen & Getränke",
     travelHint: "Transfers & Einrichtungen", infoHint: "WLAN, Zeiten & Hotelinfos",
+    enterSuite: "In-Suite-Services entdecken", concierge: "Ihr In-Suite-Concierge", suiteHint: "Alles, was Sie brauchen, direkt vom Zimmer aus.", greeting: "Willkommen", touchHint: "Wählen Sie einen Service", welcomeBack: "Begrüßungsseite",
   },
   hu: {
     welcome: "Érezze otthon magát!", intro: "Minden, amire szüksége lehet.",
@@ -61,6 +64,7 @@ const words: Record<Language, Record<string, string>> = {
     guests: "vendég", checkout: "Kijelentkezés", welcomeTo: "Üdvözöljük itt:",
     servicesHint: "Törölközők, takarítás és egyebek", chatHint: "Üzenet a recepciónak", diningHint: "Reggeli, ételek, italok",
     travelHint: "Transzfer és létesítmények", infoHint: "Wi-Fi, nyitvatartás, tudnivalók",
+    enterSuite: "Szobai szolgáltatások megnyitása", concierge: "Az Ön szobai asszisztense", suiteHint: "Minden, amire szüksége van, közvetlenül a szobájából.", greeting: "Kedves", touchHint: "Válasszon egy szolgáltatást", welcomeBack: "Üdvözlőképernyő",
   },
 };
 const serviceOptions = [
@@ -102,6 +106,9 @@ export default function InSuiteGuest() {
   const [room, setRoom] = useState("");
   const [config, setConfig] = useState<InSuiteContent | null>(null);
   const [view, setView] = useState<View>("home");
+  const [welcomeOpen, setWelcomeOpen] = useState(true);
+  const [guestWelcome, setGuestWelcome] = useState<{ name: string | null; guest_count: number | null } | null>(null);
+  const reducedMotion = useReducedMotion();
   const [lang, setLang] = useState<Language>("en");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(!!token);
@@ -134,6 +141,8 @@ export default function InSuiteGuest() {
       const data = await inSuiteGuest("guest-bootstrap", {}, value);
       sessionEpoch.current = data.session_epoch || null;
       setVerifiedGuest(null);
+      setGuestWelcome(data.stay_active === true ? data.guest || null : null);
+      setWelcomeOpen(true);
       setStayActive(data.stay_active === true);
       setRoom(String(data.room_number || ""));
       setConfig(data.config || {});
@@ -142,6 +151,7 @@ export default function InSuiteGuest() {
       setError((err as Error).message);
       setConfig(null);
       setVerifiedGuest(null);
+      setGuestWelcome(null);
     } finally { setLoading(false); }
   }, []);
 
@@ -155,11 +165,14 @@ export default function InSuiteGuest() {
         visitStarted.current = new Date().toISOString();
         setRequests([]); setMessages([]); setOrders([]); setBookings([]);
         setVerifiedGuest(null); setVerifyOpen(false); setSurname(""); setCheckOutDate("");
+        setGuestWelcome(data.stay_active === true ? data.guest || null : null);
+        setWelcomeOpen(true);
         setMessage(""); setDetail("");
         setView("home"); setRequestType(null);
         return;
       }
       setStayActive(data.stay_active === true);
+      setGuestWelcome(data.stay_active === true ? data.guest || null : null);
       if (!data.stay_active) setVerifiedGuest(null);
       setRequests(data.requests || []);
       setMessages(data.messages || []);
@@ -170,6 +183,7 @@ export default function InSuiteGuest() {
       if (/Tablet disabled|not paired|unavailable/i.test((err as Error).message)) {
         localStorage.removeItem(INSUITE_DEVICE_KEY); setToken(""); setConfig(null);
         setMessages([]); setRequests([]); setOrders([]); setBookings([]); setStayActive(false);
+        setGuestWelcome(null); setWelcomeOpen(true);
       }
     }
   }, [token, config]);
