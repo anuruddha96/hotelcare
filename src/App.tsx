@@ -41,6 +41,7 @@ const PurchaseInvoices = lazy(() => import("./pages/PurchaseInvoices"));
 const ParkingTickets = lazy(() => import("./pages/ParkingTickets"));
 const TrainingCenterPage = lazy(() => import("./pages/TrainingCenter"));
 const ReceptionHome = lazy(() => import("./pages/ReceptionHome"));
+const ReceptionReports = lazy(() => import("./pages/ReceptionReports"));
 const ReceptionBreakfastUpload = lazy(() => import("./pages/ReceptionBreakfastUpload"));
 const AssistantPage = lazy(() => import("./pages/AssistantPage"));
 const AssistantInsights = lazy(() => import("./pages/AssistantInsights"));
@@ -167,6 +168,7 @@ const TenantRouter = () => {
           <Route path="/training" element={<TrainingCenterPage />} />
           <Route path="/reception" element={<ReceptionHome />} />
           <Route path="/reception/breakfast-upload" element={<ReceptionBreakfastUpload />} />
+          <Route path="/reception/reports" element={<ReceptionReports />} />
           <Route path="/assistant" element={<AssistantPage />} />
           <Route path="/assistant/:threadId" element={<AssistantPage />} />
           <Route path="/assistant-insights" element={<AssistantInsights />} />

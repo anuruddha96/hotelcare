@@ -39,6 +39,11 @@ export default function ReceptionHome() {
               👥 Guest directory
             </Button>
           </Link>
+          <Link to={`${basePath}/reception/reports`}>
+            <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">
+              📊 Reports
+            </Button>
+          </Link>
         </div>
         <UnifiedReceptionWorkspace breakfastUploadPath={`${basePath}/reception/breakfast-upload`} />
       </main>
