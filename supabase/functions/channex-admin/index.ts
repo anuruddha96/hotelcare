@@ -99,18 +99,35 @@ async function mappings(db: Db, hotelId: string) {
   return data ?? [];
 }
 
+/**
+ * Set-returning RPCs are capped at 1000 rows per request by PostgREST
+ * (db-max-rows). A 500-day full sync is 2000 restriction rows, so WITHOUT
+ * paging the sync silently lost every rate plan after the first two — the
+ * exact "Restrictions update has no data for rate plan(s)" certification
+ * failure. Page until a short page.
+ */
+async function rpcAll(db: Db, fn: string, args: Record<string, unknown>, pageSize = 1000): Promise<any[]> {
+  const all: any[] = [];
+  for (let page = 0; page < 50; page++) {
+    const { data, error } = await db.rpc(fn, args).range(page * pageSize, (page + 1) * pageSize - 1);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}
+
 // ---------------------------------------------------------------- full sync
 async function enqueueFullSync(db: Db, conn: Conn, actor: string | null, reason: string) {
   const today = budapestToday();
   const to = addDays(today, FULL_SYNC_DAYS - 1);
   const propertyId = String(conn.channex_property_id);
 
-  const { data: avail, error: availErr } = await db.rpc("channex_room_type_availability", { p_hotel_id: conn.hotel_id, p_from: today, p_to: to });
-  if (availErr) throw new Error(availErr.message);
-  const availability = planAvailability(propertyId, avail ?? [], today);
+  const avail = await rpcAll(db, "channex_room_type_availability", { p_hotel_id: conn.hotel_id, p_from: today, p_to: to });
+  const availability = planAvailability(propertyId, avail, today);
 
-  const { data: rates, error: rateErr } = await db.rpc("channex_full_sync_rates", { p_hotel_id: conn.hotel_id, p_from: today, p_to: to });
-  if (rateErr) throw new Error(rateErr.message);
+  const rates = await rpcAll(db, "channex_full_sync_rates", { p_hotel_id: conn.hotel_id, p_from: today, p_to: to });
   const rows: RateChangeRow[] = (rates ?? []).map((r: any, i: number) => {
     const patch: Record<string, unknown> = {};
     // A plan without any known price still publishes its restriction state;
@@ -561,12 +578,11 @@ async function verifyAri({ db, caller, hotelId, body }: Ctx) {
   const from = budapestToday();
   const to = addDays(from, days - 1);
   const client = clientFor(conn);
-  const { data: expected, error } = await db.rpc("channex_room_type_availability", { p_hotel_id: hotelId, p_from: from, p_to: to });
-  if (error) throw new Error(error.message);
+  const expected = await rpcAll(db, "channex_room_type_availability", { p_hotel_id: hotelId, p_from: from, p_to: to });
   const remote = await client.readAvailability(conn.channex_property_id, from, to);
   const availability = compareAvailability((expected ?? []).map((r: any) => ({ ...r, channex_room_type_id: String(r.channex_room_type_id) })), remote.data);
 
-  const { data: localRates } = await db.rpc("channex_full_sync_rates", { p_hotel_id: hotelId, p_from: from, p_to: to });
+  const localRates = await rpcAll(db, "channex_full_sync_rates", { p_hotel_id: hotelId, p_from: from, p_to: to });
   const remoteR = await client.readRestrictions(conn.channex_property_id, from, to);
   const maps = await mappings(db, hotelId);
   const plan = new Map<string, string>(maps.filter((m: any) => m.kind === "rate_plan").map((m: any) => [String(m.local_id), String(m.channex_id)]));

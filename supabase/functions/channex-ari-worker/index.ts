@@ -42,8 +42,16 @@ async function planHotel(db: Db, conn: any, today: string) {
     const f = from < today ? today : from;
     const t = to > last ? last : to;
     if (f <= t) {
-      const { data: rows, error } = await db.rpc("channex_room_type_availability", { p_hotel_id: conn.hotel_id, p_from: f, p_to: t });
-      if (error) throw new Error(error.message);
+      // PostgREST caps RPC responses at 1000 rows; a wide span over several
+      // room types exceeds that, so page until a short page.
+      const rows: any[] = [];
+      for (let page = 0; page < 50; page++) {
+        const { data: part, error } = await db.rpc("channex_room_type_availability", { p_hotel_id: conn.hotel_id, p_from: f, p_to: t })
+          .range(page * 1000, (page + 1) * 1000 - 1);
+        if (error) throw new Error(error.message);
+        rows.push(...(part ?? []));
+        if ((part ?? []).length < 1000) break;
+      }
       // Send ONLY the signalled (room type, date) cells. An edit to one room
       // type's dates must never republish other room types or untouched dates
       // in between (certification: "covers 15 days, expected 7"). Signals with
