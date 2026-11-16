@@ -20656,6 +20656,29 @@ export type Database = {
           stay_date: string
         }[]
       }
+      revenue_price_signals: {
+        Args: { p_from: string; p_hotel_id: string; p_to: string }
+        Returns: {
+          action: string
+          band: string
+          days_out: number
+          drivers: string[]
+          engine_at: string
+          engine_direction: string
+          engine_reason: string
+          event_impact: string
+          event_title: string
+          market_median: number
+          occupancy_pct: number
+          pace_target_pct: number
+          pickup_24h: number
+          pickup_7d: number
+          reference_price: number
+          rooms_remaining: number
+          score: number
+          stay_date: string
+        }[]
+      }
       revenue_push_run_confirmations: {
         Args: { p_run_ids: string[] }
         Returns: {
