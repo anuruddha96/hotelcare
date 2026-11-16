@@ -199,7 +199,7 @@ export function ChannexSetup({ status, run, busy }: Props) {
             )}
             {conn.mode !== 'off' && perms.manage && (
               <div className="flex flex-wrap gap-2 pt-2 border-t">
-                <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void run('full_sync', {}, 'Full sync queued (500 days)')}>Full sync</Button>
+                <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void run('full_sync', perms.super_admin ? { force: true } : {}, 'Full sync queued (500 days)')}>Full sync</Button>
                 <Button size="sm" variant="outline" disabled={busy !== null} onClick={async () => { const r = await run<typeof verify>('verify_ari', { days: 30 }); if (r) setVerify(r); }}>Verify next 30 days</Button>
                 <Button size="sm" variant={conn.kill_switch ? 'default' : 'destructive'} disabled={busy !== null} onClick={() => void run('kill_switch', { on: !conn.kill_switch }, conn.kill_switch ? 'Publishing resumed; full sync queued' : 'Kill switch on: nothing is sent to OTAs')}>
                   <Power className="h-4 w-4 mr-1" />{conn.kill_switch ? 'Release kill switch' : 'Kill switch'}
