@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
     if (action.startsWith("guest-")) {
       const token = val(req.headers.get("x-insuite-device"), 150);
       if (!/^[a-f0-9]{64}$/.test(token)) return deny("Tablet not paired", 401);
-      const { data: device } = await db.from("insuite_devices").select("*")
+      let { data: device } = await db.from("insuite_devices").select("*")
         .eq("device_token_hash", await sha(token)).eq("is_active", true).maybeSingle();
       if (!device) return deny("Tablet disabled or not paired", 401);
       const [{ data: settings }, { data: room }] = await Promise.all([
@@ -126,17 +126,58 @@ Deno.serve(async (req) => {
       if (!hotelConfig.data || ![hotelConfig.data.hotel_id, hotelConfig.data.hotel_name].includes(room.hotel))
         return deny("Room mapping requires manager review", 403);
       const config = settings.published || {};
+      // A QR may have been printed AFTER the occupant checked in. A correctly
+      // mapped, unbound device can attach itself to exactly one CURRENT
+      // checked-in reservation. Never auto-replace an existing binding.
+      // In particular, do not resurrect a stay after an exact Previo checkout
+      // event when the local PMS status is delayed.
+      if (!device.active_reservation_id && ["guest-bootstrap", "guest-state", "guest-verify"].includes(action)) {
+        const today = todayBudapest();
+        const { data: matches, error: matchError } = await db.from("reservations")
+          .select("id,source_reservation_id,check_in_date,source,pms_status_id")
+          .eq("organization_slug", device.organization_slug).eq("hotel_id", device.hotel_id)
+          .eq("room_id", room.id).eq("status", "checked_in")
+          .lte("check_in_date", today).gte("check_out_date", today)
+          .is("actual_check_out", null).limit(2);
+        if (!matchError && matches?.length === 1 &&
+          (matches[0].source !== "previo" || matches[0].pms_status_id === 3)) {
+          const candidate = matches[0];
+          let checkedOutInPrevio = false;
+          if (candidate.source_reservation_id) {
+            const { data: checkoutEvent, error: checkoutError } = await db.from("pms_change_events")
+              .select("id").eq("hotel_id", device.hotel_id).eq("room_id", room.id)
+              .eq("event_type", "checkout_confirmed").eq("source", "poll_checkouts")
+              .eq("auto_applied", true).eq("previo_reservation_id", candidate.source_reservation_id)
+              .gte("detected_at", candidate.check_in_date + "T00:00:00+00:00").limit(1);
+            // A failed safety lookup is not evidence that checkout did not occur.
+            checkedOutInPrevio = !!checkoutError || !!checkoutEvent?.length;
+          }
+          if (!checkedOutInPrevio) {
+            const nextEpoch = crypto.randomUUID();
+            const { data: bound } = await db.from("insuite_devices")
+              .update({ active_reservation_id: candidate.id, session_epoch: nextEpoch,
+                session_started_at: new Date().toISOString() })
+              .eq("id", device.id).eq("is_active", true)
+              .eq("organization_slug", device.organization_slug).eq("hotel_id", device.hotel_id)
+              .is("active_reservation_id", null).eq("session_epoch", device.session_epoch)
+              .select("*").maybeSingle();
+            if (bound) device = bound;
+          }
+        }
+      }
       // A device identifies a physical room, never an authenticated occupant.
       // Guest operations are enabled only while this exact bound reservation
       // is independently confirmed checked-in by the hotel's PMS data.
       const { data: stay } = device.active_reservation_id
         ? await db.from("reservations")
-          .select("id,room_id,status,organization_slug")
+          .select("id,room_id,status,organization_slug,hotel_id,source,pms_status_id,check_in_date,check_out_date,actual_check_out")
           .eq("id", device.active_reservation_id).maybeSingle()
         : { data: null };
       const stayActive = !!stay
         && stay.room_id === room.id && stay.organization_slug === device.organization_slug
-        && stay.status === "checked_in";
+        && stay.hotel_id === device.hotel_id && stay.status === "checked_in"
+        && stay.check_in_date <= todayBudapest() && stay.check_out_date >= todayBudapest()
+        && !stay.actual_check_out && (stay.source !== "previo" || stay.pms_status_id === 3);
       if (action === "guest-bootstrap") {
         await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
         return send({ room_number: room.room_number, hotel_id: device.hotel_id, session_epoch: device.session_epoch, config, stay_active: stayActive, paired: true, kind: device.kind || "tablet" });
@@ -164,6 +205,50 @@ Deno.serve(async (req) => {
           session_epoch: device.session_epoch, stay_active: true });
       }
       
+      if (action === "guest-verify") {
+        // Printed room QR codes are reusable bearer credentials: scanning one
+        // must NEVER disclose a guest's name or occupancy. Personalization is
+        // optional and requires the guest to provide surname + departure date.
+        if (!stayActive) return deny("The room is not yet checked in", 409);
+        if (device.guest_verify_locked_until &&
+          new Date(device.guest_verify_locked_until).getTime() > Date.now())
+          return deny("Too many attempts. Please try later.", 429);
+        const surname = val(body.last_name, 80);
+        const departure = val(body.check_out_date, 10);
+        if (surname.length < 2 || !/^\d{4}-\d{2}-\d{2}$/.test(departure))
+          return deny("Enter your surname and check-out date", 400);
+        const { data: occupant } = await db.from("reservations")
+          .select("id,adults,children,check_out_date,pms_guest_name,guests(first_name,last_name)")
+          .eq("id", stay.id).eq("organization_slug", device.organization_slug)
+          .eq("room_id", room.id).eq("status", "checked_in").maybeSingle();
+        if (!occupant) return deny("The checked-in stay is no longer available", 409);
+        const linkedGuest = Array.isArray(occupant.guests) ? occupant.guests[0] : occupant.guests;
+        const first = val(linkedGuest?.first_name, 80);
+        const last = val(linkedGuest?.last_name, 80);
+        const full = [first, last].filter(Boolean).join(" ") || val(occupant.pms_guest_name, 160);
+        const normalize = (v: string) => v.normalize("NFKD")
+          .replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLowerCase();
+        const matchesSurname = last ? normalize(last) === normalize(surname)
+          : normalize(full).endsWith(" " + normalize(surname));
+        if (!matchesSurname || occupant.check_out_date !== departure) {
+          const count = device.guest_verify_locked_until ? 1 : Number(device.guest_verify_failures || 0) + 1;
+          await db.from("insuite_devices").update({
+            guest_verify_failures: count,
+            guest_verify_locked_until: count >= 5 ? new Date(Date.now() + 15 * 60_000).toISOString() : null,
+          }).eq("id", device.id).eq("session_epoch", device.session_epoch);
+          return deny("Guest details did not match this room's current stay", 403);
+        }
+        await db.from("insuite_devices").update({
+          guest_verify_failures: 0, guest_verify_locked_until: null,
+        }).eq("id", device.id).eq("session_epoch", device.session_epoch);
+        const guestCount = Math.max(0, Number(occupant.adults || 0) + Number(occupant.children || 0));
+        return send({
+          first_name: first || full.split(/\s+/)[0] || "",
+          guest_count: guestCount > 0 ? guestCount : null,
+          check_out_date: occupant.check_out_date,
+          session_epoch: device.session_epoch,
+        });
+      }
       if (action === "guest-menu") {
         const { data: items, error } = await db.from("insuite_catalog_items")
           .select("id,kind,name,description,image_url,allergens,price,currency,sort_order")
@@ -703,7 +788,9 @@ Deno.serve(async (req) => {
       const codes: Array<{ room_id: string; room_number: string; token: string }> = [];
       for (const roomId of requested) {
         const roomNumber = String(allowed.get(roomId));
-        // Keep active reservations: carry the binding from the device being replaced.
+        // Start each new QR unbound. The guarded guest bootstrap verifies a
+        // current PMS check-in and ensures no matching verified checkout event
+        // occurred before it establishes the stay. Previous QR is revoked.
         const { data: previous } = await db.from("insuite_devices")
           .select("id, active_reservation_id, session_epoch")
           .eq("room_id", roomId).eq("kind", "qr").eq("is_active", true).maybeSingle();
@@ -717,8 +804,9 @@ Deno.serve(async (req) => {
           id, organization_slug: org, hotel_id: hotelId, room_id: roomId, kind: "qr",
           label: "Room " + roomNumber + " · QR",
           device_token_hash: await sha(token), paired_at: new Date().toISOString(),
-          active_reservation_id: previous?.active_reservation_id || null,
-          session_epoch: previous?.session_epoch || crypto.randomUUID(),
+          active_reservation_id: null,
+          // A replacement QR starts a fresh privacy epoch even for the same stay.
+          session_epoch: crypto.randomUUID(),
           created_by: profile.id,
         });
         if (error) throw error;
