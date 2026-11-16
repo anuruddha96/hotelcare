@@ -179,10 +179,17 @@ async function run(admin: any, apiKey: string) {
       changes:changed,
     });
   } catch(e) {
-    const error=message(e).slice(0,800);
+    const rawError=message(e).slice(0,800);
+    const isInsufficientQuota=/insufficient_quota|no credits remaining/i.test(rawError);
+    const error=isInsufficientQuota
+      ? 'OpenAI API credits exhausted (insufficient_quota). Add credits in OpenAI API billing to resume AI reviews.'
+      : rawError;
     console.error(FEATURE,error);
     if (reviewId) await admin.from('ottofiori_ai_review_runs').update({status:'failed',finished_at:new Date().toISOString(),error,outcomes}).eq('id',reviewId);
-    if (usageId) await admin.from('ai_usage_log').update({error}).eq('id',usageId).eq('ok',false);
+    // A provider-rejected request consumed zero tokens. Release the estimate
+    // reserved before the provider call; otherwise a 429 silently uses up our
+    // own daily/monthly AI budget. Successful calls have ok=true and are kept.
+    if (usageId) await admin.from('ai_usage_log').update({error,estimated_cost_usd:0}).eq('id',usageId).eq('ok',false);
     if (reviewId) await admin.from('revenue_automation_notifications').insert({hotel_id:HOTEL,organization_slug:ORG,
       notification_type:'engine_v2_run',run_source:'automatic',actor_name:'HotelCare AI supervisor',actions_count:0,failed_count:1,
       currency:'EUR',severity:'warning',summary:`AI review stopped: ${error}. The normal pricing engine remains active.`,changes:[],
