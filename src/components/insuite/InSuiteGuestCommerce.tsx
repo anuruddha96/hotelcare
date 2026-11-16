@@ -151,10 +151,18 @@ export function InSuiteGuestCommerce({ mode, config, accent, stayActive, orders,
       </div>
       {mode === "food" && <p className="font-semibold">Menu estimate: {currency && !mixedCurrencies ? money(total,currency) : "Select items"}</p>}
       {mixedCurrencies && <p className="text-red-700">Items in different currencies cannot be combined.</p>}
-      <label className="block space-y-2 text-sm font-semibold">Requested time (tablet local time)
-        <input className="w-full rounded-xl border p-3 block" type="datetime-local" value={requestedAt}
-          onChange={(e) => setRequestedAt(e.target.value)} />
-      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block space-y-2 text-sm font-semibold">Requested date
+          <input className="w-full min-w-0 rounded-xl border bg-white p-3 block"
+            type="date" value={requestedAt.slice(0, 10)}
+            onChange={(e) => setRequestedAt(`${e.target.value}T${requestedAt.slice(11, 16) || "12:00"}`)} />
+        </label>
+        <label className="block space-y-2 text-sm font-semibold">Preferred time
+          <input className="w-full min-w-0 rounded-xl border bg-white p-3 block"
+            type="time" step={300} value={requestedAt.slice(11, 16)}
+            onChange={(e) => setRequestedAt(`${requestedAt.slice(0, 10)}T${e.target.value}`)} />
+        </label>
+      </div>
       {mode === "booking" && <label className="block space-y-2 text-sm font-semibold">Number of people
         <select className="w-full rounded-xl border p-3 block" value={partySize}
           onChange={(e) => setPartySize(Number(e.target.value))}>
