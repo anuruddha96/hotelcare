@@ -143,7 +143,7 @@ describe('housekeeper first-shift curriculum', () => {
       room_photos: '[data-training="active-assigned-room"] [data-training="room-photos-button"]',
       dnd_photo: '[data-training="active-assigned-room"] [data-training="dnd-button"]',
       dirty_linen: '[data-training="active-assigned-room"] [data-training="dirty-linen-button"]',
-      minibar: '[data-training="active-assigned-room"] [data-training="room-work-tools"]',
+      minibar: '[data-training="active-assigned-room"] [data-training="minibar-button"]',
       lost_found: '[data-training="active-assigned-room"] [data-training="lost-found-button"]',
       maintenance: '[data-training="active-assigned-room"] [data-training="maintenance-button"]',
       notes: '[data-training="active-assigned-room"] [data-training="notes-button"]',
@@ -227,7 +227,11 @@ describe('housekeeper training interaction safety', () => {
     expect(overlay).toContain('onClick={isGuidedTour ? pause : () => setConfirmExit(true)}');
     expect(overlay).not.toContain("if (e.key === 'Tab'");
     expect(engine).toContain('if (step.skipWhen && await evaluateGuard(step.skipWhen, guardCtx))');
-    expect(engine).toContain("active.slug === 'v2_housekeeper_first_day' || MANAGER_ROLES.includes(role || '')");
+    expect(engine).toContain("active.slug.startsWith('v2_housekeeper_') || MANAGER_ROLES.includes(role || '')");
+    // Situational lessons are explained even when their control is absent,
+    // and the learner can still press Next on them.
+    expect(engine).toContain('managerTraining || step.explainWhenUnavailable === true');
+    expect(overlay).toContain('!explainsUnavailable && (waiting || requiresAction)');
   });
 
   it('anchors housekeeper training to currently active room cards in both layouts', async () => {
@@ -241,6 +245,86 @@ describe('housekeeper training interaction safety', () => {
     expect(hk?.steps.find((s) => s.key === 'complete_room')?.selector).toBe(
       '[data-training="active-assigned-room"] [data-training="complete-room-button"]',
     );
+  });
+});
+
+describe('housekeeper "At the door" unit', () => {
+  const door = ALL_CURRICULA.find((c) => c.slug === 'v2_housekeeper_at_the_door');
+
+  it('exists for housekeepers only, is never auto-started, and sits in the Housekeeping module', () => {
+    expect(door).toBeTruthy();
+    expect(door?.roles).toEqual(['housekeeping']);
+    expect(door?.category).toBe('feature_promo');
+    expect(door?.moduleKey).toBe('housekeeping');
+    expect(door?.isFullWalkthrough).not.toBe(true);
+  });
+
+  it('teaches the doorway decisions in working order', () => {
+    expect(door?.steps.map((s) => s.key)).toEqual([
+      'door_intro', 'door_read_card', 'door_dnd', 'door_no_service', 'door_checkout_waiting', 'door_towel_only',
+    ]);
+  });
+
+  it('anchors every lesson to the real room card controls', () => {
+    const selectors: Record<string, string> = {
+      door_read_card: '[data-training="assigned-room-card"]',
+      door_dnd: '[data-training="assigned-room-card"] [data-training="dnd-doorway-button"]',
+      door_no_service: '[data-training="assigned-room-card"] [data-training="no-service-button"]',
+      door_checkout_waiting: '[data-training="assigned-room-card"] [data-training="checkout-waiting-notice"]',
+      door_towel_only: '[data-training="active-assigned-room"] [data-training="towel-change-only-button"]',
+    };
+    for (const [key, selector] of Object.entries(selectors)) {
+      const step = door?.steps.find((s) => s.key === key);
+      expect(step?.selector, key).toBe(selector);
+      expect(step?.selector).toMatch(TRAINING_SELECTOR);
+      expect(step?.tab, key).toBe('housekeeping');
+    }
+    const doorway = ['door_dnd', 'door_no_service', 'door_checkout_waiting'];
+    for (const key of doorway) {
+      expect(door?.steps.find((s) => s.key === key)?.precondition, key).toBe('has_assigned_room_not_started');
+    }
+    expect(door?.steps.find((s) => s.key === 'door_towel_only')?.precondition).toBe('has_in_progress_cleaning');
+  });
+
+  it('never forces a real DND, refusal or limited service and is explained even when the control is absent', () => {
+    for (const step of door?.steps ?? []) {
+      expect(step.waitFor, step.key).toBeUndefined();
+      expect(step.advanceOnClick, step.key).toBeUndefined();
+      if (!step.selector) continue;
+      expect(step.optional, step.key).toBe(true);
+      expect(step.explainWhenUnavailable, step.key).toBe(true);
+      expect(step.unavailableNote?.en, `${step.key} needs an unavailableNote`).toBeTruthy();
+    }
+  });
+
+  it('has full content in every training language', () => {
+    expect(door).toBeTruthy();
+    if (!door) return;
+    for (const text of [door.name, door.description]) {
+      for (const lang of SUPPORTED_LANGS) expect(text[lang], `curriculum missing ${lang}`).toBeTruthy();
+    }
+    for (const step of door.steps) {
+      for (const field of ['title', 'body', 'phase', 'purpose'] as const) {
+        const text = step[field];
+        expect(text, `${step.key} missing ${field}`).toBeTruthy();
+        if (!text) continue;
+        for (const lang of SUPPORTED_LANGS) expect(text[lang], `${step.key}.${field} missing ${lang}`).toBeTruthy();
+      }
+      for (const field of ['tip', 'unavailableNote'] as const) {
+        const text = step[field];
+        if (!text) continue;
+        for (const lang of SUPPORTED_LANGS) expect(text[lang], `${step.key}.${field} missing ${lang}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('is backed by real anchors in the room card', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const card = readFileSync(resolve(process.cwd(), 'src/components/dashboard/AssignedRoomCardLegacy.tsx'), 'utf8');
+    for (const anchor of ['dnd-doorway-button', 'no-service-button', 'checkout-waiting-notice', 'towel-change-only-button', 'minibar-button']) {
+      expect(card, anchor).toContain(`data-training="${anchor}"`);
+    }
   });
 });
 

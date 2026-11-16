@@ -29,6 +29,7 @@ import { isNoMinibarOrganization } from '@/lib/gozsduNoMinibar';
 
 import { AdminTabs } from '@/components/admin/AdminTabs';
 import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
+import { useTrainingV2Optional } from '@/components/training/v2/TrainingV2Provider';
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -355,6 +356,14 @@ export function Dashboard() {
   const innerTabLabels: Record<string, string> = useMemo(() => ({
     team: t('manager.teamView'), 'early-signout': t('manager.earlySignOutApprovals'),
   }), [t]);
+
+  // Tell the training engine which screen is open so Help & Training can
+  // offer the guides for this tab (and nudge once when one is unfinished).
+  const reportTrainingScreen = useTrainingV2Optional()?.reportScreen;
+  useEffect(() => {
+    reportTrainingScreen?.({ tab: activeTab, subTab: activeHousekeepingSubTab || undefined });
+  }, [reportTrainingScreen, activeTab, activeHousekeepingSubTab]);
+  useEffect(() => () => reportTrainingScreen?.(null), [reportTrainingScreen]);
 
   useEffect(() => {
     const handleTrainingNavigate = (event: CustomEvent<{ mainTab?: string; tab?: string; subTab?: string }>) => {

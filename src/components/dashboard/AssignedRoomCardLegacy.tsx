@@ -1348,7 +1348,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
         <div className="space-y-4">
           {/* 2nd-attempt DND banner */}
           {assignment.status === 'dnd_pending_retry' && canUseDnd && (
-            <div className="rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800 px-3 py-2 text-sm text-orange-900 dark:text-orange-200 space-y-2">
+            <div
+              className="rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800 px-3 py-2 text-sm text-orange-900 dark:text-orange-200 space-y-2"
+              data-training="dnd-retry-banner"
+            >
               <div className="font-semibold">{t('dnd.secondAttemptTitle')} — {t('common.room') || 'Room'} {assignment.rooms?.room_number}</div>
               <div className="text-xs">
                 {dndRetry.allowed
@@ -1414,6 +1417,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
                     size="lg"
                     variant="outline"
                     className="w-full sm:w-auto border-gray-400 text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                    data-training="no-service-button"
                   >
                     <Ban className="h-5 w-5" />
                     {t('housekeeping.noService')}
@@ -1498,7 +1502,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
 
             {/* Show disabled message for checkout rooms waiting */}
             {assignment.status === 'assigned' && isCheckoutWaiting && (
-              <div className="w-full p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg border border-orange-300 dark:border-orange-700 text-center">
+              <div
+                className="w-full p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg border border-orange-300 dark:border-orange-700 text-center"
+                data-training="checkout-waiting-notice"
+              >
                 <p className="text-sm text-orange-700 dark:text-orange-300 font-medium">
                   ⏳ {t('housekeeping.cannotStartYet') || 'Cannot start - waiting for guest checkout'}
                 </p>
@@ -1613,6 +1620,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
                     type="button"
                     onClick={() => setRoomDetailOpen(true)}
                     className={`${tileBase} border-border`}
+                    data-training="minibar-button"
                   >
                     <span className={`${iconWrap} bg-purple-100 text-purple-700`}>
                       <BedDouble className="h-4 w-4" />

@@ -138,6 +138,11 @@ export function applyHousekeeperUiFixes(curriculum: TrainingCurriculum): Trainin
       };
     }
 
+    if (step.key === 'minibar') {
+      // Point at the Minibar tile itself, not the whole tools panel.
+      return { ...step, selector: '[data-training="active-assigned-room"] [data-training="minibar-button"]' };
+    }
+
     // Always highlight controls inside the housekeeper's active room.
     // Otherwise the first matching button might belong to another room.
     if (step.precondition === 'has_in_progress_cleaning' && step.selector) {

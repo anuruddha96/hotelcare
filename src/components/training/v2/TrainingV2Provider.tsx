@@ -17,12 +17,15 @@ import { useSlntTeamAEnabled } from '@/hooks/useSlntTeamAEnabled';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
 import { propertyTermsFor } from '@/lib/propertyTerminology';
-import type { LangCode, TrainingCurriculum, TrainingStepV2 } from './types';
+import type { LangCode, TrainingCurriculum, TrainingScreenContext, TrainingStepV2 } from './types';
 import { evaluateGuard } from './guards';
 import { ALL_CURRICULA, curriculaForRole, findCurriculum } from './curricula';
+import { matchCurriculaToScreen, startKeyForScreenMatch, type ScreenMatch } from './screenContext';
+import { NUDGE_SNOOZE_DAYS, isNudgeSnoozed, snoozeNudge } from './nudgeStore';
 import { TrainingOverlayV2 } from './TrainingOverlayV2';
 import { TrainingFirstLoginPrompt } from './TrainingFirstLoginPrompt';
 import { TrainingNextModulePrompt } from './TrainingNextModulePrompt';
+import { TrainingContextNudge } from './TrainingContextNudge';
 
 
 type CompletionStatus = 'done' | 'in_progress' | 'available';
@@ -71,6 +74,18 @@ interface TrainingV2ContextValue {
   acceptAutoStart: () => void;
   snoozeAutoStart: () => Promise<void>;
   skipAutoStart: () => Promise<void>;
+  /** Where the user is right now (router path + dashboard tab/sub-tab). */
+  screen: TrainingScreenContext;
+  /** Called by the dashboard whenever its active tab / sub-tab changes (null on unmount). */
+  reportScreen: (tabs: { tab?: string; subTab?: string } | null) => void;
+  /** Guides that have at least one step on the current screen, priority order. */
+  onThisScreen: ScreenMatch[];
+  /** Open a guide at the step that belongs to the current screen. */
+  startForScreen: (slug: string) => Promise<void>;
+  /** One-time "there is a guide for this screen" hint (null when hidden). */
+  nudge: ScreenMatch | null;
+  acceptNudge: () => void;
+  declineNudge: () => void;
 }
 
 const TrainingV2Context = createContext<TrainingV2ContextValue | null>(null);
@@ -183,6 +198,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const resumePromptedRef = useRef<Set<string>>(new Set());
   const lastNextAtRef = useRef<number>(0);
   const pendingResumeIdxRef = useRef<number>(0);
+  /** When a tour was last finished, paused or skipped — gates the contextual nudge. */
+  const lastTourClosedAtRef = useRef<number>(0);
+  /** True once progress has been fetched at least once (nudges wait for it). */
+  const statusesLoadedRef = useRef(false);
 
   const step = active ? active.steps[stepIndex] : null;
   const totalSteps = active?.steps.length || 0;
@@ -211,6 +230,23 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     return () =>
       window.removeEventListener('training:data-ready', handler as EventListener);
   }, []);
+
+  // ── Screen context: the dashboard reports its active tab / sub-tab through
+  //    `reportScreen` (and clears it on unmount); the router gives the path.
+  const [screenTabs, setScreenTabs] = useState<{ tab?: string; subTab?: string }>({});
+  const reportScreen = useCallback((tabs: { tab?: string; subTab?: string } | null) => {
+    setScreenTabs((current) => {
+      const nextTab = tabs?.tab || undefined;
+      const nextSubTab = tabs?.subTab || undefined;
+      return current.tab === nextTab && current.subTab === nextSubTab
+        ? current
+        : { tab: nextTab, subTab: nextSubTab };
+    });
+  }, []);
+  const screen = useMemo<TrainingScreenContext>(
+    () => ({ pathname: location.pathname, tab: screenTabs.tab, subTab: screenTabs.subTab }),
+    [location.pathname, screenTabs.tab, screenTabs.subTab],
+  );
 
   // Hotel switch detection — pause active tour
   useEffect(() => {
@@ -319,6 +355,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     });
     setCompletion(map);
     setStatuses(stMap);
+    statusesLoadedRef.current = true;
   }, [user]);
 
   // Initial: load + auto-start (core curricula only, throttled to 4h)
@@ -516,11 +553,15 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Situational lessons (DND at the door, "No service"…) are explained
+      // even when their control is not on screen, like manager lessons.
+      const explainAnyway = managerTraining || step.explainWhenUnavailable === true;
+
       if (step.precondition) {
         const ok = await evaluateGuard(step.precondition, guardCtx);
         if (!ok) {
           if (step.optional) {
-            if (managerTraining) {
+            if (explainAnyway) {
               // Explain an unavailable feature instead of silently skipping the module.
               if (!cancelled) { setWaiting(true); setStepReady(true); }
               return;
@@ -565,12 +606,13 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
             }, 250);
             return;
           }
-          if (Date.now() - startedAt < (managerTraining ? 2500 : SELECTOR_TIMEOUT_MS)) {
+          if (Date.now() - startedAt < (explainAnyway ? 2500 : SELECTOR_TIMEOUT_MS)) {
             setTimeout(tryLocate, 250);
           } else if (step.optional) {
-            if (managerTraining) {
-              // Managers need to understand why a control was unavailable and
-              // decide to continue; never rush invisibly through a lesson.
+            if (explainAnyway) {
+              // Managers (and situational housekeeper lessons) need to
+              // understand why a control was unavailable and decide to
+              // continue; never rush invisibly through a lesson.
               setWaiting(true);
               setStepReady(true);
             } else {
@@ -661,6 +703,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       } }));
     }
 
+    lastTourClosedAtRef.current = Date.now();
     setActive(null);
     setStepIndex(0);
     setRect(null);
@@ -695,6 +738,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   const pause = useCallback(() => {
     chainQueueRef.current = [];
     chainRootRef.current = false;
+    lastTourClosedAtRef.current = Date.now();
     setPendingNextModule(null);
     setActive(null);
     setStepIndex(0);
@@ -737,6 +781,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       );
       setCompletion((m) => ({ ...m, [active.slug]: 'done' }));
     }
+    lastTourClosedAtRef.current = Date.now();
     setActive(null);
     setStepIndex(0);
     setRect(null);
@@ -748,7 +793,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     if (!active || !step) return;
     // Housekeeper step-skips are a user choice, not missing work that should
     // generate an unsolicited resume prompt later in the middle of a shift.
-    if (active.slug === 'v2_housekeeper_first_day' || MANAGER_ROLES.includes(role || '')) {
+    if (active.slug.startsWith('v2_housekeeper_') || MANAGER_ROLES.includes(role || '')) {
       next();
       return;
     }
@@ -1003,6 +1048,109 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   }, [role, isSlntTrainingOrg, isSlntTeamB, simplifiedEnabled, teamAEnabled]);
 
 
+  // ── "On this screen": guides with a step on the current tab / page.
+  const onThisScreen = useMemo(
+    () => matchCurriculaToScreen(availableCurricula, screen, resolveRoute),
+    [availableCurricula, screen, resolveRoute],
+  );
+
+  const startForScreen = useCallback(
+    async (slug: string) => {
+      const match = onThisScreen.find((m) => m.curriculum.slug === slug);
+      if (!match) return start(slug, { manual: true });
+      const startAtKey = startKeyForScreenMatch(match);
+      // Open at the step that belongs to this screen (the engine still
+      // navigates if needed); very early matches start from the welcome card
+      // or the saved resume point instead.
+      return start(slug, { manual: true, ...(startAtKey ? { startAtKey } : {}) });
+    },
+    [onThisScreen, start],
+  );
+
+  // ── Contextual nudge: once per screen visit, offer the first relevant guide
+  //    the user has not finished. Never while a tour, the first-login prompt or
+  //    a module hand-over is open; never twice for the same guide on a device
+  //    (see nudgeStore); never on transient routes.
+  const [nudge, setNudge] = useState<ScreenMatch | null>(null);
+  const nudgedThisSessionRef = useRef<Set<string>>(new Set());
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusesRef = useRef(statuses);
+  statusesRef.current = statuses;
+  const NUDGE_DELAY_MS = 1800;
+  const NUDGE_RETRY_MS = 1500;
+  const NUDGE_MAX_RETRIES = 6;
+  const NUDGE_AUTO_HIDE_MS = 15000;
+  const NUDGE_COOLDOWN_AFTER_TOUR_MS = 60000;
+
+  const clearNudgeTimer = () => {
+    if (nudgeTimerRef.current) { clearTimeout(nudgeTimerRef.current); nudgeTimerRef.current = null; }
+  };
+
+  // A stable key so a profile refetch (new resolveRoute identity) does not
+  // restart the timer mid-visit; only a real screen/match change does.
+  const matchesKey = onThisScreen.map((m) => `${m.curriculum.slug}@${m.stepKey}`).join('|');
+  const onThisScreenRef = useRef(onThisScreen);
+  onThisScreenRef.current = onThisScreen;
+
+  useEffect(() => {
+    clearNudgeTimer();
+    setNudge(null);
+    if (!user || !role) return;
+    if (active || pendingAutoStart || pendingNextModule) return;
+    const p = location.pathname;
+    if (p === '/' || p.startsWith('/auth') || p.startsWith('/bb') || p.startsWith('/breakfast') || p.includes('/training')) return;
+    // Right after a tour was closed the user has had enough coaching for now.
+    if (Date.now() - lastTourClosedAtRef.current < NUDGE_COOLDOWN_AFTER_TOUR_MS) return;
+    if (!matchesKey) return;
+
+    const fire = (attempt: number) => {
+      // Progress must be known before we offer anything, otherwise a finished
+      // guide could be nudged while the first fetch is still in flight.
+      if (!statusesLoadedRef.current) {
+        if (attempt < NUDGE_MAX_RETRIES) nudgeTimerRef.current = setTimeout(() => fire(attempt + 1), NUDGE_RETRY_MS);
+        return;
+      }
+      const candidate = onThisScreenRef.current.find((m) => {
+        const slug = m.curriculum.slug;
+        if (statusesRef.current[slug]?.status === 'done') return false;
+        if (nudgedThisSessionRef.current.has(slug)) return false;
+        if (isNudgeSnoozed(user.id, slug)) return false;
+        // The deferred-step watcher already offers a resume toast for these.
+        if (deferredRef.current.some((d) => d.slug === slug)) return false;
+        return true;
+      });
+      if (!candidate) return;
+      nudgedThisSessionRef.current.add(candidate.curriculum.slug);
+      setNudge(candidate);
+      nudgeTimerRef.current = setTimeout(() => {
+        // Ignored: hide quietly and try again another week.
+        snoozeNudge(user.id, candidate.curriculum.slug, NUDGE_SNOOZE_DAYS.ignored);
+        setNudge(null);
+      }, NUDGE_AUTO_HIDE_MS);
+    };
+    nudgeTimerRef.current = setTimeout(() => fire(0), NUDGE_DELAY_MS);
+
+    return clearNudgeTimer;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, role, matchesKey, active, pendingAutoStart, pendingNextModule, location.pathname]);
+
+  const acceptNudge = useCallback(() => {
+    const current = nudge;
+    clearNudgeTimer();
+    setNudge(null);
+    if (!current || !user) return;
+    snoozeNudge(user.id, current.curriculum.slug, NUDGE_SNOOZE_DAYS.accepted);
+    void startForScreen(current.curriculum.slug);
+  }, [nudge, user, startForScreen]);
+
+  const declineNudge = useCallback(() => {
+    const current = nudge;
+    clearNudgeTimer();
+    setNudge(null);
+    if (!current || !user) return;
+    snoozeNudge(user.id, current.curriculum.slug, NUDGE_SNOOZE_DAYS.declined);
+  }, [nudge, user]);
+
   // Continue only after the manager explicitly chooses the next module.
   const continueNextModule = useCallback(async () => {
     const cur = pendingNextModule;
@@ -1110,12 +1258,20 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     acceptAutoStart,
     snoozeAutoStart,
     skipAutoStart,
+    screen,
+    reportScreen,
+    onThisScreen,
+    startForScreen,
+    nudge,
+    acceptNudge,
+    declineNudge,
   };
 
   return (
     <TrainingV2Context.Provider value={value}>
       {children}
       {active && step && stepReady && <TrainingOverlayV2 />}
+      {nudge && !active && !pendingAutoStart && !pendingNextModule && <TrainingContextNudge />}
       {pendingAutoStart && !active && !pendingNextModule && <TrainingFirstLoginPrompt />}
       {pendingNextModule && !active && (
         <TrainingNextModulePrompt
