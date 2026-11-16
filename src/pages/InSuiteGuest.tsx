@@ -423,7 +423,6 @@ export default function InSuiteGuest() {
         {requests.some((r) => !["completed", "unavailable", "cancelled"].includes(r.status)) &&
           <button className="inline-flex items-center gap-2 text-sm font-semibold underline"
             onClick={() => setView("requests")}><BellRing className="h-4 w-4" />{t("requests")} ({requests.filter((r) => r.status !== "completed").length})</button>}
-}
       </>}
       {view === "requests" && <>
         {!stayActive && <p role="alert" className="rounded-xl bg-amber-50 p-4">{t("awaiting")}</p>}
