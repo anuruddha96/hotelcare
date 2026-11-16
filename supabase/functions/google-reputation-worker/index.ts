@@ -158,6 +158,11 @@ Deno.serve(async (req) => {
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const admin = createClient(supabaseUrl, serviceRole);
 
+  // Scheduled runs use a single-location round-robin to spread Google API calls.
+  // Manual/admin invocations without this flag retain the existing full sync behavior.
+  const requestBody = await req.json().catch(() => ({}));
+  const roundRobin = requestBody?.mode === "round_robin";
+
   const providedSecret = req.headers.get("x-worker-secret") || "";
   const { data: expectedSecret, error: secretError } = await admin.rpc("get_google_reputation_worker_secret");
   if (secretError || !safeEqual(providedSecret, String(expectedSecret || ""))) {
@@ -312,16 +317,36 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       .order("updated_at", { ascending: false });
     if (connectionsError) throw connectionsError;
 
+    // All organizations share one rotating slot: one active Google listing
+    // per two-minute cron tick, regardless of how many OAuth connections exist.
+    let selectedLocation: { id: string; connection_id: string } | null = null;
+    if (roundRobin) {
+      const { data: activeLocations, error: activeLocationsError } = await admin
+        .from("google_business_locations")
+        .select("id,connection_id")
+        .eq("is_active", true)
+        .order("id");
+      if (activeLocationsError) throw activeLocationsError;
+      const activeConnectionIds = new Set((connections || []).map((connection: any) => connection.id));
+      const candidates = (activeLocations || []).filter((location: any) => activeConnectionIds.has(location.connection_id));
+      if (candidates.length > 0) {
+        selectedLocation = candidates[Math.floor(Date.now() / 120_000) % candidates.length];
+      }
+    }
+
     for (const connection of connections || []) {
+      if (roundRobin && connection.id !== selectedLocation?.connection_id) continue;
       connectionsChecked++;
       if (shouldBackoff(connection)) continue;
       try {
         const accessToken = await tokenFor(connection);
-        const { data: locations, error: locationsError } = await admin
+        let locationsQuery = admin
           .from("google_business_locations")
           .select("*")
           .eq("connection_id", connection.id)
           .eq("is_active", true);
+        if (roundRobin && selectedLocation) locationsQuery = locationsQuery.eq("id", selectedLocation.id);
+        const { data: locations, error: locationsError } = await locationsQuery;
         if (locationsError) throw locationsError;
 
         for (const location of locations || []) {
@@ -558,7 +583,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
     }
 
     // A cron tick without any discovered listings is not a completed review sync.
-    const awaitingMapping = connectionsChecked > 0 && locationsChecked === 0;
+    const awaitingMapping = roundRobin ? !selectedLocation : connectionsChecked > 0 && locationsChecked === 0;
     const finalStatus = errors.length || awaitingMapping ? "partial" : "completed";
     await admin
       .from("google_reputation_worker_runs")

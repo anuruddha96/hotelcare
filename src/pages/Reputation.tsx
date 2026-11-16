@@ -535,6 +535,20 @@ export default function Reputation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, organizationSlug]);
 
+  // Google reviews are synced server-side, but an already-open inbox must
+  // refresh too; otherwise a new review is invisible until a manual reload.
+  useEffect(() => {
+    if (loading || !organizationSlug || !profile) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void invoke("status")
+        .then((fresh: Status) => setData(fresh))
+        .catch(() => { /* Preserve existing inbox on transient connection errors. */ });
+    }, 120_000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, organizationSlug, profile?.role]);
+
   useEffect(() => {
     if (activeTab === "automation" && organizationSlug) void loadAutomationHealth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -899,7 +913,7 @@ export default function Reputation() {
               {data?.connections?.length ? <Badge variant="outline" className="border-emerald-300 text-emerald-700">Google connected</Badge> : null}
               {googleSetup.quotaPending ? <Badge variant="outline" className="border-amber-300 text-amber-700">Google approval pending</Badge> : null}
             </div>
-            <p className="text-sm text-muted-foreground mt-1">Google reviews, AI-assisted responses, automation rules and reputation intelligence.</p>
+            <p className="text-sm text-muted-foreground mt-1">Google reviews, AI-assisted responses, automation rules and reputation intelligence. New reviews refresh automatically while this page is open.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={load} disabled={busy}>
