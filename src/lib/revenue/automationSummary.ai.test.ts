@@ -56,6 +56,34 @@ describe('AI supervisor revenue notifications', () => {
     expect(runPreview(failed)).toContain('1 publishing failures');
   });
 
+  it('shows exhausted AI provider credits rather than a fictitious failed room price', () => {
+    const failedReview = {
+      notification_type: 'engine_v2_run',
+      run_source: 'automatic',
+      source: 'ai' as const,
+      actor_name: 'HotelCare AI supervisor',
+      actions_count: 0,
+      pushed_count: 0,
+      failed_count: 1,
+      changes: [],
+      summary: 'AI review stopped: OpenAI 429: insufficient_quota — You have no credits remaining. The normal pricing engine remains active.',
+    };
+    expect(runHeadline(failedReview)).toBe('AI review paused — API credits exhausted');
+    expect(runPreview(failedReview)).toBe('AI review unavailable · OpenAI API credits exhausted');
+    expect(runStatus(failedReview).text).toContain('automatic pricing remains active');
+    expect(runStats(failedReview)).toEqual([{ label: 'Failed AI reviews', value: 1, danger: true }]);
+    expect(runPreview(failedReview)).not.toContain('price');
+  });
+
+  it('does not mislabel other AI provider failures as failed price cells', () => {
+    const failedReview = {
+      source: 'ai' as const, actions_count: 0, failed_count: 1, changes: [],
+      summary: 'AI review stopped: provider connection timed out.',
+    };
+    expect(runHeadline(failedReview)).toBe('AI pricing review could not run');
+    expect(runPreview(failedReview)).toContain('no prices were changed');
+  });
+
   it('preserves normal algorithmic run reporting', () => {
     const algorithm = {
       run_source: 'automatic',
