@@ -14,9 +14,11 @@ import {
   InSuiteCommerceConsole, type InSuiteCatalogItem, type InSuiteStaffOrder,
   type InSuiteOrderLine, type InSuiteStaffBooking,
 } from "@/components/insuite/InSuiteCommerceConsole";
+import { InSuiteRoomQrCodes } from "@/components/insuite/InSuiteRoomQrCodes";
 
 type Device = {
   id: string; room_id: string; label: string; is_active: boolean;
+  kind?: string;
   paired_at: string | null; last_seen_at: string | null;
   active_reservation_id?: string | null;
 };
@@ -57,8 +59,12 @@ const defaults: InSuiteContent = {
   address: "", reception_phone: "", guest_wifi_ssid: "", guest_wifi_password: "",
   breakfast_hours: "", restaurant_hours: "", checkout_time: "", house_rules: "",
   transport_info: "", facilities_info: "", minibar_info: "", sustainability_info: "",
+  room_service_provider: "",
   contact_email: "", services: Object.fromEntries(services.map((key) => [key, false])),
 };
+// Jacuzzi reservations are physically available only at Hotel Memories Budapest;
+// the server also refuses jacuzzi publication and bookings for other hotels.
+const JACUZZI_HOTELS = new Set(["memories-budapest"]);
 const inputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm";
 const actionClass = "rounded-xl bg-slate-900 text-white px-4 py-2.5 text-sm font-semibold disabled:opacity-40";
 const card = "rounded-2xl border bg-white p-4 sm:p-6 shadow-sm";
@@ -349,6 +355,7 @@ export default function InSuiteStaff() {
               {field("checkout_time", "Check-out time")}
               {field("breakfast_hours", "Breakfast hours")}
               {field("restaurant_hours", "Restaurant and bar hours")}
+              {field("room_service_provider", "Room service provided by (e.g. restaurant name)")}
               {field("minibar_info", "Minibar information / price-list link", true)}
               {field("transport_info", "Taxi and transport information", true)}
               {field("facilities_info", "Gym, sauna, jacuzzi availability (only if present)", true)}
@@ -359,11 +366,14 @@ export default function InSuiteStaff() {
               <div className={card + " space-y-4"}>
                 <h2 className="text-xl font-semibold">Enabled guest services</h2>
                 <p className="text-sm text-slate-500">Only enable services the property can deliver. Menu orders require staff confirmation; no automatic charging.</p>
-                {services.map((code) => <label key={code} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl">
+                {services.filter((code) => code !== "jacuzzi" || JACUZZI_HOTELS.has(hotelId))
+                  .map((code) => <label key={code} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl">
                   <input type="checkbox" checked={!!draft.services?.[code]} onChange={(e) =>
                     setDraft((old) => ({ ...old, services: { ...(old.services || {}), [code]: e.target.checked } }))} />
                   <span>{serviceNames[code] || code.replaceAll("_", " ")}</span>
                 </label>)}
+                {!JACUZZI_HOTELS.has(hotelId) &&
+                  <p className="text-xs text-slate-400">Jacuzzi reservations are available only at Hotel Memories Budapest.</p>}
                 <div className="flex flex-wrap gap-3">
                   <button disabled={busy} className={actionClass}
                     onClick={() => void execute("staff-save-draft", { draft }, "Draft saved")}>Save draft</button>
@@ -396,8 +406,12 @@ export default function InSuiteStaff() {
               </section>
             </section>
           </div>
+          <InSuiteRoomQrCodes hotelId={hotelId} hotelName={draft.hotel_name || data.hotel_name}
+            rooms={data.rooms} accent={draft.primary_color}
+            qrRooms={new Set(data.devices.filter((d) => d.kind === "qr" && d.is_active).map((d) => d.room_id))}
+            onChanged={async () => { await load(); }} />
           <section className={card + " space-y-3"}>
-            <h2 className="text-xl font-semibold flex items-center gap-2"><Wifi className="h-5 w-5" /> Registered devices</h2>
+            <h2 className="text-xl font-semibold flex items-center gap-2"><Wifi className="h-5 w-5" /> Registered devices & room QR codes</h2>
             {!data.devices.length && <p className="text-slate-500">No devices yet.</p>}
             {data.devices.map((d) => <div key={d.id} className="flex flex-col md:flex-row justify-between gap-3 border-t py-3">
               <div><strong>Room {roomLabel(d.room_id)} — {d.label}</strong>

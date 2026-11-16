@@ -39,6 +39,9 @@ const serviceTypes = [...requestTypes, "breakfast", "room_service", "minibar", "
 const isService = (v: string) => (requestTypes as readonly string[]).includes(v);
 const orderTypes = ["breakfast", "room_service", "minibar"];
 const bookingTypes = ["taxi", "gym", "spa", "sauna", "jacuzzi"];
+// Facility guard: jacuzzi reservations are physically available only at
+// Hotel Memories Budapest. Enforced at booking AND at publish time.
+const JACUZZI_HOTELS = new Set(["memories-budapest"]);
 const managers = new Set(["admin", "manager", "top_management", "top_management_manager", "housekeeping_manager", "reception_manager", "supervisor"]);
 const admins = new Set(["admin", "manager", "top_management", "top_management_manager"]);
 const reception = new Set(["reception", "front_office", "reception_manager"]);
@@ -47,7 +50,7 @@ const validUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const cleanContent = (raw: any) => {
   const textFields = ["hotel_name", "welcome", "address", "reception_phone", "guest_wifi_ssid", "guest_wifi_password",
     "breakfast_hours", "restaurant_hours", "checkout_time", "contact_email", "house_rules", "transport_info",
-    "facilities_info", "minibar_info", "sustainability_info"];
+    "facilities_info", "minibar_info", "sustainability_info", "room_service_provider"];
   const result: Record<string, unknown> = {};
   for (const field of textFields) result[field] = val(raw?.[field], field === "house_rules" ? 2500 : 500);
   for (const field of ["logo_url", "hero_url"]) {
@@ -121,7 +124,7 @@ Deno.serve(async (req) => {
         && stay.status === "checked_in";
       if (action === "guest-bootstrap") {
         await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
-        return send({ room_number: room.room_number, hotel_id: device.hotel_id, session_epoch: device.session_epoch, config, stay_active: stayActive, paired: true });
+        return send({ room_number: room.room_number, hotel_id: device.hotel_id, session_epoch: device.session_epoch, config, stay_active: stayActive, paired: true, kind: device.kind || "tablet" });
       }
       if (action === "guest-state") {
         if (!stayActive) return send({ requests: [], messages: [], orders: [], bookings: [],
@@ -190,6 +193,8 @@ Deno.serve(async (req) => {
           || partySize < 1 || partySize > 8 || !Number.isFinite(millis)
           || millis < Date.now() - 300_000 || millis > Date.now() + 30 * 86400_000)
           return deny("Invalid booking details", 400);
+        if (kind === "jacuzzi" && !JACUZZI_HOTELS.has(device.hotel_id))
+          return deny("Jacuzzi reservations are not offered at this hotel", 400);
         const { data: existing } = await db.from("insuite_booking_requests")
           .select("id,status").eq("device_id", device.id).eq("client_request_id", clientId).maybeSingle();
         if (existing) return send({ booking: existing, repeated: true });
@@ -329,7 +334,7 @@ Deno.serve(async (req) => {
       const [cfg, deviceResult, roomResult, requestResult, msgResult, alertResult, catalogResult, orderResult, bookingResult] = await Promise.all([
         db.from("insuite_property_configs").select("draft,published,enabled,updated_at")
           .eq("organization_slug", org).eq("hotel_id", hotelId).maybeSingle(),
-        manager ? db.from("insuite_devices").select("id,room_id,label,is_active,active_reservation_id,paired_at,last_seen_at,created_at")
+        manager ? db.from("insuite_devices").select("id,room_id,label,kind,is_active,active_reservation_id,paired_at,last_seen_at,created_at")
           .eq("organization_slug", org).eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(300)
           : Promise.resolve({ data: [] }),
         manager ? roomQuery() : Promise.resolve({ data: [] }),
@@ -573,6 +578,10 @@ Deno.serve(async (req) => {
       if (!current) return deny("Save a draft before publishing", 400);
       const published = cleanContent(current.draft);
       if (!published.hotel_name) published.hotel_name = hotel.hotel_name;
+      // Facility guard: never publish jacuzzi reservations for hotels without one.
+      if (!JACUZZI_HOTELS.has(hotelId) && published.services
+        && typeof published.services === "object")
+        (published.services as Record<string, boolean>).jacuzzi = false;
       const { error } = await db.from("insuite_property_configs").update({
         published, enabled: true, updated_by: profile.id, updated_at: new Date().toISOString(),
       }).eq("organization_slug", org).eq("hotel_id", hotelId);
@@ -586,7 +595,7 @@ Deno.serve(async (req) => {
       const { data: room } = await roomQuery().eq("id", roomId).maybeSingle();
       if (!room) return deny("Room does not belong to this hotel", 403);
       const { data: existing } = await db.from("insuite_devices").select("id").eq("room_id", roomId)
-        .eq("is_active", true).maybeSingle();
+        .eq("is_active", true).eq("kind", "tablet").maybeSingle();
       if (existing) return deny("Revoke the existing room tablet before creating another", 409);
       const { data: stays, error: stayError } = await db.from("reservations")
         .select("id").eq("room_id", room.id).eq("organization_slug", org)
@@ -597,7 +606,7 @@ Deno.serve(async (req) => {
       const code = random(12).toUpperCase();
       const pin = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
       const { error } = await db.from("insuite_devices").insert({
-        id, organization_slug: org, hotel_id: hotelId, room_id: roomId,
+        id, organization_slug: org, hotel_id: hotelId, room_id: roomId, kind: "tablet",
         label: val(body.label, 80) || "Room " + room.room_number,
         active_reservation_id: activeStay,
         pairing_hash: await sha(code), pairing_expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
@@ -605,6 +614,44 @@ Deno.serve(async (req) => {
       });
       if (error) throw error;
       return send({ code, pin, expires_in_minutes: 15, room_number: room.room_number, device_id: id }, 201);
+    }
+    if (action === "staff-create-qr") {
+      // Per-room guest QR codes: the token inside the QR pre-pairs the guest's
+      // own phone to the room. Printing a NEW QR invalidates the previous one
+      // for that room. Guest requests still require a verified checked-in stay.
+      if (!administrator) return deny("Administrator permission required");
+      const requested: string[] = Array.isArray(body.room_ids)
+        ? body.room_ids.map((v: unknown) => val(v, 40)).filter(validUuid) : [];
+      if (!requested.length || requested.length > 200) return deny("Select 1-200 rooms", 400);
+      const { data: hotelRooms, error: roomsError } = await roomQuery().in("id", requested);
+      if (roomsError) throw roomsError;
+      const allowed = new Map((hotelRooms || []).map((r: any) => [r.id, r.room_number]));
+      if (allowed.size !== requested.length) return deny("A selected room does not belong to this hotel", 403);
+      const codes: Array<{ room_id: string; room_number: string; token: string }> = [];
+      for (const roomId of requested) {
+        const roomNumber = String(allowed.get(roomId));
+        // Keep active reservations: carry the binding from the device being replaced.
+        const { data: previous } = await db.from("insuite_devices")
+          .select("id, active_reservation_id, session_epoch")
+          .eq("room_id", roomId).eq("kind", "qr").eq("is_active", true).maybeSingle();
+        if (previous) {
+          await db.from("insuite_devices").update({ is_active: false, device_token_hash: null })
+            .eq("id", previous.id);
+        }
+        const token = random(32);
+        const { error } = await db.from("insuite_devices").insert({
+          organization_slug: org, hotel_id: hotelId, room_id: roomId, kind: "qr",
+          label: "Room " + roomNumber + " · QR",
+          device_token_hash: await sha(token), paired_at: new Date().toISOString(),
+          active_reservation_id: previous?.active_reservation_id || null,
+          session_epoch: previous?.session_epoch || crypto.randomUUID(),
+          created_by: profile.id,
+        });
+        if (error) throw error;
+        codes.push({ room_id: roomId, room_number: roomNumber, token });
+      }
+      // Tokens are shown exactly once; only hashes are stored.
+      return send({ codes }, 201);
     }
     if (action === "staff-reconcile-stay") {
       if (!canReply) return deny("Front desk or manager permission required");
@@ -619,20 +666,31 @@ Deno.serve(async (req) => {
         .eq("status", "checked_in").limit(2);
       if (activeError) throw activeError;
       if ((active || []).length !== 1) return deny("Exactly one verified checked-in reservation is required", 409);
-      // Only rebind when the reservation changes; idempotent reconciliation does
-      // not destroy an in-stay conversation.
-      if (device.active_reservation_id === active[0].id) return send({ stay_active: true, unchanged: true });
-      let update = db.from("insuite_devices").update({
-        active_reservation_id: active[0].id,
-        session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString(),
-      }).eq("id", device.id).eq("organization_slug", org).eq("hotel_id", hotelId);
-      update = device.active_reservation_id
-        ? update.eq("active_reservation_id", device.active_reservation_id)
-        : update.is("active_reservation_id", null);
-      const { data: changed, error } = await update.select("id").maybeSingle();
-      if (error) throw error;
-      if (!changed) return deny("Stay changed. Refresh and retry.", 409);
-      return send({ stay_active: true, session_rotated: true });
+      // Verify the whole ROOM in one step: a room can hold a tablet AND a QR
+      // code, and both must follow the same checked-in reservation. Only
+      // rebind devices whose reservation changes; idempotent reconciliation
+      // does not destroy an in-stay conversation.
+      const { data: roomDevices, error: roomDevicesError } = await db.from("insuite_devices")
+        .select("id, active_reservation_id").eq("room_id", device.room_id)
+        .eq("organization_slug", org).eq("hotel_id", hotelId).eq("is_active", true);
+      if (roomDevicesError) throw roomDevicesError;
+      let rotated = 0;
+      for (const entry of roomDevices || []) {
+        if (entry.active_reservation_id === active[0].id) continue;
+        let update = db.from("insuite_devices").update({
+          active_reservation_id: active[0].id,
+          session_epoch: crypto.randomUUID(), session_started_at: new Date().toISOString(),
+        }).eq("id", entry.id).eq("organization_slug", org).eq("hotel_id", hotelId);
+        update = entry.active_reservation_id
+          ? update.eq("active_reservation_id", entry.active_reservation_id)
+          : update.is("active_reservation_id", null);
+        const { data: changed, error } = await update.select("id").maybeSingle();
+        if (error) throw error;
+        if (!changed) return deny("Stay changed. Refresh and retry.", 409);
+        rotated++;
+      }
+      return send(rotated === 0 ? { stay_active: true, unchanged: true }
+        : { stay_active: true, session_rotated: true, devices_updated: rotated });
     }
     if (action === "staff-reset-session" || action === "staff-revoke-device") {
       if (!canReply && !administrator) return deny("Front desk or manager permission required");
