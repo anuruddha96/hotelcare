@@ -78,6 +78,7 @@ export default function InSuiteStaff() {
   const [hotelId, setHotelId] = useState("");
   const [tab, setTab] = useState<"requests" | "chat" | "orders" | "bookings" | "menu" | "admin">("requests");
   const [data, setData] = useState<Dashboard | null>(null);
+  const [loadedHotelId, setLoadedHotelId] = useState("");
   const [draft, setDraft] = useState<InSuiteContent>(defaults);
   const [saveStatus, setSaveStatus] = useState<"saved" | "dirty" | "saving" | "error">("saved");
   const [uploading, setUploading] = useState<"logo" | "hero" | null>(null);
@@ -113,7 +114,8 @@ export default function InSuiteStaff() {
     previousPropertyRef.current = activeProperty;
   }, [hotelId, hotels, profile?.assigned_hotel]);
   useEffect(() => {
-    setData(null); setIssued(null); savedSnapshotRef.current = ""; setSaveStatus("saved");
+    setData(null); setLoadedHotelId(""); setIssued(null);
+    savedSnapshotRef.current = ""; setSaveStatus("saved");
     previousRequests.current = null; previousMessages.current = null; previousAlerts.current = null;
   }, [hotelId]);
   const load = useCallback(async (notify = false) => {
@@ -145,6 +147,7 @@ export default function InSuiteStaff() {
         previousAlerts.current = new Set((current.alerts || []).map((a) => a.id));
       }
       setData(current);
+      if (!notify) setLoadedHotelId(hotelId);
       // Never replace local edits during the 15-second notification poll.
       if (!notify) {
         const next = { ...defaults, ...(current.config.draft || {}),
@@ -193,14 +196,15 @@ export default function InSuiteStaff() {
   // Save each edited property field and service toggle after a short idle.
   // Draft changes are separate from the manager-controlled Publish action.
   useEffect(() => {
-    if (!hotelId || !data?.can_configure || JSON.stringify(draft) === savedSnapshotRef.current) return;
+    if (!hotelId || loadedHotelId !== hotelId || !data?.can_configure ||
+        JSON.stringify(draft) === savedSnapshotRef.current) return;
     setSaveStatus("dirty");
     const pending = window.setTimeout(() => { void saveDraft(draft, hotelId); }, 900);
     return () => window.clearTimeout(pending);
-  }, [draft, hotelId, data?.can_configure, saveDraft]);
+  }, [draft, hotelId, loadedHotelId, data?.can_configure, saveDraft]);
 
   const uploadPropertyImage = async (kind: "logo" | "hero", file: File | undefined) => {
-    if (!file || !hotelId || !data?.can_configure) return;
+    if (!file || !hotelId || loadedHotelId !== hotelId || !data?.can_configure) return;
     setUploading(kind);
     try {
       const image_data = await prepareInSuiteImage(file, kind);
