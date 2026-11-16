@@ -673,3 +673,22 @@ export class IncomingBookingSet {
     return out;
   }
 }
+
+/**
+ * Which HotelCare room an imported booking sits in.
+ *
+ * Previo is the authority for the room: when reception moves a guest in Previo
+ * (also after check-in there), the plan must follow, otherwise two bookings
+ * end up drawn in the same room. The one exception is a check-in done in
+ * HotelCare itself: that room is what the receptionist chose and is kept.
+ * A room Previo names but HotelCare has no mapping for never clears a stored room.
+ */
+export function resolveImportRoom(input: {
+  mappedRoom: string | null;
+  existingRoom: string | null;
+  localStatus: string | null;
+  checkedInHere: boolean;
+}): string | null {
+  if (input.localStatus === "checked_in" && input.checkedInHere) return input.existingRoom ?? input.mappedRoom;
+  return input.mappedRoom ?? input.existingRoom;
+}

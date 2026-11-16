@@ -12,8 +12,8 @@
 export type AttentionKind =
   | 'overdue_arrival'   // should have arrived already and is not checked in
   | 'room_not_ready'    // arriving today, room is not clean yet
-  | 'unpaid_arrival'    // arriving today/tomorrow with money still due
-  | 'unassigned'        // active booking without a room
+  | 'unpaid_arrival'    // arriving today/tomorrow with money still due (collect at check-in)
+  | 'unassigned'        // in house, or arriving today/tomorrow, and still without a room
   | 'option_expiring'   // Previo option ends within 24 hours
   | 'due_out';          // checked in and departing today
 
@@ -41,7 +41,8 @@ export interface AttentionReservation {
 const SEVERITY: Record<AttentionKind, AttentionSeverity> = {
   overdue_arrival: 'high',
   room_not_ready: 'high',
-  unpaid_arrival: 'medium',
+  // Paying on arrival is the normal case for hotel-collect bookings: a reminder, not an alarm.
+  unpaid_arrival: 'info',
   unassigned: 'medium',
   option_expiring: 'medium',
   due_out: 'info',
@@ -88,7 +89,12 @@ export function reservationAttention(
     kinds.add('unpaid_arrival');
   }
 
-  if (!r.room_id && (upcoming || status === 'checked_in') && departure > today) kinds.add('unassigned');
+  // A future booking without a room is a normal "floating" reservation (Previo
+  // creates online bookings that way; so does a channel manager). It only needs
+  // a person once the guest is about to arrive or is already in house.
+  if (!r.room_id && departure > today && (status === 'checked_in' || (upcoming && arrival <= addDay(today)))) {
+    kinds.add('unassigned');
+  }
 
   if (status === 'pending' && Number(r.pms_status_id) === 1 && r.pms_option_expires_at) {
     const expires = Date.parse(r.pms_option_expires_at);
@@ -98,6 +104,19 @@ export function reservationAttention(
   if (status === 'checked_in' && departure === today) kinds.add('due_out');
 
   return ORDER.filter((kind) => kinds.has(kind)).map((kind) => ({ kind, severity: SEVERITY[kind] }));
+}
+
+/**
+ * A "floating" reservation: active, not yet in house and without a room.
+ * `urgent` once it arrives today or tomorrow (or is overdue) and still has no room.
+ */
+export function floatingState(r: AttentionReservation, today: string): 'floating' | 'urgent' | null {
+  const status = String(r.status ?? '');
+  if (r.snapshotOnly || r.room_id || (status !== 'pending' && status !== 'confirmed')) return null;
+  const arrival = String(r.check_in_date ?? '');
+  const departure = String(r.check_out_date ?? '');
+  if (!DAY.test(arrival) || !DAY.test(departure) || !DAY.test(today) || departure <= today) return null;
+  return arrival <= addDay(today) ? 'urgent' : 'floating';
 }
 
 /** Highest severity in a list, or null when nothing needs attention. */

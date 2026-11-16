@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   CalendarDays, Coffee, List, LogIn, LogOut, Plus, Search,
   Users, AlertTriangle,
+  Hourglass, ListOrdered, Sparkles, Waves,
 } from 'lucide-react';
 import { ReservationCalendar } from '@/components/reservations/ReservationCalendar';
 import { VizaStatusCard } from '@/components/frontdesk/VizaStatusCard';
@@ -20,7 +21,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest, tomorrowBudapest } from '@/lib/budapestTime';
 import { auditReceptionSnapshots, type ReceptionSnapshot } from '@/lib/receptionSnapshotAudit';
 import { reservationChannel, reservationGuestLabel, reservationSearchText, RESERVATION_STATUS_COLORS } from '@/lib/reservations';
-import { importFreshness } from '@/lib/receptionAttention';
+import { floatingState, importFreshness } from '@/lib/receptionAttention';
 
 const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status), rooms:room_id(id, room_number, room_type, status)';
 type ViewMode = 'planner' | 'list';
@@ -170,7 +171,8 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       const allRows = res.data ?? [];
       const visible = allRows.filter((row: any) => !row.pms_missing_since);
       setReservations(visible);
-      setHiddenNotInPrevio(allRows.length - visible.length);
+      // Only bookings that would still matter (not yet departed) are worth mentioning.
+      setHiddenNotInPrevio(allRows.filter((row: any) => row.pms_missing_since && row.check_out_date >= today).length);
       setRooms(rm.data ?? []);
       setSnapshots((snap.data ?? []) as SnapshotRow[]);
       setImportHistory(history.data?.[0] ?? null);
@@ -252,7 +254,23 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const arrivals = useMemo(() => reservations.filter((row) => row.check_in_date === today && ['pending', 'confirmed'].includes(row.status)), [reservations, today]);
   const departures = useMemo(() => reservations.filter((row) => row.check_out_date === today && row.status === 'checked_in'), [reservations, today]);
   const inHouse = useMemo(() => reservations.filter((row) => row.status === 'checked_in' && row.check_in_date <= today && row.check_out_date > today), [reservations, today]);
-  const unassigned = useMemo(() => reservations.filter((row) => !row.room_id && ['pending', 'confirmed', 'checked_in'].includes(row.status)), [reservations]);
+  const unassigned = useMemo(() => reservations.filter((row) => !row.room_id && ['pending', 'confirmed', 'checked_in'].includes(row.status) && row.check_out_date > today)
+    .sort((a, b) => String(a.check_in_date).localeCompare(String(b.check_in_date))), [reservations, today]);
+  // A future booking without a room is normal ("floating" in Previo). It becomes
+  // a warning only when the guest arrives today/tomorrow or is already in house.
+  const unassignedUrgent = useMemo(() => unassigned.filter((row) => row.status === 'checked_in' || floatingState(row, today) === 'urgent').length, [unassigned, today]);
+  const expiringOptions = useMemo(() => reservations
+    .filter((row) => row.status === 'pending' && Number(row.pms_status_id) === 1 && row.check_out_date > today)
+    .sort((a, b) => String(a.pms_option_expires_at ?? '9').localeCompare(String(b.pms_option_expires_at ?? '9'))), [reservations, today]);
+  const waitingList = useMemo(() => reservations.filter((row) => row.status === 'pending' && Number(row.pms_status_id) === 6 && row.check_out_date > today), [reservations, today]);
+  const newOnline = useMemo(() => {
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+    return reservations
+      .filter((row) => ['pending', 'confirmed'].includes(row.status) && Date.parse(row.created_at ?? '') >= since
+        && !['walk_in', 'direct', 'phone', 'email'].includes(String(row.source || '')))
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  }, [reservations]);
+  const floatingTitle = nativeHotel ? t('pms.planner.unassignedSection') : t('pms.cal.floating');
   const upcomingOnline = useMemo(() => reservations
     .filter((row) => row.check_in_date > today && ['pending', 'confirmed'].includes(row.status) && !['walk_in', 'direct', 'phone', 'email'].includes(String(row.source || '')))
     .sort((a, b) => String(a.check_in_date).localeCompare(String(b.check_in_date))).slice(0, 20), [reservations, today]);
@@ -335,11 +353,11 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     </div>
 
     {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Reception data could not be verified. Previous property data has been cleared. Retry refresh.</div>}
-    {!loadingData && !loadError && !nativeHotel && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0 || hiddenNotInPrevio > 0) &&
+    {!loadingData && !loadError && !nativeHotel && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0) &&
       <details role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
         <summary className="cursor-pointer select-none flex items-center gap-2 font-medium">
-          ⚠️ PMS data needs attention
-          <span className="ml-auto text-[11px] underline underline-offset-2">Details</span>
+          ⚠️ {t('pms.fd.pmsAttention')}
+          <span className="ml-auto text-[11px] underline underline-offset-2">{t('pms.fd.details')}</span>
         </summary>
         <div className="mt-2 pl-6 text-muted-foreground">
           {importStale ? `Latest reservation import: ${importHistory?.created_at ? new Date(importHistory.created_at).toLocaleString() : 'not recorded'} (${importHistory?.sync_status ?? 'unknown'}). ` : ''}
@@ -350,6 +368,9 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </div>
       </details>}
 
+    {!loadingData && !loadError && !nativeHotel && !importStale && hiddenNotInPrevio > 0 && (
+      <p className="text-[11px] text-muted-foreground" data-training="fd-hidden-note">ℹ️ {hiddenNotInPrevio} {t('pms.fd.hiddenNotInPrevio')}</p>
+    )}
     {isOttofiori && !loadingData && !loadError && importStale && (
       <div role="alert" className="rounded-md border border-amber-400/60 bg-amber-50/70 dark:bg-amber-950/20 p-3 text-xs space-y-1">
         <p className="font-semibold">Tomorrow check-ins ({tomorrow}) are not verified against Previo.</p>
@@ -361,7 +382,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         { key: 'arrivals' as const, label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, rows: arrivals, tone: 'border-emerald-300 dark:border-emerald-800' },
         { key: 'departures' as const, label: `🧳 ${t('pms.fd.departuresRemaining')}`, rows: departures, tone: 'border-sky-300 dark:border-sky-800' },
         { key: 'inhouse' as const, label: `🛏️ ${t('pms.fd.inHouseNow')}`, rows: inHouse, tone: 'border-border' },
-        { key: 'unassigned' as const, label: `❓ ${t('pms.planner.unassignedSection')}`, rows: unassigned, tone: unassigned.length ? 'border-amber-400 dark:border-amber-700' : 'border-border' },
+        { key: 'unassigned' as const, label: `${unassignedUrgent ? '❓' : '🌊'} ${floatingTitle}`, rows: unassigned, tone: unassignedUrgent ? 'border-amber-400 dark:border-amber-700' : 'border-border' },
       ]).map((stat) => (
         <button key={stat.key} type="button" title={t('pms.fd.todayChipTip')}
           aria-expanded={statPanel === stat.key}
@@ -401,7 +422,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     })()}
 
     <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
-      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned={nativeHotel} editable={nativeHotel} onChanged={fetchAll} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
+      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-card z-10 border-b border-border"><tr className="text-left text-xs text-muted-foreground">
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>
@@ -411,12 +432,15 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </tr>)}</tbody></table></div></CardContent></Card>}
     </div>
       <aside className="border border-border rounded-lg overflow-hidden bg-card 2xl:sticky 2xl:top-3">
-        <SideSection title={t('pms.planner.unassignedSection')} icon={AlertTriangle} items={unassigned} onOpen={openReservation} />
+        <SideSection title={unassignedUrgent ? `${floatingTitle} · ${unassignedUrgent} ${t('pms.cal.floatingUrgent')}` : floatingTitle} icon={unassignedUrgent ? AlertTriangle : Waves} items={unassigned} onOpen={openReservation} />
         <SideSection title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
           actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
         <SideSection title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation}
           actionLabel={t('pms.checkOut')} onAction={(row) => setActioned({ row, dialog: 'checkout' })} />
         <SideSection title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
+        {newOnline.length > 0 && <SideSection title={t('pms.fd.newOnline')} icon={Sparkles} items={newOnline} onOpen={openReservation} />}
+        {expiringOptions.length > 0 && <SideSection title={t('pms.fd.expiringOptions')} icon={Hourglass} items={expiringOptions} onOpen={openReservation} />}
+        {waitingList.length > 0 && <SideSection title={t('pms.fd.waitingList')} icon={ListOrdered} items={waitingList} onOpen={openReservation} />}
         {isOttofiori && <SideSection title={`Tomorrow check-ins · ${tomorrow}${importStale ? ' · unverified' : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
         <SideSection title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
