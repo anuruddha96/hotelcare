@@ -9,7 +9,7 @@ import {
   addDays, buildReservationTermXml, groupGuestNames, IncomingBookingSet, isPrevioBusyResponse, isReservationOwnedByImportChunk,
   bookingsMissingFromPrevio, mapPrevioStatus, mergePrevioFinancials, mergePrevioStatus, parsePrevioReservations,
   paymentFromPrevioAccount, pmsFieldsEqual, type PrevioPaymentStatus,
-  PMS_RESERVATION_COLUMNS, resolveImportTarget, type PrevioReservationRow,
+  PMS_RESERVATION_COLUMNS, resolveImportRoom, resolveImportTarget, type PrevioReservationRow,
 } from "../_shared/previoReservations.ts";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
@@ -393,8 +393,10 @@ serve(async req => {
       const status = mergePrevioStatus(localStatus, row.statusId, existing?.actual_check_in != null);
       const mappedRoom = row.objId ? roomByPmsId.get(String(row.objId)) ?? null : null;
       if (!mappedRoom && row.objId && mappedStatus === "confirmed") unmappedRooms++;
-      const roomId = localStatus === "checked_in" ? (existing?.room_id as string | null) ?? mappedRoom
-        : mappedRoom ?? ((existing?.room_id as string | null) ?? null);
+      const roomId = resolveImportRoom({
+        mappedRoom, existingRoom: (existing?.room_id as string | null) ?? null,
+        localStatus, checkedInHere: existing?.actual_check_in != null,
+      });
       const nights = Math.max(1, row.nights);
       const total = row.totalPrice ?? (existing ? Number(existing.total_amount ?? 0) : 0);
       // Payment: this run's account check, else the search response, else the last known Previo state.

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { addDays, differenceInDays, format, isSameDay, parseISO, startOfDay } from 'date-fns';
 import {
-  AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Loader2,
-  PanelLeftClose, PanelLeftOpen, Radio, Search, Siren,
+  AlertTriangle, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Loader2,
+  PanelLeftClose, PanelLeftOpen, Radio, Search, Settings2, Siren, Waves,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,12 +13,18 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Switch } from '@/components/ui/switch';
 import { ReservationHoverDetails } from '@/components/reservations/ReservationHoverDetails';
 import { toast } from 'sonner';
 import { todayBudapest } from '@/lib/budapestTime';
-import { needsAction, nightlyOccupancy, reservationAttention, topSeverity, type AttentionFlag } from '@/lib/receptionAttention';
+import { floatingState, needsAction, nightlyOccupancy, reservationAttention, topSeverity, type AttentionFlag } from '@/lib/receptionAttention';
+import { columnWidthFor, groupRoomsByType, loadCalendarOptions, saveCalendarOptions, type CalendarOptions } from '@/lib/receptionCalendarOptions';
 import { useTranslation } from '@/hooks/useTranslation';
-import { reservationChannel, reservationGuestLabel } from '@/lib/reservations';
+import { nightsBetween as stayNights, reservationChannel, reservationGuestLabel } from '@/lib/reservations';
 import { getRoomLaneCount, layoutRoomStays } from '@/lib/receptionPlanner';
 import { LifecycleError, updateReservation } from '@/lib/pmsLifecycle';
 
@@ -42,17 +48,20 @@ interface ReservationCalendarProps {
   editable?: boolean;
   /** Called after a confirmed drag/resize change is saved, so the caller can refetch. */
   onChanged?: () => void;
+  /** One-tap check-in / check-out from the right-click menu (dialogs live in the caller). */
+  onQuickAction?: (reservation: CalReservation, action: 'checkin' | 'checkout') => void;
+  /** Name of the PMS that owns the bookings (e.g. "Previo"); null when HotelCare is the PMS. */
+  pmsName?: string | null;
 }
 
 type WindowDays = 7 | 14 | 21 | 31;
-const COLUMN_WIDTH = 88;
 const ROOM_WIDTH = 194;
-const ROOM_WIDTH_COLLAPSED = 64;
-const ROW_HEIGHT = 44;
+const ROOM_WIDTH_COLLAPSED = 96;
 /** Fixed header heights so the three frozen rows stack exactly. */
 const HEAD_MONTH_H = 28;
-const HEAD_DAYS_H = 46;
+const HEAD_DAYS_H = 58;
 const HEAD_OCC_H = 38;
+const FLOATING_ROW = '__floating__';
 const ACTIVE_STATUSES = new Set(['pending', 'confirmed', 'checked_in', 'checked_out']);
 const EDGE_PX = 9;
 
@@ -101,16 +110,23 @@ const nightsBetween = (from: string, to: string) =>
   Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 86400000));
 
 /** Read-only snapshot bookings are displayed separately from editable HotelCare records. */
-export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged }: ReservationCalendarProps) {
+export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged, onQuickAction, pmsName = null }: ReservationCalendarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [days, setDays] = useState<WindowDays>(14);
+  // A phone shows a week by default; everything wider shows two.
+  const [days, setDays] = useState<WindowDays>(() => (typeof window !== 'undefined' && window.innerWidth > 0 && window.innerWidth < 640 ? 7 : 14));
   const [startDate, setStartDate] = useState(startNearToday);
   const [roomSearch, setRoomSearch] = useState('');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
   // Dim every booking that does not need a person to act.
   const [focusAttention, setFocusAttention] = useState(false);
-  const [roomsCollapsed, setRoomsCollapsed] = useState(false);
+  const [roomsCollapsed, setRoomsCollapsed] = useState(() => typeof window !== 'undefined' && window.innerWidth > 0 && window.innerWidth < 640);
+  const [options, setOptions] = useState<CalendarOptions>(loadCalendarOptions);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [containerWidth, setContainerWidth] = useState(0);
+  const setOption = <K extends keyof CalendarOptions>(key: K, value: CalendarOptions[K]) => {
+    setOptions((current) => { const next = { ...current, [key]: value }; saveCalendarOptions(next); return next; });
+  };
   const [resQuery, setResQuery] = useState('');
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -121,6 +137,23 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const today = todayBudapest();
   const roomWidth = roomsCollapsed ? ROOM_WIDTH_COLLAPSED : ROOM_WIDTH;
+  const columnWidth = columnWidthFor(options, containerWidth - roomWidth, days);
+  const columnRef = useRef(columnWidth);
+  columnRef.current = columnWidth;
+  const laneHeight = options.compact ? 29 : 37;
+  const barHeight = options.compact ? 24 : 32;
+  const rowHeight = options.compact ? 34 : 44;
+
+  // Responsive: the day columns stretch or shrink with the space that is really there.
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    setContainerWidth(node.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => setContainerWidth(Math.round(entries[0]?.contentRect.width ?? 0)));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const endDate = useMemo(() => addDays(startDate, days), [startDate, days]);
   const dates = useMemo(() => Array.from({ length: days }, (_, i) => addDays(startDate, i)), [startDate, days]);
@@ -128,12 +161,13 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const currentEnd = format(endDate, 'yyyy-MM-dd');
   const active = useMemo(() => reservations.filter((reservation) =>
     ACTIVE_STATUSES.has(reservation.status)
+    && !(options.hideCheckedOut && reservation.status === 'checked_out')
     && typeof reservation.check_in_date === 'string'
     && typeof reservation.check_out_date === 'string'
     && reservation.check_out_date > currentStart
     && reservation.check_in_date < currentEnd
     && reservation.check_out_date > reservation.check_in_date,
-  ), [reservations, currentStart, currentEnd]);
+  ), [reservations, currentStart, currentEnd, options.hideCheckedOut]);
 
   const roomBookings = useMemo(() => {
     const bookings = new Map<string, any[]>();
@@ -155,7 +189,22 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
       .sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true }));
   }, [rooms, roomBookings, roomSearch, onlyAvailable]);
 
-  const unassigned = useMemo(() => active.filter((r) => !r.room_id && r.status !== 'checked_out'), [active]);
+  const unassigned = useMemo(() => active.filter((r) => !r.room_id && r.status !== 'checked_out' && !r.snapshotOnly), [active]);
+  const floatingStays = useMemo(() => layoutRoomStays(unassigned), [unassigned]);
+  const floatingUrgent = useMemo(() => unassigned.filter((r) => floatingState(r, today) === 'urgent').length, [unassigned, today]);
+  const roomGroups = useMemo(() => groupRoomsByType(visibleRooms, options.groupByType), [visibleRooms, options.groupByType]);
+  // Arrivals / departures per day, under each date.
+  const dayMoves = useMemo(() => {
+    const moves = new Map<string, { arrivals: number; departures: number }>();
+    for (const r of active) {
+      if (r.snapshotOnly) continue;
+      const a = moves.get(r.check_in_date) ?? { arrivals: 0, departures: 0 };
+      a.arrivals += 1; moves.set(r.check_in_date, a);
+      const d = moves.get(r.check_out_date) ?? { arrivals: 0, departures: 0 };
+      d.departures += 1; moves.set(r.check_out_date, d);
+    }
+    return moves;
+  }, [active]);
 
   const roomById = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
   const attentionById = useMemo(() => {
@@ -247,11 +296,12 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     const state = dragRef.current;
     if (!state || event.pointerId !== state.pointerId) return;
-    const dayDelta = Math.round((event.clientX - state.originX) / COLUMN_WIDTH);
+    const dayDelta = Math.round((event.clientX - state.originX) / columnRef.current);
     let targetRoomId = state.targetRoomId;
     if (state.mode === 'move') {
       const hit = document.elementFromPoint?.(event.clientX, event.clientY)?.closest('[data-cal-room]');
-      if (hit) targetRoomId = hit.getAttribute('data-cal-room');
+      // Dropping on the floating lane never un-assigns a room: that stays an explicit edit.
+      if (hit && hit.getAttribute('data-cal-room') !== FLOATING_ROW) targetRoomId = hit.getAttribute('data-cal-room');
     }
     const moved = state.moved || Math.abs(event.clientX - state.originX) > 5 || Math.abs(event.clientY - state.originY) > 5;
     const next = { ...state, dayDelta, targetRoomId, moved };
@@ -308,7 +358,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
     }
   };
 
-  const gridWidth = days * COLUMN_WIDTH;
+  const gridWidth = days * columnWidth;
   const monthGroups = useMemo(() => {
     const groups: { key: string; label: string; count: number }[] = [];
     for (const date of dates) {
@@ -323,6 +373,124 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const stickyLeft = 'sticky left-0 z-20 bg-card border-r border-border shrink-0';
   const todayCol = (date: Date) => isSameDay(date, new Date());
 
+  const copyReference = (reservation: CalReservation) => {
+    const ref = String(reservation.ota_reservation_code || reservation.pms_reservation_id || reservation.reservation_number || '');
+    if (!ref) return;
+    void navigator.clipboard?.writeText(ref).then(() => toast.success(t('pms.cal.copied'))).catch(() => undefined);
+  };
+
+  const renderBar = (reservation: CalReservation, lane: number, overlaps: boolean, roomLabel: string | null) => {
+    const start = Math.max(0, differenceInDays(parseISO(reservation.check_in_date), startDate));
+    const end = Math.min(days, differenceInDays(parseISO(reservation.check_out_date), startDate));
+    if (end <= start) return null;
+    const snapshot = reservation.snapshotOnly === true;
+    const label = reservationGuestLabel(reservation);
+    const flags = attentionById.get(reservation.id) ?? [];
+    const severity = topSeverity(flags);
+    const actionable = needsAction(flags);
+    const dimmed = focusAttention && !actionable && !overlaps;
+    const reasons = flags.map((flag) => t(`pms.attention.${flag.kind}`)).join(', ');
+    const dragging = drag?.moved && drag.reservation.id === reservation.id;
+    const dragShift = dragging && drag ? (drag.mode === 'start' ? 0 : drag.dayDelta * columnWidth) : 0;
+    const dragResize = dragging && drag && drag.mode !== 'move' ? drag.dayDelta * columnWidth * (drag.mode === 'start' ? -1 : 1) : 0;
+    const draggable = editable && !snapshot && canDrag(reservation, 'move');
+    const resizable = editable && !snapshot && canDrag(reservation, 'end');
+    const highlighted = highlightId === reservation.id;
+    const floating = !reservation.room_id;
+    const channel = reservationChannel(reservation);
+    const width = Math.max(20, (end - start) * columnWidth - 4 + dragResize);
+    const nights = stayNights(reservation.check_in_date, reservation.check_out_date);
+    const canCheckIn = !!onQuickAction && !snapshot && ['pending', 'confirmed'].includes(reservation.status) && reservation.check_in_date <= today;
+    const canCheckOut = !!onQuickAction && !snapshot && reservation.status === 'checked_in';
+    const bar = (
+      <div
+        role="button"
+        tabIndex={snapshot ? -1 : 0}
+        aria-disabled={snapshot}
+        onPointerDown={(event) => beginDrag(event, reservation)}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={() => { dragRef.current = null; setDrag(null); }}
+        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openReservation(reservation); } }}
+        aria-label={`${label}, ${reservation.check_in_date} to ${reservation.check_out_date}${snapshot ? ', read-only snapshot' : ''}${overlaps ? ', room conflict' : ''}${reasons ? `, ${reasons}` : ''}`}
+        className={`absolute flex items-center gap-1 rounded border font-semibold text-left px-1 overflow-hidden transition-opacity select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${options.compact ? 'text-[10px]' : 'text-[11px]'} ${RESERVATION_COLORS[reservation.status] || 'bg-muted border-border'} ${snapshot ? 'border-dashed opacity-75 cursor-not-allowed' : draggable ? 'hover:brightness-95 cursor-grab active:cursor-grabbing' : 'hover:brightness-95 cursor-pointer'} ${floating ? 'border-dashed' : ''} ${overlaps ? 'ring-2 ring-destructive ring-inset' : ''} ${dimmed ? 'opacity-25' : ''} ${dragging ? 'z-30 opacity-80 shadow-lg ring-2 ring-primary' : ''} ${highlighted ? 'z-20 ring-4 ring-primary animate-pulse' : ''}`}
+        style={{
+          left: start * columnWidth + 2 + dragShift + (dragging && drag?.mode === 'start' ? drag.dayDelta * columnWidth : 0),
+          top: lane * laneHeight + 4,
+          width,
+          height: barHeight,
+          touchAction: draggable || resizable ? 'none' : undefined,
+        }}
+      >
+        {resizable && <span className="absolute inset-y-0 left-0 w-[7px] cursor-ew-resize bg-black/0 hover:bg-black/20" aria-hidden="true" />}
+        <span
+          className={`shrink-0 grid place-items-center rounded-[4px] font-bold leading-none ${options.compact ? 'h-4 min-w-4 px-0.5 text-[9px]' : 'h-5 min-w-5 px-1 text-[10px]'} ${channel.badgeClass}`}
+          title={channel.label}
+          data-channel={channel.key}
+          aria-hidden="true"
+        >{channel.letter}</span>
+        <span className="truncate">{label}{options.showNights && width > 110 && nights > 0 ? <span className="font-normal opacity-80"> · {nights}{t('pms.cal.nightsShort')}</span> : null}</span>
+        {snapshot && <Radio className="h-3 w-3 shrink-0 ml-auto" />}
+        {actionable && severity && ATTENTION_DOT[severity] && (
+          <span className={`ml-auto h-2.5 w-2.5 shrink-0 rounded-full ring-2 ${ATTENTION_DOT[severity]}`} aria-hidden="true" />
+        )}
+        {resizable && <span className="absolute inset-y-0 right-0 w-[7px] cursor-ew-resize bg-black/0 hover:bg-black/20" aria-hidden="true" />}
+      </div>
+    );
+    const hover = (
+      <HoverCard key={reservation.id} openDelay={250} closeDelay={80}>
+        <HoverCardTrigger asChild>{bar}</HoverCardTrigger>
+        <HoverCardContent side="top" align="start" className="w-72 p-3">
+          <ReservationHoverDetails reservation={reservation} roomLabel={roomLabel ?? t('pms.cal.floating')} flags={flags} />
+        </HoverCardContent>
+      </HoverCard>
+    );
+    if (snapshot) return hover;
+    // Right-click (or long-press): the actions reception uses most, without opening the booking first.
+    return (
+      <ContextMenu key={reservation.id}>
+        <ContextMenuTrigger asChild><div className="contents">{hover}</div></ContextMenuTrigger>
+        <ContextMenuContent className="w-56">
+          <ContextMenuLabel className="truncate text-xs">{label}<span className="block font-normal text-muted-foreground">{channel.label} · {reservation.check_in_date} → {reservation.check_out_date}</span></ContextMenuLabel>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => openReservation(reservation)}>{t('pms.cal.ctxOpen')}</ContextMenuItem>
+          {canCheckIn && <ContextMenuItem onSelect={() => onQuickAction?.(reservation, 'checkin')}>{t('pms.checkIn')}</ContextMenuItem>}
+          {canCheckOut && <ContextMenuItem onSelect={() => onQuickAction?.(reservation, 'checkout')}>{t('pms.checkOut')}</ContextMenuItem>}
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => copyReference(reservation)}>{t('pms.cal.ctxCopy')}</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
+  const dayStripes = (
+    <div className="absolute inset-0 flex" aria-hidden="true">{dates.map((date) => <div key={format(date, 'yyyy-MM-dd')} className={`shrink-0 border-r ${todayCol(date) ? 'border-x border-primary/30 bg-primary/5' : `border-border ${[0, 6].includes(date.getDay()) ? 'bg-muted/20' : ''}`}`} style={{ width: columnWidth }} />)}</div>
+  );
+
+  const renderRoomRow = (room: PlannerRoom, roomIndex: number) => {
+    const positioned = layoutRoomStays(roomBookings.get(room.id) ?? []);
+    const roomHeight = Math.max(rowHeight, getRoomLaneCount(positioned) * laneHeight + 7);
+    const conflict = positioned.some((stay) => stay.overlaps);
+    const dropTarget = drag?.mode === 'move' && drag.moved && drag.targetRoomId === room.id;
+    return <div
+      key={room.id}
+      ref={(node) => { if (node) rowRefs.current.set(room.id, node); else rowRefs.current.delete(room.id); }}
+      data-cal-room={room.id}
+      className={`flex border-b border-border ${dropTarget ? 'bg-primary/10' : roomIndex % 2 ? 'bg-muted/10' : 'bg-card'}`}
+    >
+      <div className={`${stickyLeft} ${roomsCollapsed ? "px-1.5 gap-1.5" : "px-2.5 gap-2"} flex items-center ${dropTarget ? 'bg-primary/10' : ''}`} style={{ width: roomWidth, minHeight: roomHeight }}>
+        <span className={`h-2 w-2 rounded-full shrink-0 ${ROOM_COLORS[room.status ?? ''] ?? 'bg-muted-foreground/40'}`} aria-hidden="true" />
+        <div className="min-w-0 flex-1"><div className="flex gap-1 items-center text-xs font-semibold"><span className="truncate">{room.room_number}</span>{conflict && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('pms.cal.conflictHelp')}><title>{t('pms.cal.conflictHelp')}</title></AlertTriangle>}</div>{!roomsCollapsed && !options.compact && <div className="text-[10px] text-muted-foreground truncate">{room.room_type || '—'}</div>}</div>
+      </div>
+      <div className="relative shrink-0" style={{ width: gridWidth, height: roomHeight }}>
+        {dayStripes}
+        {positioned.map(({ reservation, lane, overlaps }) => renderBar(reservation, lane, overlaps, room.room_number))}
+      </div>
+    </div>;
+  };
+
+  const floatingHeight = Math.max(rowHeight, getRoomLaneCount(floatingStays) * laneHeight + 7);
+
   return (
     <Card data-training="res-planner" className="min-w-0 overflow-hidden">
       <CardHeader className="p-3 border-b border-border space-y-2">
@@ -330,7 +498,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
           <div className="flex flex-wrap items-center gap-2 min-w-0">
             <h2 className="text-sm font-semibold flex items-center gap-1.5"><CalendarDays className="h-4 w-4" />{t('pms.planner.title')}</h2>
             <Badge variant="secondary" className="text-[11px]">{visibleRooms.length}/{rooms.length} {t('pms.res.room')}</Badge>
-            {conflictRooms > 0 && <Badge variant="destructive" role="alert" className="gap-1 text-[11px]">⚠️ {conflictRooms} room conflicts</Badge>}
+            {conflictRooms > 0 && <Badge variant="destructive" role="alert" className="gap-1 text-[11px]" title={t('pms.cal.conflictHelp')}>⚠️ {conflictRooms} {t('pms.cal.conflicts')}</Badge>}
             <Button
               type="button"
               size="sm"
@@ -353,6 +521,23 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
             <div className="flex overflow-hidden rounded-md border border-border" role="group" aria-label="Planner date range">
               {([7, 14, 21, 31] as WindowDays[]).map((count) => <Button key={count} type="button" size="sm" variant={count === days ? 'default' : 'ghost'} className="rounded-none h-8 px-2 text-xs" aria-pressed={count === days} onClick={() => setDays(count)}>{count}d</Button>)}
             </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button type="button" size="icon" variant="outline" className="h-8 w-8" aria-label={t('pms.cal.options')} title={t('pms.cal.options')}><Settings2 className="h-4 w-4" /></Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 space-y-2.5 p-3" data-training="cal-options">
+                <p className="text-xs font-semibold">{t('pms.cal.options')}</p>
+                {([
+                  ['fitToScreen', 'pms.cal.optFit'], ['compact', 'pms.cal.optCompact'], ['groupByType', 'pms.cal.optGroup'],
+                  ['showNights', 'pms.cal.optNights'], ['hideCheckedOut', 'pms.cal.optHideOut'],
+                ] as Array<[keyof CalendarOptions, string]>).map(([key, labelKey]) => (
+                  <label key={key} className="flex items-center justify-between gap-3 text-xs cursor-pointer">
+                    <span>{t(labelKey)}</span>
+                    <Switch checked={options[key]} onCheckedChange={(value) => setOption(key, value)} aria-label={t(labelKey)} />
+                  </label>
+                ))}
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
         <div className="flex items-center flex-wrap gap-2">
@@ -375,7 +560,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
                       className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center gap-2">
                       <span className="font-semibold truncate">{reservationGuestLabel(r)}</span>
                       <span className="text-muted-foreground truncate">{r.check_in_date} → {r.check_out_date}</span>
-                      <span className="ml-auto text-[10px] text-muted-foreground shrink-0">{r.room_id ? roomById.get(r.room_id)?.room_number ?? '' : t('pms.unified.unassigned')}</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground shrink-0">{r.room_id ? roomById.get(r.room_id)?.room_number ?? '' : t('pms.cal.floating')}</span>
                     </button>
                   ))}
               </div>
@@ -400,41 +585,45 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        {showUnassigned && unassigned.length > 0 && (
-          <div className="border-b border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-2 flex flex-wrap items-center gap-2" role="status">
-            <Badge variant="outline" className="text-xs">{t('pms.planner.unassignedSection')}: {unassigned.length}</Badge>
-            {unassigned.map((reservation) => <Button key={reservation.id} type="button" size="sm" variant="ghost" className="h-auto min-h-7 py-1 text-xs" disabled={reservation.snapshotOnly} title={reservation.snapshotOnly ? 'Imported snapshot: open the booking in Previo' : undefined} onClick={() => openReservation(reservation)}>{reservationGuestLabel(reservation)} · {reservation.check_in_date}</Button>)}
-          </div>
-        )}
         {/* One scroll area for both axes so the three header rows and the room
             column stay frozen until the last room has scrolled past. */}
         <div ref={scrollRef} className="w-full overflow-auto overscroll-contain max-h-[72vh]" data-training="res-planner-scroll" tabIndex={0} role="region" aria-label="Reservation calendar; scroll for more rooms and dates">
           <div style={{ minWidth: roomWidth + gridWidth }}>
             <div className="flex border-b border-border bg-muted/30 sticky top-0 z-30" style={{ height: HEAD_MONTH_H }}>
               <div className={`${stickyLeft} z-40 px-2 flex items-center justify-between gap-1 text-xs font-semibold`} style={{ width: roomWidth }}>
-                {!roomsCollapsed && <span className="truncate">Rooms / dates</span>}
+                {!roomsCollapsed && <span className="truncate">{t('pms.cal.roomsDates')}</span>}
                 <Button type="button" size="icon" variant="ghost" className="h-6 w-6 shrink-0" aria-label={roomsCollapsed ? t('pms.cal.expandRooms') : t('pms.cal.collapseRooms')} title={roomsCollapsed ? t('pms.cal.expandRooms') : t('pms.cal.collapseRooms')} onClick={() => setRoomsCollapsed((value) => !value)}>
                   {roomsCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
                 </Button>
               </div>
               <div className="flex bg-muted/30" style={{ width: gridWidth }}>
-                {monthGroups.map((group) => <div key={group.key} className="border-r border-border text-[11px] font-semibold flex justify-center items-center" style={{ width: group.count * COLUMN_WIDTH }}>{group.label}</div>)}
+                {monthGroups.map((group) => <div key={group.key} className="border-r border-border text-[11px] font-semibold flex justify-center items-center overflow-hidden whitespace-nowrap" style={{ width: group.count * columnWidth }}>{group.label}</div>)}
               </div>
             </div>
             <div className="flex border-b border-border bg-card sticky z-30" style={{ top: HEAD_MONTH_H, height: HEAD_DAYS_H }}>
-              <div className={`${stickyLeft} z-40 px-3 flex items-center text-[10px] text-muted-foreground`} style={{ width: roomWidth }}>{visibleRooms.length} {!roomsCollapsed && 'rooms'}</div>
+              <div className={`${stickyLeft} z-40 px-3 flex items-center text-[10px] text-muted-foreground`} style={{ width: roomWidth }}>{visibleRooms.length} {!roomsCollapsed && t('pms.cal.rooms')}</div>
               <div className="flex bg-card" style={{ width: gridWidth }}>
-                {dates.map((date) => <div key={format(date, 'yyyy-MM-dd')} className={`shrink-0 text-center border-r py-1 ${todayCol(date) ? 'border-x-2 border-primary bg-primary/15 text-primary' : `border-border ${[0, 6].includes(date.getDay()) ? 'bg-muted/50' : ''}`}`} style={{ width: COLUMN_WIDTH }}><div className={`text-[10px] uppercase ${todayCol(date) ? 'font-bold' : 'text-muted-foreground'}`}>{todayCol(date) ? t('pms.planner.today') : format(date, 'EEE')}</div><div className="text-sm font-semibold">{format(date, 'd')}</div></div>)}
+                {dates.map((date) => {
+                  const iso = format(date, 'yyyy-MM-dd');
+                  const moves = dayMoves.get(iso);
+                  return <div key={iso} className={`shrink-0 text-center border-r py-1 ${todayCol(date) ? 'border-x-2 border-primary bg-primary/15 text-primary' : `border-border ${[0, 6].includes(date.getDay()) ? 'bg-muted/50' : ''}`}`} style={{ width: columnWidth }}>
+                    <div className={`text-[10px] uppercase truncate ${todayCol(date) ? 'font-bold' : 'text-muted-foreground'}`}>{todayCol(date) ? t('pms.planner.today') : format(date, 'EEE')}</div>
+                    <div className="text-sm font-semibold leading-tight">{format(date, 'd')}</div>
+                    <div className="h-3 text-[9px] leading-3 text-muted-foreground whitespace-nowrap" title={moves ? `${moves.arrivals} ${t('pms.cal.arrivals')} · ${moves.departures} ${t('pms.cal.departures')}` : undefined}>
+                      {moves && <><span className="text-emerald-700 dark:text-emerald-400">↓{moves.arrivals}</span> <span className="text-sky-700 dark:text-sky-400">↑{moves.departures}</span></>}
+                    </div>
+                  </div>;
+                })}
               </div>
             </div>
             <div className="flex border-b border-border bg-muted/20 sticky z-30" style={{ top: HEAD_MONTH_H + HEAD_DAYS_H, height: HEAD_OCC_H }} aria-label={t('pms.planner.occupancy')}>
               <div className={`${stickyLeft} z-40 px-3 flex items-center text-[10px] text-muted-foreground`} style={{ width: roomWidth }}>{!roomsCollapsed && t('pms.planner.occupancy')}</div>
               <div className="flex bg-muted/20" style={{ width: gridWidth }}>
                 {occupancy.map((night) => (
-                  <div key={night.date} className="shrink-0 border-r border-border px-1 py-1 bg-inherit" style={{ width: COLUMN_WIDTH }} title={`${night.occupied}/${rooms.length}`}>
+                  <div key={night.date} className="shrink-0 border-r border-border px-1 py-1 bg-inherit overflow-hidden" style={{ width: columnWidth }} title={`${night.occupied}/${rooms.length}`}>
                     <div className="flex items-center justify-between text-[10px]">
                       <span className="font-semibold">{night.percent == null ? '—' : `${night.percent}%`}</span>
-                      <span className="text-muted-foreground">{night.occupied}/{rooms.length}</span>
+                      {columnWidth >= 70 && <span className="text-muted-foreground">{night.occupied}/{rooms.length}</span>}
                     </div>
                     <div className="mt-0.5 h-1 rounded-full bg-muted overflow-hidden">
                       <div className={`h-full ${night.percent != null && night.percent >= 90 ? 'bg-red-500' : night.percent != null && night.percent >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${night.percent ?? 0}%` }} />
@@ -443,77 +632,35 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
                 ))}
               </div>
             </div>
-            {visibleRooms.length === 0 ? <div className="p-10 text-center text-sm text-muted-foreground">No rooms match the current filters.</div> : visibleRooms.map((room, roomIndex) => {
-              const positioned = layoutRoomStays(roomBookings.get(room.id) ?? []);
-              const roomHeight = Math.max(ROW_HEIGHT, getRoomLaneCount(positioned) * 37 + 7);
-              const conflict = positioned.some((stay) => stay.overlaps);
-              const dropTarget = drag?.mode === 'move' && drag.moved && drag.targetRoomId === room.id;
-              return <div
-                key={room.id}
-                ref={(node) => { if (node) rowRefs.current.set(room.id, node); else rowRefs.current.delete(room.id); }}
-                data-cal-room={room.id}
-                className={`flex border-b border-border ${dropTarget ? 'bg-primary/10' : roomIndex % 2 ? 'bg-muted/10' : 'bg-card'}`}
-              >
-                <div className={`${stickyLeft} px-2.5 flex items-center gap-2 ${dropTarget ? 'bg-primary/10' : ''}`} style={{ width: roomWidth, minHeight: roomHeight }}>
-                  <span className={`h-2 w-2 rounded-full shrink-0 ${ROOM_COLORS[room.status ?? ''] ?? 'bg-muted-foreground/40'}`} aria-hidden="true" />
-                  <div className="min-w-0 flex-1"><div className="flex gap-1 items-center text-xs font-semibold"><span className="truncate">{room.room_number}</span>{conflict && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label="Reservation conflict" />}</div>{!roomsCollapsed && <div className="text-[10px] text-muted-foreground truncate">{room.room_type || '—'}</div>}</div>
+            {showUnassigned && unassigned.length > 0 && (
+              <div data-cal-room={FLOATING_ROW} data-training="cal-floating" className="flex border-b-2 border-dashed border-border bg-amber-50/50 dark:bg-amber-950/10" role="group" aria-label={`${t('pms.cal.floating')}: ${unassigned.length}`}>
+                <div className={`${stickyLeft} bg-amber-50 dark:bg-amber-950/30 px-2.5 flex items-center gap-2`} style={{ width: roomWidth, minHeight: floatingHeight }} title={t(pmsName ? 'pms.cal.floatingHintPms' : 'pms.cal.floatingHintNative').replace('{pms}', pmsName ?? '')}>
+                  <Waves className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-400" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1 text-xs font-semibold"><span className="truncate">{roomsCollapsed ? unassigned.length : t('pms.cal.floating')}</span>{!roomsCollapsed && <Badge variant="secondary" className="h-4 px-1 text-[10px]">{unassigned.length}</Badge>}</div>
+                    {!roomsCollapsed && floatingUrgent > 0 && <div className="text-[10px] text-amber-800 dark:text-amber-300 truncate">{floatingUrgent} {t('pms.cal.floatingUrgent')}</div>}
+                  </div>
                 </div>
-                <div className="relative shrink-0" style={{ width: gridWidth, height: roomHeight }}>
-                  <div className="absolute inset-0 flex" aria-hidden="true">{dates.map((date) => <div key={format(date, 'yyyy-MM-dd')} className={`shrink-0 border-r ${todayCol(date) ? 'border-x border-primary/30 bg-primary/5' : `border-border ${[0, 6].includes(date.getDay()) ? 'bg-muted/20' : ''}`}`} style={{ width: COLUMN_WIDTH }} />)}</div>
-                  {positioned.map(({ reservation, lane, overlaps }) => {
-                    const start = Math.max(0, differenceInDays(parseISO(reservation.check_in_date), startDate));
-                    const end = Math.min(days, differenceInDays(parseISO(reservation.check_out_date), startDate));
-                    if (end <= start) return null;
-                    const snapshot = reservation.snapshotOnly === true;
-                    const label = reservationGuestLabel(reservation);
-                    const flags = attentionById.get(reservation.id) ?? [];
-                    const severity = topSeverity(flags);
-                    const actionable = needsAction(flags);
-                    const dimmed = focusAttention && !actionable && !overlaps;
-                    const reasons = flags.map((flag) => t(`pms.attention.${flag.kind}`)).join(', ');
-                    const dragging = drag?.moved && drag.reservation.id === reservation.id;
-                    const dragShift = dragging && drag ? (drag.mode === 'start' ? 0 : drag.dayDelta * COLUMN_WIDTH) : 0;
-                    const dragResize = dragging && drag && drag.mode !== 'move' ? drag.dayDelta * COLUMN_WIDTH * (drag.mode === 'start' ? -1 : 1) : 0;
-                    const draggable = editable && !snapshot && canDrag(reservation, 'move');
-                    const resizable = editable && !snapshot && canDrag(reservation, 'end');
-                    const highlighted = highlightId === reservation.id;
-                    return <HoverCard key={reservation.id} openDelay={250} closeDelay={80}>
-                      <HoverCardTrigger asChild>
-                        <div
-                          role="button"
-                          tabIndex={snapshot ? -1 : 0}
-                          aria-disabled={snapshot}
-                          onPointerDown={(event) => beginDrag(event, reservation)}
-                          onPointerMove={moveDrag}
-                          onPointerUp={endDrag}
-                          onPointerCancel={() => { dragRef.current = null; setDrag(null); }}
-                          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openReservation(reservation); } }}
-                          aria-label={`${label}, ${reservation.check_in_date} to ${reservation.check_out_date}${snapshot ? ', read-only snapshot' : ''}${overlaps ? ', room conflict' : ''}${reasons ? `, ${reasons}` : ''}`}
-                          className={`absolute flex items-center gap-1 rounded border text-[11px] font-semibold text-left px-1.5 overflow-hidden transition-opacity select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${RESERVATION_COLORS[reservation.status] || 'bg-muted border-border'} ${snapshot ? 'border-dashed opacity-75 cursor-not-allowed' : draggable ? 'hover:brightness-95 cursor-grab active:cursor-grabbing' : 'hover:brightness-95 cursor-pointer'} ${overlaps ? 'ring-2 ring-destructive ring-inset' : ''} ${dimmed ? 'opacity-25' : ''} ${dragging ? 'z-30 opacity-80 shadow-lg ring-2 ring-primary' : ''} ${highlighted ? 'z-20 ring-4 ring-primary animate-pulse' : ''}`}
-                          style={{
-                            left: start * COLUMN_WIDTH + 2 + dragShift + (dragging && drag?.mode === 'start' ? drag.dayDelta * COLUMN_WIDTH : 0),
-                            top: lane * 37 + 4,
-                            width: Math.max(20, (end - start) * COLUMN_WIDTH - 4 + dragResize),
-                            height: 32,
-                            touchAction: draggable || resizable ? 'none' : undefined,
-                          }}
-                        >
-                          {resizable && <span className="absolute inset-y-0 left-0 w-[7px] cursor-ew-resize bg-black/0 hover:bg-black/20" aria-hidden="true" />}
-                          <span className="shrink-0 text-[9px] rounded bg-black/15 px-1">{reservationChannel(reservation).letter}</span>
-                          <span className="truncate">{label}</span>
-                          {snapshot && <Radio className="h-3 w-3 shrink-0 ml-auto" />}
-                          {actionable && severity && ATTENTION_DOT[severity] && (
-                            <span className={`ml-auto h-2.5 w-2.5 shrink-0 rounded-full ring-2 ${ATTENTION_DOT[severity]}`} aria-hidden="true" />
-                          )}
-                          {resizable && <span className="absolute inset-y-0 right-0 w-[7px] cursor-ew-resize bg-black/0 hover:bg-black/20" aria-hidden="true" />}
-                        </div>
-                      </HoverCardTrigger>
-                      <HoverCardContent side="top" align="start" className="w-72 p-3">
-                        <ReservationHoverDetails reservation={reservation} roomLabel={room.room_number} flags={flags} />
-                      </HoverCardContent>
-                    </HoverCard>;
-                  })}
+                <div className="relative shrink-0" style={{ width: gridWidth, height: floatingHeight }}>
+                  {dayStripes}
+                  {floatingStays.map(({ reservation, lane }) => renderBar(reservation, lane, false, null))}
                 </div>
+              </div>
+            )}
+            {visibleRooms.length === 0 ? <div className="p-10 text-center text-sm text-muted-foreground">{t('pms.cal.noRoomsMatch')}</div> : roomGroups.map((group) => {
+              const closed = group.label !== null && collapsedGroups.has(group.key);
+              return <div key={group.key}>
+                {group.label !== null && (
+                  <div className="flex border-b border-border bg-muted/40">
+                    <button type="button" aria-expanded={!closed}
+                      onClick={() => setCollapsedGroups((current) => { const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next; })}
+                      className="sticky left-0 z-20 flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${closed ? '-rotate-90' : ''}`} />
+                      {group.label}<Badge variant="secondary" className="h-4 px-1 text-[10px]">{group.rooms.length}</Badge>
+                    </button>
+                  </div>
+                )}
+                {!closed && group.rooms.map((room, roomIndex) => renderRoomRow(room, roomIndex))}
               </div>;
             })}
           </div>

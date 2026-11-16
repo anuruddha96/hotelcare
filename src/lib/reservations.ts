@@ -94,32 +94,49 @@ const SOURCE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-const CHANNEL_LETTERS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/booking/, "B"],
-  [/expedia|hotels\.com/, "E"],
-  [/airbnb/, "A"],
-  [/agoda/, "G"],
-  [/szallas|szállás/, "S"],
-  [/previo/, "P"],
-  [/walk/, "W"],
-  [/direct/, "D"],
+/**
+ * Planner badge per sales channel: the letter the channel is known by and its
+ * brand colour, so a receptionist recognises the source at a glance. These are
+ * coloured initials, not the partners' logo artwork.
+ */
+const CHANNELS: ReadonlyArray<readonly [RegExp, string, string, string]> = [
+  // pattern, key, letter, badge classes
+  [/booking/, "booking", "B.", "bg-[#003580] text-white"],
+  [/expedia|hotels\.com|ebookers|orbitz/, "expedia", "E", "bg-[#FDDB32] text-[#191E3B]"],
+  [/airbnb/, "airbnb", "A", "bg-[#FF5A5F] text-white"],
+  [/agoda/, "agoda", "a", "bg-white text-[#5392F9] ring-1 ring-[#5392F9]/50"],
+  [/szallas|szállás/, "szallas", "Sz", "bg-[#E4002B] text-white"],
+  [/hotelbeds|bedbank/, "hotelbeds", "H", "bg-[#F58220] text-white"],
+  [/trip\.com|ctrip/, "trip", "T", "bg-[#287DFA] text-white"],
+  [/google/, "google", "G", "bg-white text-[#4285F4] ring-1 ring-[#4285F4]/50"],
+  [/tripadvisor/, "tripadvisor", "Ta", "bg-[#34E0A1] text-black"],
+  [/hostelworld/, "hostelworld", "Hw", "bg-[#F25621] text-white"],
+  [/hrs\b/, "hrs", "H", "bg-[#C8102E] text-white"],
+  [/reservation ?\+|web|website|booking engine|online/, "web", "R+", "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-500/50"],
+  [/channex/, "channex", "C", "bg-violet-600 text-white"],
+  [/previo/, "previo", "P", "bg-slate-200 text-slate-800"],
+  [/walk/, "walk_in", "W", "bg-slate-700 text-white"],
+  [/direct/, "direct", "D", "bg-slate-700 text-white"],
 ];
+const NEUTRAL_BADGE = "bg-black/15 text-current";
 
 /**
  * Sales channel of a booking: the partner Previo reports (e.g. "Booking.com")
  * when there is one, otherwise the HotelCare source. `letter` is the planner badge.
  */
 export function reservationChannel(
-  r: Pick<ReservationLike, "source" | "pms_channel">,
-): { label: string; letter: string } {
+  r: Pick<ReservationLike, "source" | "pms_channel"> & { ota_name?: string | null },
+): { label: string; letter: string; key: string; badgeClass: string } {
   // Older imports stored Previo's technical names ("Booking.com XML", "AgodaXML").
-  const channel = (r.pms_channel ?? "").trim().replace(/\s*XML$/i, "").replace(/V\d+$/i, "").trim();
+  const channel = (r.pms_channel ?? r.ota_name ?? "").trim().replace(/\s*XML$/i, "").replace(/V\d+$/i, "").trim();
   const source = (r.source ?? "").trim();
   const label = channel || SOURCE_LABELS[source.toLowerCase()] || source.replaceAll("_", " ") || "—";
-  const name = (channel || source).toLowerCase();
-  const known = CHANNEL_LETTERS.find(([pattern]) => pattern.test(name));
+  const name = (channel || source).toLowerCase().replaceAll("_", " ");
+  const known = CHANNELS.find(([pattern]) => pattern.test(name));
   const initial = channel.match(/[\p{L}\p{N}]/u)?.[0]?.toUpperCase();
-  return { label, letter: known ? known[1] : initial || "R" };
+  return known
+    ? { label, letter: known[2], key: known[1], badgeClass: known[3] }
+    : { label, letter: initial || "R", key: "other", badgeClass: NEUTRAL_BADGE };
 }
 
 /** A pending Previo booking is either an option (holds the room until it expires) or on the waiting list. */

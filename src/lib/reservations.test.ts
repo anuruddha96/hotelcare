@@ -148,20 +148,20 @@ describe("misc helpers", () => {
 describe("Previo-reported reservation facts", () => {
   it("shows the real sales channel of a Previo booking, not just 'previo'", async () => {
     const { reservationChannel } = await import("./reservations");
-    expect(reservationChannel({ source: "previo", pms_channel: "Booking.com" })).toEqual({ label: "Booking.com", letter: "B" });
-    expect(reservationChannel({ source: "previo", pms_channel: "Expedia" })).toEqual({ label: "Expedia", letter: "E" });
-    expect(reservationChannel({ source: "previo", pms_channel: "Szallas.hu" })).toEqual({ label: "Szallas.hu", letter: "S" });
-    expect(reservationChannel({ source: "previo", pms_channel: "Hotelbeds" })).toEqual({ label: "Hotelbeds", letter: "H" });
-    expect(reservationChannel({ source: "previo", pms_channel: null })).toEqual({ label: "Previo", letter: "P" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Booking.com" })).toMatchObject({ label: "Booking.com", letter: "B.", key: "booking" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Expedia" })).toMatchObject({ label: "Expedia", letter: "E" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Szallas.hu" })).toMatchObject({ label: "Szallas.hu", letter: "Sz" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Hotelbeds" })).toMatchObject({ label: "Hotelbeds", letter: "H" });
+    expect(reservationChannel({ source: "previo", pms_channel: null })).toMatchObject({ label: "Previo", letter: "P" });
   });
 
   it("keeps the existing badges for HotelCare-made bookings", async () => {
     const { reservationChannel } = await import("./reservations");
-    expect(reservationChannel({ source: "walk_in" })).toEqual({ label: "Walk-in", letter: "W" });
-    expect(reservationChannel({ source: "direct" })).toEqual({ label: "Direct", letter: "D" });
-    expect(reservationChannel({ source: "booking_com" })).toEqual({ label: "Booking.com", letter: "B" });
-    expect(reservationChannel({ source: "phone" })).toEqual({ label: "Phone", letter: "R" });
-    expect(reservationChannel({ source: null })).toEqual({ label: "—", letter: "R" });
+    expect(reservationChannel({ source: "walk_in" })).toMatchObject({ label: "Walk-in", letter: "W" });
+    expect(reservationChannel({ source: "direct" })).toMatchObject({ label: "Direct", letter: "D" });
+    expect(reservationChannel({ source: "booking_com" })).toMatchObject({ label: "Booking.com", letter: "B.", key: "booking" });
+    expect(reservationChannel({ source: "phone" })).toMatchObject({ label: "Phone", letter: "R" });
+    expect(reservationChannel({ source: null })).toMatchObject({ label: "—", letter: "R" });
   });
 
   it("tells an option from a waiting-list booking only while pending", async () => {
@@ -195,8 +195,8 @@ describe("Previo-reported reservation facts", () => {
 describe("channel labels from older imports", () => {
   it("drops Previo's technical suffixes", async () => {
     const { reservationChannel } = await import("./reservations");
-    expect(reservationChannel({ source: "previo", pms_channel: "Booking.com XML" })).toEqual({ label: "Booking.com", letter: "B" });
-    expect(reservationChannel({ source: "previo", pms_channel: "AgodaXML" })).toEqual({ label: "Agoda", letter: "G" });
+    expect(reservationChannel({ source: "previo", pms_channel: "Booking.com XML" })).toMatchObject({ label: "Booking.com", letter: "B.", key: "booking" });
+    expect(reservationChannel({ source: "previo", pms_channel: "AgodaXML" })).toMatchObject({ label: "Agoda", letter: "a", key: "agoda" });
     expect(reservationChannel({ source: "previo", pms_channel: "HotelTonightV2XML" }).label).toBe("HotelTonight");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importFreshness, needsAction, nightlyOccupancy, reservationAttention, topSeverity } from './receptionAttention';
+import { floatingState, importFreshness, needsAction, nightlyOccupancy, reservationAttention, topSeverity } from './receptionAttention';
 
 const TODAY = '2026-11-13';
 const kinds = (flags: ReturnType<typeof reservationAttention>) => flags.map((f) => f.kind);
@@ -18,8 +18,10 @@ describe('reservationAttention', () => {
     expect(kinds(reservationAttention(booking({ check_in_date: '2026-11-14' }), TODAY, 'dirty'))).toEqual([]);
   });
 
-  it('flags money due on arrival today or tomorrow, unless Previo says paid', () => {
-    expect(kinds(reservationAttention(booking({ balance_due: 300 }), TODAY, 'clean'))).toEqual(['unpaid_arrival']);
+  it('reminds about money due on arrival today or tomorrow without raising an alarm', () => {
+    const flags = reservationAttention(booking({ balance_due: 300 }), TODAY, 'clean');
+    expect(kinds(flags)).toEqual(['unpaid_arrival']);
+    expect(needsAction(flags)).toBe(false);
     expect(kinds(reservationAttention(booking({ balance_due: 300, check_in_date: '2026-11-14' }), TODAY, 'clean'))).toEqual(['unpaid_arrival']);
     expect(kinds(reservationAttention(booking({ balance_due: 300, check_in_date: '2026-11-20', check_out_date: '2026-11-22' }), TODAY))).toEqual([]);
     expect(kinds(reservationAttention(booking({ balance_due: 300, pms_payment_status: 'paid' }), TODAY, 'clean'))).toEqual([]);
@@ -31,9 +33,18 @@ describe('reservationAttention', () => {
     expect(topSeverity(flags)).toBe('high');
   });
 
-  it('flags active bookings without a room, but not finished ones', () => {
-    expect(kinds(reservationAttention(booking({ room_id: null, check_in_date: '2026-11-20', check_out_date: '2026-11-22' }), TODAY))).toEqual(['unassigned']);
+  it('treats a future booking without a room as floating, and flags it only near arrival', () => {
+    const future = booking({ room_id: null, check_in_date: '2026-11-20', check_out_date: '2026-11-22' });
+    expect(reservationAttention(future, TODAY)).toEqual([]);
+    expect(floatingState(future, TODAY)).toBe('floating');
+    const tomorrow = booking({ room_id: null, check_in_date: '2026-11-14', check_out_date: '2026-11-16' });
+    expect(kinds(reservationAttention(tomorrow, TODAY))).toEqual(['unassigned']);
+    expect(needsAction(reservationAttention(tomorrow, TODAY))).toBe(true);
+    expect(floatingState(tomorrow, TODAY)).toBe('urgent');
+    expect(kinds(reservationAttention(booking({ room_id: null, status: 'checked_in', check_in_date: '2026-11-12' }), TODAY))).toEqual(['unassigned']);
     expect(kinds(reservationAttention(booking({ room_id: null, status: 'checked_out' }), TODAY))).toEqual([]);
+    expect(floatingState(booking({ room_id: 'r1', check_in_date: '2026-11-20', check_out_date: '2026-11-22' }), TODAY)).toBeNull();
+    expect(floatingState(booking({ room_id: null, status: 'checked_out' }), TODAY)).toBeNull();
   });
 
   it('flags a Previo option ending within a day', () => {
