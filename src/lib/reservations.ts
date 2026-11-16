@@ -7,6 +7,7 @@ export interface ReservationGuestJoin {
   email?: string | null;
   phone?: string | null;
   vip_status?: string | null;
+  id_document_number?: string | null;
 }
 
 export interface ReservationLike {
@@ -225,6 +226,7 @@ export function isLateArrivalCandidate(r: ReservationLike, today: string): boole
 export function reservationSearchText(r: ReservationLike & { rooms?: { room_number?: string | null } | null }): string {
   const g = r.guests;
   return [
+    g?.id_document_number,
     g?.first_name,
     g?.last_name,
     g?.email,

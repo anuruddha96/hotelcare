@@ -17,13 +17,14 @@ import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
+import { useReservationSearch, mergeSearchResults } from '@/hooks/useReservationSearch';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest, tomorrowBudapest } from '@/lib/budapestTime';
 import { auditReceptionSnapshots, type ReceptionSnapshot } from '@/lib/receptionSnapshotAudit';
 import { reservationChannel, reservationGuestLabel, reservationSearchText, RESERVATION_STATUS_COLORS } from '@/lib/reservations';
 import { floatingState, importFreshness } from '@/lib/receptionAttention';
 
-const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status), rooms:room_id(id, room_number, room_type, status)';
+const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status, id_document_number), rooms:room_id(id, room_number, room_type, status)';
 type ViewMode = 'planner' | 'list';
 
 type SnapshotRow = ReceptionSnapshot & {
@@ -240,7 +241,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     return term ? plannerRows.filter((row) => reservationSearchText(row).includes(term)) : plannerRows;
   }, [plannerRows, search]);
   // Instant results for the main search: real reservations only, soonest first.
-  const quickMatches = useMemo(() => {
+  const localMatches = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (term.length < 2) return [];
     return reservations
@@ -251,6 +252,15 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       })
       .slice(0, 8);
   }, [reservations, search]);
+  // The planner only loads -45d..+210d, so the search box also asks the server,
+  // which covers every date and the guest's passport/ID number.
+  const { serverResults, searching } = useReservationSearch(
+    hotelKeys.length ? hotelKeys : (hotelId ? [hotelId] : []), search,
+  );
+  const quickMatches = useMemo(
+    () => mergeSearchResults(serverResults, localMatches, 8),
+    [serverResults, localMatches],
+  );
   const arrivals = useMemo(() => reservations.filter((row) => row.check_in_date === today && ['pending', 'confirmed'].includes(row.status)), [reservations, today]);
   const departures = useMemo(() => reservations.filter((row) => row.check_out_date === today && row.status === 'checked_in'), [reservations, today]);
   const inHouse = useMemo(() => reservations.filter((row) => row.status === 'checked_in' && row.check_in_date <= today && row.check_out_date > today), [reservations, today]);
@@ -332,7 +342,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       {search.trim().length >= 2 && (
         <div className="absolute z-40 mt-1 w-full rounded-xl border border-border bg-popover shadow-lg overflow-hidden">
           {quickMatches.length === 0
-            ? <div className="px-4 py-3 text-sm text-muted-foreground">{t('pms.cal.noMatches')}</div>
+            ? <div className="px-4 py-3 text-sm text-muted-foreground">{searching ? '…' : t('pms.cal.noMatches')}</div>
             : quickMatches.map((row) => (
               <div key={row.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-border/60 last:border-b-0 hover:bg-accent/40">
                 <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openReservation(row)}>
