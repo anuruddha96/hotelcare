@@ -57,6 +57,17 @@ const isMinStay = (run: AutomationRunLike) => run.notification_type === "min_sta
 const isAiReferenceRun = (run: AutomationRunLike) =>
   (run.changes ?? []).some((row) => row.date != null && row.reference_before != null && row.reference_target != null);
 
+/** Provider/review outages are NOT failed prices: no rate was ever queued. */
+export const isAiReviewFailure = (run: AutomationRunLike): boolean =>
+  run.source === 'ai'
+  && (run.failed_count ?? 0) > 0
+  && (run.actions_count ?? 0) === 0
+  && (run.changes ?? []).length === 0;
+
+export const isAiCreditsFailure = (run: AutomationRunLike): boolean =>
+  isAiReviewFailure(run)
+  && /insufficient_quota|no credits remaining|add credits to continue/i.test(run.summary ?? '');
+
 function aiPushOutcome(run: AutomationRunLike) {
   const rows = run.changes ?? [];
   return {
@@ -164,6 +175,9 @@ function direction(run: AutomationRunLike): "lowered" | "raised" | "repaired" | 
 const plural = (count: number, word: string) => `${count.toLocaleString()} ${word}${count === 1 ? "" : "s"}`;
 
 export function runHeadline(run: AutomationRunLike): string {
+  if (isAiReviewFailure(run)) {
+    return isAiCreditsFailure(run) ? 'AI review paused — API credits exhausted' : 'AI pricing review could not run';
+  }
   if (isMinStay(run)) {
     const count = run.actions_count ?? 0;
     if ((run.failed_count ?? 0) > 0 && count === 0) return "Minimum-stay automation needs attention";
@@ -192,6 +206,11 @@ export function runHeadline(run: AutomationRunLike): string {
 }
 
 export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone } {
+  if (isAiReviewFailure(run)) {
+    return isAiCreditsFailure(run)
+      ? { text: 'OpenAI API credits are exhausted. The AI supervisor did not adjust prices. Add credits in OpenAI API billing to resume AI reviews; automatic pricing remains active.', tone: 'attention' }
+      : { text: 'The AI supervisor could not complete its review. No prices were changed by this attempt; the independent automatic pricing engine continues.', tone: 'attention' };
+  }
   if (isAiReferenceRun(run)) {
     const { total, acceptedDates, acceptedCells, failedDates, failedCells, confirmedCells, supersededCells, readbackKnown } = aiPushOutcome(run);
     if (failedDates > 0) {
@@ -255,6 +274,9 @@ export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone
 
 /** One-line preview used in the bell list. */
 export function runPreview(run: AutomationRunLike): string {
+  if (isAiReviewFailure(run)) {
+    return isAiCreditsFailure(run) ? 'AI review unavailable · OpenAI API credits exhausted' : 'AI review unavailable · no prices were changed';
+  }
   if (isAiReferenceRun(run)) {
     const { total, acceptedDates, acceptedCells, failedDates } = aiPushOutcome(run);
     if (failedDates > 0) return `${total} dates reviewed · ${failedDates} publishing failures`;
@@ -299,6 +321,7 @@ export function runPreview(run: AutomationRunLike): string {
 /** Only the numbers that mean something to a manager, zeros dropped. */
 export function runStats(run: AutomationRunLike): Array<{ label: string; value: number; danger?: boolean }> {
   const stats: Array<{ label: string; value: number; danger?: boolean }> = [];
+  if (isAiReviewFailure(run)) return [{ label: 'Failed AI reviews', value: run.failed_count ?? 0, danger: true }];
   if (isAiReferenceRun(run)) {
     const { total, acceptedDates, acceptedCells, failedDates } = aiPushOutcome(run);
     stats.push({ label: 'Stay dates repriced', value: total });
