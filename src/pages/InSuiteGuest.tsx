@@ -22,7 +22,13 @@ const words: Record<Language, Record<string, string>> = {
     order: "Request service", detail: "Any details for our team? (optional)",
     thanks: "Your request has been sent to our team.", back: "Home",
     message: "Write to reception…", noMessages: "Ask reception a question or request help.",
-    pending: "Received", completed: "Completed", paired: "Paired room tablet",
+    pending: "Received", completed: "Completed", paired: "Room access",
+    choose: "How can we help?", personalize: "Personalise your welcome",
+    surname: "Reservation surname", departure: "Check-out date", verify: "Show my welcome",
+    checkedIn: "Your room services are ready", awaiting: "Guest services will activate when your check-in is confirmed in the hotel system.",
+    guests: "guests", checkout: "Check-out", welcomeTo: "Welcome to",
+    servicesHint: "Towels, cleaning & more", chatHint: "Message reception", diningHint: "Breakfast, food & drinks",
+    travelHint: "Transfers & facilities", infoHint: "Wi-Fi, hours & hotel details",
   },
   de: {
     welcome: "Fühlen Sie sich wie zu Hause", intro: "Alles für Ihren Aufenthalt.",
@@ -32,7 +38,13 @@ const words: Record<Language, Record<string, string>> = {
     order: "Anfrage senden", detail: "Weitere Hinweise (optional)",
     thanks: "Ihre Anfrage wurde gesendet.", back: "Startseite",
     message: "Nachricht an die Rezeption…", noMessages: "Kontaktieren Sie die Rezeption.",
-    pending: "Empfangen", completed: "Erledigt", paired: "Verbundenes Zimmertablet",
+    pending: "Empfangen", completed: "Erledigt", paired: "Zimmerzugang",
+    choose: "Wie können wir helfen?", personalize: "Begrüßung personalisieren",
+    surname: "Nachname der Buchung", departure: "Abreisedatum", verify: "Begrüßung anzeigen",
+    checkedIn: "Ihr Zimmerservice ist bereit", awaiting: "Der Gästeservice wird nach Bestätigung des Check-ins automatisch freigeschaltet.",
+    guests: "Gäste", checkout: "Abreise", welcomeTo: "Willkommen im",
+    servicesHint: "Handtücher, Reinigung & mehr", chatHint: "Rezeption kontaktieren", diningHint: "Frühstück, Essen & Getränke",
+    travelHint: "Transfers & Einrichtungen", infoHint: "WLAN, Zeiten & Hotelinfos",
   },
   hu: {
     welcome: "Érezze otthon magát!", intro: "Minden, amire szüksége lehet.",
@@ -42,7 +54,13 @@ const words: Record<Language, Record<string, string>> = {
     order: "Kérés elküldése", detail: "Megjegyzés (opcionális)",
     thanks: "Kérését elküldtük.", back: "Kezdőlap",
     message: "Írjon a recepciónak…", noMessages: "Kérdezzen a recepciótól!",
-    pending: "Beérkezett", completed: "Teljesítve", paired: "Párosított szobai tablet",
+    pending: "Beérkezett", completed: "Teljesítve", paired: "Szobai hozzáférés",
+    choose: "Miben segíthetünk?", personalize: "Üdvözlés személyre szabása",
+    surname: "Foglalási vezetéknév", departure: "Kijelentkezés dátuma", verify: "Üdvözlés megjelenítése",
+    checkedIn: "A szobai szolgáltatások elérhetők", awaiting: "A szolgáltatások a bejelentkezés visszaigazolása után automatikusan elérhetővé válnak.",
+    guests: "vendég", checkout: "Kijelentkezés", welcomeTo: "Üdvözöljük itt:",
+    servicesHint: "Törölközők, takarítás és egyebek", chatHint: "Üzenet a recepciónak", diningHint: "Reggeli, ételek, italok",
+    travelHint: "Transzfer és létesítmények", infoHint: "Wi-Fi, nyitvatartás, tudnivalók",
   },
 };
 const serviceOptions = [
@@ -96,6 +114,10 @@ export default function InSuiteGuest() {
   const [orders, setOrders] = useState<InSuiteOrder[]>([]);
   const [bookings, setBookings] = useState<InSuiteBooking[]>([]);
   const [stayActive, setStayActive] = useState(false);
+  const [verifiedGuest, setVerifiedGuest] = useState<{ firstName: string; guestCount: number | null; departure: string } | null>(null);
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [surname, setSurname] = useState("");
+  const [checkOutDate, setCheckOutDate] = useState("");
   const [message, setMessage] = useState("");
   const [staffPin, setStaffPin] = useState("");
   const [pinOpen, setPinOpen] = useState(false);
@@ -111,6 +133,7 @@ export default function InSuiteGuest() {
     try {
       const data = await inSuiteGuest("guest-bootstrap", {}, value);
       sessionEpoch.current = data.session_epoch || null;
+      setVerifiedGuest(null);
       setStayActive(data.stay_active === true);
       setRoom(String(data.room_number || ""));
       setConfig(data.config || {});
@@ -118,6 +141,7 @@ export default function InSuiteGuest() {
     } catch (err) {
       setError((err as Error).message);
       setConfig(null);
+      setVerifiedGuest(null);
     } finally { setLoading(false); }
   }, []);
 
@@ -130,11 +154,13 @@ export default function InSuiteGuest() {
         setStayActive(data.stay_active === true);
         visitStarted.current = new Date().toISOString();
         setRequests([]); setMessages([]); setOrders([]); setBookings([]);
+        setVerifiedGuest(null); setVerifyOpen(false); setSurname(""); setCheckOutDate("");
         setMessage(""); setDetail("");
         setView("home"); setRequestType(null);
         return;
       }
       setStayActive(data.stay_active === true);
+      if (!data.stay_active) setVerifiedGuest(null);
       setRequests(data.requests || []);
       setMessages(data.messages || []);
       setOrders(data.orders || []);
@@ -173,9 +199,29 @@ export default function InSuiteGuest() {
     } catch (err) { setError((err as Error).message); }
     finally { setBusy(false); }
   };
+  const verifyGuest = async () => {
+    if (!stayActive || !surname.trim() || !checkOutDate || busy) return;
+    setBusy(true);
+    try {
+      const data = await inSuiteGuest("guest-verify", { last_name: surname.trim(), check_out_date: checkOutDate });
+      if (data.session_epoch !== sessionEpoch.current) {
+        toast.error("Your room stay changed. Please refresh.");
+        return;
+      }
+      setVerifiedGuest({
+        firstName: String(data.first_name || "").slice(0, 80),
+        guestCount: typeof data.guest_count === "number" ? data.guest_count : null,
+        departure: String(data.check_out_date || ""),
+      });
+      setVerifyOpen(false);
+      setSurname("");
+      setCheckOutDate("");
+    } catch (err) { toast.error((err as Error).message); }
+    finally { setBusy(false); }
+  };
   const sendRequest = async () => {
     if (!requestType) return;
-    if (!stayActive) return toast.error("Reception must verify your current room stay before requests can be placed.");
+    if (!stayActive) return toast.error(t("awaiting"));
     setBusy(true);
     try {
       await inSuiteGuest("guest-request", {
@@ -189,7 +235,7 @@ export default function InSuiteGuest() {
   };
   const sendMessage = async () => {
     if (!message.trim() || busy) return;
-    if (!stayActive) return toast.error("Reception must verify your current room stay first.");
+    if (!stayActive) return toast.error(t("awaiting"));
     setBusy(true);
     try {
       await inSuiteGuest("guest-message", { message });
@@ -256,70 +302,105 @@ export default function InSuiteGuest() {
     body ? <section className={card}><div className="flex items-center gap-3 mb-2"><Icon className="h-5 w-5" style={{ color: accent }} />
       <h3 className="font-bold">{label}</h3></div><p className="whitespace-pre-line text-slate-600 leading-relaxed">{body}</p></section> : null;
 
-  return <div className="min-h-screen bg-[#f5f7fa] text-slate-900 flex flex-col lg:flex-row">
-    <aside className="lg:w-64 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 p-5 flex flex-col gap-6">
-      <div className="space-y-1">
-        <div className="flex items-center gap-3 select-none"
+  return <div className="min-h-screen bg-[#f5f7fa] text-slate-900">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur pt-[env(safe-area-inset-top)]">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-8">
+        <div className="flex min-w-0 items-center gap-3 select-none"
           onPointerDown={openMaintenance} onPointerUp={cancelMaintenance}
           onPointerLeave={cancelMaintenance} onPointerCancel={cancelMaintenance}>
-          {config?.logo_url ? <img src={config.logo_url} alt="" className="h-12 w-12 object-contain" /> : <Hotel className="h-10 w-10" style={{ color: accent }} />}
-          <strong className="text-lg leading-tight">{config?.hotel_name || "Your hotel"}</strong>
+          {config?.logo_url ? <img src={config.logo_url} alt="" className="h-11 w-11 shrink-0 object-contain" />
+            : <Hotel className="h-9 w-9 shrink-0" style={{ color: accent }} />}
+          <div className="min-w-0">
+            <strong className="block truncate text-base font-bold md:text-lg">{config?.hotel_name || "Your hotel"}</strong>
+            <p className="text-xs text-slate-500">{t("room")} {room}</p>
+          </div>
         </div>
-        <p className="text-sm text-slate-500">{t("room")} {room} · {t("paired")}</p>
+        <label className="flex shrink-0 items-center gap-2 text-sm font-medium">
+          <Languages className="h-5 w-5" style={{ color: accent }} />
+          <select value={lang} onChange={(e) => setLang(e.target.value as Language)}
+            className="max-w-[120px] rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm"
+            aria-label="Language">
+            <option value="en">English</option><option value="de">Deutsch</option><option value="hu">Magyar</option>
+          </select>
+        </label>
       </div>
-      <nav className="grid grid-cols-3 gap-2 lg:flex lg:flex-col" aria-label="Guest services">
-        {nav.map(({ view: target, label, Icon }) => (
-          <button key={target} onClick={() => { setView(target); setRequestType(null); }}
-            className={`flex flex-col lg:flex-row items-center gap-2 rounded-xl p-3 text-xs lg:text-base text-left transition-colors ${target === view ? "text-white" : "hover:bg-slate-100 text-slate-700"}`}
+    </header>
+    <div className="mx-auto max-w-6xl lg:grid lg:grid-cols-[210px_minmax(0,1fr)]">
+      <aside className="hidden border-r border-slate-200 bg-white px-3 py-6 lg:block">
+        <nav className="sticky top-28 flex flex-col gap-1" aria-label="Guest services">
+          {nav.map(({ view: target, label, Icon }) => <button key={target}
+            onClick={() => { setView(target); setRequestType(null); }}
+            className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium ${view === target ? "text-white" : "text-slate-700 hover:bg-slate-100"}`}
             style={target === view ? { backgroundColor: accent } : undefined}>
-            <Icon className="h-5 w-5 shrink-0" /> <span>{label}</span>
-          </button>
-        ))}
-      </nav>
-      <label className="flex items-center gap-2 text-sm"><Languages className="h-4 w-4" />
-        <select value={lang} onChange={(e) => setLang(e.target.value as Language)}
-          className="flex-1 rounded-lg border p-2 bg-white" aria-label="Language">
-          <option value="en">English</option><option value="de">Deutsch</option><option value="hu">Magyar</option>
-        </select>
-      </label>
-      <div className="hidden lg:block mt-auto text-xs text-slate-500">
-        <ShieldCheck className="h-4 w-4 inline mr-1" /> For assistance, contact the front desk.
-      </div>
-    </aside>
-    <main className="flex-1 min-w-0 p-4 md:p-8 lg:p-10 max-w-6xl mx-auto w-full space-y-6">
+            <Icon className="h-5 w-5 shrink-0" /> {label}
+          </button>)}
+        </nav>
+      </aside>
+      <main className="min-w-0 w-full space-y-5 p-4 pb-12 md:p-8">
       {view !== "home" && <button onClick={() => { setView("home"); setRequestType(null); }}
         className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900"><ChevronLeft className="h-4 w-4" />{t("back")}</button>}
       {view === "home" && <>
-        {!stayActive && <div role="status" className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">
-          <strong>Room service temporarily unavailable.</strong> The current stay has not been verified against the hotel's reservation system.
-          Hotel information remains available. Please contact reception to activate the room.
-        </div>}
-        <div className="relative min-h-52 md:min-h-72 rounded-[2rem] overflow-hidden flex items-end bg-gradient-to-br from-slate-900 to-slate-600 text-white">
-          {config?.hero_url && <img src={config.hero_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />}
-          <div className="relative z-10 p-7 md:p-10 max-w-2xl">
-            <p className="uppercase tracking-widest text-sm opacity-80 mb-3">{t("room")} {room}</p>
-            <h1 className="text-3xl md:text-5xl font-semibold mb-3">{t("welcome")}</h1>
-            <p className="text-lg">{config?.welcome || t("intro")}</p>
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-slate-500">{t("room")} {room}</p>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
+            {verifiedGuest?.firstName ? `Hello, ${verifiedGuest.firstName}!` : `${t("welcomeTo")} ${config?.hotel_name || "our hotel"}!`}
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">{t("intro")}</p>
+          {stayActive ? <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-emerald-700">
+            <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" />{t("checkedIn")}</span>
+            {verifiedGuest?.guestCount != null && <span>{verifiedGuest.guestCount} {t("guests")}</span>}
+            {verifiedGuest?.departure && <span>{t("checkout")}: {verifiedGuest.departure}</span>}
+          </div> : <p role="status" className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{t("awaiting")}</p>}
+          {stayActive && !verifiedGuest && <div className="mt-4">
+            <button type="button" className="text-sm font-semibold underline underline-offset-4"
+              style={{ color: accent }} onClick={() => setVerifyOpen((v) => !v)}>{t("personalize")}</button>
+            {verifyOpen && <form className="mt-3 grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-2"
+              onSubmit={(e) => { e.preventDefault(); void verifyGuest(); }}>
+              <label className="space-y-1 text-sm font-medium">{t("surname")}
+                <input className="block w-full rounded-xl border border-slate-200 bg-white p-3"
+                  autoComplete="off" value={surname} maxLength={80}
+                  onChange={(e) => setSurname(e.target.value)} required />
+              </label>
+              <label className="space-y-1 text-sm font-medium">{t("departure")}
+                <input className="block w-full rounded-xl border border-slate-200 bg-white p-3"
+                  type="date" value={checkOutDate} onChange={(e) => setCheckOutDate(e.target.value)} required />
+              </label>
+              <button className="rounded-xl px-4 py-3 font-semibold text-white sm:col-span-2"
+                style={{ backgroundColor: accent }} disabled={busy || !surname.trim() || !checkOutDate}>
+                {busy ? "Checking…" : t("verify")}
+              </button>
+            </form>}
+          </div>}
+        </section>
+        <section aria-labelledby="guest-service-heading">
+          <h2 id="guest-service-heading" className="mb-3 text-xl font-bold">{t("choose")}</h2>
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+            {nav.filter((item) => item.view !== "home").map(({ view: target, label, Icon }) => {
+              const hint = { requests: t("servicesHint"), chat: t("chatHint"), dining: t("diningHint"),
+                travel: t("travelHint"), hotel: t("infoHint"), home: "" }[target];
+              return <button key={target} type="button" onClick={() => { setView(target); setRequestType(null); }}
+                className="flex min-h-36 flex-col items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 sm:p-5">
+                <Icon className="h-8 w-8" style={{ color: accent }} />
+                <span><strong className="block text-base leading-snug">{label}</strong>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-500">{hint}</span></span>
+              </button>;
+            })}
           </div>
-        </div>
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-          {nav.filter((n) => n.view !== "home" && n.view !== "hotel").slice(0, 4).map(({ view: target, Icon, label }) =>
-            <button key={target} onClick={() => setView(target)} className={`${card} text-left min-h-40 hover:shadow-lg transition-shadow`}>
-              <Icon className="h-8 w-8 mb-5" style={{ color: accent }} />
-              <span className="font-semibold text-lg block">{label}</span>
-            </button>)}
-        </div>
-        <div className="grid lg:grid-cols-2 gap-4">
-          {panel(t("wifi"), config?.guest_wifi_ssid ? `${config.guest_wifi_ssid}\nPassword: ${config.guest_wifi_password || "Ask reception"}` : undefined, Wifi)}
+        </section>
+        <div className="grid gap-3 md:grid-cols-2">
+          {panel(t("wifi"), config?.guest_wifi_ssid ? `${config.guest_wifi_ssid}\n${config.guest_wifi_password || "Open network · no password needed"}` : undefined, Wifi)}
           {panel("Breakfast", config?.breakfast_hours, Coffee)}
         </div>
         {requests.some((r) => !["completed", "unavailable", "cancelled"].includes(r.status)) &&
-          <button className="flex items-center gap-2 underline font-medium" onClick={() => setView("requests")}>
-            <BellRing className="h-5 w-5" /> {t("requests")} ({requests.filter((r) => r.status !== "completed").length})
-          </button>}
+          <button className="inline-flex items-center gap-2 text-sm font-semibold underline"
+            onClick={() => setView("requests")}><BellRing className="h-4 w-4" />{t("requests")} ({requests.filter((r) => r.status !== "completed").length})</button>}
+        {config?.hero_url && <div className="relative h-32 overflow-hidden rounded-2xl md:h-44">
+          <img src={config.hero_url} alt="" className="h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+        </div>}
       </>}
       {view === "requests" && <>
-        {!stayActive && <p role="alert" className="rounded-xl bg-amber-50 p-4">Room requests are available after reception verifies the checked-in stay.</p>}
+        {!stayActive && <p role="alert" className="rounded-xl bg-amber-50 p-4">{t("awaiting")}</p>}
         <h1 className="text-3xl font-semibold">{requestType ? t("order") : t("services")}</h1>
         {requestType ? <section className={card + " max-w-xl space-y-5"}>
           <h2 className="text-xl font-semibold">{serviceOptions.find((x) => x.code === requestType)?.name}</h2>
@@ -422,7 +503,8 @@ export default function InSuiteGuest() {
       <footer className="text-xs text-slate-400 flex gap-2 items-center py-3">
         <RefreshCw className="h-3 w-3" /> Service updates synchronize while the tablet is online. All requests require staff confirmation.
       </footer>
-    </main>
+      </main>
+    </div>
     {pinOpen && <div className="fixed inset-0 z-50 bg-black/70 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="Staff maintenance">
       <div className="bg-white rounded-3xl p-7 w-full max-w-sm space-y-4">
         <LockKeyhole className="h-8 w-8" /><h2 className="text-xl font-semibold">Staff maintenance</h2>
