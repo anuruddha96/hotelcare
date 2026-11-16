@@ -134,12 +134,13 @@ Deno.serve(async (req) => {
       if (!device.active_reservation_id && ["guest-bootstrap", "guest-state", "guest-verify"].includes(action)) {
         const today = todayBudapest();
         const { data: matches, error: matchError } = await db.from("reservations")
-          .select("id,source_reservation_id")
+          .select("id,source_reservation_id,check_in_date,source,pms_status_id")
           .eq("organization_slug", device.organization_slug).eq("hotel_id", device.hotel_id)
           .eq("room_id", room.id).eq("status", "checked_in")
           .lte("check_in_date", today).gte("check_out_date", today)
           .is("actual_check_out", null).limit(2);
-        if (!matchError && matches?.length === 1) {
+        if (!matchError && matches?.length === 1 &&
+          (matches[0].source !== "previo" || matches[0].pms_status_id === 3)) {
           const candidate = matches[0];
           let checkedOutInPrevio = false;
           if (candidate.source_reservation_id) {
@@ -147,7 +148,7 @@ Deno.serve(async (req) => {
               .select("id").eq("hotel_id", device.hotel_id).eq("room_id", room.id)
               .eq("event_type", "checkout_confirmed").eq("source", "poll_checkouts")
               .eq("auto_applied", true).eq("previo_reservation_id", candidate.source_reservation_id)
-              .gte("detected_at", today + "T00:00:00+00:00").limit(1);
+              .gte("detected_at", candidate.check_in_date + "T00:00:00+00:00").limit(1);
             // A failed safety lookup is not evidence that checkout did not occur.
             checkedOutInPrevio = !!checkoutError || !!checkoutEvent?.length;
           }
@@ -169,12 +170,14 @@ Deno.serve(async (req) => {
       // is independently confirmed checked-in by the hotel's PMS data.
       const { data: stay } = device.active_reservation_id
         ? await db.from("reservations")
-          .select("id,room_id,status,organization_slug")
+          .select("id,room_id,status,organization_slug,hotel_id,source,pms_status_id,check_in_date,check_out_date,actual_check_out")
           .eq("id", device.active_reservation_id).maybeSingle()
         : { data: null };
       const stayActive = !!stay
         && stay.room_id === room.id && stay.organization_slug === device.organization_slug
-        && stay.status === "checked_in";
+        && stay.hotel_id === device.hotel_id && stay.status === "checked_in"
+        && stay.check_in_date <= todayBudapest() && stay.check_out_date >= todayBudapest()
+        && !stay.actual_check_out && (stay.source !== "previo" || stay.pms_status_id === 3);
       if (action === "guest-bootstrap") {
         await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
         return send({ room_number: room.room_number, hotel_id: device.hotel_id, session_epoch: device.session_epoch, config, stay_active: stayActive, paired: true, kind: device.kind || "tablet" });
@@ -785,16 +788,9 @@ Deno.serve(async (req) => {
       const codes: Array<{ room_id: string; room_number: string; token: string }> = [];
       for (const roomId of requested) {
         const roomNumber = String(allowed.get(roomId));
-        // A QR issued mid-stay must bind the currently checked-in booking.
-        // The existing trigger handles future check-in and checkout changes.
-        const today = todayBudapest();
-        const { data: current, error: stayLookupError } = await db.from("reservations")
-          .select("id").eq("organization_slug", org).eq("hotel_id", hotelId)
-          .eq("room_id", roomId).eq("status", "checked_in")
-          .lte("check_in_date", today).gte("check_out_date", today)
-          .is("actual_check_out", null).limit(2);
-        if (stayLookupError) throw stayLookupError;
-        // Keep active reservations: carry the binding from the device being replaced.
+        // Start each new QR unbound. The guarded guest bootstrap verifies a
+        // current PMS check-in and ensures no matching verified checkout event
+        // occurred before it establishes the stay. Previous QR is revoked.
         const { data: previous } = await db.from("insuite_devices")
           .select("id, active_reservation_id, session_epoch")
           .eq("room_id", roomId).eq("kind", "qr").eq("is_active", true).maybeSingle();
@@ -808,7 +804,7 @@ Deno.serve(async (req) => {
           id, organization_slug: org, hotel_id: hotelId, room_id: roomId, kind: "qr",
           label: "Room " + roomNumber + " · QR",
           device_token_hash: await sha(token), paired_at: new Date().toISOString(),
-          active_reservation_id: current?.length === 1 ? current[0].id : null,
+          active_reservation_id: null,
           // A replacement QR starts a fresh privacy epoch even for the same stay.
           session_epoch: crypto.randomUUID(),
           created_by: profile.id,
