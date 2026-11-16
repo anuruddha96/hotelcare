@@ -23,6 +23,8 @@ import {
   type AutomationDecision,
 } from '@/hooks/useRevenueAutomationNotifications';
 import {
+  isAiCreditsFailure,
+  isAiReviewFailure,
   runHeadline,
   runPreview,
   runReasons,
@@ -237,7 +239,7 @@ export function RevenueAutomationNotifications() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
-              {detail?.hotel_name} — {detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
+              {detail?.hotel_name} — {detail && isAiReviewFailure(detail) ? 'AI review unavailable' : detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
             </DialogTitle>
             <DialogDescription>
               {detail
@@ -258,6 +260,16 @@ export function RevenueAutomationNotifications() {
                 >
                   {runStatus(detail).text}
                 </p>
+                {isAiCreditsFailure(detail) && (
+                  <a
+                    href="https://platform.openai.com/settings/organization/billing/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-block text-xs font-medium text-primary underline underline-offset-2"
+                  >
+                    Open OpenAI API billing to add credits
+                  </a>
+                )}
                 {runReasons(detail).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {runReasons(detail).map((reason) => (
