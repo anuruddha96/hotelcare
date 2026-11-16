@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ReservationCalendar } from '../ReservationCalendar';
 
 vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -75,6 +75,29 @@ describe('ReservationCalendar drag & resize', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'common.cancel' }));
     await waitFor(() => expect(screen.queryByText('pms.cal.confirmTitle')).toBeNull());
     expect(updateReservation).not.toHaveBeenCalled();
+  });
+
+  it('opens the booking on a plain click, on read-only and on editable plans, exactly once', () => {
+    for (const editable of [false, true]) {
+      const { unmount } = render(<MemoryRouter initialEntries={['/cal']}><Routes>
+        <Route path="/cal" element={<ReservationCalendar rooms={rooms} reservations={reservations} basePath="/x" editable={editable} />} />
+        <Route path="/x/reservations/:id" element={<p>opened booking</p>} />
+      </Routes></MemoryRouter>);
+      const bar = screen.getByRole('button', { name: /^Anna Move/ });
+      bar.getBoundingClientRect = () => ({ left: 0, right: 172, width: 172, top: 0, bottom: 32, height: 32, x: 0, y: 0, toJSON: () => ({}) });
+      fireEvent.pointerDown(bar, { button: 0, pointerId: 1, clientX: 80, clientY: 10 });
+      fireEvent.pointerUp(bar, { pointerId: 1, clientX: 80, clientY: 10 });
+      fireEvent.click(bar);
+      expect(screen.getByText('opened booking')).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it('keeps the page scrollable past the plan (no vertical scroll trap)', () => {
+    const { container } = render(<MemoryRouter><ReservationCalendar rooms={rooms} reservations={reservations} basePath="/x" /></MemoryRouter>);
+    const area = container.querySelector('[data-training="res-planner-scroll"]');
+    expect(area?.className).toContain('overscroll-x-contain');
+    expect(area?.className).not.toMatch(/overscroll-contain(\s|$)/);
   });
 
   it('is read-only when not editable (Previo hotels)', () => {

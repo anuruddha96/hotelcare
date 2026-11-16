@@ -133,6 +133,8 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const [pending, setPending] = useState<PendingChange | null>(null);
   const [saving, setSaving] = useState(false);
   const dragRef = useRef<DragState | null>(null);
+  // A press that the drag logic already handled (opened or moved) must not open the booking a second time on click.
+  const pointerHandled = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const today = todayBudapest();
@@ -314,6 +316,8 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
     if (!state || event.pointerId !== state.pointerId) return;
     dragRef.current = null;
     setDrag(null);
+    pointerHandled.current = true;
+    setTimeout(() => { pointerHandled.current = false; }, 400);
     const { reservation, mode, dayDelta, targetRoomId, moved } = state;
     if (!moved) { openReservation(reservation); return; }
 
@@ -411,6 +415,8 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
         onPointerMove={moveDrag}
         onPointerUp={endDrag}
         onPointerCancel={() => { dragRef.current = null; setDrag(null); }}
+        // Read-only plans (Previo hotels) and bookings that cannot be dragged never start a drag: a plain click opens them.
+        onClick={() => { if (pointerHandled.current) { pointerHandled.current = false; return; } openReservation(reservation); }}
         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openReservation(reservation); } }}
         aria-label={`${label}, ${reservation.check_in_date} to ${reservation.check_out_date}${snapshot ? ', read-only snapshot' : ''}${overlaps ? ', room conflict' : ''}${reasons ? `, ${reasons}` : ''}`}
         className={`absolute flex items-center gap-1 rounded border font-semibold text-left px-1 overflow-hidden transition-opacity select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${options.compact ? 'text-[10px]' : 'text-[11px]'} ${RESERVATION_COLORS[reservation.status] || 'bg-muted border-border'} ${snapshot ? 'border-dashed opacity-75 cursor-not-allowed' : draggable ? 'hover:brightness-95 cursor-grab active:cursor-grabbing' : 'hover:brightness-95 cursor-pointer'} ${floating ? 'border-dashed' : ''} ${overlaps ? 'ring-2 ring-destructive ring-inset' : ''} ${dimmed ? 'opacity-25' : ''} ${dragging ? 'z-30 opacity-80 shadow-lg ring-2 ring-primary' : ''} ${highlighted ? 'z-20 ring-4 ring-primary animate-pulse' : ''}`}
@@ -587,7 +593,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
       <CardContent className="p-0">
         {/* One scroll area for both axes so the three header rows and the room
             column stay frozen until the last room has scrolled past. */}
-        <div ref={scrollRef} className="w-full overflow-auto overscroll-contain max-h-[72vh]" data-training="res-planner-scroll" tabIndex={0} role="region" aria-label="Reservation calendar; scroll for more rooms and dates">
+        <div ref={scrollRef} className="w-full overflow-auto overscroll-x-contain max-h-[72vh]" data-training="res-planner-scroll" tabIndex={0} role="region" aria-label="Reservation calendar; scroll for more rooms and dates">
           <div style={{ minWidth: roomWidth + gridWidth }}>
             <div className="flex border-b border-border bg-muted/30 sticky top-0 z-30" style={{ height: HEAD_MONTH_H }}>
               <div className={`${stickyLeft} z-40 px-2 flex items-center justify-between gap-1 text-xs font-semibold`} style={{ width: roomWidth }}>
