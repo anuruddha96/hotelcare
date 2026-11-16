@@ -164,6 +164,21 @@ export function summarizeStaffMonth(entries: WorkforceEntry[], daysInPeriod: num
   return s;
 }
 
+/**
+ * Hours over (+) or under (−) the month's norm, in minutes.
+ * Norm = working days of the month × the employee's daily hours. Paid leave and
+ * sick days count as worked, so taking leave never shows as "hours owed".
+ * Null for hourly and external staff, who have no monthly norm.
+ */
+export function monthBalanceMinutes(
+  summary: StaffMonthSummary, workingDayCount: number, dailyHours: number, employmentType?: string | null,
+): number | null {
+  if (employmentType === 'hourly' || employmentType === 'external') return null;
+  if (!(dailyHours > 0) || workingDayCount <= 0) return null;
+  const paidAbsence = (summary.leaveDays + summary.sickDays) * dailyHours * 60;
+  return Math.round(summary.workedMinutes + paidAbsence - workingDayCount * dailyHours * 60);
+}
+
 function estimateWorkedMinutes(e: WorkforceEntry, dailyHours: number): number {
   const extra = e.extra_minutes || 0;
   if (WORKING_KINDS.has(e.kind)) {
