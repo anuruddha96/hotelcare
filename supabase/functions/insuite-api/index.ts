@@ -201,14 +201,13 @@ Deno.serve(async (req) => {
       // unambiguous PMS checked-in reservation identifies the welcome guest.
       // Only the booker's short display name is included, never PII fields
       // such as contacts, documents, birthdays or other room occupants.
+      const linkedGuest = stay && (Array.isArray(stay.guests) ? stay.guests[0] : stay.guests);
+      const linkedName = linkedGuest
+        ? [linkedGuest.first_name, linkedGuest.last_name].filter(Boolean).join(" ") : "";
       const guestName = stayActive
-        ? welcomeName(stay.pms_contact_name)
-          || welcomeName((Array.isArray(stay.guests) ? stay.guests[0] : stay.guests)?.first_name
-            && (Array.isArray(stay.guests) ? stay.guests[0] : stay.guests)?.last_name
-              ? [((Array.isArray(stay.guests) ? stay.guests[0] : stay.guests) as any).first_name,
-                ((Array.isArray(stay.guests) ? stay.guests[0] : stay.guests) as any).last_name].join(" ")
-              : "")
-          || welcomeName(stay.pms_guest_name) : "";
+        ? welcomeName(stay.pms_contact_name) || welcomeName(linkedName)
+          || welcomeName(stay.pms_guest_name)
+        : "";
       const guestWelcome = stayActive ? {
         name: guestName || null,
         guest_count: Math.max(0, Number(stay.adults || 0) + Number(stay.children || 0)) || null,
