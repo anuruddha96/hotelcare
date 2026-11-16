@@ -401,8 +401,7 @@ export default function InSuiteGuest() {
           <p className="text-sm text-slate-600">{t("touchHint")}</p>
           {!stayActive && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t("awaiting")}</p>}
         </section>
-        <section aria-labelledby="guest-service-heading">
-          <h2 id="guest-service-heading" className="mb-3 text-xl font-bold">{t("choose")}</h2>
+        <section aria-label={t("choose")}>
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             {nav.filter((item) => item.view !== "home").map(({ view: target, label, Icon }) => {
               const hint = { requests: t("servicesHint"), chat: t("chatHint"), dining: t("diningHint"),
