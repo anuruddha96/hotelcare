@@ -60,6 +60,7 @@ import { ApprovalHistoryView } from './ApprovalHistoryView';
 import { LateMinibarApprovals } from './LateMinibarApprovals';
 import { ForwardedMaintenanceApprovals } from './ForwardedMaintenanceApprovals';
 import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
+import { latestMaintenanceSubmitters, type MaintenanceSubmissionAudit } from '@/lib/maintenanceCompletionAttribution';
 import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 
 interface LinenSummaryItem {
@@ -474,8 +475,31 @@ export function SupervisorApprovalView({
 
       const { data, error } = await query;
       if (error) throw error;
-      setPendingMaintenanceTickets(data || []);
-      
+
+      // The assigned technician may be null (or someone different from the person
+      // who submitted the repair). The authenticated maintenance submission audit
+      // records the actual actor for both existing and future pending tickets.
+      let submitters: Record<string, string | null> = {};
+      if (data?.length) {
+        const { data: audits, error: auditError } = await (supabase as any)
+          .from('comments')
+          .select('ticket_id, content, created_at, submitter_profile:profiles!comments_user_id_fkey(full_name, nickname)')
+          .in('ticket_id', data.map(ticket => ticket.id))
+          .like('content', '[Maintenance team action: submit]%')
+          .order('created_at', { ascending: false })
+          .limit(1000);
+        if (auditError) {
+          // Keep the approval queue functional if audit history cannot be read.
+          console.warn('Could not load maintenance completion submitters:', auditError);
+        } else {
+          submitters = latestMaintenanceSubmitters((audits || []) as MaintenanceSubmissionAudit[]);
+        }
+      }
+      setPendingMaintenanceTickets((data || []).map(ticket => ({
+        ...ticket,
+        completion_submitter_name: submitters[ticket.id] ?? null,
+      })));
+
       loadSignedUrlsForTickets(data || []);
     } catch (error) {
       console.error('Error fetching maintenance tickets:', error);
@@ -1935,7 +1959,7 @@ export function SupervisorApprovalView({
                               <div>
                                 <p className="text-xs text-blue-600">{t('supervisor.fixedBy')}</p>
                                 <p className="text-sm font-semibold text-blue-800">
-                                  {ticket.assigned_to_profile?.full_name || 'Unknown'}
+                                  {ticket.completion_submitter_name || 'Not recorded'}
                                 </p>
                               </div>
                             </div>
