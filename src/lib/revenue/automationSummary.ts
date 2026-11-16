@@ -24,6 +24,8 @@ export interface AutomationRunLike {
     push_requested_count?: number | null;
     push_accepted_count?: number | null;
     push_failed_count?: number | null;
+    push_confirmed_count?: number | null;
+    push_superseded_count?: number | null;
     old_price?: number | null;
     new_price?: number | null;
     old_min_stay?: number | null;
@@ -63,6 +65,9 @@ function aiPushOutcome(run: AutomationRunLike) {
     acceptedCells: rows.reduce((sum, row) => sum + (row.push_accepted_count ?? 0), 0),
     failedDates: rows.filter((row) => row.status === 'failed').length,
     failedCells: rows.reduce((sum, row) => sum + (row.push_failed_count ?? 0), 0),
+    confirmedCells: rows.reduce((sum, row) => sum + (row.push_confirmed_count ?? 0), 0),
+    supersededCells: rows.reduce((sum, row) => sum + (row.push_superseded_count ?? 0), 0),
+    readbackKnown: rows.some((row) => row.push_confirmed_count != null),
   };
 }
 
@@ -188,12 +193,21 @@ export function runHeadline(run: AutomationRunLike): string {
 
 export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone } {
   if (isAiReferenceRun(run)) {
-    const { total, acceptedDates, acceptedCells, failedDates, failedCells } = aiPushOutcome(run);
+    const { total, acceptedDates, acceptedCells, failedDates, failedCells, confirmedCells, supersededCells, readbackKnown } = aiPushOutcome(run);
     if (failedDates > 0) {
       return { text: `${failedDates} date(s) have publishing failures (${failedCells} price cells). Check the rate push history.`, tone: 'attention' };
     }
     if (acceptedDates === total && total > 0) {
-      return { text: `All ${acceptedDates} stay dates accepted by Previo (${acceptedCells} room/guest prices). Readback not yet confirmed here.`, tone: 'working' };
+      if (readbackKnown && acceptedCells > 0 && confirmedCells >= acceptedCells) {
+        return { text: `All ${acceptedDates} stay dates confirmed in Previo (${confirmedCells} room/guest prices read back).`, tone: 'done' };
+      }
+      if (readbackKnown && supersededCells > 0) {
+        return { text: `${acceptedDates} stay dates accepted by Previo · ${confirmedCells} prices confirmed · ${supersededCells} later changed in Previo.`, tone: 'attention' };
+      }
+      if (readbackKnown && confirmedCells > 0) {
+        return { text: `${acceptedDates} stay dates accepted by Previo · ${confirmedCells} of ${acceptedCells} prices confirmed, the rest are being read back.`, tone: 'working' };
+      }
+      return { text: `All ${acceptedDates} stay dates accepted by Previo (${acceptedCells} room/guest prices). Readback confirmation follows the next Previo sync.`, tone: 'working' };
     }
     if (acceptedDates > 0) {
       return { text: `${acceptedDates} of ${total} dates accepted by Previo; remaining updates are still processing.`, tone: 'working' };
@@ -244,6 +258,8 @@ export function runPreview(run: AutomationRunLike): string {
   if (isAiReferenceRun(run)) {
     const { total, acceptedDates, acceptedCells, failedDates } = aiPushOutcome(run);
     if (failedDates > 0) return `${total} dates reviewed · ${failedDates} publishing failures`;
+    const { confirmedCells, readbackKnown } = aiPushOutcome(run);
+    if (acceptedDates === total && readbackKnown && acceptedCells > 0 && confirmedCells >= acceptedCells) return `${total} dates updated · ${confirmedCells} prices confirmed in Previo`;
     if (acceptedDates === total) return `${total} dates updated · ${acceptedCells} prices accepted by Previo`;
     return `${total} dates updated · ${acceptedDates} accepted so far`;
   }
@@ -266,6 +282,8 @@ export function runPreview(run: AutomationRunLike): string {
     if (failed > 0) return `Failed: ${failed.toLocaleString()} prices not accepted · ${changed.toLocaleString()} dates`;
     if (verified >= run.run.cells_queued && verified > 0) return `${changed.toLocaleString()} dates · ${verified.toLocaleString()} prices confirmed in Previo`;
     if (accepted > 0) return `${changed.toLocaleString()} dates · ${accepted.toLocaleString()} prices sent to Previo`;
+    // A run that changed nothing has nothing in flight: never show "0 prices sending".
+    if (changed === 0 || run.run.cells_queued === 0) return `Reviewed — no price changes needed · ${run.run.dates_evaluated.toLocaleString()} dates checked`;
     return `${changed.toLocaleString()} dates · ${run.run.cells_queued.toLocaleString()} prices sending to Previo…`;
   }
   const failed = run.failed_count ?? 0;

@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { loadAssistantDraft, saveAssistantDraft } from "@/lib/assistant/activeThread";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAssistantContext } from "@/hooks/useAssistantContext";
 import {
@@ -76,29 +77,62 @@ function messageText(message: AssistantUiMessage) {
 
 type DictationState = "idle" | "recording" | "transcribing";
 
+type BrowserSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: any) => void) | null;
+  onerror: ((event: any) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+function speechRecognitionCtor(): (new () => BrowserSpeechRecognition) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as any;
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
 /**
  * Speak-to-type. iOS Safari's SpeechRecognition is unreliable, so the audio is
- * recorded in the browser and transcribed server-side; the browser engine is
- * only used when recording is unavailable.
+ * recorded in the browser and transcribed server-side for the final text.
+ * Where the browser offers SpeechRecognition (Chrome, Edge, Android), it runs
+ * alongside the recording so the words appear in the box while the person is
+ * still speaking; the server transcript then replaces that live preview.
  */
-function useDictation(onText: (text: string) => void, language: string) {
+function useDictation(onText: (text: string) => void, language: string, onInterim?: (text: string | null) => void) {
   const [state, setState] = useState<DictationState>("idle");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const cancelledRef = useRef(false);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const liveTextRef = useRef<string>("");
   const supported =
     typeof window !== "undefined" &&
     typeof navigator !== "undefined" &&
     Boolean(navigator.mediaDevices?.getUserMedia) &&
     typeof MediaRecorder !== "undefined";
 
+  const stopRecognition = useCallback(() => {
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (!recognition) return;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+    try { recognition.stop(); } catch { /* already stopped */ }
+  }, []);
+
   const cleanup = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     recorderRef.current = null;
     chunksRef.current = [];
-  }, []);
+    stopRecognition();
+  }, [stopRecognition]);
 
   useEffect(() => () => cleanup(), [cleanup]);
 
@@ -115,16 +149,56 @@ function useDictation(onText: (text: string) => void, language: string) {
         if (error) throw error;
         const text = String((data as any)?.text ?? "").trim();
         if (text) onText(text);
+        else if (liveTextRef.current.trim()) onText(liveTextRef.current.trim());
         else toast.error("I didn’t catch that. Try again a little closer to the microphone.");
       } catch (error) {
         console.error("dictation failed", error);
-        toast.error("Could not turn that recording into text.");
+        // The browser's own live transcript is better than losing the words.
+        if (liveTextRef.current.trim()) onText(liveTextRef.current.trim());
+        else toast.error("Could not turn that recording into text.");
       } finally {
+        liveTextRef.current = "";
+        onInterim?.(null);
         setState("idle");
       }
     },
-    [language, onText],
+    [language, onText, onInterim],
   );
+
+  // Live preview while recording (best effort; the server transcript is final).
+  const startRecognition = useCallback(() => {
+    const Ctor = speechRecognitionCtor();
+    if (!Ctor) return;
+    try {
+      const recognition = new Ctor();
+      recognition.lang = language || (typeof navigator !== "undefined" ? navigator.language : "en");
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      let committed = "";
+      recognition.onresult = (event: any) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const transcript = String(result[0]?.transcript ?? "");
+          if (result.isFinal) committed = `${committed} ${transcript}`.trim();
+          else interim += transcript;
+        }
+        liveTextRef.current = `${committed} ${interim}`.trim();
+        onInterim?.(liveTextRef.current);
+      };
+      recognition.onerror = () => { /* preview only; the recording still transcribes */ };
+      recognition.onend = () => {
+        // Chrome ends recognition after silence; keep listening while recording.
+        if (recognitionRef.current === recognition && recorderRef.current?.state === "recording") {
+          try { recognition.start(); } catch { /* ignore */ }
+        }
+      };
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (error) {
+      console.warn("live transcript unavailable", error);
+    }
+  }, [language, onInterim]);
 
   const start = useCallback(async () => {
     if (!supported) {
@@ -151,6 +225,11 @@ function useDictation(onText: (text: string) => void, language: string) {
         const blob = new Blob(chunksRef.current, { type });
         cleanup();
         if (cancelledRef.current || blob.size < 1200) {
+          // Too short to transcribe: keep whatever the live preview heard.
+          const live = liveTextRef.current.trim();
+          liveTextRef.current = "";
+          if (live && !cancelledRef.current) onText(live);
+          onInterim?.(null);
           setState("idle");
           return;
         }
@@ -158,19 +237,22 @@ function useDictation(onText: (text: string) => void, language: string) {
       };
       recorder.start();
       recorderRef.current = recorder;
+      liveTextRef.current = "";
       setState("recording");
+      startRecognition();
     } catch (error) {
       console.error("microphone unavailable", error);
       cleanup();
       setState("idle");
       toast.error("Microphone access is needed for voice input.");
     }
-  }, [cleanup, supported, transcribe]);
+  }, [cleanup, supported, transcribe, startRecognition, onText, onInterim]);
 
   const stop = useCallback(() => {
+    stopRecognition();
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     else setState("idle");
-  }, []);
+  }, [stopRecognition]);
 
   const toggle = useCallback(() => {
     if (state === "recording") stop();
@@ -233,7 +315,8 @@ function ChatSession({
 }) {
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => loadAssistantDraft(threadId));
+  useEffect(() => { saveAssistantDraft(threadId, draft); }, [threadId, draft]);
   const [showResume, setShowResume] = useState(initialMessages.length > 0);
   const [modelTier, setModelTier] = useState<"auto" | "fast" | "balanced" | "deep">("auto");
   const [usage, setUsage] = useState<{ used: number; remaining: number | null; unlimited: boolean; resets_on?: string } | null>(null);
@@ -336,12 +419,27 @@ function ChatSession({
     onExternalPromptConsumed?.();
   }, [externalPrompt, sendMessage, onExternalPromptConsumed]);
 
+  // The draft as it was when recording started; live words are appended to it
+  // and the final transcript replaces them, so nothing typed before is lost.
+  const dictationBaseRef = useRef<string | null>(null);
   const { state: dictation, supported, toggle } = useDictation(
     useCallback((text: string) => {
-      setDraft((value) => (value ? `${value} ${text}` : text));
+      setDraft((value) => {
+        const base = dictationBaseRef.current ?? value;
+        dictationBaseRef.current = null;
+        return base ? `${base} ${text}` : text;
+      });
       window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
     }, []),
     language,
+    useCallback((live: string | null) => {
+      if (live === null) { dictationBaseRef.current = null; return; }
+      setDraft((value) => {
+        if (dictationBaseRef.current === null) dictationBaseRef.current = value;
+        const base = dictationBaseRef.current;
+        return base ? `${base} ${live}` : live;
+      });
+    }, []),
   );
 
   const askForAccess = async (scope: string, question: string) => {
@@ -725,7 +823,7 @@ function ChatSession({
               </PromptInputButton>
               {dictation === "recording" && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Listening…
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> {speechRecognitionCtor() ? "Listening — your words appear as you speak" : "Listening…"}
                 </span>
               )}
               {dictation === "transcribing" && (

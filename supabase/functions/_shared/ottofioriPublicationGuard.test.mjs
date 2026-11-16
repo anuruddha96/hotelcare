@@ -128,16 +128,28 @@ test('cancelled or absent pickup cannot override a protected manager price',()=>
   }
 });
 
-test('single booking cannot publish an oversized rise on a soft date', () => {
+test('single booking publishes its ladder rise on a soft date, but not beyond the EUR 80 ladder limit', () => {
+  for (const [movement, allowed] of [[4, 13], [25, 13], [80, 13], [81, 0]]) {
+    const f = fixture();
+    Object.assign(f.decisions[0], {
+      direction: 'increase', movement, pickup_24h: 1, cancellations_24h: 0,
+      occupancy_pct: 40, pace_target_pct: 65, rooms_remaining: 4, days_out: 54,
+      decision_reason: 'revenue_director_yield',
+    });
+    f.drafts.forEach((d) => { d.new_price = d.old_price + movement; });
+    const result = guardOttofioriPublication(f);
+    assert.equal(result.allowed.length, allowed);
+    if (!allowed) assert.match(result.blocked[0].reason, /before PMS write/);
+  }
+  // A single-booking rise that did not come from the planner or the AI is still blocked.
   const f = fixture();
   Object.assign(f.decisions[0], {
     direction: 'increase', movement: 4, pickup_24h: 1, cancellations_24h: 0,
     occupancy_pct: 40, pace_target_pct: 65, rooms_remaining: 4, days_out: 54,
-    decision_reason: 'revenue_director_yield',
+    decision_reason: 'pickup_increase',
   });
   f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
-  const result = blocked(f);
-  assert.match(result.blocked[0].reason, /before PMS write/);
+  assert.match(blocked(f).blocked[0].reason, /before PMS write/);
 });
 test('strong early occupancy can support the planner rise with one fresh booking', () => {
   const f = fixture();
@@ -149,12 +161,12 @@ test('strong early occupancy can support the planner rise with one fresh booking
   f.drafts.forEach((d) => { d.new_price = d.old_price + 4; });
   assert.equal(guardOttofioriPublication(f).allowed.length, 13);
 });
-test('AI uses the identical measured single-booking limit at final publication',()=>{
- for (const movement of [1,2,3]) {
+test('AI uses the identical single-booking ladder limit at final publication',()=>{
+ for (const movement of [1,38,80,81]) {
   const f=fixture();
   Object.assign(f.decisions[0],{direction:'increase',movement,pickup_24h:1,cancellations_24h:0,
     occupancy_pct:40,pace_target_pct:65,rooms_remaining:10,days_out:54,decision_reason:'ai_supervisor'});
   f.drafts.forEach(d=>{d.new_price=d.old_price+movement;});
-  assert.equal(guardOttofioriPublication(f).allowed.length,movement<=2?13:0);
+  assert.equal(guardOttofioriPublication(f).allowed.length,movement<=80?13:0);
  }
 });

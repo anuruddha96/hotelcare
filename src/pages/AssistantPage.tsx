@@ -31,6 +31,7 @@ import { canConnectMailbox } from "@/lib/assistant/mail";
 import { canUseAssistant } from "@/lib/assistantAccess";
 import {
   forgetActiveAssistantThread,
+  getAssistantReturnPath,
   getRememberedAssistantThread,
   rememberActiveAssistantThread,
 } from "@/lib/assistant/activeThread";
@@ -286,7 +287,7 @@ export default function AssistantPage() {
       onDeleteProject={setDeletingProject}
       onOpenInsights={() => navigate(`/${profile?.organization_slug}/assistant-insights`)}
       onReport={() => setReportOpen(true)}
-      onBack={() => navigate(`/${profile?.organization_slug ?? ""}`)}
+      onBack={() => navigate(getAssistantReturnPath(userId, organizationSlug) ?? `/${profile?.organization_slug ?? ""}`)}
       onCollapse={onCollapse}
     />
   );

@@ -1630,7 +1630,7 @@ function buildTools(
             )) : null,
         canReadReputation(profile.role) && tools.get_reputation_overview
           ? safely(() => tools.get_reputation_overview.execute(
-              { days: 14 }, { toolCallId: "attention-reputation", messages: [] },
+              { days: 14, hotelId: ids.length === 1 ? ids[0] : null, portfolio: ids.length !== 1 }, { toolCallId: "attention-reputation", messages: [] },
             )) : null,
         scopes.has("finance") && tools.get_purchase_invoices
           ? safely(() => tools.get_purchase_invoices.execute(
@@ -1678,7 +1678,7 @@ function buildTools(
       if (rep && Number(rep.unanswered ?? 0) > 0) issues.push({
         severity: Number(rep.reply_first?.length ?? 0) > 0 ? "urgent" : "attention",
         area: "reputation", count: Number(rep.unanswered),
-        detail: "Google reviews awaiting a reply (organization-wide, last 14 days)",
+        detail: `Google reviews awaiting a reply (${rep.scope ?? "this hotel"}, last 14 days)`,
       });
       const f = finance?.ok ? finance.data : null;
       if (f && Number(f.waitingForReview ?? 0) > 0) issues.push({

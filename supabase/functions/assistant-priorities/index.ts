@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
 
     const [review, reputation, restaurant, tickets] = await Promise.all([
       call("review_pricing", { hotelId: focus.hotel_id, startDate: null, days: 21 }),
-      call("get_reputation_overview", { days: 14 }),
+      call("get_reputation_overview", { days: 14, hotelId: focus.hotel_id, portfolio: false }),
       call("get_restaurant_reservations", { hotelId: null, startDate: null, endDate: null }),
       scopes.has("maintenance")
         ? service

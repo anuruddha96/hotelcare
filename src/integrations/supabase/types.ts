@@ -20679,6 +20679,16 @@ export type Database = {
           stay_date: string
         }[]
       }
+      revenue_push_run_confirmations: {
+        Args: { p_run_ids: string[] }
+        Returns: {
+          confirmed_count: number
+          pending_count: number
+          push_run_id: string
+          superseded_count: number
+          total_count: number
+        }[]
+      }
       revenue_portfolio_latest_snapshots: {
         Args: { _from: string; _hotel_ids: string[]; _to: string }
         Returns: {
