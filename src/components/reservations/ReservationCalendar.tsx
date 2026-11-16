@@ -595,7 +595,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
             column stay frozen until the last room has scrolled past. */}
         <div ref={scrollRef} className="w-full overflow-auto overscroll-x-contain max-h-[72vh]" data-training="res-planner-scroll" tabIndex={0} role="region" aria-label="Reservation calendar; scroll for more rooms and dates">
           <div style={{ minWidth: roomWidth + gridWidth }}>
-            <div className="flex border-b border-border bg-muted/30 sticky top-0 z-30" style={{ height: HEAD_MONTH_H }}>
+            <div className="flex border-b border-border bg-card sticky top-0 z-30" style={{ height: HEAD_MONTH_H }}>
               <div className={`${stickyLeft} z-40 px-2 flex items-center justify-between gap-1 text-xs font-semibold`} style={{ width: roomWidth }}>
                 {!roomsCollapsed && <span className="truncate">{t('pms.cal.roomsDates')}</span>}
                 <Button type="button" size="icon" variant="ghost" className="h-6 w-6 shrink-0" aria-label={roomsCollapsed ? t('pms.cal.expandRooms') : t('pms.cal.collapseRooms')} title={roomsCollapsed ? t('pms.cal.expandRooms') : t('pms.cal.collapseRooms')} onClick={() => setRoomsCollapsed((value) => !value)}>
@@ -622,7 +622,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
                 })}
               </div>
             </div>
-            <div className="flex border-b border-border bg-muted/20 sticky z-30" style={{ top: HEAD_MONTH_H + HEAD_DAYS_H, height: HEAD_OCC_H }} aria-label={t('pms.planner.occupancy')}>
+            <div className="flex border-b border-border bg-card sticky z-30" style={{ top: HEAD_MONTH_H + HEAD_DAYS_H, height: HEAD_OCC_H }} aria-label={t('pms.planner.occupancy')}>
               <div className={`${stickyLeft} z-40 px-3 flex items-center text-[10px] text-muted-foreground`} style={{ width: roomWidth }}>{!roomsCollapsed && t('pms.planner.occupancy')}</div>
               <div className="flex bg-muted/20" style={{ width: gridWidth }}>
                 {occupancy.map((night) => (

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileSpreadsheet, Info, LayoutGrid, List, Loader2, Rows3, Search, Send } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, FileSpreadsheet, HelpCircle, Info, LayoutGrid, List, Loader2, Maximize2, Minimize2, MoreHorizontal, Rows3, Search, Send, ZoomIn, ZoomOut } from 'lucide-react';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useTranslation } from '@/hooks/useTranslation';
+import { loadGridPrefs, saveGridPrefs, stepZoom, type GridPrefs } from '@/lib/workforce/gridPrefs';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { entryKey, fetchAllRows, useWorkforce } from '@/hooks/useWorkforce';
@@ -106,7 +109,6 @@ interface ScheduleTabProps {
   onImport?: () => void;
 }
 
-const MONTH_TABS = ['Január', 'Február', 'Március', 'Április', 'Május', 'Június', 'Július', 'Augusztus', 'Szeptember', 'Október', 'November', 'December'];
 const NO_COPY_KINDS = new Set(['leave', 'half_leave', 'sick', 'unpaid_leave', 'absent', 'other']);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
@@ -126,6 +128,22 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
   const [selection, setSelection] = useState<Array<{ staff: WorkforceStaff; date: string }>>([]);
   const [day, setDay] = useState(today);
   const applyRef = useRef<((text: string) => void) | null>(null);
+  const { t, language } = useTranslation();
+  const [prefs, setPrefs] = useState<GridPrefs>(loadGridPrefs);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const updatePrefs = useCallback((patch: Partial<GridPrefs>) => setPrefs((current) => { const next = { ...current, ...patch }; saveGridPrefs(next); return next; }), []);
+  const zoomStep = useCallback((direction: 1 | -1) => setPrefs((current) => { const next = { ...current, zoom: stepZoom(current.zoom, direction) }; saveGridPrefs(next); return next; }), []);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape' && !(ev.target as HTMLElement | null)?.closest('input,textarea,[role="dialog"]')) setFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
+  const monthNames = useMemo(() => Array.from({ length: 12 }, (_, i) => {
+    const name = new Date(Date.UTC(2026, i, 1)).toLocaleDateString(language || 'en', { month: 'long', timeZone: 'UTC' });
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }), [language]);
 
   const days = useMemo(() => monthDays(ym.y, ym.m), [ym]);
   const codes = useMemo(() => customCodesOf(data.shiftCodes), [data.shiftCodes]);
@@ -263,72 +281,17 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
   const detailsEntry = details ? data.entries.get(entryKey(details.staff.id, details.date)) : undefined;
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center rounded-md border">
-          <Button variant="ghost" size="icon" onClick={() => shift(-1)} aria-label="Previous month"><ChevronLeft className="h-4 w-4" /></Button>
-          <span className="min-w-[132px] text-center text-sm font-semibold">{monthLabel}</span>
-          <Button variant="ghost" size="icon" onClick={() => shift(1)} aria-label="Next month"><ChevronRight className="h-4 w-4" /></Button>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setYm({ y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) })}><CalendarDays className="mr-1 h-4 w-4" />Today</Button>
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Search name, role, hotel… or has:sick has:leave has:night has:draft" value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
-        {access === 'org' && (
-          <Select value={hotel} onValueChange={setHotel}>
-            <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All hotels</SelectItem>
-              {HOTELS.map((h) => <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>)}
-              <SelectItem value="company">Company / outlets</SelectItem>
-            </SelectContent>
-          </Select>
-        )}
-        <Select value={department} onValueChange={setDepartment}>
-          <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All departments</SelectItem>
-            {data.departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <ToggleGroup type="single" value={view === 'day' ? 'day' : layout} onValueChange={(v) => { if (!v) return; if (v === 'day') setView('day'); else { setView('grid'); setLayout(v as 'days' | 'staff'); } }} variant="outline" size="sm">
-          <ToggleGroupItem value="days" aria-label="Days down, like the Excel" title="Days down (Excel layout)"><LayoutGrid className="h-4 w-4" /></ToggleGroupItem>
-          <ToggleGroupItem value="staff" aria-label="Employees down" title="Employees down"><Rows3 className="h-4 w-4" /></ToggleGroupItem>
-          <ToggleGroupItem value="day" aria-label="One day list" title="One day (mobile)"><List className="h-4 w-4" /></ToggleGroupItem>
-        </ToggleGroup>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {view === 'grid' && palette.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1" aria-label="Apply a code to the selected cells">
-            {palette.slice(0, 18).map((c) => (
-              <button key={c.id} type="button" title={`${c.label} — applies to the selected cells`} onClick={() => applyRef.current?.(c.code)}
-                className="h-7 rounded border px-2 text-xs font-medium transition hover:ring-2 hover:ring-primary/40"
-                style={{ backgroundColor: KIND_STYLE[c.kind].bg, color: KIND_STYLE[c.kind].fg }}>{c.code}</button>
-            ))}
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => applyRef.current?.('')}>Clear</Button>
-          </div>
-        )}
-        <label className="ml-auto flex items-center gap-2 text-xs"><Switch checked={showFormer} onCheckedChange={setShowFormer} />Former staff</label>
-        <Legend />
-        {onImport && <Button variant="outline" size="sm" onClick={onImport}><FileSpreadsheet className="mr-1 h-4 w-4" />Import Excel</Button>}
-        <Button variant="outline" size="sm" disabled={copying || !visibleStaff.length} onClick={() => void prepareCopy()} title="Fill empty future days with the shifts of the same weekday four weeks earlier">
-          {copying ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Copy className="mr-1 h-4 w-4" />}Copy last 4 weeks
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => void exportMonth()}><Download className="mr-1 h-4 w-4" />Export Excel</Button>
-        <Button size="sm" disabled={!drafts.length} onClick={() => setConfirmPublish(true)}><Send className="mr-1 h-4 w-4" />Publish{drafts.length ? ` ${drafts.length} drafts` : ''}</Button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b" role="tablist" aria-label="Months">
+    <div className={cn('space-y-2', fullscreen && 'fixed inset-0 z-40 overflow-auto bg-background p-3')}>
+      {/* 1. Which month */}
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b" role="tablist" aria-label={t('wf.my.month')}>
         <Button variant="ghost" size="sm" className="h-7 px-1.5" onClick={() => setYm(({ y, m }) => ({ y: y - 1, m }))} aria-label="Previous year"><ChevronLeft className="h-4 w-4" /></Button>
         <span className="px-1 text-sm font-semibold tabular-nums">{ym.y}</span>
         <Button variant="ghost" size="sm" className="h-7 px-1.5" onClick={() => setYm(({ y, m }) => ({ y: y + 1, m }))} aria-label="Next year"><ChevronRight className="h-4 w-4" /></Button>
-        {MONTH_TABS.map((name, i) => {
+        {monthNames.map((name, i) => {
           const active = ym.m === i + 1;
           const isNow = Number(today.slice(0, 4)) === ym.y && Number(today.slice(5, 7)) === i + 1;
           return (
-            <button key={name} type="button" role="tab" aria-selected={active} onClick={() => setYm(({ y }) => ({ y, m: i + 1 }))}
+            <button key={i} type="button" role="tab" aria-selected={active} onClick={() => setYm(({ y }) => ({ y, m: i + 1 }))}
               className={cn('-mb-px rounded-t-md border border-b-0 px-2.5 py-1 text-xs transition',
                 active ? 'border-border bg-background font-semibold text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted',
                 isNow && !active && 'text-primary')}>
@@ -336,20 +299,93 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
             </button>
           );
         })}
+        <Button variant="ghost" size="sm" className="ml-auto h-7 px-2 text-xs" onClick={() => setYm({ y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) })}><CalendarDays className="mr-1 h-3.5 w-3.5" />{t('wf.m.today')}</Button>
       </div>
-      <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span><strong className="text-foreground">{workingDays(days)}</strong> working days · {days.length} days</span>
-        {monthCalendar.map((d) => (
-          <span key={d.date} className={d.kind === 'working_saturday' ? 'text-sky-600 dark:text-sky-400' : 'text-red-600 dark:text-red-400'}>
-            {Number(d.date.slice(8))}. {d.nameHu}
+
+      {/* 2. Who to show, and how big */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[180px] flex-1">
+          <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+          <Input className="h-8 pl-8 text-sm" placeholder={t('wf.m.search')} title="has:sick · has:leave · has:night · has:draft" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        {access === 'org' && (
+          <Select value={hotel} onValueChange={setHotel}>
+            <SelectTrigger className="h-8 w-[150px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t('wf.m.allHotels')}</SelectItem>
+              {HOTELS.map((h) => <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>)}
+              <SelectItem value="company">{t('wf.m.company')}</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        <Select value={department} onValueChange={setDepartment}>
+          <SelectTrigger className="h-8 w-[160px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('wf.m.allDepartments')}</SelectItem>
+            {data.departments.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <ToggleGroup type="single" value={view === 'day' ? 'day' : layout} onValueChange={(v) => { if (!v) return; if (v === 'day') setView('day'); else { setView('grid'); setLayout(v as 'days' | 'staff'); } }} variant="outline" size="sm">
+          <ToggleGroupItem value="days" className="h-8" aria-label={t('wf.m.viewDays')} title={t('wf.m.viewDays')}><LayoutGrid className="h-4 w-4" /></ToggleGroupItem>
+          <ToggleGroupItem value="staff" className="h-8" aria-label={t('wf.m.viewStaff')} title={t('wf.m.viewStaff')}><Rows3 className="h-4 w-4" /></ToggleGroupItem>
+          <ToggleGroupItem value="day" className="h-8" aria-label={t('wf.m.viewDay')} title={t('wf.m.viewDay')}><List className="h-4 w-4" /></ToggleGroupItem>
+        </ToggleGroup>
+        {view === 'grid' && (
+          <div className="flex items-center rounded-md border" role="group" aria-label="Zoom" data-training="wf-zoom">
+            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={prefs.zoom <= 0.5} onClick={() => zoomStep(-1)} aria-label={t('wf.m.zoomOut')} title={t('wf.m.zoomOut')}><ZoomOut className="h-4 w-4" /></Button>
+            <button type="button" className="min-w-[46px] px-1 text-center text-xs font-medium tabular-nums hover:underline" onClick={() => updatePrefs({ zoom: 1 })} title={t('wf.m.zoomReset')}>{Math.round(prefs.zoom * 100)}%</button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={prefs.zoom >= 1.5} onClick={() => zoomStep(1)} aria-label={t('wf.m.zoomIn')} title={t('wf.m.zoomIn')}><ZoomIn className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8 border-l rounded-none" onClick={() => setFullscreen((v) => !v)} aria-pressed={fullscreen} aria-label={t(fullscreen ? 'wf.m.exitFullscreen' : 'wf.m.fullscreen')} title={t(fullscreen ? 'wf.m.exitFullscreen' : 'wf.m.fullscreen')}>
+              {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </Button>
+          </div>
+        )}
+        <Popover>
+          <PopoverTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t('wf.m.shortcuts')} title={t('wf.m.shortcuts')}><HelpCircle className="h-4 w-4" /></Button></PopoverTrigger>
+          <PopoverContent align="end" className="w-80 space-y-1.5 text-xs">
+            <p className="font-semibold">{t('wf.m.shortcuts')}</p>
+            <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
+              <li>{t('wf.m.help1')}</li><li>{t('wf.m.help2')}</li><li>{t('wf.m.help3')}</li><li>{t('wf.m.help4')}</li>
+            </ul>
+          </PopoverContent>
+        </Popover>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild><Button variant="outline" size="sm" className="h-8"><MoreHorizontal className="mr-1 h-4 w-4" />{t('wf.m.more')}</Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuCheckboxItem checked={prefs.pinTotals} onCheckedChange={(v) => updatePrefs({ pinTotals: !!v })}>{t('wf.m.pinTotals')}</DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem checked={showFormer} onCheckedChange={(v) => setShowFormer(!!v)}>{t('wf.m.formerStaff')}</DropdownMenuCheckboxItem>
+            <DropdownMenuItem onSelect={() => setLegendOpen(true)}><Info className="mr-2 h-4 w-4" />{t('wf.m.legend')}</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={copying || !visibleStaff.length} onSelect={() => void prepareCopy()}><Copy className="mr-2 h-4 w-4" />{t('wf.m.copy4')}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void exportMonth()}><Download className="mr-2 h-4 w-4" />{t('wf.m.export')}</DropdownMenuItem>
+            {onImport && <DropdownMenuItem onSelect={onImport}><FileSpreadsheet className="mr-2 h-4 w-4" />{t('wf.m.import')}</DropdownMenuItem>}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button size="sm" className="h-8" disabled={!drafts.length} onClick={() => setConfirmPublish(true)}><Send className="mr-1 h-4 w-4" />{t('wf.m.publish')}{drafts.length ? ` · ${drafts.length} ${t('wf.m.drafts')}` : ''}</Button>
+      </div>
+
+      {/* 3. What to put in the selected cells */}
+      {view === 'grid' && palette.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1" aria-label="Apply a code to the selected cells">
+          {palette.slice(0, 18).map((c) => (
+            <button key={c.id} type="button" title={c.label} onClick={() => applyRef.current?.(c.code)}
+              className="h-6 rounded border px-2 text-[11px] font-medium transition hover:ring-2 hover:ring-primary/40"
+              style={{ backgroundColor: KIND_STYLE[c.kind].bg, color: KIND_STYLE[c.kind].fg }}>{c.code}</button>
+          ))}
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => applyRef.current?.('')}>{t('wf.m.clear')}</Button>
+          <span className="ml-auto flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground">
+            <span><strong className="text-foreground">{workingDays(days)}</strong> {t('wf.m.workingDays')}</span>
+            {monthCalendar.map((d) => (
+              <span key={d.date} className={d.kind === 'working_saturday' ? 'text-sky-600 dark:text-sky-400' : 'text-red-600 dark:text-red-400'}>{Number(d.date.slice(8))}. {d.nameHu}</span>
+            ))}
+            {!swapsKnown(ym.y) && <span title={`Bridge days for ${ym.y} are not decreed yet; only statutory holidays are shown.`}>ⓘ</span>}
           </span>
-        ))}
-        {!swapsKnown(ym.y) && <span>Bridge days for {ym.y} are not decreed yet; only statutory holidays are shown.</span>}
-        <span className="ml-auto">{yearHolidays} public holidays in {ym.y}</span>
-      </p>
+        </div>
+      )}
+      <Legend open={legendOpen} onOpenChange={setLegendOpen} />
 
       {data.loading && !data.staff.length ? (
-        <div className="flex h-64 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading schedule…</div>
+        <div className="flex h-64 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />{t('wf.m.loading')}</div>
       ) : view === 'grid' ? (
         <>
           <WorkforceGrid
@@ -358,12 +394,12 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
             canEdit={canEdit} onApply={onApply} applyRef={applyRef} onSelectionChange={setSelection}
             onOpenDetails={(staff, date) => setDetails({ staff, date })}
             onEditNote={(staff) => setNoteFor({ staff, text: data.notes.get(staff.id) ?? '' })}
+            zoom={prefs.zoom} onZoomStep={zoomStep} pinTotals={prefs.pinTotals} tall={fullscreen}
           />
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span>{visibleStaff.length} employees</span>
-            {selection.length > 0 && <span>{selection.length} cells selected · {formatHours(selectionMinutes)} h</span>}
-            {selection.length === 1 && <button type="button" className="underline" onClick={() => setDetails(selection[0])}>Open details</button>}
-            <span>Type a code or times (08-17, éjsz, SZB, B, X, “+1 óra”, “mika”) · Enter/Tab to move · Ctrl+C / Ctrl+V with Excel · Ctrl+D fill down · Ctrl+Z undo · double-click for details · past days are read-only</span>
+            <span>{visibleStaff.length} {t('wf.m.employees')}</span>
+            {selection.length > 0 && <span>{selection.length} {t('wf.m.selected')} · {formatHours(selectionMinutes)} h</span>}
+            {selection.length === 1 && <button type="button" className="underline" onClick={() => setDetails(selection[0])}>{t('wf.m.openDetails')}</button>}
           </div>
         </>
       ) : (
@@ -428,20 +464,20 @@ function ScheduleTab({ data, ym, setYm, today, access, currentHotel, role, isSup
   );
 }
 
-function Legend() {
+function Legend({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { t } = useTranslation();
   const kinds: WorkforceKind[] = ['work', 'night', 'leave', 'half_leave', 'sick', 'unpaid_leave', 'absent', 'fixed_day_off', 'training', 'home_office', 'extra_day', 'other'];
   return (
-    <Popover>
-      <PopoverTrigger asChild><Button variant="ghost" size="sm"><Info className="mr-1 h-4 w-4" />Legend</Button></PopoverTrigger>
-      <PopoverContent className="w-80 space-y-2 text-xs">
-        <p className="font-medium">Same colours as the Excel</p>
-        <div className="grid grid-cols-2 gap-1">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>{t('wf.m.legend')}</DialogTitle></DialogHeader>
+        <div className="grid grid-cols-2 gap-1 text-xs">
           {kinds.map((k) => <span key={k} className="rounded px-2 py-1" style={{ backgroundColor: KIND_STYLE[k].bg, color: KIND_STYLE[k].fg }}>{KIND_STYLE[k].label}</span>)}
-          {HOTELS.map((h) => HOTEL_STYLE[h.id] && <span key={h.id} className="rounded px-2 py-1" style={{ backgroundColor: HOTEL_STYLE[h.id].bg, color: HOTEL_STYLE[h.id].fg }}>At {h.short}</span>)}
+          {HOTELS.map((h) => HOTEL_STYLE[h.id] && <span key={h.id} className="rounded px-2 py-1" style={{ backgroundColor: HOTEL_STYLE[h.id].bg, color: HOTEL_STYLE[h.id].fg }}>{h.short}</span>)}
         </div>
-        <p className="text-muted-foreground">An amber dot marks a draft the employee cannot see yet. Hatched cells are read-only history.</p>
-      </PopoverContent>
-    </Popover>
+        <p className="text-xs text-muted-foreground">An amber dot marks a draft the employee cannot see yet. Hatched cells are read-only history.</p>
+      </DialogContent>
+    </Dialog>
   );
 }
 

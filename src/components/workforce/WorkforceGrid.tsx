@@ -7,14 +7,15 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
-  cellLabel, cellStyle, formatHours, hotelShort, summarizeStaffMonth, WEEKDAY_SHORT, weekdayOf,
+  cellLabel, cellStyle, formatHours, hotelShort, monthBalanceMinutes, summarizeStaffMonth, WEEKDAY_SHORT, weekdayOf,
   type WorkforceDepartment, type WorkforceEntry, type WorkforceJobRole, type WorkforceStaff,
 } from '@/lib/workforce/model';
 import {
   entryFromText, fillHandleTargets, inRange, normalizeRange, parseTsv, pasteTargets, textOfEntry, toTsv, type CellRange,
 } from '@/lib/workforce/grid';
 import { WORKING_KINDS, type CustomShiftCode } from '@/lib/workforce/cellParser';
-import { calendarDay, type CalendarDayKind } from '@/lib/workforce/holidays';
+import { calendarDay, workingDays, type CalendarDayKind } from '@/lib/workforce/holidays';
+import { useTranslation } from '@/hooks/useTranslation';
 import { entryKey } from '@/hooks/useWorkforce';
 
 export interface CellChange { staff: WorkforceStaff; date: string; next: WorkforceEntry | null }
@@ -37,23 +38,34 @@ export interface WorkforceGridProps {
   onSelectionChange?: (cells: Array<{ staff: WorkforceStaff; date: string }>) => void;
   /** Lets the toolbar apply a code to the current selection. */
   applyRef?: React.MutableRefObject<((text: string) => void) | null>;
+  /** 1 = normal size. Smaller shows more cells, like zooming out in Excel. */
+  zoom?: number;
+  onZoomStep?: (direction: 1 | -1) => void;
+  /** Keep the totals rows on screen while scrolling (days-down layout). */
+  pinTotals?: boolean;
+  /** Use the whole window height (full-screen mode). */
+  tall?: boolean;
 }
 
 type Pos = { r: number; c: number };
 
-const SUMMARY_ROWS: Array<{ key: string; label: string; hint: string }> = [
-  { key: 'days', label: 'Napok', hint: 'Day shifts (incl. home office, training, extra days)' },
-  { key: 'nights', label: 'Éjszakák', hint: 'Night shifts' },
-  { key: 'leave', label: 'Szabadság', hint: 'Leave days this month' },
-  { key: 'sick', label: 'Betegség', hint: 'Sick days this month' },
-  { key: 'off', label: 'Szabadnap', hint: 'Days off (incl. empty days)' },
-  { key: 'holiday', label: 'Ünnep', hint: 'Shifts worked on public holidays (holiday premium)' },
-  { key: 'hours', label: 'Órák', hint: 'Gross hours (breaks not deducted)' },
-  { key: 'leaveLeft', label: 'Szabi maradt', hint: 'Annual leave entitlement minus leave taken this year up to this month' },
+const SUMMARY_ROWS: Array<{ key: string; label: string; hint?: string }> = [
+  { key: 'days', label: 'wf.t.days' },
+  { key: 'nights', label: 'wf.t.nights' },
+  { key: 'leave', label: 'wf.t.leave' },
+  { key: 'sick', label: 'wf.t.sick' },
+  { key: 'off', label: 'wf.t.off' },
+  { key: 'holiday', label: 'wf.t.holiday' },
+  { key: 'hours', label: 'wf.t.hours' },
+  { key: 'balance', label: 'wf.t.balance', hint: 'wf.t.balanceHint' },
+  { key: 'leaveLeft', label: 'wf.t.leaveLeft' },
 ];
+const SUMMARY_ROW_H = 24;
 
 export function WorkforceGrid(props: WorkforceGridProps) {
-  const { staff, days, today, departments, jobRoles, entries, notes, leaveUsed, codes, layout, canEdit, onApply, onOpenDetails, onEditNote, onSelectionChange, applyRef } = props;
+  const { staff, days, today, departments, jobRoles, entries, notes, leaveUsed, codes, layout, canEdit, onApply, onOpenDetails, onEditNote, onSelectionChange, applyRef, zoom = 1, onZoomStep, pinTotals = false, tall = false } = props;
+  const { t } = useTranslation();
+  const normDays = useMemo(() => workingDays(days), [days]);
   const gridRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<Pos | null>(null);
   const [focus, setFocus] = useState<Pos | null>(null);
@@ -123,6 +135,10 @@ export function WorkforceGrid(props: WorkforceGridProps) {
         return n ? String(n) : '';
       }
       case 'hours': return formatHours(m.workedMinutes);
+      case 'balance': {
+        const b = monthBalanceMinutes(m, normDays, Number(s.daily_hours ?? 8), s.employment_type);
+        return b == null ? '' : b === 0 ? '0' : `${b > 0 ? '+' : '−'}${formatHours(Math.abs(b))}`;
+      }
       case 'leaveLeft': return s.annual_leave_days == null ? '' : String(s.annual_leave_days - (leaveUsed.get(s.id) ?? 0));
       default: return '';
     }
@@ -447,7 +463,8 @@ export function WorkforceGrid(props: WorkforceGridProps) {
       ref={gridRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
-      className="relative max-h-[calc(100vh-260px)] min-h-[320px] select-none overflow-auto rounded-md border bg-background text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      onWheel={(ev) => { if ((ev.ctrlKey || ev.metaKey) && onZoomStep) { ev.preventDefault(); onZoomStep(ev.deltaY < 0 ? 1 : -1); } }}
+      className={cn('relative min-h-[320px] select-none overflow-auto rounded-md border bg-background text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary/40', tall ? 'max-h-[calc(100vh-150px)]' : 'max-h-[calc(100vh-200px)]')}
       aria-label="Work schedule grid. Arrow keys move, type to edit, Ctrl+C and Ctrl+V copy and paste."
       role="grid"
     >
@@ -456,7 +473,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
         {['SZB', 'fél SZB', 'B', 'X', 'FIX', 'FNSZ', 'éjsz 20:00-08:00', '08-17', '08-20', 'HO', 'PN'].map((v) => <option key={v} value={v} />)}
       </datalist>
       {layout === 'days' ? (
-        <table className="border-separate border-spacing-0">
+        <table className="border-separate border-spacing-0" style={zoom !== 1 ? { zoom } : undefined}>
           <thead className="sticky top-0 z-10 bg-background">
             <tr>
               <th className="sticky left-0 z-20 border-b border-r bg-background" />
@@ -468,7 +485,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               ))}
             </tr>
             <tr>
-              <th className="sticky left-0 z-20 w-[104px] min-w-[104px] max-w-[104px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">Day</th>
+              <th className="sticky left-0 z-20 w-[104px] min-w-[104px] max-w-[104px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">{t('wf.m.day')}</th>
               {staff.map((s) => (
                 <th key={s.id} className={cn('w-[92px] min-w-[92px] max-w-[92px] border-b border-r px-1.5 py-1 text-left font-normal', !s.is_active && 'opacity-60')}>{staffHeader(s)}</th>
               ))}
@@ -482,28 +499,34 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               </tr>
             ))}
             <tr>
-              <th className="sticky left-0 z-[5] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground" title="Monthly remarks (Megjegyzés)">Note</th>
+              <th className="sticky left-0 z-[5] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground" >{t('wf.m.note')}</th>
               {staff.map((s) => (
                 <td key={s.id} className="h-7 max-w-[92px] cursor-pointer truncate border-b border-r px-1 text-[10px] text-muted-foreground hover:bg-muted" title={notes.get(s.id) ?? 'Add a remark for this month'} onClick={() => onEditNote(s)}>
                   {notes.get(s.id) ?? ''}
                 </td>
               ))}
             </tr>
-            {SUMMARY_ROWS.map((row) => (
-              <tr key={row.key} className="bg-muted/40">
-                <th className="sticky left-0 z-[5] whitespace-nowrap border-b border-r bg-muted px-2 text-left font-medium" title={row.hint}>{row.label}</th>
-                {staff.map((s) => <td key={s.id} className="h-6 border-b border-r px-1.5 text-right tabular-nums">{summaryValue(s, row.key)}</td>)}
-              </tr>
-            ))}
+            {SUMMARY_ROWS.map((row, i) => {
+              const pin = pinTotals ? { position: 'sticky' as const, bottom: (SUMMARY_ROWS.length - 1 - i) * SUMMARY_ROW_H, zIndex: 6 } : undefined;
+              return (
+                <tr key={row.key}>
+                  <th className="sticky left-0 whitespace-nowrap border-b border-r bg-muted px-2 text-left font-medium" style={{ height: SUMMARY_ROW_H, ...(pin ? { ...pin, zIndex: 8 } : { zIndex: 5 }) }} title={row.hint ? t(row.hint) : undefined}>{t(row.label)}</th>
+                  {staff.map((s) => {
+                    const value = summaryValue(s, row.key);
+                    return <td key={s.id} style={{ height: SUMMARY_ROW_H, ...pin }} className={cn('border-b border-r bg-muted px-1.5 text-right tabular-nums', row.key === 'balance' && value.startsWith('+') && 'font-semibold text-amber-700 dark:text-amber-400', row.key === 'balance' && value.startsWith('−') && 'text-sky-700 dark:text-sky-400', row.key === 'hours' && 'font-semibold')}>{value}</td>;
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       ) : (
-        <table className="border-separate border-spacing-0">
+        <table className="border-separate border-spacing-0" style={zoom !== 1 ? { zoom } : undefined}>
           <thead className="sticky top-0 z-10 bg-background">
             <tr>
-              <th className="sticky left-0 z-20 min-w-[170px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">Employee</th>
+              <th className="sticky left-0 z-20 min-w-[170px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">{t('wf.m.employee')}</th>
               {days.map((d) => <th key={d} className={cn('w-[64px] min-w-[64px] border-b border-r px-1 py-1 text-left font-normal', dayRowClass(d))}>{dayHeader(d, true)}</th>)}
-              {SUMMARY_ROWS.map((row) => <th key={row.key} title={row.hint} className="min-w-[56px] border-b border-r bg-muted px-1 text-right font-medium">{row.label}</th>)}
+              {SUMMARY_ROWS.map((row) => <th key={row.key} title={row.hint ? t(row.hint) : undefined} className="min-w-[56px] border-b border-r bg-muted px-1 text-right font-medium">{t(row.label)}</th>)}
             </tr>
           </thead>
           <tbody>
