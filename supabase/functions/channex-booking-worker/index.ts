@@ -8,6 +8,12 @@
  *   3. Retry ACKs for revisions already saved (booking or review case) but not yet acknowledged.
  *   4. Alert: un-ACKed > 10 min = warning, > 25 min = urgent (Channex drops un-ACKed revisions
  *      from the feed after ~30 min; recovery is then a manual, date-scoped action).
+ *
+ * Bookings are received through the FEED (+ webhook stubs) ONLY. The booking
+ * revisions LIST endpoint is never polled here: Channex certification counts
+ * list reads as "booking_revision_received_via_list" and fails the
+ * "Booking Receiving" test on them. The list is used solely by the manual,
+ * date-scoped outage recovery action in channex-admin.
  */
 import { json, serviceDb, workerAuthorized } from "../_shared/channex/http.ts";
 import { ChannexClient, channexKeyConfigured, type ChannexEnvironment } from "../_shared/channex/client.ts";
@@ -15,7 +21,6 @@ import { ackRow, audit, ingestRevision } from "../_shared/channex/bookingProcess
 
 const MAX_FEED_PAGES = 10;
 const MAX_RETRIES = 20;
-const SWEEP_WINDOW_HOURS = 6;
 const getEnv = (k: string) => Deno.env.get(k);
 
 Deno.serve(async (req) => {
@@ -62,28 +67,9 @@ Deno.serve(async (req) => {
         await db.from("channex_connections").update({ last_feed_poll_at: now, last_error: `Booking feed failed: ${line.feed_error}`.slice(0, 300) }).eq("hotel_id", conn.hotel_id);
       }
 
-      // 1b. Safety net: the feed can miss revisions (filter quirks, webhook shape
-      // changes, >30 min un-ACKed drop-off), so also sweep this property's revision
-      // list for the recent window. ingestRevision is idempotent on revision_id and
-      // never ACKs anything that is not durably saved, so overlap with the feed is
-      // harmless and the sweep stays property-scoped by construction.
-      try {
-        const since = new Date(Date.now() - SWEEP_WINDOW_HOURS * 3600_000).toISOString();
-        const res = await client.listRevisionsSince(String(conn.channex_property_id), since);
-        const items = Array.isArray(res.data) ? res.data : [];
-        line.sweep_seen = items.length;
-        for (const item of items) {
-          const attrs = (item && typeof item === "object" && (item as any).attributes) ? (item as any).attributes : item;
-          if (attrs && (attrs as any).acknowledged === true) continue; // already ACKed (by us or before)
-          const r = await ingestRevision(db, client, item, "feed");
-          line.sweep = Number(line.sweep ?? 0) + 1;
-          if (r.acked) line.acked = Number(line.acked) + 1;
-        }
-      } catch (err) {
-        line.sweep_error = err instanceof Error ? err.message : String(err);
-      }
-
-      // 2. Stubs and failures: pull the full revision again.
+      // 2. Stubs and failures: pull the full revision again. These revisions
+      // were RECEIVED via feed/webhook already; the by-id pull only completes
+      // ones whose application failed, so no list polling is involved.
       const { data: pending } = await db.from("channex_booking_revisions")
         .select("id,revision_id,attempts")
         .eq("hotel_id", conn.hotel_id).eq("environment", env).is("acked_at", null)

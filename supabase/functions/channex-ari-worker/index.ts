@@ -33,7 +33,7 @@ async function planHotel(db: Db, conn: any, today: string) {
   const created: string[] = [];
 
   // Availability
-  const { data: dirty } = await db.from("channex_availability_dirty").select("id,date_from,date_to")
+  const { data: dirty } = await db.from("channex_availability_dirty").select("id,room_type_id,date_from,date_to")
     .eq("hotel_id", conn.hotel_id).is("processed_at", null).lte("created_at", cutoff).order("id").limit(500);
   if (dirty?.length) {
     const last = addDays(today, FULL_SYNC_DAYS - 1);
@@ -44,7 +44,28 @@ async function planHotel(db: Db, conn: any, today: string) {
     if (f <= t) {
       const { data: rows, error } = await db.rpc("channex_room_type_availability", { p_hotel_id: conn.hotel_id, p_from: f, p_to: t });
       if (error) throw new Error(error.message);
-      const values = planAvailability(propertyId, rows ?? [], today);
+      // Send ONLY the signalled (room type, date) cells. An edit to one room
+      // type's dates must never republish other room types or untouched dates
+      // in between (certification: "covers 15 days, expected 7"). Signals with
+      // room_type_id NULL cover every room type for their dates.
+      const allTypesDates = new Set<string>();
+      const datesByRoomType = new Map<string, Set<string>>();
+      for (const d of dirty) {
+        const df = d.date_from < f ? f : d.date_from;
+        const dt = d.date_to > t ? t : d.date_to;
+        for (let day = df; day <= dt; day = addDays(day, 1)) {
+          if (d.room_type_id) {
+            const set = datesByRoomType.get(String(d.room_type_id)) ?? new Set<string>();
+            set.add(day);
+            datesByRoomType.set(String(d.room_type_id), set);
+          } else {
+            allTypesDates.add(day);
+          }
+        }
+      }
+      const scoped = (rows ?? []).filter((r: any) =>
+        allTypesDates.has(r.stay_date) || datesByRoomType.get(String(r.room_type_id))?.has(r.stay_date));
+      const values = planAvailability(propertyId, scoped, today);
       if (values.length) {
         await db.from("channex_ari_outbox").insert({
           hotel_id: conn.hotel_id, kind: "availability", mode: outboxMode, environment: conn.environment,
