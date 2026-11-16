@@ -4,14 +4,25 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CheckCircle2, ImageUp, Loader2, ScanLine, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Camera, CheckCircle2, ImageUp, Keyboard, Loader2, PlugZap, ScanLine, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
+import {
+  fetchBridgeScan, isLoopbackUrl, loadScannerSettings, saveScannerSettings, wedgeInputLooksComplete, wedgeInputToMrzText,
+  type ScannerSettings, type ScannerSource,
+} from '@/lib/idScan/scannerDevices';
 
 /**
  * Passport / ID-card scan at the front desk.
  *
- * Camera (or a photo on iPads/phones) → crop the code-line band → OCR in the
+ * Three sources, chosen per workstation and remembered:
+ *   - Camera (or a photo on iPads/phones),
+ *   - a document reader attached to the computer that types the code lines
+ *     (keyboard output — ARH, Access-IS, Desko, 3M …),
+ *   - a reader service on this computer (http://localhost…, Plustek/Granus style).
+ *
+ * Camera/picture → crop the code-line band → OCR in the
  * browser (tesseract.js, loaded only when needed) → ICAO MRZ parse with check
  * digits → staff review → fields handed to the guest form. The picture is
  * never uploaded or stored; canvases are cleared after reading.
@@ -85,6 +96,21 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [phase, setPhase] = useState<Phase>('camera');
   const [cameraOk, setCameraOk] = useState<boolean | null>(null);
   const [result, setResult] = useState<MrzReadResult | null>(null);
+  const [settings, setSettings] = useState<ScannerSettings>(loadScannerSettings);
+  const [source, setSource] = useState<ScannerSource>(() => loadScannerSettings().preferred);
+  const [typed, setTyped] = useState('');
+  const [bridgeDraft, setBridgeDraft] = useState(() => loadScannerSettings().bridgeUrl);
+  const [failReason, setFailReason] = useState<string | null>(null);
+  const wedgeRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const chooseSource = (next: ScannerSource) => {
+    setSource(next);
+    setTyped('');
+    setFailReason(null);
+    const updated = { ...settings, preferred: next };
+    setSettings(updated);
+    saveScannerSettings(updated);
+  };
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -114,9 +140,54 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     if (!open) { stopCamera(); return; }
     setPhase('camera');
     setResult(null);
-    void startCamera();
+    setTyped('');
+    setFailReason(null);
+    if (source === 'camera') void startCamera();
+    else stopCamera();
+    if (source === 'wedge') setTimeout(() => wedgeRef.current?.focus(), 50);
     return stopCamera;
-  }, [open, startCamera, stopCamera]);
+  }, [open, source, startCamera, stopCamera]);
+
+  // A reader types the whole code zone within a fraction of a second: read it
+  // as soon as it is complete, without the receptionist pressing anything.
+  useEffect(() => {
+    if (source !== 'wedge' || phase !== 'camera' || !wedgeInputLooksComplete(typed)) return;
+    const timer = setTimeout(() => {
+      const parsed = readMrz(wedgeInputToMrzText(typed));
+      if (parsed) { setResult(parsed); setPhase('review'); } else { setFailReason(null); setPhase('failed'); }
+      setTyped('');
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [typed, source, phase]);
+
+  const saveBridgeUrl = () => {
+    const url = bridgeDraft.trim();
+    if (url && !isLoopbackUrl(url)) { setFailReason('not_local'); return; }
+    const updated = { ...settings, bridgeUrl: url };
+    setSettings(updated);
+    saveScannerSettings(updated);
+    setFailReason(null);
+  };
+
+  const readFromBridge = async () => {
+    setPhase('reading');
+    setFailReason(null);
+    const scan = await fetchBridgeScan(settings.bridgeUrl);
+    if (scan.kind === 'mrz') {
+      const parsed = readMrz(scan.text);
+      if (parsed) { setResult(parsed); setPhase('review'); } else setPhase('failed');
+      return;
+    }
+    if (scan.kind === 'image') {
+      const img = new Image();
+      img.onload = () => { void readFrom(img, img.naturalWidth, img.naturalHeight); };
+      img.onerror = () => setPhase('failed');
+      img.src = scan.dataUrl;
+      return;
+    }
+    setFailReason(scan.reason);
+    setPhase('failed');
+  };
 
   const readFrom = async (source: CanvasImageSource, width: number, height: number) => {
     setPhase('reading');
@@ -155,7 +226,11 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     if (fileRef.current) fileRef.current.value = '';
   };
 
-  const retry = () => { setResult(null); setPhase('camera'); void startCamera(); };
+  const retry = () => {
+    setResult(null); setTyped(''); setFailReason(null); setPhase('camera');
+    if (source === 'camera') void startCamera();
+    if (source === 'wedge') setTimeout(() => wedgeRef.current?.focus(), 50);
+  };
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
   return (
@@ -170,6 +245,49 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         </p>
 
         {phase === 'camera' && (
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label={t('pms.scan.source')}>
+            {([
+              ['camera', Camera, 'pms.scan.srcCamera'], ['wedge', Keyboard, 'pms.scan.srcReader'], ['bridge', PlugZap, 'pms.scan.srcService'],
+            ] as Array<[ScannerSource, typeof Camera, string]>).map(([key, Icon, labelKey]) => (
+              <button key={key} type="button" role="tab" aria-selected={source === key} onClick={() => chooseSource(key)}
+                className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${source === key ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                <Icon className="h-3.5 w-3.5" /> {t(labelKey)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {phase === 'camera' && source === 'wedge' && (
+          <div className="space-y-2" data-training="fd-id-scan-reader">
+            <p className="text-xs">{t('pms.scan.readerHint')}</p>
+            <textarea
+              ref={wedgeRef}
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+              rows={3}
+              spellCheck={false}
+              autoComplete="off"
+              aria-label={t('pms.scan.readerField')}
+              placeholder={t('pms.scan.readerField')}
+              className="w-full resize-none rounded-lg border-2 border-dashed border-primary/40 bg-muted/30 p-3 font-mono text-xs uppercase tracking-wider focus:border-primary focus:outline-none"
+            />
+            <p className="text-[11px] text-muted-foreground">{t('pms.scan.readerSetup')}</p>
+          </div>
+        )}
+
+        {phase === 'camera' && source === 'bridge' && (
+          <div className="space-y-2" data-training="fd-id-scan-service">
+            <p className="text-xs">{t('pms.scan.serviceHint')}</p>
+            <div className="flex gap-2">
+              <Input value={bridgeDraft} onChange={(event) => setBridgeDraft(event.target.value)} placeholder="http://localhost:8080/document" aria-label={t('pms.scan.serviceUrl')} className="h-9 font-mono text-xs" />
+              <Button type="button" variant="outline" size="sm" className="h-9 shrink-0" disabled={bridgeDraft.trim() === settings.bridgeUrl} onClick={saveBridgeUrl}>{t('pms.scan.serviceSave')}</Button>
+            </div>
+            {failReason === 'not_local' && <p className="text-[11px] text-destructive">{t('pms.scan.serviceLocalOnly')}</p>}
+            <p className="text-[11px] text-muted-foreground">{t('pms.scan.serviceSetup')}</p>
+          </div>
+        )}
+
+        {phase === 'camera' && source === 'camera' && (
           <div className="space-y-2">
             <p className="text-xs">{t('pms.scan.hint')}</p>
             {cameraOk !== false ? (
@@ -195,7 +313,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
         {phase === 'failed' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200">
-            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {t('pms.scan.notFound')}
+            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
           </div>
         )}
 
@@ -220,7 +338,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         )}
 
         <DialogFooter className="gap-2 sm:gap-0">
-          {phase === 'camera' && (
+          {phase === 'camera' && source === 'bridge' && (
+            <Button type="button" className="gap-1.5" disabled={!settings.bridgeUrl} onClick={() => void readFromBridge()}><ScanLine className="h-4 w-4" /> {t('pms.scan.readDocument')}</Button>
+          )}
+          {phase === 'camera' && source === 'camera' && (
             <>
               <Button type="button" variant="outline" className="gap-1.5" onClick={() => fileRef.current?.click()}><ImageUp className="h-4 w-4" /> {t('pms.scan.takePhoto')}</Button>
               {cameraOk && <Button type="button" className="gap-1.5" onClick={captureFrame}><Camera className="h-4 w-4" /> {t('pms.scan.capture')}</Button>}
