@@ -123,6 +123,8 @@ export default function InSuiteStaff() {
     if (!notify) setLoading(true);
     try {
       const current: Dashboard = await inSuiteStaff("staff-dashboard", hotelId);
+      // Responses for the previous property must never replace the selected hotel's state.
+      if (currentHotelRef.current !== hotelId) return;
       if (notify) {
         const nextReq = new Set(current.requests.map((r) => r.id));
         const nextMsg = new Set(current.messages.map((m) => m.id));
@@ -152,10 +154,16 @@ export default function InSuiteStaff() {
       if (!notify) {
         const next = { ...defaults, ...(current.config.draft || {}),
           hotel_name: current.config.draft?.hotel_name || current.hotel_name };
-        savedSnapshotRef.current = JSON.stringify(next);
-        latestDraftRef.current = next;
-        setDraft(next);
-        setSaveStatus("saved");
+        // A manual refresh (or another device action) must not overwrite
+        // a manager's changes that are waiting for autosave.
+        const hasLocalChanges = !!savedSnapshotRef.current &&
+          JSON.stringify(latestDraftRef.current) !== savedSnapshotRef.current;
+        if (!hasLocalChanges) {
+          savedSnapshotRef.current = JSON.stringify(next);
+          latestDraftRef.current = next;
+          setDraft(next);
+          setSaveStatus("saved");
+        }
       }
     } catch (err) {
       if (!notify) toast.error((err as Error).message);
@@ -205,10 +213,12 @@ export default function InSuiteStaff() {
 
   const uploadPropertyImage = async (kind: "logo" | "hero", file: File | undefined) => {
     if (!file || !hotelId || loadedHotelId !== hotelId || !data?.can_configure) return;
+    const targetHotel = hotelId;
     setUploading(kind);
     try {
       const image_data = await prepareInSuiteImage(file, kind);
-      const response = await inSuiteStaff("staff-upload-image", hotelId, { kind, image_data });
+      const response = await inSuiteStaff("staff-upload-image", targetHotel, { kind, image_data });
+      if (currentHotelRef.current !== targetHotel) return;
       setDraft((old) => ({ ...old, [kind === "logo" ? "logo_url" : "hero_url"]: response.url }));
       toast.success("Optimized image uploaded. The change will be saved to your draft.");
     } catch (err) {
@@ -523,7 +533,7 @@ export default function InSuiteStaff() {
           <InSuiteRoomQrCodes hotelId={hotelId} hotelName={draft.hotel_name || data.hotel_name}
             rooms={data.rooms} accent={draft.primary_color}
             qrRooms={new Set(data.devices.filter((d) => d.kind === "qr" && d.is_active).map((d) => d.room_id))}
-            onChanged={async () => { await load(); }} />
+            onChanged={async () => { await load(true); }} />
           <section className={card + " space-y-3"}>
             <h2 className="text-xl font-semibold flex items-center gap-2"><Wifi className="h-5 w-5" /> Registered devices & room QR codes</h2>
             {!data.devices.some((d) => d.is_active) && <p className="text-slate-500">No active devices or QR codes.</p>}
