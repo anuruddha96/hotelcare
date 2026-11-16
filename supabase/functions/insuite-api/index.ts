@@ -30,6 +30,21 @@ const pinHash = async (id: string, pin: string) => {
     new TextEncoder().encode("hotelcare:insuite:maintenance-pin:v1:" + id + ":" + pin));
   return Array.from(new Uint8Array(signature)).map((b) => b.toString(16).padStart(2, "0")).join("");
 };
+
+/** Opaque room QR token, reproducible only server-side by an authenticated
+ * manager. Store SHA-256(token) in the device row, never the readable token.
+ * A key rotation requires reissuing existing QR printouts.
+ */
+const qrTokenForDevice = async (deviceId: string) => {
+  const secret = Deno.env.get("INSUITE_QR_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!secret || secret.length < 32) throw Error("In-Suite QR signing key is unavailable");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const digest = await crypto.subtle.sign("HMAC", key,
+    new TextEncoder().encode("hotelcare:insuite:qr:v1:" + deviceId));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+};
+
 const random = (count = 32) => {
   const bytes = crypto.getRandomValues(new Uint8Array(count));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -535,6 +550,34 @@ Deno.serve(async (req) => {
       if (error || !updated) return deny("Booking changed. Refresh and retry", 409);
       return send({ booking: updated });
     }
+
+    if (action === "staff-upload-image") {
+      if (!administrator) return deny("Administrator permission required");
+      const kind = val(body.kind, 12);
+      if (kind !== "logo" && kind !== "hero") return deny("Invalid image type", 400);
+      const encoded = typeof body.image_data === "string" ? body.image_data : "";
+      if (!/^data:image\/webp;base64,[A-Za-z0-9+/=]+$/.test(encoded) || encoded.length > 820_000)
+        return deny("Use a compressed WebP image smaller than 550 KB", 400);
+      let bytes: Uint8Array;
+      try {
+        const raw = atob(encoded.split(",")[1]);
+        bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+      } catch { return deny("Invalid image encoding", 400); }
+      if (!bytes.length || bytes.length > 550 * 1024 ||
+          !(bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+            bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50))
+        return deny("Invalid or oversized WebP file", 400);
+      // Existing public hotel-assets bucket: only this authenticated, hotel-scoped
+      // administrator action can upload In-Suite images.
+      const objectPath = `insuite/${org}/${hotelId}/${kind}-${crypto.randomUUID()}.webp`;
+      const { error } = await db.storage.from("hotel-assets").upload(objectPath, bytes, {
+        contentType: "image/webp", cacheControl: "31536000", upsert: false,
+      });
+      if (error) throw error;
+      const { data: publicImage } = db.storage.from("hotel-assets").getPublicUrl(objectPath);
+      return send({ url: publicImage.publicUrl, original_replaced: false }, 201);
+    }
+
     if (action === "staff-prefill-draft") {
       if (!administrator) return deny("Administrator permission required");
       // Safe prefill only from verified HotelCare property records. Guest Wi-Fi,
@@ -615,6 +658,36 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return send({ code, pin, expires_in_minutes: 15, room_number: room.room_number, device_id: id }, 201);
     }
+
+    if (action === "staff-view-qr") {
+      if (!administrator) return deny("Administrator permission required");
+      const requested: string[] = Array.isArray(body.room_ids)
+        ? [...new Set(body.room_ids.map((v: unknown) => val(v, 40)).filter(validUuid))] : [];
+      if (!requested.length || requested.length > 200) return deny("Select 1-200 rooms", 400);
+      const { data: hotelRooms, error: roomsError } = await roomQuery().in("id", requested);
+      if (roomsError) throw roomsError;
+      if ((hotelRooms || []).length !== requested.length) return deny("Unknown hotel room", 403);
+      const roomNumbers = new Map((hotelRooms || []).map((r: any) => [r.id, String(r.room_number)]));
+      const { data: devices, error } = await db.from("insuite_devices")
+        .select("id,room_id,device_token_hash").eq("organization_slug", org)
+        .eq("hotel_id", hotelId).eq("kind", "qr").eq("is_active", true)
+        .in("room_id", requested).limit(200);
+      if (error) throw error;
+      const codes: Array<{room_id: string; room_number: string; token: string}> = [];
+      const legacy_room_ids: string[] = [];
+      for (const device of devices || []) {
+        const token = await qrTokenForDevice(device.id);
+        if (await sha(token) === device.device_token_hash) {
+          codes.push({ room_id: device.room_id,
+            room_number: roomNumbers.get(device.room_id) || "?", token });
+        } else {
+          // Pre-upgrade random tokens cannot be recovered from hashes.
+          legacy_room_ids.push(device.room_id);
+        }
+      }
+      return send({ codes, legacy_room_ids });
+    }
+
     if (action === "staff-create-qr") {
       // Per-room guest QR codes: the token inside the QR pre-pairs the guest's
       // own phone to the room. Printing a NEW QR invalidates the previous one
@@ -638,9 +711,10 @@ Deno.serve(async (req) => {
           await db.from("insuite_devices").update({ is_active: false, device_token_hash: null })
             .eq("id", previous.id);
         }
-        const token = random(32);
+        const id = crypto.randomUUID();
+        const token = await qrTokenForDevice(id);
         const { error } = await db.from("insuite_devices").insert({
-          organization_slug: org, hotel_id: hotelId, room_id: roomId, kind: "qr",
+          id, organization_slug: org, hotel_id: hotelId, room_id: roomId, kind: "qr",
           label: "Room " + roomNumber + " · QR",
           device_token_hash: await sha(token), paired_at: new Date().toISOString(),
           active_reservation_id: previous?.active_reservation_id || null,
