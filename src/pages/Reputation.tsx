@@ -1584,7 +1584,7 @@ export default function Reputation() {
               return (
                 <Card key={location.id}>
                   <CardHeader className="pb-3"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><CardTitle className="text-lg">{location.google_location_title}</CardTitle><p className="text-xs text-muted-foreground mt-1">{location.hotel_id ? `Linked to ${hotels.find((hotel) => hotel.hotel_id === location.hotel_id)?.hotel_name || location.hotel_id}` : "Managed independently — no hotel needed"}</p></div><div className="flex flex-wrap gap-2">
-                      <Badge variant={edit.auto_reply_enabled ? "default" : "outline"}>{edit.auto_reply_enabled ? "Future auto replies enabled" : "Manual approval mode"}</Badge>
+                      <Badge variant={edit.auto_reply_enabled ? "default" : "outline"}>{edit.auto_reply_enabled ? "Auto replies on · 4–5★ · last 7 days" : "Manual approval mode"}</Badge>
                       {location.auto_backfill_active && <Badge variant="secondary">14-day auto catch-up active</Badge>}
                     </div></div></CardHeader>
                   <CardContent className="space-y-5">
@@ -1607,7 +1607,7 @@ export default function Reputation() {
 
                     <div className="grid lg:grid-cols-2 gap-4">
                       <div className="space-y-2"><Label>Reply signature</Label><Input value={edit.reply_signature || ""} onChange={(e) => setLocationEdits((current) => ({ ...current, [location.id]: { ...edit, reply_signature: e.target.value } }))} placeholder="e.g. The Hotel Ottofiori Team" /></div>
-                      <div className="rounded-lg border p-3 flex items-center justify-between gap-4"><div><div className="font-medium text-sm">Automatic publishing</div><div className="text-xs text-muted-foreground mt-1">Enable for this venue, including independent brunches. Requires explicit approval. Future 4–5★ low-risk reviews only.</div></div><Switch checked={edit.auto_reply_enabled} onCheckedChange={(checked) => {
+                      <div className="rounded-lg border p-3 flex items-center justify-between gap-4"><div><div className="font-medium text-sm">Automatic publishing</div><div className="text-xs text-muted-foreground mt-1">Enable for this venue, including independent brunches. AI answers 4–5★ low-risk reviews from the last 7 days; older reviews always stay for manual replies.</div></div><Switch checked={edit.auto_reply_enabled} onCheckedChange={(checked) => {
                         if (checked && !location.auto_reply_enabled) { setConsentLocationId(location.id); return; }
                         setLocationEdits((current) => ({ ...current, [location.id]: { ...edit,
                           auto_reply_enabled: checked,
@@ -1749,8 +1749,8 @@ export default function Reputation() {
                 <span className="block font-medium text-foreground">
                   {locations.find((location) => location.id === consentLocationId)?.reply_brand_name || "Selected Google business"}
                 </span>
-                <span className="block">When you save these settings, HotelCare may automatically publish replies to NEW 4–5★ low-risk reviews for this specific listing, after the configured delay. Negative and high-risk reviews remain manager-controlled.</span>
-                <span className="block">Reviews from the previous 14 days are not published automatically by this switch; use Automation center to select and approve those separately. You can disable future automatic publishing at any time.</span>
+                <span className="block">When you save these settings, HotelCare automatically publishes replies to 4–5★ low-risk reviews from the last 7 days for this specific listing, after the configured delay. Negative and high-risk reviews remain manager-controlled.</span>
+                <span className="block">Reviews older than 7 days are never published automatically — managers reply to those by hand (or approve them in the Automation center). You can disable automatic publishing at any time.</span>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
