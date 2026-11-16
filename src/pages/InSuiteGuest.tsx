@@ -413,37 +413,17 @@ export default function InSuiteGuest() {
       {view !== "home" && <button onClick={() => { setView("home"); setRequestType(null); }}
         className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900"><ChevronLeft className="h-4 w-4" />{t("back")}</button>}
       {view === "home" && <>
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-slate-500">{t("room")} {room}</p>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-            {verifiedGuest?.firstName ? `Hello, ${verifiedGuest.firstName}!` : `${t("welcomeTo")} ${config?.hotel_name || "our hotel"}!`}
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">{t("intro")}</p>
-          {stayActive ? <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-emerald-700">
-            <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" />{t("checkedIn")}</span>
-            {verifiedGuest?.guestCount != null && <span>{verifiedGuest.guestCount} {t("guests")}</span>}
-            {verifiedGuest?.departure && <span>{t("checkout")}: {verifiedGuest.departure}</span>}
-          </div> : <p role="status" className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{t("awaiting")}</p>}
-          {stayActive && !verifiedGuest && <div className="mt-4">
-            <button type="button" className="text-sm font-semibold underline underline-offset-4"
-              style={{ color: accent }} onClick={() => setVerifyOpen((v) => !v)}>{t("personalize")}</button>
-            {verifyOpen && <form className="mt-3 grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-2"
-              onSubmit={(e) => { e.preventDefault(); void verifyGuest(); }}>
-              <label className="space-y-1 text-sm font-medium">{t("surname")}
-                <input className="block w-full rounded-xl border border-slate-200 bg-white p-3"
-                  autoComplete="off" value={surname} maxLength={80}
-                  onChange={(e) => setSurname(e.target.value)} required />
-              </label>
-              <label className="space-y-1 text-sm font-medium">{t("departure")}
-                <input className="block w-full rounded-xl border border-slate-200 bg-white p-3"
-                  type="date" value={checkOutDate} onChange={(e) => setCheckOutDate(e.target.value)} required />
-              </label>
-              <button className="rounded-xl px-4 py-3 font-semibold text-white sm:col-span-2"
-                style={{ backgroundColor: accent }} disabled={busy || !surname.trim() || !checkOutDate}>
-                {busy ? "Checking…" : t("verify")}
-              </button>
-            </form>}
-          </div>}
+        <section className="space-y-2 pb-1">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-bold uppercase tracking-[0.15em]" style={{ color: accent }}>
+              {t("concierge")} · {t("room")} {room}
+            </p>
+            <button type="button" onClick={() => setWelcomeOpen(true)}
+              className="text-sm font-medium text-slate-500 underline underline-offset-4 hover:text-slate-800">{t("welcomeBack")}</button>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t("choose")}</h1>
+          <p className="text-sm text-slate-600">{t("touchHint")}</p>
+          {!stayActive && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t("awaiting")}</p>}
         </section>
         <section aria-labelledby="guest-service-heading">
           <h2 id="guest-service-heading" className="mb-3 text-xl font-bold">{t("choose")}</h2>
@@ -451,12 +431,13 @@ export default function InSuiteGuest() {
             {nav.filter((item) => item.view !== "home").map(({ view: target, label, Icon }) => {
               const hint = { requests: t("servicesHint"), chat: t("chatHint"), dining: t("diningHint"),
                 travel: t("travelHint"), hotel: t("infoHint"), home: "" }[target];
-              return <button key={target} type="button" onClick={() => { setView(target); setRequestType(null); }}
+              return <motion.button key={target} type="button" onClick={() => { setView(target); setRequestType(null); }}
+                whileHover={reducedMotion ? undefined : { y: -3 }} whileTap={reducedMotion ? undefined : { scale: 0.98 }}
                 className="flex min-h-36 flex-col items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 sm:p-5">
                 <Icon className="h-8 w-8" style={{ color: accent }} />
                 <span><strong className="block text-base leading-snug">{label}</strong>
                   <span className="mt-1 block text-xs leading-relaxed text-slate-500">{hint}</span></span>
-              </button>;
+              </motion.button>;
             })}
           </div>
         </section>
@@ -467,10 +448,7 @@ export default function InSuiteGuest() {
         {requests.some((r) => !["completed", "unavailable", "cancelled"].includes(r.status)) &&
           <button className="inline-flex items-center gap-2 text-sm font-semibold underline"
             onClick={() => setView("requests")}><BellRing className="h-4 w-4" />{t("requests")} ({requests.filter((r) => r.status !== "completed").length})</button>}
-        {config?.hero_url && <div className="relative h-32 overflow-hidden rounded-2xl md:h-44">
-          <img src={config.hero_url} alt="" className="h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-        </div>}
+}
       </>}
       {view === "requests" && <>
         {!stayActive && <p role="alert" className="rounded-xl bg-amber-50 p-4">{t("awaiting")}</p>}
