@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BedDouble, BellRing, ChevronLeft, CheckCircle2, Clock3, Coffee, Copy, Hotel,
-  Info, Languages, LockKeyhole, MessageCircle, Phone, Send, ShieldCheck,
+  Info, Languages, LockKeyhole, MessageCircle, Phone, Send,
   Sparkles, Wifi, Wrench, CarTaxiFront, Leaf, UtensilsCrossed, RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -388,7 +388,7 @@ export default function InSuiteGuest() {
           </div>
         </section>
         <div className="grid gap-3 md:grid-cols-2">
-          {panel(t("wifi"), config?.guest_wifi_ssid ? `${config.guest_wifi_ssid}\n${config.guest_wifi_password || "Open network · no password needed"}` : undefined, Wifi)}
+          {panel(t("wifi"), config?.guest_wifi_ssid ? `${config.guest_wifi_ssid}\n${config.guest_wifi_password || "Ask reception"}` : undefined, Wifi)}
           {panel("Breakfast", config?.breakfast_hours, Coffee)}
         </div>
         {requests.some((r) => !["completed", "unavailable", "cancelled"].includes(r.status)) &&
