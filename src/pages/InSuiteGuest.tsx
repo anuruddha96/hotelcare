@@ -121,10 +121,6 @@ export default function InSuiteGuest() {
   const [orders, setOrders] = useState<InSuiteOrder[]>([]);
   const [bookings, setBookings] = useState<InSuiteBooking[]>([]);
   const [stayActive, setStayActive] = useState(false);
-  const [verifiedGuest, setVerifiedGuest] = useState<{ firstName: string; guestCount: number | null; departure: string } | null>(null);
-  const [verifyOpen, setVerifyOpen] = useState(false);
-  const [surname, setSurname] = useState("");
-  const [checkOutDate, setCheckOutDate] = useState("");
   const [message, setMessage] = useState("");
   const [staffPin, setStaffPin] = useState("");
   const [pinOpen, setPinOpen] = useState(false);
@@ -140,7 +136,7 @@ export default function InSuiteGuest() {
     try {
       const data = await inSuiteGuest("guest-bootstrap", {}, value);
       sessionEpoch.current = data.session_epoch || null;
-      setVerifiedGuest(null);
+
       setGuestWelcome(data.stay_active === true ? data.guest || null : null);
       setWelcomeOpen(true);
       setStayActive(data.stay_active === true);
@@ -150,7 +146,7 @@ export default function InSuiteGuest() {
     } catch (err) {
       setError((err as Error).message);
       setConfig(null);
-      setVerifiedGuest(null);
+
       setGuestWelcome(null);
     } finally { setLoading(false); }
   }, []);
@@ -164,7 +160,7 @@ export default function InSuiteGuest() {
         setStayActive(data.stay_active === true);
         visitStarted.current = new Date().toISOString();
         setRequests([]); setMessages([]); setOrders([]); setBookings([]);
-        setVerifiedGuest(null); setVerifyOpen(false); setSurname(""); setCheckOutDate("");
+
         setGuestWelcome(data.stay_active === true ? data.guest || null : null);
         setWelcomeOpen(true);
         setMessage(""); setDetail("");
@@ -173,7 +169,7 @@ export default function InSuiteGuest() {
       }
       setStayActive(data.stay_active === true);
       setGuestWelcome(data.stay_active === true ? data.guest || null : null);
-      if (!data.stay_active) setVerifiedGuest(null);
+
       setRequests(data.requests || []);
       setMessages(data.messages || []);
       setOrders(data.orders || []);
@@ -211,26 +207,6 @@ export default function InSuiteGuest() {
       setToken(data.token);
       setPairCode("");
     } catch (err) { setError((err as Error).message); }
-    finally { setBusy(false); }
-  };
-  const verifyGuest = async () => {
-    if (!stayActive || !surname.trim() || !checkOutDate || busy) return;
-    setBusy(true);
-    try {
-      const data = await inSuiteGuest("guest-verify", { last_name: surname.trim(), check_out_date: checkOutDate });
-      if (data.session_epoch !== sessionEpoch.current) {
-        toast.error("Your room stay changed. Please refresh.");
-        return;
-      }
-      setVerifiedGuest({
-        firstName: String(data.first_name || "").slice(0, 80),
-        guestCount: typeof data.guest_count === "number" ? data.guest_count : null,
-        departure: String(data.check_out_date || ""),
-      });
-      setVerifyOpen(false);
-      setSurname("");
-      setCheckOutDate("");
-    } catch (err) { toast.error((err as Error).message); }
     finally { setBusy(false); }
   };
   const sendRequest = async () => {
