@@ -13,6 +13,7 @@ export type InSuiteContent = {
   logo_url?: string; hero_url?: string; primary_color?: string;
   house_rules?: string; transport_info?: string; facilities_info?: string;
   minibar_info?: string; sustainability_info?: string;
+  room_service_provider?: string;
   services?: Record<string, boolean>;
 };
 export type InSuiteRequest = {

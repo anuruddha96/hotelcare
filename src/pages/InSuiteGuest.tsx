@@ -62,8 +62,24 @@ const formatStatus = (value: string) => ({
 const card = "rounded-3xl border border-slate-200/80 bg-white p-5 shadow-sm";
 const primaryButton = "rounded-2xl px-6 py-3 font-semibold text-white shadow-sm disabled:opacity-50";
 
+/** Room QR flow: the printed in-room QR encodes /suite?qr=<token>. Scanning it
+ * pairs the guest's own phone with the room instantly — no typed code. The
+ * token is moved to storage and stripped from the URL at once so it never
+ * stays in the address bar, and requests still need a verified stay. */
+function tokenFromQrLink() {
+  try {
+    const url = new URL(window.location.href);
+    const scanned = (url.searchParams.get("qr") || "").toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(scanned)) return "";
+    localStorage.setItem(INSUITE_DEVICE_KEY, scanned);
+    url.searchParams.delete("qr");
+    window.history.replaceState(null, "", url.pathname + (url.search || "") + url.hash);
+    return scanned;
+  } catch { return ""; }
+}
+
 export default function InSuiteGuest() {
-  const [token, setToken] = useState(() => localStorage.getItem(INSUITE_DEVICE_KEY) || "");
+  const [token, setToken] = useState(() => tokenFromQrLink() || localStorage.getItem(INSUITE_DEVICE_KEY) || "");
   const [pairCode, setPairCode] = useState("");
   const [room, setRoom] = useState("");
   const [config, setConfig] = useState<InSuiteContent | null>(null);
@@ -209,7 +225,8 @@ export default function InSuiteGuest() {
       <div className="w-full max-w-md rounded-3xl bg-white/10 border border-white/15 p-8 text-center space-y-5">
         <Hotel className="h-12 w-12 mx-auto" />
         <h1 className="text-3xl font-semibold">HotelCare In-Suite</h1>
-        <p className="text-slate-300">Staff: enter your one-time room pairing code.</p>
+        <p className="text-slate-300">Guests: scan the QR code in your room to open its services.</p>
+        <p className="text-slate-400 text-sm">Staff setting up a room tablet: enter the one-time pairing code.</p>
         {error && <p role="alert" className="text-amber-200">{error}</p>}
         {loading ? <p>Connecting to the room…</p> : <>
           <input value={pairCode} onChange={(e) => setPairCode(e.target.value.toUpperCase())}
@@ -361,6 +378,11 @@ export default function InSuiteGuest() {
       </>}
       {view === "dining" && <>
         <h1 className="text-3xl font-semibold">{t("dining")}</h1>
+        {config?.room_service_provider && config?.services?.room_service &&
+          <p className="text-slate-600 flex items-center gap-2">
+            <UtensilsCrossed className="h-4 w-4" style={{ color: accent }} />
+            Room service by <strong>{config.room_service_provider}</strong>
+          </p>}
         <div className="grid lg:grid-cols-2 gap-4">
           {panel("Breakfast", config?.breakfast_hours, Coffee)}
           {panel("Restaurant & bar", config?.restaurant_hours, UtensilsCrossed)}
