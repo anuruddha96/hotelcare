@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import {
   BellRing, CheckCheck, ClipboardList, Hotel, MessageCircle, MonitorSmartphone,
   RefreshCw, Settings2, ShieldCheck, Wifi, LockKeyhole, Send, Copy,
+  ImagePlus, CloudUpload, CheckCircle2, AlertCircle, Save,
 } from "lucide-react";
 import { inSuiteStaff, type InSuiteContent, type InSuiteRequest, type InSuiteMessage } from "@/lib/insuiteApi";
 import {
@@ -15,6 +16,7 @@ import {
   type InSuiteOrderLine, type InSuiteStaffBooking,
 } from "@/components/insuite/InSuiteCommerceConsole";
 import { InSuiteRoomQrCodes } from "@/components/insuite/InSuiteRoomQrCodes";
+import { prepareInSuiteImage } from "@/lib/insuiteImages";
 
 type Device = {
   id: string; room_id: string; label: string; is_active: boolean;
@@ -76,7 +78,16 @@ export default function InSuiteStaff() {
   const [hotelId, setHotelId] = useState("");
   const [tab, setTab] = useState<"requests" | "chat" | "orders" | "bookings" | "menu" | "admin">("requests");
   const [data, setData] = useState<Dashboard | null>(null);
+  const [loadedHotelId, setLoadedHotelId] = useState("");
   const [draft, setDraft] = useState<InSuiteContent>(defaults);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "dirty" | "saving" | "error">("saved");
+  const [uploading, setUploading] = useState<"logo" | "hero" | null>(null);
+  const savedSnapshotRef = useRef("");
+  const latestDraftRef = useRef<InSuiteContent>(defaults);
+  const currentHotelRef = useRef("");
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  latestDraftRef.current = draft;
+  currentHotelRef.current = hotelId;
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState("");
@@ -103,7 +114,9 @@ export default function InSuiteStaff() {
     previousPropertyRef.current = activeProperty;
   }, [hotelId, hotels, profile?.assigned_hotel]);
   useEffect(() => {
-    setData(null); setIssued(null); previousRequests.current = null; previousMessages.current = null; previousAlerts.current = null;
+    setData(null); setLoadedHotelId(""); setIssued(null);
+    savedSnapshotRef.current = ""; setSaveStatus("saved");
+    previousRequests.current = null; previousMessages.current = null; previousAlerts.current = null;
   }, [hotelId]);
   const load = useCallback(async (notify = false) => {
     if (!hotelId) return;
@@ -134,8 +147,16 @@ export default function InSuiteStaff() {
         previousAlerts.current = new Set((current.alerts || []).map((a) => a.id));
       }
       setData(current);
-      // Preserve unsaved edits while polling; draft is only refreshed after explicit load / save.
-      if (!notify) setDraft({ ...defaults, ...(current.config.draft || {}), hotel_name: current.config.draft?.hotel_name || current.hotel_name });
+      if (!notify) setLoadedHotelId(hotelId);
+      // Never replace local edits during the 15-second notification poll.
+      if (!notify) {
+        const next = { ...defaults, ...(current.config.draft || {}),
+          hotel_name: current.config.draft?.hotel_name || current.hotel_name };
+        savedSnapshotRef.current = JSON.stringify(next);
+        latestDraftRef.current = next;
+        setDraft(next);
+        setSaveStatus("saved");
+      }
     } catch (err) {
       if (!notify) toast.error((err as Error).message);
     } finally { if (!notify) setLoading(false); }
@@ -149,6 +170,81 @@ export default function InSuiteStaff() {
     document.addEventListener("visibilitychange", visibility);
     return () => { window.clearInterval(id); document.removeEventListener("visibilitychange", visibility); };
   }, [hotelId, user?.id, load]);
+
+
+  /** Serialize writes so a slow network request cannot overwrite a newer draft. */
+  const saveDraft = useCallback(async (value: InSuiteContent, propertyId: string) => {
+    const snapshot = JSON.stringify(value);
+    const operation = saveQueueRef.current.catch(() => undefined).then(
+      () => inSuiteStaff("staff-save-draft", propertyId, { draft: value }));
+    saveQueueRef.current = operation.catch(() => undefined);
+    if (currentHotelRef.current === propertyId) setSaveStatus("saving");
+    try {
+      await operation;
+      if (currentHotelRef.current === propertyId) {
+        savedSnapshotRef.current = snapshot;
+        setSaveStatus(JSON.stringify(latestDraftRef.current) === snapshot ? "saved" : "dirty");
+      }
+      return true;
+    } catch (err) {
+      if (currentHotelRef.current === propertyId) setSaveStatus("error");
+      toast.error("In-Suite draft could not be saved: " + (err as Error).message);
+      return false;
+    }
+  }, []);
+
+  // Save each edited property field and service toggle after a short idle.
+  // Draft changes are separate from the manager-controlled Publish action.
+  useEffect(() => {
+    if (!hotelId || loadedHotelId !== hotelId || !data?.can_configure ||
+        JSON.stringify(draft) === savedSnapshotRef.current) return;
+    setSaveStatus("dirty");
+    const pending = window.setTimeout(() => { void saveDraft(draft, hotelId); }, 900);
+    return () => window.clearTimeout(pending);
+  }, [draft, hotelId, loadedHotelId, data?.can_configure, saveDraft]);
+
+  const uploadPropertyImage = async (kind: "logo" | "hero", file: File | undefined) => {
+    if (!file || !hotelId || loadedHotelId !== hotelId || !data?.can_configure) return;
+    setUploading(kind);
+    try {
+      const image_data = await prepareInSuiteImage(file, kind);
+      const response = await inSuiteStaff("staff-upload-image", hotelId, { kind, image_data });
+      setDraft((old) => ({ ...old, [kind === "logo" ? "logo_url" : "hero_url"]: response.url }));
+      toast.success("Optimized image uploaded. The change will be saved to your draft.");
+    } catch (err) {
+      toast.error("Image upload failed: " + (err as Error).message);
+    } finally { setUploading(null); }
+  };
+
+  const imageField = (kind: "logo" | "hero", title: string) => {
+    const key = kind === "logo" ? "logo_url" : "hero_url";
+    const url = String(draft[key] || "");
+    return <div className="space-y-2">
+      <div className="text-sm font-semibold">{title}</div>
+      <label className="block rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 p-4 text-center
+        cursor-pointer hover:border-sky-400 focus-within:ring-2 focus-within:ring-sky-300"
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
+        onDrop={(e) => { e.preventDefault(); void uploadPropertyImage(kind, e.dataTransfer.files?.[0]); }}>
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          className="sr-only" aria-label={`Upload ${title.toLowerCase()}`}
+          onChange={(e) => { void uploadPropertyImage(kind, e.target.files?.[0]); e.target.value = ""; }} />
+        {url && <img src={url} alt={kind === "logo" ? "Current hotel logo" : "Current welcome photo"}
+          className={`mx-auto mb-3 max-w-full rounded-lg object-contain ${kind === "logo" ? "max-h-28" : "max-h-48"}`} />}
+        {uploading === kind ? <span className="text-sm">Compressing and uploading image…</span> :
+          <span className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <CloudUpload className="h-4 w-4" /> Drag an image here or click to upload
+          </span>}
+        <p className="mt-1 text-xs text-slate-500">
+          Converted to WebP before upload · maximum 550 KB stored · no original file sent
+        </p>
+      </label>
+      <details className="text-xs text-slate-600">
+        <summary className="cursor-pointer">Or use an existing HTTPS image URL</summary>
+        <input className={inputClass + " mt-2"} aria-label={title + " URL"} value={url}
+          placeholder="https://…" onChange={(e) => setDraft((old) => ({ ...old, [key]: e.target.value }))} />
+      </details>
+    </div>;
+  };
 
   const execute = async (action: string, payload: Record<string, unknown>, success: string) => {
     setBusy(true);
@@ -335,17 +431,28 @@ export default function InSuiteStaff() {
         {!data.can_configure ? <div className={card}>Only authorized hotel admins and top management can configure room tablets.</div> : <>
           <div className="grid lg:grid-cols-2 gap-5">
             <section className={card + " space-y-4"}>
-              <div className="flex items-center gap-2"><Hotel className="h-5 w-5" /><h2 className="text-xl font-semibold">Property content</h2></div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2"><Hotel className="h-5 w-5" /><h2 className="text-xl font-semibold">Property content</h2></div>
+                <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs font-semibold">
+                  {saveStatus === "saved" ? <><CheckCircle2 className="h-4 w-4 text-emerald-600" /> All changes saved</> :
+                   saveStatus === "saving" ? <><RefreshCw className="h-4 w-4 animate-spin" /> Saving…</> :
+                   saveStatus === "error" ? <><AlertCircle className="h-4 w-4 text-red-600" /> Save failed</> :
+                     <><Save className="h-4 w-4" /> Unsaved changes</>}
+                </div>
+              </div>
               <p className="text-sm text-slate-600">Draft content is not shown to guests until published and enabled. Verify opening hours and guest Wi-Fi information before publishing.</p>
-              <button className="rounded-xl border px-3 py-2 text-sm font-semibold" disabled={busy}
-                onClick={() => void execute("staff-prefill-draft", {}, "Existing hotel branding added to draft")}>
+              <button className="rounded-xl border px-3 py-2 text-sm font-semibold" disabled={busy || saveStatus === "saving"}
+                onClick={async () => {
+                  if (!await saveDraft(latestDraftRef.current, hotelId)) return;
+                  await execute("staff-prefill-draft", {}, "Existing hotel branding added to draft");
+                }}>
                 Prefill from HotelCare hotel branding
               </button>
               <p className="text-xs text-slate-500">Address, Wi-Fi, menus, facilities and opening hours still require property verification.</p>
               {field("hotel_name", "Displayed hotel name")}
               {field("welcome", "Welcome message", true)}
-              {field("logo_url", "Hotel logo URL (HTTPS)")}
-              {field("hero_url", "Welcome photo URL (HTTPS)")}
+              {imageField("logo", "Hotel logo")}
+              {imageField("hero", "Welcome photo")}
               {field("primary_color", "Brand color (#RRGGBB)")}
               {field("address", "Hotel address")}
               {field("reception_phone", "Reception contact number")}
@@ -374,11 +481,18 @@ export default function InSuiteStaff() {
                 </label>)}
                 {!JACUZZI_HOTELS.has(hotelId) &&
                   <p className="text-xs text-slate-400">Jacuzzi reservations are available only at Hotel Memories Budapest.</p>}
-                <div className="flex flex-wrap gap-3">
-                  <button disabled={busy} className={actionClass}
-                    onClick={() => void execute("staff-save-draft", { draft }, "Draft saved")}>Save draft</button>
-                  <button disabled={busy} className="rounded-xl border px-4 py-2.5 font-semibold"
-                    onClick={() => { if (window.confirm("Publish the last saved draft to guest tablets?")) void execute("staff-publish", {}, "Guest content published"); }}>Publish saved draft</button>
+                <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 p-3 shadow-sm backdrop-blur">
+                  <button disabled={busy || !!uploading} className={actionClass}
+                    onClick={() => void saveDraft(latestDraftRef.current, hotelId)}>
+                    {saveStatus === "error" ? "Retry save" : "Save now"}
+                  </button>
+                  <button disabled={busy || !!uploading || saveStatus === "saving"} className="rounded-xl border px-4 py-2.5 font-semibold"
+                    onClick={async () => {
+                      if (!window.confirm("Publish verified hotel content to all guest devices?")) return;
+                      if (!await saveDraft(latestDraftRef.current, hotelId)) return;
+                      await execute("staff-publish", {}, "Guest content published");
+                    }}>Publish verified draft</button>
+                  <span className="text-xs text-slate-500">Changes autosave as draft; publishing is always manual.</span>
                 </div>
                 <p className="text-sm">{data.config.enabled ? "Published and enabled" : "Not published; guest access is disabled"}</p>
               </div>
@@ -412,8 +526,9 @@ export default function InSuiteStaff() {
             onChanged={async () => { await load(); }} />
           <section className={card + " space-y-3"}>
             <h2 className="text-xl font-semibold flex items-center gap-2"><Wifi className="h-5 w-5" /> Registered devices & room QR codes</h2>
-            {!data.devices.length && <p className="text-slate-500">No devices yet.</p>}
-            {data.devices.map((d) => <div key={d.id} className="flex flex-col md:flex-row justify-between gap-3 border-t py-3">
+            {!data.devices.some((d) => d.is_active) && <p className="text-slate-500">No active devices or QR codes.</p>}
+            <p className="text-xs text-slate-500">{data.devices.filter((d) => !d.is_active).length} revoked records hidden for clarity.</p>
+            {data.devices.filter((d) => d.is_active).map((d) => <div key={d.id} className="flex flex-col md:flex-row justify-between gap-3 border-t py-3">
               <div><strong>Room {roomLabel(d.room_id)} — {d.label}</strong>
                 <p className="text-xs text-slate-500">{d.is_active ? d.paired_at ? "Paired" : "Awaiting pairing" : "Revoked"}
                   {" · "}Last seen: {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "Never"}
