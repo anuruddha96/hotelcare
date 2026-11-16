@@ -1,6 +1,7 @@
 import type { TrainingCurriculum, RoleKey } from '../types';
 import { housekeeperCurriculum as baseHousekeeperCurriculum } from './housekeeper';
 import { applyHousekeeperUiFixes } from './housekeeperUiFixes';
+import { housekeeperAtTheDoorCurriculum } from './housekeeper-at-the-door';
 import { managerOrientationCurriculum } from './manager';
 import { managerCompleteCurriculum } from './manager-complete';
 import { managerTeamCurriculum } from './manager-team';
@@ -18,6 +19,7 @@ const housekeeperCurriculum = applyHousekeeperUiFixes(baseHousekeeperCurriculum)
 export const ALL_CURRICULA: TrainingCurriculum[] = [
   slntManagerTraining, slntTeamACleanerTraining, slntTeamBCleanerTraining,
   housekeeperCurriculum,
+  housekeeperAtTheDoorCurriculum,
   managerCompleteCurriculum,
   managerOrientationCurriculum,
   managerTeamCurriculum,

@@ -9,46 +9,54 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import {
   Play, RefreshCw, CheckCircle2, BellOff, GraduationCap, Sparkles,
   BedDouble, ClipboardList, ConciergeBell, Wrench, TrendingUp, Receipt, Shield, Search,
+  type LucideIcon,
 } from 'lucide-react';
 import type { I18nText, TrainingCurriculum, TrainingModuleKey } from './types';
 
 const TXT = {
-  title: { en: 'Training Center', hu: 'Képzési központ', es: 'Centro de entrenamiento', vi: 'Trung tâm đào tạo', mn: 'Сургалтын төв' },
+  title: { en: 'Training Center', hu: 'Képzési központ', es: 'Centro de entrenamiento', vi: 'Trung tâm đào tạo', mn: 'Сургалтын төв', uk: 'Центр навчання' },
   subtitle: {
     en: 'Pick a module, then tap a unit. We navigate you to the right screen and highlight what to do. Progress is saved automatically.',
-    hu: 'Válassz modult, majd egy egységet. Odavezetünk és kiemeljük a teendőt.',
-    es: 'Elige un módulo y luego una unidad. Te llevamos a la pantalla correcta.',
-    vi: 'Chọn mô-đun rồi chọn đơn vị. Chúng tôi sẽ đưa bạn đến đúng màn hình.',
-    mn: 'Модуль, дараа нь нэгжийг сонго. Бид зөв дэлгэц рүү аваачна.',
+    hu: 'Válassz modult, majd egy egységet. Odavezetünk és kiemeljük a teendőt. A haladás automatikusan mentődik.',
+    es: 'Elige un módulo y luego una unidad. Te llevamos a la pantalla correcta y resaltamos qué hacer. El progreso se guarda solo.',
+    vi: 'Chọn mô-đun rồi chọn đơn vị. Chúng tôi sẽ đưa bạn đến đúng màn hình và chỉ rõ việc cần làm. Tiến độ được lưu tự động.',
+    mn: 'Модуль, дараа нь нэгжийг сонго. Бид зөв дэлгэц рүү аваачиж, юу хийхийг онцолно. Явц автоматаар хадгалагдана.',
+    uk: 'Оберіть модуль, потім розділ. Ми відкриємо потрібний екран і підсвітимо, що робити. Прогрес зберігається автоматично.',
   },
-  fullTitle: { en: 'Full guided tour', hu: 'Teljes bemutató', es: 'Recorrido completo', vi: 'Toàn bộ hướng dẫn', mn: 'Бүрэн танилцуулга' },
+  fullTitle: { en: 'Full guided tour', hu: 'Teljes bemutató', es: 'Recorrido completo', vi: 'Toàn bộ hướng dẫn', mn: 'Бүрэн танилцуулга', uk: 'Повний тур' },
   fullBody: {
-    en: 'Learn each manager module one at a time. You choose when to continue.',
-    hu: 'Minden vezetői modult külön tanulhatsz meg. Te döntöd el, mikor folytatod.',
+    en: 'Learn each module one at a time. You choose when to continue.',
+    hu: 'Minden modult külön tanulhatsz meg. Te döntöd el, mikor folytatod.',
     es: 'Un módulo a la vez. Tú decides cuándo continuar.',
     vi: 'Học từng mô-đun. Bạn quyết định khi nào tiếp tục.',
     mn: 'Модуль бүрээр тус тусад нь сур. Хэзээ үргэлжлүүлэхээ өөрөө шийд.',
+    uk: 'Вивчайте модулі по одному. Ви самі вирішуєте, коли продовжити.',
   },
-  start: { en: 'Start', hu: 'Indítás', es: 'Iniciar', vi: 'Bắt đầu', mn: 'Эхлэх' },
-  resume: { en: 'Resume', hu: 'Folytatás', es: 'Continuar', vi: 'Tiếp tục', mn: 'Үргэлжлүүлэх' },
-  restart: { en: 'Restart', hu: 'Újraindítás', es: 'Reiniciar', vi: 'Khởi động lại', mn: 'Дахин эхлэх' },
-  markDone: { en: 'Mark complete', hu: 'Kész', es: 'Completar', vi: 'Hoàn tất', mn: 'Дуусгах' },
-  dismiss: { en: 'Mute 30 days', hu: 'Némítás 30 napra', es: 'Silenciar 30 días', vi: 'Tắt 30 ngày', mn: '30 хоног нуух' },
-  done: { en: 'Completed', hu: 'Befejezve', es: 'Completado', vi: 'Hoàn thành', mn: 'Дууссан' },
-  inProgress: { en: 'In progress', hu: 'Folyamatban', es: 'En progreso', vi: 'Đang làm', mn: 'Үргэлжилж байна' },
-  notStarted: { en: 'Not started', hu: 'Nincs elkezdve', es: 'Sin iniciar', vi: 'Chưa bắt đầu', mn: 'Эхлээгүй' },
-  search: { en: 'Search modules and units…', hu: 'Modulok és egységek keresése…', es: 'Buscar módulos y unidades…', vi: 'Tìm mô-đun và đơn vị…', mn: 'Модуль, нэгж хайх…' },
-  noMatch: { en: 'No units match.', hu: 'Nincs találat.', es: 'Sin resultados.', vi: 'Không có kết quả.', mn: 'Илэрц алга.' },
+  start: { en: 'Start', hu: 'Indítás', es: 'Iniciar', vi: 'Bắt đầu', mn: 'Эхлэх', uk: 'Почати' },
+  resume: { en: 'Resume', hu: 'Folytatás', es: 'Continuar', vi: 'Tiếp tục', mn: 'Үргэлжлүүлэх', uk: 'Продовжити' },
+  restart: { en: 'Restart', hu: 'Újraindítás', es: 'Reiniciar', vi: 'Khởi động lại', mn: 'Дахин эхлэх', uk: 'Почати заново' },
+  markDone: { en: 'Mark complete', hu: 'Kész', es: 'Completar', vi: 'Hoàn tất', mn: 'Дуусгах', uk: 'Позначити виконаним' },
+  dismiss: { en: 'Mute 30 days', hu: 'Némítás 30 napra', es: 'Silenciar 30 días', vi: 'Tắt 30 ngày', mn: '30 хоног нуух', uk: 'Вимкнути на 30 днів' },
+  done: { en: 'Completed', hu: 'Befejezve', es: 'Completado', vi: 'Hoàn thành', mn: 'Дууссан', uk: 'Завершено' },
+  inProgress: { en: 'In progress', hu: 'Folyamatban', es: 'En progreso', vi: 'Đang làm', mn: 'Үргэлжилж байна', uk: 'У процесі' },
+  notStarted: { en: 'Not started', hu: 'Nincs elkezdve', es: 'Sin iniciar', vi: 'Chưa bắt đầu', mn: 'Эхлээгүй', uk: 'Не розпочато' },
+  search: { en: 'Search modules and units…', hu: 'Modulok és egységek keresése…', es: 'Buscar módulos y unidades…', vi: 'Tìm mô-đun và đơn vị…', mn: 'Модуль, нэгж хайх…', uk: 'Пошук модулів і розділів…' },
+  noMatch: { en: 'No units match.', hu: 'Nincs találat.', es: 'Sin resultados.', vi: 'Không có kết quả.', mn: 'Илэрц алга.', uk: 'Нічого не знайдено.' },
+  steps: { en: 'steps', hu: 'lépés', es: 'pasos', vi: 'bước', mn: 'алхам', uk: 'кроків' },
+  min: { en: 'min', hu: 'perc', es: 'min', vi: 'phút', mn: 'мин', uk: 'хв' },
+  units: { en: 'units', hu: 'egység', es: 'unidades', vi: 'đơn vị', mn: 'нэгж', uk: 'розділів' },
+  doneCount: { en: 'done', hu: 'kész', es: 'hechas', vi: 'xong', mn: 'дууссан', uk: 'виконано' },
+  modules: { en: 'modules', hu: 'modul', es: 'módulos', vi: 'mô-đun', mn: 'модуль', uk: 'модулів' },
 };
 
-const MODULE_META: Record<TrainingModuleKey, { label: I18nText; icon: any; order: number }> = {
-  housekeeping: { label: { en: 'Housekeeping', hu: 'Szobaasszony', es: 'Camarera', vi: 'Buồng phòng', mn: 'Өрөө үйлчилгээ' }, icon: BedDouble, order: 1 },
-  hr_attendance: { label: { en: 'HR & Attendance', hu: 'HR és Jelenlét', es: 'HR y Asistencia', vi: 'HR & Chấm công', mn: 'HR ба Ирц' }, icon: ClipboardList, order: 2 },
-  reception: { label: { en: 'Reception', hu: 'Recepció', es: 'Recepción', vi: 'Lễ tân', mn: 'Ресепшн' }, icon: ConciergeBell, order: 3 },
-  maintenance: { label: { en: 'Maintenance', hu: 'Karbantartás', es: 'Mantenimiento', vi: 'Bảo trì', mn: 'Засвар' }, icon: Wrench, order: 4 },
-  revenue: { label: { en: 'Revenue Management', hu: 'Bevétel', es: 'Ingresos', vi: 'Doanh thu', mn: 'Орлого' }, icon: TrendingUp, order: 5 },
-  invoices: { label: { en: 'Purchase Invoices', hu: 'Számlák', es: 'Facturas', vi: 'Hóa đơn', mn: 'Нэхэмжлэх' }, icon: Receipt, order: 6 },
-  admin: { label: { en: 'Getting started', hu: 'Első lépések', es: 'Primeros pasos', vi: 'Bắt đầu', mn: 'Эхлэх' }, icon: Shield, order: 7 },
+const MODULE_META: Record<TrainingModuleKey, { label: I18nText; icon: LucideIcon; order: number }> = {
+  housekeeping: { label: { en: 'Housekeeping', hu: 'Housekeeping', es: 'Housekeeping', vi: 'Buồng phòng', mn: 'Өрөө үйлчилгээ', uk: 'Housekeeping' }, icon: BedDouble, order: 1 },
+  hr_attendance: { label: { en: 'HR & Attendance', hu: 'HR és Jelenlét', es: 'HR y Asistencia', vi: 'HR & Chấm công', mn: 'HR ба Ирц', uk: 'HR і відвідуваність' }, icon: ClipboardList, order: 2 },
+  reception: { label: { en: 'Reception', hu: 'Recepció', es: 'Recepción', vi: 'Lễ tân', mn: 'Ресепшн', uk: 'Рецепція' }, icon: ConciergeBell, order: 3 },
+  maintenance: { label: { en: 'Maintenance', hu: 'Karbantartás', es: 'Mantenimiento', vi: 'Bảo trì', mn: 'Засвар', uk: 'Техобслуговування' }, icon: Wrench, order: 4 },
+  revenue: { label: { en: 'Revenue Management', hu: 'Bevétel', es: 'Ingresos', vi: 'Doanh thu', mn: 'Орлого', uk: 'Управління доходами' }, icon: TrendingUp, order: 5 },
+  invoices: { label: { en: 'Purchase Invoices', hu: 'Számlák', es: 'Facturas', vi: 'Hóa đơn', mn: 'Нэхэмжлэх', uk: 'Рахунки постачальників' }, icon: Receipt, order: 6 },
+  admin: { label: { en: 'Getting started', hu: 'Első lépések', es: 'Primeros pasos', vi: 'Bắt đầu', mn: 'Эхлэх', uk: 'Перші кроки' }, icon: Shield, order: 7 },
 };
 
 export function TrainingCenter() {
@@ -105,7 +113,7 @@ export function TrainingCenter() {
         <CardContent className="flex-1 flex flex-col gap-2 pt-0">
           <Progress value={pct} className="h-1.5" aria-label={`Progress ${pct}%`} />
           <div className="text-[11px] text-muted-foreground">
-            {c.steps.length} steps{c.estMinutes ? ` · ~${c.estMinutes} min` : ''}
+            {c.steps.length} {txt(TXT.steps, lang)}{c.estMinutes ? ` · ~${c.estMinutes} ${txt(TXT.min, lang)}` : ''}
           </div>
           <div className="mt-auto flex flex-wrap gap-1.5">
             <Button size="sm" onClick={() => start(c.slug, { manual: true })} className="min-h-9 h-9 text-xs">
@@ -180,7 +188,7 @@ export function TrainingCenter() {
                   </div>
                 </div>
                 <Badge variant={isDone ? 'default' : isResume ? 'secondary' : 'outline'} className="shrink-0">
-                  {isDone ? txt(TXT.done, lang) : eligibleUnits.length > 0 ? `${guidedProgress} ${lang === 'hu' ? 'modul' : 'modules'}` : isResume ? guidedProgress : txt(TXT.notStarted, lang)}
+                  {isDone ? txt(TXT.done, lang) : eligibleUnits.length > 0 ? `${guidedProgress} ${txt(TXT.modules, lang)}` : isResume ? guidedProgress : txt(TXT.notStarted, lang)}
                 </Badge>
               </div>
             </CardHeader>
@@ -217,7 +225,7 @@ export function TrainingCenter() {
                     <div className="flex-1 text-left min-w-0">
                       <div className="text-sm sm:text-base font-semibold truncate">{txt(mod.meta.label, lang)}</div>
                       <div className="text-[11px] text-muted-foreground">
-                        {mod.items.length} units · {doneCount} done
+                        {mod.items.length} {txt(TXT.units, lang)} · {doneCount} {txt(TXT.doneCount, lang)}
                       </div>
                     </div>
                   </div>

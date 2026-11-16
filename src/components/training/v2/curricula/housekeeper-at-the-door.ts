@@ -1,0 +1,288 @@
+// Housekeeper "At the door" unit.
+//
+// The first-shift tour goes from "start the room" straight to the in-room
+// tools. The decisions a housekeeper has to make BEFORE entering — a Do Not
+// Disturb sign, a guest who declines service, a checkout room that is still
+// occupied, a guest who only wants towels — were not taught anywhere. Each
+// step here is situational, so every step is optional and is explained even
+// when its control is not on screen (`explainWhenUnavailable`). Nothing in
+// this unit ever asks for a real operational action.
+import type { I18nText, TrainingCurriculum } from '../types';
+
+const t6 = (
+  en: string,
+  hu: string,
+  es: string,
+  vi: string,
+  mn: string,
+  uk: string,
+): I18nText => ({ en, hu, es, vi, mn, uk });
+
+const AT_THE_DOOR = t6('At the door', 'Az ajtónál', 'En la puerta', 'Trước cửa phòng', 'Хаалганы өмнө', 'Біля дверей');
+const IN_ROOM = t6('Inside the room', 'A szobában', 'Dentro de la habitación', 'Trong phòng', 'Өрөөн дотор', 'У номері');
+
+const doorwayBase = {
+  route: '/:org',
+  tab: 'housekeeping',
+  precondition: 'has_assigned_room_not_started' as const,
+  optional: true,
+  explainWhenUnavailable: true,
+};
+
+export const housekeeperAtTheDoorCurriculum: TrainingCurriculum = {
+  slug: 'v2_housekeeper_at_the_door',
+  name: t6(
+    'At the door — DND, no service, checkout & towels',
+    'Az ajtónál — DND, nincs takarítás, checkout és törölköző',
+    'En la puerta — DND, sin servicio, salida y toallas',
+    'Trước cửa phòng — DND, không dọn, trả phòng & khăn',
+    'Хаалганы өмнө — DND, үйлчилгээгүй, checkout ба алчуур',
+    'Біля дверей — DND, без прибирання, виїзд і рушники',
+  ),
+  description: t6(
+    'What to press when the guest has a DND sign, declines cleaning, has not checked out yet, or only wants fresh towels. 2 minutes, nothing is changed.',
+    'Mit nyomj meg, ha a vendég DND táblát tett ki, nem kér takarítást, még nem jelentkezett ki, vagy csak friss törölközőt kér. 2 perc, semmi nem módosul.',
+    'Qué pulsar cuando el huésped tiene el cartel DND, rechaza la limpieza, aún no ha salido o solo quiere toallas limpias. 2 minutos, no se cambia nada.',
+    'Bấm gì khi khách treo biển DND, từ chối dọn phòng, chưa trả phòng hoặc chỉ muốn khăn mới. 2 phút, không thay đổi gì.',
+    'Зочин DND тэмдэг тавьсан, цэвэрлэгээнээс татгалзсан, хараахан гараагүй эсвэл зөвхөн цэвэр алчуур хүссэн үед юу дарахыг заана. 2 минут, юу ч өөрчлөгдөхгүй.',
+    'Що натискати, коли гість повісив DND, відмовився від прибирання, ще не виїхав або хоче лише свіжі рушники. 2 хвилини, нічого не змінюється.',
+  ),
+  roles: ['housekeeping'],
+  category: 'feature_promo',
+  priority: 12,
+  moduleKey: 'housekeeping',
+  estMinutes: 2,
+  steps: [
+    {
+      key: 'door_intro', phase: AT_THE_DOOR,
+      title: t6(
+        'Three things can happen at the door 🚪',
+        'Három dolog történhet az ajtónál 🚪',
+        'En la puerta pueden pasar tres cosas 🚪',
+        'Ba tình huống có thể xảy ra trước cửa 🚪',
+        'Хаалганы өмнө гурван зүйл тохиолдож болно 🚪',
+        'Біля дверей може статися три речі 🚪',
+      ),
+      body: t6(
+        'Before you start cleaning, the guest decides what happens: a Do Not Disturb sign, “no cleaning today”, or a checkout room where the guest has not left yet. Hotel Care has a button for each. This short guide shows which one to use, so you never start a room you should not enter.',
+        'Mielőtt takarítani kezdesz, a vendég dönt: Ne zavarjanak tábla, „ma nem kérek takarítást”, vagy checkout szoba, ahonnan a vendég még nem ment el. A Hotel Care-ben mindegyikre van gomb. Ez a rövid útmutató megmutatja, melyiket használd, hogy soha ne indíts el olyan szobát, ahová nem szabad bemenned.',
+        'Antes de empezar a limpiar, el huésped decide: cartel de No molestar, “hoy no quiero limpieza” o una habitación de salida que aún no ha dejado. Hotel Care tiene un botón para cada caso. Esta guía corta te enseña cuál usar para que nunca inicies una habitación en la que no debes entrar.',
+        'Trước khi bắt đầu dọn, khách quyết định: biển Không làm phiền, “hôm nay không dọn”, hoặc phòng trả mà khách chưa rời đi. Hotel Care có nút cho từng trường hợp. Hướng dẫn ngắn này chỉ bạn dùng nút nào để không bao giờ bắt đầu một phòng không được phép vào.',
+        'Цэвэрлэж эхлэхээс өмнө зочин шийднэ: Бүү саад бол тэмдэг, «өнөөдөр цэвэрлэгээ хэрэггүй», эсвэл зочин хараахан гараагүй checkout өрөө. Hotel Care-д тус бүрд нь товч бий. Энэ богино заавар аль товчийг ашиглахыг зааж, орох ёсгүй өрөөг хэзээ ч эхлүүлэхгүй байхад тусална.',
+        'Перш ніж ви почнете прибирання, вирішує гість: табличка «Не турбувати», «сьогодні без прибирання» або номер на виїзд, який гість ще не залишив. У Hotel Care є кнопка для кожного випадку. Цей короткий посібник показує, яку натискати, щоб ніколи не починати номер, до якого не можна заходити.',
+      ),
+      purpose: t6(
+        'Using the right doorway action keeps room status true and protects guest privacy.',
+        'A megfelelő ajtó melletti művelet valósan tartja a szobaállapotot és védi a vendég magánszféráját.',
+        'Usar la acción correcta en la puerta mantiene el estado real de la habitación y protege la privacidad del huésped.',
+        'Dùng đúng thao tác trước cửa giữ trạng thái phòng chính xác và bảo vệ sự riêng tư của khách.',
+        'Хаалганы өмнөх зөв үйлдэл өрөөний төлөвийг үнэн байлгаж, зочны нууцлалыг хамгаална.',
+        'Правильна дія біля дверей зберігає справжній статус номера та приватність гостя.',
+      ),
+      route: '/:org', tab: 'housekeeping',
+    },
+    {
+      key: 'door_read_card', phase: AT_THE_DOOR,
+      title: t6(
+        'Read the room card before you knock',
+        'Kopogás előtt olvasd el a szobakártyát',
+        'Lee la tarjeta de la habitación antes de llamar',
+        'Đọc thẻ phòng trước khi gõ cửa',
+        'Тогшихоос өмнө өрөөний картыг унш',
+        'Прочитайте картку номера, перш ніж стукати',
+      ),
+      body: t6(
+        'Check the room type: Checkout (the guest is leaving) or Daily / Stay (the guest stays). Look at the priority, the towel and linen instructions and any manager note. Then knock and announce “Housekeeping”.',
+        'Nézd meg a szoba típusát: Checkout (a vendég elutazik) vagy Daily / Stay (a vendég marad). Figyeld a prioritást, a törölköző- és ágyneműutasításokat és a vezetői megjegyzést. Ezután kopogj, és mondd: „Housekeeping”.',
+        'Comprueba el tipo: Checkout (el huésped se va) o Daily / Stay (el huésped se queda). Mira la prioridad, las instrucciones de toallas y ropa de cama y cualquier nota del responsable. Después llama y anuncia “Housekeeping”.',
+        'Kiểm tra loại phòng: Checkout (khách rời đi) hay Daily / Stay (khách ở lại). Xem mức ưu tiên, hướng dẫn khăn và đồ vải cùng ghi chú của quản lý. Sau đó gõ cửa và nói “Housekeeping”.',
+        'Өрөөний төрлийг шалга: Checkout (зочин явна) эсвэл Daily / Stay (зочин үлдэнэ). Эрэмбэ, алчуур ба цагаан хэрэглэлийн заавар, менежерийн тэмдэглэлийг хар. Дараа нь тогшоод «Housekeeping» гэж хэл.',
+        'Перевірте тип номера: Checkout (гість виїжджає) чи Daily / Stay (гість залишається). Подивіться пріоритет, інструкції щодо рушників і білизни та примітку менеджера. Потім постукайте і скажіть «Housekeeping».',
+      ),
+      purpose: t6(
+        'The room type decides how deep the clean is and which doorway options are available.',
+        'A szobatípus dönti el, milyen alapos a takarítás és milyen lehetőségek vannak az ajtónál.',
+        'El tipo decide la profundidad de la limpieza y qué opciones hay en la puerta.',
+        'Loại phòng quyết định mức độ dọn và những lựa chọn có trước cửa.',
+        'Өрөөний төрөл цэвэрлэгээний гүн болон хаалганы өмнөх сонголтуудыг тодорхойлно.',
+        'Тип номера визначає глибину прибирання та доступні дії біля дверей.',
+      ),
+      unavailableNote: t6(
+        'You have no room on your list right now. The card appears under My Tasks as soon as a room is assigned to you.',
+        'Most nincs szoba a listádon. A kártya a Saját feladatok alatt jelenik meg, amint szobát kapsz.',
+        'Ahora no tienes ninguna habitación en tu lista. La tarjeta aparece en Mis tareas en cuanto te asignen una.',
+        'Hiện bạn chưa có phòng nào. Thẻ sẽ xuất hiện trong Công việc của tôi ngay khi bạn được giao phòng.',
+        'Одоогоор таны жагсаалтад өрөө алга. Өрөө оноогдмогц карт Миний даалгавар хэсэгт гарч ирнэ.',
+        'Зараз у вашому списку немає номерів. Картка з’явиться в Моїх завданнях, щойно вам призначать номер.',
+      ),
+      route: '/:org', tab: 'housekeeping',
+      selector: '[data-training="assigned-room-card"]',
+      precondition: 'has_any_assignment_today', optional: true, explainWhenUnavailable: true,
+    },
+    {
+      key: 'door_dnd', phase: AT_THE_DOOR,
+      title: t6(
+        'Do Not Disturb sign → tap DND from the doorway',
+        'Ne zavarjanak tábla → nyomd meg a DND-t az ajtóból',
+        'Cartel de No molestar → pulsa DND desde la puerta',
+        'Biển Không làm phiền → bấm DND ngay tại cửa',
+        'Бүү саад бол тэмдэг → хаалганы өмнөөс DND дар',
+        'Табличка «Не турбувати» → натисніть DND біля дверей',
+      ),
+      body: t6(
+        'Do not knock again and do not start the room. Tap Do Not Disturb and take the photo of the sign on the door. The room moves to “DND – retry later” and the card tells you when the second door check is due. If the sign is still there on the second attempt, the app sends the room to your supervisor.',
+        'Ne kopogj újra, és ne indítsd el a szobát. Nyomd meg a Ne zavarjanak gombot, és fotózd le a táblát az ajtón. A szoba „DND – később újra” állapotba kerül, és a kártya megmutatja, mikor esedékes a második ellenőrzés. Ha a tábla másodszor is kint van, az app a felettesedhez küldi a szobát.',
+        'No vuelvas a llamar ni inicies la habitación. Pulsa No molestar y haz la foto del cartel en la puerta. La habitación pasa a “DND – reintentar más tarde” y la tarjeta indica cuándo toca la segunda comprobación. Si el cartel sigue en el segundo intento, la app envía la habitación a tu supervisor.',
+        'Không gõ cửa lại và không bắt đầu phòng. Bấm Không làm phiền và chụp ảnh biển trên cửa. Phòng chuyển sang “DND – thử lại sau” và thẻ cho biết khi nào kiểm tra cửa lần hai. Nếu lần hai biển vẫn còn, ứng dụng gửi phòng cho giám sát viên của bạn.',
+        'Дахин бүү тогш, өрөөг бүү эхлүүл. Бүү саад бол товчийг дараад хаалган дээрх тэмдгийн зургийг ав. Өрөө «DND – дараа дахин» төлөвт шилжиж, карт дээр хоёр дахь шалгалтын цаг харагдана. Хоёр дахь удаад ч тэмдэг байсаар байвал апп өрөөг таны ахлагч руу илгээнэ.',
+        'Не стукайте знову і не починайте номер. Натисніть «Не турбувати» та сфотографуйте табличку на дверях. Номер переходить у стан «DND – повторити пізніше», а картка показує, коли час другої перевірки. Якщо табличка висить і вдруге, застосунок передає номер вашому супервайзеру.',
+      ),
+      purpose: t6(
+        'A DND record proves why the room was not serviced and protects both the guest’s privacy and you.',
+        'A DND rögzítés igazolja, miért maradt ki a szoba, és védi a vendég magánszféráját és téged is.',
+        'El registro DND demuestra por qué no se atendió la habitación y os protege al huésped y a ti.',
+        'Bản ghi DND chứng minh vì sao phòng chưa được dọn và bảo vệ cả sự riêng tư của khách lẫn bạn.',
+        'DND бүртгэл өрөөг яагаад үйлчлээгүйг нотолж, зочны нууцлал болон таныг хамгаална.',
+        'Запис DND підтверджує, чому номер не обслужено, і захищає як приватність гостя, так і вас.',
+      ),
+      tip: t6(
+        'Never mark DND when there is no sign — if the guest is simply out, start the room as normal.',
+        'Soha ne jelölj DND-t tábla nélkül — ha a vendég csak elment, indítsd a szobát a szokásos módon.',
+        'Nunca marques DND sin cartel: si el huésped simplemente ha salido, inicia la habitación como siempre.',
+        'Không đánh dấu DND khi không có biển — nếu khách chỉ ra ngoài, hãy bắt đầu phòng như bình thường.',
+        'Тэмдэггүй үед хэзээ ч DND бүү тэмдэглэ — зочин зүгээр л гадуур байгаа бол өрөөг ердийнхөөрөө эхлүүл.',
+        'Ніколи не ставте DND без таблички — якщо гість просто вийшов, починайте номер як звичайно.',
+      ),
+      unavailableNote: t6(
+        'The DND button is shown on rooms that are not started yet. You do not need to start a room to record a DND.',
+        'A DND gomb a még el nem indított szobákon jelenik meg. A DND rögzítéséhez nem kell elindítanod a szobát.',
+        'El botón DND aparece en las habitaciones aún no iniciadas. No hace falta iniciar la habitación para registrar un DND.',
+        'Nút DND hiển thị trên các phòng chưa bắt đầu. Bạn không cần bắt đầu phòng để ghi nhận DND.',
+        'DND товч хараахан эхлээгүй өрөөнүүд дээр харагдана. DND бүртгэхийн тулд өрөөг эхлүүлэх шаардлагагүй.',
+        'Кнопка DND показується на ще не розпочатих номерах. Щоб зафіксувати DND, починати номер не потрібно.',
+      ),
+      ...doorwayBase,
+      selector: '[data-training="assigned-room-card"] [data-training="dnd-doorway-button"]',
+    },
+    {
+      key: 'door_no_service', phase: AT_THE_DOOR,
+      title: t6(
+        'Guest says “no cleaning today” → No service',
+        'A vendég nem kér takarítást → Nincs takarítás',
+        'El huésped dice “hoy sin limpieza” → Sin servicio',
+        'Khách nói “hôm nay không dọn” → Không dọn phòng',
+        'Зочин «өнөөдөр цэвэрлэгээ хэрэггүй» гэвэл → Үйлчилгээгүй',
+        'Гість каже «сьогодні без прибирання» → Без обслуговування',
+      ),
+      body: t6(
+        'If the guest opens the door and declines cleaning, do not start and complete the room as if it was cleaned. Tap No service and tick the confirmation that the guest refused — the room is then recorded correctly. Offer fresh towels if the guest wants them.',
+        'Ha a vendég ajtót nyit és nem kér takarítást, ne indítsd el és ne zárd le a szobát úgy, mintha kitakarítottad volna. Nyomd meg a Nincs takarítás gombot, és pipáld ki, hogy a vendég elutasította — így a szoba helyesen kerül rögzítésre. Ajánlj friss törölközőt, ha a vendég kéri.',
+        'Si el huésped abre y rechaza la limpieza, no inicies y completes la habitación como si la hubieras limpiado. Pulsa Sin servicio y marca la confirmación de que el huésped lo rechazó: así queda registrada correctamente. Ofrece toallas limpias si las quiere.',
+        'Nếu khách mở cửa và từ chối dọn phòng, đừng bắt đầu rồi hoàn tất phòng như đã dọn. Bấm Không dọn phòng và tích xác nhận khách từ chối — phòng sẽ được ghi nhận đúng. Đề nghị khăn mới nếu khách muốn.',
+        'Зочин хаалга онгойлгоод цэвэрлэгээнээс татгалзвал өрөөг цэвэрлэсэн мэт эхлүүлж, дуусгаж болохгүй. Үйлчилгээгүй товчийг дараад зочин татгалзсан гэдгийг баталгаажуул — ингэснээр өрөө зөв бүртгэгдэнэ. Зочин хүсвэл цэвэр алчуур санал болго.',
+        'Якщо гість відчинив двері й відмовився від прибирання, не починайте й не завершуйте номер так, ніби його прибрано. Натисніть «Без обслуговування» та поставте позначку, що гість відмовився — номер буде зафіксовано правильно. Запропонуйте свіжі рушники, якщо гість хоче.',
+      ),
+      purpose: t6(
+        'A refused service must not look like a cleaned room in the reports.',
+        'Az elutasított takarítás nem nézhet ki kitakarított szobának a riportokban.',
+        'Un servicio rechazado no debe parecer una habitación limpia en los informes.',
+        'Việc khách từ chối không được hiển thị như phòng đã dọn trong báo cáo.',
+        'Татгалзсан үйлчилгээ тайланд цэвэрлэсэн өрөө мэт харагдах ёсгүй.',
+        'Відмова від обслуговування не повинна виглядати у звітах як прибраний номер.',
+      ),
+      unavailableNote: t6(
+        'No service is offered on daily-cleaning rooms that are not started yet. Checkout rooms are always cleaned.',
+        'A Nincs takarítás csak még el nem indított napi takarítású szobákon érhető el. A checkout szobákat mindig ki kell takarítani.',
+        'Sin servicio solo aparece en habitaciones de limpieza diaria aún no iniciadas. Las de salida siempre se limpian.',
+        'Không dọn phòng chỉ có ở các phòng dọn hằng ngày chưa bắt đầu. Phòng trả luôn phải được dọn.',
+        'Үйлчилгээгүй сонголт зөвхөн эхлээгүй өдөр тутмын цэвэрлэгээтэй өрөөнд байна. Checkout өрөөг үргэлж цэвэрлэнэ.',
+        '«Без обслуговування» доступне лише на ще не розпочатих номерах щоденного прибирання. Номери на виїзд прибирають завжди.',
+      ),
+      ...doorwayBase,
+      selector: '[data-training="assigned-room-card"] [data-training="no-service-button"]',
+    },
+    {
+      key: 'door_checkout_waiting', phase: AT_THE_DOOR,
+      title: t6(
+        'Checkout room, guest still inside → wait',
+        'Checkout szoba, a vendég még bent van → várj',
+        'Habitación de salida con el huésped dentro → espera',
+        'Phòng trả nhưng khách vẫn còn → chờ',
+        'Checkout өрөө, зочин дотор байгаа → хүлээ',
+        'Номер на виїзд, гість ще всередині → зачекайте',
+      ),
+      body: t6(
+        'A checkout room cannot be started until reception has checked the guest out. When you see this orange notice, go to your next room and come back later — the Start button appears automatically once the guest has left.',
+        'A checkout szobát nem lehet elindítani, amíg a recepció ki nem jelentkeztette a vendéget. Ha ezt a narancssárga figyelmeztetést látod, menj a következő szobához, és gyere vissza később — az Indítás gomb automatikusan megjelenik, amint a vendég elment.',
+        'Una habitación de salida no se puede iniciar hasta que recepción haya hecho el check-out. Si ves este aviso naranja, pasa a la siguiente habitación y vuelve más tarde: el botón Iniciar aparece solo cuando el huésped se ha ido.',
+        'Phòng trả không thể bắt đầu cho đến khi lễ tân làm thủ tục trả phòng cho khách. Khi thấy thông báo màu cam này, hãy sang phòng tiếp theo và quay lại sau — nút Bắt đầu sẽ tự hiện khi khách đã rời đi.',
+        'Ресепшн зочныг гаргаж бүртгэтэл checkout өрөөг эхлүүлэх боломжгүй. Энэ улбар шар мэдэгдлийг харвал дараагийн өрөө рүүгээ яваад дараа нь буцаж ир — зочин явмагц Эхлүүлэх товч автоматаар гарч ирнэ.',
+        'Номер на виїзд не можна почати, доки рецепція не оформить виїзд гостя. Коли бачите це помаранчеве повідомлення, йдіть до наступного номера й поверніться пізніше — кнопка «Почати» з’явиться автоматично, щойно гість поїде.',
+      ),
+      purpose: t6(
+        'Entering an occupied checkout room is a guest complaint waiting to happen.',
+        'Egy még lakott checkout szobába belépni biztos vendégpanasz.',
+        'Entrar en una habitación de salida aún ocupada es una queja segura.',
+        'Vào phòng trả khi khách còn ở là nguyên nhân chắc chắn gây phàn nàn.',
+        'Зочин байгаа checkout өрөөнд орох нь зочны гомдлын баталгаатай шалтгаан.',
+        'Вхід у ще зайнятий номер на виїзд — гарантована скарга гостя.',
+      ),
+      tip: t6(
+        'If a checkout room stays blocked for a long time, ask reception whether the guest has extended.',
+        'Ha egy checkout szoba sokáig zárolva marad, kérdezd meg a recepciót, hosszabbított-e a vendég.',
+        'Si una habitación de salida sigue bloqueada mucho tiempo, pregunta en recepción si el huésped ha prolongado la estancia.',
+        'Nếu phòng trả bị khóa quá lâu, hãy hỏi lễ tân xem khách có gia hạn không.',
+        'Checkout өрөө удаан хаалттай байвал зочин сунгасан эсэхийг ресепшнээс асуу.',
+        'Якщо номер на виїзд довго лишається заблокованим, запитайте рецепцію, чи гість не продовжив проживання.',
+      ),
+      unavailableNote: t6(
+        'This notice only appears on a checkout room while the guest is still checked in.',
+        'Ez a figyelmeztetés csak olyan checkout szobán jelenik meg, ahol a vendég még be van jelentkezve.',
+        'Este aviso solo aparece en una habitación de salida mientras el huésped sigue registrado.',
+        'Thông báo này chỉ xuất hiện trên phòng trả khi khách vẫn chưa làm thủ tục trả phòng.',
+        'Энэ мэдэгдэл зөвхөн зочин хараахан гараагүй checkout өрөөн дээр харагдана.',
+        'Це повідомлення з’являється лише на номері на виїзд, поки гість ще не виїхав.',
+      ),
+      ...doorwayBase,
+      selector: '[data-training="assigned-room-card"] [data-training="checkout-waiting-notice"]',
+    },
+    {
+      key: 'door_towel_only', phase: IN_ROOM,
+      title: t6(
+        'Guest only wants fresh towels → Towel change only',
+        'A vendég csak friss törölközőt kér → Csak törölközőcsere',
+        'El huésped solo quiere toallas limpias → Solo cambio de toallas',
+        'Khách chỉ muốn khăn mới → Chỉ thay khăn',
+        'Зочин зөвхөн цэвэр алчуур хүсвэл → Зөвхөн алчуур солих',
+        'Гість хоче лише свіжі рушники → Тільки заміна рушників',
+      ),
+      body: t6(
+        'Some guests want towels or linen replaced but no full clean. Start the room, then tap Towel change only, record the towels or linen you replaced and close it as a limited service. The room is finished without a full cleaning record.',
+        'Van vendég, aki csak törölközőt vagy ágyneműt kér, teljes takarítást nem. Indítsd el a szobát, nyomd meg a Csak törölközőcsere gombot, rögzítsd a kicserélt törölközőt vagy ágyneműt, és zárd le korlátozott szolgáltatásként. A szoba teljes takarítási rögzítés nélkül fejeződik be.',
+        'Algunos huéspedes quieren toallas o ropa de cama nuevas, pero no una limpieza completa. Inicia la habitación, pulsa Solo cambio de toallas, registra lo que repusiste y ciérralo como servicio limitado. La habitación termina sin registro de limpieza completa.',
+        'Một số khách chỉ muốn thay khăn hoặc đồ vải, không dọn toàn bộ. Bắt đầu phòng, bấm Chỉ thay khăn, ghi lại khăn hoặc đồ vải đã thay và đóng như một dịch vụ giới hạn. Phòng hoàn tất mà không ghi nhận dọn toàn bộ.',
+        'Зарим зочин зөвхөн алчуур, цагаан хэрэглэл солиулахыг хүсдэг, бүтэн цэвэрлэгээ хэрэггүй. Өрөөг эхлүүлээд Зөвхөн алчуур солих товчийг дар, сольсон алчуур, цагаан хэрэглэлээ бүртгээд хязгаарлагдмал үйлчилгээ гэж хаа. Өрөө бүтэн цэвэрлэгээний бүртгэлгүйгээр дуусна.',
+        'Деякі гості хочуть замінити рушники чи білизну без повного прибирання. Почніть номер, натисніть «Тільки заміна рушників», зафіксуйте замінені рушники чи білизну й закрийте як обмежене обслуговування. Номер завершується без запису про повне прибирання.',
+      ),
+      purpose: t6(
+        'Limited service keeps the laundry count and the room time honest.',
+        'A korlátozott szolgáltatás valósan tartja a textilszámot és a szobaidőt.',
+        'El servicio limitado mantiene reales el recuento de lavandería y el tiempo por habitación.',
+        'Dịch vụ giới hạn giữ số lượng đồ giặt và thời gian phòng trung thực.',
+        'Хязгаарлагдмал үйлчилгээ угаалгын тоо болон өрөөний хугацааг үнэн байлгана.',
+        'Обмежене обслуговування зберігає чесний облік білизни та часу на номер.',
+      ),
+      unavailableNote: t6(
+        'Towel change only is one of the room tools of a started daily-cleaning room.',
+        'A Csak törölközőcsere egy elindított napi takarítású szoba szobai eszközei között található.',
+        'Solo cambio de toallas está entre las herramientas de una habitación de limpieza diaria ya iniciada.',
+        'Chỉ thay khăn nằm trong các công cụ phòng của một phòng dọn hằng ngày đã bắt đầu.',
+        'Зөвхөн алчуур солих нь эхлүүлсэн өдөр тутмын цэвэрлэгээтэй өрөөний хэрэгслүүдийн нэг.',
+        '«Тільки заміна рушників» — один з інструментів розпочатого номера щоденного прибирання.',
+      ),
+      route: '/:org', tab: 'housekeeping',
+      selector: '[data-training="active-assigned-room"] [data-training="towel-change-only-button"]',
+      precondition: 'has_in_progress_cleaning', optional: true, explainWhenUnavailable: true,
+    },
+  ],
+};

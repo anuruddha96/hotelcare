@@ -12,6 +12,7 @@ import {
   MousePointer2,
   Lightbulb,
   ShieldCheck,
+  Info,
 } from 'lucide-react';
 import { useTrainingV2, txt } from './TrainingV2Provider';
 
@@ -73,6 +74,14 @@ const LABELS = {
     uk: 'Чому це важливо',
   },
   tip: { en: 'Good practice', hu: 'Jó gyakorlat', es: 'Buena práctica', vi: 'Thực hành tốt', mn: 'Зөв дадал', uk: 'Корисна практика' },
+  notOnScreen: {
+    en: 'Not on your screen right now',
+    hu: 'Most nem látható a képernyőn',
+    es: 'Ahora no está en tu pantalla',
+    vi: 'Hiện chưa có trên màn hình',
+    mn: 'Одоогоор дэлгэц дээр алга',
+    uk: 'Зараз цього немає на екрані',
+  },
   tryIt: {
     en: 'Do this now',
     hu: 'Csináld meg most',
@@ -192,13 +201,16 @@ export function TrainingOverlayV2() {
 
   if (!active || !step) return null;
   const isSlntTour = active.slug.startsWith('slnt_');
-  const isHousekeeperTour = active.slug === 'v2_housekeeper_first_day';
+  const isHousekeeperTour = active.slug.startsWith('v2_housekeeper_');
   const isManagerTour = active.roles.some((role) => role !== 'housekeeping');
   const isGuidedTour = isHousekeeperTour || isManagerTour;
   const isLast = stepIndex === totalSteps - 1;
   const progress = Math.round(((stepIndex + 1) / totalSteps) * 100);
   const requiresAction = Boolean(step.waitFor);
   const passiveWait = Boolean(step.waitFor && !step.selector);
+  // Situational lessons are shown even when their control is absent; the
+  // learner must be able to move on with Next, not only "Skip this tip".
+  const explainsUnavailable = Boolean(waiting && step.explainWhenUnavailable);
   const mobileAtTop = Boolean(isMobile && rect && rect.top > window.innerHeight * 0.56);
 
   const tooltipStyle: CSSProperties = (() => {
@@ -462,7 +474,17 @@ export function TrainingOverlayV2() {
                 </div>
               )}
 
-              {waiting && (
+              {explainsUnavailable && step.unavailableNote && (
+                <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/35 dark:text-sky-100">
+                  <Info className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="font-semibold">{txt(LABELS.notOnScreen, lang)}</p>
+                    <p className="mt-0.5 leading-relaxed">{txt(step.unavailableNote, lang)}</p>
+                  </div>
+                </div>
+              )}
+
+              {waiting && !(explainsUnavailable && step.unavailableNote) && (
                 <div className="mt-3 flex items-start gap-2 text-xs text-primary bg-primary/10 border border-primary/20 rounded-lg px-3 py-2.5">
                   <Clock3 className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${reducedMotion ? '' : 'animate-pulse'}`} aria-hidden="true" />
                   <div className="flex-1">
@@ -532,7 +554,7 @@ export function TrainingOverlayV2() {
                   <Button
                     size="sm"
                     onClick={next}
-                    disabled={!isManagerTour && (waiting || requiresAction)}
+                    disabled={!isManagerTour && !explainsUnavailable && (waiting || requiresAction)}
                     className="min-h-11 flex-1"
                     aria-label={txt(LABELS.next, lang)}
                   >

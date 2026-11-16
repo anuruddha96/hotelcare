@@ -78,6 +78,19 @@ export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<b
         .limit(1);
       return !!(data && data.length);
     }
+    case 'has_assigned_room_not_started': {
+      // Doorway decisions (DND photo, "No service", checkout still occupied)
+      // are only offered on rooms that have not been started yet.
+      const today = getBudapestBusinessDate();
+      const { data } = await supabase
+        .from('room_assignments')
+        .select('id')
+        .eq('assigned_to', ctx.userId)
+        .eq('assignment_date', today)
+        .eq('status', 'assigned')
+        .limit(1);
+      return !!(data && data.length);
+    }
     case 'has_in_progress_cleaning': {
       const today = getBudapestBusinessDate();
       const { data } = await supabase

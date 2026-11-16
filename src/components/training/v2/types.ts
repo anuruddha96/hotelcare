@@ -22,6 +22,7 @@ export type GuardKey =
   | 'has_completed_assignment_today'
   | 'has_no_pending_housekeeping_work'
   | 'has_finished_housekeeping_work_today'
+  | 'has_assigned_room_not_started'
   | 'is_manager'
   | 'hotel_selected'
   | 'is_online'
@@ -63,6 +64,27 @@ export interface TrainingStepV2 {
   ctaLabel?: I18nText;
   /** Optional event name emitted to analytics when the step is shown. */
   analyticsEvent?: string;
+  /**
+   * Situational controls (DND at the door, "No service", a checkout room that
+   * is still occupied) only exist on screen in one specific room state. When
+   * true, the step is still shown — without a spotlight — if the control or
+   * its precondition is unavailable, so the lesson is delivered before the
+   * situation happens instead of being silently deferred.
+   */
+  explainWhenUnavailable?: boolean;
+  /** Friendly note shown in place of the generic "not available yet" text. */
+  unavailableNote?: I18nText;
+}
+
+/**
+ * Where the user currently is. The dashboard reports `tab`/`subTab` through
+ * the provider's `reportScreen`; `pathname` comes from the router. Used to
+ * pick the guides that apply to the screen in front of the user.
+ */
+export interface TrainingScreenContext {
+  pathname: string;
+  tab?: string;
+  subTab?: string;
 }
 
 export type TrainingModuleKey =
