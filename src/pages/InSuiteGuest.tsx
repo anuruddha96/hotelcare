@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BedDouble, BellRing, ChevronLeft, CheckCircle2, Clock3, Coffee, Copy, Hotel,
   Info, Languages, LockKeyhole, MessageCircle, Phone, Send,
-  Sparkles, Wifi, Wrench, CarTaxiFront, Leaf, UtensilsCrossed, RefreshCw,
+  Sparkles, Wifi, Wrench, CarTaxiFront, Leaf, UtensilsCrossed, RefreshCw, ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { InSuiteGuestCommerce, type InSuiteOrder, type InSuiteBooking } from "@/components/insuite/InSuiteGuestCommerce";
 import {
   INSUITE_DEVICE_KEY, inSuiteGuest, type InSuiteContent,
@@ -29,6 +30,7 @@ const words: Record<Language, Record<string, string>> = {
     guests: "guests", checkout: "Check-out", welcomeTo: "Welcome to",
     servicesHint: "Towels, cleaning & more", chatHint: "Message reception", diningHint: "Breakfast, food & drinks",
     travelHint: "Transfers & facilities", infoHint: "Wi-Fi, hours & hotel details",
+    enterSuite: "Explore In-Suite services", concierge: "Your In-Suite Concierge", suiteHint: "Everything you need, right from your room.", greeting: "Dear", touchHint: "Tap a service to get started", welcomeBack: "Welcome screen",
   },
   de: {
     welcome: "Fühlen Sie sich wie zu Hause", intro: "Alles für Ihren Aufenthalt.",
@@ -45,6 +47,7 @@ const words: Record<Language, Record<string, string>> = {
     guests: "Gäste", checkout: "Abreise", welcomeTo: "Willkommen im",
     servicesHint: "Handtücher, Reinigung & mehr", chatHint: "Rezeption kontaktieren", diningHint: "Frühstück, Essen & Getränke",
     travelHint: "Transfers & Einrichtungen", infoHint: "WLAN, Zeiten & Hotelinfos",
+    enterSuite: "In-Suite-Services entdecken", concierge: "Ihr In-Suite-Concierge", suiteHint: "Alles, was Sie brauchen, direkt vom Zimmer aus.", greeting: "Willkommen", touchHint: "Wählen Sie einen Service", welcomeBack: "Begrüßungsseite",
   },
   hu: {
     welcome: "Érezze otthon magát!", intro: "Minden, amire szüksége lehet.",
@@ -61,6 +64,7 @@ const words: Record<Language, Record<string, string>> = {
     guests: "vendég", checkout: "Kijelentkezés", welcomeTo: "Üdvözöljük itt:",
     servicesHint: "Törölközők, takarítás és egyebek", chatHint: "Üzenet a recepciónak", diningHint: "Reggeli, ételek, italok",
     travelHint: "Transzfer és létesítmények", infoHint: "Wi-Fi, nyitvatartás, tudnivalók",
+    enterSuite: "Szobai szolgáltatások megnyitása", concierge: "Az Ön szobai asszisztense", suiteHint: "Minden, amire szüksége van, közvetlenül a szobájából.", greeting: "Kedves", touchHint: "Válasszon egy szolgáltatást", welcomeBack: "Üdvözlőképernyő",
   },
 };
 const serviceOptions = [
@@ -102,6 +106,9 @@ export default function InSuiteGuest() {
   const [room, setRoom] = useState("");
   const [config, setConfig] = useState<InSuiteContent | null>(null);
   const [view, setView] = useState<View>("home");
+  const [welcomeOpen, setWelcomeOpen] = useState(true);
+  const [guestWelcome, setGuestWelcome] = useState<{ name: string | null; guest_count: number | null } | null>(null);
+  const reducedMotion = useReducedMotion();
   const [lang, setLang] = useState<Language>("en");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(!!token);
@@ -114,10 +121,6 @@ export default function InSuiteGuest() {
   const [orders, setOrders] = useState<InSuiteOrder[]>([]);
   const [bookings, setBookings] = useState<InSuiteBooking[]>([]);
   const [stayActive, setStayActive] = useState(false);
-  const [verifiedGuest, setVerifiedGuest] = useState<{ firstName: string; guestCount: number | null; departure: string } | null>(null);
-  const [verifyOpen, setVerifyOpen] = useState(false);
-  const [surname, setSurname] = useState("");
-  const [checkOutDate, setCheckOutDate] = useState("");
   const [message, setMessage] = useState("");
   const [staffPin, setStaffPin] = useState("");
   const [pinOpen, setPinOpen] = useState(false);
@@ -133,7 +136,9 @@ export default function InSuiteGuest() {
     try {
       const data = await inSuiteGuest("guest-bootstrap", {}, value);
       sessionEpoch.current = data.session_epoch || null;
-      setVerifiedGuest(null);
+
+      setGuestWelcome(data.stay_active === true ? data.guest || null : null);
+      setWelcomeOpen(true);
       setStayActive(data.stay_active === true);
       setRoom(String(data.room_number || ""));
       setConfig(data.config || {});
@@ -141,7 +146,8 @@ export default function InSuiteGuest() {
     } catch (err) {
       setError((err as Error).message);
       setConfig(null);
-      setVerifiedGuest(null);
+
+      setGuestWelcome(null);
     } finally { setLoading(false); }
   }, []);
 
@@ -154,13 +160,16 @@ export default function InSuiteGuest() {
         setStayActive(data.stay_active === true);
         visitStarted.current = new Date().toISOString();
         setRequests([]); setMessages([]); setOrders([]); setBookings([]);
-        setVerifiedGuest(null); setVerifyOpen(false); setSurname(""); setCheckOutDate("");
+
+        setGuestWelcome(data.stay_active === true ? data.guest || null : null);
+        setWelcomeOpen(true);
         setMessage(""); setDetail("");
         setView("home"); setRequestType(null);
         return;
       }
       setStayActive(data.stay_active === true);
-      if (!data.stay_active) setVerifiedGuest(null);
+      setGuestWelcome(data.stay_active === true ? data.guest || null : null);
+
       setRequests(data.requests || []);
       setMessages(data.messages || []);
       setOrders(data.orders || []);
@@ -170,6 +179,7 @@ export default function InSuiteGuest() {
       if (/Tablet disabled|not paired|unavailable/i.test((err as Error).message)) {
         localStorage.removeItem(INSUITE_DEVICE_KEY); setToken(""); setConfig(null);
         setMessages([]); setRequests([]); setOrders([]); setBookings([]); setStayActive(false);
+        setGuestWelcome(null); setWelcomeOpen(true);
       }
     }
   }, [token, config]);
@@ -197,26 +207,6 @@ export default function InSuiteGuest() {
       setToken(data.token);
       setPairCode("");
     } catch (err) { setError((err as Error).message); }
-    finally { setBusy(false); }
-  };
-  const verifyGuest = async () => {
-    if (!stayActive || !surname.trim() || !checkOutDate || busy) return;
-    setBusy(true);
-    try {
-      const data = await inSuiteGuest("guest-verify", { last_name: surname.trim(), check_out_date: checkOutDate });
-      if (data.session_epoch !== sessionEpoch.current) {
-        toast.error("Your room stay changed. Please refresh.");
-        return;
-      }
-      setVerifiedGuest({
-        firstName: String(data.first_name || "").slice(0, 80),
-        guestCount: typeof data.guest_count === "number" ? data.guest_count : null,
-        departure: String(data.check_out_date || ""),
-      });
-      setVerifyOpen(false);
-      setSurname("");
-      setCheckOutDate("");
-    } catch (err) { toast.error((err as Error).message); }
     finally { setBusy(false); }
   };
   const sendRequest = async () => {
@@ -302,7 +292,66 @@ export default function InSuiteGuest() {
     body ? <section className={card}><div className="flex items-center gap-3 mb-2"><Icon className="h-5 w-5" style={{ color: accent }} />
       <h3 className="font-bold">{label}</h3></div><p className="whitespace-pre-line text-slate-600 leading-relaxed">{body}</p></section> : null;
 
-  return <div className="min-h-screen bg-[#f5f7fa] text-slate-900">
+  return <AnimatePresence mode="wait" initial={false}>
+    {welcomeOpen ? (
+      <motion.section key="suite-welcome" role="region" aria-label={t("concierge")}
+        className="relative isolate flex min-h-[100svh] w-full flex-col overflow-hidden bg-[#121b26] text-white"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+        exit={{ opacity: 0, scale: reducedMotion ? 1 : 0.98 }}
+        transition={{ duration: reducedMotion ? 0 : 0.34, ease: "easeInOut" }}>
+        {config?.hero_url && <motion.img src={config.hero_url} alt=""
+          className="absolute inset-0 h-full w-full object-cover object-center"
+          initial={{ scale: reducedMotion ? 1 : 1.08 }} animate={{ scale: 1 }}
+          transition={{ duration: reducedMotion ? 0 : 1.5, ease: "easeOut" }} />}
+        <div className="absolute inset-0 bg-black/30" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/50 to-black/85" />
+        <header className="relative z-10 flex items-start justify-between gap-3 px-5 pb-3 pt-[calc(env(safe-area-inset-top)+1.25rem)] sm:px-9">
+          <div className="flex min-w-0 items-center gap-3">
+            {config?.logo_url ? <img src={config.logo_url} alt="" className="h-11 w-11 shrink-0 rounded-xl bg-white/90 p-1 object-contain" />
+              : <Hotel className="h-9 w-9 shrink-0" />}
+            <span className="truncate text-sm font-semibold tracking-wide sm:text-base">{config?.hotel_name || "Your hotel"}</span>
+          </div>
+          <label className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-white/25 bg-black/30 px-3 py-2 text-sm backdrop-blur-md">
+            <Languages className="h-4 w-4" />
+            <select value={lang} onChange={(e) => setLang(e.target.value as Language)}
+              aria-label="Language" className="max-w-24 bg-transparent font-medium text-white outline-none [&>option]:text-slate-900">
+              <option value="en">English</option><option value="de">Deutsch</option><option value="hu">Magyar</option>
+            </select>
+          </label>
+        </header>
+        <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-5 py-10 text-center sm:px-8">
+          <motion.div className="w-full max-w-3xl"
+            initial={reducedMotion ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: reducedMotion ? 0 : 0.75, delay: reducedMotion ? 0 : 0.08 }}>
+            <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/30 bg-black/30 px-4 py-2 text-sm font-semibold backdrop-blur-md">
+              <BedDouble className="h-4 w-4" /> {t("room")} {room}
+            </span>
+            <h1 className="mx-auto max-w-3xl text-balance text-[clamp(2.2rem,7vw,4.7rem)] font-semibold leading-[1.09] tracking-tight drop-shadow-lg">
+              {t("welcomeTo")} <span className="block">{config?.hotel_name || "our hotel"}</span>
+            </h1>
+            {stayActive && guestWelcome?.name && <p className="mx-auto mt-7 max-w-2xl break-words text-balance text-[clamp(1.35rem,4vw,2.3rem)] font-semibold leading-tight drop-shadow-lg [overflow-wrap:anywhere]">
+              {t("greeting")} {guestWelcome.name}
+            </p>}
+            <div className="mx-auto my-6 h-px w-16 bg-white/60" />
+            <p className="text-lg font-semibold tracking-wide sm:text-xl">{t("concierge")}</p>
+            <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-white/85 sm:text-base">{t("suiteHint")}</p>
+            <button type="button" onClick={() => { setWelcomeOpen(false); setView("home"); }}
+              className="group mx-auto mt-9 inline-flex min-h-14 w-full max-w-sm items-center justify-center gap-3 rounded-2xl bg-white px-6 py-4 text-base font-bold text-slate-950 shadow-2xl transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-white active:scale-[0.98]">
+              {t("enterSuite")}
+              <ArrowRight className="h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1" />
+            </button>
+            {!stayActive && <p className="mx-auto mt-5 max-w-md text-xs leading-relaxed text-white/80">{t("awaiting")}</p>}
+          </motion.div>
+        </main>
+        <footer className="relative z-10 px-6 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] text-center text-xs tracking-wide text-white/65">
+          HotelCare In-Suite · {t("room")} {room}
+        </footer>
+      </motion.section>
+    ) : (
+      <motion.div key="suite-services" initial={{ opacity: 0, y: reducedMotion ? 0 : 18 }}
+        animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+        transition={{ duration: reducedMotion ? 0 : 0.36 }}
+        className="min-h-screen bg-[#f5f7fa] text-slate-900">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-8">
         <div className="flex min-w-0 items-center gap-3 select-none"
@@ -340,50 +389,30 @@ export default function InSuiteGuest() {
       {view !== "home" && <button onClick={() => { setView("home"); setRequestType(null); }}
         className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900"><ChevronLeft className="h-4 w-4" />{t("back")}</button>}
       {view === "home" && <>
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 md:p-7">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-slate-500">{t("room")} {room}</p>
-          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-            {verifiedGuest?.firstName ? `Hello, ${verifiedGuest.firstName}!` : `${t("welcomeTo")} ${config?.hotel_name || "our hotel"}!`}
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">{t("intro")}</p>
-          {stayActive ? <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-emerald-700">
-            <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" />{t("checkedIn")}</span>
-            {verifiedGuest?.guestCount != null && <span>{verifiedGuest.guestCount} {t("guests")}</span>}
-            {verifiedGuest?.departure && <span>{t("checkout")}: {verifiedGuest.departure}</span>}
-          </div> : <p role="status" className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{t("awaiting")}</p>}
-          {stayActive && !verifiedGuest && <div className="mt-4">
-            <button type="button" className="text-sm font-semibold underline underline-offset-4"
-              style={{ color: accent }} onClick={() => setVerifyOpen((v) => !v)}>{t("personalize")}</button>
-            {verifyOpen && <form className="mt-3 grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-2"
-              onSubmit={(e) => { e.preventDefault(); void verifyGuest(); }}>
-              <label className="space-y-1 text-sm font-medium">{t("surname")}
-                <input className="block w-full rounded-xl border border-slate-200 bg-white p-3"
-                  autoComplete="off" value={surname} maxLength={80}
-                  onChange={(e) => setSurname(e.target.value)} required />
-              </label>
-              <label className="space-y-1 text-sm font-medium">{t("departure")}
-                <input className="block w-full rounded-xl border border-slate-200 bg-white p-3"
-                  type="date" value={checkOutDate} onChange={(e) => setCheckOutDate(e.target.value)} required />
-              </label>
-              <button className="rounded-xl px-4 py-3 font-semibold text-white sm:col-span-2"
-                style={{ backgroundColor: accent }} disabled={busy || !surname.trim() || !checkOutDate}>
-                {busy ? "Checking…" : t("verify")}
-              </button>
-            </form>}
-          </div>}
+        <section className="space-y-2 pb-1">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-bold uppercase tracking-[0.15em]" style={{ color: accent }}>
+              {t("concierge")} · {t("room")} {room}
+            </p>
+            <button type="button" onClick={() => setWelcomeOpen(true)}
+              className="text-sm font-medium text-slate-500 underline underline-offset-4 hover:text-slate-800">{t("welcomeBack")}</button>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t("choose")}</h1>
+          <p className="text-sm text-slate-600">{t("touchHint")}</p>
+          {!stayActive && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t("awaiting")}</p>}
         </section>
-        <section aria-labelledby="guest-service-heading">
-          <h2 id="guest-service-heading" className="mb-3 text-xl font-bold">{t("choose")}</h2>
+        <section aria-label={t("choose")}>
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             {nav.filter((item) => item.view !== "home").map(({ view: target, label, Icon }) => {
               const hint = { requests: t("servicesHint"), chat: t("chatHint"), dining: t("diningHint"),
                 travel: t("travelHint"), hotel: t("infoHint"), home: "" }[target];
-              return <button key={target} type="button" onClick={() => { setView(target); setRequestType(null); }}
+              return <motion.button key={target} type="button" onClick={() => { setView(target); setRequestType(null); }}
+                whileHover={reducedMotion ? undefined : { y: -3 }} whileTap={reducedMotion ? undefined : { scale: 0.98 }}
                 className="flex min-h-36 flex-col items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 sm:p-5">
                 <Icon className="h-8 w-8" style={{ color: accent }} />
                 <span><strong className="block text-base leading-snug">{label}</strong>
                   <span className="mt-1 block text-xs leading-relaxed text-slate-500">{hint}</span></span>
-              </button>;
+              </motion.button>;
             })}
           </div>
         </section>
@@ -394,10 +423,6 @@ export default function InSuiteGuest() {
         {requests.some((r) => !["completed", "unavailable", "cancelled"].includes(r.status)) &&
           <button className="inline-flex items-center gap-2 text-sm font-semibold underline"
             onClick={() => setView("requests")}><BellRing className="h-4 w-4" />{t("requests")} ({requests.filter((r) => r.status !== "completed").length})</button>}
-        {config?.hero_url && <div className="relative h-32 overflow-hidden rounded-2xl md:h-44">
-          <img src={config.hero_url} alt="" className="h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-        </div>}
       </>}
       {view === "requests" && <>
         {!stayActive && <p role="alert" className="rounded-xl bg-amber-50 p-4">{t("awaiting")}</p>}
@@ -526,5 +551,7 @@ export default function InSuiteGuest() {
         <button className="block text-sm underline" onClick={() => { setPinOpen(false); setMaintenanceUnlocked(false); setStaffPin(""); }}>Close</button>
       </div>
     </div>}
-  </div>;
+      </motion.div>
+    )}
+  </AnimatePresence>;
 }

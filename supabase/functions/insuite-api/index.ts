@@ -62,6 +62,25 @@ const admins = new Set(["admin", "manager", "top_management", "top_management_ma
 const reception = new Set(["reception", "front_office", "reception_manager"]);
 const todayBudapest = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const validUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+/** Use the booking contact shown by Previo/reception when available. Never
+ * guess an honorific or expose guest email, phone, ID, DOB or other guests.
+ * Multiple-name contact fields are ambiguous, so fall back to the named stay.
+ */
+const welcomeName = (raw: unknown) => {
+  if (typeof raw !== "string") return "";
+  const name = raw.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  if (!name || name.includes("@") || /\d{4,}/.test(name) ||
+    /\s(?:and|&|\+)\s|\s[;|/]\s/i.test(name)) return "";
+  // Some PMS contacts are formatted "Last, First", otherwise preserve
+  // natural name ordering. Never invent middle names or a title.
+  const parts = name.split(",");
+  const arranged = parts.length === 2 && parts.every((part) => part.trim())
+    ? parts[1].trim() + " " + parts[0].trim() : parts.length === 1 ? name : "";
+  if (!arranged) return "";
+  return Array.from(arranged).slice(0, 120).join("");
+};
+
 const cleanContent = (raw: any) => {
   const textFields = ["hotel_name", "welcome", "address", "reception_phone", "guest_wifi_ssid", "guest_wifi_password",
     "breakfast_hours", "restaurant_hours", "checkout_time", "contact_email", "house_rules", "transport_info",
@@ -170,7 +189,7 @@ Deno.serve(async (req) => {
       // is independently confirmed checked-in by the hotel's PMS data.
       const { data: stay } = device.active_reservation_id
         ? await db.from("reservations")
-          .select("id,room_id,status,organization_slug,hotel_id,source,pms_status_id,check_in_date,check_out_date,actual_check_out")
+          .select("id,room_id,status,organization_slug,hotel_id,source,pms_status_id,check_in_date,check_out_date,actual_check_out,pms_contact_name,pms_guest_name,adults,children,guests(first_name,last_name)")
           .eq("id", device.active_reservation_id).maybeSingle()
         : { data: null };
       const stayActive = !!stay
@@ -178,13 +197,30 @@ Deno.serve(async (req) => {
         && stay.hotel_id === device.hotel_id && stay.status === "checked_in"
         && stay.check_in_date <= todayBudapest() && stay.check_out_date >= todayBudapest()
         && !stay.actual_check_out && (stay.source !== "previo" || stay.pms_status_id === 3);
+      // The room-bound QR identifies the physical room; a *current* and
+      // unambiguous PMS checked-in reservation identifies the welcome guest.
+      // Only the booker's short display name is included, never PII fields
+      // such as contacts, documents, birthdays or other room occupants.
+      const linkedGuest = stay && (Array.isArray(stay.guests) ? stay.guests[0] : stay.guests);
+      const linkedName = linkedGuest
+        ? [linkedGuest.first_name, linkedGuest.last_name].filter(Boolean).join(" ") : "";
+      const guestName = stayActive
+        ? welcomeName(stay.pms_contact_name) || welcomeName(linkedName)
+          || welcomeName(stay.pms_guest_name)
+        : "";
+      const guestWelcome = stayActive ? {
+        name: guestName || null,
+        guest_count: Math.max(0, Number(stay.adults || 0) + Number(stay.children || 0)) || null,
+      } : null;
       if (action === "guest-bootstrap") {
         await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
-        return send({ room_number: room.room_number, hotel_id: device.hotel_id, session_epoch: device.session_epoch, config, stay_active: stayActive, paired: true, kind: device.kind || "tablet" });
+        return send({ room_number: room.room_number, hotel_id: device.hotel_id,
+          session_epoch: device.session_epoch, config, stay_active: stayActive,
+          guest: guestWelcome, paired: true, kind: device.kind || "tablet" });
       }
       if (action === "guest-state") {
         if (!stayActive) return send({ requests: [], messages: [], orders: [], bookings: [],
-          session_epoch: device.session_epoch, stay_active: false });
+          session_epoch: device.session_epoch, stay_active: false, guest: null });
         const rawSince = Date.parse(val(body.since, 40));
         // Never expose previous guest history. State only includes entries created after THIS page load.
         const since = new Date(Math.max(Date.now() - 6 * 3600_000, Number.isFinite(rawSince) ? rawSince : Date.now())).toISOString();
@@ -202,7 +238,7 @@ Deno.serve(async (req) => {
           return deny("Could not load updates", 503);
         return send({ requests: requests.data || [], messages: messages.data || [],
           orders: orders.data || [], bookings: bookings.data || [],
-          session_epoch: device.session_epoch, stay_active: true });
+          session_epoch: device.session_epoch, stay_active: true, guest: guestWelcome });
       }
       
       if (action === "guest-verify") {
