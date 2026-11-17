@@ -25,8 +25,11 @@ type GenerateOptions = {
 };
 
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const DEFAULT_GEMINI_SECONDARY_MODEL = "gemini-3.6-flash";
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+// Only quota errors should trigger an extended provider cooldown.
 let geminiCooldownUntil = 0;
+let openaiQuotaCooldownUntil = 0;
 let fallbackCount = 0;
 let fallbackWindowStartedAt = Date.now();
 
@@ -74,8 +77,6 @@ export async function generateLowCostText(options: GenerateOptions): Promise<Low
   if (!options.prompt || options.prompt.length > 75_000) throw new Error("AI input exceeds safe limit");
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   const openaiKey = Deno.env.get("OPENAI_API_KEY");
-  // Owner-approved Gemini-first for ordinary internal text. Explicit opt-out
-  // remains available; sensitive content is always routed to OpenAI.
   const allowInternal = Deno.env.get("GEMINI_ALLOW_INTERNAL_CONTENT") !== "false";
   const sensitiveInternal = options.task === "internal" &&
     (options.sensitive === true || containsLikelySensitiveData(options.prompt));
@@ -84,55 +85,74 @@ export async function generateLowCostText(options: GenerateOptions): Promise<Low
     Deno.env.get("GEMINI_DISABLED") !== "true";
   const maxOutput = Math.max(64, Math.min(8192, options.maxOutputTokens ?? 512));
 
+  // Retry transient overloads and try a separate Gemini model before OpenAI.
+  // Never use Gemini's unpaid tier for known confidential guest/staff records.
   if (canUseGemini && Date.now() >= geminiCooldownUntil) {
-    const model = Deno.env.get("GEMINI_MODEL") || DEFAULT_GEMINI_MODEL;
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "x-goog-api-key": geminiKey!,
-            "Content-Type": "application/json",
-          },
-          signal: AbortSignal.timeout(14_000),
-          body: JSON.stringify({
-            systemInstruction: options.instructions
-              ? { parts: [{ text: options.instructions }] }
-              : undefined,
-            contents: [{ role: "user", parts: [{ text: options.prompt }] }],
-            generationConfig: {
-              maxOutputTokens: maxOutput,
-              ...(options.json ? { responseMimeType: "application/json" } : {}),
+    const preferredModel = Deno.env.get("GEMINI_MODEL") || DEFAULT_GEMINI_MODEL;
+    const secondaryModel = Deno.env.get("GEMINI_SECONDARY_MODEL") || DEFAULT_GEMINI_SECONDARY_MODEL;
+    const models = [...new Set([preferredModel, secondaryModel].filter(Boolean))];
+    geminiModels: for (const [modelIndex, model] of models.entries()) {
+      const attempts = modelIndex === 0 ? 2 : 1;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+          const response = await fetch(
+            "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent",
+            {
+              method: "POST",
+              headers: { "x-goog-api-key": geminiKey!, "Content-Type": "application/json" },
+              signal: AbortSignal.timeout(14_000),
+              body: JSON.stringify({
+                systemInstruction: options.instructions
+                  ? { parts: [{ text: options.instructions }] }
+                  : undefined,
+                contents: [{ role: "user", parts: [{ text: options.prompt }] }],
+                generationConfig: {
+                  maxOutputTokens: maxOutput,
+                  ...(options.json ? { responseMimeType: "application/json" } : {}),
+                },
+              }),
             },
-          }),
-        },
-      );
-      if (response.ok) {
-        const data = await response.json();
-        const text = String((data?.candidates?.[0]?.content?.parts ?? [])
-          .map((part: { text?: string }) => part.text ?? "").join("")).trim();
-        if (validOutput(text, options)) return { text, provider: "gemini", model };
-        console.warn("HotelCare Gemini returned invalid or empty output; using fallback");
-      } else {
-        console.warn("HotelCare Gemini failed, status", response.status);
-        // A quota failure should not cause repeated free-tier calls in this isolate.
-        if ([429, 500, 502, 503, 504].includes(response.status)) {
-          geminiCooldownUntil = Date.now() + 5 * 60_000;
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            const text = String((data?.candidates?.[0]?.content?.parts ?? [])
+              .map((part: { text?: string }) => part.text ?? "").join("")).trim();
+            if (validOutput(text, options)) return { text, provider: "gemini", model };
+            console.warn("HotelCare Gemini returned invalid or empty output", model);
+            break;
+          }
+
+          console.warn("HotelCare Gemini failed", model, "status", response.status);
+          if (response.status === 429) {
+            geminiCooldownUntil = Date.now() + 60_000;
+            break geminiModels;
+          }
+          if ([401, 403].includes(response.status)) break geminiModels;
+          if ([500, 502, 503, 504].includes(response.status) && attempt + 1 < attempts) {
+            await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+            continue;
+          }
+          break;
+        } catch {
+          console.warn("HotelCare Gemini request unavailable", model);
+          if (attempt + 1 < attempts) {
+            await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+            continue;
+          }
+          break;
         }
       }
-    } catch {
-      console.warn("HotelCare Gemini unavailable; using fallback");
-      geminiCooldownUntil = Date.now() + 60_000;
     }
   }
 
-  if (!openaiKey || Deno.env.get("GEMINI_OPENAI_FALLBACK_DISABLED") === "true") {
-    throw errorMessage("AI providers");
+  // On a known insufficient-quota response stop retrying OpenAI within this
+  // isolate, but keep Gemini eligible on every non-quota-failed request.
+  if (!openaiKey || Deno.env.get("GEMINI_OPENAI_FALLBACK_DISABLED") === "true" ||
+      Date.now() < openaiQuotaCooldownUntil) {
+    throw new Error("Gemini did not complete this request and OpenAI fallback is unavailable. Please retry shortly.");
   }
 
-  // Soft per-isolate protection, NOT a global organization-wide cost limit.
-  // An organization-wide budget requires durable shared counters.
   const now = Date.now();
   if (now - fallbackWindowStartedAt >= 60 * 60_000) {
     fallbackWindowStartedAt = now;
@@ -147,10 +167,7 @@ export async function generateLowCostText(options: GenerateOptions): Promise<Low
   const model = options.fallbackModel || DEFAULT_OPENAI_MODEL;
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${openaiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: "Bearer " + openaiKey, "Content-Type": "application/json" },
     signal: AbortSignal.timeout(22_000),
     body: JSON.stringify({
       model,
@@ -164,6 +181,13 @@ export async function generateLowCostText(options: GenerateOptions): Promise<Low
   });
   if (!response.ok) {
     console.error("HotelCare OpenAI fallback failed, status", response.status);
+    if (response.status === 429 || response.status === 402) {
+      const failure = await response.json().catch(() => null);
+      const quota = failure?.error?.code === "insufficient_quota" ||
+        /no credits remaining|billing|insufficient.quota/i.test(String(failure?.error?.message || ""));
+      openaiQuotaCooldownUntil = Date.now() + (quota ? 30 * 60_000 : 60_000);
+      if (quota) throw new Error("Gemini is temporarily unavailable and OpenAI API credits are exhausted. Please retry Gemini shortly.");
+    }
     throw errorMessage("OpenAI fallback", response.status);
   }
   const data = await response.json();
