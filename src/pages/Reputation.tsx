@@ -330,7 +330,16 @@ export default function Reputation() {
     const { data: result, error } = await supabase.functions.invoke("google-reputation", {
       body: { action, organization_slug: organizationSlug, ...extra },
     });
-    if (error) throw error;
+    if (error) {
+      // FunctionsHttpError otherwise shows only "Edge Function returned a non-2xx
+      // status code" and hides the actionable backend error details.
+      const context = (error as { context?: Response }).context;
+      if (context && typeof context.clone === "function") {
+        const details = await context.clone().json().catch(() => null);
+        if (typeof details?.error === "string") throw new Error(details.error);
+      }
+      throw error;
+    }
     return result;
   };
 
