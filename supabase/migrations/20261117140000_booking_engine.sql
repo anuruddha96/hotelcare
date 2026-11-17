@@ -600,7 +600,7 @@ BEGIN
       hotel_id, organization_slug, guest_id, room_type_id, room_type_requested, status,
       check_in_date, check_out_date, adults, children,
       rate_per_night, total_amount, currency, payment_status, balance_due, payment_collect,
-      source, source_reservation_id, special_requests, internal_notes
+      source, source_reservation_id, special_requests, internal_notes, pms_guest_name
     ) VALUES (
       e.hotel_id, e.organization_slug, v_guest_id, o.room_type_id, v_plan.type_name, 'confirmed',
       p_check_in, p_check_out, v_adults, v_children,
@@ -610,7 +610,10 @@ BEGIN
       NULLIF(v_requests, ''),
       'Website booking ' || v_reference || ' · ' || v_plan.plan_name
         || CASE WHEN v_free_until IS NULL THEN ' · non-refundable'
-                ELSE ' · free cancellation until ' || to_char(v_free_until AT TIME ZONE v_tz, 'YYYY-MM-DD HH24:MI') END
+                ELSE ' · free cancellation until ' || to_char(v_free_until AT TIME ZONE v_tz, 'YYYY-MM-DD HH24:MI') END,
+      -- Guest name on the booking itself, as Channex bookings carry it: search and
+      -- the guest journey recognise the guest even if the profile changes later.
+      v_first || ' ' || v_last
     ) RETURNING id, reservation_number INTO v_res_id, v_res_number;
 
     INSERT INTO public.reservation_events (reservation_id, hotel_id, organization_slug, event_type, metadata, created_by)

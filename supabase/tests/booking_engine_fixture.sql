@@ -180,6 +180,7 @@ CREATE TABLE public.reservations (
   created_at timestamptz DEFAULT now() NOT NULL,
   updated_at timestamptz DEFAULT now() NOT NULL,
   pms_missing_since timestamptz,
+  pms_guest_name text,
   payment_collect text,
   room_type_id uuid REFERENCES public.room_types(id) ON DELETE SET NULL
 );

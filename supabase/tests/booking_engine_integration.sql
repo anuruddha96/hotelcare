@@ -234,6 +234,7 @@ BEGIN
   ASSERT r.total_amount = 190 AND r.rate_per_night = 95 AND r.balance_due = 190 AND r.currency = 'USD', 'money fields';
   ASSERT r.payment_collect = 'property' AND r.payment_status = 'unpaid', 'pay at the hotel';
   ASSERT r.reservation_number LIKE 'RES-%' AND r.total_nights = 2, 'reservation number trigger ran';
+  ASSERT r.pms_guest_name = 'Anna Kovács', 'guest name on the booking';
   ASSERT r.special_requests = E'Expected arrival: 15:00\nQuiet room', format('special requests %L', r.special_requests);
   ASSERT r.internal_notes LIKE 'Website booking W% · Best Available Rate · free cancellation until %', r.internal_notes;
   SELECT * INTO g FROM public.guests WHERE id = r.guest_id;
