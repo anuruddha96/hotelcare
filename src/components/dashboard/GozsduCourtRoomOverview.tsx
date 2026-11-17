@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { reconcileGozsduPmsRoster, type GozsduPmsRow } from '@/lib/gozsduPmsRoster';
+import { listGozsduTomorrowCheckoutRooms, reconcileGozsduPmsRoster, type GozsduPmsRow } from '@/lib/gozsduPmsRoster';
 import { resolveGozsduOperationalBucket } from '@/lib/gozsduOperationalBuckets';
 import { readGozsduRoomOverride } from '@/lib/gozsduRoomBucketOverride';
 import { GozsduRoomJourneyDialog } from './GozsduRoomJourneyDialog';
@@ -77,6 +77,12 @@ function service(room: Room, isCheckout: boolean): GozsduHousekeepingService {
 function roomSort(a: Room, b: Room) {
   return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
 }
+function shortPmsDate(date: string): string {
+  const value = new Date(`${date}T12:00:00Z`);
+  return Number.isFinite(value.getTime())
+    ? value.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+    : date;
+}
 
 export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, signedInHousekeepers = [] }: Props) {
   const { user, profile } = useAuth();
@@ -94,6 +100,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
   const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<'rooms' | 'buildings'>('rooms');
   const [showUnavailable, setShowUnavailable] = useState(false);
+  const [showAllTomorrowCheckouts, setShowAllTomorrowCheckouts] = useState(false);
   const [buildingName, setBuildingName] = useState('');
   const [mappingBusy, setMappingBusy] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -119,7 +126,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         (supabase as any).from('gozsdu_housekeeping_room_registry')
           .select('room_id, pms_room_name, building_code, service_status, unavailability_reason'),
         profile?.organization_slug ? (supabase as any).from('daily_overview_snapshots')
-          .select('business_date,room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,captured_at')
+          .select('business_date,room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,captured_at,pax')
           .eq('organization_slug', profile.organization_slug).eq('hotel_id', GOZSDU_COURT_HOTEL_ID)
           .in('business_date', [selectedDate, tomorrow]).eq('source', 'previo')
           : Promise.resolve({ data: [], error: { message: 'Organization missing from user session.' } }),
@@ -245,6 +252,14 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     }
   }, [rooms, registry, pmsRows, selectedDate, nextDayRows, pmsFetchIssue]);
   const registryByRoom = useMemo(() => new Map(registry.map(row => [row.room_id, row])), [registry]);
+  const tomorrowDate = useMemo(() => new Date(Date.parse(`${selectedDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10), [selectedDate]);
+  const tomorrowCheckoutIds = useMemo(() => pmsRoster.data
+    ? listGozsduTomorrowCheckoutRooms(registry, nextDayRows, selectedDate)
+    : null, [pmsRoster, registry, nextDayRows, selectedDate]);
+  const tomorrowCheckoutRooms = useMemo(() => {
+    const byId = new Map(rooms.map(room => [room.id, room]));
+    return (tomorrowCheckoutIds ?? []).map(id => byId.get(id)).filter((room): room is Room => !!room).sort(roomSort);
+  }, [tomorrowCheckoutIds, rooms]);
   const displayName = useCallback((room: Room) => canonicalGozsduOverviewName(room, registryByRoom), [registryByRoom]);
   const isOperating = (room: Room) => registryByRoom.get(room.id)?.service_status === 'operating';
   const assignmentMap = useMemo(() => new Map(assignments.map(row => [row.room_id, row])), [assignments]);
@@ -381,6 +396,12 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
                 {overdue && <span className="ml-0.5 text-[9px]">🔴</span>}
                 {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
               </div>
+              {isCheckout && verified?.incomingCheckoutDate && (
+                <span className="max-w-[130px] text-center text-[9px] font-semibold leading-tight text-sky-700 dark:text-sky-300"
+                  title={`Replacement booking checks out ${verified.incomingCheckoutDate}`}>
+                  New guest C/O {shortPmsDate(verified.incomingCheckoutDate)}
+                </span>
+              )}
               {room.bed_configuration && <span className="max-w-[48px] truncate text-[8px] font-semibold text-purple-600" title={room.bed_configuration}>{room.bed_configuration.includes('Twin') ? 'TW' : room.bed_configuration.includes('Double') ? 'DB' : room.bed_configuration.slice(0, 3).toUpperCase()}</span>}
               {hasNote && <span className="text-[8px]" title={flags.cleanNotes}>📝</span>}
               {staffName && <span className="max-w-[76px] break-words text-center text-[9px] font-medium leading-tight text-muted-foreground" title={staffMap[assignment?.assigned_to || '']}>{staffName}</span>}
@@ -390,7 +411,8 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
             <p className="font-semibold">Room {displayName(room)} · {status.replaceAll('_', ' ')}</p>
             <p>PMS: {displayName(room)}</p>
             {isVacant && <p>No reservation today; independently verified by Previo.</p>}
-            {verified?.incomingToday && isCheckout && <p>Same-day turnover: new guest also arrives today.</p>}
+            {verified?.incomingToday && isCheckout && <p>Checkout cleaning is for the departing guest on {shortPmsDate(selectedDate)}. A replacement booking also arrives today.</p>}
+            {isCheckout && verified?.incomingCheckoutDate && <p>Replacement booking: {verified.incomingGuestCount && verified.incomingGuestCount > 0 ? `${verified.incomingGuestCount} guests · ` : ''}next checkout {shortPmsDate(verified.incomingCheckoutDate)}. This is not today's checkout-cleaning date.</p>}
             {isArrival && <p>Expected arrival {selectedDate} · Not checked in · Not a no-show. No housekeeping scheduled from this reservation.</p>}
             {isArrival && room.pms_metadata?.pmsSyncDate && <p>PMS status checked for {room.pms_metadata.pmsSyncDate}{pmsRoster.error ? ' · Full roster not verified' : ''}</p>}
             {nights > 0 && total > 0 && !isArrival && <p>Stay {nights}/{total}</p>}
@@ -500,6 +522,28 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
       <CardContent className="space-y-3 px-4 pb-3">
         {pmsRoster.error ? <div role="alert" className="rounded-md border border-amber-500 bg-amber-50 p-2 text-xs text-amber-950">PMS not verified for {selectedDate}: {pmsRoster.error} The counts below use stored room state and stay-night counters and may be wrong. Confirm the PMS roster before assigning.</div>
           : <p className="text-[10px] text-muted-foreground">Verified against Previo for {selectedDate} · captured {new Date(pmsRoster.data!.capturedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Budapest' })} Budapest time · scheduled departures (not rooms awaiting cleaning)</p>}
+        {view === 'rooms' && tomorrowCheckoutIds !== null && (
+          <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs" data-testid="gozsdu-next-day-departure-preview">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold">Next-day scheduled checkouts · {shortPmsDate(tomorrowDate)}</span>
+              <Badge variant="secondary">{tomorrowCheckoutRooms.length}</Badge>
+            </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">Previo reservation preview only — cleaning assignments are prepared separately in the next-day housekeeping planner.</p>
+            {tomorrowCheckoutRooms.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {(showAllTomorrowCheckouts ? tomorrowCheckoutRooms : tomorrowCheckoutRooms.slice(0, 10)).map(room => (
+                  <span key={room.id} className="rounded-md border bg-background px-2 py-1 text-[10px] font-semibold">{displayName(room)}</span>
+                ))}
+                {tomorrowCheckoutRooms.length > 10 && (
+                  <button type="button" className="rounded px-2 py-1 text-[10px] font-medium text-primary underline underline-offset-2"
+                    onClick={() => setShowAllTomorrowCheckouts(current => !current)}>
+                    {showAllTomorrowCheckouts ? 'Show fewer rooms' : `Show all ${tomorrowCheckoutRooms.length} rooms`}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {canAssign && signedInHousekeepers.length > 0 && selectedDate === todayBudapest() && (
           <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
             <div className="mb-1.5 flex items-center gap-1.5"><GripVertical className="h-3.5 w-3.5" /><span className="text-[11px] font-semibold">Signed in today</span><span className="text-[10px] text-muted-foreground">— drag a housekeeper onto a room</span></div>
