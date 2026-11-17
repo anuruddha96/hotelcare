@@ -166,7 +166,7 @@ serve(async (req) => {
         author: String(q?.author ?? "").trim() || "Unknown",
         source: "ai",
       }))
-      .filter((q) => q.quote.length > 10 && q.quote.length <= 200)
+      .filter((q: { quote: string; author: string; source: string }) => q.quote.length > 10 && q.quote.length <= 200)
       .slice(0, BATCH);
 
     let inserted = 0;
