@@ -10,10 +10,14 @@ export type GozsduPmsRow = {
   housekeeping_dep: string | null;
   captured_at: string | null;
   business_date?: string | null;
+  pax?: number | null;
 };
 export type GozsduRosterEntry = {
   bucket: 'checkout' | 'daily' | 'service' | 'other' | 'noshow' | 'arrival' | 'vacant';
   incomingToday?: boolean;
+  /** Incoming booking is on tomorrow's overnight snapshot, not today's departing guest. */
+  incomingCheckoutDate?: string | null;
+  incomingGuestCount?: number | null;
   evidence?: 'night_snapshot' | 'day_arrival' | 'next_day_arrival' | 'explicit_checkout' | 'verified_unsold' | 'confirmed_no_show';
   service: GozsduHousekeepingService;
   night: number;
@@ -108,6 +112,47 @@ export function missingGozsduPmsRooms(registry: RegistryEntry[], snapshots: Gozs
     .map(entry => entry.pms_room_name);
 }
 
+/**
+ * Read-only preview of tomorrow's *scheduled* departures, not cleaning tasks.
+ * Require a complete, unique, fresh Previo tomorrow roster before displaying a
+ * count or room list; an omitted room must never be interpreted as no checkout.
+ */
+export function listGozsduTomorrowCheckoutRooms(
+  registry: RegistryEntry[], nextDayRows: GozsduPmsRow[], selectedDate: string, now = Date.now(),
+): string[] | null {
+  const selected = day(selectedDate);
+  if (!Number.isFinite(selected) || !registry.length || nextDayRows.length !== registry.length) return null;
+  const tomorrow = new Date((selected + 1) * 86400000).toISOString().slice(0, 10);
+  const byName = new Map<string, RegistryEntry>();
+  const registeredIds = new Set<string>();
+  for (const entry of registry) {
+    const label = key(entry.pms_room_name);
+    if (!label || !entry.room_id || byName.has(label) || registeredIds.has(entry.room_id)) return null;
+    byName.set(label, entry);
+    registeredIds.add(entry.room_id);
+  }
+  const seen = new Set<string>();
+  const checkoutRooms: string[] = [];
+  let oldest = Infinity;
+  let newest = -Infinity;
+  for (const row of nextDayRows) {
+    const entry = byName.get(key(row.room_label));
+    const captured = Date.parse(String(row.captured_at || ''));
+    if (!entry || seen.has(entry.room_id) || row.business_date !== tomorrow
+      || !Number.isFinite(captured) || captured > now + 60000 || now - captured > 60 * 60 * 1000) return null;
+    seen.add(entry.room_id);
+    oldest = Math.min(oldest, captured);
+    newest = Math.max(newest, captured);
+    if (entry.service_status === 'operating' && row.departure_date === tomorrow
+      && (String(row.status || '').toLowerCase() === 'departing'
+        || String(row.housekeeping_dep || '').toUpperCase() === 'DEP')) {
+      checkoutRooms.push(entry.room_id);
+    }
+  }
+  if (seen.size !== registry.length || newest - oldest > 15 * 60 * 1000) return null;
+  return checkoutRooms;
+}
+
 /** Read-only reconciliation. Same-day arrivals/no-shows may be absent from the occupied-night snapshot.
  * Rehydrate ONLY rooms with explicit date-matched Previo flags.
  * Unknown gaps, duplicates and stale batches still fail closed. */
@@ -180,7 +225,10 @@ export function reconcileGozsduPmsRoster(
     byRoom.set(roomId, {
       bucket: noShow ? 'noshow' : override?.bucket ?? (isCheckout ? 'checkout' : awaitingArrival ? 'arrival' : service !== 'none' ? 'service' : 'other'),
       service, night, totalNights, leavesTomorrow: row.departure_date === nextDate,
-      incomingToday: incoming.has(roomId), evidence: noShow ? 'confirmed_no_show' : 'night_snapshot',
+      incomingToday: incoming.has(roomId),
+      incomingCheckoutDate: incoming.get(roomId)?.departure_date ?? null,
+      incomingGuestCount: incoming.get(roomId)?.pax ?? null,
+      evidence: noShow ? 'confirmed_no_show' : 'night_snapshot',
     });
   }
   // The occupied-night feed intentionally omits some reservations whose stay
@@ -215,6 +263,8 @@ export function reconcileGozsduPmsRoster(
         ? incoming.get(entry.room_id)?.departure_date === nextDate
         : Number(room.pms_metadata.totalNights) === 1),
       incomingToday: fromTomorrow,
+      incomingCheckoutDate: fromTomorrow ? incoming.get(entry.room_id)?.departure_date ?? null : null,
+      incomingGuestCount: fromTomorrow ? incoming.get(entry.room_id)?.pax ?? null : null,
       evidence: noShow ? 'confirmed_no_show' : fromTomorrow ? 'next_day_arrival'
         : arrival ? 'day_arrival' : checkout ? 'explicit_checkout' : 'verified_unsold',
     });

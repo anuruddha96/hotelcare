@@ -167,6 +167,27 @@ describe('next-day housekeeping selected-date snapshot', () => {
     ];
     expect(buildSelectedDateHousekeepingWorkload(rooms, rows, '2026-09-10').rooms.map(room => room.id)).toEqual(['operating']);
   });
+  it('includes Gozsdu 4T2 in November 18 checkout planning after a November 17 same-day turnover', () => {
+    const make = (id: string, short: string, full: string) => ({
+      ...baseRoom(id, short), hotel: 'gozsdu-court',
+      pms_metadata: { gozsduAvailability: { status: 'operating', pmsRoomName: full } },
+    });
+    const rooms = [
+      make('113', '113', '1B-113'),
+      make('4T2', '1B-4/T/2', '1B-4/T/2'),
+    ];
+    const rows = [
+      { ...snapshot('1B-113', 'ongoing', '2026-11-17', '2026-11-20'), room_number: '113' },
+      { ...snapshot('1B-4/T/2', 'departing', '2026-11-17', '2026-11-18'), room_number: '4/T/2' },
+    ];
+    const workload = buildSelectedDateHousekeepingWorkload(rooms, rows, '2026-11-18');
+    expect(workload.rooms.map(room => room.id)).toContain('4T2');
+    const fourTTwo = workload.rooms.find(room => room.id === '4T2');
+    expect(fourTTwo?.is_checkout_room).toBe(true);
+    expect(fourTTwo?.pms_metadata?.selectedDateDeparture).toBe('2026-11-18');
+    expect(workload.rooms.find(room => room.id === '113')?.is_checkout_room).not.toBe(true);
+  });
+
   it('respects Gozsdu 5/6 towel-only versus 5/7 Complete Textile Change on the selected date', () => {
     const make = (id: string, number: string) => ({ ...baseRoom(id, number), hotel: 'gozsdu-court',
       pms_metadata: { gozsduAvailability: { status: 'operating', pmsRoomName: number } } });

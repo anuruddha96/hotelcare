@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { reconcileGozsduPmsRoster, verifyGozsduTomorrowCoverage } from './gozsduPmsRoster';
+import { listGozsduTomorrowCheckoutRooms, reconcileGozsduPmsRoster, verifyGozsduTomorrowCoverage } from './gozsduPmsRoster';
 
 const rooms = [
   { id: 'depart', room_number: '2B-1/3/1', pms_metadata: { gozsduHousekeeping: { serviceType: 'towel_change' } } },
@@ -56,5 +56,68 @@ describe('Gozsdu selected-date PMS reconciliation', () => {
       [snapshots[0], snapshots[2]].map(row => ({ room_label: row.room_label, captured_at })), '2026-09-16')).toBe(false);
     expect(verifyGozsduTomorrowCoverage(registry.map(r => r.pms_room_name), today,
       [{ room_label: 'UNKNOWN', captured_at }], '2026-09-16')).toBe(false);
+  });
+});
+
+describe('Gozsdu November 17 same-day turnover housekeeping regression', () => {
+  const day = '2026-11-17';
+  const captured = '2026-11-17T16:06:22Z';
+  const now = Date.parse('2026-11-17T16:10:00Z');
+  const turnoverRooms = [
+    { id: '113', room_number: '113', pms_metadata: { pmsSyncDate: day } },
+    { id: '4T2', room_number: '1B-4/T/2', pms_metadata: { pmsSyncDate: day } },
+  ];
+  const turnoverRegistry = [
+    { room_id: '113', pms_room_name: '1B-113', service_status: 'operating' },
+    { room_id: '4T2', pms_room_name: '1B-4/T/2', service_status: 'operating' },
+  ];
+  const outgoing = [
+    { business_date: day, room_label: '1B-113', room_number: '113',
+      arrival_date: '2026-11-14', departure_date: day,
+      status: 'departing', housekeeping_dep: 'DEP', captured_at: captured, pax: 4 },
+    { business_date: day, room_label: '1B-4/T/2', room_number: '4/T/2',
+      arrival_date: '2026-11-15', departure_date: day,
+      status: 'departing', housekeeping_dep: 'DEP', captured_at: captured, pax: 4 },
+  ];
+  const incoming = [
+    { business_date: '2026-11-18', room_label: '1B-113', room_number: '113',
+      arrival_date: day, departure_date: '2026-11-20',
+      status: 'ongoing', housekeeping_dep: null, captured_at: captured, pax: 2 },
+    { business_date: '2026-11-18', room_label: '1B-4/T/2', room_number: '4/T/2',
+      arrival_date: day, departure_date: '2026-11-18',
+      status: 'departing', housekeeping_dep: 'DEP', captured_at: captured, pax: 3 },
+  ];
+
+  it('retains today checkout cleaning while exposing each replacement booking departure', () => {
+    const result = reconcileGozsduPmsRoster(turnoverRooms, turnoverRegistry, outgoing, day, now, incoming);
+    expect(result.byRoom.get('113')).toMatchObject({
+      bucket: 'checkout', incomingToday: true,
+      incomingCheckoutDate: '2026-11-20', incomingGuestCount: 2,
+    });
+    expect(result.byRoom.get('4T2')).toMatchObject({
+      bucket: 'checkout', incomingToday: true,
+      incomingCheckoutDate: '2026-11-18', incomingGuestCount: 3,
+    });
+    expect(outgoing.map(row => row.departure_date)).toEqual([day, day]);
+  });
+
+  it('shows 4T2 in verified tomorrow checkout preview without claiming room 113 departs tomorrow', () => {
+    expect(listGozsduTomorrowCheckoutRooms(turnoverRegistry, incoming, day, now)).toEqual(['4T2']);
+  });
+
+  it('fails the preview closed for missing, duplicated, unmapped or stale tomorrow rows', () => {
+    expect(listGozsduTomorrowCheckoutRooms(turnoverRegistry, incoming.slice(0, 1), day, now)).toBeNull();
+    expect(listGozsduTomorrowCheckoutRooms(turnoverRegistry, [incoming[0], incoming[0]], day, now)).toBeNull();
+    expect(listGozsduTomorrowCheckoutRooms(turnoverRegistry,
+      [incoming[0], { ...incoming[1], room_label: 'OTHER' }], day, now)).toBeNull();
+    expect(listGozsduTomorrowCheckoutRooms(turnoverRegistry, incoming, day, now + 2 * 3600_000)).toBeNull();
+  });
+
+  it('does not claim a fresh incoming reservation from stale next-day evidence', () => {
+    const stale = incoming.map(row => ({ ...row, captured_at: '2026-11-17T12:00:00Z' }));
+    const result = reconcileGozsduPmsRoster(turnoverRooms, turnoverRegistry, outgoing, day, now, stale);
+    expect(result.byRoom.get('113')?.incomingCheckoutDate).toBeNull();
+    expect(result.byRoom.get('4T2')?.incomingToday).toBe(false);
+    expect(result.byRoom.get('4T2')?.bucket).toBe('checkout');
   });
 });
