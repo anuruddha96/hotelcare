@@ -71,7 +71,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$function$
+$function$;
 
 CREATE OR REPLACE FUNCTION public.rd_protect_profile_authorization_fields()
  RETURNS trigger
@@ -159,5 +159,5 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$function$
+$function$;
 
