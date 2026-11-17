@@ -51,11 +51,15 @@ export function StaffWorkVenueGate({ children }: { children: ReactNode }) {
     if (readError) {
       setError('Could not verify your work hotel. Check your connection and try again.');
     } else {
-      setState((data || null) as WorkVenueState | null);
+      const nextState = (data || null) as WorkVenueState | null;
+      setState(nextState);
+      // Another active device may have changed the work venue. Reflect the
+      // server-authorized choice instead of showing obsolete property data.
+      if (nextState?.last_worked_hotel) applyAssignedHotel(nextState.last_worked_hotel);
       setError(null);
     }
     setChecking(false);
-  }, [enabled, user?.id]);
+  }, [enabled, user?.id, applyAssignedHotel]);
 
   useEffect(() => { void check(); }, [check]);
 
@@ -74,9 +78,11 @@ export function StaffWorkVenueGate({ children }: { children: ReactNode }) {
 
   if (!enabled) return <>{children}</>;
 
-  const due = state?.prompt_next_day === true
+  const due = (!profile?.assigned_hotel && !state) || (
+    state?.prompt_next_day === true
     && !!state.last_switched_on
-    && state.last_switched_on < todayBudapest();
+    && state.last_switched_on < todayBudapest()
+  );
 
   if (checking || (due && hotelsLoading)) {
     return <div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="h-7 w-7 animate-spin text-primary" aria-label="Checking work hotel" /></div>;
@@ -124,14 +130,16 @@ export function StaffWorkVenueGate({ children }: { children: ReactNode }) {
           <Building2 className="h-10 w-10 text-primary mx-auto" />
           <h1 className="text-2xl font-semibold">Where are you working today?</h1>
           <p className="text-sm text-muted-foreground">
-            You worked at a different hotel previously. Confirm your work location before opening today's tasks.
+            {state
+              ? "You worked at a different hotel previously. Confirm your work location before opening today's tasks."
+              : "Choose the hotel where you are starting your shift."}
           </p>
         </div>
-        <Card><CardContent className="p-4 space-y-1">
+        {state && <Card><CardContent className="p-4 space-y-1">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Last worked hotel</p>
-          <p className="font-semibold">{venueName(state?.last_worked_hotel || '')}</p>
-          <p className="text-sm text-muted-foreground">Usual hotel: {venueName(state?.home_hotel || '')}</p>
-        </CardContent></Card>
+          <p className="font-semibold">{venueName(state.last_worked_hotel)}</p>
+          <p className="text-sm text-muted-foreground">Usual hotel: {venueName(state.home_hotel)}</p>
+        </CardContent></Card>}
         {orderedHotels.length === 0 && <p role="alert">No eligible hotels are available in your organization. Contact your manager.</p>}
         <div className="grid gap-2">
           {orderedHotels.map(hotel => (
