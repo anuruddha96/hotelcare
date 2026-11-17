@@ -127,6 +127,8 @@ async function askRates(apiKey: string, c: Competitor, dates: string[], strict =
     currency: parsed?.currency ?? "EUR",
     inputTokens,
     outputTokens,
+    providerModel: String(payload?.model ?? MODEL),
+    providerCostUsd: Number(payload?.hc_gemini_estimated_cost_usd ?? estimateCost(inputTokens,outputTokens)),
   };
 }
 
@@ -254,16 +256,16 @@ Deno.serve(async (req) => {
                 organization_slug: c.organization_slug,
                 hotel_id: HOTEL_ID,
                 function_name: "ottofiori-market-scan",
-                model: MODEL,
+                model: answer.providerModel,
                 input_tokens: answer.inputTokens,
                 output_tokens: answer.outputTokens,
                 web_searches: 1,
-                estimated_cost_usd: estimateCost(answer.inputTokens, answer.outputTokens),
+                estimated_cost_usd: answer.providerCostUsd,
                 ok: true,
               });
             } catch (e) {
               error = e instanceof Error ? e.message : String(e);
-              answer = { rates: [], currency: "EUR", inputTokens: 0, outputTokens: 0 };
+              answer = { rates: [], currency: "EUR", inputTokens: 0, outputTokens: 0, providerModel: MODEL, providerCostUsd: 0 };
               break; // Do not spend retry calls on a blocked/timed-out provider request.
             }
 
@@ -293,11 +295,11 @@ Deno.serve(async (req) => {
                   organization_slug: c.organization_slug,
                   hotel_id: HOTEL_ID,
                   function_name: "ottofiori-market-scan-retry",
-                  model: MODEL,
+                  model: retry.providerModel,
                   input_tokens: retry.inputTokens,
                   output_tokens: retry.outputTokens,
                   web_searches: 1,
-                  estimated_cost_usd: estimateCost(retry.inputTokens, retry.outputTokens),
+                  estimated_cost_usd: retry.providerCostUsd,
                   ok: true,
                 });
                 retryRates.push(...retry.rates);
