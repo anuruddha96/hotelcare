@@ -1,0 +1,52 @@
+name: Booking engine v2 SQL
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/*booking_engine*.sql'
+      - 'supabase/migrations/*insuite_wellness*.sql'
+      - 'supabase/tests/booking_engine_*'
+      - '.github/workflows/booking-engine-v2-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bev2_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: bev2_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Top management only, test link dry runs, returning guests, reminders
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 \
+            -f supabase/tests/booking_engine_fixture.sql \
+            -f supabase/tests/booking_engine_v2_fixture.sql \
+            -f supabase/migrations/20261117140000_booking_engine.sql \
+            -f supabase/migrations/20261117180000_insuite_wellness.sql \
+            -f supabase/migrations/20261117190000_booking_engine_v2.sql \
+            -f supabase/tests/booking_engine_v2_integration.sql
