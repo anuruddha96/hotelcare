@@ -826,7 +826,10 @@ Deno.serve(async (req) => {
         const { data, error } = await db.rpc("booking_engine_get_booking", { p_public_id: id, p_reference: reference, p_token_hash: tokenHash });
         if (error) throw dbError(error);
         if (!data) throw new ApiError("NOT_FOUND", 404);
-        return json({ ok: true, booking: data });
+        // The guest's own booking keeps its room names and the hotel's look
+        // even after online booking has been switched off.
+        const { preview: _preview, ...config } = await loadConfig(db, id, true);
+        return json({ ok: true, booking: data, config });
       }
       case "cancel":
         return json(await actionCancel(db, body, ipHash));

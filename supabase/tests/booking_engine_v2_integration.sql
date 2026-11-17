@@ -122,6 +122,7 @@ BEGIN
   r := t.book(t.pid(), current_date + 20, current_date + 22, false);
   ASSERT r->>'reference' ~ '^W[0-9A-F]{7}$' AND r->>'booking_id' IS NOT NULL AND NOT (r ? 'preview'), 'live booking stored';
   ASSERT (public.booking_engine_public_config(t.pid())->>'preview')::boolean = false, 'enabled engine is not a preview';
+  ASSERT (public.booking_engine_public_config(t.pid(), true)->>'preview')::boolean, 'test link stays test mode after go-live';
 END $$;
 
 -- ------------------------------------------------------------ returning guests

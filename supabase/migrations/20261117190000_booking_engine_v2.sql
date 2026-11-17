@@ -83,8 +83,10 @@ DECLARE
 BEGIN
   IF v IS NULL THEN RETURN NULL; END IF;
   v_on := COALESCE((v -> 'engine' ->> 'enabled')::boolean, false);
+  -- The test link is always test mode, also after go-live: its bookings are
+  -- checked but never stored (see booking_engine_create_booking).
   IF v_on OR COALESCE(p_preview, false) THEN
-    RETURN v || jsonb_build_object('preview', NOT v_on AND COALESCE(p_preview, false));
+    RETURN v || jsonb_build_object('preview', COALESCE(p_preview, false));
   END IF;
   -- Switched off: enough for a branded "not available, contact the hotel" page.
   RETURN jsonb_build_object(
