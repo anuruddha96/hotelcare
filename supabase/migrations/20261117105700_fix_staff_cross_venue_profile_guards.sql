@@ -57,7 +57,7 @@ BEGIN
     IF NEW.assigned_hotel IS DISTINCT FROM OLD.assigned_hotel THEN
       v_caller_role := public.get_user_role(auth.uid());
       IF NOT (
-        (v_caller_role IN ('admin','manager','housekeeping_manager','top_management','top_management_manager')
+        (v_caller_role::text IN ('admin','manager','housekeeping_manager','top_management','top_management_manager')
           AND NEW.assigned_hotel IS NOT NULL
           AND public.hotel_belongs_to_user_organization(auth.uid(), NEW.assigned_hotel))
         OR public.staff_work_venue_switch_authorized(auth.uid(), NEW.assigned_hotel)
