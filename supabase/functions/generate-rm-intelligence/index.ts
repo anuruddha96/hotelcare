@@ -746,9 +746,10 @@ Deno.serve(async (req) => {
     }
 
     const usage = json.usage ?? {};
+    model = String(json.model ?? model);
     const inTok = Number(usage.input_tokens ?? 0), outTok = Number(usage.output_tokens ?? 0);
     const [inCost, outCost] = COST_TABLE[model] ?? [0.5, 2];
-    const cost = (inTok / 1e6) * inCost + (outTok / 1e6) * outCost;
+    const cost = Number(json.hc_gemini_estimated_cost_usd ?? ((inTok / 1e6) * inCost + (outTok / 1e6) * outCost));
 
     const { data: run, error: runErr } = await admin.from("rm_analysis_runs").insert({
       hotel_id: hotelId, organization_slug: hotelSlug ?? orgSlug, mode, model,
