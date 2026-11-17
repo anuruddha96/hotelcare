@@ -7,7 +7,7 @@ function withProviderMocks(
   const previousFetch = globalThis.fetch;
   const vars = ["GEMINI_API_KEY", "OPENAI_API_KEY", "GEMINI_DISABLED",
     "GEMINI_ALLOW_INTERNAL_CONTENT", "GEMINI_OPENAI_FALLBACK_DISABLED",
-    "GEMINI_MODEL", "GEMINI_OPENAI_MAX_FALLBACKS_PER_ISOLATE"];
+    "GEMINI_MODEL", "GEMINI_SECONDARY_MODEL", "GEMINI_OPENAI_MAX_FALLBACKS_PER_ISOLATE"];
   const prior = Object.fromEntries(vars.map((key) => [key, Deno.env.get(key)]));
   for (const key of vars) Deno.env.delete(key);
   Deno.env.set("GEMINI_API_KEY", "test-not-real");
@@ -124,6 +124,26 @@ Deno.test("GEMINI_ALLOW_INTERNAL_CONTENT=false disables Gemini for all internal 
     });
     if (value.provider !== "openai" || geminiCalls !== 0)
       throw new Error("Owner-controlled opt-out failed");
+  });
+});
+
+Deno.test("Gemini 503 is retried then a secondary Gemini model is used, not OpenAI", async () => {
+  const models: string[] = [];
+  let openaiCalls = 0;
+  await withProviderMocks({
+    gemini: (url) => {
+      models.push(url);
+      return url.includes("gemini-3.5-flash-lite")
+        ? new Response("temporarily unavailable", { status: 503 })
+        : new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "Gemini secondary reply" }] } }] }), { status: 200 });
+    },
+    openai: () => { openaiCalls++; throw new Error("OpenAI must not be used"); },
+  }, async () => {
+    const value = await generateLowCostText({ task: "public", prompt: "Reply politely" });
+    if (value.provider !== "gemini" || value.text !== "Gemini secondary reply")
+      throw new Error("Secondary Gemini provider was not used");
+    if (models.length !== 3 || !models[2].includes("gemini-3.6-flash") || openaiCalls)
+      throw new Error("Expected two primary retries and one secondary Gemini request");
   });
 });
 
