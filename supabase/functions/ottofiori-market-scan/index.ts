@@ -247,9 +247,9 @@ Deno.serve(async (req) => {
               break;
             }
             const window = dates.slice(offset, offset + CHUNK_DAYS);
-            let answer;
+            let answer: Awaited<ReturnType<typeof askRates>>;
             try {
-              answer = await askRates(apiKey, c, window, false);
+              answer = await askRates(apiKey ?? '', c, window, false);
               await admin.from("ai_usage_log").insert({
                 organization_slug: c.organization_slug,
                 hotel_id: HOTEL_ID,
@@ -288,7 +288,7 @@ Deno.serve(async (req) => {
                 break;
               }
               try {
-                const retry = await askRates(apiKey, c, retryWindow, true);
+                const retry = await askRates(apiKey ?? '', c, retryWindow, true);
                 await admin.from("ai_usage_log").insert({
                   organization_slug: c.organization_slug,
                   hotel_id: HOTEL_ID,
