@@ -43,7 +43,7 @@ serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
   try {
-    if (!OPENAI_API_KEY) return json({ ok: false, error: "OPENAI_API_KEY is not configured" }, 200);
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) return json({ ok: false, error: "No AI provider is configured" }, 200);
 
     // Single flight: another sweep is still working.
     const lockSince = new Date(Date.now() - LOCK_MINUTES * 60_000).toISOString();
@@ -152,7 +152,7 @@ serve(async (req) => {
         slots++;
         const result = await searchEvents({
           admin,
-          openaiKey: OPENAI_API_KEY,
+          openaiKey: OPENAI_API_KEY ?? "",
           organizationSlug: runner.organizationSlug,
           city: market.city,
           country: market.country,
