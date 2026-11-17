@@ -1,3 +1,4 @@
+import { containsLikelySensitiveData } from "./lowCostAi.ts";
 /**
  * Gemini Google Search grounding first for Mira's public-world lookups.
  * Preserve citations only when the provider returns grounding evidence;
@@ -8,7 +9,8 @@ export async function fetchGeminiFirstWebSearch(url:string,request:RequestInit):
   const openaiBody=JSON.parse(request.body);
   const prompt=String(openaiBody.input??"").slice(0,6000);
   const key=Deno.env.get("GEMINI_API_KEY");
-  if(key && Deno.env.get("GEMINI_DISABLED")!=="true"){
+  if(key && Deno.env.get("GEMINI_DISABLED")!=="true" &&
+     (!containsLikelySensitiveData(prompt) || Deno.env.get("GEMINI_PAID_DATA_PROCESSING_CONFIRMED")==="true")){
     const models=[...new Set([Deno.env.get("GEMINI_MODEL")||"gemini-3.5-flash-lite",
       Deno.env.get("GEMINI_SECONDARY_MODEL")||"gemini-3.5-flash"])];
     for(const model of models){
