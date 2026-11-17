@@ -102,8 +102,18 @@ Rollback: `supabase/rollbacks/20261117170000_purchase_invoice_nav_reconciliation
 
 ## 5. OCR and deterministic checks (`process-purchase-invoice`)
 
-* Gemini-first routing with OpenAI fallback through the existing `fetchGeminiFirstChat`
-  (`containsSensitiveData: true`, i.e. Gemini only when `GEMINI_PAID_DATA_PROCESSING_CONFIRMED=true`).
+* **Gemini first, OpenAI fallback** (`_shared/purchaseInvoices/ocrProviders.ts`). Google's
+  OpenAI-compatible endpoint does not accept PDF parts, so the document goes to Gemini's native
+  `generateContent` inline (`inlineData`) with a JSON `responseSchema` converted from the extraction tool
+  schema. Gemini reads invoices only when `GEMINI_API_KEY` is set, `GEMINI_DISABLED` is not `true` and
+  `GEMINI_PAID_DATA_PROCESSING_CONFIRMED=true` (billing-enabled Gemini project; invoices are confidential),
+  for PDF/PNG/JPEG/WebP/HEIC/HEIF files up to 14 MB. Model: `GEMINI_OCR_MODEL` (default
+  `gemini-3.5-flash`); one retry on 429/5xx. If Gemini is skipped, fails, or returns output that does not
+  validate, the same request goes to OpenAI (`gpt-4o`, forced tool call) unless
+  `GEMINI_OPENAI_FALLBACK_DISABLED=true`. One time budget covers both attempts (Gemini gets at most 55 %,
+  capped at 50 s). The provider and model are stored in `ocr_provider`/`ocr_model`, and the reason Gemini
+  was not used in `ocr_original._gemini_fallback_reason` (e.g. `paid_data_processing_not_confirmed`,
+  `http_503`, `output_validation_failed`). Documents, prompts and model output are never logged.
 * Extended extraction: document kind (normal, receipt, pro forma, advance, final, corrective, credit
   note, cancellation), reference invoice, service period, amount due / previous balance / advance /
   discount / rounding, supplier bank account, field confidence, multi-invoice detection.
@@ -175,7 +185,9 @@ computed **one currency at a time**; exports are real `.xlsx`.
 2. Settings → Legal entities: correct legal name, Hungarian tax number, registered address, properties,
    default cost centre/category for every company.
 3. Settings → Finance access: assign reviewer / controller / chief controller profiles and scopes.
-4. Supabase secrets: set the `NAV_SOFTWARE_*` values; decide `GEMINI_PAID_DATA_PROCESSING_CONFIRMED`.
+4. Supabase secrets: set the `NAV_SOFTWARE_*` values; decide `GEMINI_PAID_DATA_PROCESSING_CONFIRMED`
+   (`true` only for a billing-enabled Gemini project — without it invoice OCR uses OpenAI. The flag is
+   project-wide: it also lets other HotelCare features that handle confidential data use Gemini).
 5. Per company: create a NAV technical user with *invoice query* permission (test system first),
    Settings → NAV → add connection (test), history start date, save credentials, **Test connection**,
    enable, check runs; then repeat for production with the company's authorization and turn on

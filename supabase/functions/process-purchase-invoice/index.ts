@@ -1,5 +1,4 @@
-import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
-// Process Purchase Invoice — OCR + structured extraction (Gemini-first routing with OpenAI fallback).
+// Process Purchase Invoice — OCR + structured extraction (Gemini first with the document inline, OpenAI fallback).
 // Hungarian VAT aware, deterministic checks, no invented VAT, idempotent job claims.
 // Request:  { invoiceId, force? }  (user JWT)   or   { mode: "worker" }  (x-worker-secret)
 // Response: { success: true, data } | { success: false, error_code?, error? }
@@ -10,6 +9,8 @@ import {
 } from "../_shared/purchaseInvoices/invoiceValidation.ts";
 import { companyNameSimilarity, normalizeCompanyName, taxCore8 } from "../_shared/purchaseInvoices/normalize.ts";
 import { runReconciliation, budapestToday } from "../_shared/purchaseInvoices/reconcileRunner.ts";
+import { extractInvoiceStructured, OcrProviderError, type OcrDocument } from "../_shared/purchaseInvoices/ocrProviders.ts";
+import { EXTRACT_TOOL, SYSTEM_PROMPT, TOTALS_TOOL } from "../_shared/purchaseInvoices/ocrSchemas.ts";
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -50,160 +51,26 @@ async function sha256Hex(buf: ArrayBuffer): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-const nullableNumber = { type: ["number", "null"] };
-const nullableString = { type: ["string", "null"] };
-
-const SYSTEM_PROMPT = `You are an OCR + invoice parsing engine specialized in Hungarian invoices and receipts.
-You MUST call the tool 'return_invoice' with the extracted structured data. Never reply with free text.
-
-Extract BOTH parties exactly as printed:
-- MERCHANT / SELLER (Eladó / Szállító): merchant_name, merchant_tax_id (adószám, e.g. 12345678-2-42), merchant_address, merchant_bank_account.
-- BUYER / CUSTOMER (Vevő): buyer_name, buyer_tax_id, buyer_address. Never guess the buyer from context.
-
-Document kind (document_kind): normal_invoice (számla), receipt (nyugta / blokk), proforma (díjbekérő / proforma),
-advance_invoice (előlegszámla), final_invoice (végszámla), corrective_invoice (módosító / helyesbítő számla),
-credit_note (jóváíró számla), cancellation (sztornó / érvénytelenítő számla). Use reference_invoice_number for the
-original invoice a corrective/credit/cancellation/final invoice refers to.
-
-Amounts: copy printed values only. NEVER invent a VAT rate or VAT amount. If the VAT breakdown is not printed, return
-an empty vat_lines array. Hungarian rates: 27%, 18%, 5%, 0%, AAM (alanyi adómentes), TAM, KBAET/EU (intra-EU), FAD
-(reverse charge, fordított adózás). Receipt VAT codes A=5% B=18% C=27% only when the code is printed.
-Hungarian number format: "1 234 567,50" means 1234567.50. Report total_amount as the invoice gross total
-(bruttó végösszeg), and amount_due separately when the payable amount differs (previous balance, advance deducted,
-discount, rounding). Credit notes and cancellations: amounts negative.
-Currency: the ISO code printed on the document; return null if no currency is printed (do not assume HUF).
-Dates: ISO YYYY-MM-DD; service_period_start/end for teljesítési időszak.
-field_confidence: your confidence 0..1 for each key field you returned.
-If the file contains several separate invoices, set contains_multiple_invoices=true.
-If not an invoice → document_type='not_invoice', error_code='ERR_NOT_INVOICE'.
-If unreadable → document_type='unreadable' + ERR_BLURRY/ERR_DARK/ERR_PARTIAL/ERR_UNREADABLE.
-If critical fields are missing → ERR_MISSING_DATA.`;
-
-const VAT_LINE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["vat_kind", "vat_rate", "vat_base", "vat_amount"],
-  properties: {
-    vat_kind: { type: "string", enum: ["standard_27", "reduced_18", "reduced_5", "zero", "aam_exempt", "exempt", "kba_reverse", "eu_intra", "export", "foreign"] },
-    vat_rate: nullableNumber,
-    vat_base: { type: "number" },
-    vat_amount: { type: "number" },
-    country: nullableString,
-  },
-};
-
-const EXTRACT_TOOL = {
-  type: "function",
-  function: {
-    name: "return_invoice",
-    description: "Return the parsed invoice structure",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["document_type", "document_kind", "confidence_score", "currency", "vat_lines", "items", "field_confidence"],
-      properties: {
-        document_type: { type: "string", enum: ["invoice", "receipt", "not_invoice", "unreadable"] },
-        document_kind: { type: "string", enum: ["normal_invoice", "receipt", "proforma", "advance_invoice", "final_invoice", "corrective_invoice", "credit_note", "cancellation", "unknown"] },
-        error_code: { type: ["string", "null"], enum: ["ERR_BLURRY", "ERR_DARK", "ERR_PARTIAL", "ERR_NOT_INVOICE", "ERR_UNREADABLE", "ERR_MISSING_DATA", null] },
-        contains_multiple_invoices: { type: "boolean" },
-        confidence_score: { type: "number", minimum: 0, maximum: 1 },
-        needs_review: { type: "boolean" },
-        extraction_notes: nullableString,
-        raw_text: nullableString,
-        merchant_name: nullableString, merchant_tax_id: nullableString, merchant_address: nullableString,
-        merchant_country: nullableString, merchant_bank_account: nullableString,
-        buyer_name: nullableString, buyer_tax_id: nullableString, buyer_address: nullableString,
-        invoice_number: nullableString, reference_invoice_number: nullableString,
-        invoice_date: nullableString, due_date: nullableString, performance_date: nullableString,
-        service_period_start: nullableString, service_period_end: nullableString,
-        currency: nullableString,
-        total_amount: nullableNumber, net_amount: nullableNumber, total_vat_amount: nullableNumber, amount_due: nullableNumber,
-        previous_balance: nullableNumber, advance_paid_amount: nullableNumber, discount_amount: nullableNumber, rounding_amount: nullableNumber,
-        bottle_deposit_amount: nullableNumber,
-        payment_method: nullableString, expense_category: nullableString,
-        field_confidence: {
-          type: "object",
-          additionalProperties: false,
-          required: ["merchant_tax_id", "buyer_tax_id", "invoice_number", "invoice_date", "currency", "total_amount", "net_amount", "total_vat_amount"],
-          properties: {
-            merchant_tax_id: nullableNumber, buyer_tax_id: nullableNumber, invoice_number: nullableNumber, invoice_date: nullableNumber,
-            currency: nullableNumber, total_amount: nullableNumber, net_amount: nullableNumber, total_vat_amount: nullableNumber,
-          },
-        },
-        vat_lines: { type: "array", items: VAT_LINE_SCHEMA },
-        items: {
-          type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            required: ["name_original"],
-            properties: {
-              name_original: { type: "string" }, name_english: nullableString, item_code: nullableString, item_type: nullableString,
-              quantity: nullableNumber, unit_price: nullableNumber, total_price: nullableNumber, vat_rate: nullableNumber,
-            },
-          },
-        },
-      },
-    },
-  },
-};
-
-const TOTALS_TOOL = {
-  type: "function",
-  function: {
-    name: "return_totals",
-    description: "Return only the invoice totals and VAT summary, re-read carefully",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["currency", "vat_lines"],
-      properties: {
-        document_kind: { type: "string", enum: ["normal_invoice", "receipt", "proforma", "advance_invoice", "final_invoice", "corrective_invoice", "credit_note", "cancellation", "unknown"] },
-        currency: nullableString,
-        total_amount: nullableNumber, net_amount: nullableNumber, total_vat_amount: nullableNumber, amount_due: nullableNumber,
-        previous_balance: nullableNumber, advance_paid_amount: nullableNumber, discount_amount: nullableNumber, rounding_amount: nullableNumber,
-        vat_lines: { type: "array", items: VAT_LINE_SCHEMA },
-        amount_confidence: nullableNumber,
-      },
-    },
-  },
-};
-
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- model output is validated field by field
 type Parsed = Record<string, any>;
 
-async function callModel(documentPart: unknown, system: string, userText: string, tool: typeof EXTRACT_TOOL | typeof TOTALS_TOOL, timeoutMs: number) {
-  const res = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      temperature: 0,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: [{ type: "text", text: userText }, documentPart] },
-      ],
-      tools: [tool],
-      tool_choice: { type: "function", function: { name: tool.function.name } },
-    }),
-  }, { containsSensitiveData: true, timeoutMs });
-  if (!res.ok) {
-    const status = res.status;
-    await res.text().catch(() => "");
-    if (status === 429) throw new ProcessingError("AI rate limit — retry later", "AI_RATE_LIMIT", 429);
-    if (status === 402) throw new ProcessingError("AI credits exhausted", "AI_CREDITS", 402);
-    if (status >= 500) throw new ProcessingError(`AI service error (${status}) — retry later`, "AI_UNAVAILABLE");
-    throw new ProcessingError(`AI rejected the document (${status}). It may be an unsupported or corrupt file.`, "AI_REJECTED");
-  }
-  const provider = res.headers.get("x-hotelcare-ai-provider") ?? "openai";
-  const body = await res.json();
-  const call = body?.choices?.[0]?.message?.tool_calls?.[0];
-  if (!call) throw new ProcessingError("The AI did not return structured invoice data", "AI_NO_DATA");
+/** Gemini first (native document input, paid data-processing terms required), OpenAI as the fallback. */
+async function callModel(document: OcrDocument, system: string, userText: string, tool: typeof EXTRACT_TOOL | typeof TOTALS_TOOL, timeoutMs: number) {
+  const isExtraction = tool.function.name === EXTRACT_TOOL.function.name;
   try {
-    return { parsed: JSON.parse(call.function.arguments) as Parsed, provider, model: typeof body?.model === "string" ? body.model : null };
-  } catch {
-    throw new ProcessingError("The AI returned invalid structured data", "AI_NO_DATA");
+    const result = await extractInvoiceStructured({
+      document, system, userText, timeoutMs,
+      tool: { name: tool.function.name, description: tool.function.description, parameters: tool.function.parameters },
+      validate: isExtraction
+        ? (v) => typeof v.document_type === "string" && Array.isArray(v.vat_lines) && Array.isArray(v.items)
+        : (v) => Array.isArray(v.vat_lines),
+      maxOutputTokens: isExtraction ? 32_768 : 8_192,
+    });
+    return { parsed: result.parsed as Parsed, provider: result.provider, model: result.model, fallbackReason: result.geminiFallbackReason };
+  } catch (cause) {
+    if (cause instanceof OcrProviderError) throw new ProcessingError(cause.message, cause.code, cause.httpStatus);
+    throw cause;
   }
 }
 
@@ -268,17 +135,22 @@ async function processInvoice(db: Db, invoiceId: string, options: { force: boole
       return { status: 200, body: { success: false, error_code: "ERR_FILE_TOO_LARGE" } };
     }
     const fileHash = await sha256Hex(buf);
-    const mime = isPdf ? "application/pdf" : (invoice.file_mime || "image/jpeg");
-    const dataUrl = `data:${mime};base64,${ab2b64(buf)}`;
-    // PDFs must go in as a file part — image_url only accepts images.
-    const documentPart = isPdf
-      ? { type: "file", file: { filename: (invoice.file_path.split("/").pop() || "invoice").replace(/[^\w.-]/g, "_"), file_data: dataUrl } }
-      : { type: "image_url", image_url: { url: dataUrl } };
+    const document: OcrDocument = {
+      mimeType: isPdf ? "application/pdf" : (invoice.file_mime || "image/jpeg"),
+      base64: ab2b64(buf),
+      byteLength: buf.byteLength,
+      filename: (invoice.file_path.split("/").pop() || "invoice").replace(/[^\w.-]/g, "_"),
+    };
 
     // ---- Pass 1: full extraction -------------------------------------------------
-    const first = await callModel(documentPart, SYSTEM_PROMPT, "Extract structured invoice data and call return_invoice.", EXTRACT_TOOL, 85_000);
+    // One budget covers the Gemini attempt and the OpenAI fallback; keep time to save the result.
+    const firstBudget = Math.max(20_000, Math.min(110_000, options.deadline - Date.now() - 15_000));
+    const first = await callModel(document, SYSTEM_PROMPT, "Extract structured invoice data and call return_invoice.", EXTRACT_TOOL, firstBudget);
     const parsed = first.parsed;
-    const ocrOriginal = { ...parsed, raw_text: undefined, _provider: first.provider, _model: first.model, _version: OCR_VERSION, _at: new Date().toISOString() };
+    const ocrOriginal = {
+      ...parsed, raw_text: undefined, _provider: first.provider, _model: first.model, _gemini_fallback_reason: first.fallbackReason,
+      _version: OCR_VERSION, _at: new Date().toISOString(),
+    };
 
     if (parsed.document_type === "not_invoice" || parsed.document_type === "unreadable" || parsed.error_code) {
       const code = (parsed.error_code ?? (parsed.document_type === "not_invoice" ? "ERR_NOT_INVOICE" : "ERR_UNREADABLE")) as ErrorCode;
@@ -308,10 +180,10 @@ async function processInvoice(db: Db, invoiceId: string, options: { force: boole
     if (needsSecondPass(validation, Number.isFinite(amountConfidence) ? amountConfidence : null) && options.deadline - Date.now() > 45_000) {
       try {
         const failing = validation.checks.filter((c) => c.status === "fail").map((c) => c.message).join(" ");
-        const second = await callModel(documentPart,
+        const second = await callModel(document,
           "You re-read Hungarian invoice totals with extreme care. Copy printed values only; never invent VAT. Call return_totals.",
           `The first extraction failed these checks: ${failing || "low confidence on amounts"}. Re-read the totals block and the VAT summary (ÁFA összesítő) and call return_totals.`,
-          TOTALS_TOOL, 40_000);
+          TOTALS_TOOL, Math.min(55_000, options.deadline - Date.now() - 10_000));
         passes = 2;
         const merged = { ...parsed, ...Object.fromEntries(Object.entries(second.parsed).filter(([k, v]) => v !== undefined && k !== "amount_confidence")) };
         const secondValidation = validateExtractedInvoice(toInput(merged), { today });
