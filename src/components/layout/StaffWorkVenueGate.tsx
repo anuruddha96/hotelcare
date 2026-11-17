@@ -4,16 +4,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/contexts/TenantContext';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
+import { shouldPromptStaffWorkVenue, type StaffStaffWorkVenueState } from '@/lib/staffWorkVenue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
-
-type WorkVenueState = {
-  home_hotel: string;
-  last_worked_hotel: string;
-  last_switched_on: string | null;
-  prompt_next_day: boolean;
-};
 
 export const STAFF_WORK_VENUE_ROLES = ['housekeeping', 'maintenance', 'maintenance_manager'] as const;
 
@@ -30,7 +24,7 @@ export function StaffWorkVenueGate({ children }: { children: ReactNode }) {
   const { user, profile, applyAssignedHotel } = useAuth();
   const { hotels, loading: hotelsLoading } = useTenant();
   const enabled = isStaffWorkVenueRole(profile?.role);
-  const [state, setState] = useState<WorkVenueState | null>(null);
+  const [state, setState] = useState<StaffWorkVenueState | null>(null);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyHotel, setBusyHotel] = useState<string | null>(null);
@@ -51,7 +45,7 @@ export function StaffWorkVenueGate({ children }: { children: ReactNode }) {
     if (readError) {
       setError('Could not verify your work hotel. Check your connection and try again.');
     } else {
-      const nextState = (data || null) as WorkVenueState | null;
+      const nextState = (data || null) as StaffWorkVenueState | null;
       setState(nextState);
       // Another active device may have changed the work venue. Reflect the
       // server-authorized choice instead of showing obsolete property data.
@@ -78,11 +72,7 @@ export function StaffWorkVenueGate({ children }: { children: ReactNode }) {
 
   if (!enabled) return <>{children}</>;
 
-  const due = (!profile?.assigned_hotel && !state) || (
-    state?.prompt_next_day === true
-    && !!state.last_switched_on
-    && state.last_switched_on < todayBudapest()
-  );
+  const due = shouldPromptStaffWorkVenue(state, profile?.assigned_hotel, todayBudapest());
 
   if (checking || (due && hotelsLoading)) {
     return <div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="h-7 w-7 animate-spin text-primary" aria-label="Checking work hotel" /></div>;
