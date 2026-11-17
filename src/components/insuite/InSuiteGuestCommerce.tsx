@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { TransferPrice } from "@/lib/wellness";
 import { CalendarClock, CheckCircle2, Coffee, ShoppingBag, Waves, CarTaxiFront, Plus, Minus } from "lucide-react";
 import { toast } from "sonner";
 import { inSuiteGuest, type InSuiteContent } from "@/lib/insuiteApi";
@@ -45,9 +46,11 @@ type Props = {
   onSubmitted: () => Promise<void>; roomNumber: string;
   /** Facilities booked by time slot (Jacuzzi & sauna page), so not requested here. */
   slotKinds?: string[];
+  /** Taxi / airport transfer prices kept by the hotel's top management. */
+  transfers?: TransferPrice[];
 };
 
-export function InSuiteGuestCommerce({ mode, config, accent, stayActive, orders, bookings, onSubmitted, roomNumber, slotKinds = [] }: Props) {
+export function InSuiteGuestCommerce({ mode, config, accent, stayActive, orders, bookings, onSubmitted, roomNumber, slotKinds = [], transfers = [] }: Props) {
   const [items, setItems] = useState<InSuiteMenuItem[]>([]);
   const [catalogError, setCatalogError] = useState("");
   const [kind, setKind] = useState(mode === "food" ? "breakfast" : "taxi");
@@ -170,6 +173,19 @@ export function InSuiteGuestCommerce({ mode, config, accent, stayActive, orders,
           onChange={(e) => setPartySize(Number(e.target.value))}>
           {Array.from({length:8},(_,i) => <option key={i} value={i+1}>{i+1}</option>)}
         </select></label>}
+      {mode === "booking" && kind === "taxi" && transfers.length > 0 && (
+        <section aria-label="Airport transfer prices" className="rounded-xl border bg-slate-50 p-4">
+          <p className="text-sm font-semibold">Airport transfer prices</p>
+          <ul className="mt-2 divide-y text-sm">
+            {transfers.map((t, i) => (
+              <li key={i} className="flex items-baseline justify-between gap-3 py-2">
+                <span>{t.label}{t.note ? <span className="text-slate-500"> · {t.note}</span> : null}</span>
+                <span className="shrink-0 font-semibold tabular-nums">{money(Number(t.price), t.currency)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <label className="block space-y-2 text-sm font-semibold">Special requests or notes
         <textarea className="w-full rounded-xl border p-3 block" rows={3} maxLength={400}
           placeholder={kind === "taxi" ? "Destination, luggage, accessibility needs…" : "Optional"}

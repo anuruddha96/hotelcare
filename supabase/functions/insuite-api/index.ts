@@ -231,12 +231,17 @@ Deno.serve(async (req) => {
         await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
         // Bookable jacuzzi / sauna (switched on by a top manager). The guest
         // books them by slot; the old request form is only for other services.
-        const { data: wellness } = await db.from("insuite_wellness_resources")
-          .select("id,kind,name,description,image_url,max_guests,slot_minutes,price,currency,opens_at,closes_at")
-          .eq("hotel_id", device.hotel_id).eq("is_active", true).order("sort_order");
+        const [{ data: wellness }, { data: wellnessSettings }] = await Promise.all([
+          db.from("insuite_wellness_resources")
+            .select("id,kind,name,description,image_url,max_guests,slot_minutes,price,currency,opens_at,closes_at")
+            .eq("hotel_id", device.hotel_id).eq("is_active", true).order("sort_order"),
+          // Taxi / airport transfer prices kept by top management (shown next to the taxi request).
+          db.from("insuite_wellness_settings").select("transfer_prices").eq("hotel_id", device.hotel_id).maybeSingle(),
+        ]);
         return send({ room_number: room.room_number, hotel_id: device.hotel_id,
           session_epoch: device.session_epoch, config, stay_active: stayActive,
-          guest: guestWelcome, paired: true, kind: device.kind || "tablet", wellness: wellness || [] });
+          guest: guestWelcome, paired: true, kind: device.kind || "tablet", wellness: wellness || [],
+          transfers: Array.isArray(wellnessSettings?.transfer_prices) ? wellnessSettings.transfer_prices : [] });
       }
       if (action === "guest-state") {
         if (!stayActive) return send({ requests: [], messages: [], orders: [], bookings: [], wellness: [],

@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { InSuiteGuestCommerce, type InSuiteOrder, type InSuiteBooking } from "@/components/insuite/InSuiteGuestCommerce";
 import { InSuiteWellness } from "@/components/insuite/InSuiteWellness";
-import type { WellnessStayBooking } from "@/lib/wellness";
+import type { TransferPrice, WellnessStayBooking } from "@/lib/wellness";
 import {
   INSUITE_DEVICE_KEY, inSuiteGuest, type InSuiteContent,
   type InSuiteMessage, type InSuiteRequest,
@@ -127,6 +127,7 @@ export default function InSuiteGuest() {
   const [orders, setOrders] = useState<InSuiteOrder[]>([]);
   const [bookings, setBookings] = useState<InSuiteBooking[]>([]);
   const [wellnessFacilities, setWellnessFacilities] = useState<WellnessFacility[]>([]);
+  const [transfers, setTransfers] = useState<TransferPrice[]>([]);
   const [wellnessBookings, setWellnessBookings] = useState<WellnessStayBooking[]>([]);
   const [stayActive, setStayActive] = useState(false);
   const [message, setMessage] = useState("");
@@ -151,6 +152,7 @@ export default function InSuiteGuest() {
       setRoom(String(data.room_number || ""));
       setConfig(data.config || {});
       setWellnessFacilities(Array.isArray(data.wellness) ? data.wellness : []);
+      setTransfers(Array.isArray(data.transfers) ? data.transfers : []);
       setError("");
     } catch (err) {
       setError((err as Error).message);
@@ -537,7 +539,7 @@ export default function InSuiteGuest() {
           {panel("Hotel facilities", config?.facilities_info, Hotel)}
         </div>
         <InSuiteGuestCommerce mode="booking" config={config || {}} accent={accent}
-          slotKinds={wellnessFacilities.map((f) => f.kind)}
+          slotKinds={wellnessFacilities.map((f) => f.kind)} transfers={transfers}
           roomNumber={room} stayActive={stayActive} orders={orders} bookings={bookings}
           onSubmitted={refresh} />
         <p className="text-sm text-slate-500">All availability and transport pricing require reception confirmation.</p>

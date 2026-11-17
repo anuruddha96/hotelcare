@@ -458,3 +458,20 @@ SELECT o.slug, h.hotel_id, v.kind, v.name, v.description, h.hotel_id = 'channex-
  ) AS v(kind, name, description, sort_order)
  WHERE h.hotel_id IN ('channex-test-property', 'memories-budapest')
 ON CONFLICT (hotel_id, kind) DO NOTHING;
+
+-- Airport transfer prices as published on the Hotel Mika Downtown website
+-- (Airport transfer page, read 17 Nov 2026: one way, paid on arrival in cash
+-- EUR/HUF or by card in HUF). The Memories, Ottofiori and Gozsdu Court
+-- websites publish no transfer price; top management adds theirs in
+-- In-Suite → Jacuzzi & sauna → Setup, where these can also be changed.
+INSERT INTO public.insuite_wellness_settings (hotel_id, organization_slug, transfer_prices, transfer_source)
+SELECT h.hotel_id, o.slug, '[
+    {"label": "Airport → hotel, 1–2 passengers (car)", "price": 42, "currency": "EUR", "note": "one way, pay on arrival"},
+    {"label": "Airport → hotel, 3–4 passengers (car)", "price": 47, "currency": "EUR", "note": "one way, pay on arrival"},
+    {"label": "Airport → hotel, 5–7 passengers (minivan)", "price": 63, "currency": "EUR", "note": "one way, pay on arrival"},
+    {"label": "Airport → hotel, 8 or more passengers", "price": 47, "currency": "EUR", "note": "per car, 4 passengers per car"}
+  ]'::jsonb, 'Hotel Mika Downtown website, Airport transfer page (17 Nov 2026)'
+  FROM public.hotel_configurations h
+  JOIN public.organizations o ON o.id = h.organization_id
+ WHERE h.hotel_id = 'mika-downtown'
+ON CONFLICT (hotel_id) DO NOTHING;
