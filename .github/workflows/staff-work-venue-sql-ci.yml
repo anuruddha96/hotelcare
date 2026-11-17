@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'supabase/migrations/20261117093500_staff_cross_venue_work_selection.sql'
+      - 'supabase/migrations/20261117105700_fix_staff_cross_venue_profile_guards.sql'
       - 'supabase/tests/staff_work_venue_*.sql'
       - '.github/workflows/staff-work-venue-sql-ci.yml'
 
@@ -44,4 +45,5 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 \
             -f supabase/tests/staff_work_venue_fixture.sql \
             -f supabase/migrations/20261117093500_staff_cross_venue_work_selection.sql \
+            -f supabase/migrations/20261117105700_fix_staff_cross_venue_profile_guards.sql \
             -f supabase/tests/staff_work_venue_test.sql

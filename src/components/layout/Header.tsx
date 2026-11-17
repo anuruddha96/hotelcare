@@ -36,6 +36,7 @@ import {
 
 export function Header() {
   const { profile, user, signOut } = useAuth();
+  const fieldStaff = ['maintenance', 'maintenance_manager', 'housekeeping'].includes(profile?.role ?? '');
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
@@ -140,7 +141,7 @@ export function Header() {
               <DirtyLinenCartBadge />
             </div>
             <OrganizationSwitcher />
-            <HotelSwitcher />
+            <div className={fieldStaff ? 'hidden sm:block' : ''}><HotelSwitcher /></div>
             <div className="hidden shrink-0 sm:block"><LanguageSwitcher /></div>
             <InstallAppPrompt />
             {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
@@ -251,7 +252,11 @@ export function Header() {
 
       {/* Mobile: which property am I looking at? The header badge truncates,
           so phones get a full-width, untruncated context line. */}
-      {hotelDisplayName && (
+      {fieldStaff ? (
+        <div className="sm:hidden border-t border-border px-3 py-2 bg-background">
+          <HotelSwitcher mode="banner" />
+        </div>
+      ) : hotelDisplayName && (
         <div className="sm:hidden border-t border-border bg-secondary/40 px-3 py-1.5 flex items-center gap-2">
           <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
           <span className="text-xs font-medium truncate">{hotelDisplayName}</span>
