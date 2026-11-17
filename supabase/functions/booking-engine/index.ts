@@ -397,7 +397,7 @@ async function actionBook(db: Db, body: Json, ipHash: string, userAgent: string)
         })
         : { ok: false, skipped: true, error: "No hotel notification address" };
       await db.from("booking_engine_bookings").update({
-        guest_email_status: guestSend.ok ? "sent" : `failed: ${guestSend.error ?? "unknown"}`.slice(0, 300),
+        guest_email_status: guestSend.ok ? "sent" : `${guestSend.skipped ? "skipped" : "failed"}: ${guestSend.error ?? "unknown"}`.slice(0, 300),
         hotel_email_status: hotelSend.ok ? "sent" : `${hotelSend.skipped ? "skipped" : "failed"}: ${hotelSend.error ?? ""}`.slice(0, 300),
       }).eq("id", result.booking_id);
     } catch (e) {
