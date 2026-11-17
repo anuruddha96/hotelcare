@@ -10,12 +10,13 @@ import {
   Users, AlertTriangle,
   Hourglass, ListOrdered, Sparkles, Waves,
 } from 'lucide-react';
-import { ReservationCalendar } from '@/components/reservations/ReservationCalendar';
+import { ReservationCalendar, type RoomStatus } from '@/components/reservations/ReservationCalendar';
 import { VizaStatusCard } from '@/components/frontdesk/VizaStatusCard';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
+import { toast } from 'sonner';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
 import { useReservationSearch, mergeSearchResults } from '@/hooks/useReservationSearch';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -216,6 +217,27 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     };
   }, [ready, hotelId, isPortfolio, keysKey, fetchAll]);
 
+  // Reception sets a room's status with the same write housekeeping uses, so the
+  // housekeeping boards, room history and the PMS status push all see it.
+  // Out of order / maintenance is only ever left on purpose (confirmed here).
+  const changeRoomStatus = useCallback(async (room: { id: string; room_number: string; status?: string | null }, next: RoomStatus) => {
+    const label = (value: string) => t(`pms.room.status_${value}`);
+    const current = String(room.status ?? '');
+    if (['out_of_order', 'maintenance'].includes(current) && !['out_of_order', 'maintenance'].includes(next)
+      && !window.confirm(t('pms.room.releaseConfirm').replace('{room}', room.room_number).replace('{status}', label(current).toLowerCase()))) return;
+    const patch: Record<string, unknown> = { status: next };
+    if (next === 'clean') {
+      patch.last_cleaned_at = new Date().toISOString();
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth.user?.id) patch.last_cleaned_by = auth.user.id;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await supabase.from('rooms').update(patch as any).eq('id', room.id).select('id').maybeSingle();
+    if (error || !data) { toast.error(error?.message || t('pms.room.statusFailed')); return; }
+    setRooms((list) => list.map((item) => (item.id === room.id ? { ...item, status: next } : item)));
+    toast.success(t('pms.room.statusSaved').replace('{room}', room.room_number).replace('{status}', label(next).toLowerCase()));
+  }, [t]);
+
   const snapshotAudit = useMemo(() => hotelId
     ? auditReceptionSnapshots(hotelId, snapshots, rooms, reservations, Date.now())
     : null, [hotelId, snapshots, rooms, reservations]);
@@ -389,16 +411,16 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     )}
     <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1" aria-label="HotelCare records only; not validated against Previo" data-training="fd-today-strip">
       {([
-        { key: 'arrivals' as const, label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, rows: arrivals, tone: 'border-emerald-300 dark:border-emerald-800' },
-        { key: 'departures' as const, label: `🧳 ${t('pms.fd.departuresRemaining')}`, rows: departures, tone: 'border-sky-300 dark:border-sky-800' },
-        { key: 'inhouse' as const, label: `🛏️ ${t('pms.fd.inHouseNow')}`, rows: inHouse, tone: 'border-border' },
-        { key: 'unassigned' as const, label: `${unassignedUrgent ? '❓' : '🌊'} ${floatingTitle}`, rows: unassigned, tone: unassignedUrgent ? 'border-amber-400 dark:border-amber-700' : 'border-border' },
+        { key: 'arrivals' as const, label: `🛬 ${t('pms.fd.arrivalsRemaining')}`, rows: arrivals, tone: 'border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100', active: 'ring-2 ring-emerald-500' },
+        { key: 'departures' as const, label: `🧳 ${t('pms.fd.departuresRemaining')}`, rows: departures, tone: 'border-orange-300 bg-orange-50 text-orange-900 hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100', active: 'ring-2 ring-orange-500' },
+        { key: 'inhouse' as const, label: `🛏️ ${t('pms.fd.inHouseNow')}`, rows: inHouse, tone: 'border-sky-300 bg-sky-50 text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100', active: 'ring-2 ring-sky-500' },
+        { key: 'unassigned' as const, label: `${unassignedUrgent ? '❓' : '🌊'} ${floatingTitle}`, rows: unassigned, tone: 'border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-100', active: 'ring-2 ring-violet-500' },
       ]).map((stat) => (
         <button key={stat.key} type="button" title={t('pms.fd.todayChipTip')}
           aria-expanded={statPanel === stat.key}
           onClick={() => setStatPanel(statPanel === stat.key ? null : stat.key)}
-          className={`h-8 shrink-0 rounded-md border bg-card px-2.5 flex items-center gap-1.5 text-xs transition-colors hover:bg-accent/40 ${stat.tone} ${statPanel === stat.key ? 'ring-2 ring-primary/50 bg-accent/30' : ''}`}>
-          <span className="text-muted-foreground">{stat.label}</span><span className="font-semibold">{loadingData || loadError ? '—' : stat.rows.length}</span>
+          className={`h-8 shrink-0 rounded-md border px-2.5 flex items-center gap-1.5 text-xs font-medium transition-colors ${stat.tone} ${statPanel === stat.key ? stat.active : ''}`}>
+          <span>{stat.label}</span><span className="rounded-full bg-white/70 dark:bg-black/30 px-1.5 text-[11px] font-bold tabular-nums">{loadingData || loadError ? '—' : stat.rows.length}</span>
         </button>
       ))}
       <div className="h-8 shrink-0 rounded-md border border-dashed border-border px-2.5 flex items-center gap-2 text-[11px] text-muted-foreground" aria-hidden="true">
@@ -432,7 +454,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     })()}
 
     <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
-      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
+      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} onRoomStatusChange={changeRoomStatus} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-card z-10 border-b border-border"><tr className="text-left text-xs text-muted-foreground">
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>
