@@ -41,7 +41,7 @@ jobs:
       - name: Verify same-organization access, prompt state and tenant denial
         run: |
           set -euo pipefail
-          psql -X -v ON_ERROR_STOP=1 \\
-            -f supabase/tests/staff_work_venue_fixture.sql \\
-            -f supabase/migrations/20261117093500_staff_cross_venue_work_selection.sql \\
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/staff_work_venue_fixture.sql \
+            -f supabase/migrations/20261117093500_staff_cross_venue_work_selection.sql \
             -f supabase/tests/staff_work_venue_test.sql
