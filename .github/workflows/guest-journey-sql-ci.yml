@@ -1,0 +1,48 @@
+name: Guest journey SQL
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/*guest_journey*.sql'
+      - 'supabase/tests/guest_journey_*'
+      - '.github/workflows/guest-journey-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: guest_journey_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: guest_journey_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Guest identity, profile, preferences, reception signals and directory
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 \
+            -f supabase/tests/guest_journey_fixture.sql \
+            -f supabase/migrations/20261117160000_guest_journey.sql \
+            -f supabase/tests/guest_journey_integration.sql

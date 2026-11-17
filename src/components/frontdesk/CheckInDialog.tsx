@@ -19,6 +19,8 @@ import {
 import { balanceOf, formatMoney, reservationGuestLabel } from '@/lib/reservations';
 import { summarizeReservationNote } from '@/lib/previoReservationNote';
 import { GuestDetailsSection } from '@/components/frontdesk/GuestDetailsSection';
+import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
+import { useParams } from 'react-router-dom';
 
 interface CheckInDialogProps {
   reservation: any;
@@ -43,6 +45,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   // Previo/OTA notes arrive as a block of markup: show only what reception must act on.
   const noteSummary = summarizeReservationNote(reservation.special_requests);
   const guest = reservation.guests;
+  const { organizationSlug } = useParams<{ organizationSlug?: string }>();
   const missingContact = !guest?.email && !guest?.phone;
 
   useEffect(() => {
@@ -104,6 +107,10 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
               {reservation.check_in_date} → {reservation.check_out_date} · {reservation.total_nights}N · {reservation.adults}A {reservation.children > 0 ? `${reservation.children}C` : ''}
             </p>
           </div>
+
+          {/* Returning guest, VIP and saved preferences, before anything else. */}
+          <GuestWelcomeCard reservationId={reservation.id} hotelId={reservation.hotel_id}
+            basePath={organizationSlug ? `/${organizationSlug}` : undefined} />
 
           {reservation.guest_id && (
             <GuestDetailsSection guestId={reservation.guest_id} onCompletenessChange={setVizaMissing} />
