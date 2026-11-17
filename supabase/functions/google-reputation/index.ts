@@ -1010,8 +1010,15 @@ Deno.serve(async (req) => {
             } catch { return false; }
           },
         });
-      } catch {
-        return json({ error: "Could not generate alternatives. Try again or edit the existing draft." }, 502);
+      } catch (generationError) {
+        const detail = generationError instanceof Error ? generationError.message : "";
+        const blocked = /Gemini|OpenAI fallback|credits|quota|HTTP 429/i.test(detail);
+        return json({
+          error: blocked
+            ? "Gemini could not complete this request. The OpenAI fallback is currently unavailable. Please retry shortly or edit the existing draft; nothing was saved or published."
+            : "Could not generate three safe reply alternatives. Your existing draft is unchanged.",
+          retryable: blocked,
+        }, blocked ? 503 : 502);
       }
       const output = generated.text;
       let parsed: any;
