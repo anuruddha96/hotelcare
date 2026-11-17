@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Competitor rate watch — reads publicly published nightly rates.
 //
 // Uses the hotel's own OpenAI key with web search. Each competitor is asked in
@@ -112,7 +113,7 @@ async function askDates(
   const usage = { model: null as string | null, inputTokens: 0, outputTokens: 0, searchContext };
   for (const model of models) {
     try {
-      const attempt = await fetch("https://api.openai.com/v1/responses", {
+      const attempt = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         // A single hung web-search question must never stall the sweep.
@@ -226,7 +227,7 @@ Deno.serve(async (req) => {
     const days = isCron ? CRON_SAMPLE_DATES : manualDays;
     const tier: "cheap" | "rich" = isCron ? "cheap" : "rich";
     const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
+    if (!apiKey && !Deno.env.get("GEMINI_API_KEY")) return json({ error: "No AI provider configured" }, 500);
 
     const start = new Date();
     const startIso = start.toISOString().slice(0, 10);
