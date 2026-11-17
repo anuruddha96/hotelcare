@@ -1,0 +1,48 @@
+name: Gemini-first HotelCare AI integrations
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/geminiFirst*'
+      - 'supabase/functions/ottofiori-ai-supervisor/**'
+      - 'supabase/functions/competitor-*/**'
+      - 'supabase/functions/ottofiori-market-scan/**'
+      - 'supabase/functions/generate-rm-intelligence/**'
+      - 'supabase/functions/revenue-ai-analyze/**'
+      - 'supabase/functions/revenue-events-fetch/**'
+      - 'supabase/functions/analyze-assignment-patterns/**'
+      - 'supabase/functions/process-purchase-invoice/**'
+      - 'supabase/functions/refresh-motivational-quotes/**'
+      - 'supabase/functions/welcome-quote-refill/**'
+      - '.github/workflows/gemini-first-wide-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provider-and-edge-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test provider priority and output-validation guards
+        run: |
+          deno test --allow-env supabase/functions/_shared/geminiFirstJson_test.ts
+          deno test --allow-env supabase/functions/_shared/geminiFirstChat_test.ts
+      - name: Type-check edited backend Edge Functions
+        run: |
+          deno check --node-modules-dir=auto supabase/functions/ottofiori-ai-supervisor/index.ts
+          deno check --node-modules-dir=auto supabase/functions/generate-rm-intelligence/index.ts
+          deno check --node-modules-dir=auto supabase/functions/revenue-ai-analyze/index.ts
+          deno check --node-modules-dir=auto supabase/functions/revenue-events-fetch/index.ts
+          deno check --node-modules-dir=auto supabase/functions/analyze-assignment-patterns/index.ts
+          deno check --node-modules-dir=auto supabase/functions/process-purchase-invoice/index.ts
+          deno check --node-modules-dir=auto supabase/functions/refresh-motivational-quotes/index.ts
+          deno check --node-modules-dir=auto supabase/functions/welcome-quote-refill/index.ts
+          deno check --node-modules-dir=auto supabase/functions/competitor-discover/index.ts
+          deno check --node-modules-dir=auto supabase/functions/competitor-rate-scan/index.ts
+          deno check --node-modules-dir=auto supabase/functions/ottofiori-market-scan/index.ts
