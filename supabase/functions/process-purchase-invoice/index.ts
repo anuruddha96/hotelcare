@@ -1,3 +1,4 @@
+import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 // Process Purchase Invoice — OCR + structured extraction via Lovable AI Gateway
 // Hungarian VAT aware. Returns structured error codes for unreadable docs.
 
@@ -64,8 +65,8 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    if (!OPENAI_API_KEY) {
-      return new Response(JSON.stringify({ error: "OPENAI_API_KEY is not configured" }), {
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) {
+      return new Response(JSON.stringify({ error: "No AI provider is configured" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -254,7 +255,7 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
       },
     };
 
-    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiRes = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -275,7 +276,7 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
         tools: [tool],
         tool_choice: { type: "function", function: { name: "return_invoice" } },
       }),
-    });
+    }, { containsSensitiveData: true });
 
     if (!aiRes.ok) {
       const txt = await aiRes.text();
