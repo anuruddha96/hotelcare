@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { displayRoomType } from '@/lib/roomTypeDisplay';
 import { Navigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/layout/Header';
@@ -265,7 +266,7 @@ const ReservationDetail = () => {
             <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><BedDouble className="h-4 w-4" /> {t('pms.res.room')}</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div><span className="text-muted-foreground">{t('pms.res.room')}:</span> <strong>{room?.room_number || t('pms.res.unassigned')}</strong></div>
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.roomType')}:</span> {room?.room_type || reservation.room_type_requested || t('pms.reservationDetail.notSpecified')}</div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.roomType')}:</span> {displayRoomType(room?.room_type || reservation.room_type_requested) || t('pms.reservationDetail.notSpecified')}</div>
               {room?.status && <div><span className="text-muted-foreground">{t('common.status')}:</span> <span className="capitalize">{room.status.replaceAll('_', ' ')}</span></div>}
               {room?.room_capacity ? <div><span className="text-muted-foreground">{t('pms.res.capacity')}:</span> {room.room_capacity}</div> : null}
             </CardContent>

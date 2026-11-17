@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams, Link } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
@@ -15,53 +15,60 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Users, Plus, Search, Star } from 'lucide-react';
+import { Users, Plus, Search, Star, BedDouble, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
+
+const PAGE = 50;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DirectoryGuest = Record<string, any>;
 
 const Guests = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
-  const [guests, setGuests] = useState<any[]>([]);
+  const [guests, setGuests] = useState<DirectoryGuest[]>([]);
+  const [total, setTotal] = useState(0);
   const [loadingData, setLoadingData] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [openGuest, setOpenGuest] = useState<DirectoryGuest | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '', phone: '', nationality: '',
     id_document_type: '', id_document_number: '', company_name: '', notes: '',
   });
   const basePath = `/${organizationSlug || 'rdhotels'}`;
+  const seq = useRef(0);
 
-  const { hotelKeys, isPortfolio, ready } = useOperationalHotel();
+  const { hotelId, hotelKeys, ready } = useOperationalHotel();
   const keysKey = hotelKeys.join('|');
 
-  useEffect(() => {
-    if (user && ready) fetchGuests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, ready, keysKey]);
-
-  const fetchGuests = async () => {
-    setLoadingData(true);
-    let query = supabase
-      .from('guests')
-      .select('*')
-      .order('last_name', { ascending: true })
-      .limit(500);
-    // Operational roles only see their own property's guests; executives
-    // browsing without a selected property fall back to the org-wide view.
-    if (hotelKeys.length > 0) {
-      query = query.in('hotel_id', hotelKeys);
-    } else if (!isPortfolio) {
-      setGuests([]);
-      setLoadingData(false);
-      return;
-    }
-    const { data } = await query;
-    if (data) setGuests(data);
+  // The directory is read from bookings on the server (pms_guest_directory):
+  // saved profiles plus every guest known from a booking, 50 at a time.
+  const fetchGuests = async (offset = 0) => {
+    const mine = ++seq.current;
+    if (!keysKey) { setGuests([]); setTotal(0); setLoadingData(false); return; }
+    if (offset === 0) setLoadingData(true); else setLoadingMore(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any).rpc('pms_guest_directory', {
+      _hotel_ids: keysKey.split('|'), _term: searchTerm.trim() || null, _limit: PAGE, _offset: offset,
+    });
+    if (mine !== seq.current) return;
+    const rows: DirectoryGuest[] = error ? [] : (data ?? []);
+    setGuests((current) => (offset === 0 ? rows : [...current, ...rows]));
+    setTotal(rows[0]?.total_count ?? (offset === 0 ? 0 : total));
     setLoadingData(false);
+    setLoadingMore(false);
   };
+
+  useEffect(() => {
+    if (!user || !ready) return;
+    const timer = setTimeout(() => { void fetchGuests(0); }, searchTerm ? 250 : 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, ready, keysKey, searchTerm]);
 
   const createGuest = async () => {
     if (!form.first_name || !form.last_name) {
@@ -71,7 +78,7 @@ const Guests = () => {
     const { error } = await supabase.from('guests').insert({
       ...form,
       organization_slug: profile?.organization_slug || organizationSlug,
-      hotel_id: profile?.assigned_hotel,
+      hotel_id: hotelId || profile?.assigned_hotel,
     });
     if (error) {
       toast.error(t('pms.guests.failedToCreate'));
@@ -79,7 +86,7 @@ const Guests = () => {
       toast.success(t('pms.guests.guestCreated'));
       setCreateOpen(false);
       setForm({ first_name: '', last_name: '', email: '', phone: '', nationality: '', id_document_type: '', id_document_number: '', company_name: '', notes: '' });
-      fetchGuests();
+      void fetchGuests(0);
     }
   };
 
@@ -92,12 +99,11 @@ const Guests = () => {
   }
   if (!user) return <Navigate to={`${basePath}/auth`} replace />;
 
-  const filtered = guests.filter((g) => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    const name = `${g.first_name} ${g.last_name}`.toLowerCase();
-    return name.includes(term) || g.email?.toLowerCase().includes(term) || g.phone?.includes(term);
-  });
+  const stayLine = (g: DirectoryGuest) => {
+    if (g.in_house) return <Badge className="bg-sky-600 hover:bg-sky-600 text-white">{t('pms.guests.inHouse')}</Badge>;
+    if (g.next_arrival) return <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400"><CalendarClock className="h-3.5 w-3.5" />{t('pms.guests.arrives')} {g.next_arrival}</span>;
+    return g.last_stay ? <span className="text-muted-foreground">{t('pms.guests.lastStay')} {g.last_stay}</span> : <span className="text-muted-foreground">—</span>;
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -107,7 +113,7 @@ const Guests = () => {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <h1 className="text-xl font-bold flex items-center gap-2">
             <Users className="h-5 w-5" /> {t('pms.guests.directory')}
-            <Badge variant="secondary">{guests.length}</Badge>
+            <Badge variant="secondary">{total}</Badge>
           </h1>
           <div className="flex items-center gap-2">
             <div className="relative">
@@ -132,11 +138,11 @@ const Guests = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t('pms.guests.name')}</TableHead>
-                    <TableHead>{t('pms.guests.email')}</TableHead>
-                    <TableHead>{t('pms.guests.phone')}</TableHead>
-                    <TableHead>{t('pms.guests.nationality')}</TableHead>
-                    <TableHead>{t('pms.guests.vip')}</TableHead>
-                    <TableHead>{t('pms.guests.company')}</TableHead>
+                    <TableHead>{t('pms.guests.contact')}</TableHead>
+                    <TableHead className="text-right">{t('pms.guests.stays')}</TableHead>
+                    <TableHead className="text-right">{t('pms.guests.nights')}</TableHead>
+                    <TableHead>{t('pms.guests.stayStatus')}</TableHead>
+                    <TableHead>{t('pms.guests.bookedVia')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -144,36 +150,90 @@ const Guests = () => {
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">{t('pms.loading')}</TableCell>
                     </TableRow>
-                  ) : filtered.length === 0 ? (
+                  ) : guests.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">{t('pms.guests.noGuestsFound')}</TableCell>
                     </TableRow>
                   ) : (
-                    filtered.map((g) => (
-                      <TableRow key={g.id} className="cursor-pointer hover:bg-accent/50">
+                    guests.map((g) => (
+                      <TableRow key={g.key} className="cursor-pointer hover:bg-accent/50" onClick={() => setOpenGuest(g)}>
                         <TableCell>
-                          <Link to={`${basePath}/guests/${g.id}`} className="font-medium text-primary hover:underline">
-                            {g.first_name} {g.last_name}
-                          </Link>
+                          <span className="font-medium text-primary inline-flex items-center gap-1.5">
+                            {g.name || '—'}
+                            {g.vip_status === 'vip' && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />}
+                            {Number(g.stays) > 1 && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{t('pms.guests.returning')}</Badge>}
+                          </span>
+                          {g.nationality && <div className="text-xs text-muted-foreground">{g.nationality}</div>}
                         </TableCell>
-                        <TableCell className="text-sm">{g.email || '-'}</TableCell>
-                        <TableCell className="text-sm">{g.phone || '-'}</TableCell>
-                        <TableCell className="text-sm">{g.nationality || '-'}</TableCell>
-                        <TableCell>
-                          {g.vip_status === 'vip' && (
-                            <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
-                          )}
+                        <TableCell className="text-sm">
+                          <div className="truncate max-w-[240px]">{g.email || '—'}</div>
+                          {g.phone && <div className="text-xs text-muted-foreground">{g.phone}</div>}
                         </TableCell>
-                        <TableCell className="text-sm">{g.company_name || '-'}</TableCell>
+                        <TableCell className="text-sm text-right tabular-nums">{g.stays}</TableCell>
+                        <TableCell className="text-sm text-right tabular-nums">{g.nights}</TableCell>
+                        <TableCell className="text-sm">{stayLine(g)}</TableCell>
+                        <TableCell className="text-sm">{(g.channels ?? []).join(', ') || '—'}</TableCell>
                       </TableRow>
                     ))
                   )}
                 </TableBody>
               </Table>
             </div>
+            {!loadingData && guests.length < total && (
+              <div className="p-3 border-t border-border text-center">
+                <Button variant="outline" size="sm" disabled={loadingMore} onClick={() => void fetchGuests(guests.length)}>
+                  {t('pms.guests.showMore')} ({guests.length}/{total})
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </main>
+
+      {/* Guest journey: every stay at this hotel, newest first */}
+      <Dialog open={!!openGuest} onOpenChange={(open) => { if (!open) setOpenGuest(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          {openGuest && (<>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">{openGuest.name}
+                {openGuest.in_house && <Badge className="bg-sky-600 hover:bg-sky-600 text-white">{t('pms.guests.inHouse')}</Badge>}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {[[t('pms.guests.stays'), openGuest.stays], [t('pms.guests.nights'), openGuest.nights],
+                [t('pms.guests.totalSpend'), openGuest.spend != null ? `${Math.round(Number(openGuest.spend)).toLocaleString()} ${openGuest.currency ?? ''}` : '—']].map(([label, value]) => (
+                <div key={String(label)} className="rounded-lg border border-border p-2">
+                  <div className="text-lg font-bold tabular-nums">{value}</div>
+                  <div className="text-[11px] text-muted-foreground">{label}</div>
+                </div>
+              ))}
+            </div>
+            <div className="text-sm space-y-0.5">
+              {openGuest.email && <div>{openGuest.email}</div>}
+              {openGuest.phone && <div className="text-muted-foreground">{openGuest.phone}</div>}
+              {openGuest.first_stay && <div className="text-xs text-muted-foreground">{t('pms.guests.firstStay')} {openGuest.first_stay}</div>}
+            </div>
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
+              {(openGuest.stay_list ?? []).length === 0 && <div className="p-3 text-sm text-muted-foreground">{t('pms.guests.noStays')}</div>}
+              {(openGuest.stay_list ?? []).map((stay: DirectoryGuest) => (
+                <Link key={stay.id} to={`${basePath}/reservations/${stay.id}`} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent/50">
+                  <BedDouble className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-medium">{stay.check_in_date} → {stay.check_out_date}</span>
+                    <span className="block text-xs text-muted-foreground truncate">{stay.room_number || t('pms.unified.unassigned')} · {stay.channel || '—'} · {stay.reservation_number}</span>
+                  </span>
+                  <Badge variant="outline" className="shrink-0 capitalize">{String(stay.status).replace('_', ' ')}</Badge>
+                </Link>
+              ))}
+            </div>
+            <DialogFooter>
+              {openGuest.guest_id
+                ? <Button asChild><Link to={`${basePath}/guests/${openGuest.guest_id}`}>{t('pms.guests.openProfile')}</Link></Button>
+                : <p className="text-xs text-muted-foreground mr-auto">{t('pms.guests.fromBookings')}</p>}
+            </DialogFooter>
+          </>)}
+        </DialogContent>
+      </Dialog>
 
       {/* Create Guest Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

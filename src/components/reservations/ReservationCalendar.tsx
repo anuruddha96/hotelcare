@@ -26,6 +26,7 @@ import { columnWidthFor, groupRoomsByType, loadCalendarOptions, saveCalendarOpti
 import { useTranslation } from '@/hooks/useTranslation';
 import { nightsBetween as stayNights, reservationChannel, reservationGuestLabel } from '@/lib/reservations';
 import { getRoomLaneCount, layoutRoomStays } from '@/lib/receptionPlanner';
+import { displayRoomType } from '@/lib/roomTypeDisplay';
 import { LifecycleError, updateReservation } from '@/lib/pmsLifecycle';
 
 interface PlannerRoom {
@@ -52,11 +53,24 @@ interface ReservationCalendarProps {
   onQuickAction?: (reservation: CalReservation, action: 'checkin' | 'checkout') => void;
   /** Name of the PMS that owns the bookings (e.g. "Previo"); null when HotelCare is the PMS. */
   pmsName?: string | null;
+  /** Reception changes a room's housekeeping status from the room column. Omit to make it read-only. */
+  onRoomStatusChange?: (room: PlannerRoom, status: RoomStatus) => Promise<void> | void;
 }
 
+export type RoomStatus = 'clean' | 'dirty' | 'out_of_order' | 'maintenance';
+const ROOM_STATUSES: RoomStatus[] = ['clean', 'dirty', 'out_of_order', 'maintenance'];
+/** Pill + dot colours per room status; unknown values fall back to a neutral pill. */
+const ROOM_STATUS_STYLE: Record<string, { pill: string; dot: string }> = {
+  clean: { pill: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-800', dot: 'bg-emerald-500' },
+  dirty: { pill: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800', dot: 'bg-amber-500' },
+  out_of_order: { pill: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950 dark:text-red-200 dark:border-red-800', dot: 'bg-red-600' },
+  maintenance: { pill: 'bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-950 dark:text-violet-200 dark:border-violet-800', dot: 'bg-violet-500' },
+};
+const ROOM_STATUS_FALLBACK = { pill: 'bg-muted text-muted-foreground border-border', dot: 'bg-muted-foreground/40' };
+
 type WindowDays = 7 | 14 | 21 | 31;
-const ROOM_WIDTH = 194;
-const ROOM_WIDTH_COLLAPSED = 96;
+const ROOM_WIDTH = 216;
+const ROOM_WIDTH_COLLAPSED = 104;
 /** Fixed header heights so the three frozen rows stack exactly. */
 const HEAD_MONTH_H = 28;
 const HEAD_DAYS_H = 58;
@@ -70,9 +84,6 @@ const RESERVATION_COLORS: Record<string, string> = {
   confirmed: 'bg-emerald-600 border-emerald-700 text-white',
   checked_in: 'bg-sky-600 border-sky-700 text-white',
   checked_out: 'bg-slate-400 border-slate-500 text-white',
-};
-const ROOM_COLORS: Record<string, string> = {
-  clean: 'bg-emerald-500', dirty: 'bg-amber-500', occupied: 'bg-sky-500',
 };
 
 function startNearToday() {
@@ -110,7 +121,7 @@ const nightsBetween = (from: string, to: string) =>
   Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 86400000));
 
 /** Read-only snapshot bookings are displayed separately from editable HotelCare records. */
-export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged, onQuickAction, pmsName = null }: ReservationCalendarProps) {
+export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged, onQuickAction, pmsName = null, onRoomStatusChange }: ReservationCalendarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // A phone shows a week by default; everything wider shows two.
@@ -132,6 +143,8 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const [drag, setDrag] = useState<DragState | null>(null);
   const [pending, setPending] = useState<PendingChange | null>(null);
   const [saving, setSaving] = useState(false);
+  const [statusMenuRoom, setStatusMenuRoom] = useState<string | null>(null);
+  const [statusSaving, setStatusSaving] = useState<string | null>(null);
   const dragRef = useRef<DragState | null>(null);
   // A press that the drag logic already handled (opened or moved) must not open the booking a second time on click.
   const pointerHandled = useRef(false);
@@ -142,9 +155,9 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const columnWidth = columnWidthFor(options, containerWidth - roomWidth, days);
   const columnRef = useRef(columnWidth);
   columnRef.current = columnWidth;
-  const laneHeight = options.compact ? 29 : 37;
-  const barHeight = options.compact ? 24 : 32;
-  const rowHeight = options.compact ? 34 : 44;
+  const laneHeight = options.compact ? 29 : 43;
+  const barHeight = options.compact ? 24 : 38;
+  const rowHeight = options.compact ? 34 : 50;
 
   // Responsive: the day columns stretch or shrink with the space that is really there.
   useEffect(() => {
@@ -185,7 +198,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
   const visibleRooms = useMemo(() => {
     const term = roomSearch.trim().toLocaleLowerCase();
     return rooms
-      .filter((room) => (!term || `${room.room_number} ${room.room_type ?? ''}`.toLocaleLowerCase().includes(term))
+      .filter((room) => (!term || `${room.room_number} ${room.room_type ?? ''} ${displayRoomType(room.room_type)}`.toLocaleLowerCase().includes(term))
         && (!onlyAvailable || !(roomBookings.get(room.id)?.length)))
       .slice()
       .sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true }));
@@ -404,6 +417,12 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
     const channel = reservationChannel(reservation);
     const width = Math.max(20, (end - start) * columnWidth - 4 + dragResize);
     const nights = stayNights(reservation.check_in_date, reservation.check_out_date);
+    // One word for where the booking stands; a confirmed booking without a room reads "Floating".
+    const statusWord = floating && ['pending', 'confirmed'].includes(reservation.status)
+      ? t('pms.cal.statusFloating')
+      : ACTIVE_STATUSES.has(reservation.status) ? t(`pms.cal.status_${reservation.status}`) : String(reservation.status ?? '').replace('_', ' ');
+    const nightsLabel = nights > 0 ? `${nights} ${t(nights === 1 ? 'pms.cal.night' : 'pms.cal.nights')}` : '';
+    const detail = [statusWord, options.showNights ? nightsLabel : ''].filter(Boolean).join(' · ');
     const canCheckIn = !!onQuickAction && !snapshot && ['pending', 'confirmed'].includes(reservation.status) && reservation.check_in_date <= today;
     const canCheckOut = !!onQuickAction && !snapshot && reservation.status === 'checked_in';
     const bar = (
@@ -418,7 +437,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
         // Read-only plans (Previo hotels) and bookings that cannot be dragged never start a drag: a plain click opens them.
         onClick={() => { if (pointerHandled.current) { pointerHandled.current = false; return; } openReservation(reservation); }}
         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openReservation(reservation); } }}
-        aria-label={`${label}, ${reservation.check_in_date} to ${reservation.check_out_date}${snapshot ? ', read-only snapshot' : ''}${overlaps ? ', room conflict' : ''}${reasons ? `, ${reasons}` : ''}`}
+        aria-label={`${label}, ${statusWord}${nightsLabel ? `, ${nightsLabel}` : ''}, ${reservation.check_in_date} to ${reservation.check_out_date}${snapshot ? ', read-only snapshot' : ''}${overlaps ? ', room conflict' : ''}${reasons ? `, ${reasons}` : ''}`}
         className={`absolute flex items-center gap-1 rounded border font-semibold text-left px-1 overflow-hidden transition-opacity select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${options.compact ? 'text-[10px]' : 'text-[11px]'} ${RESERVATION_COLORS[reservation.status] || 'bg-muted border-border'} ${snapshot ? 'border-dashed opacity-75 cursor-not-allowed' : draggable ? 'hover:brightness-95 cursor-grab active:cursor-grabbing' : 'hover:brightness-95 cursor-pointer'} ${floating ? 'border-dashed' : ''} ${overlaps ? 'ring-2 ring-destructive ring-inset' : ''} ${dimmed ? 'opacity-25' : ''} ${dragging ? 'z-30 opacity-80 shadow-lg ring-2 ring-primary' : ''} ${highlighted ? 'z-20 ring-4 ring-primary animate-pulse' : ''}`}
         style={{
           left: start * columnWidth + 2 + dragShift + (dragging && drag?.mode === 'start' ? drag.dayDelta * columnWidth : 0),
@@ -435,7 +454,12 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
           data-channel={channel.key}
           aria-hidden="true"
         >{channel.letter}</span>
-        <span className="truncate">{label}{options.showNights && width > 110 && nights > 0 ? <span className="font-normal opacity-80"> · {nights}{t('pms.cal.nightsShort')}</span> : null}</span>
+        {options.compact
+          ? <span className="truncate">{label}{width > 150 && detail ? <span className="font-normal opacity-85"> · {detail}</span> : null}</span>
+          : <span className="min-w-0 flex-1 leading-[1.15]">
+              <span className="block truncate">{label}</span>
+              <span className="block truncate text-[10px] font-medium opacity-85">{width > 96 ? detail : (options.showNights && nightsLabel) || statusWord}</span>
+            </span>}
         {snapshot && <Radio className="h-3 w-3 shrink-0 ml-auto" />}
         {actionable && severity && ATTENTION_DOT[severity] && (
           <span className={`ml-auto h-2.5 w-2.5 shrink-0 rounded-full ring-2 ${ATTENTION_DOT[severity]}`} aria-hidden="true" />
@@ -473,6 +497,51 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
     <div className="absolute inset-0 flex" aria-hidden="true">{dates.map((date) => <div key={format(date, 'yyyy-MM-dd')} className={`shrink-0 border-r ${todayCol(date) ? 'border-x border-primary/30 bg-primary/5' : `border-border ${[0, 6].includes(date.getDay()) ? 'bg-muted/20' : ''}`}`} style={{ width: columnWidth }} />)}</div>
   );
 
+  // Room status lives next to the room number: readable at a glance, one tap to change.
+  const renderRoomStatus = (room: PlannerRoom) => {
+    const status = String(room.status ?? '');
+    const style = ROOM_STATUS_STYLE[status] ?? ROOM_STATUS_FALLBACK;
+    const known = (ROOM_STATUSES as string[]).includes(status);
+    const text = known ? t(`pms.room.status_${status}`) : status.replace(/_/g, ' ') || '—';
+    const face = roomsCollapsed
+      ? <span className={`h-2.5 w-2.5 rounded-full ${style.dot}`} />
+      : <><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden="true" /><span className="truncate">{text}</span></>;
+    const pillClass = roomsCollapsed
+      ? 'h-6 w-6 shrink-0 grid place-items-center rounded-full'
+      : `shrink-0 max-w-[112px] inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${style.pill}`;
+    if (!onRoomStatusChange) return <span className={pillClass} title={text} data-room-status={status}>{face}</span>;
+    const choose = async (next: RoomStatus) => {
+      setStatusMenuRoom(null);
+      if (next === status) return;
+      setStatusSaving(room.id);
+      try { await onRoomStatusChange(room, next); } finally { setStatusSaving(null); }
+    };
+    return (
+      <Popover open={statusMenuRoom === room.id} onOpenChange={(open) => setStatusMenuRoom(open ? room.id : null)}>
+        <PopoverTrigger asChild>
+          <button type="button" disabled={statusSaving === room.id} data-room-status={status}
+            aria-label={`${room.room_number}: ${text}. ${t('pms.room.setStatus')}`} title={`${text} · ${t('pms.room.setStatus')}`}
+            className={`${pillClass} transition hover:brightness-95 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ${roomsCollapsed ? 'hover:bg-accent' : ''}`}>
+            {face}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" side="right" className="w-52 p-2">
+          <p className="px-1 pb-1.5 text-xs font-semibold">{room.room_number} · {t('pms.room.setStatus')}</p>
+          <div className="grid gap-1">
+            {ROOM_STATUSES.map((option) => (
+              <button key={option} type="button" onClick={() => void choose(option)} aria-pressed={option === status}
+                className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs font-medium text-left transition hover:brightness-95 ${ROOM_STATUS_STYLE[option].pill} ${option === status ? 'ring-2 ring-primary' : ''}`}>
+                <span className={`h-2 w-2 rounded-full ${ROOM_STATUS_STYLE[option].dot}`} aria-hidden="true" />
+                {t(`pms.room.status_${option}`)}
+              </button>
+            ))}
+          </div>
+          <p className="px-1 pt-2 text-[10px] text-muted-foreground">{t('pms.room.statusHint')}</p>
+        </PopoverContent>
+      </Popover>
+    );
+  };
+
   const renderRoomRow = (room: PlannerRoom, roomIndex: number) => {
     const positioned = layoutRoomStays(roomBookings.get(room.id) ?? []);
     const roomHeight = Math.max(rowHeight, getRoomLaneCount(positioned) * laneHeight + 7);
@@ -485,8 +554,14 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
       className={`flex border-b border-border ${dropTarget ? 'bg-primary/10' : roomIndex % 2 ? 'bg-muted/10' : 'bg-card'}`}
     >
       <div className={`${stickyLeft} ${roomsCollapsed ? "px-1.5 gap-1.5" : "px-2.5 gap-2"} flex items-center ${dropTarget ? 'bg-primary/10' : ''}`} style={{ width: roomWidth, minHeight: roomHeight }}>
-        <span className={`h-2 w-2 rounded-full shrink-0 ${ROOM_COLORS[room.status ?? ''] ?? 'bg-muted-foreground/40'}`} aria-hidden="true" />
-        <div className="min-w-0 flex-1"><div className="flex gap-1 items-center text-xs font-semibold"><span className="truncate">{room.room_number}</span>{conflict && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('pms.cal.conflictHelp')}><title>{t('pms.cal.conflictHelp')}</title></AlertTriangle>}</div>{!roomsCollapsed && !options.compact && <div className="text-[10px] text-muted-foreground truncate">{room.room_type || '—'}</div>}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex gap-1.5 items-center text-xs font-semibold">
+            <span className="truncate">{room.room_number}</span>
+            {conflict && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('pms.cal.conflictHelp')}><title>{t('pms.cal.conflictHelp')}</title></AlertTriangle>}
+            <span className="ml-auto shrink-0">{renderRoomStatus(room)}</span>
+          </div>
+          {!roomsCollapsed && !options.compact && <div className="text-[10px] text-muted-foreground truncate" title={displayRoomType(room.room_type)}>{displayRoomType(room.room_type) || '—'}</div>}
+        </div>
       </div>
       <div className="relative shrink-0" style={{ width: gridWidth, height: roomHeight }}>
         {dayStripes}
@@ -662,7 +737,7 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
                       onClick={() => setCollapsedGroups((current) => { const next = new Set(current); if (next.has(group.key)) next.delete(group.key); else next.add(group.key); return next; })}
                       className="sticky left-0 z-20 flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground">
                       <ChevronDown className={`h-3.5 w-3.5 transition-transform ${closed ? '-rotate-90' : ''}`} />
-                      {group.label}<Badge variant="secondary" className="h-4 px-1 text-[10px]">{group.rooms.length}</Badge>
+                      {displayRoomType(group.label)}<Badge variant="secondary" className="h-4 px-1 text-[10px]">{group.rooms.length}</Badge>
                     </button>
                   </div>
                 )}

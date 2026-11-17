@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { plainNote } from '@/lib/plainNote';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -39,7 +40,7 @@ export function EditReservationDialog({ reservation, open, onOpenChange, onSucce
     rate_per_night: Number(reservation.rate_per_night ?? 0),
     source: reservation.source ?? 'direct',
     room_type_requested: reservation.room_type_requested ?? '',
-    special_requests: reservation.special_requests ?? '',
+    special_requests: plainNote(reservation.special_requests),
     internal_notes: reservation.internal_notes ?? '',
   });
 
@@ -54,7 +55,7 @@ export function EditReservationDialog({ reservation, open, onOpenChange, onSucce
       rate_per_night: Number(reservation.rate_per_night ?? 0),
       source: reservation.source ?? 'direct',
       room_type_requested: reservation.room_type_requested ?? '',
-      special_requests: reservation.special_requests ?? '',
+      special_requests: plainNote(reservation.special_requests),
       internal_notes: reservation.internal_notes ?? '',
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,7 +93,7 @@ export function EditReservationDialog({ reservation, open, onOpenChange, onSucce
         ratePerNight: pmsManaged ? null : Number(form.rate_per_night),
         source: pmsManaged ? null : form.source,
         roomTypeRequested: pmsManaged ? null : (form.room_type_requested || null),
-        specialRequests: form.special_requests || null,
+        specialRequests: form.special_requests === plainNote(reservation.special_requests) ? (reservation.special_requests ?? null) : (form.special_requests || null),
         internalNotes: form.internal_notes || null,
       });
       toast.success(t('pms.res.updatedOk'));
