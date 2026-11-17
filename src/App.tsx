@@ -48,6 +48,9 @@ const AssistantInsights = lazy(() => import("./pages/AssistantInsights"));
 const Billing = lazy(() => import("./pages/Billing"));
 const InvoicingSettings = lazy(() => import("./pages/InvoicingSettings"));
 const SessionProtectionAdmin = lazy(() => import("./pages/SessionProtectionAdmin"));
+const BookingEngineSettings = lazy(() => import("./pages/BookingEngineSettings"));
+// Guests booking from a hotel website: a separate, provider-free app.
+const PublicBookingApp = lazy(() => import("./pages/booking/PublicBookingApp"));
 
 // Lazy load non-critical global components
 const AssistantLauncher = lazy(() => import("@/components/assistant/AssistantLauncher"));
@@ -158,6 +161,7 @@ const TenantRouter = () => {
           <Route path="/guests" element={<Guests />} />
           <Route path="/guests/:guestId" element={<GuestDetail />} />
           <Route path="/channel-manager" element={<ChannelManager />} />
+          <Route path="/booking-engine" element={<BookingEngineSettings />} />
           <Route path="/rates-availability" element={<RatesAvailability />} />
           <Route path="/revenue" element={<Revenue />} />
           <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
@@ -283,6 +287,9 @@ const MainApp = () => (
 const App = () => {
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/bb")) {
     return <PublicBreakfastApp />;
+  }
+  if (typeof window !== "undefined" && /^\/book\/[^/]+/.test(window.location.pathname)) {
+    return <Suspense fallback={null}><PublicBookingApp /></Suspense>;
   }
   return <MainApp />;
 };

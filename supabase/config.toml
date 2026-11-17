@@ -339,3 +339,8 @@ verify_jwt = false
 
 [functions.invoice-issuers-admin]
 verify_jwt = false
+
+# Website booking engine: guests are anonymous. The function rate-limits every
+# action per IP and calls service-role-only SQL functions (booking_engine_*).
+[functions.booking-engine]
+verify_jwt = false
