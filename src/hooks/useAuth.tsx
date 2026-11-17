@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { clearTabHotels, getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
@@ -384,9 +384,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Switching property is a client-state change: move the in-memory profile so
   // every hook refetches for the new hotel without rebooting the whole app.
-  const applyAssignedHotel = (hotelId: string) => {
-    setProfile((p) => (p ? ({ ...p, assigned_hotel: hotelId } as any) : p));
-  };
+  const applyAssignedHotel = useCallback((hotelId: string) => {
+    setProfile((p) => p && p.assigned_hotel !== hotelId
+      ? ({ ...p, assigned_hotel: hotelId } as Profile)
+      : p);
+  }, []);
 
   return (
     <AuthContext.Provider value={{
