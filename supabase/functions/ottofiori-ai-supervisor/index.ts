@@ -1,5 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.53.0';
 import { checkAiBudget } from '../_shared/aiBudget.ts';
+import { tryGeminiJson } from '../_shared/geminiFirstJson.ts';
 import { confirmedHighImpactEvent } from '../_shared/engineV2RevenueDirector.ts';
 import { selectAiDates, validateAiMoves, estimateSupervisorCost, availableSupervisorModel, softEventTest, peerPriceSignal, aiMoveLimit } from '../_shared/ottofioriAiSupervisor.ts';
 
@@ -100,9 +101,16 @@ async function run(admin: any, apiKey: string) {
       history:context.history ?? [],
     });
     if (input.length>60_000) throw new Error('AI input exceeded the bounded request size; no call made.');
-    const inventory=await fetch('https://api.openai.com/v1/models',{headers:{Authorization:`Bearer ${apiKey}`},signal:AbortSignal.timeout(15_000)});
-    if(!inventory.ok) throw new Error(`OpenAI model availability check failed (${inventory.status})`);
-    const models=(await inventory.json()).data.map((m:any)=>String(m.id));
+    // The model catalogue is diagnostic only. Failure to query OpenAI must
+    // never stop Gemini from being used as the primary provider.
+    let models: string[] = [];
+    if (apiKey) {
+      try {
+        const inventory=await fetch('https://api.openai.com/v1/models',{
+          headers:{Authorization:'Bearer '+apiKey},signal:AbortSignal.timeout(9_000)});
+        if (inventory.ok) models=(await inventory.json()).data.map((m:any)=>String(m.id));
+      } catch { console.warn(FEATURE,'OpenAI model inventory unavailable; Gemini will still run'); }
+    }
     const prior = await admin.from('ottofiori_ai_review_runs').select('model,started_at,status').neq('id',reviewId).eq('status','completed')
       .gte('started_at',new Date(now.getTime()-24*3600_000).toISOString()).order('started_at',{ascending:false}).limit(8);
     // Spend on Astra only when two previous reviews have not found close-in conversion,
@@ -127,11 +135,37 @@ async function run(admin: any, apiKey: string) {
       estimated_cost_usd:reserve,ok:false,error:'Reserved upper-bound estimate; awaiting provider usage.'}).select('id').single();
     if (reserved.error) throw reserved.error;
     usageId=reserved.data.id;
-    const ask = async (chosen:string) => fetch('https://api.openai.com/v1/responses',{
-      method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${apiKey}`},signal:AbortSignal.timeout(110_000),
-      body:JSON.stringify({model:chosen,store:false,...(chosen.startsWith('gpt-4.1')?{}:{reasoning:{effort:'medium'}}),max_output_tokens:8000,
-        instructions,input,text:{format:{type:'json_schema',name:'ottofiori_price_review',strict:true,schema}}}),
-    });
+    // Gemini is attempted first, before any paid OpenAI request. Validate every
+    // date and decision BEFORE accepting its output; the same database safety
+    // RPCs still protect each individual rate publication.
+    const ask = async (chosen:string): Promise<Response> => {
+      try {
+        const gemini = await tryGeminiJson({
+          instructions, prompt:input, maxOutputTokens:8192,
+          validate:(value:unknown)=>{
+            const parsed=value as any;
+            if(typeof parsed?.summary!=='string' || !Array.isArray(parsed?.barriers)
+              || !Array.isArray(parsed?.decisions)) return false;
+            try { return validateAiMoves(parsed.decisions,dates).length===dates.length; }
+            catch { return false; }
+          },
+        });
+        return new Response(JSON.stringify({
+          status:'completed',model:gemini.model,
+          output_text:gemini.text,
+          usage:{input_tokens:gemini.inputTokens,output_tokens:gemini.outputTokens},
+          hc_gemini_estimated_cost_usd:gemini.estimatedCostUsd,
+        }),{status:200,headers:{'Content-Type':'application/json'}});
+      } catch {
+        console.warn(FEATURE,'Gemini unavailable or output invalid, using OpenAI fallback');
+      }
+      if (!apiKey) throw new Error('Gemini unavailable and OpenAI fallback is not configured');
+      return fetch('https://api.openai.com/v1/responses',{
+        method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+apiKey},signal:AbortSignal.timeout(90_000),
+        body:JSON.stringify({model:chosen,store:false,...(chosen.startsWith('gpt-4.1')?{}:{reasoning:{effort:'medium'}}),max_output_tokens:8000,
+          instructions,input,text:{format:{type:'json_schema',name:'ottofiori_price_review',strict:true,schema}}}),
+      });
+    };
     let response = await ask(model);
     // Model entitlement failures are explicit. A single compatible fallback costs no
     // repeated reasoning calls; quota/billing/429 failures are never retried.
@@ -146,7 +180,8 @@ async function run(admin: any, apiKey: string) {
     if (!response.ok) throw new Error(`OpenAI ${response.status}: ${(await response.text()).slice(0,220)}`);
     const answer = await response.json();
     const inputTokens=Number(answer.usage?.input_tokens ?? 0),outputTokens=Number(answer.usage?.output_tokens ?? 0);
-    const cost=estimateSupervisorCost(model,inputTokens,outputTokens);
+    if (typeof answer.model === 'string' && answer.model.startsWith('gemini-')) model=answer.model;
+    const cost=answer.hc_gemini_estimated_cost_usd ?? estimateSupervisorCost(model,inputTokens,outputTokens);
     await admin.from('ai_usage_log').update({model,input_tokens:inputTokens,output_tokens:outputTokens,estimated_cost_usd:cost,ok:true,error:null}).eq('id',usageId);
     await admin.from('ottofiori_ai_review_runs').update({model,estimated_cost_usd:cost}).eq('id',reviewId);
     if (answer.status !== 'completed') throw new Error(`AI response incomplete: ${answer.incomplete_details?.reason ?? answer.status}`);
@@ -210,7 +245,7 @@ Deno.serve(async req=>{
     if(verified.error || verified.data!==true) return json({error:'Worker authentication required'},401);
   }
   const key=Deno.env.get('OPENAI_API_KEY');
-  if(!key) return json({error:'OPENAI_API_KEY is missing; no API pricing review ran.'},503);
+  if(!key && !Deno.env.get('GEMINI_API_KEY')) return json({error:'Gemini and OpenAI API keys are both missing; no AI pricing review ran.'},503);
   const body=await req.json().catch(()=>({}));
   if(body.action==='peer_signals') {
     const peers=await admin.rpc('ottofiori_peer_context');
