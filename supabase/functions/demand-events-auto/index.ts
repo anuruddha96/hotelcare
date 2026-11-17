@@ -137,7 +137,7 @@ serve(async (req) => {
           if (!(await aiFeatureEnabled(admin, member.organizationSlug, "event_sweep_enabled"))) continue;
           const budget = await checkAiBudget(admin, member.organizationSlug, { scheduled: true });
           if (!budget.allowed) {
-            skipReason = budget.reason;
+            skipReason = budget.reason ?? "AI spending budget reached";
             continue;
           }
           runner = member;
