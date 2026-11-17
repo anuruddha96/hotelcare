@@ -325,12 +325,14 @@ export default function PurchaseInvoices() {
     if (!inv?.id) return;
     setDeletingId(inv.id);
     try {
-      // Best-effort storage cleanup first
-      if (inv.file_path) {
-        await supabase.storage.from('purchase-invoices').remove([inv.file_path]);
-      }
+      // Delete the record first (the database refuses approved invoices and archives the rest),
+      // then clean up the stored files — a refused delete never removes the original document.
       const { error } = await supabase.from('purchase_invoices').delete().eq('id', inv.id);
       if (error) throw error;
+      const objects = [inv.file_path, inv.preview_path].filter(Boolean);
+      if (objects.length) {
+        await supabase.storage.from('purchase-invoices').remove(objects);
+      }
       setInvoices(prev => prev.filter(x => x.id !== inv.id));
       setUploadJobs(prev => prev.filter(j => j.invoiceId !== inv.id));
       if (verifyId === inv.id) setVerifyId(null);
@@ -349,7 +351,7 @@ export default function PurchaseInvoices() {
     let list = invoices.filter(i => {
       if (statusFilter === 'all') return true;
       if (statusFilter === 'verified') return i.is_verified === true;
-      if (statusFilter === 'needs_review') return i.status === 'processed' && !i.is_verified;
+      if (statusFilter === 'needs_review') return i.status === 'processed' && !i.is_verified && i.source !== 'historical_import';
       if (statusFilter === 'duplicates') return i.duplicate_status === 'suspected' || i.duplicate_status === 'credit_note';
       if (statusFilter === 'credit_notes') return i.is_credit_note === true;
       return i.status === statusFilter;
@@ -1309,8 +1311,9 @@ function computeStats(all: any[], ranged: any[]) {
 
   // Awaiting review inside the selected period, plus the all-time backlog so a
   // narrow period can never make an outstanding backlog look like zero.
-  const unverified = ranged.filter(i => i.status === 'processed' && !i.is_verified).length;
-  const unverifiedAllTime = all.filter(i => i.status === 'processed' && !i.is_verified).length;
+  // Imported register rows have no document to verify, so they never count as a review backlog.
+  const unverified = ranged.filter(i => i.status === 'processed' && !i.is_verified && i.source !== 'historical_import').length;
+  const unverifiedAllTime = all.filter(i => i.status === 'processed' && !i.is_verified && i.source !== 'historical_import').length;
 
   return {
     total, vat, count, avg, top, uniqueMerchants,

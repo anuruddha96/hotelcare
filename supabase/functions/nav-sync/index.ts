@@ -83,13 +83,23 @@ Deno.serve(async (req) => {
     const changedOrgs = new Set<string>();
     for (const conn of connections) {
       if (Date.now() > deadlineMs - 5_000) break;
-      const outcome = await syncConnection(db, conn, {
-        trigger,
-        requestedBy: caller.kind === "user" ? caller.userId : null,
-        deadlineMs,
-        backfillDays: Number(settings.get(conn.organization_slug)?.backfill_days ?? 45),
-        forceBackfill: body.backfill === true && caller.kind === "user",
-      });
+      let outcome: SyncOutcome;
+      try {
+        outcome = await syncConnection(db, conn, {
+          trigger,
+          requestedBy: caller.kind === "user" ? caller.userId : null,
+          deadlineMs,
+          backfillDays: Number(settings.get(conn.organization_slug)?.backfill_days ?? 45),
+          forceBackfill: body.backfill === true && caller.kind === "user",
+        });
+      } catch (cause) {
+        // One company's failure never stops the others.
+        console.error("nav-sync connection failed", conn.id, cause instanceof Error ? cause.message : "unknown");
+        outcome = {
+          connectionId: conn.id, status: "failed", runId: null, digests: 0, pages: 0, upserted: 0, details: 0, detailsFailed: 0,
+          error: { code: null, category: "unknown", message: "The sync could not start; it will be retried" },
+        };
+      }
       outcomes.push(outcome);
       if (outcome.upserted > 0 || outcome.details > 0 || (outcome.status === "completed" && !conn.initial_sync_completed_at)) {
         changedOrgs.add(conn.organization_slug);
