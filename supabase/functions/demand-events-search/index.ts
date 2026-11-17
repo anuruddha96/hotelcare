@@ -29,7 +29,7 @@ serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) return json({ ok: false, error: "OPENAI_API_KEY is not configured" }, 200);
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) return json({ ok: false, error: "No AI provider is configured" }, 200);
 
     const userClient = createClient(SUPABASE_URL, ANON_KEY);
     const { data: userRes } = await userClient.auth.getUser(authHeader.replace(/^Bearer\s+/i, ""));
@@ -51,7 +51,7 @@ serve(async (req) => {
     const hotelId = typeof body.hotelId === "string" ? body.hotelId : null;
     const organizationSlug = String(profile.organization_slug ?? "");
 
-    const result = await searchEvents({ admin, openaiKey: OPENAI_API_KEY, organizationSlug, city, country, month });
+    const result = await searchEvents({ admin, openaiKey: OPENAI_API_KEY ?? "", organizationSlug, city, country, month });
     if (result.error && result.all.length === 0) return json({ ok: false, error: result.error }, 200);
 
     // Record the refresh for every organisation participating in this market.

@@ -19,8 +19,38 @@ The per-isolate limit is **not** an organization-wide spend cap.
   first with OpenAI fallback. Potentially identifiable guest/staff details (including
   room-number-plus-context, contact information, health or payroll) stay on OpenAI.
 
-Revenue recommendations, high-stakes pricing, assistant tool calling, and image
-processing are deliberately unchanged. Evaluate those separately.
+Revenue and AI extensions (17 November 2026):
+- Ottofiori's four-hour AI supervisor attempts Gemini first with strict JSON and
+  complete per-date business validation. An invalid/incomplete Gemini answer or
+  Gemini provider error can fall back to OpenAI. The same 13-cell Previo atomic
+  publisher, occupancy protections, manual locks, and budget ceilings apply.
+- Revenue intelligence, booking-event research, public competitor discovery and
+  market scans attempt Gemini first. Google Search grounding must exist for
+  Gemini-backed public-source claims; missing verification falls back to OpenAI
+  or remains unverified. Do not treat AI price quotes as confirmed without
+  public-source and existing PMS validation.
+- Mira's tool-using chat, premium analysis, title generator, and public web search
+  use Gemini-first models with OpenAI fallback. A provider may be retried only
+  before user-visible streaming starts; never splice a second provider mid-answer.
+- Voice transcription and invoice OCR are eligible for Gemini only when paid
+  confidential-data processing is explicitly approved. Unsupported documents
+  revert to OpenAI when available. Existing validation is unchanged.
+- Quote generation, revenue recommendations, event sweeps and housekeeping
+  assignment analysis route Gemini-first, subject to privacy restrictions.
+
+**Privacy gate:** Gemini Developer API unpaid processing may allow content
+improvement/human review. Set `GEMINI_PAID_DATA_PROCESSING_CONFIRMED=true`
+ONLY after checking the API account is on an approved paid data-processing
+arrangement with adequate GDPR protections; otherwise staff, guest, invoice
+and conversation data remain on OpenAI. This is an intentional exception to
+the general Gemini-first rule; never bypass the gate by changing the task type.
+
+**Verification:** a stored `GEMINI_API_KEY` does not guarantee actual success.
+Inspect provider/model in `ai_usage_log`, Edge logs, production function
+deployment versions and CI regression tests. Backups and secrets are never
+exposed to browser clients. OpenAI is not attempted after Gemini succeeds.
+If both providers fail, show a meaningful error and do not publish an
+unvalidated action or AI-derived rate.
 
 ## Required Supabase project secret
 `GEMINI_API_KEY` (set in Edge Functions > Secrets; no value committed to git).

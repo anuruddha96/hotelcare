@@ -1,3 +1,4 @@
+import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
@@ -15,8 +16,8 @@ serve(async (req) => {
     const { hotel, orgSlug, todayAssignments, patterns, currentZoneMapping } = await req.json();
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY is not configured");
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) {
+      throw new Error("No AI provider is configured");
     }
 
     const systemPrompt = `You are an AI assistant that analyzes hotel housekeeping room assignment patterns to optimize future assignments.
@@ -49,7 +50,7 @@ ${JSON.stringify(currentZoneMapping || {}, null, 2)}
 
 Analyze the patterns and provide optimization suggestions.`;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -101,7 +102,7 @@ Analyze the patterns and provide optimization suggestions.`;
         ],
         tool_choice: { type: "function", function: { name: "provide_assignment_insights" } },
       }),
-    });
+    }, { containsSensitiveData: true });
 
     if (!response.ok) {
       if (response.status === 429) {

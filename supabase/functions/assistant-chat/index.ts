@@ -1,6 +1,9 @@
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createOpenAI } from "npm:@ai-sdk/openai@4";
+import { fetchGeminiFirstWebSearch } from "../_shared/geminiGroundedSearch.ts";
+import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
+import { geminiFirstStreamingModel } from "../_shared/geminiFirstStreamingModel.ts";
 import {
   convertToModelMessages,
   jsonSchema,
@@ -227,7 +230,7 @@ function buildTools(
             billed = true;
           }
 
-          const res = await fetch("https://api.openai.com/v1/responses", {
+          const res = await fetchGeminiFirstWebSearch("https://api.openai.com/v1/responses", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiKey}` },
             body: JSON.stringify({
@@ -1754,7 +1757,7 @@ async function generateThreadTitle(params: {
   language: string;
 }): Promise<string | null> {
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${params.apiKey}` },
       body: JSON.stringify({
@@ -1774,7 +1777,7 @@ async function generateThreadTitle(params: {
           },
         ],
       }),
-    });
+    }, { containsSensitiveData: true });
     if (!response.ok) return null;
     const data = await response.json().catch(() => null);
     const raw = String(data?.choices?.[0]?.message?.content ?? "")
@@ -1804,7 +1807,7 @@ Deno.serve(async (req) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const openAiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!supabaseUrl || !anonKey || !serviceKey || !openAiKey) {
+    if (!supabaseUrl || !anonKey || !serviceKey || (!openAiKey && !Deno.env.get("GEMINI_API_KEY"))) {
       return json({ error: "Assistant configuration is incomplete" }, 500);
     }
 
@@ -1961,6 +1964,9 @@ Deno.serve(async (req) => {
     }
 
     const openai = createOpenAI({ apiKey: openAiKey });
+    const geminiKey = Deno.env.get("GEMINI_API_KEY");
+    const gemini = geminiKey ? createOpenAI({ apiKey: geminiKey,
+      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/" }) : null;
     const startedAt = Date.now();
     // Everyday questions use Luna or Terra; deep analysis is separately routed to Sol.
     // A multi-step job (pricing review, charts) always gets the analysis model.
@@ -2034,8 +2040,12 @@ Respect and mention the app's guardrails when relevant: whole-number prices, roo
 Always say which hotel, date range and currency your numbers refer to.`
       : "";
     const turnUsage = { input: 0, output: 0 };
+    const modelUsed = geminiFirstStreamingModel(gemini ? [
+      gemini.chat(Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite"),
+      gemini.chat(Deno.env.get("GEMINI_SECONDARY_MODEL") || "gemini-3.5-flash"),
+    ] : [], openai.responses(modelId), {containsSensitiveData:true});
     const result = streamText({
-      model: openai.responses(modelId),
+      model: modelUsed,
       system: `You are Mira by HotelCare, the company's action-capable operations companion inside HotelCare.app.
 Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
 The authenticated user's role is ${profile.role}. Their organization is ${profile.organization_slug ?? "none"}.
@@ -2095,7 +2105,7 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
         canWriteRates: actionsForRole(profile.role).includes("adjust_revenue_prices"),
       })}${mailToolsAvailable(profile.role) ? mailPrompt() : ""}${projectBrief}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey, authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup),
+      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey ?? "", authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
@@ -2105,13 +2115,13 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
       onFinish: async ({ totalUsage }) => {
         turnUsage.input = totalUsage?.inputTokens ?? 0;
         turnUsage.output = totalUsage?.outputTokens ?? 0;
-        await recordAssistantTokenUsage(service, monthlyActor, messageId, modelId,
+        await recordAssistantTokenUsage(service, monthlyActor, messageId, modelUsed.actualModelId,
           totalUsage?.inputTokens ?? 0, totalUsage?.outputTokens ?? 0);
         await logAiUsage(service, {
           organizationSlug: profile.organization_slug,
           hotelId: profile.assigned_hotel,
           functionName: routine ? "assistant-routine" : plan.workflow === "pricing_review" ? "assistant-pricing-review" : "assistant-standard",
-          model: modelId,
+          model: modelUsed.actualModelId,
           inputTokens: totalUsage?.inputTokens ?? 0,
           outputTokens: totalUsage?.outputTokens ?? 0,
         });

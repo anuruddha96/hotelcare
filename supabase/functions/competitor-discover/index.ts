@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Suggests a competitive set with the hotel's own OpenAI key.
 //
 // The model searches the web for real, comparable hotels near the property and
@@ -67,7 +68,7 @@ Deno.serve(async (req) => {
     if (!budget.allowed) return json({ error: "AI search budget reached" }, 429);
 
     const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
+    if (!apiKey && !Deno.env.get("GEMINI_API_KEY")) return json({ error: "No AI provider configured" }, 500);
 
     // hotelId may be a UUID (hotels.id) or a slug used in the app routes.
     let hotelName = "";
@@ -101,7 +102,7 @@ Deno.serve(async (req) => {
     let lastError = "";
 
     for (const model of MODELS) {
-      const res = await fetch("https://api.openai.com/v1/responses", {
+      const res = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({

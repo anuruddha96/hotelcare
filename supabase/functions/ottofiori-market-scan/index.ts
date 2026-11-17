@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Hotel Ottofiori daily market-rate scan.
 //
 // The 06:00 scheduler fans this function out once per active Hotel Authority
@@ -95,7 +96,7 @@ async function askRates(apiKey: string, c: Competitor, dates: string[], strict =
     `Return strict JSON only: {"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123,"currency":"EUR","room_type":"Standard Double","board":"room_only","refundable":true,"source_url":"https://...","confidence":0.9}]}`,
   ].filter(Boolean).join(" ");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     signal: AbortSignal.timeout(35_000),
@@ -126,6 +127,8 @@ async function askRates(apiKey: string, c: Competitor, dates: string[], strict =
     currency: parsed?.currency ?? "EUR",
     inputTokens,
     outputTokens,
+    providerModel: String(payload?.model ?? MODEL),
+    providerCostUsd: Number(payload?.hc_gemini_estimated_cost_usd ?? estimateCost(inputTokens,outputTokens)),
   };
 }
 
@@ -153,7 +156,7 @@ Deno.serve(async (req) => {
     if (revenueAllowed !== true || hotelAllowed !== true) return json({ error: "Revenue permission required" }, 403);
   }
   const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured" }, 500);
+  if (!apiKey && !Deno.env.get("GEMINI_API_KEY")) return json({ error: "No AI provider configured" }, 500);
 
   const body = await req.json().catch(() => ({}));
   const days = Math.min(Math.max(Number(body.days ?? DEFAULT_DAYS), 1), MAX_DAYS);
@@ -246,23 +249,23 @@ Deno.serve(async (req) => {
               break;
             }
             const window = dates.slice(offset, offset + CHUNK_DAYS);
-            let answer;
+            let answer: Awaited<ReturnType<typeof askRates>>;
             try {
-              answer = await askRates(apiKey, c, window, false);
+              answer = await askRates(apiKey ?? '', c, window, false);
               await admin.from("ai_usage_log").insert({
                 organization_slug: c.organization_slug,
                 hotel_id: HOTEL_ID,
                 function_name: "ottofiori-market-scan",
-                model: MODEL,
+                model: answer.providerModel,
                 input_tokens: answer.inputTokens,
                 output_tokens: answer.outputTokens,
                 web_searches: 1,
-                estimated_cost_usd: estimateCost(answer.inputTokens, answer.outputTokens),
+                estimated_cost_usd: answer.providerCostUsd,
                 ok: true,
               });
             } catch (e) {
               error = e instanceof Error ? e.message : String(e);
-              answer = { rates: [], currency: "EUR", inputTokens: 0, outputTokens: 0 };
+              answer = { rates: [], currency: "EUR", inputTokens: 0, outputTokens: 0, providerModel: MODEL, providerCostUsd: 0 };
               break; // Do not spend retry calls on a blocked/timed-out provider request.
             }
 
@@ -287,16 +290,16 @@ Deno.serve(async (req) => {
                 break;
               }
               try {
-                const retry = await askRates(apiKey, c, retryWindow, true);
+                const retry = await askRates(apiKey ?? '', c, retryWindow, true);
                 await admin.from("ai_usage_log").insert({
                   organization_slug: c.organization_slug,
                   hotel_id: HOTEL_ID,
                   function_name: "ottofiori-market-scan-retry",
-                  model: MODEL,
+                  model: retry.providerModel,
                   input_tokens: retry.inputTokens,
                   output_tokens: retry.outputTokens,
                   web_searches: 1,
-                  estimated_cost_usd: estimateCost(retry.inputTokens, retry.outputTokens),
+                  estimated_cost_usd: retry.providerCostUsd,
                   ok: true,
                 });
                 retryRates.push(...retry.rates);

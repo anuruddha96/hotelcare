@@ -7,6 +7,7 @@
 // is filtered out before it can be offered or saved twice.
 
 import { logAiUsage } from "./aiBudget.ts";
+import { fetchGeminiFirstResponse } from "./geminiFirstResponses.ts";
 
 
 /** Comparison key for duplicate detection: accents, case and noise removed. */
@@ -386,7 +387,7 @@ export async function searchEvents(opts: {
       tool_choice: "auto",
     };
 
-    const aiResp = await fetch("https://api.openai.com/v1/responses", {
+    const aiResp = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -404,7 +405,7 @@ export async function searchEvents(opts: {
     await logAiUsage(admin, {
       organizationSlug,
       functionName: "event-search",
-      model: String(payload.model ?? ""),
+      model: String(ai.model ?? payload.model ?? ""),
       inputTokens: Number(ai?.usage?.input_tokens ?? 0),
       outputTokens: Number(ai?.usage?.output_tokens ?? 0),
       webSearches: 1,

@@ -1,3 +1,4 @@
+import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 // Monthly refresh of the welcome-screen quote pool.
 //
 // Runs on a cron once a month (and can be triggered manually by an admin).
@@ -89,9 +90,9 @@ serve(async (req) => {
   if (!claimed?.length) return json({ ok: true, skipped: "another run holds the lease" });
 
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-  if (!OPENAI_API_KEY) {
+  if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) {
     await admin.from("motivational_quote_state").update({
-      status: "paused", paused_reason: "OPENAI_API_KEY is not configured",
+      status: "paused", paused_reason: "No AI provider is configured",
       lease_until: null, updated_at: new Date().toISOString(),
     }).eq("id", true);
     return json({ ok: false, error: "OPENAI_API_KEY is not configured" }, 200);
@@ -108,7 +109,7 @@ serve(async (req) => {
       .from("motivational_quotes").select("quote").eq("is_active", true).limit(200);
     const known = (existing ?? []).map((r) => r.quote).slice(0, 120);
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -154,7 +155,7 @@ serve(async (req) => {
     const payload = await res.json();
     await logAiUsage(admin, {
       organizationSlug: "hotelcare", functionName: "monthly-motivational-quotes",
-      model: "gpt-4o-mini",
+      model: String(payload?.model ?? 'gpt-4o-mini'),
       inputTokens: Number(payload?.usage?.prompt_tokens ?? 0),
       outputTokens: Number(payload?.usage?.completion_tokens ?? 0),
     });
@@ -165,7 +166,7 @@ serve(async (req) => {
         author: String(q?.author ?? "").trim() || "Unknown",
         source: "ai",
       }))
-      .filter((q) => q.quote.length > 10 && q.quote.length <= 200)
+      .filter((q: { quote: string; author: string; source: string }) => q.quote.length > 10 && q.quote.length <= 200)
       .slice(0, BATCH);
 
     let inserted = 0;

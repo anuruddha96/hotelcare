@@ -1,3 +1,4 @@
+import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 
@@ -63,7 +64,7 @@ serve(async (req) => {
       ]);
 
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) throw new Error("No AI provider is configured");
 
     const systemPrompt = `You are a hotel revenue management analyst for ${hotel?.hotel_name ?? hotel_id}.
 You are given recent pickup snapshots (bookings for each stay date over time), the current rate history, the engine settings, and any pending rate recommendations.
@@ -139,7 +140,7 @@ ${focus_date ? `Focus your analysis on ${focus_date}.` : ""}`;
       tool_choice: { type: "function", function: { name: "submit_analysis" } },
     };
 
-    const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiResp = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify(aiBody),

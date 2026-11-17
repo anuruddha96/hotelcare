@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { createOpenAI } from "npm:@ai-sdk/openai@4";
+import { geminiFirstStreamingModel } from "../_shared/geminiFirstStreamingModel.ts";
 import { streamText } from "npm:ai@7";
 import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
@@ -891,7 +892,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const openAiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!supabaseUrl || !serviceKey || !openAiKey) return json({ error: "Assistant configuration is incomplete" }, 500);
+  if (!supabaseUrl || !serviceKey || (!openAiKey && !Deno.env.get("GEMINI_API_KEY"))) return json({ error: "Assistant configuration is incomplete" }, 500);
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return json({ error: "Authentication required" }, 401);
@@ -1076,8 +1077,15 @@ Deno.serve(async (req) => {
     }
 
     const openai = createOpenAI({ apiKey: openAiKey });
+    const geminiKey=Deno.env.get("GEMINI_API_KEY");
+    const gemini=geminiKey?createOpenAI({apiKey:geminiKey,
+      baseURL:"https://generativelanguage.googleapis.com/v1beta/openai/"}):null;
+    const modelUsed=geminiFirstStreamingModel(gemini?[
+      gemini.chat(Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite"),
+      gemini.chat(Deno.env.get("GEMINI_SECONDARY_MODEL") || "gemini-3.5-flash"),
+    ]:[],openai.responses(PREMIUM_MODEL),{containsSensitiveData:true});
     const result = streamText({
-      model: openai.responses(PREMIUM_MODEL),
+      model: modelUsed,
       system: `You are HotelCare Deep Analysis, the highest-intelligence problem-solving tier inside HotelCare.app. Use the strongest available reasoning for questions that require KPI diagnosis, revenue strategy, root-cause analysis or multi-signal decisions. The answer must feel like an experienced hotel revenue manager investigated the problem, not like a generic chatbot.
 
 CURRENT HOTELCARE CONTEXT is authoritative for this turn and OVERRIDES earlier assistant messages. If an earlier answer claimed data was unavailable but current context contains it, ignore the old claim.
@@ -1134,13 +1142,13 @@ Never expose table names, database fields, internal ids, tools, model names, quo
       ] as any,
       abortSignal: req.signal,
       onFinish: async ({ totalUsage }) => {
-        await recordAssistantTokenUsage(db, monthlyActor, messageId, PREMIUM_MODEL,
+        await recordAssistantTokenUsage(db, monthlyActor, messageId, modelUsed.actualModelId,
           totalUsage?.inputTokens ?? 0, totalUsage?.outputTokens ?? 0);
         await logAiUsage(db, {
           organizationSlug: targetOrgSlug,
           hotelId: context?.properties?.length === 1 ? context.properties[0].id : null,
           functionName: "assistant-premium-analysis",
-          model: PREMIUM_MODEL,
+          model: modelUsed.actualModelId,
           inputTokens: totalUsage?.inputTokens ?? 0,
           outputTokens: totalUsage?.outputTokens ?? 0,
         });
