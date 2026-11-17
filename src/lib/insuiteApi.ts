@@ -36,7 +36,13 @@ async function call(action: string, body: Record<string, unknown>, headers: Reco
   });
   let data: any;
   try { data = await res.json(); } catch { throw Error("HotelCare could not read the response"); }
-  if (!res.ok) throw Error(data?.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    // Keep the server's short refusal code (e.g. SLOT_TAKEN) so screens can react to it.
+    const error = Object.assign(new Error(data?.error || `Request failed (${res.status})`), {
+      code: typeof data?.code === "string" ? data.code : undefined, status: res.status,
+    });
+    throw error;
+  }
   return data;
 }
 

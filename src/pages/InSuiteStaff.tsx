@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   BellRing, CheckCheck, ClipboardList, Hotel, MessageCircle, MonitorSmartphone,
   RefreshCw, Settings2, ShieldCheck, Wifi, LockKeyhole, Send, Copy,
-  ImagePlus, CloudUpload, CheckCircle2, AlertCircle, Save,
+  ImagePlus, CloudUpload, CheckCircle2, AlertCircle, Save, Waves,
 } from "lucide-react";
 import { inSuiteStaff, type InSuiteContent, type InSuiteRequest, type InSuiteMessage } from "@/lib/insuiteApi";
 import {
@@ -16,6 +16,7 @@ import {
   type InSuiteOrderLine, type InSuiteStaffBooking,
 } from "@/components/insuite/InSuiteCommerceConsole";
 import { InSuiteRoomQrCodes } from "@/components/insuite/InSuiteRoomQrCodes";
+import { InSuiteWellnessBoard } from "@/components/insuite/InSuiteWellnessBoard";
 import { prepareInSuiteImage } from "@/lib/insuiteImages";
 
 type Device = {
@@ -76,7 +77,7 @@ export default function InSuiteStaff() {
   const { hotels, loading: tenantLoading } = useTenant();
   const { organizationSlug } = useParams();
   const [hotelId, setHotelId] = useState("");
-  const [tab, setTab] = useState<"requests" | "chat" | "orders" | "bookings" | "menu" | "admin">("requests");
+  const [tab, setTab] = useState<"requests" | "chat" | "orders" | "wellness" | "bookings" | "menu" | "admin">("requests");
   const [data, setData] = useState<Dashboard | null>(null);
   const [loadedHotelId, setLoadedHotelId] = useState("");
   const [draft, setDraft] = useState<InSuiteContent>(defaults);
@@ -320,7 +321,8 @@ export default function InSuiteStaff() {
           { id: "requests", name: "Guest requests", Icon: ClipboardList },
           { id: "chat", name: "Reception messages", Icon: MessageCircle },
           { id: "orders", name: "Room orders", Icon: ClipboardList },
-          { id: "bookings", name: "Facility & taxi", Icon: Hotel },
+          { id: "wellness", name: "Jacuzzi & sauna", Icon: Waves },
+          { id: "bookings", name: "Taxi & other requests", Icon: Hotel },
           { id: "menu", name: "Menus", Icon: Settings2 },
           { id: "admin", name: "Tablet & content setup", Icon: Settings2 },
         ].map((t) => <button key={t.id}
@@ -395,6 +397,8 @@ export default function InSuiteStaff() {
           </div>
         </article>)}
       </div>}
+
+      {hotelId && tab === "wellness" && <InSuiteWellnessBoard hotelId={hotelId} />}
 
       {!loading && data && (tab === "orders" || tab === "bookings" || tab === "menu") &&
         <InSuiteCommerceConsole mode={tab} hotelId={hotelId}

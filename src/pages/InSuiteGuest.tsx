@@ -2,17 +2,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BedDouble, BellRing, ChevronLeft, CheckCircle2, Clock3, Coffee, Copy, Hotel,
   Info, Languages, LockKeyhole, MessageCircle, Phone, Send,
-  Sparkles, Wifi, Wrench, CarTaxiFront, Leaf, UtensilsCrossed, RefreshCw, ArrowRight,
+  Sparkles, Wifi, Wrench, CarTaxiFront, Leaf, UtensilsCrossed, RefreshCw, ArrowRight, Waves,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { InSuiteGuestCommerce, type InSuiteOrder, type InSuiteBooking } from "@/components/insuite/InSuiteGuestCommerce";
+import { InSuiteWellness } from "@/components/insuite/InSuiteWellness";
+import type { WellnessStayBooking } from "@/lib/wellness";
 import {
   INSUITE_DEVICE_KEY, inSuiteGuest, type InSuiteContent,
   type InSuiteMessage, type InSuiteRequest,
 } from "@/lib/insuiteApi";
 
-type View = "home" | "requests" | "chat" | "dining" | "hotel" | "travel";
+type View = "home" | "requests" | "chat" | "dining" | "wellness" | "hotel" | "travel";
+type WellnessFacility = { id: string; kind: string; name: string };
 type Language = "en" | "de" | "hu";
 const words: Record<Language, Record<string, string>> = {
   en: {
@@ -31,6 +34,7 @@ const words: Record<Language, Record<string, string>> = {
     servicesHint: "Towels, cleaning & more", chatHint: "Message reception", diningHint: "Breakfast, food & drinks",
     travelHint: "Transfers & facilities", infoHint: "Wi-Fi, hours & hotel details",
     enterSuite: "Explore In-Suite services", concierge: "Your In-Suite Concierge", suiteHint: "Everything you need, right from your room.", greeting: "Dear", touchHint: "Tap a service to get started", welcomeBack: "Welcome screen",
+    wellness: "Jacuzzi & sauna", wellnessHint: "Book a free private slot",
   },
   de: {
     welcome: "Fühlen Sie sich wie zu Hause", intro: "Alles für Ihren Aufenthalt.",
@@ -48,6 +52,7 @@ const words: Record<Language, Record<string, string>> = {
     servicesHint: "Handtücher, Reinigung & mehr", chatHint: "Rezeption kontaktieren", diningHint: "Frühstück, Essen & Getränke",
     travelHint: "Transfers & Einrichtungen", infoHint: "WLAN, Zeiten & Hotelinfos",
     enterSuite: "In-Suite-Services entdecken", concierge: "Ihr In-Suite-Concierge", suiteHint: "Alles, was Sie brauchen, direkt vom Zimmer aus.", greeting: "Willkommen", touchHint: "Wählen Sie einen Service", welcomeBack: "Begrüßungsseite",
+    wellness: "Whirlpool & Sauna", wellnessHint: "Kostenlosen Termin buchen",
   },
   hu: {
     welcome: "Érezze otthon magát!", intro: "Minden, amire szüksége lehet.",
@@ -65,6 +70,7 @@ const words: Record<Language, Record<string, string>> = {
     servicesHint: "Törölközők, takarítás és egyebek", chatHint: "Üzenet a recepciónak", diningHint: "Reggeli, ételek, italok",
     travelHint: "Transzfer és létesítmények", infoHint: "Wi-Fi, nyitvatartás, tudnivalók",
     enterSuite: "Szobai szolgáltatások megnyitása", concierge: "Az Ön szobai asszisztense", suiteHint: "Minden, amire szüksége van, közvetlenül a szobájából.", greeting: "Kedves", touchHint: "Válasszon egy szolgáltatást", welcomeBack: "Üdvözlőképernyő",
+    wellness: "Jakuzzi és szauna", wellnessHint: "Ingyenes időpont foglalása",
   },
 };
 const serviceOptions = [
@@ -120,6 +126,8 @@ export default function InSuiteGuest() {
   const [messages, setMessages] = useState<InSuiteMessage[]>([]);
   const [orders, setOrders] = useState<InSuiteOrder[]>([]);
   const [bookings, setBookings] = useState<InSuiteBooking[]>([]);
+  const [wellnessFacilities, setWellnessFacilities] = useState<WellnessFacility[]>([]);
+  const [wellnessBookings, setWellnessBookings] = useState<WellnessStayBooking[]>([]);
   const [stayActive, setStayActive] = useState(false);
   const [message, setMessage] = useState("");
   const [staffPin, setStaffPin] = useState("");
@@ -142,6 +150,7 @@ export default function InSuiteGuest() {
       setStayActive(data.stay_active === true);
       setRoom(String(data.room_number || ""));
       setConfig(data.config || {});
+      setWellnessFacilities(Array.isArray(data.wellness) ? data.wellness : []);
       setError("");
     } catch (err) {
       setError((err as Error).message);
@@ -159,7 +168,7 @@ export default function InSuiteGuest() {
         sessionEpoch.current = data.session_epoch;
         setStayActive(data.stay_active === true);
         visitStarted.current = new Date().toISOString();
-        setRequests([]); setMessages([]); setOrders([]); setBookings([]);
+        setRequests([]); setMessages([]); setOrders([]); setBookings([]); setWellnessBookings([]);
 
         setGuestWelcome(data.stay_active === true ? data.guest || null : null);
         setWelcomeOpen(true);
@@ -174,11 +183,12 @@ export default function InSuiteGuest() {
       setMessages(data.messages || []);
       setOrders(data.orders || []);
       setBookings(data.bookings || []);
+      setWellnessBookings(data.wellness || []);
     } catch (err) {
       console.warn("[insuite] temporary update failure", err);
       if (/Tablet disabled|not paired|unavailable/i.test((err as Error).message)) {
         localStorage.removeItem(INSUITE_DEVICE_KEY); setToken(""); setConfig(null);
-        setMessages([]); setRequests([]); setOrders([]); setBookings([]); setStayActive(false);
+        setMessages([]); setRequests([]); setOrders([]); setBookings([]); setWellnessBookings([]); setStayActive(false);
         setGuestWelcome(null); setWelcomeOpen(true);
       }
     }
@@ -285,6 +295,7 @@ export default function InSuiteGuest() {
     { view: "requests", label: t("services"), Icon: Sparkles },
     { view: "chat", label: t("reception"), Icon: MessageCircle },
     { view: "dining", label: t("dining"), Icon: UtensilsCrossed },
+    ...(wellnessFacilities.length ? [{ view: "wellness" as View, label: t("wellness"), Icon: Waves }] : []),
     { view: "hotel", label: t("information"), Icon: Info },
     { view: "travel", label: t("travel"), Icon: CarTaxiFront },
   ];
@@ -405,7 +416,7 @@ export default function InSuiteGuest() {
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             {nav.filter((item) => item.view !== "home").map(({ view: target, label, Icon }) => {
               const hint = { requests: t("servicesHint"), chat: t("chatHint"), dining: t("diningHint"),
-                travel: t("travelHint"), hotel: t("infoHint"), home: "" }[target];
+                wellness: t("wellnessHint"), travel: t("travelHint"), hotel: t("infoHint"), home: "" }[target];
               return <motion.button key={target} type="button" onClick={() => { setView(target); setRequestType(null); }}
                 whileHover={reducedMotion ? undefined : { y: -3 }} whileTap={reducedMotion ? undefined : { scale: 0.98 }}
                 className="flex min-h-36 flex-col items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 sm:p-5">
@@ -498,6 +509,11 @@ export default function InSuiteGuest() {
           roomNumber={room} stayActive={stayActive} orders={orders} bookings={bookings}
           onSubmitted={refresh} />
       </>}
+      {view === "wellness" && <>
+        <h1 className="text-3xl font-semibold">{t("wellness")}</h1>
+        <InSuiteWellness lang={lang} accent={accent} stayActive={stayActive} roomNumber={room}
+          hotelName={config?.hotel_name} awaitingText={t("awaiting")} stayBookings={wellnessBookings} onChanged={refresh} />
+      </>}
       {view === "hotel" && <>
         <h1 className="text-3xl font-semibold">{t("information")}</h1>
         <div className="grid lg:grid-cols-2 gap-4">
@@ -521,13 +537,14 @@ export default function InSuiteGuest() {
           {panel("Hotel facilities", config?.facilities_info, Hotel)}
         </div>
         <InSuiteGuestCommerce mode="booking" config={config || {}} accent={accent}
+          slotKinds={wellnessFacilities.map((f) => f.kind)}
           roomNumber={room} stayActive={stayActive} orders={orders} bookings={bookings}
           onSubmitted={refresh} />
         <p className="text-sm text-slate-500">All availability and transport pricing require reception confirmation.</p>
       </>}
-      <footer className="text-xs text-slate-400 flex gap-2 items-center py-3">
+      {view !== "wellness" && <footer className="text-xs text-slate-400 flex gap-2 items-center py-3">
         <RefreshCw className="h-3 w-3" /> Service updates synchronize while the tablet is online. All requests require staff confirmation.
-      </footer>
+      </footer>}
       </main>
     </div>
     {pinOpen && <div className="fixed inset-0 z-50 bg-black/70 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="Staff maintenance">
