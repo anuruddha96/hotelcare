@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Revenue Intelligence — deterministic metrics + OpenAI (customer's own API key).
 // Metrics/forecasts are computed here in TypeScript. OpenAI only interprets them.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
@@ -701,14 +702,14 @@ Deno.serve(async (req) => {
 
     /* ------------------------------------------------------ OpenAI call */
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) throw new Error("OpenAI is not configured");
+    if (!OPENAI_API_KEY && !Deno.env.get("GEMINI_API_KEY")) throw new Error("No AI provider configured");
 
     const instruction = mode === "deep"
       ? "Deep analysis: return up to 15 prioritised recommendations and full channel, room-type and stay-date leakage."
       : "Standard analysis: return the five highest-impact recommendations for the next 90 arrival dates.";
 
     const callOpenAi = async () => {
-      const res = await fetch("https://api.openai.com/v1/responses", {
+      const res = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
