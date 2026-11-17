@@ -48,5 +48,5 @@ jobs:
             -f supabase/tests/booking_engine_v2_fixture.sql \
             -f supabase/migrations/20261117140000_booking_engine.sql \
             -f supabase/migrations/20261117180000_insuite_wellness.sql \
-            -f supabase/migrations/20261117190000_booking_engine_v2.sql \
+            -f supabase/migrations/20261117191000_booking_engine_v2.sql \
             -f supabase/tests/booking_engine_v2_integration.sql
