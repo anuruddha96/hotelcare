@@ -94,11 +94,17 @@ const MODULE_EXTRA: Record<string, StarterPrompt> = {
   finance: { label: "On this screen", prompt: "Explain what this invoice screen is showing me." },
 };
 
-export function starterPrompts(role: string | null | undefined, module?: string | null): StarterPrompt[] {
+/**
+ * `canSeeRevenue`: the person may read revenue figures in Mira (top
+ * management and above). Managers work from the price list, so revenue
+ * starters would only lead to a refusal.
+ */
+export function starterPrompts(role: string | null | undefined, module?: string | null, canSeeRevenue?: boolean): StarterPrompt[] {
   const base = (role && BY_ROLE[role]) ?? MANAGER;
-  const revenueRoles = ["admin", "top_management", "top_management_manager", "manager"];
+  const revenueRoles = ["admin", "top_management", "top_management_manager"];
   const list = [...base];
-  if (module === "revenue" && role && revenueRoles.includes(role)) list.unshift(...REVENUE.slice(0, 2));
+  const revenueAllowed = canSeeRevenue ?? (!!role && revenueRoles.includes(role));
+  if (module === "revenue" && revenueAllowed) list.unshift(...REVENUE.slice(0, 2));
   const extra = module ? MODULE_EXTRA[module] : undefined;
   if (extra) list.push(extra);
   return list.slice(0, 5);

@@ -5,6 +5,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { loadGridPrefs, saveGridPrefs, stepZoom, type GridPrefs } from '@/lib/workforce/gridPrefs';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useAccessPolicy, useWorkforceScope } from '@/hooks/useAccessPolicy';
 import { entryKey, fetchAllRows, useWorkforce } from '@/hooks/useWorkforce';
 import { supabase } from '@/integrations/supabase/client';
 import { calendarDay, hungarianCalendar, swapsKnown, workingDays } from '@/lib/workforce/holidays';
@@ -48,7 +49,12 @@ export function WorkforceSchedule() {
   const role = profile?.role ?? '';
   const isSuper = !!profile?.is_super_admin;
   const access = accessLevelFor(role, isSuper);
-  const currentHotel = hotelKey(profile?.assigned_hotel);
+  // Housekeeping managers and supervisors plan their own hotel only; the
+  // database decides which one (their work-schedule hotel), so ask it.
+  const { scheduleScope } = useAccessPolicy();
+  const scope = useWorkforceScope();
+  const pinned = scheduleScope === 'home_hotel';
+  const currentHotel = (pinned && scope.hotelId ? hotelKey(scope.hotelId) : null) ?? hotelKey(profile?.assigned_hotel);
   const today = todayBudapest();
   const [ym, setYm] = useState(() => ({ y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) }));
   const data = useWorkforce(ym.y, ym.m);
@@ -70,7 +76,7 @@ export function WorkforceSchedule() {
           {canImport && <TabsTrigger value="import">Import Excel</TabsTrigger>}
         </TabsList>
         <p className="text-xs text-muted-foreground">
-          {access === 'org' ? 'Company-wide view' : `Showing ${hotelShort(currentHotel)} — switch hotel to see another team`}
+          {access === 'org' ? 'Company-wide view' : pinned ? `Your hotel: ${hotelShort(currentHotel)}` : `Showing ${hotelShort(currentHotel)} — switch hotel to see another team`}
         </p>
       </div>
       {data.error && (

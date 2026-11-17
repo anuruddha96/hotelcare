@@ -13,6 +13,9 @@ import { envelope, type RevenueDataset } from "./revenueMetrics.ts";
 import { buildPricingReview } from "./pricingReview.ts";
 import { logAiUsage } from "./aiBudget.ts";
 import { containsLikelySensitiveData } from "./lowCostAi.ts";
+import { capabilitiesFor, type AccessSubject } from "./accessPolicy.ts";
+import { buildRatePlan, type RatePlanSignal } from "./ratePlan.ts";
+import { createActionRequest, type ActionRequestAttachment } from "./assistantPlanRequests.ts";
 
 export type WorkspaceAttachment =
   | {
@@ -46,6 +49,8 @@ export type WorkspaceAttachment =
       review: string;
       reply: string;
     }
+  /** A plan waiting for (or holding) the person's approval; see assistantPlanRequests.ts. */
+  | ActionRequestAttachment
   | {
       kind: "email_draft";
       draftId: string;
@@ -65,8 +70,16 @@ const IMAGE_ROLES = ["admin", "top_management", "top_management_manager", "manag
 const IMAGE_DAILY_LIMIT = 10;
 const COMPETITOR_FRESH_HOURS = 48;
 
-export function canReadReputation(role: string | null | undefined): boolean {
-  return REPUTATION_ROLES.includes(role ?? "");
+/**
+ * Reviews and AI review replies: top management everywhere, and RD Hotels
+ * managers and reception (the same people the Reputation screen and
+ * google-reputation accept). Housekeeping managers and supervisors sit on the
+ * manager permission level but do not handle reviews.
+ */
+export function canReadReputation(profile: AccessSubject & { organization_slug?: string | null }): boolean {
+  if (!profile || !capabilitiesFor(profile).reviews) return false;
+  if (profile.is_super_admin || REPUTATION_ROLES.includes(profile.role ?? "")) return true;
+  return profile.role === "manager" && profile.organization_slug === "rdhotels";
 }
 export function canGenerateImages(role: string | null | undefined): boolean {
   return IMAGE_ROLES.includes(role ?? "");
@@ -74,7 +87,7 @@ export function canGenerateImages(role: string | null | undefined): boolean {
 
 type Ctx = {
   service: any;
-  profile: { id: string; role: string; organization_slug: string | null; assigned_hotel: string | null };
+  profile: { id: string; role: string; organization_slug: string | null; assigned_hotel: string | null; access_role?: string | null; is_super_admin?: boolean | null };
   scopes: Set<string>;
   hotels: AssistantHotel[];
   /** Narrows a hotel argument to authorized hotel ids; throws when not allowed. */
@@ -87,6 +100,10 @@ type Ctx = {
   pageHotelId: string | null;
   /** Charts and images produced in this turn, saved with the answer. */
   attachments: WorkspaceAttachment[];
+  /** Conversation the turn belongs to (approval requests link back to it). */
+  threadId?: string | null;
+  /** May approve a rate plan (top management / admin through adjust_revenue_prices). */
+  canApproveRates?: boolean;
 };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -321,7 +338,7 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
 
     tools.review_pricing = tool({
       description:
-        "The pricing review. For ONE hotel and up to 45 nights it reads occupancy against the booking window, recent pickup, our entry rate, the competitor median and demand events, and returns a stance per date (raise / lower / hold / protect) with a bounded whole-euro step, plus ready-made proposals grouped into ranges of at most 7 nights. Use this for any request to review, check or optimise prices over a period, find which dates to change, or price around events. The euro steps it returns are the ONLY amounts you may propose.",
+        "The pricing review and rate plan. For ONE hotel and up to 45 nights it reads occupancy against the booking window, pickup, ADR on the books, our entry rate, the competitor median, demand events and the Price Signal score, and returns a stance per date (raise / lower / hold / protect) with a bounded whole-euro step. Use it for any request to review, check, optimise or UPDATE prices over a period (\"update prices for the next 7 days\"), find which dates to change, or price around events. For people who may change rates it also prepares a rate-plan card with one Approve button; the user approves there. The euro steps it returns are the ONLY amounts you may propose.",
       inputSchema: jsonSchema<{ hotelId: string | null; startDate: string | null; days: number | null }>({
         type: "object",
         properties: {
@@ -390,6 +407,60 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
         if (review.summary.competitor_data === "none") notes.push("No competitor rates for this period, so no decrease is suggested.");
         if (review.summary.insufficient_data) notes.push(`${review.summary.insufficient_data} date(s) have no verified occupancy or rate.`);
 
+        // The same Price Signal the Revenue screen shows, plus ADR on the books,
+        // so the plan card shows every signal per night.
+        const signalsByDate: Record<string, RatePlanSignal> = {};
+        try {
+          const { data: signals } = await service.rpc("revenue_price_signals", { p_hotel_id: hotel.hotel_id, p_from: from, p_to: to });
+          for (const row of signals ?? []) {
+            signalsByDate[String(row.stay_date)] = {
+              score: row.score === null || row.score === undefined ? null : Number(row.score),
+              band: row.band ?? null,
+              action: row.action ?? null,
+              pickup24h: row.pickup_24h === null || row.pickup_24h === undefined ? null : Number(row.pickup_24h),
+              pickup7d: row.pickup_7d === null || row.pickup_7d === undefined ? null : Number(row.pickup_7d),
+              paceTargetPct: row.pace_target_pct === null || row.pace_target_pct === undefined ? null : Number(row.pace_target_pct),
+              drivers: Array.isArray(row.drivers) ? row.drivers.slice(0, 6).map(String) : [],
+            };
+          }
+        } catch (error) {
+          console.error("rate plan: price signals unavailable", (error as Error)?.message);
+        }
+        const ratePlan = buildRatePlan({
+          review,
+          hotelId: hotel.hotel_id,
+          hotelName: hotel.hotel_name,
+          currency: dataset.currency,
+          generatedAt: new Date().toISOString(),
+          dataAsOf: dataset.lastSyncAt,
+          minimumRate: Number(ruleRow?.minimum_adr ?? 0) || null,
+          marketScanAgeHours: market.ageHours,
+          adrByDate: Object.fromEntries(metrics.map((m) => [m.stay_date, m.adrEur])),
+          roomsAvailableByDate: Object.fromEntries(metrics.map((m) => [m.stay_date, m.roomsAvailable])),
+          signalsByDate,
+          notes,
+        });
+        let approval: { request_id: string; expires_at: string } | null = null;
+        if (ctx.canApproveRates && orgSlug && nights <= 31 && ratePlan.summary.changedNights > 0) {
+          const title = `Rate plan · ${hotel.hotel_name} · ${from === to ? from : `${from} → ${to}`}`;
+          const created = await createActionRequest(service, {
+            organizationSlug: orgSlug,
+            hotelId: hotel.hotel_id,
+            threadId: ctx.threadId ?? null,
+            requestedBy: profile.id,
+            kind: "rate_plan",
+            title,
+            summary: `${ratePlan.summary.changedNights} of ${ratePlan.summary.nights} nights change: ${ratePlan.summary.raise} up, ${ratePlan.summary.lower} down.`,
+            plan: ratePlan,
+          });
+          if (created.ok) {
+            approval = { request_id: created.id, expires_at: created.expiresAt };
+            ctx.attachments.push({ kind: "action_request", requestId: created.id, requestKind: "rate_plan", title });
+          } else {
+            console.error("rate plan approval request not saved", created.error);
+          }
+        }
+
         return envelope(
           {
             hotel_id: hotel.hotel_id,
@@ -407,8 +478,12 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
               approved: e.approved,
             })),
             ...review,
-            how_to_apply:
-              "Each proposal maps to one propose_action call: kind adjust_revenue_prices, input {hotelId, fromDate, toDate, deltaEur}. The step applies to every published room type and occupancy price of those nights, so the room-type ladder is preserved.",
+            // With an approval card, the card is the way to apply the plan.
+            approval,
+            rate_plan: approval ? undefined : ratePlan,
+            how_to_apply: approval
+              ? "A rate-plan card with every night, its signals and one Approve button is already shown under your answer. Do NOT call propose_action or execute_action for these proposals; tell the user to review the card and approve it there."
+              : "Each proposal maps to one propose_action call: kind adjust_revenue_prices, input {hotelId, fromDate, toDate, deltaEur}. The step applies to every published room type and occupancy price of those nights, so the room-type ladder is preserved.",
           },
           {
             source: "revenue_published_payload",
@@ -421,7 +496,7 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
   }
 
   // ------------------------------------------------------------- reputation
-  if (canReadReputation(profile.role) && orgSlug) {
+  if (canReadReputation(profile) && orgSlug) {
     tools.get_reputation_overview = tool({
       description:
         "Google reviews for ONE hotel (default: the hotel the user is working in) or, only when they explicitly ask for every property / the whole group, the organization: rating and review count per location for a period, how many are still unanswered, the unanswered low-star reviews that need a reply first, and a weekly rating trend. Use for reputation, reviews, guest feedback and rating questions.",
@@ -530,7 +605,7 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
     });
   }
 
-  if (canReadReputation(profile.role) && orgSlug) {
+  if (canReadReputation(profile) && orgSlug) {
     tools.draft_review_reply = tool({
       description:
         "Prepare a reply to ONE Google review as a card the user can edit and publish to Google with one tap. Use the review_id from get_reputation_overview. Never claim the reply is published: it is only published when the user taps Publish.",
@@ -789,11 +864,11 @@ export function workspacePrompt(params: { hasRevenue: boolean; hasReputation: bo
       "1. Identify the single hotel. If the user has several and none is selected, ask which one and stop.",
       "2. Call review_pricing for the period. It already combines events, occupancy against the booking window, 7-day pickup, our entry rate and the competitor median.",
       "3. If the review is partial (stale or missing competitor rates, missing occupancy), say so in one sentence. Never fill the gap with assumptions.",
-      "4. Answer with: the high-impact event dates and what they mean; a compact table of ONLY the dates that need a change (date, occupancy, rooms left, our rate, competitor median, step, new rate, why); one line on what stays unchanged and why.",
-      "5. For a period of 10 nights or more, also call render_chart with a line chart of our entry rate against the competitor median (both in euros) so the manager sees where the month is over- or under-priced.",
+      "4. The plan is shown as a visual card (every night with occupancy, pickup, ADR, market median, events, Price Signal, current and new rate). So keep your text short and do not repeat the per-night table: 2–4 sentences on the main moves (high-impact event dates, the strongest raises and cuts and why) and one line on what stays unchanged.",
+      "5. Do not draw a separate chart for a pricing review; the card already shows the nights. Draw one only if the user asks for a chart.",
       params.canWriteRates
-        ? "6. Then call propose_action once per proposal returned by review_pricing (kind adjust_revenue_prices, input {hotelId, fromDate, toDate, deltaEur}), at most 6 proposals, most valuable first. Each one becomes a confirmation card. Use the returned euro steps exactly; never invent, round or enlarge them. In the pricing review NEVER use execute_action: these are your recommendations, so the user confirms each one."
-        : "6. This user may not change rates. Present the recommendation and say that an administrator or top management applies rate changes.",
+        ? "6. When review_pricing returns an approval (a rate-plan card), the user reviews every night on that card and approves it with one tap: point to the card in one sentence and do NOT call propose_action or execute_action for those proposals. Only when no approval was returned, call propose_action once per proposal (kind adjust_revenue_prices, input {hotelId, fromDate, toDate, deltaEur}), at most 6, most valuable first, using the returned euro steps exactly. In the pricing review NEVER use execute_action: these are your recommendations, so the user confirms them."
+        : "6. This user may not change rates. Present the recommendation (the plan is shown as a card) and say that top management approves rate changes.",
       "7. The step is the same number of euros for every room type and occupancy of that night, which keeps the room-type ladder intact. Say that once.",
       "8. Never claim a price was changed. A confirmed card is queued through the Revenue safety checks and the calendar shows the PMS-confirmed value.",
       "9. HotelCare DOES support authorised date-specific rate changes using verified proposals and the existing publishing queue. Never say they are unavailable. If the user asks to review and approve, run review_pricing; its verified proposals appear as approval cards automatically even if the model cannot call propose_action.",

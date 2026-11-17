@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistantContext } from "@/hooks/useAssistantContext";
 import { greeting, starterPrompts } from "@/lib/assistant/starters";
+import { capabilitiesFor } from "@/lib/accessPolicy";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
@@ -86,7 +87,8 @@ export default function AssistantWelcome({
 }) {
   const { profile } = useAuth();
   const { page } = useAssistantContext();
-  const starters = useMemo(() => starterPrompts(profile?.role, page.module), [profile?.role, page.module]);
+  const revenueAllowed = capabilitiesFor(profile).revenueRead;
+  const starters = useMemo(() => starterPrompts(profile?.role, page.module, revenueAllowed), [profile?.role, page.module, revenueAllowed]);
   const { cards, hotelName } = usePriorities(workspace, page.hotelId ?? profile?.assigned_hotel ?? null);
 
   if (!workspace) {

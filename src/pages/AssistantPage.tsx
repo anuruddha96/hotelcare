@@ -26,6 +26,8 @@ import AssistantChat from "@/components/assistant/AssistantChat";
 import AssistantSidebar from "@/components/assistant/AssistantSidebar";
 import AssistantAccessRequests, { canApproveAssistantAccess } from "@/components/assistant/AssistantAccessRequests";
 import ReportProblemDialog from "@/components/assistant/ReportProblemDialog";
+import ApprovalsHistory from "@/components/assistant/plans/ApprovalsHistory";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MailboxesDialog from "@/components/assistant/MailboxesDialog";
 import { canConnectMailbox } from "@/lib/assistant/mail";
 import { canUseAssistant } from "@/lib/assistantAccess";
@@ -329,9 +331,9 @@ export default function AssistantPage() {
               </p>
             </div>
           </div>
-          {canApproveAssistantAccess(profile?.role) && (
-            <Button size="sm" variant="ghost" className="hidden text-xs sm:inline-flex" onClick={() => setRequestsOpen(true)}>Requests</Button>
-          )}
+          <Button size="sm" variant="ghost" className="text-xs" onClick={() => setRequestsOpen(true)}>
+            {canApproveAssistantAccess(profile?.role) ? "Approvals & requests" : "Approvals"}
+          </Button>
           <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="New chat" onClick={startBlank}>
             <Plus className="h-4 w-4" />
           </Button>
@@ -351,10 +353,21 @@ export default function AssistantPage() {
       </main>
 
       <Dialog open={requestsOpen} onOpenChange={setRequestsOpen}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader><DialogTitle>Team access requests</DialogTitle>
-            <DialogDescription>Review temporary access requests for Mira.</DialogDescription></DialogHeader>
-          <div className="max-h-[65vh] overflow-y-auto"><AssistantAccessRequests /></div>
+        <DialogContent className="max-h-[90dvh] overflow-hidden sm:max-w-5xl">
+          <DialogHeader><DialogTitle>Approvals</DialogTitle>
+            <DialogDescription>Plans Mira prepared, what was approved, by whom and when, and the result.</DialogDescription></DialogHeader>
+          <Tabs defaultValue="approvals" className="min-h-0">
+            {canApproveAssistantAccess(profile?.role) && (
+              <TabsList>
+                <TabsTrigger value="approvals">Plans & approvals</TabsTrigger>
+                <TabsTrigger value="access">Team access requests</TabsTrigger>
+              </TabsList>
+            )}
+            <TabsContent value="approvals" className="max-h-[68vh] overflow-y-auto"><ApprovalsHistory /></TabsContent>
+            {canApproveAssistantAccess(profile?.role) && (
+              <TabsContent value="access" className="max-h-[68vh] overflow-y-auto"><AssistantAccessRequests /></TabsContent>
+            )}
+          </Tabs>
         </DialogContent>
       </Dialog>
 

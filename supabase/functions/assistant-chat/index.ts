@@ -21,11 +21,16 @@ import { buildWorkspaceTools, canGenerateImages, canReadReputation, workspacePro
 import { buildMailTools, mailPrompt, mailToolsAvailable } from "../_shared/assistantMailTools.ts";
 import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
+import { ACCESS_ROLE_LABEL, capabilitiesFor, miraScopesFor } from "../_shared/accessPolicy.ts";
+import { buildScheduleTools, schedulePrompt, scheduleToolsAvailable } from "../_shared/assistantScheduleTools.ts";
 
 
 type Profile = {
   id: string;
   role: string;
+  /** Role from the work schedule (accessPolicy.ts); null = derived from role. */
+  access_role?: string | null;
+  is_super_admin?: boolean | null;
   assigned_hotel: string | null;
   organization_slug: string | null;
   preferred_language: string | null;
@@ -60,18 +65,6 @@ function json(data: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function allowedScopes(role: string): Set<Scope> {
-  if (["admin", "manager", "top_management", "top_management_manager"].includes(role)) {
-    return new Set(["revenue", "housekeeping", "maintenance", "reception", "finance"]);
-  }
-  if (["control_finance", "control_manager", "finance_manager"].includes(role)) return new Set(["finance"]);
-  if (role === "back_office_manager") return new Set(["finance", "housekeeping", "maintenance", "reception"]);
-  if (["housekeeping", "housekeeping_manager", "supervisor"].includes(role)) return new Set(["housekeeping"]);
-  if (["maintenance", "maintenance_manager"].includes(role)) return new Set(["maintenance"]);
-  if (["reception", "reception_manager", "front_office", "breakfast_staff"].includes(role)) return new Set(["reception"]);
-  return new Set();
 }
 
 function extractText(message: UIMessage | undefined): string {
@@ -1571,7 +1564,8 @@ function buildTools(
   }
 
   void hotelIds;
-  // Charts, pricing review, competitor rates, reviews, restaurant, images.
+  const access = capabilitiesFor(profile);
+  // Charts, pricing review (rate-plan card), competitor rates, reviews, restaurant, images.
   Object.assign(
     tools,
     buildWorkspaceTools({
@@ -1585,8 +1579,26 @@ function buildTools(
       openAiKey,
       pageHotelId,
       attachments,
+      threadId,
+      canApproveRates: access.revenueWrite && actionsForRole(profile.role).includes("adjust_revenue_prices"),
     }),
   );
+  // Work schedule: hours, coverage and schedule plans (approved on a card).
+  if (scheduleToolsAvailable(access, profile.organization_slug)) {
+    Object.assign(tools, buildScheduleTools({
+      service,
+      profile,
+      access,
+      hotels,
+      resolve,
+      today,
+      pageHotelId,
+      threadId,
+      supabaseUrl,
+      authHeader,
+      attachments,
+    }));
+  }
   // Personal mailbox: search, read and draft. Sending happens only on the card.
   Object.assign(tools, buildMailTools({ service, profile, threadId, attachments }));
 
@@ -1631,7 +1643,7 @@ function buildTools(
               { hotelId: ids[0], startDate: null, days: 7 },
               { toolCallId: "attention-revenue", messages: [] },
             )) : null,
-        canReadReputation(profile.role) && tools.get_reputation_overview
+        canReadReputation(profile) && tools.get_reputation_overview
           ? safely(() => tools.get_reputation_overview.execute(
               { days: 14, hotelId: ids.length === 1 ? ids[0] : null, portfolio: ids.length !== 1 }, { toolCallId: "attention-reputation", messages: [] },
             )) : null,
@@ -1831,7 +1843,8 @@ Deno.serve(async (req) => {
     const [{ data: profile, error: profileError }, { data: thread, error: threadError }] = await Promise.all([
       service
         .from("profiles")
-        .select("id,role,assigned_hotel,organization_slug,preferred_language,full_name,nickname")
+        // "*" also returns access_role once that column exists.
+        .select("*")
         .eq("id", userData.user.id)
         .is("deleted_at", null)
         .single(),
@@ -1843,6 +1856,8 @@ Deno.serve(async (req) => {
         .single(),
     ]);
     if (profileError || !profile) return json({ error: "Profile not found" }, 403);
+    // Housekeepers, maintenance and breakfast staff do not use Mira.
+    if (!capabilitiesFor(profile).mira) return json({ error: "Mira is not part of your role." }, 403);
     if (threadError || !thread) return json({ error: "Conversation not found" }, 404);
     // Ownership is already enforced by the user_id filter above. Only the
     // organization is checked here: a thread may have been started while the
@@ -1902,7 +1917,10 @@ Deno.serve(async (req) => {
       question, String(precedingAssistantTurn?.content ?? ""),
     );
 
-    const scopes = allowedScopes(profile.role);
+    // Data areas come from the person's role (work schedule): reception has no
+    // revenue, housekeeping managers and supervisors only housekeeping and
+    // maintenance. Tools outside these areas are never registered.
+    const scopes = new Set<Scope>(miraScopesFor(profile));
     const requestedScope = detectRequestedScope(question);
     const deniedScope = requestedScope && !scopes.has(requestedScope) ? requestedScope : null;
     const languageCode = typeof body?.language === "string" ? body.language : profile.preferred_language ?? "en";
@@ -2048,7 +2066,7 @@ Always say which hotel, date range and currency your numbers refer to.`
       model: modelUsed,
       system: `You are Mira by HotelCare, the company's action-capable operations companion inside HotelCare.app.
 Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
-The authenticated user's role is ${profile.role}. Their organization is ${profile.organization_slug ?? "none"}.
+The authenticated user's role is ${ACCESS_ROLE_LABEL[capabilitiesFor(profile).accessRole]} (permission level ${profile.role}). Their organization is ${profile.organization_slug ?? "none"}.
 Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).join("; ") || "none"}. Never mention or read any other organization or property.
 
 ANSWER STYLE
@@ -2099,11 +2117,11 @@ WEB SEARCH — for facts not stored in Hotel Care
 - Each user gets ${WEB_SEARCH_FREE_DAILY} free questions with web search per day. If a search result carries a billing note saying the question is charged, end your answer with one short line telling the user this question costs €${EXTRA_QUESTION_PRICE_EUR}. Otherwise never mention billing.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}${workspacePrompt({
         hasRevenue: activeScopes.has("revenue"),
-        hasReputation: canReadReputation(profile.role),
+        hasReputation: canReadReputation(profile),
         hasRestaurant: activeScopes.has("reception"),
         hasImages: canGenerateImages(profile.role),
         canWriteRates: actionsForRole(profile.role).includes("adjust_revenue_prices"),
-      })}${mailToolsAvailable(profile.role) ? mailPrompt() : ""}${projectBrief}`,
+      })}${scheduleToolsAvailable(capabilitiesFor(profile), profile.organization_slug) ? schedulePrompt() : ""}${mailToolsAvailable(profile.role) ? mailPrompt() : ""}${projectBrief}`,
       messages: await convertToModelMessages(modelMessages),
       tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey ?? "", authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup),
 

@@ -63,6 +63,7 @@ import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePa
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { isRevenueAdmin } from "@/lib/roleAccess";
+import { capabilitiesFor } from "@/lib/accessPolicy";
 import { Header } from "@/components/layout/Header";
 import TrialEndedNotice from "@/components/revenue/TrialEndedNotice";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
@@ -1297,7 +1298,10 @@ function PrevioRevenueHotelDetail() {
           />
 
 
-          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
+          {/* Sales targets are sensitive: top management and above, and Controlling. */}
+          {capabilitiesFor(profile).salesGoal && (
+            <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
+          )}
           <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
 
 
