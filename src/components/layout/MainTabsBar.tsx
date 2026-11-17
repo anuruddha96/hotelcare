@@ -8,7 +8,8 @@ type Current =
   | 'revenue'
   | 'reputation'
   | 'purchase-invoices'
-  | 'parking';
+  | 'parking'
+  | 'price-list';
 
 interface MainTabsBarProps {
   current?: Current;
@@ -24,6 +25,7 @@ const KEY: Record<Current, string> = {
   reputation: 'reputation',
   'purchase-invoices': 'invoices',
   parking: 'parking',
+  'price-list': 'price-list',
 };
 
 /**

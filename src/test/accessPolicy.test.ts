@@ -65,21 +65,47 @@ describe('what each role may do', () => {
     }
   });
 
-  it('lets managers reply to reviews and build schedules, but not publish prices', () => {
+  it('gives named managers every hotel and a price list, but no revenue figures', () => {
     const manager = capabilitiesFor({ role: 'manager', access_role: 'manager' });
+    expect(manager.scheduleScope).toBe('org');
+    expect(manager.priceList).toBe(true);
     expect(manager.reviews).toBe(true);
     expect(manager.scheduleBuilder).toBe(true);
-    expect(manager.revenueRead).toBe(true);
+    expect(manager.revenueRead).toBe(false);
     expect(manager.revenueWrite).toBe(false);
+    expect(manager.salesGoal).toBe(false);
+    expect(manager.scheduleGoLive).toBe(false);
+    expect(miraScopesFor({ role: 'manager', access_role: 'manager' })).not.toContain('revenue');
+  });
+
+  it('keeps accounts without a role on one hotel and without a price list', () => {
+    const unclassified = capabilitiesFor({ role: 'manager' });
+    expect(unclassified.accessRole).toBe('manager');
+    expect(unclassified.scheduleScope).toBe('property');
+    expect(unclassified.priceList).toBe(false);
+    expect(unclassified.revenueRead).toBe(false);
+    expect(miraScopesFor({ role: 'manager' })).not.toContain('revenue');
   });
 
   it('gives controlling and HR top-management access', () => {
     for (const accessRole of ['controlling', 'hr', 'top_management']) {
       const caps = capabilitiesFor({ role: 'top_management_manager', access_role: accessRole });
       expect(caps.revenueWrite).toBe(true);
+      expect(caps.revenueRead).toBe(true);
       expect(caps.scheduleScope).toBe('org');
+      expect(caps.scheduleGoLive).toBe(true);
       expect(caps.reviews).toBe(true);
     }
+  });
+
+  it("shows Today's Sales & ADR Goal to top management, admins and Controlling only", () => {
+    expect(capabilitiesFor({ role: 'top_management_manager' }).salesGoal).toBe(true);
+    expect(capabilitiesFor({ role: 'top_management_manager', access_role: 'controlling' }).salesGoal).toBe(true);
+    expect(capabilitiesFor({ role: 'admin' }).salesGoal).toBe(true);
+    expect(capabilitiesFor({ role: 'manager', is_super_admin: true }).salesGoal).toBe(true);
+    expect(capabilitiesFor({ role: 'top_management_manager', access_role: 'hr' }).salesGoal).toBe(false);
+    expect(capabilitiesFor({ role: 'hr' }).salesGoal).toBe(false);
+    expect(capabilitiesFor({ role: 'manager', access_role: 'manager' }).salesGoal).toBe(false);
   });
 });
 

@@ -81,8 +81,13 @@ SELECT pg_temp.expect((SELECT access_level FROM workforce_access()) = 'property'
 SELECT pg_temp.expect(NOT EXISTS (SELECT 1 FROM workforce_staff WHERE hotel_id = 'gozsdu-court'), 'no other hotel team for the housekeeping manager');
 SELECT pg_temp.expect(EXISTS (SELECT 1 FROM workforce_staff WHERE hotel_id = 'memories-budapest' AND full_name = 'Room attendant'), 'own hotel team is visible');
 
-SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000004'); -- Klaudia follows the hotel she picked
-SELECT pg_temp.expect((SELECT hotel_id FROM workforce_access()) = 'gozsdu-court', 'manager follows the selected hotel');
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000004'); -- Klaudia, a named manager
+SELECT pg_temp.expect((SELECT hotel_id FROM workforce_access()) = 'gozsdu-court', 'manager starts on the selected hotel');
+SELECT pg_temp.expect((SELECT access_level FROM workforce_access()) = 'org', 'named manager sees every hotel');
+SELECT pg_temp.expect(EXISTS (SELECT 1 FROM workforce_staff WHERE hotel_id = 'memories-budapest'), 'named manager sees another hotel''s team');
+
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000008'); -- Brigi: no role chosen yet
+SELECT pg_temp.expect((SELECT access_level FROM workforce_access()) = 'property', 'account without a role keeps one hotel');
 
 -- 4. Staff schedule go-live --------------------------------------------------
 SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000009');
@@ -96,6 +101,13 @@ DO $$ BEGIN
   PERFORM set_workforce_staff_schedule_live(true);
   RAISE EXCEPTION 'FAILED: housekeeping manager put the schedule live';
 EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'ok - only HR / top management put it live';
+END $$;
+
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000004');
+DO $$ BEGIN
+  PERFORM set_workforce_staff_schedule_live(true);
+  RAISE EXCEPTION 'FAILED: manager put the schedule live';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'ok - managers see every hotel but cannot put the schedule live';
 END $$;
 
 SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000001');
@@ -150,6 +162,42 @@ DO $$ BEGIN
   VALUES ('rdhotels', 'ottofiori', '10000000-0000-0000-0000-000000000003', 'rate_plan', 'x', '{}', repeat('b', 64));
   RAISE EXCEPTION 'FAILED: browser inserted a request';
 EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'ok - requests are written only by Edge Functions';
+END $$;
+
+-- 6. Revenue figures and the price list -------------------------------------
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000001');
+SELECT pg_temp.expect((SELECT count(*) FROM revenue_published_payloads) = 2, 'top management reads the revenue dataset');
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000003'); -- Petra, assigned to Ottofiori
+SELECT pg_temp.expect(NOT EXISTS (SELECT 1 FROM revenue_published_payloads), 'a manager cannot read revenue figures, even for her own hotel');
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000009');
+SELECT pg_temp.expect(NOT EXISTS (SELECT 1 FROM revenue_published_payloads), 'a housekeeper cannot read revenue figures');
+
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000003');
+SELECT pg_temp.expect(jsonb_array_length(revenue_price_list('ottofiori', '2026-11-20', 2)->'rates') = 3, 'price list returns the window''s prices');
+SELECT pg_temp.expect(NOT (revenue_price_list('ottofiori', '2026-11-20', 2)::text LIKE '%999.5%'), 'price list carries no revenue');
+SELECT pg_temp.expect(NOT (revenue_price_list('ottofiori', '2026-11-20', 2)::text LIKE '%Secret Guest%'), 'price list carries no guest data');
+SELECT pg_temp.expect(NOT (revenue_price_list('ottofiori', '2026-11-20', 2) ? 'nights'), 'price list has no bookings');
+SELECT pg_temp.expect((revenue_price_list('ottofiori', '2026-11-20', 2)->'room_types'->0->>'name') = 'Double room', 'price list names the room types');
+SELECT pg_temp.expect((revenue_price_list('ottofiori', '2026-11-20', 2)->'rates'->0->>'price')::numeric = 120, 'price list keeps the published price');
+SELECT pg_temp.expect(jsonb_array_length(revenue_price_list('memories-budapest', '2026-11-20', 7)->'rates') = 0, 'named manager opens another hotel''s price list');
+
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000008'); -- Brigi: no role chosen yet
+DO $$ BEGIN
+  PERFORM revenue_price_list('mika-downtown', NULL, 7);
+  RAISE EXCEPTION 'FAILED: account without a role opened the price list';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'ok - the price list is for named managers and top management';
+END $$;
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000009');
+DO $$ BEGIN
+  PERFORM revenue_price_list('memories-budapest', NULL, 7);
+  RAISE EXCEPTION 'FAILED: housekeeper opened the price list';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'ok - housekeepers get no price list';
+END $$;
+SELECT pg_temp.act_as('10000000-0000-0000-0000-000000000012');
+DO $$ BEGIN
+  PERFORM revenue_price_list('ottofiori', NULL, 7);
+  RAISE EXCEPTION 'FAILED: another organization opened the price list';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'ok - other organizations get no price list';
 END $$;
 
 RESET ROLE;

@@ -1,7 +1,7 @@
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   CalendarDays, CarFront, Clock, DoorOpen, Home, Radio, Receipt,
-  Settings, TabletSmartphone, Ticket, TrendingUp, Users, MessageSquareText,
+  Settings, TabletSmartphone, Tags, Ticket, TrendingUp, Users, MessageSquareText,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 type DashboardTab = 'tickets' | 'rooms' | 'housekeeping' | 'attendance' | 'admin';
 type ModuleKey = DashboardTab | 'reception' | 'parking' | 'revenue' | 'rates-availability' | 'channel-manager'
-  | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation';
+  | 'invoices' | 'staff-schedule' | 'insuite' | 'reputation' | 'price-list';
 
 interface OperationsNavigationProps {
   /** Highlighted tab. When omitted, it is worked out from the current URL. */
@@ -29,6 +29,7 @@ function moduleFromLocation(pathname: string, search: string, basePath: string):
   const under = (segment: string) => pathname.startsWith(`${basePath}/${segment}`);
   if (under('reception') || under('reservations') || under('front-desk') || under('guests')) return 'reception';
   if (under('revenue')) return 'revenue';
+  if (under('price-list')) return 'price-list';
   if (under('rates-availability')) return 'revenue'; // merged into Revenue Management
   if (under('channel-manager')) return 'channel-manager';
   if (under('purchase-invoices')) return 'invoices';
@@ -67,8 +68,9 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
   const legacy = canAccessLegacyModules(profile?.nickname);
   // Invoices follow the organization's module rollout; Parking stays on the legacy pilot gate.
   const invoiceAccess = usePurchaseInvoiceAccess();
-  // Role from the work schedule: reception has no Revenue, housekeeping
-  // managers and supervisors do not answer reviews.
+  // Role from the work schedule: reception has no Revenue, managers get a
+  // price list instead of Revenue, housekeeping managers and supervisors do
+  // not answer reviews.
   const caps = useAccessPolicy();
   // Native rates & availability exists only where HotelCare is the PMS (Channex sandbox for now).
   const nativePms = organizationSlug === 'channex';
@@ -91,8 +93,10 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     ...(manager || role === 'hr' ? [{ key: 'attendance' as const, label: 'nav.hr', icon: Clock, click: () => openTab('attendance'), training: 'attendance-tab' }] : []),
     ...(canOpenSchedule ? [{ key: 'staff-schedule' as const, label: 'nav.schedule', icon: CalendarDays, click: () => navigate(`${basePath}?view=staff-schedule`) }] : []),
     // Revenue Management hosts the Rate & Pickup calendar (no separate rates
-    // module), so on native-PMS hotels managers and the front desk open it too.
-    ...(executive || (nativePms && caps.revenueRead && (role === 'manager' || frontDesk)) ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
+    // module), so on native-PMS hotels managers open it too. On Previo hotels
+    // revenue figures stay with top management; managers see the price list.
+    ...(executive || (nativePms && role === 'manager' && caps.accessRole === 'manager') ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
+    ...(!executive && !nativePms && caps.priceList ? [{ key: 'price-list' as const, label: 'nav.priceList', icon: Tags, click: () => navigate(`${basePath}/price-list`) }] : []),
     ...(['admin', 'manager', 'top_management', 'top_management_manager'].includes(role) ? [{ key: 'channel-manager' as const, label: 'nav.channels', icon: Radio, click: () => navigate(`${basePath}/channel-manager`) }] : []),
     ...(caps.reviews && (executive || (role === 'manager' && organizationSlug === 'rdhotels')) ? [{ key: 'reputation' as const, label: 'nav.reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) }] : []),
     ...(invoiceAccess.hasAccess ? [

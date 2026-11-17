@@ -1,7 +1,15 @@
 -- Rollback for 20261117200000_access_roles_and_mira_actions.sql.
--- Restores the previous work-schedule access and removes access roles, the
--- schedule go-live switch and Mira approval records. Permission levels
--- (profiles.role) were never changed, so nothing else needs restoring.
+-- Restores the previous work-schedule access and published-revenue read
+-- policy, and removes access roles, the schedule go-live switch, the price
+-- list and Mira approval records. Permission levels (profiles.role) were never
+-- changed, so nothing else needs restoring.
+
+DROP FUNCTION IF EXISTS public.revenue_price_list(text, date, integer);
+DROP POLICY IF EXISTS "Revenue users view published revenue for accessible hotels" ON public.revenue_published_payloads;
+DROP POLICY IF EXISTS "Users view published revenue for accessible hotels" ON public.revenue_published_payloads;
+CREATE POLICY "Users view published revenue for accessible hotels" ON public.revenue_published_payloads
+  FOR SELECT TO authenticated
+  USING (public.user_can_access_hotel(auth.uid(), hotel_id));
 
 DROP POLICY IF EXISTS "workforce read staff" ON public.workforce_staff;
 CREATE POLICY "workforce read staff" ON public.workforce_staff

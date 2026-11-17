@@ -9,12 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { HOTELS, KIND_STYLE, type WorkforceKind } from '@/lib/workforce/model';
 import type { WorkforceData } from '@/hooks/useWorkforce';
 import { StaffScheduleGoLiveCard } from './StaffScheduleGoLiveCard';
+import { useAccessPolicy } from '@/hooks/useAccessPolicy';
 
 type Row = Record<string, unknown> & { id?: string };
 const KINDS = Object.keys(KIND_STYLE) as WorkforceKind[];
 const NONE = '__none';
 
 export function WorkforceSettings({ data, canEdit }: { data: WorkforceData; canEdit: boolean }) {
+  const caps = useAccessPolicy();
   const staffCount = (key: 'department_id' | 'job_role_id', id: string) => data.staff.filter((s) => s.is_active && s[key] === id).length;
   const save = async (table: Parameters<WorkforceData['saveReference']>[0], row: Row, done?: () => void) => {
     try { await data.saveReference(table, row); toast.success('Saved'); done?.(); }
@@ -23,7 +25,8 @@ export function WorkforceSettings({ data, canEdit }: { data: WorkforceData; canE
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      {canEdit && <StaffScheduleGoLiveCard />}
+      {/* Only the owner and top management decide when staff see the schedule. */}
+      {canEdit && caps.scheduleGoLive && <StaffScheduleGoLiveCard />}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Departments</CardTitle>

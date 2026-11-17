@@ -12,6 +12,7 @@ export {
   capabilitiesFor,
   defaultDashboardTabFor,
   effectiveAccessRole,
+  hasExplicitAccessRole,
   isAccessRole,
   landingPathFor,
   miraScopesFor,

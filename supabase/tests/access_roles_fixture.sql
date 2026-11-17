@@ -110,6 +110,33 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
     FROM public.profiles p
    WHERE p.id = auth.uid() AND p.deleted_at IS NULL;
 $$;
+-- Revenue: the published dataset and the production access helpers (simplified).
+CREATE OR REPLACE FUNCTION public.user_can_access_hotel(_uid uuid, _hotel_id text) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles p
+    JOIN public.hotel_configurations hc ON hc.hotel_id = _hotel_id OR hc.hotel_name = _hotel_id
+    LEFT JOIN public.organizations o ON o.id = hc.organization_id
+    WHERE p.id = _uid
+      AND (coalesce(p.is_super_admin, false)
+           OR (p.organization_slug = o.slug
+               AND (p.role IN ('admin', 'top_management', 'top_management_manager')
+                    OR p.assigned_hotel = hc.hotel_id OR p.assigned_hotel = hc.hotel_name))))
+$$;
+CREATE OR REPLACE FUNCTION public.is_revenue_user(_uid uuid) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.profiles WHERE id = _uid AND role IN ('admin', 'top_management', 'top_management_manager'))
+$$;
+CREATE TABLE public.revenue_published_payloads (
+  hotel_id text PRIMARY KEY, organization_slug text NOT NULL, sync_completed_at timestamptz, sync_completed_by_name text,
+  horizon_from date, horizon_to date, payload jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+GRANT SELECT ON public.revenue_published_payloads TO authenticated;
+ALTER TABLE public.revenue_published_payloads ENABLE ROW LEVEL SECURITY;
+-- Production policy before this migration: anyone assigned to the hotel.
+CREATE POLICY "Users view published revenue for accessible hotels" ON public.revenue_published_payloads
+  FOR SELECT TO authenticated USING (user_can_access_hotel(auth.uid(), hotel_id));
+
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;
 
 ALTER TABLE public.workforce_staff ENABLE ROW LEVEL SECURITY;
@@ -172,3 +199,20 @@ INSERT INTO public.workforce_entries (organization_slug, staff_id, work_date, ki
   ('rdhotels', '40000000-0000-0000-0000-000000000010', '2026-12-01', 'work', 'published', 'memories-budapest'),
   ('rdhotels', '40000000-0000-0000-0000-000000000020', '2026-12-01', 'work', 'published', 'gozsdu-court'),
   ('rdhotels', '40000000-0000-0000-0000-000000000005', '2026-12-01', 'work', 'published', 'memories-budapest');
+
+INSERT INTO public.revenue_published_payloads (hotel_id, organization_slug, sync_completed_at, horizon_from, horizon_to, payload) VALUES
+  ('ottofiori', 'rdhotels', '2026-11-17 19:00:00+00', '2026-11-17', '2027-11-17', '{
+    "roomTypes": [
+      {"id": "rt-1", "name": "Double room", "pms_room_id": "obk-1", "num_rooms": 10, "sort_order": 1, "is_reference": true, "is_sellable": true, "counts_toward_inventory": true, "name_translations": {"hu": "Kétágyas szoba"}, "derivation_mode": "fixed", "derivation_value": 0},
+      {"id": "rt-9", "name": "Technikai szoba", "pms_room_id": "obk-9", "num_rooms": 1, "sort_order": 9, "is_reference": false, "is_sellable": true, "counts_toward_inventory": true, "name_translations": {}, "derivation_mode": "fixed", "derivation_value": 0}
+    ],
+    "rates": [
+      {"stay_date": "2026-11-20", "obk_id": "obk-1", "occupancy": 2, "price": 120, "currency": "EUR", "rate_plan_id": "rp-1", "room_type_name": "Double room"},
+      {"stay_date": "2026-11-20", "obk_id": "obk-1", "occupancy": 1, "price": 105, "currency": "EUR", "rate_plan_id": "rp-1", "room_type_name": "Double room"},
+      {"stay_date": "2026-11-21", "obk_id": "obk-1", "occupancy": 2, "price": 135, "currency": "EUR", "rate_plan_id": "rp-1", "room_type_name": "Double room"},
+      {"stay_date": "2026-12-31", "obk_id": "obk-1", "occupancy": 2, "price": 260, "currency": "EUR", "rate_plan_id": "rp-1", "room_type_name": "Double room"}
+    ],
+    "nights": [{"stay_date": "2026-11-20", "revenue": 999.5, "guest_name": "Secret Guest"}],
+    "settings": {"adr_goal": 140}
+  }'::jsonb),
+  ('memories-budapest', 'rdhotels', '2026-11-17 19:00:00+00', '2026-11-17', '2027-11-17', '{"roomTypes": [], "rates": [], "nights": [{"stay_date": "2026-11-20", "revenue": 1}]}'::jsonb);

@@ -59,7 +59,7 @@ export const ACCESS_ROLE_DESCRIPTION: Record<AccessRole, string> = {
   top_management: "Everything; lands on Revenue.",
   controlling: "Top-management access; lands on Purchase invoices.",
   hr: "Top-management access; lands on HR.",
-  manager: "All operational modules and Mira, review replies; rate changes stay with top management.",
+  manager: "All hotels and operational modules, Mira and review replies. Price list instead of Revenue: no revenue figures.",
   housekeeping_manager: "Housekeeping and maintenance; work schedule of their own hotel only; no review replies.",
   housekeeping_supervisor: "Like a housekeeping manager: own hotel only, no review replies.",
   reception: "Everything except Revenue management; lands on Housekeeping while the hotel runs on Previo.",
@@ -161,8 +161,12 @@ export type AccessCapabilities = {
   accessRole: AccessRole;
   /** May open Mira at all. */
   mira: boolean;
-  /** Revenue module and Mira revenue data. */
+  /** Revenue module and Mira revenue data (revenue, ADR, pickup, goals). */
   revenueRead: boolean;
+  /** Read-only price list (room prices per date, no revenue figures). */
+  priceList: boolean;
+  /** "Today's Sales & ADR Goal": top management and above, and Controlling. */
+  salesGoal: boolean;
   /** May approve Mira rate plans (prices go through the Revenue safety queue). */
   revenueWrite: boolean;
   /** Reviews in Reputation and AI review replies in Mira. */
@@ -173,11 +177,20 @@ export type AccessCapabilities = {
   scheduleScope: ScheduleScope;
   /** Mira may build schedule plans for them. */
   scheduleBuilder: boolean;
+  /** May switch the staff schedule live for housekeepers and maintenance. */
+  scheduleGoLive: boolean;
   /** Personal mailbox in Mira. */
   mail: boolean;
 };
 
 const EXECUTIVE: AccessRole[] = ["admin", "top_management", "controlling", "hr"];
+/** Sensitive sales targets: top management and above, plus Controlling (not HR). */
+const SALES_GOAL: AccessRole[] = ["admin", "top_management", "controlling"];
+
+/** The person's own access role was set (not derived from the permission level). */
+export function hasExplicitAccessRole(subject: AccessSubject, accessRole: AccessRole): boolean {
+  return !!subject && subject.access_role === accessRole && accessRoleFitsPermission(accessRole, subject.role);
+}
 
 export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
   const accessRole = effectiveAccessRole(subject);
@@ -187,11 +200,14 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
     accessRole,
     mira: false,
     revenueRead: false,
+    priceList: false,
+    salesGoal: false,
     revenueWrite: false,
     reviews: false,
     finance: false,
     scheduleScope: "self",
     scheduleBuilder: false,
+    scheduleGoLive: false,
     mail: false,
   };
   if (executive) {
@@ -199,17 +215,35 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
       ...base,
       mira: true,
       revenueRead: true,
+      priceList: true,
+      salesGoal: superAdmin || SALES_GOAL.includes(accessRole),
       revenueWrite: true,
       reviews: true,
       finance: true,
       scheduleScope: "org",
       scheduleBuilder: true,
+      scheduleGoLive: true,
       mail: true,
     };
   }
   switch (accessRole) {
-    case "manager":
-      return { ...base, mira: true, revenueRead: true, reviews: true, finance: true, scheduleScope: "property", scheduleBuilder: true, mail: true };
+    case "manager": {
+      // Managers named by the owner (role set explicitly) work across every
+      // hotel and get a read-only price list instead of Revenue. Revenue
+      // figures stay with top management. Accounts still waiting for a role
+      // keep today's single-hotel schedule and no price list.
+      const named = hasExplicitAccessRole(subject, "manager");
+      return {
+        ...base,
+        mira: true,
+        priceList: named,
+        reviews: true,
+        finance: true,
+        scheduleScope: named ? "org" : "property",
+        scheduleBuilder: true,
+        mail: true,
+      };
+    }
     case "housekeeping_manager":
     case "housekeeping_supervisor":
       return { ...base, mira: true, scheduleScope: "home_hotel", scheduleBuilder: true, mail: true };

@@ -37,6 +37,7 @@ const RatesAvailability = lazy(() => import("./pages/RatesAvailability"));
 const Revenue = lazy(() => import("./pages/Revenue"));
 const RevenueHotelDetail = lazy(() => import("./pages/RevenueHotelDetail"));
 const Reputation = lazy(() => import("./pages/Reputation"));
+const PriceList = lazy(() => import("./pages/PriceList"));
 const Breakfast = lazy(() => import("./pages/Breakfast"));
 const BreakfastAuth = lazy(() => import("./pages/BreakfastAuth"));
 const PurchaseInvoices = lazy(() => import("./pages/PurchaseInvoices"));
@@ -180,6 +181,7 @@ const TenantRouter = () => {
           <Route path="/revenue" element={<Revenue />} />
           <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
           <Route path="/reputation" element={<Reputation />} />
+          <Route path="/price-list" element={<PriceList />} />
           <Route path="/bb" element={<Breakfast />} />
           <Route path="/bb/:hotelCode" element={<Breakfast />} />
           <Route path="/purchase-invoices" element={<PurchaseInvoicesGate fallback={legacyFallback} />} />

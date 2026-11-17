@@ -11,13 +11,17 @@
 --    Reception; a housekeeper can never be labelled Top management).
 -- 2. Housekeeping managers and supervisors see and plan the work schedule of
 --    their own hotel only (the hotel of their work-schedule record), even when
---    they switch hotels for the day.
+--    they switch hotels for the day. Managers named by the owner (access role
+--    Manager) see and plan every hotel.
 -- 3. Housekeepers and maintenance staff do not see their schedule until an
 --    HR / top-management user puts it live (workforce_settings).
 -- 4. assistant_action_requests: a plan Mira prepared (rate plan, schedule
 --    plan), the exact decision on it (who, when, which items, the consent
 --    sentence) and the result. Written only by Edge Functions; the decision
 --    can never be edited afterwards.
+-- 5. Revenue figures (the published revenue dataset: bookings, revenue,
+--    pickup) are readable by revenue users only. Managers get a read-only
+--    price list (revenue_price_list) with room prices and nothing else.
 
 -- ---------------------------------------------------------------------------
 -- 1. Access roles
@@ -214,10 +218,11 @@ BEGIN
     RAISE EXCEPTION 'Person not found' USING ERRCODE = 'P0002';
   END IF;
 
-  IF NOT actor_super AND NOT (
-    actor_org IS NOT DISTINCT FROM target_org
-    AND actor_role IN ('admin', 'top_management', 'top_management_manager')
-  ) THEN
+  -- IS NOT TRUE: a missing or deleted caller profile (all NULLs) is refused.
+  IF (
+    coalesce(actor_super, false)
+    OR (actor_org = target_org AND actor_role IN ('admin', 'top_management', 'top_management_manager'))
+  ) IS NOT TRUE THEN
     RAISE EXCEPTION 'Only administrators and top management can set roles' USING ERRCODE = '42501';
   END IF;
 
@@ -241,6 +246,10 @@ AS $$
          CASE
            WHEN p.is_super_admin IS TRUE
              OR p.role::text IN ('admin', 'top_management', 'top_management_manager', 'hr') THEN 'org'
+           -- Managers named by the owner work across every hotel. Accounts
+           -- still waiting for a role keep the single-hotel scope below.
+           WHEN p.access_role = 'manager'
+            AND public.effective_access_role(p.access_role, p.role::text) = 'manager' THEN 'org'
            WHEN p.role::text IN ('manager', 'housekeeping_manager', 'maintenance_manager', 'reception_manager',
                                  'back_office_manager', 'finance_manager', 'control_manager', 'marketing_manager') THEN 'property'
            ELSE 'self'
@@ -325,11 +334,19 @@ AS $$
 DECLARE
   actor_org text;
   actor_level text;
+  actor_executive boolean;
 BEGIN
   SELECT a.organization_slug, a.access_level INTO actor_org, actor_level
     FROM public.workforce_access() a
    LIMIT 1;
-  IF actor_level IS DISTINCT FROM 'org' OR actor_org IS NULL THEN
+  -- Managers see every hotel's schedule, but the go-live decision stays with
+  -- HR, top management and administrators.
+  SELECT coalesce(p.is_super_admin, false)
+         OR p.role::text IN ('admin', 'top_management', 'top_management_manager', 'hr')
+    INTO actor_executive
+    FROM public.profiles p
+   WHERE p.id = auth.uid() AND p.deleted_at IS NULL;
+  IF actor_level IS DISTINCT FROM 'org' OR actor_org IS NULL OR actor_executive IS NOT TRUE THEN
     RAISE EXCEPTION 'Only HR, top management or an administrator can put the staff schedule live'
       USING ERRCODE = '42501';
   END IF;
@@ -489,7 +506,114 @@ CREATE TRIGGER assistant_action_requests_guard
   FOR EACH ROW EXECUTE FUNCTION public.assistant_action_requests_guard();
 
 -- ---------------------------------------------------------------------------
--- 5. Initial roles from the work schedule (owner decision, 17 Nov 2026)
+-- 5. Revenue figures for revenue users only; a price list for managers
+-- ---------------------------------------------------------------------------
+-- The published revenue dataset holds bookings, revenue and pickup for the
+-- whole year. It used to be readable by anyone assigned to the hotel; only the
+-- Revenue pages (top management) and Edge Functions (service role) read it.
+DROP POLICY IF EXISTS "Users view published revenue for accessible hotels" ON public.revenue_published_payloads;
+DROP POLICY IF EXISTS "Revenue users view published revenue for accessible hotels" ON public.revenue_published_payloads;
+CREATE POLICY "Revenue users view published revenue for accessible hotels" ON public.revenue_published_payloads
+  FOR SELECT TO authenticated
+  USING (
+    (
+      public.is_revenue_user((SELECT auth.uid()))
+      OR EXISTS (SELECT 1 FROM public.profiles sp WHERE sp.id = (SELECT auth.uid()) AND sp.is_super_admin IS TRUE)
+    )
+    AND public.user_can_access_hotel((SELECT auth.uid()), hotel_id)
+  );
+
+-- Room prices per date, exactly as the Revenue grid shows them, and nothing
+-- else: no bookings, revenue, ADR, pickup or goals. For revenue users and for
+-- managers named by the owner, in any hotel of their own organization.
+CREATE OR REPLACE FUNCTION public.revenue_price_list(_hotel_id text, _from date DEFAULT NULL, _days integer DEFAULT 14)
+RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  caller record;
+  hotel_org text;
+  start_date date := coalesce(_from, (now() AT TIME ZONE 'Europe/Budapest')::date);
+  end_date date;
+  published record;
+BEGIN
+  SELECT p.id, p.organization_slug, p.role::text AS role, p.access_role, coalesce(p.is_super_admin, false) AS super_admin
+    INTO caller
+    FROM public.profiles p
+   WHERE p.id = auth.uid() AND p.deleted_at IS NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Sign in to see the price list' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT o.slug INTO hotel_org
+    FROM public.hotel_configurations h
+    JOIN public.organizations o ON o.id = h.organization_id
+   WHERE h.hotel_id = _hotel_id
+   LIMIT 1;
+  IF hotel_org IS NULL THEN
+    RAISE EXCEPTION 'Unknown hotel' USING ERRCODE = '22023';
+  END IF;
+
+  -- IS NOT TRUE, not NOT (...): an account without a role has a NULL
+  -- access_role, and NOT (NULL) would let it through.
+  IF (
+    caller.super_admin
+    OR (caller.organization_slug = hotel_org AND (
+         caller.role IN ('admin', 'top_management', 'top_management_manager')
+         OR (caller.access_role = 'manager' AND public.effective_access_role(caller.access_role, caller.role) = 'manager')
+       ))
+  ) IS NOT TRUE THEN
+    RAISE EXCEPTION 'The price list is not part of your role' USING ERRCODE = '42501';
+  END IF;
+
+  end_date := start_date + least(greatest(coalesce(_days, 14), 1), 62);
+
+  SELECT r.sync_completed_at, r.payload INTO published
+    FROM public.revenue_published_payloads r
+   WHERE r.hotel_id = _hotel_id
+   LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'hotel_id', _hotel_id,
+    'from', start_date,
+    'to', end_date - 1,
+    'synced_at', published.sync_completed_at,
+    'room_types', coalesce((
+      SELECT jsonb_agg(jsonb_build_object(
+               'id', rt.value->>'id',
+               'name', rt.value->>'name',
+               'pms_room_id', rt.value->>'pms_room_id',
+               'num_rooms', rt.value->'num_rooms',
+               'sort_order', rt.value->'sort_order',
+               'is_reference', rt.value->'is_reference',
+               'is_sellable', rt.value->'is_sellable',
+               'counts_toward_inventory', rt.value->'counts_toward_inventory',
+               'name_translations', rt.value->'name_translations'
+             ) ORDER BY rt.ordinality)
+        FROM jsonb_array_elements(coalesce(published.payload->'roomTypes', '[]'::jsonb)) WITH ORDINALITY AS rt(value, ordinality)
+    ), '[]'::jsonb),
+    'rates', coalesce((
+      SELECT jsonb_agg(jsonb_build_object(
+               'stay_date', r.value->>'stay_date',
+               'obk_id', r.value->>'obk_id',
+               'occupancy', r.value->'occupancy',
+               'price', r.value->'price',
+               'currency', r.value->>'currency'
+             ) ORDER BY r.ordinality)
+        FROM jsonb_array_elements(coalesce(published.payload->'rates', '[]'::jsonb)) WITH ORDINALITY AS r(value, ordinality)
+       WHERE r.value->>'stay_date' >= to_char(start_date, 'YYYY-MM-DD')
+         AND r.value->>'stay_date' < to_char(end_date, 'YYYY-MM-DD')
+    ), '[]'::jsonb)
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.revenue_price_list(text, date, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.revenue_price_list(text, date, integer) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 6. Initial roles from the work schedule (owner decision, 17 Nov 2026)
 -- ---------------------------------------------------------------------------
 -- People on the shared `manager` level get the role of their work-schedule
 -- job. Permission levels are not touched.
