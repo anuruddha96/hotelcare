@@ -16,6 +16,7 @@ import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncement
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSessionGuard";
 import { canAccessLegacyModules } from "@/lib/roleAccess";
+import { usePurchaseInvoiceAccess } from "@/hooks/usePurchaseInvoiceAccess";
 
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
@@ -131,6 +132,14 @@ const RootRedirect = () => {
   return <Navigate to={`/${profile.organization_slug}`} replace />;
 };
 
+/** Purchase invoices are rolled out per organization by the database (pi_module_access), not by a nickname. */
+const PurchaseInvoicesGate = ({ fallback }: { fallback: string }) => {
+  const access = usePurchaseInvoiceAccess();
+  if (access.loading) return <PageLoader />;
+  // Finance admins may open the page while the module is disabled, to enable it (data stays gated by RLS).
+  return access.hasAccess || access.isFinanceAdmin ? <PurchaseInvoices /> : <Navigate to={fallback} replace />;
+};
+
 const TenantRouter = () => {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { user, profile, loading, bootstrapProgress } = useAuth();
@@ -169,7 +178,7 @@ const TenantRouter = () => {
           <Route path="/reputation" element={<Reputation />} />
           <Route path="/bb" element={<Breakfast />} />
           <Route path="/bb/:hotelCode" element={<Breakfast />} />
-          <Route path="/purchase-invoices" element={canUseLegacyModules ? <PurchaseInvoices /> : <Navigate to={legacyFallback} replace />} />
+          <Route path="/purchase-invoices" element={<PurchaseInvoicesGate fallback={legacyFallback} />} />
           <Route path="/training" element={<TrainingCenterPage />} />
           <Route path="/reception" element={<ReceptionHome />} />
           <Route path="/reception/breakfast-upload" element={<ReceptionBreakfastUpload />} />

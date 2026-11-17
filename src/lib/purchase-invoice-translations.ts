@@ -1,4 +1,6 @@
 // Purchase invoice + guided tour translations (en, hu, es, vi, mn)
+import { piNavEn, piNavHu } from './purchase-invoice-nav-translations';
+
 type Bundle = Record<string, string>;
 
 const en: Bundle = {
@@ -421,4 +423,4 @@ const tl: Bundle = {
   'tour.done': 'Naintindihan', 'tour.replay': 'Ulitin ang gabay',
 };
 
-export const purchaseInvoiceTranslations = { en, hu, es, vi, mn, tl };
+export const purchaseInvoiceTranslations = { en: { ...en, ...piNavEn }, hu: { ...hu, ...piNavHu }, es, vi, mn, tl };

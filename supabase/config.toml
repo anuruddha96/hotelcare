@@ -162,7 +162,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.process-purchase-invoice]
-verify_jwt = true
+# Internal auth: user JWT (module access + organization) or the Vault worker secret for OCR recovery.
+verify_jwt = false
 
 [functions.generate-rm-intelligence]
 verify_jwt = true
@@ -343,4 +344,24 @@ verify_jwt = false
 # Website booking engine: guests are anonymous. The function rate-limits every
 # action per IP and calls service-role-only SQL functions (booking_engine_*).
 [functions.booking-engine]
+verify_jwt = false
+
+# Purchase invoices: NAV Online Számla read-only sync and reconciliation.
+# Every function authenticates internally (auth.getUser() + database checks such
+# as pi_module_access / fin_is_admin, or the Vault worker secret for pg_cron),
+# like the invoicing functions above, so the gateway stays compatible with
+# Supabase's current JWT signing formats.
+[functions.nav-sync]
+verify_jwt = false
+
+[functions.reconcile-purchase-invoices]
+verify_jwt = false
+
+[functions.pi-daily-summary]
+verify_jwt = false
+
+[functions.nav-connection-admin]
+verify_jwt = false
+
+[functions.pi-history-import]
 verify_jwt = false
