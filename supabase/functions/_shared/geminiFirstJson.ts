@@ -12,6 +12,7 @@ export type GeminiJsonResult = {
   inputTokens: number;
   outputTokens: number;
   estimatedCostUsd: number;
+  groundingUrls: string[];
 };
 export type GeminiJsonOptions = {
   instructions: string;
@@ -90,11 +91,13 @@ export async function tryGeminiJson(options: GeminiJsonOptions): Promise<GeminiJ
           lastFailure = "schema or business validation failed";
           break;
         }
+        const groundingUrls: string[] = (payload?.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [])
+          .map((c:any)=>c?.web?.uri).filter((url:unknown)=>typeof url==='string' && /^https:\/\//i.test(url));
         const inputTokens = Number(payload?.usageMetadata?.promptTokenCount ?? 0);
         const outputTokens = Number(payload?.usageMetadata?.candidatesTokenCount ??
           payload?.usageMetadata?.totalTokenCount ?? 0);
         return {
-          text, model, inputTokens, outputTokens,
+          text, model, inputTokens, outputTokens, groundingUrls,
           estimatedCostUsd: Math.max(0.001, estimate(model, inputTokens, outputTokens)),
         };
       } catch {
