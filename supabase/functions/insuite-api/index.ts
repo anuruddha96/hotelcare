@@ -1,6 +1,9 @@
 // HotelCare In-Suite pilot API: all guest access is device-bound; staff access is JWT + hotel scoped.
 // No service-role key or PIN/token hashes are ever returned to a browser.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.53.0";
+import {
+  WELLNESS_ERRORS, WELLNESS_KINDS, afterResponse, notifyReception, sendGuestTicket, wellnessErrorCode, wellnessRecipients,
+} from "../_shared/wellness.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -61,6 +64,18 @@ const managers = new Set(["admin", "manager", "top_management", "top_management_
 const admins = new Set(["admin", "manager", "top_management", "top_management_manager"]);
 const reception = new Set(["reception", "front_office", "reception_manager"]);
 const todayBudapest = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const addDaysIso = (date: string, days: number) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+/** Jacuzzi / sauna refusals become clean 4xx answers; anything else is a server error. */
+const wellnessFail = (error: { message?: string } | null) => {
+  const code = wellnessErrorCode(error);
+  if (!code) throw error;
+  return send({ error: WELLNESS_ERRORS[code].message, code }, WELLNESS_ERRORS[code].status);
+};
+const TOP_MANAGEMENT = new Set(["admin", "top_management", "top_management_manager"]);
 const validUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
 /** Use the booking contact shown by Previo/reception when available. Never
@@ -214,17 +229,22 @@ Deno.serve(async (req) => {
       } : null;
       if (action === "guest-bootstrap") {
         await db.from("insuite_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
+        // Bookable jacuzzi / sauna (switched on by a top manager). The guest
+        // books them by slot; the old request form is only for other services.
+        const { data: wellness } = await db.from("insuite_wellness_resources")
+          .select("id,kind,name,description,image_url,max_guests,slot_minutes,price,currency,opens_at,closes_at")
+          .eq("hotel_id", device.hotel_id).eq("is_active", true).order("sort_order");
         return send({ room_number: room.room_number, hotel_id: device.hotel_id,
           session_epoch: device.session_epoch, config, stay_active: stayActive,
-          guest: guestWelcome, paired: true, kind: device.kind || "tablet" });
+          guest: guestWelcome, paired: true, kind: device.kind || "tablet", wellness: wellness || [] });
       }
       if (action === "guest-state") {
-        if (!stayActive) return send({ requests: [], messages: [], orders: [], bookings: [],
+        if (!stayActive) return send({ requests: [], messages: [], orders: [], bookings: [], wellness: [],
           session_epoch: device.session_epoch, stay_active: false, guest: null });
         const rawSince = Date.parse(val(body.since, 40));
         // Never expose previous guest history. State only includes entries created after THIS page load.
         const since = new Date(Math.max(Date.now() - 6 * 3600_000, Number.isFinite(rawSince) ? rawSince : Date.now())).toISOString();
-        const [requests, messages, orders, bookings] = await Promise.all([
+        const [requests, messages, orders, bookings, wellness] = await Promise.all([
           db.from("insuite_service_requests").select("id,client_request_id,request_type,quantity,status,created_at")
             .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(50),
           db.from("insuite_messages").select("id,sender,body,created_at")
@@ -233,11 +253,15 @@ Deno.serve(async (req) => {
             .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(50),
           db.from("insuite_booking_requests").select("id,kind,starts_at,party_size,status,staff_note,created_at")
             .eq("device_id", device.id).eq("session_epoch", device.session_epoch).gte("created_at", since).order("created_at").limit(50),
+          // Jacuzzi / sauna bookings belong to THIS stay, whichever channel made
+          // them (room tablet, website link, reception), so they are not limited
+          // to the current page load like the request history above.
+          db.rpc("insuite_wellness_stay_bookings", { _reservation_ids: [stay.id] }),
         ]);
         if (requests.error || messages.error || orders.error || bookings.error)
           return deny("Could not load updates", 503);
         return send({ requests: requests.data || [], messages: messages.data || [],
-          orders: orders.data || [], bookings: bookings.data || [],
+          orders: orders.data || [], bookings: bookings.data || [], wellness: wellness.error ? [] : wellness.data || [],
           session_epoch: device.session_epoch, stay_active: true, guest: guestWelcome });
       }
       
@@ -331,6 +355,11 @@ Deno.serve(async (req) => {
           return deny("Invalid booking details", 400);
         if (kind === "jacuzzi" && !JACUZZI_HOTELS.has(device.hotel_id))
           return deny("Jacuzzi reservations are not offered at this hotel", 400);
+        if ((WELLNESS_KINDS as readonly string[]).includes(kind)) {
+          const { count: bookable } = await db.from("insuite_wellness_resources").select("id", { count: "exact", head: true })
+            .eq("hotel_id", device.hotel_id).eq("kind", kind).eq("is_active", true);
+          if (bookable) return deny("Book a time slot in Jacuzzi & sauna", 409);
+        }
         const { data: existing } = await db.from("insuite_booking_requests")
           .select("id,status").eq("device_id", device.id).eq("client_request_id", clientId).maybeSingle();
         if (existing) return send({ booking: existing, repeated: true });
@@ -433,6 +462,49 @@ Deno.serve(async (req) => {
         await db.from("insuite_devices").update({ pin_failed_attempts: 0, pin_locked_until: null }).eq("id", device.id);
         return send({ authorized: true, note: "App maintenance only. OS kiosk lock must be released through your MDM." });
       }
+      if (action === "guest-wellness") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const from = todayBudapest();
+        const lastDay = stay.check_out_date < addDaysIso(from, 13) ? stay.check_out_date : addDaysIso(from, 13);
+        const [slots, mine] = await Promise.all([
+          db.rpc("insuite_wellness_slots", { _hotel_id: device.hotel_id, _from: from, _to: lastDay, _reservation_id: stay.id }),
+          db.rpc("insuite_wellness_stay_bookings", { _reservation_ids: [stay.id] }),
+        ]);
+        if (slots.error) throw slots.error;
+        return send({ ...(slots.data || {}), bookings: mine.data || [] });
+      }
+      if (action === "guest-wellness-book") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const resourceId = val(body.resource_id, 40);
+        const startsAt = Date.parse(val(body.starts_at, 50));
+        const party = Number(body.party_size);
+        const clientId = val(body.client_request_id, 40);
+        if (!validUuid(resourceId) || !Number.isFinite(startsAt) || !Number.isInteger(party) || !validUuid(clientId))
+          return deny("Choose a time slot and the number of guests", 400);
+        const { count: recent } = await db.from("insuite_wellness_bookings").select("id", { count: "exact", head: true })
+          .eq("reservation_id", stay.id).gte("created_at", new Date(Date.now() - 10 * 60_000).toISOString());
+        if ((recent || 0) >= 6) return deny("Please wait a moment before booking again", 429);
+        const { data: booking, error } = await db.rpc("insuite_wellness_book", {
+          _resource_id: resourceId, _starts_at: new Date(startsAt).toISOString(), _party_size: party,
+          _source: "insuite", _reservation_id: stay.id, _room_id: room.id, _client_request_id: clientId,
+        });
+        if (error) return wellnessFail(error);
+        if (!booking.repeated) await afterResponse(notifyReception(db, booking, "booked"));
+        return send({ booking }, booking.repeated ? 200 : 201);
+      }
+      if (action === "guest-wellness-cancel") {
+        if (!stayActive) return deny("Room stay must be verified at reception", 409);
+        const bookingId = val(body.booking_id, 40);
+        if (!validUuid(bookingId)) return deny("Booking not found", 404);
+        const { data: booking, error } = await db.rpc("insuite_wellness_change", {
+          _booking_id: bookingId, _hotel_id: device.hotel_id, _action: "cancel",
+          _reservation_id: stay.id, _reason: "Cancelled by the guest on the In-Suite page",
+        });
+        if (error) return wellnessFail(error);
+        await afterResponse(notifyReception(db, booking, "cancelled"));
+        return send({ booking });
+      }
+
       return deny("Unknown guest action", 404);
     }
 
@@ -442,13 +514,15 @@ Deno.serve(async (req) => {
     const { data: auth, error: authError } = await db.auth.getUser(jwt);
     if (authError || !auth.user) return deny("Invalid staff session", 401);
     const { data: profile } = await db.from("profiles")
-      .select("id, role, organization_slug, assigned_hotel, is_super_admin")
+      .select("id, role, organization_slug, assigned_hotel, is_super_admin, full_name")
       .eq("id", auth.user.id).maybeSingle();
     if (!profile?.organization_slug) return deny("Staff organization not found", 403);
     const role = String(profile.role || "");
     const manager = managers.has(role) || profile.is_super_admin === true;
     const administrator = admins.has(role) || profile.is_super_admin === true;
     const canReply = manager || reception.has(role);
+    const topManager = TOP_MANAGEMENT.has(role) || profile.is_super_admin === true;
+    const staffName = val(profile.full_name, 120) || null;
     const hotelId = val(body.hotel_id, 130);
     if (!hotelId) return deny("Select a hotel first", 400);
     const { data: organization } = await db.from("organizations").select("id")
@@ -994,6 +1068,179 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return send({ sent: true }, 201);
     }
+    // ------------------------------------------------------------ wellness
+    // Jacuzzi / sauna calendar. Every staff member sees it; reception books
+    // and changes bookings; only top management changes the setup.
+    if (action === "staff-wellness") {
+      if (!manager && !canReply && role !== "housekeeping") return deny("Role not permitted", 403);
+      const isDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(v));
+      const from = isDate(val(body.date_from, 10)) ? val(body.date_from, 10) : todayBudapest();
+      const requestedTo = isDate(val(body.date_to, 10)) ? val(body.date_to, 10) : addDaysIso(from, 6);
+      const to = requestedTo < from ? from : requestedTo;
+      const [slots, settings] = await Promise.all([
+        db.rpc("insuite_wellness_slots", { _hotel_id: hotelId, _from: from, _to: to, _staff: true, _include_inactive: topManager }),
+        db.from("insuite_wellness_settings").select("notification_emails,transfer_prices,transfer_source").eq("hotel_id", hotelId).maybeSingle(),
+      ]);
+      if (slots.error) throw slots.error;
+      return send({
+        ...(slots.data || {}), can_book: canReply, can_setup: topManager,
+        transfer_prices: settings.data?.transfer_prices || [],
+        settings: topManager ? {
+          notification_emails: settings.data?.notification_emails || [],
+          transfer_prices: settings.data?.transfer_prices || [],
+          transfer_source: settings.data?.transfer_source || null,
+          recipients: await wellnessRecipients(db, hotelId),
+        } : undefined,
+      });
+    }
+
+    if (action === "staff-wellness-stays") {
+      if (!canReply) return deny("Reception permission required", 403);
+      const fold = (v: unknown) => String(v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      const q = fold(val(body.q, 60)).trim();
+      const today = todayBudapest();
+      const { data: stays, error } = await db.from("reservations")
+        .select("id,room_id,status,check_in_date,check_out_date,pms_guest_name,pms_contact_name,guests(first_name,last_name,email)")
+        .eq("hotel_id", hotelId).in("status", ["pending", "confirmed", "checked_in"])
+        .gte("check_out_date", today).lte("check_in_date", addDaysIso(today, 30))
+        .is("pms_missing_since", null).order("check_in_date").limit(300);
+      if (error) throw error;
+      const roomIds = [...new Set((stays || []).map((s: any) => s.room_id).filter(Boolean))];
+      const { data: rooms } = roomIds.length
+        ? await db.from("rooms").select("id,room_number").in("id", roomIds) : { data: [] };
+      const roomNumber = new Map((rooms || []).map((r: any) => [r.id, String(r.room_number)]));
+      const out = (stays || []).map((s: any) => {
+        const g = Array.isArray(s.guests) ? s.guests[0] : s.guests;
+        const name = val(s.pms_contact_name, 160) || val(s.pms_guest_name, 160)
+          || [g?.first_name, g?.last_name].filter(Boolean).join(" ") || "Guest";
+        return { id: s.id, guest_name: name, room_number: roomNumber.get(s.room_id) || null,
+          check_in_date: s.check_in_date, check_out_date: s.check_out_date, status: s.status,
+          has_email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(g?.email || "")) };
+      }).filter((s: any) => !q || fold(s.guest_name).includes(q) || fold(s.room_number).startsWith(q))
+        .sort((a: any, b: any) => (a.status === "checked_in" ? 0 : 1) - (b.status === "checked_in" ? 0 : 1)
+          || String(a.room_number || "~").localeCompare(String(b.room_number || "~"), undefined, { numeric: true }))
+        .slice(0, 20);
+      return send({ stays: out });
+    }
+
+    if (action === "staff-wellness-book") {
+      if (!canReply) return deny("Reception permission required", 403);
+      const resourceId = val(body.resource_id, 40);
+      const reservationId = val(body.reservation_id, 40);
+      const startsAt = Date.parse(val(body.starts_at, 50));
+      const party = Number(body.party_size);
+      const clientId = val(body.client_request_id, 40);
+      if (!validUuid(resourceId) || !Number.isFinite(startsAt) || !Number.isInteger(party) || !validUuid(clientId)
+          || (reservationId && !validUuid(reservationId)))
+        return deny("Choose a time slot, the guest and the number of people", 400);
+      const { data: resource } = await db.from("insuite_wellness_resources").select("id")
+        .eq("id", resourceId).eq("hotel_id", hotelId).maybeSingle();
+      if (!resource) return deny("Facility not found", 404);
+      const emailOk = (v: unknown) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || ""));
+      let ticketTo = emailOk(val(body.guest_email, 200)) ? val(body.guest_email, 200).toLowerCase() : "";
+      if (body.send_ticket === true && !ticketTo && reservationId) {
+        const { data: stayRow } = await db.from("reservations").select("hotel_id,guests(email)").eq("id", reservationId).maybeSingle();
+        const g = stayRow && (Array.isArray(stayRow.guests) ? stayRow.guests[0] : stayRow.guests);
+        if (stayRow?.hotel_id === hotelId && emailOk(g?.email)) ticketTo = String(g?.email).toLowerCase();
+      }
+      const { data: booking, error } = await db.rpc("insuite_wellness_book", {
+        _resource_id: resourceId, _starts_at: new Date(startsAt).toISOString(), _party_size: party,
+        _source: "reception", _reservation_id: reservationId || null, _guest_name: val(body.guest_name, 160) || null,
+        _guest_email: body.send_ticket === true && ticketTo ? ticketTo : null,
+        _created_by: profile.id, _client_request_id: clientId, _notes: val(body.notes, 400),
+      });
+      if (error) return wellnessFail(error);
+      if (!booking.repeated) {
+        await afterResponse(Promise.all([
+          notifyReception(db, booking, "booked", staffName),
+          booking.guest_email ? sendGuestTicket(db, booking, booking.guest_email) : Promise.resolve(null),
+        ]));
+      }
+      return send({ booking }, booking.repeated ? 200 : 201);
+    }
+
+    if (action === "staff-wellness-update") {
+      if (!canReply) return deny("Reception permission required", 403);
+      const bookingId = val(body.booking_id, 40);
+      const change = val(body.change, 20);
+      if (!validUuid(bookingId) || !["cancel", "complete", "no_show", "key_handed"].includes(change))
+        return deny("Invalid change", 400);
+      const { data: booking, error } = await db.rpc("insuite_wellness_change", {
+        _booking_id: bookingId, _hotel_id: hotelId, _action: change, _actor: profile.id,
+        _reason: val(body.reason, 300) || (change === "cancel" ? `Cancelled by reception${staffName ? ` (${staffName})` : ""}` : null),
+      });
+      if (error) return wellnessFail(error);
+      if (change === "cancel") {
+        await afterResponse(Promise.all([
+          notifyReception(db, booking, "cancelled", staffName),
+          booking.guest_email ? sendGuestTicket(db, booking, booking.guest_email, { event: "cancelled" }) : Promise.resolve(null),
+        ]));
+      }
+      return send({ booking });
+    }
+
+    if (action === "staff-wellness-save-resource") {
+      if (!topManager) return deny("Only top management can change the jacuzzi and sauna setup", 403);
+      const input = (body.resource && typeof body.resource === "object") ? body.resource as Record<string, unknown> : {};
+      const id = val(input.id, 40);
+      const kind = val(input.kind, 20);
+      const time = (v: unknown) => /^([01]\d|2[0-3]):[0-5]\d$/.test(val(v, 5)) ? val(v, 5) : "";
+      const int = (v: unknown, min: number, max: number) =>
+        Number.isInteger(Number(v)) && Number(v) >= min && Number(v) <= max ? Number(v) : NaN;
+      const weekdays = Array.isArray(input.weekdays)
+        ? [...new Set(input.weekdays.map(Number))].filter((d) => Number.isInteger(d) && d >= 1 && d <= 7).sort() : [];
+      const price = Number(input.price ?? 0);
+      const currency = val(input.currency, 3).toUpperCase();
+      const row = {
+        name: val(input.name, 80), description: val(input.description, 600),
+        image_url: val(input.image_url, 600) || null,
+        slot_minutes: int(input.slot_minutes, 15, 240), max_guests: int(input.max_guests, 1, 8),
+        opens_at: time(input.opens_at), closes_at: time(input.closes_at), weekdays,
+        max_per_day: int(input.max_per_day, 1, 12),
+        price: Number.isFinite(price) && price >= 0 && price <= 1_000_000 ? Math.round(price * 100) / 100 : NaN,
+        currency: /^[A-Z]{3}$/.test(currency) ? currency : "HUF",
+        is_active: input.is_active === true,
+        sort_order: Number.isInteger(Number(input.sort_order)) ? Number(input.sort_order) : 0,
+        updated_at: new Date().toISOString(), updated_by: profile.id,
+      };
+      if (row.name.length < 2 || Number.isNaN(row.slot_minutes) || Number.isNaN(row.max_guests) || Number.isNaN(row.max_per_day)
+          || Number.isNaN(row.price) || !row.opens_at || !row.closes_at || row.closes_at <= row.opens_at || !weekdays.length
+          || (row.image_url && !/^https:\/\//.test(row.image_url)))
+        return deny("Check the name, opening hours, slot length, guests and price", 400);
+      if (id) {
+        if (!validUuid(id)) return deny("Facility not found", 404);
+        const { data: saved, error } = await db.from("insuite_wellness_resources").update(row)
+          .eq("id", id).eq("hotel_id", hotelId).select("*").maybeSingle();
+        if (error) throw error;
+        if (!saved) return deny("Facility not found", 404);
+        return send({ resource: saved });
+      }
+      if (!(WELLNESS_KINDS as readonly string[]).includes(kind)) return deny("Choose jacuzzi or sauna", 400);
+      const { data: saved, error } = await db.from("insuite_wellness_resources")
+        .insert({ ...row, kind, organization_slug: org, hotel_id: hotelId }).select("*").single();
+      if (error?.code === "23505") return deny(`This hotel already has a ${kind}`, 409);
+      if (error) throw error;
+      return send({ resource: saved }, 201);
+    }
+
+    if (action === "staff-wellness-save-settings") {
+      if (!topManager) return deny("Only top management can change the jacuzzi and sauna setup", 403);
+      const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      const emails = Array.isArray(body.notification_emails)
+        ? [...new Set(body.notification_emails.map((v: unknown) => val(v, 200).toLowerCase()).filter(emailOk))] : [];
+      if (emails.length > 10) return deny("At most 10 reception addresses", 400);
+      const prices = Array.isArray(body.transfer_prices) ? body.transfer_prices.slice(0, 20).map((p: any) => {
+        const cur = val(p?.currency, 3).toUpperCase();
+        return { label: val(p?.label, 80), price: Number(p?.price), currency: /^[A-Z]{3}$/.test(cur) ? cur : "HUF", note: val(p?.note, 160) };
+      }).filter((p: any) => p.label && Number.isFinite(p.price) && p.price >= 0 && p.price <= 1_000_000) : [];
+      const { data: saved, error } = await db.from("insuite_wellness_settings").upsert({
+        hotel_id: hotelId, organization_slug: org, notification_emails: emails, transfer_prices: prices,
+        transfer_source: val(body.transfer_source, 300) || null, updated_at: new Date().toISOString(), updated_by: profile.id,
+      }, { onConflict: "hotel_id" }).select("notification_emails,transfer_prices,transfer_source").single();
+      if (error) throw error;
+      return send({ settings: { ...saved, recipients: await wellnessRecipients(db, hotelId) } });
+    }
+
     return deny("Unknown staff action", 404);
   } catch (error) {
     console.error("[insuite-api] failed", error);

@@ -43,9 +43,11 @@ type Props = {
   mode: "food" | "booking"; config: InSuiteContent; accent: string;
   stayActive: boolean; orders: InSuiteOrder[]; bookings: InSuiteBooking[];
   onSubmitted: () => Promise<void>; roomNumber: string;
+  /** Facilities booked by time slot (Jacuzzi & sauna page), so not requested here. */
+  slotKinds?: string[];
 };
 
-export function InSuiteGuestCommerce({ mode, config, accent, stayActive, orders, bookings, onSubmitted, roomNumber }: Props) {
+export function InSuiteGuestCommerce({ mode, config, accent, stayActive, orders, bookings, onSubmitted, roomNumber, slotKinds = [] }: Props) {
   const [items, setItems] = useState<InSuiteMenuItem[]>([]);
   const [catalogError, setCatalogError] = useState("");
   const [kind, setKind] = useState(mode === "food" ? "breakfast" : "taxi");
@@ -66,7 +68,7 @@ export function InSuiteGuestCommerce({ mode, config, accent, stayActive, orders,
   }, [mode]);
 
   const offeredFoodKinds = Object.keys(menuLabels).filter((k) => config.services?.[k]);
-  const offeredBookings = Object.keys(bookingLabels).filter((k) => config.services?.[k]);
+  const offeredBookings = Object.keys(bookingLabels).filter((k) => config.services?.[k] && !slotKinds.includes(k));
   useEffect(() => {
     const kinds = mode === "food" ? offeredFoodKinds : offeredBookings;
     if (!kinds.includes(kind)) { setKind(kinds[0] || ""); setCart({}); setReceipt(null); }
