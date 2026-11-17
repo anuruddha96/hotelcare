@@ -415,6 +415,26 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
    WHERE b.reservation_id = ANY (_reservation_ids) AND b.status IN ('booked', 'completed');
 $fn$;
 
+-- A cancelled, no-show or checked-out stay frees its future slots at once,
+-- whichever system changed the stay (website, reception, OTA, PMS import).
+CREATE OR REPLACE FUNCTION public.insuite_wellness_release_stay()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn$
+BEGIN
+  UPDATE public.insuite_wellness_bookings
+     SET status = 'cancelled', cancelled_at = now(), updated_at = now(),
+         cancel_reason = CASE NEW.status::text WHEN 'checked_out' THEN 'Guest checked out' ELSE 'Stay ' || NEW.status::text END
+   WHERE reservation_id = NEW.id AND status = 'booked' AND starts_at > now();
+  RETURN NULL;
+END;
+$fn$;
+DROP TRIGGER IF EXISTS tr_insuite_wellness_release_stay ON public.reservations;
+CREATE TRIGGER tr_insuite_wellness_release_stay
+  AFTER UPDATE OF status ON public.reservations
+  FOR EACH ROW
+  WHEN (NEW.status::text IN ('cancelled', 'no_show', 'checked_out') AND OLD.status IS DISTINCT FROM NEW.status)
+  EXECUTE FUNCTION public.insuite_wellness_release_stay();
+REVOKE ALL ON FUNCTION public.insuite_wellness_release_stay() FROM PUBLIC, anon, authenticated;
+
 REVOKE ALL ON FUNCTION public.insuite_wellness_slots(text, date, date, uuid, boolean, boolean) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.insuite_wellness_book(uuid, timestamptz, integer, text, uuid, uuid, text, text, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.insuite_wellness_change(uuid, text, text, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
