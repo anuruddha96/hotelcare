@@ -140,7 +140,29 @@ async function withImap<T>(settings: ImapSettings, password: string, run: (clien
   }
 }
 
-export class ImapLoginError extends Error {}
+/**
+ * The server refused the sign-in. `serverText` carries the server's own words
+ * (Google: "[ALERT] Application-specific password required …",
+ * "[AUTHENTICATIONFAILED] Invalid credentials", "534-5.7.14 …") so the
+ * person can be told the real reason instead of a generic one.
+ */
+export class ImapLoginError extends Error {
+  constructor(message: string, readonly serverText = "", readonly stage: "imap" | "smtp" = "imap") {
+    super(message);
+  }
+}
+
+/** ImapFlow puts the response code, the text and the full line in different fields. */
+function imapServerText(error: unknown): string {
+  const e = error as Record<string, unknown> | null;
+  const parts = [
+    e?.serverResponseCode ? `[${String(e.serverResponseCode)}]` : "",
+    typeof e?.responseText === "string" ? e.responseText : "",
+    typeof e?.response === "string" ? e.response : "",
+  ].filter(Boolean);
+  if (!parts.length && error instanceof Error) parts.push(error.message);
+  return [...new Set(parts)].join(" ").trim();
+}
 
 /** Checks both directions before a mailbox is saved: can read (IMAP) and can send (SMTP). */
 export async function verifyImapAccount(settings: ImapSettings, password: string): Promise<void> {
@@ -151,10 +173,11 @@ export async function verifyImapAccount(settings: ImapSettings, password: string
     });
   } catch (error) {
     if (error instanceof MailHostError) throw error;
-    const text = String((error as any)?.responseText ?? (error as Error)?.message ?? "");
-    if ((error as any)?.authenticationFailed || /auth|login|credential|password/i.test(text)) {
-      throw new ImapLoginError("The email address or password was not accepted by the mail server.");
+    const serverText = imapServerText(error);
+    if ((error as any)?.authenticationFailed || /auth|login|credential|password/i.test(serverText)) {
+      throw new ImapLoginError("The email address or password was not accepted by the mail server.", serverText, "imap");
     }
+    console.error("assistant mail: IMAP connection failed", settings.imap_host, serverText.slice(0, 200));
     throw new Error(`The incoming mail server ${settings.imap_host} could not be reached.`);
   }
   await assertPublicHost(settings.smtp_host);
@@ -163,7 +186,9 @@ export async function verifyImapAccount(settings: ImapSettings, password: string
     await transport.verify();
   } catch (error) {
     const code = String((error as any)?.code ?? "");
-    if (code === "EAUTH") throw new ImapLoginError("The outgoing mail server did not accept the password.");
+    const serverText = String((error as any)?.response ?? (error as Error)?.message ?? "");
+    if (code === "EAUTH") throw new ImapLoginError("The outgoing mail server did not accept the password.", serverText, "smtp");
+    console.error("assistant mail: SMTP connection failed", settings.smtp_host, code, serverText.slice(0, 200));
     throw new Error(`The outgoing mail server ${settings.smtp_host} could not be reached on port ${settings.smtp_port}.`);
   } finally {
     transport.close();

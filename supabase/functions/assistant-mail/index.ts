@@ -25,6 +25,13 @@ import {
 } from "../_shared/assistantMail.ts";
 import { type MailboxAccount, mailboxSend } from "../_shared/assistantMailbox.ts";
 import { canUseMail, normalizeAddress, validateDraft } from "../_shared/mailFormat.ts";
+import {
+  classifyMailLoginFailure,
+  isGoogleMailHost,
+  mailLoginMessage,
+  normalizeMailboxPassword,
+  serverReplyForLog,
+} from "../_shared/mailLogin.ts";
 
 const FAILED_CONNECTS_PER_HOUR = 8;
 const imapModule = () => import("../_shared/assistantMailImap.ts");
@@ -160,19 +167,27 @@ Deno.serve(async (req) => {
       if ((failures ?? 0) >= FAILED_CONNECTS_PER_HOUR) {
         return json({ error: "Too many failed attempts. Try again in an hour." }, 429);
       }
-      const password = String(body?.password ?? "");
-      if (!password || password.length > 512) return json({ error: "Enter the mailbox password." }, 400);
-      const username = String(body?.username ?? "").trim().slice(0, 254) || email;
       const host = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/\.$/, "").slice(0, 253);
       const manual = host(body?.imap_host) && host(body?.smtp_host)
         ? [{ imap: host(body?.imap_host), smtp: host(body?.smtp_host) }]
         : null;
+      // Google only takes app passwords here, shown as "abcd efgh ijkl mnop";
+      // Google refuses them with the spaces, so they are removed (and the
+      // cleaned value is what gets stored).
+      const google = manual
+        ? isGoogleMailHost(manual[0].imap)
+        : discovery.kind === "settings" && discovery.note === "gmail";
+      const typedPassword = String(body?.password ?? "");
+      const password = normalizeMailboxPassword(typedPassword, { google });
+      if (!password || password.length > 512) return json({ error: "Enter the mailbox password." }, 400);
+      const username = String(body?.username ?? "").trim().slice(0, 254) || email;
       if (!manual && discovery.kind === "use_microsoft") {
         return json({ error: "This is an Outlook / Microsoft 365 mailbox. Use the Microsoft option instead.", microsoft: true }, 409);
       }
       const candidates = manual ?? (discovery.kind === "settings" ? discovery.candidates : []);
       const testPorts = Deno.env.get("ASSISTANT_MAIL_ALLOW_PRIVATE_HOSTS") === "true";
       let lastError = "The mail servers for this address could not be found. Enter them under Advanced.";
+      let serverReply = "";
       let connected: { imap: string; smtp: string } | null = null;
       for (const candidate of candidates.slice(0, 4)) {
         const settings = {
@@ -205,10 +220,12 @@ Deno.serve(async (req) => {
           break;
         } catch (error) {
           if (error instanceof ImapLoginError) {
-            // Right server, wrong password: trying other servers would not help.
-            lastError = discovery.kind === "settings" && discovery.note === "gmail"
-              ? "Google did not accept the password. Gmail needs an app password (Google Account → Security → 2-Step Verification → App passwords)."
-              : error.message;
+            // Right server, refused sign-in: trying other servers would not
+            // help. Say why, in the server's terms (app password needed,
+            // wrong app password, blocked as unusual, IMAP switched off …).
+            const reason = classifyMailLoginFailure(error.serverText);
+            lastError = mailLoginMessage(reason, { google, email, password: typedPassword });
+            serverReply = `${error.stage.toUpperCase()}: ${serverReplyForLog(error.serverText)}`;
             break;
           }
           if (error instanceof MailHostError) {
@@ -228,9 +245,11 @@ Deno.serve(async (req) => {
         to_addresses: [],
         subject: connected ? "Mailbox connected" : "Mailbox connection failed",
         outcome: connected ? "connected" : "failed",
-        error: connected ? null : lastError.slice(0, 300),
+        // The server's own reply is kept so a refused sign-in can be diagnosed
+        // later; it never contains the password.
+        error: connected ? null : `${lastError.slice(0, 220)}${serverReply ? ` [${serverReply}]` : ""}`.slice(0, 400),
       });
-      if (!connected) return json({ error: lastError }, 400);
+      if (!connected) return json({ error: lastError, google_app_password_help: google }, 400);
       return json({ ok: true, email, imap_host: connected.imap, smtp_host: connected.smtp });
     }
 
