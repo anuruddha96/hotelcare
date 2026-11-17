@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addDaysIso, brandColors, countryOptions, distributeGuests, freeCancellationDate, nightsBetween,
-  readAttribution, remainingOfType, selectionTotal, stayIcs, toHex, type Offer,
+  addDaysIso, brandColors, contrastRatio, countryOptions, distributeGuests, freeCancellationDate, lowPriceThreshold, nightsBetween,
+  previewTokenFrom, readableOnWhite, readAttribution, remainingOfType, roomFits, selectionTotal, stayIcs, toHex, type Offer,
 } from './logic';
 import { bookingPlural, bookingT, missingTranslations } from './i18n';
 
@@ -86,5 +86,39 @@ describe('attribution and export', () => {
     const list = countryOptions('de');
     expect(list.find((c) => c.code === 'HU')?.name).toBe('Ungarn');
     expect(list.length).toBeGreaterThan(190);
+  });
+});
+
+describe('booking engine look and test link', () => {
+  it('accepts only a real test-link token', () => {
+    expect(previewTokenFrom('a'.repeat(64))).toBe('a'.repeat(64));
+    expect(previewTokenFrom('1')).toBeNull();
+    expect(previewTokenFrom('A'.repeat(64))).toBeNull();
+    expect(previewTokenFrom('ab'.repeat(8))).toBeNull();
+    expect(previewTokenFrom(null)).toBeNull();
+  });
+  it('falls back to the brand colour for the accent and keeps small accent text readable', () => {
+    const c = brandColors('#1f3a42');
+    expect(c.accent).toBe('#1f3a42');
+    const light = brandColors('#1f3a42', '#f2c14e');
+    expect(light.accent).toBe('#f2c14e');
+    expect(light.onAccent).toBe('#111827');
+    expect(contrastRatio(light.accentText, '#ffffff')).toBeGreaterThanOrEqual(4.5);
+    expect(readableOnWhite('#1f3a42')).toBe('#1f3a42');
+  });
+  it('knows when the whole party fits one room', () => {
+    expect(roomFits(room(2, 1, 3), { adults: 2, children: 1 })).toBe(true);
+    expect(roomFits(room(1, 0, 1), { adults: 2, children: 0 })).toBe(false);
+    expect(roomFits(room(2, 0, 2), { adults: 1, children: 1 })).toBe(false);
+  });
+  it('marks only the cheapest days, and nothing when prices hardly vary', () => {
+    const days = (prices: number[]) => prices.map((from) => ({ open: true, from }));
+    expect(lowPriceThreshold(days([100, 100, 101, 100, 100, 102, 100, 101, 100]))).toBeNull();
+    expect(lowPriceThreshold(days([80, 90]))).toBeNull();
+    const prices = [79, 83, 87, 79, 83, 101, 93, 83, 87, 79, 83, 97, 87, 83];
+    const limit = lowPriceThreshold(days(prices));
+    expect(limit).toBe(79);
+    expect(prices.filter((p) => p <= (limit as number)).length / prices.length).toBeLessThanOrEqual(0.34);
+    expect(lowPriceThreshold([...days(prices), { open: false, from: 10 }])).toBe(79);
   });
 });

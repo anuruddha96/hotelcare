@@ -3,7 +3,7 @@ import { Check, Loader2, Minus, Plus, RefreshCw, Waves, Flame } from "lucide-rea
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   facilityLabel, fillWord, firstUsefulDay, freeSlots, hotelDayLabel, hotelTime, hotelToday, priceLabel, slotRange,
-  wellnessWords, WELLNESS_LOCALES,
+  wellnessErrorText, wellnessWords, WELLNESS_LOCALES,
   type WellnessKind, type WellnessLang, type WellnessResource, type WellnessSlot, type WellnessStayBooking,
 } from "@/lib/wellness";
 import { WellnessTicket, type WellnessTicketData } from "./WellnessTicket";
@@ -84,7 +84,7 @@ export function WellnessPicker(props: Props) {
     } catch (e) {
       const err = e as WellnessBookError;
       setPhase("idle");
-      setError(err.code === "SLOT_TAKEN" ? w.slotTaken : err.message || w.slotTaken);
+      setError(wellnessErrorText(lang, err.code, err.message));
       if (err.code === "SLOT_TAKEN" || err.code === "SLOT_PASSED") { setSlotStart(null); void props.onRefresh(); }
     }
   };
@@ -94,7 +94,7 @@ export function WellnessPicker(props: Props) {
     try {
       await props.onCancel(b);
       if (ticket?.id === b.id) { setTicket(null); setPhase("idle"); }
-    } catch (e) { setError((e as Error).message); }
+    } catch (e) { setError(wellnessErrorText(lang, (e as WellnessBookError).code, (e as Error).message)); }
     finally { setCancellingId(null); }
   };
 

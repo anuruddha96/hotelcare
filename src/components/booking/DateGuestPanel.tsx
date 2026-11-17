@@ -1,12 +1,12 @@
 // Step 1: stay dates on a calendar that shows live availability and the lowest
 // nightly price, plus adults / children / rooms.
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { enGB, hu, de, es, it, fr } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Search, Loader2 } from 'lucide-react';
 import { BrandButton, Counter } from './BookingUi';
 import { bookingPlural, bookingT, type BookingLang } from '@/lib/bookingEngine/i18n';
-import { addDaysIso, formatDate, formatMoney, fromIso, nightsBetween, toIso, type CalendarDay } from '@/lib/bookingEngine/logic';
+import { addDaysIso, formatDate, formatMoney, fromIso, lowPriceThreshold, nightsBetween, toIso, type CalendarDay } from '@/lib/bookingEngine/logic';
 
 const DATE_LOCALES = { en: enGB, hu, de, es, it, fr } as const;
 
@@ -32,6 +32,8 @@ interface Props {
   onSearch: () => void;
   searching: boolean;
   headingClass: string;
+  /** Shown under the search button (facts such as "pay at the hotel"). */
+  below?: ReactNode;
 }
 
 export function DateGuestPanel(props: Props) {
@@ -76,8 +78,13 @@ export function DateGuestPanel(props: Props) {
   };
 
   const nights = checkIn && checkOut ? nightsBetween(checkIn, checkOut) : 0;
+  // The cheapest quarter of the bookable days ahead gets its price in the accent colour.
+  const lowPrice = useMemo(
+    () => lowPriceThreshold(Object.values(calendar).filter((d) => d.date >= first && d.date <= last)),
+    [calendar, first, last],
+  );
   const hint = useMemo(() => {
-    if (!checkIn) return t('selectDates');
+    if (!checkIn) return '';
     if (!checkOut) {
       const min = calendar[checkIn]?.min_stay;
       return min && min > 1 ? `${t('pickCheckOut')} · ${t('blocked_min_stay', { n: min })}` : t('pickCheckOut');
@@ -90,8 +97,13 @@ export function DateGuestPanel(props: Props) {
     <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
       <div className="rounded-2xl border border-stone-200 bg-white p-3 sm:p-5 shadow-sm">
         <div className="mb-2 flex flex-col gap-0.5 px-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
-          <h2 className={`shrink-0 text-lg text-stone-900 ${props.headingClass}`}>{t('selectDates')}</h2>
-          <span className="text-xs text-stone-500" aria-live="polite">{hint}</span>
+          <h2 className={`shrink-0 text-xl text-stone-900 ${props.headingClass}`}>{t('selectDates')}</h2>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-500">
+            <span aria-live="polite">{hint}</span>
+            {lowPrice != null && !checkIn && (
+              <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-[var(--be-accent)]" aria-hidden="true" />{t('lowestPrices')}</span>
+            )}
+          </span>
         </div>
         <DayPicker
           mode="range"
@@ -106,6 +118,9 @@ export function DateGuestPanel(props: Props) {
           defaultMonth={checkIn ? fromIso(checkIn) : fromIso(first)}
           onMonthChange={props.onMonthChange}
           showOutsideDays={false}
+          // Past days are simply over: faded, never struck through like a closed date.
+          modifiers={{ past: (date: Date) => toIso(date) < today }}
+          modifiersClassNames={{ past: '!no-underline !text-stone-300 !cursor-default' }}
           className="booking-calendar"
           classNames={{
             months: 'flex flex-col sm:flex-row gap-6 justify-center',
@@ -133,13 +148,17 @@ export function DateGuestPanel(props: Props) {
           components={{
             IconLeft: () => <ChevronLeft className="h-4 w-4" />,
             IconRight: () => <ChevronRight className="h-4 w-4" />,
-            DayContent: ({ date }) => {
-              const day = calendar[toIso(date)];
+            DayContent: ({ date, activeModifiers }) => {
+              const iso = toIso(date);
+              const day = calendar[iso];
+              const shown = day?.open && day.from != null && iso >= first && !activeModifiers.disabled;
+              const low = shown && lowPrice != null && (day.from as number) <= lowPrice
+                && !activeModifiers.selected && !activeModifiers.range_middle;
               return (
                 <span className="flex flex-col items-center leading-none">
                   <span>{date.getDate()}</span>
-                  <span className="mt-1 h-2.5 text-[9.5px] font-normal opacity-75">
-                    {day?.open && day.from != null ? formatMoney(day.from, props.currency, lang, true) : ''}
+                  <span className={`mt-1 h-2.5 text-[9.5px] ${low ? 'font-semibold text-[var(--be-accent-text)]' : 'font-normal opacity-75'}`}>
+                    {shown ? formatMoney(day.from as number, props.currency, lang, true) : ''}
                   </span>
                 </span>
               );
@@ -161,6 +180,7 @@ export function DateGuestPanel(props: Props) {
             {props.searching ? t('searching') : t('search')}
           </BrandButton>
         </div>
+        {props.below && <div className="border-t border-stone-100 pt-4 mt-4">{props.below}</div>}
       </div>
     </div>
   );

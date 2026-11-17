@@ -1,0 +1,23 @@
+/* Guest booking pages: heading faces chosen by the hotel (classic or modern)
+   and the test-mode stripes. Loaded only by the public booking app and the
+   booking engine settings preview. */
+.be-heading-classic {
+  font-family: 'Newsreader Variable', ui-serif, Georgia, Cambria, 'Times New Roman', serif;
+  font-weight: 440;
+  letter-spacing: -0.012em;
+}
+.be-heading-modern {
+  font-family: 'Manrope Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-weight: 650;
+  letter-spacing: -0.022em;
+}
+.be-test-stripes {
+  background-image: repeating-linear-gradient(135deg, rgba(120, 53, 15, 0.09) 0 10px, transparent 10px 20px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .be-rise { animation: be-rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  @keyframes be-rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+}

@@ -221,3 +221,90 @@ export function facilityLabel(kind: string, lang: string | undefined, fallback?:
   const w = wellnessWords(lang);
   return kind === "jacuzzi" ? w.jacuzzi : kind === "sauna" ? w.sauna : fallback ?? kind;
 }
+
+// Guest-facing wording for the server's error codes (the server's own
+// messages are English only).
+type ErrorWords = Record<"SLOT_PASSED" | "DAILY_LIMIT" | "TOO_MANY_GUESTS" | "STAY" | "UNAVAILABLE" | "TOO_LATE" | "RATE_LIMITED" | "NETWORK" | "GENERIC", string>;
+const ERROR_WORDS: Record<WellnessLang, ErrorWords> = {
+  en: {
+    SLOT_PASSED: "This time has already started. Please choose a later slot.",
+    DAILY_LIMIT: "You already have a booking for this facility on this day.",
+    TOO_MANY_GUESTS: "Too many guests for this slot.",
+    STAY: "Slots can only be booked for the days of your stay.",
+    UNAVAILABLE: "This time cannot be booked. Please choose another slot.",
+    TOO_LATE: "This booking has already started and can no longer be cancelled.",
+    RATE_LIMITED: "Too many attempts. Please wait a minute and try again.",
+    NETWORK: "No connection. Please check your internet and try again.",
+    GENERIC: "Something went wrong. Please try again or ask at reception.",
+  },
+  hu: {
+    SLOT_PASSED: "Ez az időpont már elkezdődött. Kérjük, válasszon egy későbbit.",
+    DAILY_LIMIT: "Erre a napra már van foglalása ehhez a létesítményhez.",
+    TOO_MANY_GUESTS: "Ehhez az időponthoz túl sok a vendég.",
+    STAY: "Időpontot csak a tartózkodása napjaira lehet foglalni.",
+    UNAVAILABLE: "Ez az időpont nem foglalható. Kérjük, válasszon másikat.",
+    TOO_LATE: "Ez a foglalás már elkezdődött, ezért nem mondható le.",
+    RATE_LIMITED: "Túl sok próbálkozás. Kérjük, várjon egy percet, és próbálja újra.",
+    NETWORK: "Nincs kapcsolat. Kérjük, ellenőrizze az internetet, és próbálja újra.",
+    GENERIC: "Hiba történt. Kérjük, próbálja újra, vagy forduljon a recepcióhoz.",
+  },
+  de: {
+    SLOT_PASSED: "Dieser Termin hat bereits begonnen. Bitte wählen Sie einen späteren.",
+    DAILY_LIMIT: "Sie haben für diese Einrichtung an diesem Tag bereits eine Buchung.",
+    TOO_MANY_GUESTS: "Zu viele Gäste für diesen Termin.",
+    STAY: "Termine können nur für die Tage Ihres Aufenthalts gebucht werden.",
+    UNAVAILABLE: "Dieser Termin kann nicht gebucht werden. Bitte wählen Sie einen anderen.",
+    TOO_LATE: "Diese Buchung hat bereits begonnen und kann nicht mehr storniert werden.",
+    RATE_LIMITED: "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut.",
+    NETWORK: "Keine Verbindung. Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.",
+    GENERIC: "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut oder fragen Sie an der Rezeption.",
+  },
+  es: {
+    SLOT_PASSED: "Este turno ya ha empezado. Elija uno más tarde.",
+    DAILY_LIMIT: "Ya tiene una reserva para esta instalación este día.",
+    TOO_MANY_GUESTS: "Demasiadas personas para este turno.",
+    STAY: "Solo se pueden reservar turnos para los días de su estancia.",
+    UNAVAILABLE: "Este turno no se puede reservar. Elija otro.",
+    TOO_LATE: "Esta reserva ya ha empezado y no se puede cancelar.",
+    RATE_LIMITED: "Demasiados intentos. Espere un minuto e inténtelo de nuevo.",
+    NETWORK: "Sin conexión. Compruebe su internet e inténtelo de nuevo.",
+    GENERIC: "Algo ha salido mal. Inténtelo de nuevo o pregunte en recepción.",
+  },
+  it: {
+    SLOT_PASSED: "Questo turno è già iniziato. Scelga un orario successivo.",
+    DAILY_LIMIT: "Ha già una prenotazione per questa struttura in questo giorno.",
+    TOO_MANY_GUESTS: "Troppe persone per questo turno.",
+    STAY: "I turni si possono prenotare solo per i giorni del soggiorno.",
+    UNAVAILABLE: "Questo turno non è prenotabile. Ne scelga un altro.",
+    TOO_LATE: "Questa prenotazione è già iniziata e non può più essere cancellata.",
+    RATE_LIMITED: "Troppi tentativi. Attenda un minuto e riprovi.",
+    NETWORK: "Nessuna connessione. Controlli internet e riprovi.",
+    GENERIC: "Qualcosa è andato storto. Riprovi o chieda alla reception.",
+  },
+  fr: {
+    SLOT_PASSED: "Ce créneau a déjà commencé. Choisissez un horaire plus tard.",
+    DAILY_LIMIT: "Vous avez déjà une réservation pour cette installation ce jour-là.",
+    TOO_MANY_GUESTS: "Trop de personnes pour ce créneau.",
+    STAY: "Les créneaux ne peuvent être réservés que pour les jours de votre séjour.",
+    UNAVAILABLE: "Ce créneau ne peut pas être réservé. Choisissez-en un autre.",
+    TOO_LATE: "Cette réservation a déjà commencé et ne peut plus être annulée.",
+    RATE_LIMITED: "Trop de tentatives. Patientez une minute et réessayez.",
+    NETWORK: "Pas de connexion. Vérifiez votre accès internet et réessayez.",
+    GENERIC: "Un problème est survenu. Réessayez ou adressez-vous à la réception.",
+  },
+};
+const ERROR_GROUP: Record<string, keyof ErrorWords> = {
+  SLOT_PASSED: "SLOT_PASSED", DAILY_LIMIT: "DAILY_LIMIT", TOO_MANY_GUESTS: "TOO_MANY_GUESTS",
+  STAY_NOT_ACTIVE: "STAY", OUTSIDE_STAY: "STAY", STAY_REQUIRED: "STAY",
+  CLOSED: "UNAVAILABLE", INVALID_SLOT: "UNAVAILABLE", TOO_FAR: "UNAVAILABLE", WELLNESS_UNAVAILABLE: "UNAVAILABLE",
+  TOO_LATE: "TOO_LATE", RATE_LIMITED: "RATE_LIMITED", NETWORK: "NETWORK",
+};
+
+/** The guest's language for a known error code; otherwise the server's message, or a general line. */
+export function wellnessErrorText(lang: string | undefined, code: string | undefined, fallback?: string): string {
+  const words = ERROR_WORDS[(lang as WellnessLang) in ERROR_WORDS ? (lang as WellnessLang) : "en"];
+  if (code === "SLOT_TAKEN") return wellnessWords(lang).slotTaken;
+  const group = code ? ERROR_GROUP[code] : undefined;
+  if (group) return words[group];
+  return fallback && fallback !== code ? fallback : words.GENERIC;
+}

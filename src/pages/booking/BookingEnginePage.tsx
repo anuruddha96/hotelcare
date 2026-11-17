@@ -3,23 +3,31 @@
 // HotelCare sends to Channex); the booking becomes an ordinary reservation.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useParams } from 'react-router-dom';
-import { ArrowLeft, CalendarCheck, CalendarDays, CheckCircle2, Download, Globe, Loader2, Mail, MapPin, Phone, Users } from 'lucide-react';
+import {
+  ArrowLeft, CalendarCheck, CalendarDays, CheckCircle2, Clock, Download, FlaskConical, Link2, Loader2, Mail, MapPin, Phone, Users, Wallet,
+} from 'lucide-react';
 import { BrandButton, Notice, StepIndicator } from '@/components/booking/BookingUi';
+import { BookingHero, BrandHeader, LanguageSelect, SecureNote, TestModeBanner, TrustList } from '@/components/booking/BookingChrome';
+import { brandStyle, headingClassFor } from '@/components/booking/brand';
 import { DateGuestPanel } from '@/components/booking/DateGuestPanel';
 import { RoomResults } from '@/components/booking/RoomResults';
 import { StaySummary } from '@/components/booking/StaySummary';
 import { GuestDetailsForm } from '@/components/booking/GuestDetailsForm';
 import { bookingApi, BookingApiError } from '@/lib/bookingEngine/api';
-import { BOOKING_LANGS, LANG_NAMES, bookingPlural, bookingT, isBookingLang, type BookingLang } from '@/lib/bookingEngine/i18n';
+import { bookingPlural, bookingT, isBookingLang, type BookingLang } from '@/lib/bookingEngine/i18n';
 import {
-  addDaysIso, brandColors, distributeGuests, EMPTY_GUEST, formatDate, formatMoney, nightsBetween, readAttribution, selectionTotal, stayIcs,
+  addDaysIso, distributeGuests, EMPTY_GUEST, formatDate, formatMoney, nightsBetween, previewTokenFrom, readAttribution, selectionTotal, stayIcs,
   type CalendarDay, type GuestDetails, type EngineConfig, type Offer, type Selection,
 } from '@/lib/bookingEngine/logic';
 import { isEmbedded, notifyParent, startHeightReporting } from '@/lib/bookingEngine/embed';
 
 type Step = 'search' | 'rooms' | 'details' | 'done';
 interface BookResult {
-  reference: string; total: number; currency: string; free_cancellation_until: string | null; manage_url: string;
+  reference: string; total: number; currency: string; free_cancellation_until: string | null;
+  /** Live bookings only. */
+  manage_url?: string;
+  /** Test-link booking: checked, not saved. */
+  preview?: boolean;
 }
 
 const STEP_INDEX: Record<Step, number> = { search: 0, rooms: 1, details: 2, done: 3 };
@@ -37,7 +45,9 @@ export default function BookingEnginePage() {
   const { engineId = '' } = useParams<{ engineId: string }>();
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const embedded = useMemo(() => params.get('embed') === '1' || isEmbedded(), [params]);
-  const preview = params.get('preview') === '1';
+  // Private test link (?preview=<token>): the server decides whether it is valid.
+  const previewToken = useMemo(() => previewTokenFrom(params.get('preview')), [params]);
+  const withToken = useCallback(<T extends Record<string, unknown>>(body: T) => (previewToken ? { ...body, preview: previewToken } : body), [previewToken]);
   const [config, setConfig] = useState<EngineConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lang, setLang] = useState<BookingLang>('en');
@@ -78,7 +88,7 @@ export default function BookingEnginePage() {
 
   useEffect(() => {
     let alive = true;
-    bookingApi<EngineConfig & { ok: true }>('config', { id: engineId })
+    bookingApi<EngineConfig & { ok: true }>('config', withToken({ id: engineId }))
       .then((data) => {
         if (!alive) return;
         setConfig(data);
@@ -95,21 +105,21 @@ export default function BookingEnginePage() {
       })
       .catch((e) => { if (alive) setLoadError(e instanceof BookingApiError && e.status === 404 ? 'notFound' : 'unavailable'); });
     return () => { alive = false; };
-  }, [engineId, params]);
+  }, [engineId, params, withToken]);
 
   const loadCalendar = useCallback((fromIso: string) => {
     if (!config) return;
     const key = fromIso.slice(0, 7);
     if (loadedRanges.current.has(key)) return;
     loadedRanges.current.add(key);
-    bookingApi<{ ok: true; days: CalendarDay[] }>('calendar', { id: engineId, from: fromIso, to: addDaysIso(fromIso, 70) })
+    bookingApi<{ ok: true; days: CalendarDay[] }>('calendar', withToken({ id: engineId, from: fromIso, to: addDaysIso(fromIso, 70) }))
       .then((data) => setCalendar((current) => {
         const next = { ...current };
         for (const day of data.days) next[day.date] = day;
         return next;
       }))
       .catch(() => loadedRanges.current.delete(key));
-  }, [config, engineId]);
+  }, [config, engineId, withToken]);
 
   useEffect(() => {
     if (!config) return;
@@ -134,7 +144,7 @@ export default function BookingEnginePage() {
     setSearching(true);
     if (!keepError) setError(null);
     try {
-      const data = await bookingApi<{ ok: true; offers: Offer[] }>('search', { id: engineId, check_in: checkIn, check_out: checkOut });
+      const data = await bookingApi<{ ok: true; offers: Offer[] }>('search', withToken({ id: engineId, check_in: checkIn, check_out: checkOut }));
       setOffers(data.offers);
       setSelections([]);
       setSearchedFor({ checkIn, checkOut, adults, children: childCount, rooms: roomsWanted });
@@ -147,7 +157,7 @@ export default function BookingEnginePage() {
     } finally {
       setSearching(false);
     }
-  }, [checkIn, checkOut, engineId, adults, childCount, roomsWanted, embedded, t]);
+  }, [checkIn, checkOut, engineId, adults, childCount, roomsWanted, embedded, t, withToken]);
 
   const roomTypeOf = (id: string) => config?.room_types.find((r) => r.id === id);
   const occupancy = useMemo(() => {
@@ -172,7 +182,7 @@ export default function BookingEnginePage() {
     setSubmitting(true);
     setError(null);
     try {
-      const data = await bookingApi<BookResult & { ok: true }>('book', {
+      const data = await bookingApi<BookResult & { ok: true }>('book', withToken({
         id: engineId,
         check_in: searchedFor.checkIn,
         check_out: searchedFor.checkOut,
@@ -186,13 +196,16 @@ export default function BookingEnginePage() {
         attribution,
         hp,
         elapsed_ms: elapsedMs,
-      });
+      }));
       setResult(data);
       goTo('done');
-      notifyParent('booking-complete', {
-        reference: data.reference, value: data.total, currency: data.currency,
-        nights: nightsBetween(searchedFor.checkIn, searchedFor.checkOut), rooms: selections.length,
-      });
+      // A test booking is not a conversion: the hotel site's tracking never hears of it.
+      if (!data.preview) {
+        notifyParent('booking-complete', {
+          reference: data.reference, value: data.total, currency: data.currency,
+          nights: nightsBetween(searchedFor.checkIn, searchedFor.checkOut), rooms: selections.length,
+        });
+      }
     } catch (e) {
       const code = e instanceof BookingApiError ? e.code : 'generic';
       const message = t(`error_${code}`) === `error_${code}` ? t('error_generic') : t(`error_${code}`);
@@ -208,15 +221,16 @@ export default function BookingEnginePage() {
   };
 
   if (loadError) {
-    return <Shell embedded={embedded} style={brandStyle(undefined)}><div className="mx-auto max-w-lg py-16"><Notice tone="error">{bookingT(lang, loadError)}</Notice></div></Shell>;
+    return <Shell embedded={embedded} style={brandStyle(undefined)}><div className="mx-auto max-w-lg px-4 py-16"><Notice tone="error">{bookingT(lang, loadError)}</Notice></div></Shell>;
   }
   if (!config) {
     return <Shell embedded={embedded} style={brandStyle(undefined)}><div className="flex items-center justify-center gap-2 py-24 text-stone-500"><Loader2 className="h-5 w-5 animate-spin" />{t('loading')}</div></Shell>;
   }
 
   const engine = config.engine;
-  const headingClass = engine.theme?.style === 'modern' ? 'font-sans font-semibold tracking-tight' : 'font-serif';
-  const style = brandStyle(engine.theme?.primary);
+  const testMode = config.preview === true;
+  const headingClass = headingClassFor(engine.theme?.style);
+  const style = brandStyle(engine.theme);
   const steps = [t('stepDates'), t('stepRooms'), t('stepDetails'), t('stepDone')];
   const nights = searchedFor ? nightsBetween(searchedFor.checkIn, searchedFor.checkOut) : 0;
   const currency = offers[0]?.currency ?? engine.currency ?? 'EUR';
@@ -224,16 +238,14 @@ export default function BookingEnginePage() {
   const capacityOk = occupancy !== null;
   const partySize = (searchedFor?.adults ?? 0) + (searchedFor?.children ?? 0);
   const capacityChosen = selections.reduce((sum, s) => sum + (roomTypeOf(s.roomTypeId)?.max_occupancy ?? 0), 0);
-  const blockedEngine = !engine.enabled;
+  // Switched off and no valid test link: the server sent only the hotel's name and contact details.
+  const offline = !engine.enabled && !testMode;
+  const freeCancellation = config.room_types.some((r) => r.rate_plans.some((p) => p.refundable));
+  const showHero = !embedded && (step === 'search' || offline);
+  const overlap = showHero && !offline;
 
-  const languageSelect = engine.languages.length > 1 && (
-    <label className="inline-flex items-center gap-1.5 text-sm text-stone-600">
-      <Globe className="h-4 w-4" aria-hidden="true" />
-      <span className="sr-only">{t('language')}</span>
-      <select value={lang} onChange={(e) => changeLang(e.target.value as BookingLang)} className="rounded-md border border-stone-200 bg-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--be-primary)]">
-        {BOOKING_LANGS.filter((l) => engine.languages.includes(l)).map((l) => <option key={l} value={l}>{LANG_NAMES[l]}</option>)}
-      </select>
-    </label>
+  const languageSelect = (tone: 'light' | 'dark') => (
+    <LanguageSelect lang={lang} languages={engine.languages ?? []} onChange={changeLang} tone={tone} />
   );
 
   const searchBar = searchedFor && step !== 'search' && step !== 'done' && (
@@ -249,36 +261,57 @@ export default function BookingEnginePage() {
     </div>
   );
 
+  const contactLinks = (big: boolean) => (
+    <div className={big ? 'flex flex-wrap justify-center gap-2' : 'flex flex-wrap gap-x-4 gap-y-1'}>
+      {engine.contact?.phone && (
+        <a href={`tel:${engine.contact.phone.replace(/\s+/g, '')}`}
+          className={big ? 'inline-flex items-center gap-2 rounded-lg bg-[var(--be-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--be-on-primary)] hover:brightness-110' : 'inline-flex items-center gap-1 hover:text-stone-800'}>
+          <Phone className={big ? 'h-4 w-4' : 'h-3.5 w-3.5'} />{engine.contact.phone}
+        </a>
+      )}
+      {engine.contact?.email && (
+        <a href={`mailto:${engine.contact.email}`}
+          className={big ? 'inline-flex items-center gap-2 rounded-lg border border-[var(--be-primary)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--be-primary)] hover:bg-[var(--be-soft)]' : 'inline-flex items-center gap-1 hover:text-stone-800'}>
+          <Mail className={big ? 'h-4 w-4' : 'h-3.5 w-3.5'} />{engine.contact.email}
+        </a>
+      )}
+      {!big && engine.contact?.address && <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{engine.contact.address}</span>}
+    </div>
+  );
+
   return (
     <Shell embedded={embedded} style={style}>
-      {!embedded && (
-        <header className="border-b border-stone-200 bg-white">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-            <div className="flex min-w-0 items-center gap-3">
-              {engine.logo_url ? <img src={engine.logo_url} alt={engine.name} className="h-10 w-auto max-w-[160px] object-contain" /> : null}
-              <span className={`truncate text-lg text-stone-900 ${headingClass}`}>{engine.name}</span>
-            </div>
-            {languageSelect}
-          </div>
-        </header>
-      )}
+      {testMode && <TestModeBanner lang={lang} />}
+      {showHero && <BookingHero engine={engine} lang={lang} headingClass={headingClass} languageSelect={languageSelect('dark')} overlap={overlap} />}
+      {!embedded && !showHero && <BrandHeader engine={engine} headingClass={headingClass} languageSelect={languageSelect('light')} />}
 
-      <main className="mx-auto w-full max-w-6xl flex-1 space-y-5 px-4 py-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <StepIndicator steps={steps} current={STEP_INDEX[step]} />
-          {embedded && languageSelect}
-        </div>
-        {step === 'search' && (
+      <main className={`mx-auto w-full max-w-6xl flex-1 space-y-5 px-4 ${overlap ? 'relative z-10 -mt-16 pb-8 sm:-mt-20' : 'py-6'}`}>
+        {(!showHero || embedded) && !offline && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <StepIndicator steps={steps} current={STEP_INDEX[step]} />
+            {embedded && languageSelect('light')}
+          </div>
+        )}
+        {embedded && step === 'search' && !offline && (
           <div className="space-y-1">
             <h1 className={`text-2xl sm:text-3xl text-stone-900 ${headingClass}`}>{t('bookYourStay')}</h1>
             <p className="text-sm text-stone-600">{t('bestRate')}</p>
           </div>
         )}
-        {blockedEngine && preview && <Notice>{t('preview')}</Notice>}
-        {blockedEngine && !preview && <Notice tone="error">{t('unavailable')}</Notice>}
         {error && <Notice tone="error">{error}</Notice>}
 
-        {(!blockedEngine || preview) && step === 'search' && (
+        {offline && (
+          <div className="mx-auto max-w-xl space-y-4 rounded-2xl border border-stone-200 bg-white p-6 text-center shadow-sm sm:p-8">
+            {embedded && <h1 className={`text-2xl text-stone-900 ${headingClass}`}>{engine.name}</h1>}
+            <p className="text-base text-stone-800">{t('unavailable')}</p>
+            {(engine.contact?.phone || engine.contact?.email) && <>
+              <p className="text-sm text-stone-600">{t('offlineContact')}</p>
+              {contactLinks(true)}
+            </>}
+          </div>
+        )}
+
+        {!offline && step === 'search' && (
           <DateGuestPanel
             lang={lang}
             today={engine.today}
@@ -304,6 +337,7 @@ export default function BookingEnginePage() {
             onSearch={() => void search()}
             searching={searching}
             headingClass={headingClass}
+            below={<TrustList lang={lang} freeCancellation={freeCancellation} />}
           />
         )}
 
@@ -312,7 +346,7 @@ export default function BookingEnginePage() {
             {searchBar}
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-3">
-                <h2 className={`text-xl text-stone-900 ${headingClass}`}>
+                <h2 className={`text-2xl text-stone-900 ${headingClass}`}>
                   {searchedFor.rooms === 1 ? t('chooseRoom') : t('chooseRooms', { n: searchedFor.rooms })}
                 </h2>
                 <RoomResults
@@ -330,25 +364,25 @@ export default function BookingEnginePage() {
                   onRemove={(index) => setSelections((current) => current.filter((_, i) => i !== index))}
                 />
               </div>
-              {searchedFor.rooms > 1 && (
-                <div className="lg:sticky lg:top-4 self-start">
-                  <StaySummary
-                    lang={lang} config={config} checkIn={searchedFor.checkIn} checkOut={searchedFor.checkOut} nights={nights}
-                    selections={selections} occupancy={occupancy} offers={offers} headingClass={headingClass}
-                    footer={
-                      <div className="space-y-2 border-t border-stone-100 pt-3">
-                        <div className="text-sm text-stone-600">{t('chosenOf', { n: selections.length, m: searchedFor.rooms })}</div>
-                        {selections.length === searchedFor.rooms && !capacityOk && (
-                          <div className="text-sm text-red-700">{t('capacityShort', { n: capacityChosen, m: partySize })}</div>
-                        )}
-                        <BrandButton className="w-full" disabled={selections.length !== searchedFor.rooms || !capacityOk} onClick={() => goTo('details')}>
-                          {t('continue')}
-                        </BrandButton>
-                      </div>
-                    }
-                  />
-                </div>
-              )}
+              <div className="self-start lg:sticky lg:top-4">
+                <StaySummary
+                  lang={lang} config={config} checkIn={searchedFor.checkIn} checkOut={searchedFor.checkOut} nights={nights}
+                  selections={selections} occupancy={occupancy} offers={offers} headingClass={headingClass}
+                  footer={searchedFor.rooms > 1 ? (
+                    <div className="space-y-2 border-t border-stone-100 pt-3">
+                      <div className="text-sm text-stone-600">{t('chosenOf', { n: selections.length, m: searchedFor.rooms })}</div>
+                      {selections.length === searchedFor.rooms && !capacityOk && (
+                        <div className="text-sm text-red-700">{t('capacityShort', { n: capacityChosen, m: partySize })}</div>
+                      )}
+                      <BrandButton className="w-full" disabled={selections.length !== searchedFor.rooms || !capacityOk} onClick={() => goTo('details')}>
+                        {t('continue')}
+                      </BrandButton>
+                    </div>
+                  ) : (
+                    <TrustList lang={lang} freeCancellation={freeCancellation} className="border-t border-stone-100 pt-4 text-[13px]" />
+                  )}
+                />
+              </div>
             </div>
           </>
         )}
@@ -370,6 +404,7 @@ export default function BookingEnginePage() {
                 submitting={submitting}
                 onSubmit={(extras) => void book(extras)}
                 headingClass={headingClass}
+                testMode={testMode}
               />
               <div className="lg:sticky lg:top-4 self-start">
                 <StaySummary lang={lang} config={config} checkIn={searchedFor.checkIn} checkOut={searchedFor.checkOut} nights={nights}
@@ -380,28 +415,54 @@ export default function BookingEnginePage() {
         )}
 
         {step === 'done' && result && searchedFor && (
-          <div className="mx-auto max-w-2xl space-y-5">
-            <div className="rounded-2xl border border-stone-200 bg-white p-6 sm:p-8 text-center shadow-sm space-y-3">
-              <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-600" aria-hidden="true" />
-              <h1 className={`text-2xl sm:text-3xl text-stone-900 ${headingClass}`}>{t('doneTitle')}</h1>
-              <div>
-                <div className="text-sm text-stone-500">{t('doneRef')}</div>
-                <div className="text-3xl font-bold tracking-wider text-[var(--be-primary)]">{result.reference}</div>
+          <div className="be-rise mx-auto max-w-2xl space-y-5">
+            {result.preview ? (
+              <div className="space-y-3 rounded-2xl border-2 border-dashed border-amber-300 bg-white p-6 text-center shadow-sm sm:p-8">
+                <FlaskConical className="mx-auto h-12 w-12 text-amber-600" aria-hidden="true" />
+                <h1 className={`text-2xl sm:text-3xl text-stone-900 ${headingClass}`}>{t('testDoneTitle')}</h1>
+                <p className="mx-auto max-w-md text-sm text-stone-600">{t('testDoneText')}</p>
+                <div>
+                  <div className="text-sm text-stone-500">{t('testDoneRef')}</div>
+                  <div className="font-mono text-2xl font-semibold tracking-wider text-stone-800">{result.reference}</div>
+                </div>
               </div>
-              <p className="inline-flex items-center gap-1.5 text-sm text-stone-600"><Mail className="h-4 w-4" />{t('doneEmailed', { email: guest.email })}</p>
-              <div className="flex flex-wrap justify-center gap-2 pt-2">
-                <a href={result.manage_url} className="inline-flex items-center gap-2 rounded-lg bg-[var(--be-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--be-on-primary)] hover:brightness-110">
-                  <CalendarCheck className="h-4 w-4" />{t('doneManage')}
-                </a>
-                <BrandButton variant="outline" onClick={() => {
-                  const ics = stayIcs({ reference: result.reference, hotel: engine.name, address: engine.contact?.address, checkIn: searchedFor.checkIn, checkOut: searchedFor.checkOut });
-                  const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
-                  const a = document.createElement('a');
-                  a.href = url; a.download = `${result.reference}.ics`; a.click();
-                  setTimeout(() => URL.revokeObjectURL(url), 1000);
-                }}><Download className="h-4 w-4" />{t('doneCalendar')}</BrandButton>
+            ) : (
+              <div className="space-y-3 rounded-2xl border border-stone-200 bg-white p-6 text-center shadow-sm sm:p-8">
+                <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-600" aria-hidden="true" />
+                <h1 className={`text-2xl sm:text-4xl text-stone-900 ${headingClass}`}>{t('doneTitle')}</h1>
+                <div>
+                  <div className="text-sm text-stone-500">{t('doneRef')}</div>
+                  <div className="text-3xl font-bold tracking-wider text-[var(--be-accent-text)]">{result.reference}</div>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2 pt-2">
+                  {result.manage_url && (
+                    <a href={result.manage_url} className="inline-flex items-center gap-2 rounded-lg bg-[var(--be-primary)] px-4 py-2.5 text-sm font-semibold text-[var(--be-on-primary)] hover:brightness-110">
+                      <CalendarCheck className="h-4 w-4" />{t('doneManage')}
+                    </a>
+                  )}
+                  <BrandButton variant="outline" onClick={() => {
+                    const ics = stayIcs({ reference: result.reference, hotel: engine.name, address: engine.contact?.address, checkIn: searchedFor.checkIn, checkOut: searchedFor.checkOut });
+                    const url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `${result.reference}.ics`; a.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  }}><Download className="h-4 w-4" />{t('doneCalendar')}</BrandButton>
+                </div>
               </div>
-            </div>
+            )}
+            {!result.preview && (
+              <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="be-next">
+                <h2 id="be-next" className={`text-lg text-stone-900 ${headingClass}`}>{t('nextSteps')}</h2>
+                <ul className="mt-3 space-y-2.5 text-sm text-stone-700">
+                  <li className="flex gap-2.5"><Mail className="mt-0.5 h-4 w-4 shrink-0 text-[var(--be-accent-text)]" aria-hidden="true" />{t('doneEmailed', { email: guest.email })}</li>
+                  <li className="flex gap-2.5"><Wallet className="mt-0.5 h-4 w-4 shrink-0 text-[var(--be-accent-text)]" aria-hidden="true" />{t('payAtHotel')}</li>
+                  {engine.policies?.check_in_from && (
+                    <li className="flex gap-2.5"><Clock className="mt-0.5 h-4 w-4 shrink-0 text-[var(--be-accent-text)]" aria-hidden="true" />{t('checkInFrom', { time: engine.policies.check_in_from })}</li>
+                  )}
+                  <li className="flex gap-2.5"><Link2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--be-accent-text)]" aria-hidden="true" />{t('nextManage')}</li>
+                </ul>
+              </section>
+            )}
             <StaySummary lang={lang} config={config} checkIn={searchedFor.checkIn} checkOut={searchedFor.checkOut} nights={nights}
               selections={selections} occupancy={occupancy} offers={offers} headingClass={headingClass} />
             <div className="text-center">
@@ -416,22 +477,13 @@ export default function BookingEnginePage() {
       {!embedded && (
         <footer className="border-t border-stone-200 bg-white">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 text-xs text-stone-500">
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              {engine.contact?.phone && <a href={`tel:${engine.contact.phone.replace(/\s+/g, '')}`} className="inline-flex items-center gap-1 hover:text-stone-800"><Phone className="h-3.5 w-3.5" />{engine.contact.phone}</a>}
-              {engine.contact?.email && <a href={`mailto:${engine.contact.email}`} className="inline-flex items-center gap-1 hover:text-stone-800"><Mail className="h-3.5 w-3.5" />{engine.contact.email}</a>}
-              {engine.contact?.address && <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{engine.contact.address}</span>}
-            </div>
-            <span>{t('secureBy')}</span>
+            {contactLinks(false)}
+            <SecureNote lang={lang} />
           </div>
         </footer>
       )}
     </Shell>
   );
-}
-
-function brandStyle(primary: string | undefined): CSSProperties {
-  const colors = brandColors(primary);
-  return { '--be-primary': colors.primary, '--be-on-primary': colors.onPrimary, '--be-soft': colors.soft } as CSSProperties;
 }
 
 function Shell({ embedded, style, children }: { embedded: boolean; style: CSSProperties; children: React.ReactNode }) {

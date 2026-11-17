@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addDays, bookingWhen, facilityLabel, fillWord, firstUsefulDay, freeSlots, hotelDayLabel, hotelTime, hotelToday,
-  priceLabel, slotRange, wellnessWords, WELLNESS_WORDS, type WellnessResource,
+  priceLabel, slotRange, wellnessErrorText, wellnessWords, WELLNESS_WORDS, type WellnessResource,
 } from "./wellness";
 
 describe("hotel-time formatting", () => {
@@ -65,5 +65,16 @@ describe("words", () => {
     expect(fillWord(wellnessWords("en").upTo, { n: 2 })).toBe("Up to 2 guests");
     expect(facilityLabel("jacuzzi", "de")).toBe("Whirlpool");
     expect(facilityLabel("sauna", "hu")).toBe("Szauna");
+  });
+});
+
+describe("guest error wording", () => {
+  it("translates known codes and keeps the server text for unknown ones", () => {
+    expect(wellnessErrorText("hu", "SLOT_TAKEN")).toBe(WELLNESS_WORDS.hu.slotTaken);
+    expect(wellnessErrorText("de", "DAILY_LIMIT")).toContain("bereits eine Buchung");
+    expect(wellnessErrorText("en", "OUTSIDE_STAY")).toBe(wellnessErrorText("en", "STAY_NOT_ACTIVE"));
+    expect(wellnessErrorText("fr", "SOMETHING_NEW", "Server said so")).toBe("Server said so");
+    expect(wellnessErrorText("it", "SOMETHING_NEW", "SOMETHING_NEW")).toContain("reception");
+    expect(wellnessErrorText("xx", "NETWORK")).toContain("No connection");
   });
 });

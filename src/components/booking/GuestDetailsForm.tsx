@@ -1,7 +1,7 @@
 // Step 3: the guest's details and consent. A hidden field and the time spent
 // on the form help the server tell people from bots.
 import { useMemo, useRef, useState } from 'react';
-import { Loader2, Lock } from 'lucide-react';
+import { FlaskConical, Loader2, Lock } from 'lucide-react';
 import { BrandButton } from './BookingUi';
 import { bookingT, type BookingLang } from '@/lib/bookingEngine/i18n';
 import { countryOptions, type GuestDetails } from '@/lib/bookingEngine/logic';
@@ -19,11 +19,13 @@ interface Props {
   submitting: boolean;
   onSubmit: (extras: { hp: string; elapsedMs: number }) => void;
   headingClass: string;
+  /** Private test link: the button says plainly that nothing will be saved. */
+  testMode?: boolean;
 }
 
 const inputClass = 'w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 placeholder:text-stone-400 transition focus:border-[var(--be-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--be-soft)] aria-[invalid=true]:border-red-400';
 
-export function GuestDetailsForm({ lang, value, onChange, termsUrl, privacyUrl, total, submitting, onSubmit, headingClass }: Props) {
+export function GuestDetailsForm({ lang, value, onChange, termsUrl, privacyUrl, total, submitting, onSubmit, headingClass, testMode = false }: Props) {
   const t = (key: string, values?: Record<string, string | number>) => bookingT(lang, key, values);
   const mountedAt = useRef(Date.now());
   const [hp, setHp] = useState('');
@@ -115,8 +117,8 @@ export function GuestDetailsForm({ lang, value, onChange, termsUrl, privacyUrl, 
         </label>
       </div>
       <BrandButton type="submit" className="w-full py-3.5 text-base" disabled={submitting}>
-        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-        {submitting ? t('confirming') : `${t('confirm')} · ${total}`}
+        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : testMode ? <FlaskConical className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+        {submitting ? t('confirming') : `${t(testMode ? 'testConfirm' : 'confirm')} · ${total}`}
       </BrandButton>
       <p className="text-center text-xs text-stone-500">{t('payAtHotel')}</p>
     </form>

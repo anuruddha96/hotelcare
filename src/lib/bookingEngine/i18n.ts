@@ -65,6 +65,19 @@ const en: Dict = {
   am_coffee: 'Coffee machine', am_hairdryer: 'Hairdryer', am_shower: 'Shower', am_bathtub: 'Bathtub', am_balcony: 'Balcony',
   am_city_view: 'City view', am_desk: 'Work desk', am_soundproof: 'Soundproofing', am_bathrobe: 'Bathrobes', am_non_smoking: 'Non-smoking',
   am_accessible: 'Accessible', am_family: 'Family friendly', am_kitchenette: 'Kitchenette', am_washing_machine: 'Washing machine',
+  upToGuestsOne: 'Up to 1 guest',
+  trustInstant: 'Instant confirmation by e-mail',
+  trustFreeCancel: 'Free cancellation on flexible rates',
+  testBanner: 'Test mode – live prices and availability, but nothing is saved and no e-mails are sent.',
+  testBannerPrivate: 'Only people with this private link can open this page.',
+  testConfirm: 'Make a test booking',
+  testDoneTitle: 'Test booking checked',
+  testDoneText: 'Price, availability and booking rules were all checked. Nothing was saved and no e-mail was sent.',
+  testDoneRef: 'Test reference',
+  nextSteps: 'What happens next',
+  nextManage: 'You can view or cancel your booking from the link in the e-mail.',
+  offlineContact: 'Call or e-mail us and we will be happy to help.',
+  lowestPrices: 'Lowest prices',
 };
 
 const hu: Dict = {
@@ -119,6 +132,19 @@ const hu: Dict = {
   am_coffee: 'Kávéfőző', am_hairdryer: 'Hajszárító', am_shower: 'Zuhany', am_bathtub: 'Kád', am_balcony: 'Erkély',
   am_city_view: 'Városra néző kilátás', am_desk: 'Íróasztal', am_soundproof: 'Hangszigetelés', am_bathrobe: 'Fürdőköpeny', am_non_smoking: 'Nemdohányzó',
   am_accessible: 'Akadálymentes', am_family: 'Családbarát', am_kitchenette: 'Teakonyha', am_washing_machine: 'Mosógép',
+  upToGuestsOne: 'Legfeljebb 1 fő',
+  trustInstant: 'Azonnali visszaigazolás e-mailben',
+  trustFreeCancel: 'Rugalmas áraknál ingyenes lemondás',
+  testBanner: 'Tesztüzem – élő árak és elérhetőség, de semmi nem kerül mentésre, és nem megy ki e-mail.',
+  testBannerPrivate: 'Ezt az oldalt csak a privát link birtokában lehet megnyitni.',
+  testConfirm: 'Tesztfoglalás',
+  testDoneTitle: 'Tesztfoglalás ellenőrizve',
+  testDoneText: 'Az árat, az elérhetőséget és a foglalási szabályokat ellenőriztük. Semmi nem került mentésre, és nem ment ki e-mail.',
+  testDoneRef: 'Teszt hivatkozási szám',
+  nextSteps: 'Mi történik ezután?',
+  nextManage: 'A foglalását az e-mailben kapott linken tekintheti meg vagy mondhatja le.',
+  offlineContact: 'Hívjon minket vagy írjon e-mailt, szívesen segítünk.',
+  lowestPrices: 'Legalacsonyabb árak',
 };
 
 const de: Dict = {
@@ -173,6 +199,19 @@ const de: Dict = {
   am_coffee: 'Kaffeemaschine', am_hairdryer: 'Haartrockner', am_shower: 'Dusche', am_bathtub: 'Badewanne', am_balcony: 'Balkon',
   am_city_view: 'Stadtblick', am_desk: 'Schreibtisch', am_soundproof: 'Schallisoliert', am_bathrobe: 'Bademäntel', am_non_smoking: 'Nichtraucher',
   am_accessible: 'Barrierefrei', am_family: 'Familienfreundlich', am_kitchenette: 'Küchenzeile', am_washing_machine: 'Waschmaschine',
+  upToGuestsOne: 'Bis zu 1 Gast',
+  trustInstant: 'Sofortige Bestätigung per E-Mail',
+  trustFreeCancel: 'Kostenlose Stornierung bei flexiblen Raten',
+  testBanner: 'Testmodus – Live-Preise und -Verfügbarkeit, aber nichts wird gespeichert und es werden keine E-Mails versendet.',
+  testBannerPrivate: 'Nur Personen mit diesem privaten Link können diese Seite öffnen.',
+  testConfirm: 'Testbuchung durchführen',
+  testDoneTitle: 'Testbuchung geprüft',
+  testDoneText: 'Preis, Verfügbarkeit und Buchungsregeln wurden geprüft. Es wurde nichts gespeichert und keine E-Mail versendet.',
+  testDoneRef: 'Testreferenz',
+  nextSteps: 'So geht es weiter',
+  nextManage: 'Über den Link in der E-Mail können Sie Ihre Buchung ansehen oder stornieren.',
+  offlineContact: 'Rufen Sie uns an oder schreiben Sie uns, wir helfen gerne.',
+  lowestPrices: 'Günstigste Preise',
 };
 
 const es: Dict = {
@@ -227,6 +266,19 @@ const es: Dict = {
   am_coffee: 'Cafetera', am_hairdryer: 'Secador de pelo', am_shower: 'Ducha', am_bathtub: 'Bañera', am_balcony: 'Balcón',
   am_city_view: 'Vistas a la ciudad', am_desk: 'Escritorio', am_soundproof: 'Insonorizada', am_bathrobe: 'Albornoces', am_non_smoking: 'No fumadores',
   am_accessible: 'Accesible', am_family: 'Ideal para familias', am_kitchenette: 'Cocina pequeña', am_washing_machine: 'Lavadora',
+  upToGuestsOne: 'Hasta 1 persona',
+  trustInstant: 'Confirmación inmediata por e-mail',
+  trustFreeCancel: 'Cancelación gratuita en tarifas flexibles',
+  testBanner: 'Modo de prueba: precios y disponibilidad reales, pero no se guarda nada y no se envían e-mails.',
+  testBannerPrivate: 'Solo quien tenga este enlace privado puede abrir esta página.',
+  testConfirm: 'Hacer una reserva de prueba',
+  testDoneTitle: 'Reserva de prueba comprobada',
+  testDoneText: 'Se han comprobado el precio, la disponibilidad y las condiciones de reserva. No se ha guardado nada ni se ha enviado ningún e-mail.',
+  testDoneRef: 'Referencia de prueba',
+  nextSteps: 'Próximos pasos',
+  nextManage: 'Puede ver o cancelar su reserva desde el enlace del e-mail.',
+  offlineContact: 'Llámenos o escríbanos y le ayudaremos encantados.',
+  lowestPrices: 'Precios más bajos',
 };
 
 const it: Dict = {
@@ -281,6 +333,19 @@ const it: Dict = {
   am_coffee: 'Macchina del caffè', am_hairdryer: 'Asciugacapelli', am_shower: 'Doccia', am_bathtub: 'Vasca da bagno', am_balcony: 'Balcone',
   am_city_view: 'Vista città', am_desk: 'Scrivania', am_soundproof: 'Insonorizzata', am_bathrobe: 'Accappatoi', am_non_smoking: 'Non fumatori',
   am_accessible: 'Accessibile', am_family: 'Adatta alle famiglie', am_kitchenette: 'Angolo cottura', am_washing_machine: 'Lavatrice',
+  upToGuestsOne: 'Fino a 1 persona',
+  trustInstant: 'Conferma immediata via e-mail',
+  trustFreeCancel: 'Cancellazione gratuita con le tariffe flessibili',
+  testBanner: 'Modalità test: prezzi e disponibilità reali, ma nulla viene salvato e non vengono inviate e-mail.',
+  testBannerPrivate: 'Solo chi ha questo link privato può aprire questa pagina.',
+  testConfirm: 'Fai una prenotazione di prova',
+  testDoneTitle: 'Prenotazione di prova verificata',
+  testDoneText: 'Prezzo, disponibilità e regole di prenotazione sono stati verificati. Non è stato salvato nulla e non è stata inviata alcuna e-mail.',
+  testDoneRef: 'Riferimento di prova',
+  nextSteps: 'Cosa succede ora',
+  nextManage: 'Può vedere o cancellare la prenotazione dal link nella e-mail.',
+  offlineContact: 'Ci chiami o ci scriva, saremo lieti di aiutarla.',
+  lowestPrices: 'Prezzi più bassi',
 };
 
 const fr: Dict = {
@@ -335,6 +400,19 @@ const fr: Dict = {
   am_coffee: 'Machine à café', am_hairdryer: 'Sèche-cheveux', am_shower: 'Douche', am_bathtub: 'Baignoire', am_balcony: 'Balcon',
   am_city_view: 'Vue sur la ville', am_desk: 'Bureau', am_soundproof: 'Insonorisée', am_bathrobe: 'Peignoirs', am_non_smoking: 'Non-fumeurs',
   am_accessible: 'Accessible', am_family: 'Idéal pour les familles', am_kitchenette: 'Kitchenette', am_washing_machine: 'Lave-linge',
+  upToGuestsOne: "Jusqu'à 1 personne",
+  trustInstant: 'Confirmation immédiate par e-mail',
+  trustFreeCancel: 'Annulation gratuite sur les tarifs flexibles',
+  testBanner: "Mode test : prix et disponibilités réels, mais rien n'est enregistré et aucun e-mail n'est envoyé.",
+  testBannerPrivate: 'Seules les personnes disposant de ce lien privé peuvent ouvrir cette page.',
+  testConfirm: 'Faire une réservation test',
+  testDoneTitle: 'Réservation test vérifiée',
+  testDoneText: "Le prix, la disponibilité et les règles de réservation ont été vérifiés. Rien n'a été enregistré et aucun e-mail n'a été envoyé.",
+  testDoneRef: 'Référence de test',
+  nextSteps: 'Et maintenant ?',
+  nextManage: "Vous pouvez consulter ou annuler votre réservation depuis le lien de l'e-mail.",
+  offlineContact: 'Appelez-nous ou écrivez-nous, nous vous aiderons avec plaisir.',
+  lowestPrices: 'Prix les plus bas',
 };
 
 const DICTS: Record<BookingLang, Dict> = { en, hu, de, es, it, fr };

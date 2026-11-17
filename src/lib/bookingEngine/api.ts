@@ -5,7 +5,8 @@ const base = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? '';
 
 export class BookingApiError extends Error {
-  constructor(readonly code: string, readonly status: number) { super(code); }
+  /** Server wording (English) when the server sends one, otherwise the code. */
+  constructor(readonly code: string, readonly status: number, message?: string) { super(message || code); }
 }
 
 export async function bookingApi<T = Record<string, unknown>>(action: string, body: Record<string, unknown>): Promise<T> {
@@ -24,7 +25,7 @@ export async function bookingApi<T = Record<string, unknown>>(action: string, bo
   let data: Record<string, unknown> | null = null;
   try { data = await res.json(); } catch { data = null; }
   if (!res.ok || !data || data.ok === false) {
-    throw new BookingApiError(String(data?.error ?? 'SERVER_ERROR'), res.status);
+    throw new BookingApiError(String(data?.error ?? 'SERVER_ERROR'), res.status, typeof data?.message === 'string' ? data.message : undefined);
   }
   return data as T;
 }
