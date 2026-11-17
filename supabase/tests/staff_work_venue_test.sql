@@ -1,5 +1,16 @@
 \set ON_ERROR_STOP on
 
+-- The production app has both legacy profile-authorization triggers.
+-- Test them together with the new validated staff switch RPC to prevent
+-- precisely the mobile error: "Property assignment is not allowed".
+CREATE TRIGGER guard_profile_tenant_fields_trigger
+BEFORE UPDATE ON public.profiles FOR EACH ROW
+EXECUTE FUNCTION public.guard_profile_tenant_fields();
+
+CREATE TRIGGER rd_prevent_profile_access_escalation
+BEFORE UPDATE ON public.profiles FOR EACH ROW
+EXECUTE FUNCTION public.rd_protect_profile_authorization_fields();
+
 DO $assert$
 BEGIN
   IF has_function_privilege('anon','public.staff_select_work_hotel(text,boolean)'::regprocedure,'EXECUTE')
