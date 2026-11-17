@@ -14,12 +14,21 @@
  *   book     {id, check_in, check_out, rooms[], guest{}, language, consent{}, attribution{}, hp, elapsed_ms}
  *   lookup   {id, reference, token}                 the guest's own booking
  *   cancel   {id, reference, token}                 free cancellation, if still allowed
+ *   wellness / wellness_book / wellness_cancel      jacuzzi & sauna slots of the stay (manage link)
+ *   reminders                                       daily pre-arrival e-mails (worker secret)
+ *
+ * A request with the engine's test-link token ({preview}) sees the pages of a
+ * switched-off engine, and its bookings are dry runs that store nothing.
+ * Manage links in later e-mails use signed, expiring tokens (s1.<exp>.<sig>).
  *
  * The manage token is random, sent only to the guest, and stored as a SHA-256
  * hash. No card data is ever requested: phase 1 bookings are paid at the hotel.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendEmail } from "../_shared/emailSender.ts";
+import {
+  WELLNESS_ERRORS, afterResponse, facilityName, notifyReception, sendGuestTicket, wellnessErrorCode, type TicketLang,
+} from "../_shared/wellness.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -28,7 +37,7 @@ type Json = Record<string, any>;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-worker-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const json = (body: unknown, status = 200) =>
@@ -245,7 +254,7 @@ function shell(config: Json, inner: string) {
 </div></body></html>`;
 }
 
-function guestConfirmation(config: Json, booking: Json, guest: Json, l: Lang, manageUrl: string) {
+function guestConfirmation(config: Json, booking: Json, guest: Json, l: Lang, manageUrl: string, extras?: WellnessExtras) {
   const t = MAIL[l];
   const engine = config.engine ?? {};
   const policies = engine.policies ?? {};
@@ -264,8 +273,10 @@ function guestConfirmation(config: Json, booking: Json, guest: Json, l: Lang, ma
   const cancellation = booking.free_cancellation_until ? fill(t.freeUntil, { date: deadline(booking.free_cancellation_until, l) }) : t.nonRefundable;
   const contact = engine.contact ?? {};
   const contactLine = [contact.phone, contact.email, contact.address].filter(Boolean).map(esc).join(" · ");
+  const w = wellnessBlock(extras, l, color);
   const inner = `
 <p style="margin:0 0 12px">${esc(fill(t.dear, { name: guest.first_name }))}</p>
+${w.top}
 <p style="margin:0 0 20px">${esc(fill(t.intro, { hotel }))}</p>
 <div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin-bottom:20px">
 <div style="font-size:13px;color:#6b7280">${esc(t.ref)}</div>
@@ -280,6 +291,7 @@ ${row(t.total, esc(money(Number(booking.total), booking.currency, l)))}
 ${row(t.payment, esc(t.payAtHotel))}
 ${row(t.cancellation, esc(cancellation))}
 </table>
+${w.box}
 <div style="text-align:center;margin:26px 0 8px"><a href="${esc(manageUrl)}" style="display:inline-block;background:${color};color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600">${esc(t.manage)}</a></div>
 <p style="margin:20px 0 4px">${esc(t.closing)}</p>
 ${contactLine ? `<p style="margin:16px 0 0;font-size:13px;color:#6b7280">${esc(t.contact)} ${contactLine}</p>` : ""}`;
@@ -288,7 +300,7 @@ ${contactLine ? `<p style="margin:16px 0 0;font-size:13px;color:#6b7280">${esc(t
     `${t.ref}: ${booking.reference}`,
     `${t.checkIn}: ${longDate(booking.check_in, l)}`, `${t.checkOut}: ${longDate(booking.check_out, l)}`,
     `${t.total}: ${money(Number(booking.total), booking.currency, l)} (${t.payAtHotel})`,
-    `${t.cancellation}: ${cancellation}`, "", `${t.manage}: ${manageUrl}`,
+    `${t.cancellation}: ${cancellation}`, ...(w.text.length ? ["", ...w.text] : []), "", `${t.manage}: ${manageUrl}`,
   ].join("\n");
   return { subject: fill(t.subject, { hotel, ref: booking.reference }), html: shell(config, inner), text };
 }
@@ -334,9 +346,302 @@ function background(task: Promise<unknown>) {
   return runtime?.waitUntil ? Promise.resolve() : task;
 }
 
+
+// ------------------------------------------------------------------ v2 helpers
+// Extra e-mail lines: welcome back, jacuzzi / sauna, pre-arrival reminder.
+const EXTRA: Record<Lang, Record<string, string>> = {
+  en: {
+    welcomeBack: "Welcome back! It is lovely that you chose us again, and we look forward to having you with us once more.",
+    lastTime: "Last time you enjoyed our {facility}. It is free for hotel guests, so book your slot for this stay now and it will be waiting for you.",
+    bookFacility: "Book the {facility}", wellnessInvite: "Our {facilities} are free for hotel guests. Book a private slot before you arrive.",
+    bookWellness: "Book a free slot", reminderSubject: "See you soon – {hotel}, {date}",
+    reminderIntro: "We are looking forward to welcoming you in {days} days.", reminderTomorrow: "We are looking forward to welcoming you tomorrow.",
+    transferTitle: "Arriving by plane?", transferAsk: "Here are our transfer prices. Reply to this e-mail or call us and we will arrange it.",
+    and: "and", yourStay: "Your stay",
+  },
+  hu: {
+    welcomeBack: "Örülünk, hogy ismét minket választott! Szeretettel várjuk újra.",
+    lastTime: "Legutóbb Ön a {facility} szolgáltatásunkat is igénybe vette. Szállodai vendégeinknek ingyenes: foglalja le most az időpontot erre a tartózkodásra.",
+    bookFacility: "{facility} foglalása", wellnessInvite: "A {facilities} szállodai vendégeinknek ingyenes. Foglaljon privát időpontot már érkezés előtt.",
+    bookWellness: "Ingyenes időpont foglalása", reminderSubject: "Hamarosan találkozunk – {hotel}, {date}",
+    reminderIntro: "{days} nap múlva szeretettel várjuk.", reminderTomorrow: "Holnap szeretettel várjuk.",
+    transferTitle: "Repülővel érkezik?", transferAsk: "Transzferáraink alább láthatók. Válaszoljon erre az e-mailre vagy hívjon minket, és megszervezzük.",
+    and: "és", yourStay: "Az Ön foglalása",
+  },
+  de: {
+    welcomeBack: "Willkommen zurück! Wir freuen uns sehr, dass Sie sich wieder für uns entschieden haben.",
+    lastTime: "Bei Ihrem letzten Aufenthalt haben Sie unser Angebot „{facility}“ genutzt. Für Hotelgäste ist es kostenlos – buchen Sie jetzt Ihren Termin für diesen Aufenthalt.",
+    bookFacility: "{facility} buchen", wellnessInvite: "Unser Angebot „{facilities}“ ist für Hotelgäste kostenlos. Buchen Sie schon vor der Anreise einen privaten Termin.",
+    bookWellness: "Kostenlosen Termin buchen", reminderSubject: "Bis bald – {hotel}, {date}",
+    reminderIntro: "Wir freuen uns, Sie in {days} Tagen begrüßen zu dürfen.", reminderTomorrow: "Wir freuen uns, Sie morgen begrüßen zu dürfen.",
+    transferTitle: "Sie reisen mit dem Flugzeug an?", transferAsk: "Hier sind unsere Transferpreise. Antworten Sie auf diese E-Mail oder rufen Sie uns an, wir organisieren alles.",
+    and: "und", yourStay: "Ihr Aufenthalt",
+  },
+  es: {
+    welcomeBack: "¡Bienvenido/a de nuevo! Nos alegra mucho que nos haya elegido otra vez.",
+    lastTime: "En su última estancia utilizó el servicio de {facility}. Es gratuito para los huéspedes: reserve ya su turno para esta estancia.",
+    bookFacility: "Reservar {facility}", wellnessInvite: "El servicio de {facilities} es gratuito para los huéspedes. Reserve un turno privado antes de llegar.",
+    bookWellness: "Reservar un turno gratis", reminderSubject: "Hasta pronto – {hotel}, {date}",
+    reminderIntro: "Le esperamos dentro de {days} días.", reminderTomorrow: "Le esperamos mañana.",
+    transferTitle: "¿Llega en avión?", transferAsk: "Estos son nuestros precios de traslado. Responda a este correo o llámenos y lo organizamos.",
+    and: "y", yourStay: "Su estancia",
+  },
+  it: {
+    welcomeBack: "Bentornato/a! Siamo felici che ci abbia scelto di nuovo.",
+    lastTime: "Durante l'ultimo soggiorno ha usato il servizio {facility}. È gratuito per gli ospiti: prenoti ora il suo turno per questo soggiorno.",
+    bookFacility: "Prenota {facility}", wellnessInvite: "Il servizio {facilities} è gratuito per gli ospiti dell'hotel. Prenoti un turno privato prima dell'arrivo.",
+    bookWellness: "Prenota un turno gratuito", reminderSubject: "A presto – {hotel}, {date}",
+    reminderIntro: "La aspettiamo tra {days} giorni.", reminderTomorrow: "La aspettiamo domani.",
+    transferTitle: "Arriva in aereo?", transferAsk: "Ecco i nostri prezzi per il transfer. Risponda a questa e-mail o ci chiami e lo organizziamo.",
+    and: "e", yourStay: "Il suo soggiorno",
+  },
+  fr: {
+    welcomeBack: "Bon retour parmi nous ! Nous sommes ravis que vous nous ayez choisis à nouveau.",
+    lastTime: "Lors de votre dernier séjour, vous avez profité de notre {facility}. Il est gratuit pour nos clients : réservez dès maintenant votre créneau pour ce séjour.",
+    bookFacility: "Réserver le {facility}", wellnessInvite: "L'accès au {facilities} est gratuit pour nos clients. Réservez un créneau privé avant votre arrivée.",
+    bookWellness: "Réserver un créneau gratuit", reminderSubject: "À bientôt – {hotel}, {date}",
+    reminderIntro: "Nous avons hâte de vous accueillir dans {days} jours.", reminderTomorrow: "Nous avons hâte de vous accueillir demain.",
+    transferTitle: "Vous arrivez en avion ?", transferAsk: "Voici nos tarifs de transfert. Répondez à cet e-mail ou appelez-nous, nous nous en occupons.",
+    and: "et", yourStay: "Votre séjour",
+  },
+};
+
+const SIGNED = /^s1\.\d{10}\.[A-Za-z0-9_-]{43}$/;  // e-mail links: signed and expiring
+const PREVIEW = /^[0-9a-f]{32,128}$/;              // top management's test link
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+async function hmacB64(key: string, input: string): Promise<string> {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(input)));
+  return btoa(String.fromCharCode(...sig)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+const linkKey = () => `${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}:booking-engine-link:v1`;
+
+/** Manage-link token for e-mails sent later (the original token is never stored). */
+async function signedToken(publicId: string, reference: string, expiresAt: Date): Promise<string> {
+  const exp = Math.floor(expiresAt.getTime() / 1000);
+  return `s1.${exp}.${await hmacB64(linkKey(), `${publicId}|${reference.toUpperCase()}|${exp}`)}`;
+}
+
+/** sha-256 of the manage token, for either kind of link; null when the link is not valid. */
+async function accessHash(db: Db, publicId: string, reference: string, token: string): Promise<string | null> {
+  if (TOKEN.test(token)) return await sha256Hex(token);
+  if (!SIGNED.test(token)) return null;
+  const [, expText, sig] = token.split(".");
+  if (Number(expText) * 1000 < Date.now()) return null;
+  if (!timingSafeEqual(await hmacB64(linkKey(), `${publicId}|${reference.toUpperCase()}|${expText}`), sig)) return null;
+  const { data: engine } = await db.from("booking_engines").select("id").eq("public_id", publicId).maybeSingle();
+  if (!engine) return null;
+  const { data: row } = await db.from("booking_engine_bookings").select("manage_token_hash")
+    .eq("engine_id", engine.id).eq("reference", reference.toUpperCase()).maybeSingle();
+  return row?.manage_token_hash ?? null;
+}
+
+/** True when the request carries this engine's test-link token. */
+async function previewOk(db: Db, publicId: string, token: unknown): Promise<boolean> {
+  const t = str(token, 128);
+  if (!PREVIEW.test(t)) return false;
+  const { data } = await db.from("booking_engines").select("preview_token").eq("public_id", publicId).maybeSingle();
+  return !!data?.preview_token && timingSafeEqual(String(data.preview_token), t);
+}
+
+const budapestToday = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+const addDaysIso = (date: string, days: number) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
+type Facility = { kind: string; name: string };
+type WellnessExtras = { returning: boolean; pastKinds: string[]; facilities: Facility[]; manageUrl: string };
+
+const facilityWord = (kind: string, l: Lang, fallback: string) => {
+  const name = facilityName(kind, l as TicketLang, fallback);
+  return l === "de" ? name : name.toLowerCase();
+};
+
+/** "jacuzzi and sauna" in the guest's language. */
+function facilitiesPhrase(list: Facility[], l: Lang): string {
+  const names = list.map((f) => facilityWord(f.kind, l, f.name));
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} ${EXTRA[l].and} ${names[names.length - 1]}` : names[0] ?? "";
+}
+
+/** Welcome-back line and the jacuzzi / sauna invitation for the guest's own e-mails. */
+function wellnessBlock(extras: WellnessExtras | undefined, l: Lang, color: string): { top: string; box: string; text: string[] } {
+  const x = EXTRA[l];
+  const out = { top: "", box: "", text: [] as string[] };
+  if (!extras) return out;
+  if (extras.returning) {
+    out.top = `<p style="margin:0 0 16px">${esc(x.welcomeBack)}</p>`;
+    out.text.push(x.welcomeBack);
+  }
+  if (!extras.facilities.length) return out;
+  const again = extras.facilities.filter((f) => extras.pastKinds.includes(f.kind));
+  const link = (kind?: string) => `${extras.manageUrl}&tab=wellness${kind ? `&kind=${kind}` : ""}`;
+  const button = (label: string, href: string) =>
+    `<a href="${esc(href)}" style="display:inline-block;background:${color};color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">${esc(label)}</a>`;
+  const line = again.length
+    ? fill(x.lastTime, { facility: facilitiesPhrase(again, l) })
+    : fill(x.wellnessInvite, { facilities: facilitiesPhrase(extras.facilities, l) });
+  const rawLabel = again.length
+    ? fill(x.bookFacility, { facility: facilitiesPhrase(again.slice(0, 1), l) })
+    : x.bookWellness;
+  const label = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
+  out.box = `<div style="margin:22px 0 4px;padding:16px 18px;border-radius:12px;background:#f3f6f8">
+<p style="margin:0 0 12px">${esc(line)}</p>${button(label, link(again[0]?.kind))}</div>`;
+  out.text.push(line, `${label}: ${link(again[0]?.kind)}`);
+  return out;
+}
+
+type TransferPrice = { label: string; price: number; currency: string; note?: string };
+
+function guestReminder(config: Json, booking: Json, l: Lang, manageUrl: string, days: number,
+                       extras: WellnessExtras, transfers: TransferPrice[]) {
+  const t = MAIL[l];
+  const x = EXTRA[l];
+  const engine = config.engine ?? {};
+  const policies = engine.policies ?? {};
+  const color = safeColor(engine.theme?.primary);
+  const hotel = String(engine.name ?? "");
+  const first = String(booking.guest_name ?? "").split(" ")[0];
+  const row = (label: string, value: string) =>
+    `<tr><td style="padding:6px 0;color:#6b7280;vertical-align:top;width:42%">${esc(label)}</td><td style="padding:6px 0;font-weight:600">${value}</td></tr>`;
+  const checkInTime = policies.check_in_from ? ` <span style="font-weight:400;color:#6b7280">(${esc(fill(t.from, { time: policies.check_in_from }))})</span>` : "";
+  const checkOutTime = policies.check_out_until ? ` <span style="font-weight:400;color:#6b7280">(${esc(fill(t.until, { time: policies.check_out_until }))})</span>` : "";
+  const rooms = (booking.rooms ?? []).map((r: Json) => row(t.room, esc(roomLabel(config, r.room_type_id, r.rate_plan_id, l).room || r.room_type_name || ""))).join("");
+  const w = wellnessBlock(extras, l, color);
+  const intro = days <= 1 ? x.reminderTomorrow : fill(x.reminderIntro, { days: String(days) });
+  const transferHtml = transfers.length
+    ? `<div style="margin:22px 0 4px"><p style="margin:0 0 6px;font-weight:600">${esc(x.transferTitle)}</p>
+<p style="margin:0 0 8px;color:#374151">${esc(x.transferAsk)}</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px">${transfers.map((p) =>
+      `<tr><td style="padding:4px 0">${esc(p.label)}${p.note ? ` <span style="color:#6b7280">(${esc(p.note)})</span>` : ""}</td><td style="padding:4px 0;text-align:right;font-weight:600">${esc(money(Number(p.price), p.currency, l))}</td></tr>`).join("")}</table></div>`
+    : "";
+  const contact = engine.contact ?? {};
+  const contactLine = [contact.phone, contact.email, contact.address].filter(Boolean).map(esc).join(" · ");
+  const inner = `
+<p style="margin:0 0 12px">${esc(fill(t.dear, { name: first }))}</p>
+${w.top}
+<p style="margin:0 0 18px">${esc(intro)}</p>
+<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px">
+<div style="font-size:13px;color:#6b7280">${esc(x.yourStay)} · ${esc(t.ref)} ${esc(booking.reference)}</div>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:6px">
+${row(t.checkIn, esc(longDate(booking.check_in_date, l)) + checkInTime)}
+${row(t.checkOut, esc(longDate(booking.check_out_date, l)) + checkOutTime)}
+${rooms}
+${row(t.payment, esc(t.payAtHotel))}
+</table></div>
+${w.box}
+${transferHtml}
+<div style="text-align:center;margin:26px 0 8px"><a href="${esc(manageUrl)}" style="color:${color};font-weight:600">${esc(t.manage)}</a></div>
+${contactLine ? `<p style="margin:16px 0 0;font-size:13px;color:#6b7280">${esc(t.contact)} ${contactLine}</p>` : ""}`;
+  const text = [fill(t.dear, { name: first }), ...(w.top ? [x.welcomeBack] : []), intro, "",
+    `${t.checkIn}: ${longDate(booking.check_in_date, l)}`, `${t.checkOut}: ${longDate(booking.check_out_date, l)}`,
+    ...w.text.slice(w.top ? 1 : 0), "", `${t.manage}: ${manageUrl}`].join("\n");
+  return {
+    subject: fill(x.reminderSubject, { hotel, date: longDate(booking.check_in_date, l) }),
+    html: shell(config, inner), text,
+  };
+}
+
+/** Bookings of the stay behind a manage link (token or signed e-mail link). */
+async function manageStay(db: Db, body: Json) {
+  const id = requireId(body);
+  const reference = str(body.reference, 12).toUpperCase();
+  const token = str(body.token, 120);
+  if (!REFERENCE.test(reference)) throw new ApiError("NOT_FOUND", 404);
+  const hash = await accessHash(db, id, reference, token);
+  if (!hash) throw new ApiError("NOT_FOUND", 404);
+  const { data: engine } = await db.from("booking_engines").select("id, hotel_id, theme").eq("public_id", id).maybeSingle();
+  if (!engine) throw new ApiError("NOT_FOUND", 404);
+  const { data: row } = await db.from("booking_engine_bookings").select("*")
+    .eq("engine_id", engine.id).eq("reference", reference).eq("manage_token_hash", hash).maybeSingle();
+  if (!row) throw new ApiError("NOT_FOUND", 404);
+  const reservationIds: string[] = (row.rooms ?? []).map((r: Json) => String(r.reservation_id ?? "")).filter((v: string) => UUID.test(v));
+  return { id, reference, token, row, engine, reservationIds };
+}
+
+function wellnessReply(error: { message?: string }) {
+  const code = wellnessErrorCode(error);
+  if (!code) throw dbError(error);
+  return json({ ok: false, error: code, message: WELLNESS_ERRORS[code].message }, WELLNESS_ERRORS[code].status);
+}
+
+async function activeFacilities(db: Db, hotelId: string): Promise<Facility[]> {
+  const { data } = await db.from("insuite_wellness_resources").select("kind, name")
+    .eq("hotel_id", hotelId).eq("is_active", true).order("sort_order");
+  return (data ?? []) as Facility[];
+}
+
+async function workerAuthorized(db: Db, req: Request): Promise<boolean> {
+  const provided = req.headers.get("x-worker-secret") || "";
+  if (!provided) return false;
+  const { data, error } = await db.rpc("booking_engine_worker_secret");
+  return !error && typeof data === "string" && data.length > 0 && timingSafeEqual(provided, data);
+}
+
+/** Daily: pre-arrival e-mails, with the welcome-back and jacuzzi / sauna lines. */
+async function actionReminders(db: Db) {
+  const { data: due, error } = await db.rpc("booking_engine_due_reminders", { p_limit: 200 });
+  if (error) throw dbError(error);
+  const today = budapestToday();
+  const engines = new Map<string, Json>();
+  let sent = 0, skipped = 0, failed = 0;
+  for (const b of (due ?? []) as Json[]) {
+    try {
+      let engine: Json | undefined = engines.get(b.engine_id);
+      if (!engine) {
+        const { data } = await db.from("booking_engines").select("public_id, hotel_id").eq("id", b.engine_id).maybeSingle();
+        const found: Json = data ?? {};
+        engines.set(b.engine_id, found);
+        engine = found;
+      }
+      const publicId = String(engine.public_id ?? "");
+      if (!publicId) continue;
+      const l = lang(b.language);
+      const config = await loadConfig(db, publicId, true);
+      const reservationIds = (b.rooms ?? []).map((r: Json) => r.reservation_id).filter(Boolean);
+      const [first, ...rest] = String(b.guest_name ?? "").split(" ");
+      const [{ data: history }, facilities, { data: settings }] = await Promise.all([
+        db.rpc("booking_engine_guest_history", {
+          p_hotel_id: b.hotel_id, p_email: b.guest_email, p_first_name: first, p_last_name: rest.join(" "), p_exclude: reservationIds,
+        }),
+        activeFacilities(db, b.hotel_id),
+        db.from("insuite_wellness_settings").select("transfer_prices").eq("hotel_id", b.hotel_id).maybeSingle(),
+      ]);
+      const token = await signedToken(publicId, b.reference, new Date(`${addDaysIso(b.check_out_date, 2)}T00:00:00Z`));
+      const manageUrl = `${APP_URL}/book/${publicId}/manage?ref=${encodeURIComponent(b.reference)}&token=${encodeURIComponent(token)}&lang=${l}`;
+      const days = Math.max(1, Math.round((Date.parse(b.check_in_date) - Date.parse(today)) / 86400000));
+      const mail = guestReminder(config, b, l, manageUrl, days, {
+        returning: Number(history?.previous_stays ?? 0) > 0,
+        pastKinds: Array.isArray(history?.wellness_kinds) ? history.wellness_kinds : [],
+        facilities, manageUrl,
+      }, Array.isArray(settings?.transfer_prices) ? settings.transfer_prices : []);
+      const result = await sendEmail({ admin: db, organizationSlug: b.organization_slug, to: [b.guest_email], ...mail });
+      const status = result.ok ? "sent" : `${result.skipped ? "skipped" : "failed"}: ${result.error ?? ""}`.slice(0, 300);
+      if (result.ok) sent++; else if (result.skipped) skipped++; else failed++;
+      // A failed send is retried tomorrow while still inside the window; sent or skipped is final.
+      await db.from("booking_engine_bookings").update({
+        reminder_status: status, ...(result.ok || result.skipped ? { reminder_sent_at: new Date().toISOString() } : {}),
+      }).eq("id", b.id);
+    } catch (e) {
+      failed++;
+      console.error("booking-engine reminder failed:", b.reference, e instanceof Error ? e.message : e);
+    }
+  }
+  return { ok: true, due: (due ?? []).length, sent, skipped, failed };
+}
+
 // ------------------------------------------------------------------ actions
-async function loadConfig(db: Db, id: string): Promise<Json> {
-  const { data, error } = await db.rpc("booking_engine_public_config", { p_public_id: id });
+async function loadConfig(db: Db, id: string, preview = false): Promise<Json> {
+  const { data, error } = await db.rpc("booking_engine_public_config", { p_public_id: id, p_preview: preview });
   if (error) throw dbError(error);
   if (!data) throw new ApiError("NOT_FOUND", 404);
   return data as Json;
@@ -370,22 +675,45 @@ async function actionBook(db: Db, body: Json, ipHash: string, userAgent: string)
   if (await overLimit(db, `book:ip:${ipHash}`, 600, 6)) throw new ApiError("RATE_LIMITED", 429);
   if (await overLimit(db, `book:engine:${id}`, 3600, 60)) throw new ApiError("RATE_LIMITED", 429);
 
+  const preview = await previewOk(db, id, body.preview);
   const token = randomToken();
   const { data, error } = await db.rpc("booking_engine_create_booking", {
     p_public_id: id, p_check_in: checkIn, p_check_out: checkOut, p_rooms: rooms, p_guest: guest,
     p_language: language, p_consent: { terms: true, marketing: body.consent?.marketing === true },
     p_attribution: cleanAttribution(body.attribution), p_token_hash: await sha256Hex(token),
-    p_ip_hash: ipHash, p_user_agent: userAgent,
+    p_ip_hash: ipHash, p_user_agent: userAgent, p_preview: preview,
   });
   if (error) throw dbError(error);
   const result = data as Json;
+  const summary = {
+    ok: true, reference: result.reference, total: result.total, currency: result.currency,
+    free_cancellation_until: result.free_cancellation_until, rooms: (result.rooms ?? []).map((r: Json) => ({
+      room_type_id: r.room_type_id, rate_plan_id: r.rate_plan_id, adults: r.adults, children: r.children, total: r.total,
+    })),
+  };
+  // Test link: every rule and price was checked, nothing was stored. No e-mails.
+  if (result.preview) return { ...summary, preview: true };
   const manageUrl = `${APP_URL}/book/${id}/manage?ref=${encodeURIComponent(result.reference)}&token=${encodeURIComponent(token)}&lang=${language}`;
 
   const mail = async () => {
     try {
       const config = await loadConfig(db, id);
       const booking = { ...result, check_in: checkIn, check_out: checkOut };
-      const toGuest = guestConfirmation(config, booking, guest, language, manageUrl);
+      // Recognised by e-mail or name: a warm line and the jacuzzi / sauna they
+      // used last time, in their own e-mail only (anyone can type an address,
+      // so the booking page itself never reveals a stay history).
+      const [{ data: history }, facilities] = await Promise.all([
+        db.rpc("booking_engine_guest_history", {
+          p_hotel_id: result.hotel_id, p_email: guest.email, p_first_name: guest.first_name, p_last_name: guest.last_name,
+          p_exclude: (result.rooms ?? []).map((r: Json) => r.reservation_id).filter(Boolean),
+        }),
+        activeFacilities(db, result.hotel_id),
+      ]);
+      const toGuest = guestConfirmation(config, booking, guest, language, manageUrl, {
+        returning: Number(history?.previous_stays ?? 0) > 0,
+        pastKinds: Array.isArray(history?.wellness_kinds) ? history.wellness_kinds : [],
+        facilities, manageUrl,
+      });
       const guestSend = await sendEmail({ admin: db, organizationSlug: result.organization_slug, to: [guest.email], ...toGuest });
       const { data: engineRow } = await db.from("booking_engines").select("notification_emails, contact").eq("public_id", id).maybeSingle();
       const hotelTo = [...(engineRow?.notification_emails ?? []), ...(engineRow?.notification_emails?.length ? [] : [engineRow?.contact?.email])]
@@ -406,22 +734,17 @@ async function actionBook(db: Db, body: Json, ipHash: string, userAgent: string)
   };
   await background(mail());
 
-  return {
-    ok: true, reference: result.reference, total: result.total, currency: result.currency,
-    free_cancellation_until: result.free_cancellation_until, rooms: (result.rooms ?? []).map((r: Json) => ({
-      room_type_id: r.room_type_id, rate_plan_id: r.rate_plan_id, adults: r.adults, children: r.children, total: r.total,
-    })),
-    manage_url: manageUrl,
-  };
+  return { ...summary, manage_url: manageUrl };
 }
 
 async function actionCancel(db: Db, body: Json, ipHash: string) {
   const id = requireId(body);
   const reference = str(body.reference, 12).toUpperCase();
-  const token = str(body.token, 80);
-  if (!REFERENCE.test(reference) || !TOKEN.test(token)) throw new ApiError("NOT_FOUND", 404);
+  const token = str(body.token, 120);
+  if (!REFERENCE.test(reference)) throw new ApiError("NOT_FOUND", 404);
   if (await overLimit(db, `cancel:ip:${ipHash}`, 600, 8)) throw new ApiError("RATE_LIMITED", 429);
-  const tokenHash = await sha256Hex(token);
+  const tokenHash = await accessHash(db, id, reference, token);
+  if (!tokenHash) throw new ApiError("NOT_FOUND", 404);
   const { data, error } = await db.rpc("booking_engine_cancel_booking", { p_public_id: id, p_reference: reference, p_token_hash: tokenHash });
   if (error) throw dbError(error);
   const { data: booking } = await db.rpc("booking_engine_get_booking", { p_public_id: id, p_reference: reference, p_token_hash: tokenHash });
@@ -464,7 +787,7 @@ Deno.serve(async (req) => {
       case "config": {
         const id = requireId(body);
         if (await overLimit(db, `read:ip:${ipHash}`, 60, 120)) throw new ApiError("RATE_LIMITED", 429);
-        return json({ ok: true, ...(await loadConfig(db, id)) });
+        return json({ ok: true, ...(await loadConfig(db, id, await previewOk(db, id, body.preview))) });
       }
       case "calendar": {
         const id = requireId(body);
@@ -472,7 +795,9 @@ Deno.serve(async (req) => {
         const to = str(body.to, 10);
         if (!DATE.test(from) || !DATE.test(to)) throw new ApiError("INVALID_DATES");
         if (await overLimit(db, `read:ip:${ipHash}`, 60, 120)) throw new ApiError("RATE_LIMITED", 429);
-        const { data, error } = await db.rpc("booking_engine_calendar", { p_public_id: id, p_from: from, p_to: to });
+        const { data, error } = await db.rpc("booking_engine_calendar", {
+          p_public_id: id, p_from: from, p_to: to, p_preview: await previewOk(db, id, body.preview),
+        });
         if (error) throw dbError(error);
         if (!data?.ok) throw new ApiError(String(data?.error ?? "SERVER_ERROR"), KNOWN_ERRORS[String(data?.error)] ?? 500);
         return json(data);
@@ -481,7 +806,9 @@ Deno.serve(async (req) => {
         const id = requireId(body);
         const { checkIn, checkOut } = requireDates(body);
         if (await overLimit(db, `search:ip:${ipHash}`, 60, 40)) throw new ApiError("RATE_LIMITED", 429);
-        const { data, error } = await db.rpc("booking_engine_search", { p_public_id: id, p_check_in: checkIn, p_check_out: checkOut });
+        const { data, error } = await db.rpc("booking_engine_search", {
+          p_public_id: id, p_check_in: checkIn, p_check_out: checkOut, p_preview: await previewOk(db, id, body.preview),
+        });
         if (error) throw dbError(error);
         if (!data?.ok) throw new ApiError(String(data?.error ?? "SERVER_ERROR"), KNOWN_ERRORS[String(data?.error)] ?? 500);
         return json(data);
@@ -491,16 +818,86 @@ Deno.serve(async (req) => {
       case "lookup": {
         const id = requireId(body);
         const reference = str(body.reference, 12).toUpperCase();
-        const token = str(body.token, 80);
-        if (!REFERENCE.test(reference) || !TOKEN.test(token)) throw new ApiError("NOT_FOUND", 404);
+        const token = str(body.token, 120);
+        if (!REFERENCE.test(reference)) throw new ApiError("NOT_FOUND", 404);
         if (await overLimit(db, `lookup:ip:${ipHash}`, 60, 20)) throw new ApiError("RATE_LIMITED", 429);
-        const { data, error } = await db.rpc("booking_engine_get_booking", { p_public_id: id, p_reference: reference, p_token_hash: await sha256Hex(token) });
+        const tokenHash = await accessHash(db, id, reference, token);
+        if (!tokenHash) throw new ApiError("NOT_FOUND", 404);
+        const { data, error } = await db.rpc("booking_engine_get_booking", { p_public_id: id, p_reference: reference, p_token_hash: tokenHash });
         if (error) throw dbError(error);
         if (!data) throw new ApiError("NOT_FOUND", 404);
         return json({ ok: true, booking: data });
       }
       case "cancel":
         return json(await actionCancel(db, body, ipHash));
+      // ---------------------------------------------------- jacuzzi & sauna from the manage link
+      case "wellness": {
+        if (await overLimit(db, `wellness:ip:${ipHash}`, 60, 40)) throw new ApiError("RATE_LIMITED", 429);
+        const stay = await manageStay(db, body);
+        const today = budapestToday();
+        const from = stay.row.check_in_date > today ? stay.row.check_in_date : today;
+        const to = stay.row.check_out_date;
+        const empty = { ok: true, resources: [], bookings: [], from, to };
+        if (stay.row.status !== "confirmed" || !stay.reservationIds.length || to < today) return json(empty);
+        const [slots, mine] = await Promise.all([
+          db.rpc("insuite_wellness_slots", { _hotel_id: stay.row.hotel_id, _from: from, _to: to, _reservation_id: stay.reservationIds[0] }),
+          db.rpc("insuite_wellness_stay_bookings", { _reservation_ids: stay.reservationIds }),
+        ]);
+        if (slots.error) throw dbError(slots.error);
+        return json({ ...(slots.data ?? empty), bookings: mine.data ?? [] });
+      }
+      case "wellness_book": {
+        if (await overLimit(db, `wellness-book:ip:${ipHash}`, 600, 12)) throw new ApiError("RATE_LIMITED", 429);
+        const stay = await manageStay(db, body);
+        if (stay.row.status !== "confirmed" || !stay.reservationIds.length) throw new ApiError("NOT_FOUND", 404);
+        const resourceId = str(body.resource_id, 40);
+        const startsAt = Date.parse(str(body.starts_at, 40));
+        const party = int(body.party_size);
+        const clientId = str(body.client_request_id, 40);
+        if (!UUID.test(resourceId) || !Number.isFinite(startsAt) || !(party >= 1 && party <= 8) || !UUID.test(clientId)) {
+          throw new ApiError("INVALID_SLOT");
+        }
+        const { data: booking, error } = await db.rpc("insuite_wellness_book", {
+          _resource_id: resourceId, _starts_at: new Date(startsAt).toISOString(), _party_size: party,
+          _source: "booking_engine", _reservation_id: stay.reservationIds[0], _guest_email: stay.row.guest_email,
+          _client_request_id: clientId,
+        });
+        if (error) return wellnessReply(error);
+        if (!booking.repeated) {
+          const manageUrl = `${APP_URL}/book/${stay.id}/manage?ref=${encodeURIComponent(stay.reference)}&token=${encodeURIComponent(stay.token)}&lang=${lang(stay.row.language)}&tab=wellness`;
+          await afterResponse(Promise.all([
+            notifyReception(db, booking, "booked"),
+            sendGuestTicket(db, booking, stay.row.guest_email, {
+              lang: lang(stay.row.language) as TicketLang, manageUrl, color: safeColor(stay.engine.theme?.primary),
+            }),
+          ]));
+        }
+        return json({ ok: true, booking });
+      }
+      case "wellness_cancel": {
+        if (await overLimit(db, `wellness-book:ip:${ipHash}`, 600, 12)) throw new ApiError("RATE_LIMITED", 429);
+        const stay = await manageStay(db, body);
+        const bookingId = str(body.booking_id, 40);
+        if (!UUID.test(bookingId)) throw new ApiError("NOT_FOUND", 404);
+        const { data: own } = await db.from("insuite_wellness_bookings").select("reservation_id")
+          .eq("id", bookingId).eq("hotel_id", stay.row.hotel_id).maybeSingle();
+        if (!own || !stay.reservationIds.includes(String(own.reservation_id))) throw new ApiError("NOT_FOUND", 404);
+        const { data: booking, error } = await db.rpc("insuite_wellness_change", {
+          _booking_id: bookingId, _hotel_id: stay.row.hotel_id, _action: "cancel", _reservation_id: own.reservation_id,
+          _reason: "Cancelled by the guest from the booking link",
+        });
+        if (error) return wellnessReply(error);
+        await afterResponse(Promise.all([
+          notifyReception(db, booking, "cancelled"),
+          sendGuestTicket(db, booking, stay.row.guest_email, { lang: lang(stay.row.language) as TicketLang, event: "cancelled" }),
+        ]));
+        return json({ ok: true, booking });
+      }
+      // ---------------------------------------------------- daily job
+      case "reminders": {
+        if (!(await workerAuthorized(db, req))) return json({ ok: false, error: "NOT_FOUND" }, 404);
+        return json(await actionReminders(db));
+      }
       default:
         return json({ ok: false, error: "UNKNOWN_ACTION" }, 400);
     }
