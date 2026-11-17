@@ -4,7 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 
 import { useTenant } from '@/contexts/TenantContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Building2, Check } from 'lucide-react';
+import { Building2, Check, ChevronDown } from 'lucide-react';
+import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -19,7 +20,8 @@ import { HotelSwitchOverlay } from './HotelSwitchOverlay';
 import { setTabHotel } from '@/lib/tabHotel';
 
 
-export function HotelSwitcher() {
+export function HotelSwitcher({ mode = 'compact' }: { mode?: 'compact' | 'banner' }) {
+  const { language } = useTranslation();
   const { profile, applyAssignedHotel } = useAuth();
   const { hotels } = useTenant();
   const navigate = useNavigate();
@@ -34,6 +36,12 @@ export function HotelSwitcher() {
   }, [profile?.assigned_hotel]);
 
   const staffRole = !!profile && ['maintenance', 'maintenance_manager', 'housekeeping'].includes(profile.role);
+  const banner = staffRole && mode === 'banner';
+  const labels = language === 'es'
+    ? { change: 'Cambiar hotel', current: 'Hotel de trabajo', choose: 'Elija su hotel de trabajo', scope: 'Solo hoteles de su organización' }
+    : language === 'hu'
+      ? { change: 'Hotelváltás', current: 'Jelenlegi munkahely', choose: 'Válasszon hotelt', scope: 'Csak a saját szervezetének hoteljei' }
+      : { change: 'Change hotel', current: 'Current work hotel', choose: 'Choose your work hotel', scope: 'Hotels in your organization only' };
   // Operational staff can switch work venues, but never organizations.
   if (!profile || !['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager', 'maintenance', 'maintenance_manager', 'housekeeping'].includes(profile.role)) {
     return null;
@@ -46,7 +54,8 @@ export function HotelSwitcher() {
   }
 
   const handleSwitchHotel = async (hotelId: string) => {
-    if (!organizationSlug || hotelId === currentHotel || switchingTo) return;
+    if (!organizationSlug || switchingTo) return;
+    if (hotels.some(h => h.hotel_id === hotelId && (currentHotel === h.hotel_id || currentHotel === h.hotel_name))) return;
     const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
     const hotelName = selectedHotelData?.hotel_name || hotelId;
     if (!selectedHotelData) { toast.error('Hotel is not available in your organization'); return; }
@@ -115,7 +124,7 @@ export function HotelSwitcher() {
 
 
 
-  const currentHotelData = hotels.find(h => h.hotel_id === currentHotel);
+  const currentHotelData = hotels.find(h => h.hotel_id === currentHotel || h.hotel_name === currentHotel);
   const currentHotelName = currentHotelData?.hotel_name || currentHotel || 'All Hotels';
 
   return (
@@ -129,17 +138,36 @@ export function HotelSwitcher() {
           size="sm"
           data-tour="hotel-switcher"
           data-training="hotel-switcher"
-          aria-label={`Switch hotel. Working at ${currentHotelName}`}
-          className={staffRole
-            ? "shrink-0 gap-2 h-9 px-3 justify-center border-primary/40 bg-primary/5"
-            : "shrink-0 gap-2 h-9 w-9 sm:w-auto sm:px-3 p-0 justify-center"}
+          aria-label={`${labels.change}. ${labels.current}: ${currentHotelName}`}
+          className={banner
+            ? "w-full h-auto min-h-[60px] flex items-center gap-3 px-3 py-2 rounded-xl border-primary/40 bg-primary/5 text-left justify-start shadow-sm"
+            : staffRole
+              ? "shrink-0 gap-2 h-9 px-3 justify-center border-primary/40 bg-primary/5"
+              : "shrink-0 gap-2 h-9 w-9 sm:w-auto sm:px-3 p-0 justify-center"}
         >
-          <Building2 className="h-4 w-4 shrink-0" />
-          <span className={staffRole ? "truncate max-w-[130px] sm:max-w-[160px] text-xs sm:text-sm font-medium" : "hidden sm:inline truncate max-w-[140px]"}>{staffRole ? `Hotel: ${currentHotelName}` : currentHotelName}</span>
+          <Building2 className={banner ? "h-5 w-5 shrink-0 text-primary" : "h-4 w-4 shrink-0"} />
+          {banner ? (
+            <>
+              <span className="min-w-0 flex-1 flex flex-col text-left">
+                <span className="text-[10px] tracking-wide uppercase text-muted-foreground">{labels.current}</span>
+                <span className="font-semibold text-sm text-foreground whitespace-normal">{currentHotelName}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-primary">
+                {labels.change}<ChevronDown className="h-4 w-4" />
+              </span>
+            </>
+          ) : (
+            <>
+              <span className={staffRole ? "truncate max-w-[120px] sm:max-w-[150px] text-xs sm:text-sm font-medium" : "hidden sm:inline truncate max-w-[140px]"}>{currentHotelName}</span>
+              {staffRole && <span className="hidden sm:inline text-xs font-medium text-primary">{labels.change}</span>}
+              <ChevronDown className={staffRole ? "h-4 w-4 shrink-0" : "h-3 w-3 hidden sm:block shrink-0"} />
+            </>
+          )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Switch Hotel</DropdownMenuLabel>
+      <DropdownMenuContent align="end" sideOffset={6} className={banner ? "w-[min(92vw,340px)]" : "w-64 max-w-[92vw]"}>
+        <DropdownMenuLabel>{staffRole ? labels.choose : 'Switch Hotel'}</DropdownMenuLabel>
+        {staffRole && <p className="px-2 pb-1 text-xs text-muted-foreground">{labels.scope}</p>}
         <DropdownMenuSeparator />
         {hotels.map((hotel) => (
           <DropdownMenuItem
@@ -149,7 +177,7 @@ export function HotelSwitcher() {
           >
             <div className="flex items-center justify-between w-full">
               <span>{hotel.hotel_name}</span>
-              {currentHotel === hotel.hotel_id && (
+              {(currentHotel === hotel.hotel_id || currentHotel === hotel.hotel_name) && (
                 <Check className="h-4 w-4 text-primary" />
               )}
             </div>
