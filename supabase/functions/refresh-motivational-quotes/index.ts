@@ -155,7 +155,7 @@ serve(async (req) => {
     const payload = await res.json();
     await logAiUsage(admin, {
       organizationSlug: "hotelcare", functionName: "monthly-motivational-quotes",
-      model: "gpt-4o-mini",
+      model: String(payload?.model ?? 'gpt-4o-mini'),
       inputTokens: Number(payload?.usage?.prompt_tokens ?? 0),
       outputTokens: Number(payload?.usage?.completion_tokens ?? 0),
     });
