@@ -93,6 +93,7 @@ const SOURCE_LABELS: Record<string, string> = {
   previo: "Previo",
   previo_snapshot: "Previo",
   other: "Other",
+  website: "Website",
 };
 
 /**
@@ -113,6 +114,8 @@ const CHANNELS: ReadonlyArray<readonly [RegExp, string, string, string]> = [
   [/tripadvisor/, "tripadvisor", "Ta", "bg-[#34E0A1] text-black"],
   [/hostelworld/, "hostelworld", "Hw", "bg-[#F25621] text-white"],
   [/hrs\b/, "hrs", "H", "bg-[#C8102E] text-white"],
+  // HotelCare's own website booking engine (source = "website").
+  [/^website$/, "website", "W", "bg-emerald-600 text-white"],
   [/reservation ?\+|web|website|booking engine|online/, "web", "R+", "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-500/50"],
   [/channex/, "channex", "C", "bg-violet-600 text-white"],
   [/previo/, "previo", "P", "bg-slate-200 text-slate-800"],

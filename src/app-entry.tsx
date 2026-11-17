@@ -41,7 +41,8 @@ function OptionalCompetitorBridge() {
     };
   }, []);
 
-  if (skip) return null;
+  // Guests on the public booking engine never see the revenue grid.
+  if (skip || /^\/book\//.test(window.location.pathname)) return null;
   return (
     <Suspense fallback={null}>
       <CompetitorPricingGridBridge />
