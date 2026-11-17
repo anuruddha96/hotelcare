@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { HOTELS, KIND_STYLE, type WorkforceKind } from '@/lib/workforce/model';
 import type { WorkforceData } from '@/hooks/useWorkforce';
+import { StaffScheduleGoLiveCard } from './StaffScheduleGoLiveCard';
 
 type Row = Record<string, unknown> & { id?: string };
 const KINDS = Object.keys(KIND_STYLE) as WorkforceKind[];
@@ -22,6 +23,7 @@ export function WorkforceSettings({ data, canEdit }: { data: WorkforceData; canE
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
+      {canEdit && <StaffScheduleGoLiveCard />}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Departments</CardTitle>

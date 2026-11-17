@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { canAccessLegacyModules } from '@/lib/roleAccess';
 import { usePurchaseInvoiceAccess } from '@/hooks/usePurchaseInvoiceAccess';
+import { useAccessPolicy } from '@/hooks/useAccessPolicy';
 import { cn } from '@/lib/utils';
 import { PROPERTY_ROLES as WORKFORCE_PROPERTY_ROLES } from '@/lib/workforce/model';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -66,6 +67,9 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
   const legacy = canAccessLegacyModules(profile?.nickname);
   // Invoices follow the organization's module rollout; Parking stays on the legacy pilot gate.
   const invoiceAccess = usePurchaseInvoiceAccess();
+  // Role from the work schedule: reception has no Revenue, housekeeping
+  // managers and supervisors do not answer reviews.
+  const caps = useAccessPolicy();
   // Native rates & availability exists only where HotelCare is the PMS (Channex sandbox for now).
   const nativePms = organizationSlug === 'channex';
   const active = current || moduleFromLocation(location.pathname, location.search, basePath);
@@ -88,9 +92,9 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     ...(canOpenSchedule ? [{ key: 'staff-schedule' as const, label: 'nav.schedule', icon: CalendarDays, click: () => navigate(`${basePath}?view=staff-schedule`) }] : []),
     // Revenue Management hosts the Rate & Pickup calendar (no separate rates
     // module), so on native-PMS hotels managers and the front desk open it too.
-    ...(executive || (nativePms && (role === 'manager' || frontDesk)) ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
+    ...(executive || (nativePms && caps.revenueRead && (role === 'manager' || frontDesk)) ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
     ...(['admin', 'manager', 'top_management', 'top_management_manager'].includes(role) ? [{ key: 'channel-manager' as const, label: 'nav.channels', icon: Radio, click: () => navigate(`${basePath}/channel-manager`) }] : []),
-    ...(executive || (role === 'manager' && organizationSlug === 'rdhotels') ? [{ key: 'reputation' as const, label: 'nav.reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) }] : []),
+    ...(caps.reviews && (executive || (role === 'manager' && organizationSlug === 'rdhotels')) ? [{ key: 'reputation' as const, label: 'nav.reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) }] : []),
     ...(invoiceAccess.hasAccess ? [
       { key: 'invoices' as const, label: 'nav.invoices', icon: Receipt, click: () => navigate(`${basePath}/purchase-invoices`) },
     ] : []),

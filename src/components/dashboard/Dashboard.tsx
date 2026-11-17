@@ -26,6 +26,7 @@ import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isNoMinibarOrganization } from '@/lib/gozsduNoMinibar';
+import { defaultDashboardTabFor } from '@/lib/accessPolicy';
 
 import { AdminTabs } from '@/components/admin/AdminTabs';
 import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
@@ -297,6 +298,9 @@ export function Dashboard() {
 
   const getDefaultTab = (role?: string) => {
     if (!role) return 'rooms';
+    // HR starts on HR; reception keeps the housekeeping start screen.
+    const byAccessRole = defaultDashboardTabFor(profile);
+    if (byAccessRole) return byAccessRole;
     switch (role) {
       case 'housekeeping': return attendanceStatus === 'checked_in' ? 'housekeeping' : 'attendance';
       case 'housekeeping_manager':

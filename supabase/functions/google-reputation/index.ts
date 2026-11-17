@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.78.0";
 import { generateLowCostText, containsLikelySensitiveData } from "../_shared/lowCostAi.ts";
 import { buildCuratedReply, CURATED_REPLY_BASE_COUNT, requiresCarefulReview } from "../_shared/reputation-replies.ts";
 import { buildReplyCustomizationPrompt, validateReplyChoices } from "../_shared/reputation-customization.ts";
+import { capabilitiesFor } from "../_shared/accessPolicy.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -174,11 +175,14 @@ Deno.serve(async (req) => {
 
     const { data: profile } = await admin
       .from("profiles")
-      .select("role,organization_slug,is_super_admin")
+      // "*" keeps working before and after the access_role column exists.
+      .select("*")
       .eq("id", userData.user.id)
       .single();
     if (
       !profile ||
+      // Housekeeping managers and supervisors (manager level) do not handle reviews.
+      !capabilitiesFor(profile).reviews ||
       (!profile.is_super_admin && !["admin", "top_management", "top_management_manager"].includes(profile.role) && !(orgSlugForManager(profile) === "rdhotels" && profile.role === "manager"))
     ) {
       return json({ error: "Forbidden" }, 403);

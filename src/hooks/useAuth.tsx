@@ -13,6 +13,9 @@ interface Profile {
   profile_picture_url?: string;
   phone_number?: string;
   role: 'housekeeping' | 'reception' | 'maintenance' | 'manager' | 'admin' | 'marketing' | 'control_finance' | 'hr' | 'front_office' | 'top_management' | 'housekeeping_manager' | 'maintenance_manager' | 'marketing_manager' | 'reception_manager' | 'back_office_manager' | 'control_manager' | 'finance_manager' | 'top_management_manager' | 'breakfast_staff' | 'supervisor';
+  /** Role in the app (from the work schedule); null = derived from `role`. See src/lib/accessPolicy.ts. */
+  access_role?: string | null;
+  job_title?: string | null;
   created_at: string;
   updated_at: string;
   last_login?: string;

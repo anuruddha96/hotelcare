@@ -41,6 +41,9 @@ import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
 import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
 import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
 import ActionConfirmCard, { isActionProposal } from "./ActionConfirmCard";
+import ActionRequestCard from "./plans/ActionRequestCard";
+import { RatePlanView } from "./plans/RatePlanView";
+import { isActionRequestAttachment, isRatePlan } from "./plans/types";
 import { pricingProposalKey, pricingReviewApprovals } from "@/lib/assistant/pricingApproval";
 import AssistantActions, { isAssistantActions } from "./AssistantActions";
 import ActivityLine from "./ActivityLine";
@@ -600,6 +603,27 @@ function ChatSession({
                         return <ReviewReplyCard key={`${key}-review`} spec={toolPart.output} />;
                       }
 
+                      // A plan Mira saved for approval: one visual card, kept after reload.
+                      if ((toolName === "review_pricing" || toolName === "plan_work_schedule") && toolPart.state === "output-available") {
+                        const requestId = toolPart.output?.data?.approval?.request_id ?? toolPart.output?.approval?.request_id;
+                        if (typeof requestId === "string") return <ActionRequestCard key={`${key}-plan`} requestId={requestId} />;
+                      }
+                      if (toolName === "review_pricing" && toolPart.state === "output-available" && isRatePlan(toolPart.output?.data?.rate_plan)) {
+                        const plan = toolPart.output.data.rate_plan;
+                        const reviewed = pricingReviewApprovals(toolPart.output, profile?.role);
+                        return (
+                          <div key={`${key}-rateplan`} className="mt-3 space-y-3 rounded-2xl border bg-card p-4">
+                            <div>
+                              <p className="text-sm font-semibold">Rate plan · {plan.hotelName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {reviewed.length ? "Review each night; confirm the changes below." : "Recommendation only — top management approves price changes."}
+                              </p>
+                            </div>
+                            <RatePlanView plan={plan} />
+                            {reviewed.map((proposal) => <ActionConfirmCard key={pricingProposalKey(proposal.action, proposal.input)} proposal={proposal} />)}
+                          </div>
+                        );
+                      }
                       if (toolName === "review_pricing" && toolPart.state === "output-available") {
                         const reviewed = pricingReviewApprovals(toolPart.output, profile?.role);
                         // If the model also created confirmation cards, display
@@ -689,6 +713,8 @@ function ChatSession({
                         <ReviewReplyCard key={`${message.id}-saved-${attachmentIndex}`} spec={attachment} />
                       ) : isAssistantActions(attachment) ? (
                         <AssistantActions key={`${message.id}-saved-${attachmentIndex}`} payload={attachment} page={page} onNavigate={onNavigate} />
+                      ) : isActionRequestAttachment(attachment) ? (
+                        <ActionRequestCard key={`${message.id}-saved-${attachmentIndex}`} requestId={attachment.requestId} />
                       ) : null,
                     )}
                   {needsScope && isLast && (

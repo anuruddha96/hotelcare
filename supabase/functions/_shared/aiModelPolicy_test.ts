@@ -78,3 +78,14 @@ Deno.test("a verbal approval after rate advice is a tool workflow, not a publish
   assertEquals(isPricingApprovalContinuation("Yes pls go ahead", "Here is the housekeeping briefing"), false);
   assertEquals(isPricingApprovalContinuation("Raise by €5 for 15 November", earlier), false);
 });
+
+Deno.test("building the work schedule needs the tool path", () => {
+  assertEquals(detectAssistantWorkflow("Make the December schedule for the housekeeping team"), "schedule");
+  assertEquals(detectAssistantWorkflow("Calculate the hours balance for my team this month"), "schedule");
+  assertEquals(detectAssistantWorkflow("Fill the empty shifts next week"), "schedule");
+  assertEquals(planAssistantTurn("Plan the rota for next week").routine, false);
+  // A shift question about one person stays a simple read.
+  assertEquals(detectAssistantWorkflow("Who is on shift today?"), null);
+  // Rate plans are still pricing reviews.
+  assertEquals(detectAssistantWorkflow("Update prices in the next 7 days"), "pricing_review");
+});

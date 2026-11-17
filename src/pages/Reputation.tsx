@@ -60,6 +60,7 @@ import {
   parseGoogleBusinessSetupError,
 } from "@/lib/googleBusinessSetup";
 import { toast } from "sonner";
+import { capabilitiesFor } from "@/lib/accessPolicy";
 import { ReplyCustomizerDialog, type ReplyCustomizerOptions } from "@/components/reputation/ReplyCustomizerDialog";
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
@@ -536,7 +537,8 @@ export default function Reputation() {
 
   useEffect(() => {
     if (loading) return;
-    if (!profile || (!profile.is_super_admin && !ALLOWED.includes(profile.role) && !(organizationSlug === "rdhotels" && profile.role === "manager" && profile.organization_slug === "rdhotels"))) {
+    // Housekeeping managers and supervisors (manager level) do not handle reviews.
+    if (!profile || !capabilitiesFor(profile).reviews || (!profile.is_super_admin && !ALLOWED.includes(profile.role) && !(organizationSlug === "rdhotels" && profile.role === "manager" && profile.organization_slug === "rdhotels"))) {
       navigate(organizationSlug ? `/${organizationSlug}` : "/");
       return;
     }

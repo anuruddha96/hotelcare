@@ -22,10 +22,12 @@ import { SubscriptionStatusMenu } from '@/components/layout/SubscriptionStatusMe
 import { RevenueAutomationNotifications } from '@/components/revenue/RevenueAutomationNotifications';
 import { AnnouncementsBell } from '@/components/system/AnnouncementsBell';
 import { ReputationAlertsBell } from '@/components/reputation/ReputationAlertsBell';
-import { Building2, CreditCard, FileText, LogOut, Settings, User } from 'lucide-react';
+import { Building2, CreditCard, FileText, LogOut, Settings, ShieldCheck, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { isExecutiveRole } from '@/lib/roleAccess';
+import { ACCESS_ROLE_LABEL, effectiveAccessRole } from '@/lib/accessPolicy';
+import AccessRolesDialog, { canManageAccessRoles } from '@/components/admin/AccessRolesDialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +46,7 @@ export function Header() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>();
   const [settingsFocusTarget, setSettingsFocusTarget] = useState<'location' | undefined>();
   const [hotelDisplayName, setHotelDisplayName] = useState<string | null>(null);
+  const [rolesDialogOpen, setRolesDialogOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -91,6 +94,10 @@ export function Header() {
   };
 
   const getRoleLabel = (role: string) => {
+    // A role from the work schedule (Housekeeping manager, Reception, Controlling…)
+    // is shown instead of the shared permission level.
+    const accessRole = (profile as { access_role?: string | null } | null)?.access_role;
+    if (accessRole && role === profile?.role) return ACCESS_ROLE_LABEL[effectiveAccessRole(profile)];
     switch (role) {
       case 'housekeeping': return t('roles.housekeeping');
       case 'housekeeping_manager': return t('roles.housekeepingManager');
@@ -221,6 +228,12 @@ export function Header() {
                   <Settings className="mr-2 h-4 w-4" />
                   {t('common.settings')}
                 </DropdownMenuItem>
+                {canManageAccessRoles(profile) && (
+                  <DropdownMenuItem onClick={() => setRolesDialogOpen(true)}>
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    Roles & access
+                  </DropdownMenuItem>
+                )}
                 {(profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role)) && (
                   <>
                     <DropdownMenuItem onClick={() => navigate('/' + (profile?.organization_slug ?? '') + '/admin/invoicing')}>
@@ -272,6 +285,7 @@ export function Header() {
         open={profileDialogOpen} 
         onOpenChange={setProfileDialogOpen} 
       />
+      {canManageAccessRoles(profile) && <AccessRolesDialog open={rolesDialogOpen} onOpenChange={setRolesDialogOpen} />}
       <SettingsDialog
         open={settingsDialogOpen}
         onOpenChange={(o) => {

@@ -49,7 +49,7 @@ export function selectAssistantModel(question: string, configuredStandardModel?:
  * the text-only deep analysis: a pricing review over a period, or an answer
  * that must draw a chart or an image.
  */
-export type AssistantWorkflow = "pricing_review" | "visual" | "mail" | null;
+export type AssistantWorkflow = "pricing_review" | "schedule" | "visual" | "mail" | null;
 
 export function detectAssistantWorkflow(question: string): AssistantWorkflow {
   const q = question.toLowerCase();
@@ -66,6 +66,11 @@ export function detectAssistantWorkflow(question: string): AssistantWorkflow {
   if (priceTopic && reviewVerb && approvalRequest && !explicitAmount) return "pricing_review";
   if (priceTopic && period && reviewVerb && !explicitAmount) return "pricing_review";
   if (/\b(pricing review|rate review|review (?:my|our|the) (?:prices|rates|pricing))\b/.test(q)) return "pricing_review";
+  // Building or checking the work schedule (shifts, rota, hours) runs the
+  // deterministic schedule planner and its approval card.
+  const scheduleTopic = /\b(schedules?|rota|roster|shifts?|beoszt[aá]s|work plan|staff plan|working hours|overtime|hours? (?:balance|target|norm))\b/.test(q);
+  const scheduleVerb = /\b(make|create|build|plan|prepare|fill|draft|generate|calculate|count|check|balance|complete|finish|do)\b/.test(q);
+  if (scheduleTopic && scheduleVerb) return "schedule";
   if (/\b(charts?|graphs?|plot|visuali[sz]e|diagram|trend line|images?|pictures?|illustration|posters?|draw)\b/.test(q)) return "visual";
   // Mail and review replies need the tool-using agent (search, read, draft).
   if (/\b(e-?mails?|inbox|mailbox|gmail|outlook)\b/.test(q)) return "mail";
@@ -105,6 +110,15 @@ export function planAssistantTurn(question: string, configuredStandardModel?: st
       routine: false,
       reasoningEffort: "high",
       maxSteps: 18,
+    };
+  }
+  if (workflow === "schedule") {
+    return {
+      workflow,
+      model: configuredStandardModel || MODEL_BY_PURPOSE.standard,
+      routine: false,
+      reasoningEffort: "medium",
+      maxSteps: 12,
     };
   }
   const routine = workflow === null && classifyAssistantQuestion(question) === "routine";

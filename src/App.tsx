@@ -17,6 +17,7 @@ import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSessionGuard";
 import { canAccessLegacyModules } from "@/lib/roleAccess";
 import { usePurchaseInvoiceAccess } from "@/hooks/usePurchaseInvoiceAccess";
+import { effectiveAccessRole } from "@/lib/accessPolicy";
 
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
@@ -125,8 +126,11 @@ const RootRedirect = () => {
   // revenue-first behaviour untouched for top managers assigned to other hotels.
   const isMemoriesTopManager = profile.role === "top_management_manager" &&
     ["memories-budapest", "Hotel Memories Budapest"].includes(profile.assigned_hotel || "");
+  // Controlling and HR have top-management access but their own first screen
+  // (Purchase invoices / HR), chosen on the organization page.
+  const ownLanding = ["controlling", "hr"].includes(effectiveAccessRole(profile));
 
-  if ((profile.role === "top_management" || (profile.role === "top_management_manager" && !isMemoriesTopManager)) && profile.assigned_hotel) {
+  if (!ownLanding && (profile.role === "top_management" || (profile.role === "top_management_manager" && !isMemoriesTopManager)) && profile.assigned_hotel) {
     return <Navigate to={`/${profile.organization_slug}/revenue/${profile.assigned_hotel}`} replace />;
   }
   return <Navigate to={`/${profile.organization_slug}`} replace />;

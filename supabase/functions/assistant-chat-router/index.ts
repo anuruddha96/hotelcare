@@ -6,6 +6,7 @@ import { logAiUsage } from "../_shared/aiBudget.ts";
 import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
 import { detectAssistantWorkflow, isPricingApprovalContinuation, MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
 import { generateLowCostText } from "../_shared/lowCostAi.ts";
+import { capabilitiesFor, miraScopesFor } from "../_shared/accessPolicy.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -90,15 +91,9 @@ function requestedScope(question: string): Scope | null {
   return null;
 }
 
-function allowedScopes(role: string) {
-  if (["admin", "manager", "top_management", "top_management_manager"].includes(role)) {
-    return new Set<Scope>(["revenue", "housekeeping", "maintenance", "reception"]);
-  }
-  if (["housekeeping", "housekeeping_manager", "supervisor"].includes(role)) return new Set<Scope>(["housekeeping"]);
-  if (["maintenance", "maintenance_manager"].includes(role)) return new Set<Scope>(["maintenance"]);
-  if (["reception", "reception_manager", "front_office", "breakfast_staff"].includes(role)) return new Set<Scope>(["reception"]);
-  if (role === "back_office_manager") return new Set<Scope>(["housekeeping", "maintenance", "reception"]);
-  return new Set<Scope>();
+/** Data areas from the person's role (work schedule); see _shared/accessPolicy.ts. */
+function allowedScopes(profile: Record<string, unknown>) {
+  return new Set<Scope>(miraScopesFor(profile as any).filter((scope): scope is Scope => scope !== "finance"));
 }
 
 function budapestParts(value: string | Date = new Date()) {
@@ -930,10 +925,13 @@ Deno.serve(async (req) => {
   }
 
   const [{ data: profile }, { data: thread }] = await Promise.all([
-    db.from("profiles").select("id,role,assigned_hotel,organization_slug,preferred_language,is_super_admin").eq("id", authData.user.id).is("deleted_at", null).maybeSingle(),
+    // "*" also returns access_role once that column exists.
+    db.from("profiles").select("*").eq("id", authData.user.id).is("deleted_at", null).maybeSingle(),
     db.from("assistant_threads").select("id,user_id,organization_slug").eq("id", threadId).eq("user_id", authData.user.id).maybeSingle(),
   ]);
   if (!profile) return json({ error: "Profile not found" }, 403);
+  // Housekeepers, maintenance and breakfast staff do not use Mira.
+  if (!capabilitiesFor(profile).mira) return json({ error: "Mira is not part of your role." }, 403);
   if (body?.model_tier === "deep" && profile.role !== "admin") return json({ error: "Only administrators may select the Deep model." }, 403);
   if (!thread) return json({ error: "Conversation not found" }, 404);
   if (thread.organization_slug && thread.organization_slug !== profile.organization_slug && !profile.is_super_admin) return json({ error: "Conversation is outside your organization" }, 403);
@@ -947,7 +945,7 @@ Deno.serve(async (req) => {
   const scopedProfile = { ...profile, organization_slug: targetOrgSlug };
 
   const scope = requestedScope(question);
-  const scopes = allowedScopes(String(profile.role ?? ""));
+  const scopes = allowedScopes(profile);
   if (scope && !scopes.has(scope)) {
     return manualStream(`I can’t access ${scope} information with your current role.`, { needsScope: scope });
   }

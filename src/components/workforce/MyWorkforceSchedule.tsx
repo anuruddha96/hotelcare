@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Clock, Lock, MapPin, Moon, Palmtree, Sun } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useCanSeeOwnSchedule } from '@/hooks/useAccessPolicy';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,7 +33,18 @@ const TONE: Record<MyDayTone, { chip: string; dot: string }> = {
  * leave balance. The database only ever returns this person's own published
  * days (row-level security), so nothing about colleagues can appear here.
  */
+/**
+ * A person's own published shifts. Housekeepers and maintenance staff see it
+ * only after HR / top management puts the schedule live (Work schedule →
+ * Departments & codes); the database applies the same rule.
+ */
 export function MyWorkforceSchedule({ compact = false }: { compact?: boolean }) {
+  const canSee = useCanSeeOwnSchedule();
+  if (!canSee) return null;
+  return <MyWorkforceScheduleView compact={compact} />;
+}
+
+function MyWorkforceScheduleView({ compact = false }: { compact?: boolean }) {
   const { user } = useAuth();
   const { t, language } = useTranslation();
   const today = todayBudapest();

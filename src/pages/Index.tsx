@@ -12,6 +12,8 @@ import { MaintenanceIssueDeepLink } from '@/components/dashboard/MaintenanceIssu
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
 import { StaffWorkVenueGate } from '@/components/layout/StaffWorkVenueGate';
 import { isReceptionRole } from '@/lib/roleAccess';
+import { effectiveAccessRole, landingPathFor } from '@/lib/accessPolicy';
+import { isNativePmsOrganization, useInvoicesAvailable } from '@/hooks/useAccessPolicy';
 
 const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'];
 const MASTER_SCHEDULE_ROLES = ['admin', 'top_management', 'top_management_manager', 'hr'];
@@ -50,6 +52,17 @@ const Index = () => {
   );
   if (searchParams.get('tab') || searchParams.get('view')) hasExplicitTab.current = true;
   const [hotelSelected, setHotelSelected] = useState(() => readHotelSelectedForToday());
+  // Role-based first screen (Controlling → Purchase invoices, HR → HR,
+  // reception on HotelCare's own PMS → Reception). See accessPolicy.ts.
+  const accessRole = effectiveAccessRole(profile);
+  const invoices = useInvoicesAvailable(accessRole === 'controlling' && !hasExplicitTab.current);
+  const roleLanding = profile && !hasExplicitTab.current && !invoices.loading
+    ? landingPathFor(profile, {
+        organizationSlug: organizationSlug || profile.organization_slug || 'rdhotels',
+        invoicesAvailable: invoices.available,
+        nativePms: isNativePmsOrganization(organizationSlug || profile.organization_slug),
+      })
+    : null;
 
   // Re-check with the real user id once auth resolves, and silently carry a
   // manager's existing assigned_hotel over for the current local day if storage
@@ -86,12 +99,23 @@ const Index = () => {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/reception`} replace />;
   }
 
+  // Controlling waits for the invoice-module check before choosing its first screen.
+  if (profile && accessRole === 'controlling' && !hasExplicitTab.current && invoices.loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+  if (roleLanding) return <Navigate to={roleLanding} replace />;
+
   // Hotel Memories top managers should get the same operational dashboard as
   // normal managers. Preserve revenue-first landing for top managers elsewhere.
+  // HR has top-management access but starts on HR (handled above).
   const isMemoriesTopManager = profile?.role === 'top_management_manager' &&
     ['memories-budapest', 'Hotel Memories Budapest'].includes(profile.assigned_hotel || '');
-  const isRevenueFirstExecutive = profile?.role === 'top_management' ||
-    (profile?.role === 'top_management_manager' && !isMemoriesTopManager);
+  const isRevenueFirstExecutive = accessRole !== 'hr' && (profile?.role === 'top_management' ||
+    (profile?.role === 'top_management_manager' && !isMemoriesTopManager));
 
   if (profile && isRevenueFirstExecutive && !hasExplicitTab.current) {
     return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
