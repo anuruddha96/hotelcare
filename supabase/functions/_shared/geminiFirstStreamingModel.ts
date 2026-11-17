@@ -20,12 +20,18 @@ export function geminiFirstStreamingModel(
     Deno.env.get("GEMINI_OPENAI_FALLBACK_DISABLED") !== "true" ? [openaiFallback] : [])];
   if (!chain.length) throw new Error("No approved Gemini or OpenAI model is available");
   const model = chain[0];
+  let actualModelId = String(model.modelId);
   async function generate(method: "doGenerate"|"doStream", args: any) {
     let last: unknown;
     for(const candidate of chain) {
       try {
         const output = await candidate[method](args);
-        if (method === "doStream") return await bufferFirstStreamPart(output);
+        if (method === "doStream") {
+          const buffered=await bufferFirstStreamPart(output);
+          actualModelId=String(candidate.modelId);
+          return buffered;
+        }
+        actualModelId=String(candidate.modelId);
         return output;
       } catch (e) {
         last = e;
@@ -39,6 +45,7 @@ export function geminiFirstStreamingModel(
     provider:"hotelcare-gemini-first",
     modelId:model.modelId,
     supportedUrls:model.supportedUrls ?? {},
+    get actualModelId(){return actualModelId;},
     doGenerate:(args:any)=>generate("doGenerate",args),
     doStream:(args:any)=>generate("doStream",args),
   };
