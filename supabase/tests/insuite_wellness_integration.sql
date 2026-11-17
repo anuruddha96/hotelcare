@@ -210,6 +210,27 @@ BEGIN
   ASSERT public.insuite_wellness_change(pid, 'channex-test-property', 'no_show')->>'status' = 'no_show', 'staff mark no-show after start';
 END $$;
 
+-- ------------------------------------------------------------ stay changes free the slots
+DO $$
+DECLARE live int; freed int;
+BEGIN
+  SELECT count(*) INTO live FROM public.insuite_wellness_bookings WHERE reservation_id = t.res_id('2') AND status = 'booked';
+  ASSERT live >= 1, 'R2 has its pre-arrival booking';
+  UPDATE public.reservations SET status = 'cancelled' WHERE id = t.res_id('2');
+  SELECT count(*) INTO freed FROM public.insuite_wellness_bookings
+   WHERE reservation_id = t.res_id('2') AND status = 'cancelled' AND cancel_reason = 'Stay cancelled';
+  ASSERT freed = live, format('cancelling the stay freed %s of %s slots', freed, live);
+  -- Early checkout frees what is still ahead, keeps the past.
+  UPDATE public.reservations SET status = 'checked_out' WHERE id = t.res_id('1');
+  ASSERT NOT EXISTS (SELECT 1 FROM public.insuite_wellness_bookings
+                      WHERE reservation_id = t.res_id('1') AND status = 'booked' AND starts_at > now()), 'future slots freed at checkout';
+  ASSERT EXISTS (SELECT 1 FROM public.insuite_wellness_bookings
+                  WHERE reservation_id = t.res_id('1') AND cancel_reason = 'Guest checked out'), 'reason recorded';
+  ASSERT EXISTS (SELECT 1 FROM public.insuite_wellness_bookings
+                  WHERE reservation_id = t.res_id('1') AND status = 'no_show'), 'past no-show untouched';
+  UPDATE public.reservations SET status = 'checked_in' WHERE id = t.res_id('1');  -- restore for the remaining checks
+END $$;
+
 -- ------------------------------------------------------------ opening days
 UPDATE public.insuite_wellness_resources
    SET weekdays = ARRAY(SELECT d::smallint FROM generate_series(1, 7) d WHERE d <> extract(isodow FROM public.t_local_today() + 3))
