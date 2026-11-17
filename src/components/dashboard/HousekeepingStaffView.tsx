@@ -23,6 +23,7 @@ import { getLocalDateString } from '@/lib/utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { todayBudapest } from '@/lib/budapestTime';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getDndRetryWindow } from '@/lib/dndRetryPolicy';
 import { getHousekeepingCarryForward, isPortfolioCarryForwardHotel } from '@/lib/housekeepingCarryForward';
 
@@ -209,6 +210,14 @@ export function HousekeepingStaffView() {
         }
       }
 
+      // A visiting RD Hotels worker sees ONLY the current work hotel's rooms,
+      // even if assignments from their usual hotel are still on their account.
+      if (profile?.organization_slug === 'rdhotels' && profile?.assigned_hotel) {
+        const selectedKeys = await resolveHotelKeys(profile.assigned_hotel);
+        assignmentsData = assignmentsData.filter((assignment: any) =>
+          assignment.rooms?.hotel && selectedKeys.includes(assignment.rooms.hotel));
+      }
+
       // Show ALL assignments including checkout rooms not ready
       // Checkout rooms will display a "waiting for checkout" indicator
 
@@ -308,6 +317,23 @@ export function HousekeepingStaffView() {
 
   const fetchSummary = async () => {
     try {
+      if (profile?.organization_slug === 'rdhotels' && profile?.assigned_hotel && user?.id) {
+        const selectedKeys = await resolveHotelKeys(profile.assigned_hotel);
+        const { data, error } = await supabase.from('room_assignments')
+          .select('id,status,rooms!inner(hotel)')
+          .eq('assigned_to', user.id)
+          .eq('assignment_date', selectedDate)
+          .in('rooms.hotel', selectedKeys);
+        if (error) throw error;
+        const work = data || [];
+        setSummary({
+          total_assigned: work.length,
+          completed: work.filter(item => item.status === 'completed').length,
+          in_progress: work.filter(item => item.status === 'in_progress').length,
+          pending: work.filter(item => item.status === 'assigned' || item.status === 'dnd_pending_retry').length,
+        });
+        return;
+      }
       const { data, error } = await supabase
         .rpc('get_housekeeping_summary', {
           user_id: user?.id,
@@ -652,8 +678,13 @@ export function HousekeepingStaffView() {
       .select('*')
       .eq('assigned_to', user.id)
       .eq('assigned_date', today)
-      .then(({ data, error }) => {
-        if (!error) setPublicTasks(data || []);
+      .then(async ({ data, error }) => {
+        if (error) return;
+        const selectedKeys = profile?.organization_slug === 'rdhotels' && profile?.assigned_hotel
+          ? await resolveHotelKeys(profile.assigned_hotel) : null;
+        setPublicTasks(selectedKeys
+          ? (data || []).filter(task => !task.hotel || selectedKeys.includes(task.hotel))
+          : (data || []));
       });
   }
 }
