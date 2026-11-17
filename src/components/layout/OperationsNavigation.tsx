@@ -6,6 +6,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { canAccessLegacyModules } from '@/lib/roleAccess';
+import { usePurchaseInvoiceAccess } from '@/hooks/usePurchaseInvoiceAccess';
 import { cn } from '@/lib/utils';
 import { PROPERTY_ROLES as WORKFORCE_PROPERTY_ROLES } from '@/lib/workforce/model';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -63,6 +64,8 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
   const canOpenSchedule = !!profile?.is_super_admin || ['admin', 'top_management', 'top_management_manager', 'hr'].includes(role)
     || (profile?.organization_slug === 'rdhotels' && WORKFORCE_PROPERTY_ROLES.includes(role));
   const legacy = canAccessLegacyModules(profile?.nickname);
+  // Invoices follow the organization's module rollout; Parking stays on the legacy pilot gate.
+  const invoiceAccess = usePurchaseInvoiceAccess();
   // Native rates & availability exists only where HotelCare is the PMS (Channex sandbox for now).
   const nativePms = organizationSlug === 'channex';
   const active = current || moduleFromLocation(location.pathname, location.search, basePath);
@@ -88,8 +91,10 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     ...(executive || (nativePms && (role === 'manager' || frontDesk)) ? [{ key: 'revenue' as const, label: 'nav.revenue', icon: TrendingUp, click: () => navigate(`${basePath}/revenue`) }] : []),
     ...(['admin', 'manager', 'top_management', 'top_management_manager'].includes(role) ? [{ key: 'channel-manager' as const, label: 'nav.channels', icon: Radio, click: () => navigate(`${basePath}/channel-manager`) }] : []),
     ...(executive || (role === 'manager' && organizationSlug === 'rdhotels') ? [{ key: 'reputation' as const, label: 'nav.reputation', icon: MessageSquareText, click: () => navigate(`${basePath}/reputation`) }] : []),
-    ...(legacy && manager ? [
+    ...(invoiceAccess.hasAccess ? [
       { key: 'invoices' as const, label: 'nav.invoices', icon: Receipt, click: () => navigate(`${basePath}/purchase-invoices`) },
+    ] : []),
+    ...(legacy && manager ? [
       { key: 'parking' as const, label: 'nav.parking', icon: CarFront, click: () => navigate(`${basePath}/parking-tickets`) },
     ] : []),
     ...(role === 'admin' ? [{ key: 'admin' as const, label: 'nav.admin', icon: Settings, click: () => openTab('admin'), training: 'admin-tab' }] : []),

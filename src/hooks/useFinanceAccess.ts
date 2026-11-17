@@ -23,6 +23,8 @@ export interface FinanceAccessState {
   canReview: boolean;
   /** Approving/rejecting requires an explicit controller profile — never implied by being a system admin. */
   canApprove: boolean;
+  /** Reopening an approved invoice is reserved for chief controllers (enforced by the database too). */
+  canReopen: boolean;
   /** Can manage legal entities, categories, cost centres and finance access. */
   canManageFinance: boolean;
   /** View-only management access. */
@@ -69,6 +71,7 @@ export function useFinanceAccess(): FinanceAccessState {
     hotelIds,
     canReview,
     canApprove,
+    canReopen: assignedProfile === 'chief_controller',
     canManageFinance,
     readOnly: assignedProfile === 'management_read' && !canReview,
   };

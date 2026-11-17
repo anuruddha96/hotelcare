@@ -12,15 +12,17 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
 import { InvoiceWorkflowPanel } from './InvoiceWorkflowPanel';
+import { NavComparisonCard } from './NavComparisonCard';
 import { useFinanceAccess } from '@/hooks/useFinanceAccess';
 import { isLocked } from '@/lib/purchaseInvoiceWorkflow';
+import { requestReconcile } from '@/lib/purchaseInvoiceNav';
 
 const EDIT_ROLES = ['admin', 'top_management', 'top_management_manager', 'manager', 'control_finance', 'back_office_manager', 'control_manager'];
 
 
 const VAT_KINDS = [
   'standard_27', 'reduced_18', 'reduced_5', 'zero',
-  'aam_exempt', 'kba_reverse', 'eu_intra', 'export', 'foreign',
+  'aam_exempt', 'exempt', 'kba_reverse', 'eu_intra', 'export', 'foreign',
 ];
 
 interface VatLine {
@@ -65,6 +67,7 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
   const [companies, setCompanies] = useState<any[]>([]);
   const [costCentres, setCostCentres] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const [loadedCurrency, setLoadedCurrency] = useState<string | null>(null);
 
   const locked = isLocked(invoice || {});
   // Approved invoices are frozen; only controlling can reopen them.
@@ -110,13 +113,14 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
         ]);
         if (cancelled) return;
         setInvoice(inv);
+        setLoadedCurrency(inv?.currency ?? null);
         setVatLines((vats as any) || []);
         setItems((its as any) || []);
         if (inv?.file_path) {
           // Live in-dialog preview via a Blob URL — iframes render PDFs from
           // blob: URLs reliably across browsers, unlike signed storage URLs.
           const [{ data: blob }, { data: signed }] = await Promise.all([
-            supabase.storage.from('purchase-invoices').download(inv.file_path),
+            supabase.storage.from('purchase-invoices').download(((inv as Record<string, unknown>).preview_path as string | undefined) || inv.file_path),
             supabase.storage.from('purchase-invoices').createSignedUrl(inv.file_path, 3600),
           ]);
           if (!cancelled) {
@@ -167,6 +171,8 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
         due_date: invoice.due_date || null,
         performance_date: invoice.performance_date || null,
         currency: invoice.currency || 'HUF',
+        // A currency confirmed or changed by a person is no longer the HUF default.
+        ...(markVerified || invoice.currency !== loadedCurrency ? { currency_source: 'user' } : {}),
         net_amount: invoice.net_amount,
         total_vat_amount: invoice.total_vat_amount,
         total_amount: invoice.total_amount,
@@ -185,7 +191,8 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
           status: 'verified',
           needs_review: false,
         } : {}),
-      }).eq('id', invoiceId);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- currency_source is not in the generated types yet
+      } as any).eq('id', invoiceId);
       if (upErr) throw upErr;
 
       // Replace VAT lines
@@ -224,6 +231,7 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
       }
 
       toast.success(markVerified ? t('pi.status.verified') : t('pi.upload.success'));
+      requestReconcile();
       onSaved?.();
       onClose();
     } catch (e: any) {
@@ -376,8 +384,11 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
 
             {/* Editable fields */}
             <div className="flex flex-col min-h-0">
-              <div className="px-4 pt-3">
+              <div className="px-4 pt-3 max-h-[45vh] overflow-y-auto shrink-0">
                 <InvoiceWorkflowPanel invoice={invoice} onChanged={() => { reload(); onSaved?.(); }} />
+                <div className="mt-2">
+                  <NavComparisonCard invoice={invoice} onChanged={() => { reload(); onSaved?.(); }} />
+                </div>
               </div>
               <Tabs defaultValue="header" className="flex-1 flex flex-col min-h-0">
 

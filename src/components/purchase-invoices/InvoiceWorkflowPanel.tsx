@@ -16,7 +16,7 @@ interface Props {
 }
 
 export function InvoiceWorkflowPanel({ invoice, onChanged }: Props) {
-  const { canReview, canApprove } = useFinanceAccess();
+  const { canReview, canApprove, canReopen } = useFinanceAccess();
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState(invoice?.reviewer_notes ?? '');
@@ -62,7 +62,7 @@ export function InvoiceWorkflowPanel({ invoice, onChanged }: Props) {
       )}
       {approved && (
         <p className="text-xs text-muted-foreground">
-          Approved data is locked and flows into management analytics. Only controlling can reopen it.
+          Approved data is locked and flows into management analytics. Only a chief controller can reopen it.
         </p>
       )}
 
@@ -126,7 +126,7 @@ export function InvoiceWorkflowPanel({ invoice, onChanged }: Props) {
         </div>
       )}
 
-      {approved && canApprove && (
+      {approved && canReopen && (
         <div className="space-y-2">
           <Textarea
             rows={2}
