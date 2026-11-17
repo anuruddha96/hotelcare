@@ -24,6 +24,9 @@ import { todayBudapest, tomorrowBudapest } from '@/lib/budapestTime';
 import { auditReceptionSnapshots, type ReceptionSnapshot } from '@/lib/receptionSnapshotAudit';
 import { reservationChannel, reservationGuestLabel, reservationSearchText, RESERVATION_STATUS_COLORS } from '@/lib/reservations';
 import { floatingState, importFreshness } from '@/lib/receptionAttention';
+import { useGuestSignals } from '@/hooks/useGuestSignals';
+import { GuestSignalBadge } from '@/components/guests/GuestSignalBadge';
+import type { GuestSignal } from '@/lib/guestJourney';
 
 const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status, id_document_number), rooms:room_id(id, room_number, room_type, status)';
 type ViewMode = 'planner' | 'list';
@@ -61,11 +64,13 @@ function snapshotStatus(value: string | null): string {
 
 function isSnapshotOnly(row: any): boolean { return row?.snapshotOnly === true; }
 
-function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction }: {
+function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, signals }: {
   title: string;
   icon: typeof Users;
   items: any[];
   onOpen: (row: any) => void;
+  /** Returning-guest / VIP markers per reservation id. */
+  signals?: Map<string, GuestSignal>;
   /** One-tap action per row (e.g. Check in / Check out) so reception never has to hunt. */
   actionLabel?: string;
   onAction?: (row: Record<string, unknown>) => void;
@@ -83,7 +88,7 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction }
             className="flex-1 min-w-0 text-left px-3 py-2 hover:bg-accent/40 disabled:hover:bg-transparent transition-colors disabled:cursor-default"
             title={isSnapshotOnly(row) ? t('pms.unified.snapshotReadOnly') : undefined}>
             <div className="flex items-start justify-between gap-2"><div className="min-w-0">
-              <div className="text-xs font-semibold truncate">{reservationGuestLabel(row)}</div>
+              <div className="flex items-center gap-1 min-w-0"><span className="text-xs font-semibold truncate">{reservationGuestLabel(row)}</span><GuestSignalBadge signal={signals?.get(row.id)} /></div>
               <div className="text-[10px] text-muted-foreground truncate mt-0.5">{row.rooms?.room_number || row.room_label || t('pms.unified.unassigned')} · {row.check_in_date?.slice(5)} → {row.check_out_date?.slice(5)}</div>
             </div><span className="text-[10px] text-primary shrink-0 font-medium">{reservationChannel(row).label}</span></div>
           </button>
@@ -309,6 +314,10 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const tomorrowCheckIns = useMemo(() => reservations.filter((row) =>
     row.check_in_date === tomorrow && ['pending', 'confirmed'].includes(row.status),
   ), [reservations, tomorrow]);
+  // Returning guests and VIPs are marked in every list reception works from.
+  const guestSignals = useGuestSignals([
+    ...arrivals, ...departures, ...inHouse, ...unassigned, ...newOnline, ...upcomingOnline, ...tomorrowCheckIns,
+  ].filter((row) => !isSnapshotOnly(row)).map((row) => row.id));
   const freshness = importFreshness(lastImportSuccess);
   const lastImportTime = importHistory?.created_at ? Date.parse(importHistory.created_at) : NaN;
   const importStale = !Number.isFinite(lastImportTime) || lastImportTime > Date.now() || Date.now() - lastImportTime > 24 * 60 * 60 * 1000 || importHistory?.sync_status !== 'success';
@@ -437,7 +446,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         {rows.slice(0, 12).map((row) => (
           <div key={row.id} className="flex items-center gap-3 px-4 py-2 hover:bg-accent/30">
             <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openReservation(row)}>
-              <div className="text-sm font-medium truncate">{reservationGuestLabel(row)} <span className="text-xs font-normal text-muted-foreground">· {row.rooms?.room_number || t('pms.unified.unassigned')}</span></div>
+              <div className="flex items-center gap-1.5 min-w-0 text-sm font-medium"><span className="truncate">{reservationGuestLabel(row)}</span><GuestSignalBadge signal={guestSignals.get(row.id)} /><span className="shrink-0 text-xs font-normal text-muted-foreground">· {row.rooms?.room_number || t('pms.unified.unassigned')}</span></div>
               <div className="text-xs text-muted-foreground truncate">{row.check_in_date} → {row.check_out_date}</div>
             </button>
             <Badge className={`${RESERVATION_STATUS_COLORS[row.status] || 'bg-muted'} text-[10px]`}>{String(row.status).replace('_', ' ')}</Badge>
@@ -464,17 +473,17 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </tr>)}</tbody></table></div></CardContent></Card>}
     </div>
       <aside className="border border-border rounded-lg overflow-hidden bg-card 2xl:sticky 2xl:top-3">
-        <SideSection title={unassignedUrgent ? `${floatingTitle} · ${unassignedUrgent} ${t('pms.cal.floatingUrgent')}` : floatingTitle} icon={unassignedUrgent ? AlertTriangle : Waves} items={unassigned} onOpen={openReservation} />
-        <SideSection title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
+        <SideSection signals={guestSignals} title={unassignedUrgent ? `${floatingTitle} · ${unassignedUrgent} ${t('pms.cal.floatingUrgent')}` : floatingTitle} icon={unassignedUrgent ? AlertTriangle : Waves} items={unassigned} onOpen={openReservation} />
+        <SideSection signals={guestSignals} title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
           actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
-        <SideSection title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation}
+        <SideSection signals={guestSignals} title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation}
           actionLabel={t('pms.checkOut')} onAction={(row) => setActioned({ row, dialog: 'checkout' })} />
-        <SideSection title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
-        {newOnline.length > 0 && <SideSection title={t('pms.fd.newOnline')} icon={Sparkles} items={newOnline} onOpen={openReservation} />}
-        {expiringOptions.length > 0 && <SideSection title={t('pms.fd.expiringOptions')} icon={Hourglass} items={expiringOptions} onOpen={openReservation} />}
-        {waitingList.length > 0 && <SideSection title={t('pms.fd.waitingList')} icon={ListOrdered} items={waitingList} onOpen={openReservation} />}
-        {isOttofiori && <SideSection title={`Tomorrow check-ins · ${tomorrow}${importStale ? ' · unverified' : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
-        <SideSection title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
+        <SideSection signals={guestSignals} title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
+        {newOnline.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.newOnline')} icon={Sparkles} items={newOnline} onOpen={openReservation} />}
+        {expiringOptions.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.expiringOptions')} icon={Hourglass} items={expiringOptions} onOpen={openReservation} />}
+        {waitingList.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.waitingList')} icon={ListOrdered} items={waitingList} onOpen={openReservation} />}
+        {isOttofiori && <SideSection signals={guestSignals} title={`Tomorrow check-ins · ${tomorrow}${importStale ? ' · unverified' : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
+        <SideSection signals={guestSignals} title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
     </div>
     <CreateReservationDialog open={createOpen} onOpenChange={setCreateOpen} onSuccess={() => { setCreateOpen(false); void fetchAll(); }} />

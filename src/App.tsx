@@ -157,6 +157,7 @@ const TenantRouter = () => {
           <Route path="/reservations/:id" element={<ReservationDetail />} />
           <Route path="/guests" element={<Guests />} />
           <Route path="/guests/:guestId" element={<GuestDetail />} />
+          <Route path="/guests/k/:hotelId/:profileKey" element={<GuestDetail />} />
           <Route path="/channel-manager" element={<ChannelManager />} />
           <Route path="/rates-availability" element={<RatesAvailability />} />
           <Route path="/revenue" element={<Revenue />} />

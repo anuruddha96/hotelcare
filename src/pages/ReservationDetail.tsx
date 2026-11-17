@@ -27,6 +27,9 @@ import { PrevioWritebackStatus } from '@/components/reservations/PrevioWriteback
 import { ReservationAccountPanel } from '@/components/reservations/ReservationAccountPanel';
 import { PciCardPanel } from '@/components/reservations/PciCardPanel';
 import { VccDetailsPanel } from '@/components/reservations/VccDetailsPanel';
+import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
+import { useGuestSignals } from '@/hooks/useGuestSignals';
+import { guestProfilePath } from '@/lib/guestJourney';
 import { LifecycleError, setReservationStatus } from '@/lib/pmsLifecycle';
 import {
   formatMoney, isPmsManaged, pmsHoldKind, pmsPaymentNote, reservationChannel, reservationGuestLabel, RESERVATION_STATUS_COLORS,
@@ -54,6 +57,7 @@ const ReservationDetail = () => {
   const [statusReason, setStatusReason] = useState('');
   const [statusBusy, setStatusBusy] = useState(false);
   const basePath = `/${organizationSlug || 'rdhotels'}`;
+  const guestSignal = useGuestSignals(id ? [id] : []).get(id ?? '');
 
   const fetchData = useCallback(async () => {
     if (!id) return;
@@ -248,6 +252,8 @@ const ReservationDetail = () => {
           </div>
         </div>
 
+        <GuestWelcomeCard reservationId={reservation.id} signal={guestSignal ?? null} hotelId={reservation.hotel_id} basePath={basePath} />
+
         <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><User className="h-4 w-4" /> {t('pms.reservationDetail.guestInfo')}</CardTitle></CardHeader>
@@ -259,6 +265,11 @@ const ReservationDetail = () => {
               {guest?.company_name && <div><span className="text-muted-foreground">{t('pms.guests.company')}:</span> {guest.company_name}</div>}
               {guest?.id_document_number && <div><span className="text-muted-foreground">ID:</span> {guest.id_document_type} · {guest.id_document_number}</div>}
               {!guest && reservation.pms_guest_name && <p className="text-xs text-muted-foreground">{t('pms.res.pmsGuestOnly')}</p>}
+              {guestSignal?.profile_key && reservation.hotel_id && (
+                <Link to={guestProfilePath(basePath, reservation.hotel_id, guestSignal.profile_key)} className="inline-block text-xs font-medium text-primary hover:underline">
+                  {t('pms.guest.profileAndHistory')} →
+                </Link>
+              )}
             </CardContent>
           </Card>
 

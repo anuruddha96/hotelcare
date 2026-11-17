@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { Navigate, useParams, Link } from 'react-router-dom';
+import { Navigate, useParams, useNavigate } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { supabase } from '@/integrations/supabase/client';
@@ -15,10 +15,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Users, Plus, Search, Star, BedDouble, CalendarClock } from 'lucide-react';
+import { Users, Plus, Search, Star, CalendarClock, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
+import { guestProfilePath, guestTagLabel } from '@/lib/guestJourney';
 
 const PAGE = 50;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,12 +29,12 @@ const Guests = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [guests, setGuests] = useState<DirectoryGuest[]>([]);
   const [total, setTotal] = useState(0);
   const [loadingData, setLoadingData] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [openGuest, setOpenGuest] = useState<DirectoryGuest | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '', phone: '', nationality: '',
@@ -156,14 +157,26 @@ const Guests = () => {
                     </TableRow>
                   ) : (
                     guests.map((g) => (
-                      <TableRow key={g.key} className="cursor-pointer hover:bg-accent/50" onClick={() => setOpenGuest(g)}>
+                      <TableRow key={g.key} className="cursor-pointer hover:bg-accent/50"
+                        onClick={() => g.profile_key && navigate(guestProfilePath(basePath, g.hotel_id, g.profile_key))}>
                         <TableCell>
                           <span className="font-medium text-primary inline-flex items-center gap-1.5">
                             {g.name || '—'}
                             {g.vip_status === 'vip' && <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />}
-                            {Number(g.stays) > 1 && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">{t('pms.guests.returning')}</Badge>}
+                            {Number(g.stays) > 1 && (
+                              <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-100 px-1.5 text-[10px] font-semibold leading-4 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200">
+                                <RotateCcw className="h-2.5 w-2.5" /> {t('pms.guests.returning')}
+                              </span>
+                            )}
                           </span>
-                          {g.nationality && <div className="text-xs text-muted-foreground">{g.nationality}</div>}
+                          {(g.nationality || (g.tags ?? []).length > 0) && (
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                              {g.nationality && <span>{g.nationality}</span>}
+                              {(g.tags ?? []).slice(0, 3).map((tag: string) => (
+                                <span key={tag} className="rounded-full border border-border px-1.5 leading-4">{guestTagLabel(tag, t)}</span>
+                              ))}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm">
                           <div className="truncate max-w-[240px]">{g.email || '—'}</div>
@@ -189,51 +202,6 @@ const Guests = () => {
           </CardContent>
         </Card>
       </main>
-
-      {/* Guest journey: every stay at this hotel, newest first */}
-      <Dialog open={!!openGuest} onOpenChange={(open) => { if (!open) setOpenGuest(null); }}>
-        <DialogContent className="sm:max-w-lg">
-          {openGuest && (<>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">{openGuest.name}
-                {openGuest.in_house && <Badge className="bg-sky-600 hover:bg-sky-600 text-white">{t('pms.guests.inHouse')}</Badge>}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              {[[t('pms.guests.stays'), openGuest.stays], [t('pms.guests.nights'), openGuest.nights],
-                [t('pms.guests.totalSpend'), openGuest.spend != null ? `${Math.round(Number(openGuest.spend)).toLocaleString()} ${openGuest.currency ?? ''}` : '—']].map(([label, value]) => (
-                <div key={String(label)} className="rounded-lg border border-border p-2">
-                  <div className="text-lg font-bold tabular-nums">{value}</div>
-                  <div className="text-[11px] text-muted-foreground">{label}</div>
-                </div>
-              ))}
-            </div>
-            <div className="text-sm space-y-0.5">
-              {openGuest.email && <div>{openGuest.email}</div>}
-              {openGuest.phone && <div className="text-muted-foreground">{openGuest.phone}</div>}
-              {openGuest.first_stay && <div className="text-xs text-muted-foreground">{t('pms.guests.firstStay')} {openGuest.first_stay}</div>}
-            </div>
-            <div className="max-h-64 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
-              {(openGuest.stay_list ?? []).length === 0 && <div className="p-3 text-sm text-muted-foreground">{t('pms.guests.noStays')}</div>}
-              {(openGuest.stay_list ?? []).map((stay: DirectoryGuest) => (
-                <Link key={stay.id} to={`${basePath}/reservations/${stay.id}`} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent/50">
-                  <BedDouble className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium">{stay.check_in_date} → {stay.check_out_date}</span>
-                    <span className="block text-xs text-muted-foreground truncate">{stay.room_number || t('pms.unified.unassigned')} · {stay.channel || '—'} · {stay.reservation_number}</span>
-                  </span>
-                  <Badge variant="outline" className="shrink-0 capitalize">{String(stay.status).replace('_', ' ')}</Badge>
-                </Link>
-              ))}
-            </div>
-            <DialogFooter>
-              {openGuest.guest_id
-                ? <Button asChild><Link to={`${basePath}/guests/${openGuest.guest_id}`}>{t('pms.guests.openProfile')}</Link></Button>
-                : <p className="text-xs text-muted-foreground mr-auto">{t('pms.guests.fromBookings')}</p>}
-            </DialogFooter>
-          </>)}
-        </DialogContent>
-      </Dialog>
 
       {/* Create Guest Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
