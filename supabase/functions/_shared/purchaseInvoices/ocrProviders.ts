@@ -223,8 +223,8 @@ async function tryGemini(options: OcrCallOptions, rt: Runtime, deadlineAt: numbe
         { text: options.userText },
       ],
     }],
+    // No temperature override: Google advises keeping Gemini 3 models at their default temperature.
     generationConfig: {
-      temperature: 0,
       responseMimeType: "application/json",
       responseSchema: toGeminiSchema(options.tool.parameters),
       maxOutputTokens: options.maxOutputTokens ?? 32_768,

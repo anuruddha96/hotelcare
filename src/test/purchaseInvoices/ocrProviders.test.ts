@@ -57,7 +57,8 @@ function options(overrides: Partial<OcrCallOptions> & { envValues?: Record<strin
     userText: 'Extract structured invoice data and call return_invoice.',
     tool: { name: EXTRACT_TOOL.function.name, description: EXTRACT_TOOL.function.description, parameters: EXTRACT_TOOL.function.parameters },
     timeoutMs: 110_000,
-    validate: (v) => typeof v.document_type === 'string' && Array.isArray(v.vat_lines) && Array.isArray(v.items),
+    validate: (v) => typeof v.document_type === 'string' && (v.vat_lines === undefined || Array.isArray(v.vat_lines)) &&
+      (v.items === undefined || Array.isArray(v.items)),
     env: (name) => env[name],
     sleep: async () => {},
     ...rest,
@@ -169,7 +170,8 @@ describe('Gemini first, OpenAI fallback', () => {
     expect(call.url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent');
     expect((call.init.headers as Record<string, string>)['x-goog-api-key']).toBe('gemini-test-key');
     expect(call.body.contents[0].parts[0]).toEqual({ inlineData: { mimeType: 'application/pdf', data: PDF.base64 } });
-    expect(call.body.generationConfig).toMatchObject({ temperature: 0, responseMimeType: 'application/json' });
+    expect(call.body.generationConfig).toMatchObject({ responseMimeType: 'application/json', maxOutputTokens: 32_768 });
+    expect(call.body.generationConfig).not.toHaveProperty('temperature');
     expect(call.body.generationConfig.responseSchema.type).toBe('OBJECT');
     expect(call.body.systemInstruction.parts[0].text).toContain("replaces the 'return_invoice' tool call");
   });
@@ -191,6 +193,13 @@ describe('Gemini first, OpenAI fallback', () => {
     expect(call.body.model).toBe('gpt-4o');
     expect(call.body.tool_choice).toEqual({ type: 'function', function: { name: 'return_invoice' } });
     expect(call.body.messages[1].content[1]).toEqual({ type: 'file', file: { filename: 'invoice.pdf', file_data: `data:application/pdf;base64,${PDF.base64}` } });
+  });
+
+  it('accepts a not-an-invoice answer that omits the line arrays', async () => {
+    const notInvoice = { document_type: 'not_invoice', document_kind: 'unknown', error_code: 'ERR_NOT_INVOICE', confidence_score: 0.9, currency: null, field_confidence: {} };
+    const f = fakeFetch({ openai: [() => openAiOk(notInvoice)] });
+    const result = await extractInvoiceStructured(options({ fetchImpl: f.impl, envValues: { OPENAI_API_KEY: 'o' } }));
+    expect(result.parsed).toMatchObject({ document_type: 'not_invoice', error_code: 'ERR_NOT_INVOICE' });
   });
 
   it('sends unsupported image types to OpenAI as image_url', async () => {

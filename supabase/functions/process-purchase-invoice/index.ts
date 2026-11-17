@@ -62,8 +62,10 @@ async function callModel(document: OcrDocument, system: string, userText: string
     const result = await extractInvoiceStructured({
       document, system, userText, timeoutMs,
       tool: { name: tool.function.name, description: tool.function.description, parameters: tool.function.parameters },
+      // Lenient on purpose: a "not_invoice" answer may omit the arrays; missing arrays are treated as empty below.
       validate: isExtraction
-        ? (v) => typeof v.document_type === "string" && Array.isArray(v.vat_lines) && Array.isArray(v.items)
+        ? (v) => typeof v.document_type === "string" && (v.vat_lines === undefined || Array.isArray(v.vat_lines)) &&
+          (v.items === undefined || Array.isArray(v.items))
         : (v) => Array.isArray(v.vat_lines),
       maxOutputTokens: isExtraction ? 32_768 : 8_192,
     });
