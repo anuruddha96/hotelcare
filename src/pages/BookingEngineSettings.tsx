@@ -1,10 +1,13 @@
-// Website booking engine settings for one hotel: switch on/off, embed code,
-// look & languages, what guests see for each room type, which rates are sold
-// online with which cancellation terms, policies and recent website bookings.
+// Website booking engine settings for one hotel: switch on/off, private test
+// link, embed code for the hotel's web team, look & branding, languages, guest
+// e-mails, what guests see for each room type, which rates are sold online with
+// which cancellation terms, policies and recent website bookings.
+// Top management only (admin, top management, super admin): other managers do
+// not see the page, the embed code or the test link.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Globe, ImagePlus, Loader2, RefreshCw, Save, Trash2,
+  ArrowLeft, ArrowRight, Check, Copy, ExternalLink, Globe, ImagePlus, Loader2, Lock, MailCheck, RefreshCw, Save, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,18 +22,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { EngineBrandingCard } from '@/components/booking/settings/EngineBrandingCard';
+import { EngineTestLinkCard } from '@/components/booking/settings/EngineTestLinkCard';
 import { AMENITY_KEYS, BOOKING_LANGS, LANG_NAMES, bookingT, type BookingLang } from '@/lib/bookingEngine/i18n';
-import { toHex } from '@/lib/bookingEngine/logic';
+import { isTopManagement } from '@/lib/bookingEngine/access';
+import { toHex, type EngineTheme } from '@/lib/bookingEngine/logic';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 const ORIGIN = 'https://my.hotelcare.app';
-const MANAGE_ROLES = ['admin', 'top_management', 'top_management_manager', 'manager'];
 
 type LangText = Partial<Record<BookingLang, string>>;
 interface EngineRow {
   id: string; public_id: string; hotel_id: string; enabled: boolean; display_name: string | null; logo_url: string | null;
-  theme: { primary?: string; style?: 'classic' | 'modern' }; languages: BookingLang[]; default_language: BookingLang;
+  theme: EngineTheme; languages: BookingLang[]; default_language: BookingLang; preview_token: string; reminder_days: number;
   contact: { email?: string; phone?: string; address?: string; website?: string }; notification_emails: string[];
   policies: { check_in_from?: string; check_out_until?: string; free_cancellation_days?: number; terms_url?: string; privacy_url?: string; city_tax_note?: LangText; extra_note?: LangText };
   booking_window: { min_lead_days?: number; max_advance_days?: number; max_nights?: number; max_rooms?: number; same_day_cutoff?: string };
@@ -82,6 +87,20 @@ function LangFields({ langs, value, onChange, multiline = false, placeholder }: 
   );
 }
 
+/** Drop empty theme values so the guest page falls back to its defaults. */
+function cleanTheme(theme: EngineTheme | undefined): EngineTheme {
+  const t = theme ?? {};
+  const hex = (v: string | undefined) => (v && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : undefined);
+  const tagline = Object.fromEntries(Object.entries(t.tagline ?? {}).map(([k, v]) => [k, String(v ?? '').trim().slice(0, 120)]).filter(([, v]) => v));
+  return {
+    primary: hex(t.primary) ?? '#8a6a3d',
+    ...(hex(t.accent) ? { accent: hex(t.accent) } : {}),
+    style: t.style === 'modern' ? 'modern' : 'classic',
+    ...(t.hero_url ? { hero_url: t.hero_url } : {}),
+    ...(Object.keys(tagline).length ? { tagline } : {}),
+  };
+}
+
 const BookingEngineSettings = () => {
   const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
@@ -99,7 +118,7 @@ const BookingEngineSettings = () => {
   const [uploading, setUploading] = useState<string | null>(null);
   const [openRoom, setOpenRoom] = useState<string | null>(null);
   const [snippetLang, setSnippetLang] = useState<BookingLang>('en');
-  const canManage = Boolean(profile?.is_super_admin) || MANAGE_ROLES.includes(String(role ?? ''));
+  const canManage = isTopManagement(role, profile?.is_super_admin);
 
   const load = useCallback(async () => {
     if (!hotelId) return;
@@ -127,7 +146,7 @@ const BookingEngineSettings = () => {
     setLoadingData(false);
   }, [hotelId]);
 
-  useEffect(() => { if (ready && hotelId) void load(); }, [ready, hotelId, load]);
+  useEffect(() => { if (ready && hotelId && canManage) void load(); }, [ready, hotelId, canManage, load]);
 
   const update = (patch: Partial<EngineRow>) => { setEngine((e) => (e ? { ...e, ...patch } : e)); setDirty(true); };
   const updateProfile = (roomTypeId: string, patch: Partial<ProfileRow>) => {
@@ -154,8 +173,9 @@ const BookingEngineSettings = () => {
     const defaultLanguage = languages.includes(row.default_language) ? row.default_language : languages[0];
     setSaving(true);
     const { error } = await db.from('booking_engines').update({
-      enabled: row.enabled, display_name: row.display_name, logo_url: row.logo_url, theme: row.theme,
+      enabled: row.enabled, display_name: row.display_name, logo_url: row.logo_url, theme: cleanTheme(row.theme),
       languages, default_language: defaultLanguage, contact: row.contact,
+      reminder_days: Math.min(14, Math.max(0, Math.round(Number(row.reminder_days ?? 3)))),
       notification_emails: row.notification_emails, policies: row.policies, booking_window: row.booking_window, rate_plans: row.rate_plans,
     }).eq('id', row.id);
     let profileError: string | null = null;
@@ -242,6 +262,17 @@ const BookingEngineSettings = () => {
     </div>
   );
 
+  if (!canManage) {
+    return page(
+      <Card><CardContent className="flex items-start gap-3 py-8 text-sm">
+        <Lock className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+        <div className="space-y-1">
+          <p className="font-medium">The booking engine is managed by top management.</p>
+          <p className="text-muted-foreground">Its settings, the code for the hotel website and the private test link are visible to admins and top management only. Website bookings still arrive in Reception as usual.</p>
+        </div>
+      </CardContent></Card>,
+    );
+  }
   if (!hotelId || isPortfolio) return page(<Card><CardContent className="py-10 text-center text-sm">Select one hotel to set up its booking engine.</CardContent></Card>);
   if (loadingData) return page(<div className="flex items-center gap-2 py-10 justify-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" />Loading…</div>);
   if (!native) {
@@ -258,7 +289,6 @@ const BookingEngineSettings = () => {
         <p className="font-medium">No booking engine yet for {brand.name}.</p>
         <p className="text-muted-foreground">It is created switched off, so you can add room photos and texts and preview it before guests can book.</p>
         <Button onClick={() => void create()} disabled={!canManage}>Create booking engine</Button>
-        {!canManage && <p className="text-xs text-muted-foreground">Only managers and admins can set this up.</p>}
       </CardContent></Card>,
     );
   }
@@ -289,18 +319,21 @@ const BookingEngineSettings = () => {
           </span>
           <Switch checked={engine.enabled} disabled={!canManage || saving} onCheckedChange={toggleEnabled} aria-label="Online booking" />
         </label>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <CopyField label="Booking page link" value={link} />
-          <div className="flex items-end gap-2">
-            <Button asChild variant="outline" className="gap-1.5"><a href={`${link}?preview=1&lang=${engine.default_language}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" />Preview</a></Button>
-            {engine.enabled && <Button asChild variant="outline" className="gap-1.5"><a href={link} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" />Open live page</a></Button>}
-          </div>
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <CopyField label="Booking page link for guests" value={link} />
+          {engine.enabled && <Button asChild variant="outline" className="gap-1.5"><a href={link} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" />Open live page</a></Button>}
         </div>
       </CardContent>
     </Card>
 
+    <EngineTestLinkCard origin={ORIGIN} publicId={engine.public_id} hotelId={engine.hotel_id} token={engine.preview_token}
+      lang={engine.default_language} enabled={engine.enabled} onToken={(preview_token) => setEngine((e) => (e ? { ...e, preview_token } : e))} />
+
     <Card>
-      <CardHeader className="pb-2"><CardTitle className="text-base">Add it to the hotel website</CardTitle></CardHeader>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Add it to the hotel website</CardTitle>
+        <p className="text-xs text-muted-foreground">Send this code to whoever looks after the hotel website. It is only shown to top management.</p>
+      </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-muted-foreground">Language on the website:</span>
@@ -315,44 +348,51 @@ const BookingEngineSettings = () => {
       </CardContent>
     </Card>
 
+    <EngineBrandingCard
+      hotelId={engine.hotel_id}
+      brand={{ display_name: engine.display_name, logo_url: engine.logo_url, theme: engine.theme ?? {} }}
+      langs={langs}
+      fallbackName={brand.name}
+      onChange={(patch) => update(patch)}
+    />
+
     <Card>
-      <CardHeader className="pb-2"><CardTitle className="text-base">Look and languages</CardTitle></CardHeader>
-      <CardContent className="grid gap-4 sm:grid-cols-2 text-sm">
-        <label className="space-y-1"><Label>Hotel name shown to guests</Label><Input value={engine.display_name ?? ''} onChange={(e) => update({ display_name: e.target.value })} /></label>
-        <label className="space-y-1"><Label>Logo URL</Label><Input value={engine.logo_url ?? ''} placeholder="https://…" onChange={(e) => update({ logo_url: e.target.value })} /></label>
-        <div className="space-y-1">
-          <Label>Brand colour</Label>
-          <div className="flex gap-2">
-            <input type="color" aria-label="Brand colour" value={/^#[0-9a-f]{6}$/i.test(engine.theme?.primary ?? '') ? engine.theme.primary : '#8a6a3d'}
-              onChange={(e) => update({ theme: { ...engine.theme, primary: e.target.value } })} className="h-10 w-14 rounded border" />
-            <Input value={engine.theme?.primary ?? ''} onChange={(e) => update({ theme: { ...engine.theme, primary: e.target.value } })} className="font-mono" />
-          </div>
+      <CardHeader className="pb-2"><CardTitle className="text-base">Languages</CardTitle></CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <Label>Languages guests can choose</Label>
+        <div className="flex flex-wrap gap-2">
+          {BOOKING_LANGS.map((l) => {
+            const on = engine.languages.includes(l);
+            return <Button key={l} type="button" size="sm" variant={on ? 'default' : 'outline'} className="gap-1"
+              onClick={() => update({ languages: on ? engine.languages.filter((x) => x !== l) : [...engine.languages, l] })}>{on && <Check className="h-3.5 w-3.5" />}{LANG_NAMES[l]}</Button>;
+          })}
         </div>
-        <div className="space-y-1">
-          <Label>Heading style</Label>
-          <div className="flex gap-2">
-            {(['classic', 'modern'] as const).map((s) => (
-              <Button key={s} type="button" variant={(engine.theme?.style ?? 'classic') === s ? 'default' : 'outline'} onClick={() => update({ theme: { ...engine.theme, style: s } })}
-                className={s === 'classic' ? 'font-serif' : ''}>{s === 'classic' ? 'Classic (serif)' : 'Modern (sans)'}</Button>
-            ))}
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Default:</span>
+          <select value={engine.default_language} onChange={(e) => update({ default_language: e.target.value as BookingLang })} className="rounded-md border bg-background px-2 py-1 text-sm">
+            {langs.map((l) => <option key={l} value={l}>{LANG_NAMES[l]}</option>)}
+          </select>
         </div>
-        <div className="space-y-2 sm:col-span-2">
-          <Label>Languages guests can choose</Label>
-          <div className="flex flex-wrap gap-2">
-            {BOOKING_LANGS.map((l) => {
-              const on = engine.languages.includes(l);
-              return <Button key={l} type="button" size="sm" variant={on ? 'default' : 'outline'} className="gap-1"
-                onClick={() => update({ languages: on ? engine.languages.filter((x) => x !== l) : [...engine.languages, l] })}>{on && <Check className="h-3.5 w-3.5" />}{LANG_NAMES[l]}</Button>;
-            })}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Default:</span>
-            <select value={engine.default_language} onChange={(e) => update({ default_language: e.target.value as BookingLang })} className="rounded-md border bg-background px-2 py-1 text-sm">
-              {langs.map((l) => <option key={l} value={l}>{LANG_NAMES[l]}</option>)}
-            </select>
-          </div>
-        </div>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base"><MailCheck className="h-4 w-4" />Guest e-mails</CardTitle>
+        <p className="text-xs text-muted-foreground">Sent in the guest's language with the hotel's colour and logo.</p>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+          <li>Confirmation right after booking. Returning guests (same e-mail or name as an earlier stay) get a short welcome-back line.</li>
+          <li>If they used the jacuzzi or sauna last time, the e-mail offers it again with a link straight to the time slots. Their stay history is never shown on the booking page.</li>
+        </ul>
+        <label className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">Pre-arrival e-mail</span>
+          <Input type="number" min={0} max={14} className="h-9 w-20" aria-label="Days before arrival"
+            value={engine.reminder_days ?? 3} onChange={(e) => update({ reminder_days: num(e.target.value, 0) })} />
+          <span className="text-muted-foreground">days before arrival (0 = off)</span>
+        </label>
+        <p className="text-xs text-muted-foreground">Includes the stay details, the jacuzzi and sauna slots (when switched on in In-Suite) and the taxi prices, with a link to manage the booking.</p>
       </CardContent>
     </Card>
 

@@ -31,7 +31,7 @@ export interface EngineConfig {
     enabled: boolean;
     name: string;
     logo_url: string | null;
-    theme: { primary?: string; style?: 'classic' | 'modern' };
+    theme: EngineTheme;
     languages: BookingLang[];
     default_language: BookingLang;
     contact: { email?: string; phone?: string; address?: string; website?: string };
@@ -45,6 +45,16 @@ export interface EngineConfig {
     currency: string | null;
   };
   room_types: EngineRoomType[];
+  /** True only when the request carried the engine's private test-link token. */
+  preview?: boolean;
+}
+/** Look chosen by the hotel's top management (Booking engine settings). */
+export interface EngineTheme {
+  primary?: string;
+  accent?: string;
+  style?: 'classic' | 'modern';
+  hero_url?: string | null;
+  tagline?: Partial<Record<BookingLang, string>>;
 }
 export interface Offer {
   room_type_id: string;
@@ -143,15 +153,78 @@ export function formatDate(iso: string, lang: BookingLang, style: 'long' | 'shor
     : { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`));
 }
 
-/** Hex brand colour (falls back to bronze) and a readable text colour on top of it. */
-export function brandColors(primary: string | undefined): { primary: string; onPrimary: string; soft: string } {
-  const hex = /^#[0-9a-f]{6}$/i.test(primary ?? '') ? primary! : '#8a6a3d';
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/** WCAG relative luminance of a #rrggbb colour (0 = black, 1 = white). */
+export function luminance(hex: string): number {
   const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  return { primary: hex, onPrimary: luminance > 0.45 ? '#111827' : '#ffffff', soft: `${hex}14` };
+  const [r, g, b] = [1, 3, 5].map((i) => lin(parseInt(hex.slice(i, i + 2), 16) / 255));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** WCAG contrast ratio between two #rrggbb colours (1–21). */
+export function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * Brand colour (falls back to bronze) with a readable text colour on top,
+ * and the accent (falls back to the brand colour). accentText is the accent
+ * darkened until it reads on white, for small text such as prices.
+ */
+export function brandColors(primary: string | undefined, accent?: string | undefined): {
+  primary: string; onPrimary: string; soft: string; accent: string; onAccent: string; accentText: string;
+} {
+  const hex = HEX.test(primary ?? '') ? primary!.toLowerCase() : '#8a6a3d';
+  const acc = HEX.test(accent ?? '') ? accent!.toLowerCase() : hex;
+  return {
+    primary: hex,
+    onPrimary: luminance(hex) > 0.45 ? '#111827' : '#ffffff',
+    soft: `${hex}14`,
+    accent: acc,
+    onAccent: luminance(acc) > 0.45 ? '#111827' : '#ffffff',
+    accentText: readableOnWhite(acc),
+  };
+}
+
+/** Darken a colour step by step until it reaches 4.5:1 on white (small text). */
+export function readableOnWhite(hex: string): string {
+  let [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  let out = hex.toLowerCase();
+  for (let i = 0; i < 20 && contrastRatio(out, '#ffffff') < 4.5; i++) {
+    [r, g, b] = [r, g, b].map((c) => Math.round(c * 0.88));
+    out = `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+  }
+  return out;
+}
+
+/** The private test-link token from the page URL, or null (old "?preview=1" links carry none). */
+export function previewTokenFrom(value: string | null | undefined): string | null {
+  return value && /^[0-9a-f]{32,128}$/.test(value) ? value : null;
+}
+
+/** Does the whole party fit one room of this type? */
+export function roomFits(room: Pick<EngineRoomType, 'max_adults' | 'max_children' | 'max_occupancy'>, party: { adults: number; children: number }): boolean {
+  return room.max_occupancy >= party.adults + party.children && room.max_adults >= party.adults && room.max_children >= party.children;
+}
+
+/**
+ * The price at or under which a calendar day counts as one of the lowest:
+ * the highest price that keeps the marked days to about a third of the open
+ * days shown. Null when prices hardly vary (then nothing is marked).
+ */
+export function lowPriceThreshold(days: Array<Pick<CalendarDay, 'open' | 'from'>>): number | null {
+  const prices = days.filter((d) => d.open && d.from != null).map((d) => d.from as number).sort((a, b) => a - b);
+  if (prices.length < 8) return null;
+  const min = prices[0];
+  const max = prices[prices.length - 1];
+  if (max - min < Math.max(5, min * 0.08)) return null;
+  const share = (p: number) => prices.filter((x) => x <= p).length / prices.length;
+  const distinct = [...new Set(prices)];
+  const fits = distinct.filter((p) => share(p) <= 0.34);
+  if (fits.length) return fits[fits.length - 1];
+  return share(min) <= 0.45 ? min : null;
 }
 
 /** CSS hsl(...) or hex → hex, for defaults taken from hotel branding. */

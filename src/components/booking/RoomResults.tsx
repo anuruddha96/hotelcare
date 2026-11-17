@@ -5,7 +5,7 @@ import { BedDouble, Check, ChevronLeft, ChevronRight, Coffee, Maximize2, Users, 
 import { BrandButton } from './BookingUi';
 import { bookingPlural, bookingT, type BookingLang } from '@/lib/bookingEngine/i18n';
 import {
-  formatDate, formatMoney, freeCancellationDate, pick, remainingOfType,
+  formatDate, formatMoney, freeCancellationDate, pick, remainingOfType, roomFits,
   type EngineRoomType, type Offer, type Selection,
 } from '@/lib/bookingEngine/logic';
 import { cn } from '@/lib/utils';
@@ -47,16 +47,17 @@ export function RoomResults(props: Props) {
   const { lang, offers, selections } = props;
   const t = (key: string, values?: Record<string, string | number>) => bookingT(lang, key, values);
   const [open, setOpen] = useState<string | null>(null);
-  const partySize = props.party.adults + props.party.children;
   const single = props.roomsWanted === 1;
 
   const cards = props.roomTypes
     .map((room) => ({ room, roomOffers: offers.filter((o) => o.room_type_id === room.id) }))
     .filter(({ room, roomOffers }) => roomOffers.length > 0 && room.rate_plans.length > 0)
-    // Bookable rooms first, then by lowest price.
+    // Bookable rooms first (for one room: rooms the whole party fits), then by lowest price.
     .sort((a, b) => {
-      const best = (list: Offer[]) => Math.min(...list.filter((o) => !o.blocked).map((o) => o.total), Infinity);
-      const ba = best(a.roomOffers), bb = best(b.roomOffers);
+      const best = (room: EngineRoomType, list: Offer[]) => (single && !roomFits(room, props.party)
+        ? Infinity
+        : Math.min(...list.filter((o) => !o.blocked).map((o) => o.total), Infinity));
+      const ba = best(a.room, a.roomOffers), bb = best(b.room, b.roomOffers);
       return (ba === Infinity ? 1 : 0) - (bb === Infinity ? 1 : 0) || ba - bb;
     });
 
@@ -72,7 +73,7 @@ export function RoomResults(props: Props) {
         const beds = pick(room.beds, lang);
         const left = remainingOfType(offers, selections, room.id);
         const available = Math.max(0, ...roomOffers.map((o) => o.available));
-        const tooSmall = single && (room.max_occupancy < partySize || room.max_adults < props.party.adults || room.max_children < props.party.children);
+        const tooSmall = single && !roomFits(room, props.party);
         const chosenHere = selections.filter((s) => s.roomTypeId === room.id).length;
         return (
           <article key={room.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm" aria-label={name}>
@@ -84,7 +85,7 @@ export function RoomResults(props: Props) {
                   {available > 0 && available <= 3 && <span className="shrink-0 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">{t('onlyLeft', { n: available })}</span>}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-600">
-                  <span className="inline-flex items-center gap-1.5"><Users className="h-4 w-4" />{t('upToGuests', { n: room.max_occupancy })}</span>
+                  <span className="inline-flex items-center gap-1.5"><Users className="h-4 w-4" />{t(room.max_occupancy === 1 ? 'upToGuestsOne' : 'upToGuests', { n: room.max_occupancy })}</span>
                   {room.size_sqm ? <span className="inline-flex items-center gap-1.5"><Maximize2 className="h-4 w-4" />{t('sqm', { n: room.size_sqm })}</span> : null}
                   {beds && <span className="inline-flex items-center gap-1.5"><BedDouble className="h-4 w-4" />{beds}</span>}
                 </div>
@@ -114,7 +115,7 @@ export function RoomResults(props: Props) {
                 const deadline = freeCancellationDate(plan, props.checkIn, props.today);
                 const reason = offer.blocked
                   ? t(`blocked_${offer.blocked}`, { n: offer.blocked === 'max_stay' ? offer.max_stay ?? '' : offer.min_stay ?? '' })
-                  : tooSmall ? t('blocked_capacity', { n: room.max_occupancy }) : null;
+                  : tooSmall ? t(room.max_occupancy === 1 ? 'upToGuestsOne' : 'blocked_capacity', { n: room.max_occupancy }) : null;
                 const blocked = Boolean(reason) || left <= 0;
                 const meal = plan.meal_plan ? t(`meal_${plan.meal_plan}`) : '';
                 return (
@@ -127,7 +128,6 @@ export function RoomResults(props: Props) {
                           ? <span className="inline-flex items-center gap-1.5 text-emerald-700"><Check className="h-4 w-4" />{t('freeCancelUntil', { date: formatDate(deadline, lang) })}</span>
                           : <span className="inline-flex items-center gap-1.5 text-stone-500"><X className="h-4 w-4" />{t('nonRefundable')}</span>}
                       </div>
-                      <div className="text-xs text-stone-500">{t('payAtHotel')}</div>
                     </div>
                     <div className="flex items-center justify-between gap-4 sm:justify-end">
                       <div className="text-right">
