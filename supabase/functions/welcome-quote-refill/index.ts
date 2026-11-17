@@ -107,7 +107,7 @@ Deno.serve(async req => {
       const payload = await response.json();
       await logAiUsage(admin, {
         organizationSlug: "hotelcare", functionName: "welcome-original-thoughts",
-        model: "gpt-4o-mini",
+        model: String(payload?.model ?? 'gpt-4o-mini'),
         inputTokens: Number(payload?.usage?.prompt_tokens ?? 0),
         outputTokens: Number(payload?.usage?.completion_tokens ?? 0),
       });
