@@ -1,4 +1,4 @@
--- Rollback for 20261117150000_purchase_invoice_nav_reconciliation.sql
+-- Rollback for 20261117170000_purchase_invoice_nav_reconciliation.sql
 --
 -- Run manually in a reviewed maintenance window (NOT an automatic migration).
 -- Principles (see docs/HOUSEKEEPING_TENANT_GUARD_ROLLOUT.md "Rollback principles"):

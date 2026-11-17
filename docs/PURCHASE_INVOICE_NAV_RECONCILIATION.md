@@ -40,7 +40,7 @@ Shared, unit-tested modules live in `supabase/functions/_shared/purchaseInvoices
 | `reconcileRunner.ts` | Loads data → engine → bulk writers; one run per organization (coalesced) |
 | `piAuth.ts` | Caller authorization (user JWT evaluated by the database, or Vault worker secret) |
 
-## 2. Data model (migration `20261117150000_purchase_invoice_nav_reconciliation.sql`)
+## 2. Data model (migration `20261117170000_purchase_invoice_nav_reconciliation.sql`)
 
 * `pi_module_settings` — per-organization rollout (`module_enabled`, `allowed_roles`), tolerances,
   reporting delay, **reconciliation start date (go-live)**, approval rules, automation, daily summary.
@@ -59,7 +59,7 @@ Shared, unit-tested modules live in `supabase/functions/_shared/purchaseInvoices
 * `pi_processing_jobs` — idempotent OCR job claims; `pi_reconcile_state` — reconciliation lock/coalescing.
 * Archive `pi_deleted_invoices` (approved invoices cannot be deleted).
 
-Rollback: `supabase/rollbacks/20261117150000_purchase_invoice_nav_reconciliation_down.sql`
+Rollback: `supabase/rollbacks/20261117170000_purchase_invoice_nav_reconciliation_down.sql`
 (disables connections and cron, removes guards; data is preserved; destructive section commented).
 
 ## 3. Security

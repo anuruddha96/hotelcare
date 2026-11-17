@@ -7,7 +7,7 @@
 -- Existing tables only receive new columns, a relaxed file_path NOT NULL for
 -- historical imports, stricter storage/legal-entity policies and guard
 -- triggers. Rollback script:
---   supabase/rollbacks/20261117150000_purchase_invoice_nav_reconciliation_down.sql
+--   supabase/rollbacks/20261117170000_purchase_invoice_nav_reconciliation_down.sql
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'supabase/migrations/20261117150000_purchase_invoice_nav_reconciliation.sql'
-      - 'supabase/rollbacks/20261117150000_purchase_invoice_nav_reconciliation_down.sql'
+      - 'supabase/migrations/20261117170000_purchase_invoice_nav_reconciliation.sql'
+      - 'supabase/rollbacks/20261117170000_purchase_invoice_nav_reconciliation_down.sql'
       - 'supabase/tests/purchase_invoice_nav_*.sql'
       - 'supabase/functions/_shared/purchaseInvoices/**'
       - 'supabase/functions/nav-connection-admin/**'
@@ -21,7 +21,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'supabase/migrations/20261117150000_purchase_invoice_nav_reconciliation.sql'
+      - 'supabase/migrations/20261117170000_purchase_invoice_nav_reconciliation.sql'
       - 'supabase/functions/_shared/purchaseInvoices/**'
 
 concurrency:
@@ -72,16 +72,16 @@ jobs:
             -f supabase/migrations/20260825171630_071a7f7b-8b89-4ec1-ab7d-153387ab3816.sql \
             -f supabase/migrations/20260825171730_482d875e-cc52-401a-b489-261a47550e9a.sql \
             -f supabase/tests/purchase_invoice_nav_fixture_post.sql
-          psql -X -q -v ON_ERROR_STOP=1 -f supabase/migrations/20261117150000_purchase_invoice_nav_reconciliation.sql
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/migrations/20261117170000_purchase_invoice_nav_reconciliation.sql
           # Idempotency: the migration must re-apply cleanly.
-          psql -X -q -v ON_ERROR_STOP=1 -f supabase/migrations/20261117150000_purchase_invoice_nav_reconciliation.sql
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/migrations/20261117170000_purchase_invoice_nav_reconciliation.sql
           psql -X -q -v ON_ERROR_STOP=1 -f supabase/tests/purchase_invoice_nav_test.sql | tee /tmp/pi-nav-sql.log
           grep -q 'purchase_invoice_nav_test: all assertions passed' /tmp/pi-nav-sql.log
       - name: Rollback and roll forward
         run: |
           set -euo pipefail
-          psql -X -q -v ON_ERROR_STOP=1 -f supabase/rollbacks/20261117150000_purchase_invoice_nav_reconciliation_down.sql
-          psql -X -q -v ON_ERROR_STOP=1 -f supabase/migrations/20261117150000_purchase_invoice_nav_reconciliation.sql
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/rollbacks/20261117170000_purchase_invoice_nav_reconciliation_down.sql
+          psql -X -q -v ON_ERROR_STOP=1 -f supabase/migrations/20261117170000_purchase_invoice_nav_reconciliation.sql
 
   unit:
     name: NAV protocol, validation, reconciliation and runner tests
