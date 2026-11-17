@@ -106,7 +106,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (!error && !allowedHotel) setTabHotel(organizationSlug, null);
             });
         }
-        setProfile(withTabHotel(profileData as any) as any);
+        // Operational staff use the server's current work hotel, not an old
+        // tab override. Managers still keep their independent tab selections.
+        const staffWorkRoles = ['housekeeping', 'maintenance', 'maintenance_manager'];
+        setProfile(staffWorkRoles.includes(profileData.role)
+          ? (profileData as Profile)
+          : (withTabHotel(profileData as any) as Profile));
         updateProfileStatus('ready');
         reconnectAttemptRef.current = 0;
         clearReconnectTimer();
