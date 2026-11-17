@@ -50,18 +50,18 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
  SELECT coalesce((SELECT is_super_admin FROM public.profiles WHERE id=p_user), false);
 $$;
 CREATE OR REPLACE FUNCTION public.get_user_role(p_user uuid)
-RETURNS public.user_role LANGUAGE sql STABLE SECURITY DEFINER AS $
+RETURNS public.user_role LANGUAGE sql STABLE SECURITY DEFINER AS $$
  SELECT role FROM public.profiles WHERE id=p_user;
-$;
+$$;
 CREATE OR REPLACE FUNCTION public.hotel_belongs_to_user_organization(p_user uuid, p_hotel text)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS $$
  SELECT EXISTS (
    SELECT 1 FROM public.profiles p JOIN public.organizations o ON o.slug=p.organization_slug
    JOIN public.hotel_configurations h ON h.organization_id=o.id
    WHERE p.id=p_user AND h.is_active AND o.is_active
      AND (h.hotel_id=p_hotel OR h.hotel_name=p_hotel)
  );
-$;
+$$;
 GRANT SELECT, UPDATE ON public.profiles TO authenticated;
 GRANT SELECT ON public.hotel_configurations, public.organizations TO authenticated;
 
