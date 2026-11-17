@@ -60,5 +60,8 @@ export async function fetchGeminiFirstResponse(
   }
   if (!Deno.env.get("OPENAI_API_KEY") || Deno.env.get("GEMINI_OPENAI_FALLBACK_DISABLED") === "true")
     return new Response(JSON.stringify({error:"Gemini unavailable; OpenAI fallback not configured"}),{status:503});
-  return fetch(url,request);
+  // The caller's original timeout may already have expired while trying
+  // primary/secondary Gemini. Give the explicitly permitted fallback its own
+  // bounded attempt instead of passing an already-aborted signal.
+  return fetch(url,{...request,signal:AbortSignal.timeout(50_000)});
 }
