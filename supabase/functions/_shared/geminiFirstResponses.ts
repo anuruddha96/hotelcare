@@ -40,6 +40,7 @@ export async function fetchGeminiFirstResponse(
           return !options.validate || options.validate(o);
         },
       });
+      if (requiresSearch && generated.groundingUrls.length === 0) throw new Error('Ungrounded Gemini research; OpenAI fallback required');
       const data = {
         id:"gemini-hotelcare",
         model:generated.model,
@@ -48,6 +49,7 @@ export async function fetchGeminiFirstResponse(
         output:[{type:"message",content:[{type:"output_text",text:generated.text}]}],
         usage:{input_tokens:generated.inputTokens,output_tokens:generated.outputTokens},
         hc_gemini_estimated_cost_usd:generated.estimatedCostUsd,
+        hc_grounding_urls:generated.groundingUrls,
       };
       return new Response(JSON.stringify(data),{status:200,headers:{
         "Content-Type":"application/json","x-hotelcare-ai-provider":"gemini",
