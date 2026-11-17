@@ -33,9 +33,15 @@ jobs:
         run: |
           deno test --allow-env supabase/functions/_shared/geminiFirstJson_test.ts
           deno test --allow-env supabase/functions/_shared/geminiFirstChat_test.ts
+          deno test --allow-env supabase/functions/_shared/geminiFirstStreamingModel_test.ts
       - name: Type-check edited backend Edge Functions
         run: |
           deno check --node-modules-dir=auto supabase/functions/ottofiori-ai-supervisor/index.ts
+          deno check --node-modules-dir=auto supabase/functions/assistant-chat/index.ts
+          deno check --node-modules-dir=auto supabase/functions/assistant-chat-router/index.ts
+          deno check --node-modules-dir=auto supabase/functions/assistant-transcribe/index.ts
+          deno check --node-modules-dir=auto supabase/functions/demand-events-auto/index.ts
+          deno check --node-modules-dir=auto supabase/functions/demand-events-search/index.ts
           deno check --node-modules-dir=auto supabase/functions/generate-rm-intelligence/index.ts
           deno check --node-modules-dir=auto supabase/functions/revenue-ai-analyze/index.ts
           deno check --node-modules-dir=auto supabase/functions/revenue-events-fetch/index.ts
