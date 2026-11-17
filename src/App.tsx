@@ -136,7 +136,8 @@ const RootRedirect = () => {
 const PurchaseInvoicesGate = ({ fallback }: { fallback: string }) => {
   const access = usePurchaseInvoiceAccess();
   if (access.loading) return <PageLoader />;
-  return access.hasAccess ? <PurchaseInvoices /> : <Navigate to={fallback} replace />;
+  // Finance admins may open the page while the module is disabled, to enable it (data stays gated by RLS).
+  return access.hasAccess || access.isFinanceAdmin ? <PurchaseInvoices /> : <Navigate to={fallback} replace />;
 };
 
 const TenantRouter = () => {

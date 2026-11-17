@@ -10,6 +10,8 @@ export const piNavEn: Bundle = {
   'pi.tab.approvals': 'Approvals',
   'pi.tab.settings': 'Settings',
   'pi.module.disabled': 'The Purchase Invoices module is not enabled for your account. An organization administrator can enable it in Settings → Module rollout.',
+  'pi.module.setupTitle': 'Purchase Invoices is not enabled for this organization yet',
+  'pi.module.setupHint': 'As an organization administrator you can enable it, choose the roles that get access and set the rules below. Invoice data stays hidden until the module is enabled.',
 
   'pi.nav.status.not_checked': 'Not checked',
   'pi.nav.status.exact_match': 'Matched in NAV',
@@ -218,6 +220,8 @@ export const piNavHu: Bundle = {
   'pi.tab.approvals': 'Jóváhagyás',
   'pi.tab.settings': 'Beállítások',
   'pi.module.disabled': 'A Bejövő számlák modul nincs engedélyezve a fiókodhoz. Egy szervezeti adminisztrátor a Beállítások → Modul bevezetés menüpontban kapcsolhatja be.',
+  'pi.module.setupTitle': 'A Bejövő számlák modul még nincs engedélyezve a szervezetben',
+  'pi.module.setupHint': 'Szervezeti adminisztrátorként itt bekapcsolhatod, kiválaszthatod a hozzáférő szerepköröket és beállíthatod a szabályokat. A számlaadatok a modul bekapcsolásáig rejtve maradnak.',
 
   'pi.nav.status.not_checked': 'Nem ellenőrzött',
   'pi.nav.status.exact_match': 'NAV-ban egyezik',

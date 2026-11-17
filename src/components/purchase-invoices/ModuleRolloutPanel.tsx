@@ -30,7 +30,7 @@ const DEFAULTS = {
 type Settings = typeof DEFAULTS;
 
 /** Organization-level rollout, reconciliation and approval rules (RLS: finance admins write). */
-export function ModuleRolloutPanel() {
+export function ModuleRolloutPanel({ onSaved }: { onSaved?: () => void } = {}) {
   const { profile } = useAuth();
   const { t } = useTranslation();
   const org = profile?.organization_slug ?? '';
@@ -74,6 +74,7 @@ export function ModuleRolloutPanel() {
       if (error) throw error;
       invalidatePurchaseInvoiceAccess();
       toast.success(t('pi.rollout.saved'));
+      onSaved?.();
     } catch (e: any) {
       toast.error(e?.message || 'Failed');
     } finally {

@@ -168,8 +168,10 @@ computed **one currency at a time**; exports are real `.xlsx`.
 
 ## 10. Go-live checklist (organization administrator)
 
-1. Settings → Module rollout: enable the module, choose roles, set tolerances, reporting delay and the
-   **reconciliation start date**, approval rules, daily summary recipients.
+1. Open `/<organization>/purchase-invoices` as an organization admin (while the module is disabled the
+   menu item is hidden and the page shows only the rollout settings; invoice data stays hidden by RLS).
+   Enable the module, choose roles, set tolerances, reporting delay and the **reconciliation start
+   date**, approval rules and daily summary recipients (later: Settings → Module rollout).
 2. Settings → Legal entities: correct legal name, Hungarian tax number, registered address, properties,
    default cost centre/category for every company.
 3. Settings → Finance access: assign reviewer / controller / chief controller profiles and scopes.

@@ -39,6 +39,7 @@ import { OverviewPanel } from '@/components/purchase-invoices/OverviewPanel';
 import { ReconciliationPanel } from '@/components/purchase-invoices/ReconciliationPanel';
 import { MissingDocumentsPanel } from '@/components/purchase-invoices/MissingDocumentsPanel';
 import { NavStatusBadge } from '@/components/purchase-invoices/NavStatusBadge';
+import { ModuleRolloutPanel } from '@/components/purchase-invoices/ModuleRolloutPanel';
 import {
   BLOCKING_NAV_STATUSES, MATCHED_NAV_STATUSES, exportWorkbook, formatMoney, totalsByCurrency,
 } from '@/lib/purchaseInvoiceNav';
@@ -428,6 +429,24 @@ export default function PurchaseInvoices() {
 
   if (loading || piAccess.loading) {
     return <div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  }
+  if (!canAccess && piAccess.isFinanceAdmin) {
+    // Module not enabled yet: organization admins can switch it on here.
+    return (
+      <div className="min-h-screen bg-background">
+        <Header /><PMSNavigation />
+        <div className="container mx-auto p-6 space-y-4 max-w-4xl">
+          <Alert>
+            <ShieldAlert className="h-4 w-4" />
+            <AlertDescription>
+              <div className="font-medium">{t('pi.module.setupTitle')}</div>
+              <div className="text-xs">{t('pi.module.setupHint')}</div>
+            </AlertDescription>
+          </Alert>
+          <ModuleRolloutPanel onSaved={() => window.location.reload()} />
+        </div>
+      </div>
+    );
   }
   if (!canAccess) {
     return (
