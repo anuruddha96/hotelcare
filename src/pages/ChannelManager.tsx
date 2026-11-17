@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, History, Plus, Radio, RefreshC
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
+import { isTopManagement } from '@/lib/bookingEngine/access';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
@@ -33,10 +34,12 @@ type Channel = {
 type SyncEntry = { id: string; sync_type: string; sync_status: string | null; created_at: string };
 
 const ChannelManager = () => {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
-  const { hotelId, orgSlug, ready, isPortfolio } = useOperationalHotel();
+  const { hotelId, orgSlug, ready, isPortfolio, role } = useOperationalHotel();
+  // The website booking engine (embed code, test link) is for top management only.
+  const showBookingEngine = isTopManagement(role, profile?.is_super_admin);
   const scopedOrg = organizationSlug || orgSlug;
   const [channels, setChannels] = useState<Channel[]>([]);
   const [syncEntries, setSyncEntries] = useState<SyncEntry[]>([]);
@@ -116,7 +119,7 @@ const ChannelManager = () => {
       </div>
       {loadError && <div role="alert" className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-destructive" />Could not verify channel status for this hotel. No connection settings have been changed.</div>}
       <ChannexPanel hotelId={hotelId} />
-      <Card><CardHeader className="pb-2"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base">Website booking engine</CardTitle><Badge variant="outline">Direct channel</Badge></div></CardHeader><CardContent className="space-y-3 text-sm"><p className="text-muted-foreground">Guests book on the hotel's own website with live HotelCare rates and availability. Bookings land in reception and update Channex automatically.</p><Button asChild size="sm" variant="outline" className="gap-1.5"><Link to={`/${scopedOrg}/booking-engine`}>Set up booking engine <ArrowRight className="h-3.5 w-3.5" /></Link></Button></CardContent></Card>
+      {showBookingEngine && <Card><CardHeader className="pb-2"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base">Website booking engine</CardTitle><Badge variant="outline">Direct channel</Badge></div></CardHeader><CardContent className="space-y-3 text-sm"><p className="text-muted-foreground">Guests book on the hotel's own website with live HotelCare rates and availability. Bookings land in reception and update Channex automatically.</p><Button asChild size="sm" variant="outline" className="gap-1.5"><Link to={`/${scopedOrg}/booking-engine`}>Set up booking engine <ArrowRight className="h-3.5 w-3.5" /></Link></Button></CardContent></Card>}
         <Card><CardHeader className="pb-2"><div className="flex items-center justify-between gap-2"><CardTitle className="text-base">Previo · existing PMS / channel workflow</CardTitle><Badge variant={previoConnected ? 'default' : 'outline'}>{loadingData ? 'Checking' : previoConnected ? 'PMS configured' : 'Not configured'}</Badge></div></CardHeader><CardContent className="space-y-3 text-sm"><p className="text-muted-foreground">Keep Previo as the source of truth for existing hotels until the Channex connection above is live and the OTA channels are disconnected from Previo. Never let both publish rates.</p><p className="text-xs text-muted-foreground">Latest configuration sync: {previoLastSync ? new Date(previoLastSync).toLocaleString() : 'Not recorded'}</p><Button asChild size="sm" variant="outline" className="gap-1.5"><Link to={`/${scopedOrg}/reception`}>Open reception and Previo sync <ArrowRight className="h-3.5 w-3.5" /></Link></Button></CardContent></Card>
       <Card><CardHeader className="pb-2"><CardTitle className="text-base">Channels for this hotel</CardTitle><p className="text-xs text-muted-foreground">Internal notes per channel. OTA connections themselves are made in Channex (step 6 above).</p></CardHeader><CardContent className="space-y-3">
         {loadingData ? <p className="text-sm text-muted-foreground">Loading hotel connections…</p> : channels.length === 0 ? <p className="text-sm text-muted-foreground">No hotel-specific channels configured yet.</p> : <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{channels.map((channel) => <div key={channel.id} className="rounded-lg border p-3 space-y-1"><div className="flex justify-between gap-2"><span className="font-semibold text-sm">{channel.channel_name}</span><Badge variant={channel.is_active ? 'default' : 'outline'}>{channel.is_active ? 'Active flag' : 'Draft / inactive'}</Badge></div><p className="text-xs text-muted-foreground">{channel.channel_type || 'OTA'} · {channel.sync_status || 'Not verified'}</p><p className="text-[11px] text-muted-foreground">Last channel sync: {channel.last_sync_at ? new Date(channel.last_sync_at).toLocaleString() : 'Never'}</p>{channel.is_active && channel.sync_status !== 'success' && <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">Active flag is set but successful channel sync is unverified.</p>}</div>)}</div>}
