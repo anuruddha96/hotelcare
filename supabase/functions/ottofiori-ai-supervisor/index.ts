@@ -101,24 +101,10 @@ async function run(admin: any, apiKey: string) {
       history:context.history ?? [],
     });
     if (input.length>60_000) throw new Error('AI input exceeded the bounded request size; no call made.');
-    // The model catalogue is diagnostic only. Failure to query OpenAI must
-    // never stop Gemini from being used as the primary provider.
-    let models: string[] = [];
-    if (apiKey) {
-      try {
-        const inventory=await fetch('https://api.openai.com/v1/models',{
-          headers:{Authorization:'Bearer '+apiKey},signal:AbortSignal.timeout(9_000)});
-        if (inventory.ok) models=(await inventory.json()).data.map((m:any)=>String(m.id));
-      } catch { console.warn(FEATURE,'OpenAI model inventory unavailable; Gemini will still run'); }
-    }
-    const prior = await admin.from('ottofiori_ai_review_runs').select('model,started_at,status').neq('id',reviewId).eq('status','completed')
-      .gte('started_at',new Date(now.getTime()-24*3600_000).toISOString()).order('started_at',{ascending:false}).limit(8);
-    // Spend on Astra only when two previous reviews have not found close-in conversion,
-    // and never more than once in 24h. Routine aggregated work uses Sol.
-    const escalating = input.length<=28_000 && models.includes('gpt-6-astra') && (prior.data?.length ?? 0)>=2 && !(prior.data ?? []).some((r:any)=>r.model==='gpt-6-astra')
-      && dates.some(d=>d.lead<=3 && Number(d.left)>=4 && d.pickup_6h===0 && (d.quiet_hours == null || d.quiet_hours>=8));
-    let model = escalating ? 'gpt-6-astra' : availableSupervisorModel(models);
-    const reserve = escalating ? .80 : .45;
+    // Gemini is always the FIRST AI API contacted. Model discovery for OpenAI
+    // is deferred until the Gemini attempt fails validation or availability.
+    let model = 'gpt-4.1';
+    const reserve = .45;
     const costRows = await admin.from('ai_usage_log').select('estimated_cost_usd,created_at').eq('function_name',FEATURE)
       .eq('organization_slug',ORG).gte('created_at',new Date(now.getFullYear(),now.getMonth(),1).toISOString());
     if (costRows.error) throw costRows.error;
@@ -160,9 +146,14 @@ async function run(admin: any, apiKey: string) {
         console.warn(FEATURE,'Gemini unavailable or output invalid, using OpenAI fallback');
       }
       if (!apiKey) throw new Error('Gemini unavailable and OpenAI fallback is not configured');
+      try {
+        const inventory=await fetch('https://api.openai.com/v1/models',{
+          headers:{Authorization:'Bearer '+apiKey},signal:AbortSignal.timeout(9_000)});
+        if(inventory.ok) model=availableSupervisorModel((await inventory.json()).data.map((m:any)=>String(m.id)));
+      } catch { console.warn(FEATURE,'OpenAI model discovery unavailable; use compatible fallback'); }
       return fetch('https://api.openai.com/v1/responses',{
         method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+apiKey},signal:AbortSignal.timeout(90_000),
-        body:JSON.stringify({model:chosen,store:false,...(chosen.startsWith('gpt-4.1')?{}:{reasoning:{effort:'medium'}}),max_output_tokens:8000,
+        body:JSON.stringify({model,store:false,...(model.startsWith('gpt-4.1')?{}:{reasoning:{effort:'medium'}}),max_output_tokens:8000,
           instructions,input,text:{format:{type:'json_schema',name:'ottofiori_price_review',strict:true,schema}}}),
       });
     };
