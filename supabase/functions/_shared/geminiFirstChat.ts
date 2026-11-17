@@ -69,3 +69,13 @@ export async function chatGeminiFirst(body: ChatPayload, options: Options = {}):
     body:JSON.stringify(body),
   });
 }
+
+
+/** Drop-in for existing OpenAI chat fetch call sites (headers are ignored). */
+export async function fetchGeminiFirstChat(
+  _url: string, request: RequestInit, options: Options = {},
+): Promise<Response> {
+  if (typeof request.body !== "string") throw new Error("AI chat JSON body required");
+  const payload = JSON.parse(request.body) as ChatPayload;
+  return chatGeminiFirst(payload,options);
+}
