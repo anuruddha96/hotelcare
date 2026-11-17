@@ -12,6 +12,7 @@ import type { AssistantHotel } from "./assistantHotels.ts";
 import { envelope, type RevenueDataset } from "./revenueMetrics.ts";
 import { buildPricingReview } from "./pricingReview.ts";
 import { logAiUsage } from "./aiBudget.ts";
+import { containsLikelySensitiveData } from "./lowCostAi.ts";
 
 export type WorkspaceAttachment =
   | {
@@ -687,13 +688,54 @@ export function buildWorkspaceTools(ctx: Ctx): Record<string, any> {
           return { ok: false, error: `The daily limit of ${IMAGE_DAILY_LIMIT} generated images has been reached. It resets tomorrow.` };
         }
         const size = format === "landscape" ? "1536x1024" : format === "portrait" ? "1024x1536" : "1024x1024";
-        const model = Deno.env.get("OPENAI_IMAGE_MODEL") || "gpt-image-1";
-        const response = await fetch("https://api.openai.com/v1/images/generations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.openAiKey}` },
-          body: JSON.stringify({ model, prompt: brief, size, n: 1 }),
-        });
-        const result = await response.json().catch(() => null);
+        let model = Deno.env.get("OPENAI_IMAGE_MODEL") || "gpt-image-1";
+        let response: Response | null = null;
+        let result: any = null;
+        const geminiKey = Deno.env.get("GEMINI_API_KEY");
+        const privacyApproved = Deno.env.get("GEMINI_PAID_DATA_PROCESSING_CONFIRMED") === "true";
+        if (geminiKey && Deno.env.get("GEMINI_DISABLED") !== "true" &&
+            (!containsLikelySensitiveData(brief) || privacyApproved)) {
+          const imageModel = Deno.env.get("GEMINI_IMAGE_MODEL") || "gemini-3.1-flash-image";
+          const aspectRatio = format === "landscape" ? "16:9" : format === "portrait" ? "9:16" : "1:1";
+          try {
+            const imgResp = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" +
+              encodeURIComponent(imageModel) + ":generateContent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey },
+              signal: AbortSignal.timeout(45_000),
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: brief }] }],
+                generationConfig: {
+                  responseModalities: ["TEXT", "IMAGE"],
+                  imageConfig: { aspectRatio },
+                },
+              }),
+            });
+            if (imgResp.ok) {
+              const body = await imgResp.json();
+              const part = (body?.candidates?.[0]?.content?.parts ?? []).find(
+                (p: any) => p?.inlineData?.data && /^image\//.test(String(p?.inlineData?.mimeType ?? "")));
+              if (typeof part?.inlineData?.data === "string") {
+                response = imgResp;
+                model = imageModel;
+                result = { data: [{ b64_json: part.inlineData.data }],
+                  usage: {input_tokens:body?.usageMetadata?.promptTokenCount ?? 0,
+                    output_tokens:body?.usageMetadata?.candidatesTokenCount ?? 0}};
+              }
+            } else console.warn("Gemini image generation unavailable", imgResp.status);
+          } catch { console.warn("Gemini image generation transport failed; using approved fallback"); }
+        }
+        if (!response) {
+          if (!ctx.openAiKey || Deno.env.get("GEMINI_OPENAI_FALLBACK_DISABLED") === "true") {
+            return { ok: false, error: "Gemini image service unavailable and OpenAI fallback is not configured." };
+          }
+          response = await fetch("https://api.openai.com/v1/images/generations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.openAiKey}` },
+            body: JSON.stringify({ model, prompt: brief, size, n: 1 }),
+          });
+          result = await response.json().catch(() => null);
+        }
         if (!response.ok) {
           console.error("assistant image generation failed", response.status, result?.error?.message);
           return { ok: false, error: result?.error?.code === "moderation_blocked" || /safety|policy/i.test(String(result?.error?.message)) ? "That image request was declined by the content policy." : "The image could not be generated just now." };
