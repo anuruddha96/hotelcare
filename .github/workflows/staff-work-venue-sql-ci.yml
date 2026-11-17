@@ -1,0 +1,47 @@
+name: Staff work venue scope SQL CI
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261117093500_staff_cross_venue_work_selection.sql'
+      - 'supabase/tests/staff_work_venue_*.sql'
+      - '.github/workflows/staff-work-venue-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  staff-work-venue-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_staff_work_venue_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_staff_work_venue_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Verify same-organization access, prompt state and tenant denial
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \\
+            -f supabase/tests/staff_work_venue_fixture.sql \\
+            -f supabase/migrations/20261117093500_staff_cross_venue_work_selection.sql \\
+            -f supabase/tests/staff_work_venue_test.sql
