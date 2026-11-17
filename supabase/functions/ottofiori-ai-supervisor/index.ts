@@ -255,10 +255,10 @@ Deno.serve(async req=>{
       dates:(peers.data.dates ?? []).map((d:any)=>({date:d.date,...peerPriceSignal(d.peers,now)}))});
   }
   if(body.action==='models') {
-    const response=await fetch('https://api.openai.com/v1/models',{headers:{Authorization:`Bearer ${key}`},signal:AbortSignal.timeout(15_000)});
-    if(!response.ok) return json({error:`Model inventory failed (${response.status})`},502);
-    const models=await response.json();
-    return json({models:(models.data ?? []).map((m:any)=>m.id).filter((id:string)=>/^gpt-(6|5|4\.1|4o)/.test(id)).sort()});
+    return json({provider_priority:['gemini','openai'],
+      gemini_key_configured:Boolean(Deno.env.get('GEMINI_API_KEY')),
+      gemini_candidates:[Deno.env.get('GEMINI_MODEL') || 'gemini-3.5-flash-lite',Deno.env.get('GEMINI_SECONDARY_MODEL') || 'gemini-3.5-flash'],
+      openai_fallback_configured:Boolean(key)});
   }
   if(body.action==='readback') {
     const review=await admin.from('ottofiori_ai_review_runs').select('id,status,outcomes').eq('id',body.review_id).single();
@@ -290,7 +290,7 @@ Deno.serve(async req=>{
     return json({review_id:review.data.id,checked_at:checkedAt,checked:rows.length,matched:rows.length-mismatched.length,mismatched,
       pms_accepted:rows.filter(i=>['accepted','confirmed','verified'].includes(i.status)).length});
   }
-  const task=run(admin,key);
+  const task=run(admin,key ?? '');
   // Background work is observable in the persisted review row, not this acknowledgement.
   if(typeof EdgeRuntime!=='undefined') {EdgeRuntime.waitUntil(task);return json({started:true,hotel_id:HOTEL});}
   await task;return json({finished:true,hotel_id:HOTEL});
