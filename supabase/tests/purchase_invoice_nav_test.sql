@@ -276,4 +276,8 @@ SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000004
 SELECT t.expect_error($q$INSERT INTO public.invoice_buyer_companies (organization_slug, name, tax_id) VALUES ('rdhotels','Fake Kft','99999999')$q$, 'row-level security');
 RESET ROLE;
 
+-- NAV conflict counts are server-only: no direct browser execution.
+SELECT t.eq(has_function_privilege('authenticated', 'public.pi_open_conflict_count(uuid)', 'EXECUTE'), false, 'conflict count not executable by authenticated');
+SELECT t.eq(has_function_privilege('anon', 'public.pi_open_conflict_count(uuid)', 'EXECUTE'), false, 'conflict count not executable by anon');
+
 SELECT 'purchase_invoice_nav_test: all assertions passed' AS result;
