@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/contexts/TenantContext';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
-import { shouldPromptStaffWorkVenue, type StaffStaffWorkVenueState } from '@/lib/staffWorkVenue';
+import { shouldPromptStaffWorkVenue, type StaffWorkVenueState } from '@/lib/staffWorkVenue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
