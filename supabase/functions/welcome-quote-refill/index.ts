@@ -1,3 +1,4 @@
+import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 // Original HotelCare thoughts are generated in small batches; historical quotes
 // attributed to real people remain separate, sourced and unchanged.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.53.0";
@@ -85,12 +86,12 @@ Deno.serve(async req => {
   let paused = false;
   const key = Deno.env.get("OPENAI_API_KEY");
   const known = new Set(stock.map(q => normalize(q.quote_text)));
-  if (!key) { failure = "OPENAI_API_KEY missing"; paused = true; }
+  if (!key && !Deno.env.get("GEMINI_API_KEY")) { failure = "No AI provider configured"; paused = true; }
   try {
-    if (key) for (let batch = 0; batch < (worker ? 4 : 2); batch++) {
+    if (key || Deno.env.get("GEMINI_API_KEY")) for (let batch = 0; batch < (worker ? 4 : 2); batch++) {
       const role = target(stock, audience, remaining === null ? null : remaining + inserted);
       if (!role || (count ?? 0) + inserted >= DAILY_MAX || stock.length >= LIFETIME_MAX) break;
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const response = await fetchGeminiFirstChat("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({
