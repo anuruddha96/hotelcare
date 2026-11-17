@@ -43,7 +43,7 @@ interface NightRow {
   stay_from: string | null; stay_to: string | null; guests: number | null; status_id: number | null;
 }
 
-async function fetchAll<T>(q: (from: number, to: number) => Promise<{ data: unknown; error: unknown }>): Promise<T[]> {
+async function fetchAll<T>(q: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
   const page = 1000; const out: T[] = [];
   for (let off = 0; off < 40000; off += page) {
     const { data, error } = await q(off, off + page - 1);
