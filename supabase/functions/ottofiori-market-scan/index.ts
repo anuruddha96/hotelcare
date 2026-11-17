@@ -1,3 +1,4 @@
+import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 // Hotel Ottofiori daily market-rate scan.
 //
 // The 06:00 scheduler fans this function out once per active Hotel Authority
@@ -95,7 +96,7 @@ async function askRates(apiKey: string, c: Competitor, dates: string[], strict =
     `Return strict JSON only: {"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123,"currency":"EUR","room_type":"Standard Double","board":"room_only","refundable":true,"source_url":"https://...","confidence":0.9}]}`,
   ].filter(Boolean).join(" ");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchGeminiFirstResponse("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     signal: AbortSignal.timeout(35_000),
@@ -153,7 +154,7 @@ Deno.serve(async (req) => {
     if (revenueAllowed !== true || hotelAllowed !== true) return json({ error: "Revenue permission required" }, 403);
   }
   const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured" }, 500);
+  if (!apiKey && !Deno.env.get("GEMINI_API_KEY")) return json({ error: "No AI provider configured" }, 500);
 
   const body = await req.json().catch(() => ({}));
   const days = Math.min(Math.max(Number(body.days ?? DEFAULT_DAYS), 1), MAX_DAYS);
