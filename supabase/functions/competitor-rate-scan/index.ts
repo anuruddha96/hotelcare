@@ -371,11 +371,11 @@ Deno.serve(async (req) => {
               error: u.error,
             });
 
-          let chunk = await askDates(apiKey, c, window, false, tier);
+          let chunk = await askDates(apiKey ?? '', c, window, false, tier);
           await bill(chunk);
           const unreadable = Boolean(chunk.error);
           if (unreadable || (!isCron && !chunk.rates.length)) {
-            chunk = await askDates(apiKey, c, window, true, tier);
+            chunk = await askDates(apiKey ?? '', c, window, true, tier);
             await bill(chunk);
           }
           usedModel = chunk.model ?? usedModel;
