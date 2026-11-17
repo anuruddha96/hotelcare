@@ -10,6 +10,7 @@ import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
 import { OperationalPageHeading } from '@/components/layout/OperationalPageHeading';
 import { MaintenanceIssueDeepLink } from '@/components/dashboard/MaintenanceIssueDeepLink';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
+import { StaffWorkVenueGate } from '@/components/layout/StaffWorkVenueGate';
 import { isReceptionRole } from '@/lib/roleAccess';
 
 const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'];
@@ -134,6 +135,7 @@ const Index = () => {
   const showingMasterSchedule = canOpenMasterSchedule && searchParams.get('view') === 'staff-schedule';
 
   return (
+    <StaffWorkVenueGate>
     <div className="min-h-screen bg-background overflow-x-hidden">
       <Header />
 
@@ -149,11 +151,12 @@ const Index = () => {
       ) : (
         <>
           {/* Stayover and early-checkout changes are handled in room workflows, not speculative manager-wide review panels. */}
-          <Dashboard />
+          <Dashboard key={profile?.assigned_hotel || 'no-hotel'} />
           <MaintenanceIssueDeepLink />
         </>
       )}
     </div>
+    </StaffWorkVenueGate>
   );
 };
 

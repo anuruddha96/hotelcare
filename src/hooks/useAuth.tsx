@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { clearTabHotels, getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
@@ -106,7 +106,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (!error && !allowedHotel) setTabHotel(organizationSlug, null);
             });
         }
-        setProfile(withTabHotel(profileData as any) as any);
+        // Operational staff use the server's current work hotel, not an old
+        // tab override. Managers still keep their independent tab selections.
+        const staffWorkRoles = ['housekeeping', 'maintenance', 'maintenance_manager'];
+        setProfile(staffWorkRoles.includes(profileData.role)
+          ? (profileData as Profile)
+          : (withTabHotel(profileData as any) as Profile));
         updateProfileStatus('ready');
         reconnectAttemptRef.current = 0;
         clearReconnectTimer();
@@ -379,9 +384,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Switching property is a client-state change: move the in-memory profile so
   // every hook refetches for the new hotel without rebooting the whole app.
-  const applyAssignedHotel = (hotelId: string) => {
-    setProfile((p) => (p ? ({ ...p, assigned_hotel: hotelId } as any) : p));
-  };
+  const applyAssignedHotel = useCallback((hotelId: string) => {
+    setProfile((p) => p && p.assigned_hotel !== hotelId
+      ? ({ ...p, assigned_hotel: hotelId } as Profile)
+      : p);
+  }, []);
 
   return (
     <AuthContext.Provider value={{
