@@ -14,7 +14,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       // Dialogs use z-50 and lock outside pointer events. Keep toasts below
       // their overlay instead of showing an apparently unclickable close icon.
       style={{ zIndex: 40 }}
-      // Industry standard: auto-dismiss in ~5s, always dismissible (close
+      // Auto-dismiss after 6s, always dismissible (close
       // button + swipe), never more than one notification on screen.
       duration={6000}
       closeButton
