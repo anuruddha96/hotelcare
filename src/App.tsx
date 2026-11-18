@@ -170,7 +170,7 @@ const TenantRouter = () => {
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
-                   <Route path="/reset-password" element={<PasswordRecovery />} />
+                  <Route path="/reset-password" element={<PasswordRecovery />} />
           <Route path="/front-desk" element={<FrontDesk />} />
           <Route path="/reservations" element={<Reservations />} />
           <Route path="/reservations/:id" element={<ReservationDetail />} />
@@ -233,6 +233,8 @@ const AuthenticatedShell = ({ children }: { children: React.ReactNode }) => {
     observeSessionSuspension, getSessionSuspension, () => null,
   );
 
+  // Recovery is a standalone authentication screen, not an operational workspace.
+  if (location.pathname === '/reset-password') return <>{children}</>;
   if (!user) return <>{children}</>;
 
   // Unmount the entire operational subtree after 30 minutes without input
