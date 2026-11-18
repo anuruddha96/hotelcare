@@ -6,7 +6,7 @@ const settings = {
  ...DEFAULT_DECISION_SETTINGS, now:new Date('2026-11-05T12:00:00Z'),minMovementEur:1,
  directionChangeHours:3, maxMarkdownsPerDay:4, maxMarkdownDepthPct:25, rebookWindowHours:12, bookedDateBrakeHours:12,
  fill:{enabled:true,windowDays:120,maxTotalDropPct:25},
- // Production Ottofiori ladder (14 Nov 2026): lifts from day 0 on scarce, high-occupancy dates.
+ // The occupancy ladder remains configured, but the revenue director may only raise on genuine pickup.
  occupancyLiftLadder:[{min_occupancy_pct:90,min_days_out:0,pct:12,min_eur:15},{min_occupancy_pct:85,min_days_out:0,pct:10,min_eur:12},{min_occupancy_pct:80,min_days_out:3,pct:8,min_eur:10},{min_occupancy_pct:75,min_days_out:7,pct:6,min_eur:8},{min_occupancy_pct:70,min_days_out:14,pct:5,min_eur:6},{min_occupancy_pct:60,min_days_out:30,pct:4,min_eur:5},{min_occupancy_pct:50,min_days_out:60,pct:3,min_eur:4}],
  windowRules:[
  {id:'w0_2',min_days_out:0,max_days_out:2,max_daily_decrease:12,max_daily_increase:12,no_pickup_wait_hours:2,min_hours_between_decreases:2,require_above_anchor:false},
@@ -22,23 +22,21 @@ test('only committed movements consume budgets and cooldowns',()=>{
  for(const status of ['held','shadow','superseded','failed'])assert.equal(committedMovement({status,direction:'decrease',movement:-6}),false);
  for(const status of ['queued','accepted','confirmed','published','partial'])assert.equal(committedMovement({status,direction:'decrease',movement:-6}),true);
 });
-test('unprotected final-week rooms sell down; scarce high-occupancy inventory lifts on fresh demand',()=>{
+test('unprotected final-week rooms sell down; scarce high occupancy holds unless genuine pickup arrives',()=>{
  for(const daysOut of [0,1,4,7]) {
  assert.equal(decide({daysOut,roomsRemaining:5,occupancyPct:71.4}).direction,'decrease');
- // The last room with two bookings in six hours is never cut; future dates lift, today holds.
- assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,observedPickup6h:2}).direction, daysOut===0?'hold':'increase');
+ assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,observedPickup6h:2}).direction,'hold');
  }
- // Scarce inventory without fresh demand holds its price rather than discounting.
+ assert.equal(decide({daysOut:5,roomsRemaining:1,occupancyPct:95.2,pickup24h:1,pickup6h:1,unspentPickupInQuietWindow:1}).direction,'increase');
  assert.equal(decide({daysOut:5,roomsRemaining:2,occupancyPct:90.5,hoursSinceLastPickup:80}).reason,'strong_demand_protected');
 });
-test('the last room is never discounted close in; it lifts while demand is fresh and holds otherwise',()=>{
+test('the last room is never discounted close in; only genuine pickup can raise it',()=>{
  for (const daysOut of [1,2,3,4]) {
-  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).direction,'increase');
-  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8},{confirmedHighEvent:true}).direction,'increase');
-  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8,lastDirection:'increase',lastDecisionAt:'2026-11-05T10:00:00Z'}).reason,'occupancy_lift_spacing');
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).direction,'hold');
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8},{confirmedHighEvent:true}).direction,'hold');
+  assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,pickup24h:1,pickup6h:1,unspentPickupInQuietWindow:1}).direction,'increase');
   assert.equal(decide({daysOut,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:80}).direction,'hold');
  }
- // Arrival day: strong occupancy holds its price until the evening instead of an hourly rescue cut.
  assert.equal(decide({daysOut:0,roomsRemaining:1,occupancyPct:95.2,hoursSinceLastPickup:8}).reason,'same_day_strong_occupancy');
 });
 test('same-day genuine pickup holds instead of discounting a converting offer',()=>{
@@ -73,9 +71,15 @@ test('only organizer, venue, or human-curated high events receive event-only pro
 test('static occupancy and events cannot ratchet prices upward without fresh pickup',()=>{
  for(const currentPrice of [150,160,192,300]) {
  assert.equal(decide({daysOut:70,occupancyPct:60,roomsRemaining:8,currentPrice}).direction,'hold');
+ assert.equal(decide({daysOut:70,occupancyPct:60,roomsRemaining:8,currentPrice,pickup48h:2,pickup24h:0,pickup6h:0,hoursSinceLastPickup:30}).direction,'hold');
  assert.equal(decide({daysOut:60,currentPrice},{confirmedHighEvent:true}).direction,'hold');
  }
  assert.equal(decide({daysOut:4,currentPrice:160},{confirmedHighEvent:true}).direction,'hold');
+});
+test('48-hour-old pickup cannot create an occupancy-led rise after recent demand is quiet',()=>{
+ const d=decide({daysOut:15,occupancyPct:81,roomsRemaining:4,currentPrice:238,pickup48h:2,pickup24h:0,pickup6h:0,observedPickup6h:0,hoursSinceLastPickup:30});
+ assert.equal(d.direction,'hold');
+ assert.equal(d.reason,'strong_demand_protected');
 });
 test('January weekends and full February are included in the rolling plan',()=>{
  for(const [stayDate,daysOut] of [['2027-01-01',57],['2027-01-02',58],['2027-02-28',115]])
