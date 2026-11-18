@@ -171,28 +171,6 @@ export default function Auth() {
     }
   };
 
-  const handleSendSMSOTP = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setResetLoading(true);
-    
-    const formData = new FormData(e.currentTarget);
-    const phone = formData.get('sms-phone') as string;
-
-    const { error } = await supabase.functions.invoke('send-sms-otp', {
-      body: { phone }
-    });
-    
-    if (error) {
-      toast.error(error.message || t('auth.failedSms'));
-    } else {
-      toast.success(t('auth.smsCodeSent'));
-      setOtpEmail(phone);
-      setOtpStep(true);
-    }
-    
-    setResetLoading(false);
-  };
-
   const handleSendLoginLink = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setResetLoading(true);
@@ -361,9 +339,8 @@ export default function Auth() {
                   )}
                   {!otpStep ? (
                     <Tabs defaultValue="otp" className="w-full">
-                      <TabsList className="grid w-full grid-cols-4 h-8 sm:h-10">
+                      <TabsList className="grid w-full grid-cols-3 h-8 sm:h-10">
                         <TabsTrigger value="otp" className="text-xs sm:text-sm">{t('auth.emailOTP')}</TabsTrigger>
-                        <TabsTrigger value="sms" className="text-xs sm:text-sm">{t('auth.smsOTP')}</TabsTrigger>
                         <TabsTrigger value="email" className="text-xs sm:text-sm">{t('auth.emailLink')}</TabsTrigger>
                         <TabsTrigger value="login-link" className="text-xs sm:text-sm">{t('auth.loginLink')}</TabsTrigger>
                       </TabsList>
@@ -400,24 +377,6 @@ export default function Auth() {
                           </div>
                           <Button type="submit" className="w-full" disabled={resetLoading}>
                             {resetLoading ? t('auth.sending') : t('auth.sendResetLink')}
-                          </Button>
-                        </form>
-                      </TabsContent>
-                      
-                      <TabsContent value="sms">
-                        <form onSubmit={handleSendSMSOTP} className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="sms-phone">{t('auth.phoneNumber')}</Label>
-                            <Input
-                              id="sms-phone"
-                              name="sms-phone"
-                              type="tel"
-                              required
-                              placeholder={t('auth.enterPhone')}
-                            />
-                          </div>
-                          <Button type="submit" className="w-full" disabled={resetLoading}>
-                            {resetLoading ? t('auth.sending') : t('auth.sendSMSCode')}
                           </Button>
                         </form>
                       </TabsContent>
