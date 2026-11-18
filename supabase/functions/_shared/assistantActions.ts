@@ -420,6 +420,7 @@ export async function executeAction(
   service: any,
   ctx: { userId: string; role: string; organizationSlug: string | null; hotelId: string; hotelName: string },
   action: { kind: AssistantActionKind; input: Record<string, unknown> },
+  authenticatedClient?: any,
 ): Promise<{ ok: true; summary: string; recordId?: string } | { ok: false; error: string }> {
   const org = ctx.organizationSlug;
   const hotelKeys = [...new Set([ctx.hotelId, ctx.hotelName].filter(Boolean))] as string[];
@@ -519,13 +520,21 @@ export async function executeAction(
       if (!rooms?.length) return fail(`Room ${roomNumber} does not exist at this property. Ticket not created.`);
       if (rooms.length !== 1) return fail("Room number is ambiguous within this property. Ticket not created.");
     }
-    const { data, error } = await service
+    // Manual ticket creation has a DB guard requiring auth.uid() and an
+    // authenticated JWT. A service-role insert bypasses RLS but FAILS the
+    // trigger's caller check; use the caller-scoped client from the action edge.
+    const ticketClient = authenticatedClient ?? service;
+    const commonArea = !/^\\d+[A-Za-z]?$/.test(roomNumber);
+    const storedRoomNumber = commonArea ? "N/A" : roomNumber;
+    const storedDescription = commonArea && !/^Location:\\s*\\S/i.test(description)
+      ? `Location: ${roomNumber}\\n${description}` : description;
+    const { data, error } = await ticketClient
       .from("tickets")
       .insert({
         ticket_number: `TKT-${Date.now()}`,
         title,
-        description,
-        room_number: roomNumber,
+        description: storedDescription,
+        room_number: storedRoomNumber,
         priority,
         department,
         status: "open",
