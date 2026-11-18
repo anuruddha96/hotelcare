@@ -156,7 +156,7 @@ const Index = () => {
       {showingMasterSchedule ? (
         <main className="container mx-auto px-4 py-6">
           <OperationalPageHeading section={isRdHotels ? 'Work schedule' : 'Master staff schedule'} />
-          <div className="mt-4 mb-6">
+          <div className="sticky z-40 mt-4 mb-6 bg-background/95 py-1 backdrop-blur" style={{ top: "var(--hc-header-height, 0px)" }}>
             <OperationsNavigation current="staff-schedule" />
           </div>
           {isRdHotels ? <WorkforceSchedule /> : <MasterStaffSchedulePlanner />}
