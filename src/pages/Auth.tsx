@@ -140,7 +140,7 @@ export default function Auth() {
   const handleVerifyOTP = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setRecoveryFeedback(null);
-    if (!/^\\d{6}$/.test(otpCode)) {
+    if (!/^\d{6}$/.test(otpCode)) {
       setRecoveryFeedback({ kind: 'error', message: t('auth.invalidOtp') });
       return;
     }
