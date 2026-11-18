@@ -506,6 +506,19 @@ export async function executeAction(
 
   if (action.kind === "create_ticket") {
     const { title, description, roomNumber, priority, department } = action.input as Record<string, string>;
+    // A numbered room must exist in this authenticated hotel. A maintenance
+    // report for "Lobby" or "Kitchen" is a location, not a guest room.
+    if (/^\\d+[A-Za-z]?$/.test(roomNumber)) {
+      const { data: rooms, error: roomError } = await service.from("rooms")
+        .select("id,room_number,hotel")
+        .eq("organization_slug", org)
+        .in("hotel", hotelKeys)
+        .eq("room_number", roomNumber)
+        .limit(2);
+      if (roomError) return fail("Could not verify the room for this maintenance ticket.");
+      if (!rooms?.length) return fail(`Room ${roomNumber} does not exist at this property. Ticket not created.`);
+      if (rooms.length !== 1) return fail("Room number is ambiguous within this property. Ticket not created.");
+    }
     const { data, error } = await service
       .from("tickets")
       .insert({
@@ -520,10 +533,20 @@ export async function executeAction(
         created_by: ctx.userId,
         organization_slug: org,
       })
-      .select("id,ticket_number")
+      .select("id,ticket_number,assigned_to")
       .single();
     if (error) return fail(`The ticket could not be created: ${error.message}`);
-    return { ok: true, recordId: data.id, summary: `Ticket ${data.ticket_number} created for room ${roomNumber}` };
+    let assignment = "Maintenance queue; technician assignment not verified";
+    if (data.assigned_to) {
+      const { data: staff } = await service.from("profiles")
+        .select("id,full_name,nickname,organization_slug")
+        .eq("id", data.assigned_to).maybeSingle();
+      if (staff?.organization_slug === org) assignment = `Assigned to ${staff.full_name || staff.nickname || "a maintenance member"}`;
+    }
+    return {
+      ok: true, recordId: data.id,
+      summary: `Ticket ${data.ticket_number} created at ${ctx.hotelName} for ${roomNumber} (${priority}). ${assignment}. Notification delivery has not yet been verified.`,
+    };
   }
 
   if (action.kind === "assign_room_cleaning") {
