@@ -1514,6 +1514,53 @@ function buildTools(
   }
 
 
+
+  if (scopes.has("reception")) {
+    tools.get_room_reservation_context = tool({
+      description: "Check the latest available Previo daily overview for a specified hotel room and business date, before preparing a guest-related maintenance task. Returns booking-stay dates and status if verified. This is an observation, not a reservation API. Never invent a guest name or reservation ID.",
+      inputSchema: jsonSchema<{ hotelId: string | null; roomNumber: string; date: string }>(
+        hotelArgSchema({
+          roomNumber: { type: "string", description: "Exact room number at the specified hotel" },
+          date: { type: "string", description: "Hotel local business date YYYY-MM-DD, usually today" },
+        }, ["roomNumber", "date"]),
+      ),
+      execute: async ({ hotelId, roomNumber, date }) => {
+        if (!/^20\\d{2}-\\d{2}-\\d{2}$/.test(date) || Number.isNaN(Date.parse(date + "T12:00:00Z"))) {
+          return { verified: false, error: "Specify a valid business date YYYY-MM-DD." };
+        }
+        const ids = resolve(hotelId);
+        if (ids.length !== 1) return { verified: false, error: "Specify exactly one authorized hotel." };
+        const { data, error } = await service.from("daily_overview_snapshots")
+          .select("hotel_id,business_date,room_number,room_label,arrival_date,departure_date,status,pax,breakfast,captured_at")
+          .eq("organization_slug", orgSlug)
+          .eq("hotel_id", ids[0])
+          .eq("source", "previo")
+          .eq("business_date", date)
+          .order("captured_at", { ascending: false })
+          .limit(1500);
+        if (error) return { verified: false, error: "Reservation overview could not be read." };
+        const all = data ?? [];
+        const latest = all[0]?.captured_at ?? null;
+        const matches = all.filter((row: any) =>
+          String(row.room_number ?? "").trim() === String(roomNumber).trim() && row.captured_at === latest);
+        const ageMs = latest ? Date.now() - Date.parse(latest) : Number.POSITIVE_INFINITY;
+        const fresh = ageMs >= 0 && ageMs <= 4 * 60 * 60 * 1000;
+        return {
+          hotel_id: ids[0], room_number: String(roomNumber).trim(), business_date: date,
+          captured_at: latest, verified: fresh && matches.length > 0,
+          observations: matches.slice(0, 5).map((row: any) => ({
+            arrival_date: row.arrival_date, departure_date: row.departure_date,
+            status: row.status, pax: row.pax, breakfast: row.breakfast,
+          })),
+          note: matches.length ? fresh
+            ? "Current-day room/booking overview observation, not the reservation system of record."
+            : "Snapshot is older than four hours; do not rely on it as a verified current reservation."
+            : "No room-level reservation observation found; do not infer whether a guest is staying.",
+        };
+      },
+    });
+  }
+
   // Evidence lookup for a specific authorized room and business date.
   // Signed URLs are short-lived; never return raw storage paths or unrestricted lists.
   if (scopes.has("housekeeping")) {
