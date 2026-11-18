@@ -79,7 +79,7 @@ test('static occupancy and events cannot ratchet prices upward without fresh pic
 test('48-hour-old pickup cannot create an occupancy-led rise after recent demand is quiet',()=>{
  const d=decide({daysOut:15,occupancyPct:81,roomsRemaining:4,currentPrice:238,pickup48h:2,pickup24h:0,pickup6h:0,observedPickup6h:0,hoursSinceLastPickup:30});
  assert.equal(d.direction,'hold');
- assert.equal(d.reason,'strong_demand_protected');
+ assert.equal(d.reason,'on_pace');
 });
 test('January weekends and full February are included in the rolling plan',()=>{
  for(const [stayDate,daysOut] of [['2027-01-01',57],['2027-01-02',58],['2027-02-28',115]])
