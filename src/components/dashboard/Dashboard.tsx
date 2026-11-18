@@ -304,6 +304,7 @@ export function Dashboard() {
     switch (role) {
       case 'housekeeping': return attendanceStatus === 'checked_in' ? 'housekeeping' : 'attendance';
       case 'housekeeping_manager':
+      case 'reception_manager':
       case 'manager':
       case 'admin':
       case 'top_management':
@@ -438,7 +439,7 @@ export function Dashboard() {
                   <TabsTrigger value="maintenance-tasks" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.myTasks')}</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Clock className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.workStatus')}</span></TabsTrigger>
                 </TabsList>
-              ) : ['manager','housekeeping_manager','admin','top_management','top_management_manager'].includes(profile?.role || '') ? (
+              ) : ['manager','reception_manager','housekeeping_manager','admin','top_management','top_management_manager','hr'].includes(profile?.role || '') ? (
                 <OperationsNavigation
                   current={activeTab}
                   onDashboardTabChange={(tab) => {
