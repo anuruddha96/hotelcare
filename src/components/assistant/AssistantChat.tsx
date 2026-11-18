@@ -269,7 +269,7 @@ function useDictation(onText: (text: string) => void, language: string, onInteri
 /** A visual suggestion only: this never sends a message by itself. */
 function useMiraTypewriter(examples: string[], enabled: boolean) {
   const [preview, setPreview] = useState("");
-  const examplesKey = examples.join("|");
+
   useEffect(() => {
     if (!enabled || !examples.length) { setPreview(""); return; }
     let current = 0;
@@ -288,7 +288,7 @@ function useMiraTypewriter(examples: string[], enabled: boolean) {
       }
     }, 60);
     return () => window.clearInterval(tick);
-  }, [enabled, examplesKey]);
+  }, [enabled, examples]);
   return preview || "Ask Mira anything about your hotel…";
 }
 
@@ -1009,7 +1009,6 @@ export default function AssistantChat({
                 autoCorrect="on"
                 className="min-h-14 max-h-40 resize-none text-base leading-relaxed"
                 placeholder={welcomePlaceholder}
-                autoFocus
               />
               <PromptInputFooter>
                 <PromptInputTools>
