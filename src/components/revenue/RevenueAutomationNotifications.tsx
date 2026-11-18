@@ -282,7 +282,7 @@ export function RevenueAutomationNotifications() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
-              {detail?.hotel_name} — {detail && isAiReviewFailure(detail) ? 'AI review unavailable' : detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
+              {detail?.hotel_name} — {detail && isAiReviewFailure(detail) ? 'AI review unavailable' : detail?.notification_type === 'peak_review' ? 'dates to review' : detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
             </DialogTitle>
             <DialogDescription>
               {detail
@@ -515,6 +515,29 @@ export function RevenueAutomationNotifications() {
                                 compact
                               />
                             </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : detail.notification_type === 'peak_review' && detail.changes.length > 0 ? (
+                <div className="rounded-lg border overflow-x-auto">
+                  <table className="w-full text-[13px]">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="text-left">
+                        <th className="px-2.5 py-2 font-semibold">Stay date</th>
+                        <th className="px-2.5 py-2 font-semibold">Why it may be a Peak date</th>
+                        <th className="px-2.5 py-2 font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.changes.map((row, index) => (
+                        <tr key={`${row.stay_date}-${index}`} className="border-t align-top odd:bg-muted/30">
+                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{row.stay_date}</td>
+                          <td className="px-2.5 py-2 min-w-[240px]">{row.reason_detail ?? row.event_title ?? 'Unusually strong demand expected'}</td>
+                          <td className="px-2.5 py-2">
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Awaiting review</Badge>
                           </td>
                         </tr>
                       ))}

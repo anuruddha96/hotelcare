@@ -6,6 +6,8 @@ on:
     paths:
       - 'supabase/functions/_shared/engineV2*'
       - 'supabase/functions/revenue-pickup-automation/runV2.ts'
+      - 'supabase/functions/_shared/assistantAutomationFields*'
+      - 'supabase/functions/assistant-apply-automation-change/**'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
       - 'supabase/functions/_shared/ottofioriAiSupervisor*'
@@ -17,6 +19,8 @@ on:
     paths:
       - 'supabase/functions/_shared/engineV2*'
       - 'supabase/functions/revenue-pickup-automation/runV2.ts'
+      - 'supabase/functions/_shared/assistantAutomationFields*'
+      - 'supabase/functions/assistant-apply-automation-change/**'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
       - 'supabase/functions/_shared/ottofioriAiSupervisor*'
@@ -40,8 +44,12 @@ jobs:
         run: deno test supabase/functions/_shared/engineV2*_test.ts
       - name: Type-check Ottofiori AI supervisor
         run: deno check --node-modules-dir=none supabase/functions/ottofiori-ai-supervisor/index.ts
+      - name: Type-check the pricing engine and the chat rule-change writer
+        run: |
+          deno check --node-modules-dir=none supabase/functions/revenue-pickup-automation/index.ts
+          deno check --node-modules-dir=none supabase/functions/assistant-apply-automation-change/index.ts
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
       - name: Verify revenue director and publication budgets
-        run: node --test supabase/functions/_shared/engineV2*.test.mjs supabase/functions/_shared/ottofioriAiSupervisor.test.mjs supabase/functions/_shared/ottofioriMarketDates.test.mjs
+        run: node --test supabase/functions/_shared/engineV2*.test.mjs supabase/functions/_shared/ottofioriAiSupervisor.test.mjs supabase/functions/_shared/ottofioriMarketDates.test.mjs supabase/functions/_shared/assistantAutomationFields.test.mjs

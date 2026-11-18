@@ -13,7 +13,10 @@ import {
   tool,
   type UIMessage,
 } from "npm:ai@7";
-import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_shared/assistantAutomationFields.ts";
+import {
+  AUTOMATION_FIELDS, canChangeAutomation, describeDateTier, mergePolicyChanges, policyFieldLabel, validateChanges,
+} from "../_shared/assistantAutomationFields.ts";
+import { PACE_POLICY_FIELDS, paceGridFloor, resolvePaceSettings, type PaceNumericKey } from "../_shared/engineV2PaceRatchet.ts";
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
 import {
   ACTION_LABEL,
@@ -635,6 +638,48 @@ function buildTools(
           .in("hotel_id", ids)
           .limit(50);
         if (error) throw new Error(`Automation rule lookup failed: ${error.message}`);
+        // Hotels priced by the pace-ratchet policy: its numbers, the stay dates
+        // a person tagged, and the Peak candidates waiting for a manager.
+        const policyRules = ((data ?? []) as any[]).filter((r) => resolvePaceSettings(r.pace_policy).mode !== "off");
+        let pricingPolicy: unknown[] = [];
+        if (policyRules.length > 0) {
+          const { data: tagRows, error: tagError } = await service
+            .from("revenue_date_tiers")
+            .select("hotel_id,stay_date,tier,status,source,event_title,reason,ceiling_eur")
+            .in("hotel_id", policyRules.map((r) => r.hotel_id))
+            .gte("stay_date", today())
+            .order("stay_date")
+            .limit(300);
+          if (tagError) throw new Error(`Date tag lookup failed: ${tagError.message}`);
+          pricingPolicy = policyRules.map((r) => {
+            const settings = resolvePaceSettings(r.pace_policy);
+            const rows = ((tagRows ?? []) as any[]).filter((t) => t.hotel_id === r.hotel_id);
+            return {
+              hotel_id: r.hotel_id,
+              mode: settings.mode,
+              modeMeaning: settings.mode === "live"
+                ? "These rules set the prices."
+                : "Shadow test: these rules are only recorded next to the live prices; they publish nothing yet.",
+              halfStepsUntil: settings.supervised_until,
+              listFloorEur: paceGridFloor(settings),
+              settings: (Object.keys(PACE_POLICY_FIELDS) as PaceNumericKey[]).map((key) => ({
+                field: `policy.${key}`,
+                label: policyFieldLabel(key),
+                group: PACE_POLICY_FIELDS[key].group,
+                value: settings[key],
+                min: PACE_POLICY_FIELDS[key].min,
+                max: PACE_POLICY_FIELDS[key].max,
+              })),
+              taggedDates: rows.filter((t) => t.status === "confirmed").map((t) => ({
+                stay_date: t.stay_date, tier: t.tier, highestPriceEur: t.ceiling_eur ?? null, why: t.event_title ?? t.reason ?? null,
+              })),
+              awaitingReview: rows.filter((t) => t.status === "needs_review").map((t) => ({
+                stay_date: t.stay_date, candidate: t.tier, why: t.reason ?? t.event_title ?? null,
+              })),
+              dismissed: rows.filter((t) => t.status === "dismissed").map((t) => t.stay_date),
+            };
+          });
+        }
         return {
           changeableFields: Object.entries(AUTOMATION_FIELDS).map(([field, spec]) => ({
             field,
@@ -642,6 +687,73 @@ function buildTools(
             ...(spec.kind === "number" ? { min: spec.min, max: spec.max } : { type: "boolean" }),
           })),
           rules: data ?? [],
+          pricingPolicy,
+          pricingPolicyHelp: pricingPolicy.length === 0 ? null : {
+            numbers: "Change a policy number with the field name shown, e.g. { \"policy.floor_net_eur\": 70 }.",
+            dateTags: "Tag a stay date with { \"tier.YYYY-MM-DD\": \"normal\" | \"high\" | \"peak\" }. Use \"dismissed\" to reject a Peak candidate and \"auto\" to remove a tag. A date range needs one entry per night.",
+            dateCeiling: "Give a tagged date its own highest price with { \"ceiling.YYYY-MM-DD\": 700 } (whole euros, 100–3000, null removes it).",
+            mode: "The mode (off, shadow, live) cannot be changed from chat.",
+          },
+        };
+      },
+    });
+
+    tools.get_pricing_policy_decisions = tool({
+      description:
+        "For hotels priced by the pace-ratchet policy: what the policy decided for each stay date in a range (raise, cut or hold, by how much and why), next to what the other rule set did. Use it to explain why a date moved or did not move, and to check the shadow test.",
+      inputSchema: jsonSchema<{ hotelId: string | null; startDate: string | null; endDate: string | null }>(
+        hotelArgSchema(
+          {
+            startDate: { type: ["string", "null"], description: "First stay date, YYYY-MM-DD, or null for today" },
+            endDate: { type: ["string", "null"], description: "Last stay date, YYYY-MM-DD, or null for 13 days after the first; at most 31 nights" },
+          },
+          ["startDate", "endDate"],
+        ),
+      ),
+      execute: async ({ hotelId, startDate, endDate }) => {
+        const ids = resolve(hotelId);
+        if (ids.length !== 1) throw new Error("Name exactly one hotel");
+        const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+        const from = startDate && isoDate.test(startDate) ? startDate : today();
+        const latest = new Date(Date.parse(`${from}T00:00:00Z`) + 30 * 86_400_000).toISOString().slice(0, 10);
+        const wanted = endDate && isoDate.test(endDate)
+          ? endDate
+          : new Date(Date.parse(`${from}T00:00:00Z`) + 13 * 86_400_000).toISOString().slice(0, 10);
+        const to = wanted > latest ? latest : wanted < from ? from : wanted;
+        const { data: ruleRow, error: ruleError } = await service
+          .from("revenue_pickup_automation_rules")
+          .select("pace_policy")
+          .eq("organization_slug", orgSlug)
+          .eq("hotel_id", ids[0])
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (ruleError) throw new Error(`Automation rule lookup failed: ${ruleError.message}`);
+        const mode = resolvePaceSettings(ruleRow?.pace_policy).mode;
+        if (mode === "off") return { hotel_id: ids[0], mode, note: "This hotel is not priced by the pace-ratchet policy.", dates: [] };
+        // The policy writes one row per stay date per run; three hours always
+        // holds the newest row for every date.
+        const { data, error } = await service
+          .from("revenue_pace_policy_log")
+          .select("stay_date,created_at,mode,days_out,tier,tier_source,zone,current_price,base_price,converting_price,occupancy_pct,rooms_remaining,expected_pct,policy_direction,policy_movement,policy_target,policy_intent,policy_detail,live_direction,live_movement,live_reason")
+          .eq("hotel_id", ids[0])
+          .gte("stay_date", from)
+          .lte("stay_date", to)
+          .gte("created_at", new Date(Date.now() - 3 * 3_600_000).toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1000);
+        if (error) throw new Error(`Policy decision lookup failed: ${error.message}`);
+        const newest = new Map<string, any>();
+        for (const row of (data ?? []) as any[]) if (!newest.has(row.stay_date)) newest.set(row.stay_date, row);
+        return {
+          hotel_id: ids[0],
+          mode,
+          from,
+          to,
+          legend: mode === "live"
+            ? "policy_* is what was decided and published; live_* is what the previous rule set would have done."
+            : "Shadow test: policy_* is what the new rules WOULD do; live_* is what was actually published.",
+          dates: [...newest.values()].sort((a, b) => String(a.stay_date).localeCompare(String(b.stay_date))),
         };
       },
     });
@@ -721,7 +833,7 @@ function buildTools(
             reason: { type: "string", description: "Why this change helps occupancy or ADR, in one or two sentences" },
             changes: {
               type: "object",
-              description: "Map of allowed rule field -> new value. Read get_automation_rules for the allowed fields.",
+              description: "Map of allowed field -> new value. Read get_automation_rules first: changeableFields lists rule columns; for hotels with a pricingPolicy it also lists policy.<setting> numbers, and stay dates are tagged with tier.YYYY-MM-DD and ceiling.YYYY-MM-DD.",
               additionalProperties: true,
             },
           },
@@ -731,7 +843,7 @@ function buildTools(
         execute: async ({ hotelId, changes, reason }) => {
           const ids = resolve(hotelId);
           if (ids.length !== 1) throw new Error("Name exactly one hotel for an automation change");
-          const validated = validateChanges(changes);
+          const validated = validateChanges(changes, { today: today() });
           if (!validated.ok) throw new Error(validated.error);
           const { data: rule, error } = await service
             .from("revenue_pickup_automation_rules")
@@ -743,13 +855,43 @@ function buildTools(
             .maybeSingle();
           if (error) throw new Error(`Automation rule lookup failed: ${error.message}`);
           if (!rule) throw new Error(`No automation configuration exists yet for ${ids[0]}`);
+          const policyChanges = validated.changes.filter((change) => change.target === "policy");
+          const dateChanges = validated.changes.filter((change) => change.target === "tier" || change.target === "ceiling");
+          if (policyChanges.length + dateChanges.length > 0 && resolvePaceSettings(rule.pace_policy).mode === "off") {
+            throw new Error(`${ids[0]} is not priced by the pace-ratchet policy, so it has no policy settings or date tags to change`);
+          }
+          const merged = mergePolicyChanges(rule.pace_policy, validated.changes);
+          if (merged.adjusted.length > 0) throw new Error(`${merged.adjusted.join("; ")}. Change the conflicting setting in the same proposal.`);
+          const tagRows = new Map<string, any>();
+          if (dateChanges.length > 0) {
+            const { data: rows, error: tagError } = await service
+              .from("revenue_date_tiers")
+              .select("stay_date,tier,status,ceiling_eur")
+              .eq("hotel_id", ids[0])
+              .in("stay_date", [...new Set(dateChanges.map((change) => (change as { stayDate: string }).stayDate))]);
+            if (tagError) throw new Error(`Date tag lookup failed: ${tagError.message}`);
+            for (const row of (rows ?? []) as any[]) tagRows.set(row.stay_date, row);
+          }
+          for (const change of validated.changes) {
+            if (change.target !== "ceiling" || change.value == null) continue;
+            const tag = validated.changes.find((other) => other.target === "tier" && other.stayDate === change.stayDate);
+            const tagged = tag
+              ? ["normal", "high", "peak"].includes(String(tag.value))
+              : tagRows.get(change.stayDate)?.status === "confirmed";
+            if (!tagged) throw new Error(`Tag ${change.stayDate} as normal, high or peak in the same proposal before giving it its own highest price`);
+          }
           const diff = validated.changes
-            .map((change) => ({
-              field: change.field,
-              label: change.label,
-              from: rule[change.field] ?? null,
-              to: change.value,
-            }))
+            .map((change) => {
+              let from: unknown;
+              let to: unknown = change.value;
+              if (change.target === "policy") from = merged.before[change.key];
+              else if (change.target === "tier") {
+                from = describeDateTier(tagRows.get(change.stayDate));
+                to = change.value === "auto" ? "automatic" : change.value;
+              } else if (change.target === "ceiling") from = tagRows.get(change.stayDate)?.ceiling_eur ?? null;
+              else from = rule[change.field] ?? null;
+              return { field: change.field, label: change.label, from, to };
+            })
             .filter((row) => String(row.from) !== String(row.to));
           if (!diff.length) throw new Error("Those values are already configured — nothing to change");
           return {
@@ -2160,6 +2302,7 @@ All revenue numbers come from the published Revenue dataset, which is the same d
 Never substitute a global automation-rule change for a specific stay-date price review. HotelCare supports authorised date-specific price changes through propose_action with kind adjust_revenue_prices, and explicit confirmation cards.
 ${pricingApprovalFollowup ? "FOLLOW-UP RATE APPROVAL: The manager accepted an earlier rate review in words. That acceptance is NOT authorization to publish unverified prices. Re-run review_pricing for the selected hotel and up to 30 upcoming nights; its proposals are rendered as confirmation cards automatically. Do not call execute_action on this followup. Do not call propose_automation_change unless the manager explicitly requests global rules. Do not say date-specific changes are unsupported." : ""}
 When a rule change would help AND the user explicitly requests automation configuration, call propose_automation_change. It only creates a proposal the user taps Apply on, so never claim you changed anything.
+PACE-RATCHET HOTELS: when get_automation_rules returns a pricingPolicy for a hotel, that hotel is priced by percentage rules, not by the older euro fields: a booking raises the date by a share of its price (bigger on High and Peak dates), quiet hours cut it a little while the date is behind its booking curve, far-out dates glide to their seasonal base, the last three days sell down, and the arrival day steps down until a price converts. When the user types an instruction for that hotel ("lowest rate 70", "sell the last rooms faster", "tag 31 December as Peak", "Champions League night can go to 900"), read get_automation_rules, pick the matching policy.<setting>, tier.<date> or ceiling.<date> fields, and call propose_automation_change with them. Change as few settings as the request needs, and say in one sentence what the change does with one worked euro example. Dates awaiting review are Peak candidates: propose "peak" to confirm one, "dismissed" to reject it. Use get_pricing_policy_decisions to explain why a date moved or held. You cannot switch the policy between off, shadow and live; if asked, say the system owner does that.
 Respect and mention the app's guardrails when relevant: whole-number prices, room-type/occupancy ladder safety, sold-out and high-occupancy guards, minimum ADR, far-out floors and top-ups, manual-price hold.
 Always say which hotel, date range and currency your numbers refer to.`
       : "";
