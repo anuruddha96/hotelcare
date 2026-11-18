@@ -317,6 +317,26 @@ function MiraFilePreview() {
   );
 }
 
+/** File-only asks are valid; disable Submit only when neither text nor files exist. */
+function MiraSubmit({ draft, status, busy = false, quotaReached = false, onStop }: {
+  draft: string;
+  status?: ChatStatus;
+  busy?: boolean;
+  quotaReached?: boolean;
+  onStop?: () => void;
+}) {
+  const { files } = usePromptInputAttachments();
+  const generating = status === "submitted" || status === "streaming";
+  return (
+    <PromptInputSubmit
+      className="h-10 w-10 rounded-full"
+      status={status}
+      onStop={onStop}
+      disabled={!generating && (busy || quotaReached || (!draft.trim() && files.length === 0))}
+    />
+  );
+}
+
 function MiraAddFileMenu() {
   return (
     <PromptInputActionMenu>
@@ -938,12 +958,7 @@ function ChatSession({
               )}
             </PromptInputTools>
 
-            <PromptInputSubmit
-              className="h-10 w-10 rounded-full"
-              status={status as ChatStatus}
-              onStop={() => void stop()}
-              disabled={!generating && (!draft.trim() || Boolean(usage && !usage.unlimited && usage.remaining === 0))}
-            />
+            <MiraSubmit draft={draft} status={status as ChatStatus} onStop={() => void stop()} quotaReached={Boolean(usage && !usage.unlimited && usage.remaining === 0)} />
           </PromptInputFooter>
         </PromptInput>
       </div>
@@ -1079,7 +1094,7 @@ export default function AssistantChat({
                   </PromptInputButton>
                   {welcomeDictation === "recording" && <span className="flex items-center gap-1 text-xs text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Listening…</span>}
                 </PromptInputTools>
-                <PromptInputSubmit className="h-10 w-10 rounded-full" status={starting ? "submitted" : undefined} disabled={starting || !welcomeDraft.trim()} />
+                <MiraSubmit draft={welcomeDraft} status={starting ? "submitted" : undefined} busy={starting} />
               </PromptInputFooter>
             </PromptInput>
           </div>
