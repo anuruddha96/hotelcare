@@ -39,7 +39,7 @@ const RECEPTION: StarterPrompt[] = [
 
 const REVENUE: StarterPrompt[] = [
   { label: "Pickup", prompt: "How is pickup over the next 14 days?" },
-  { label: "Dates at risk", prompt: "Which dates need attention and what would you change?" },
+  { label: "Dates at risk", prompt: "Which revenue dates need attention and what would you change?" },
   { label: "Compare properties", prompt: "Compare my properties for the next 30 days." },
   { label: "Review automation", prompt: "Review my automation rules and suggest one improvement." },
 ];
