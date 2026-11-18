@@ -82,6 +82,20 @@ function requestsOperationalAction(question: string): boolean {
   return asks && operation && target;
 }
 
+/**
+ * The person is answering a tap-to-answer question Mira just asked (a tapped
+ * button or typed "Other"). The answer belongs to the tool-using agent that
+ * asked it, never to the text-only deep analysis.
+ */
+function answersClarifyingQuestion(lastAssistantTurn: any): boolean {
+  const parts = Array.isArray(lastAssistantTurn?.parts) ? lastAssistantTurn.parts : [];
+  if (parts.some((part: any) => part?.type === "tool-ask_user" || (part?.type === "dynamic-tool" && part?.toolName === "ask_user"))) {
+    return true;
+  }
+  const attachments = Array.isArray(lastAssistantTurn?.metadata?.attachments) ? lastAssistantTurn.metadata.attachments : [];
+  return attachments.some((attachment: any) => attachment?.kind === "clarifying_questions");
+}
+
 function requestedScope(question: string): Scope | null {
   const q = question.toLowerCase();
   if (/\b(sales?|sold|bookings?|booked|pickup|pace|revenue|adr|revpar|occupancy|rates?|prices?|pricing|demand|automation|min.?stay)\b/.test(q)) return "revenue";
@@ -911,7 +925,8 @@ Deno.serve(async (req) => {
   // Rates can be changed only by the authenticated, tool-using assistant with
   // explicit approval. Deep text-only analysis must never take its place.
   const needsAgent = !readOnlyRevenueReport &&
-    (detectAssistantWorkflow(question) !== null || pricingApprovalFollowup || requestsOperationalAction(question));
+    (detectAssistantWorkflow(question) !== null || pricingApprovalFollowup || requestsOperationalAction(question) ||
+      answersClarifyingQuestion(lastAssistantTurn));
   if (!readOnlyRevenueReport && (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep"))) {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/assistant-chat`, {
       method: "POST",
@@ -1085,6 +1100,7 @@ Deno.serve(async (req) => {
     const result = streamText({
       model: modelUsed,
       system: `You are HotelCare Deep Analysis, the highest-intelligence problem-solving tier inside HotelCare.app. Use the strongest available reasoning for questions that require KPI diagnosis, revenue strategy, root-cause analysis or multi-signal decisions. The answer must feel like an experienced hotel revenue manager investigated the problem, not like a generic chatbot.
+You speak as Mira by HotelCare. Never name or hint at an underlying AI model, provider or vendor (no Gemini, Google AI, OpenAI, GPT, ChatGPT, Claude or similar); if asked, you are HotelCare's built-in assistant.
 
 CURRENT HOTELCARE CONTEXT is authoritative for this turn and OVERRIDES earlier assistant messages. If an earlier answer claimed data was unavailable but current context contains it, ignore the old claim.
 

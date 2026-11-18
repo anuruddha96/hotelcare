@@ -6,6 +6,7 @@ import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 import { geminiFirstStreamingModel } from "../_shared/geminiFirstStreamingModel.ts";
 import {
   convertToModelMessages,
+  hasToolCall,
   jsonSchema,
   stepCountIs,
   streamText,
@@ -14,7 +15,20 @@ import {
 } from "npm:ai@7";
 import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_shared/assistantAutomationFields.ts";
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
-import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
+import {
+  ACTION_LABEL,
+  actionsForRole,
+  formatChoices,
+  resolveTicketPlace,
+  ticketHotelAllowed,
+  validateAction,
+} from "../_shared/assistantActions.ts";
+import {
+  brandSafeError,
+  buildClarifyingQuestions,
+  clarifyingHistoryNote,
+  persistedAssistantText,
+} from "../_shared/assistantClarify.ts";
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
 import { isPricingApprovalContinuation, MODEL_BY_PURPOSE, planAssistantTurn } from "../_shared/aiModelPolicy.ts";
 import { buildWorkspaceTools, canGenerateImages, canReadReputation, workspacePrompt, type WorkspaceAttachment } from "../_shared/assistantWorkspace.ts";
@@ -394,6 +408,41 @@ function buildTools(
         }> };
         if (payload.actions.length > 0) attachments.push(payload);
         return payload;
+      },
+    }),
+    // Tap-to-answer clarification. The card offers the likely answers plus
+    // "Other"; a tap comes back as the user's next message. Reads and writes
+    // nothing, and the turn stops right after it (see stopWhen).
+    ask_user: tool({
+      description:
+        "Ask the user a clarifying question as tap-to-answer buttons, when a REQUIRED detail is missing or genuinely ambiguous and cannot be read from HotelCare data, the current screen or the conversation. Give the 2-4 most probable answers, best first, each 1-4 words, taken from real data where possible (room numbers, the user's hotels, priorities, dates). The app adds an 'Other' button for typing, so never include 'Other'. Prefer ONE question; up to three only if all are required now. Also write the question as one short sentence in your reply. After calling this, stop and wait for the answer.",
+      inputSchema: jsonSchema<{ questions: Array<{ id?: string; label?: string; question: string; options: string[]; multiSelect?: boolean }> }>({
+        type: "object",
+        properties: {
+          questions: {
+            type: "array",
+            description: "1-3 questions, most important first.",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", description: "Short key, e.g. room, hotel, priority" },
+                label: { type: "string", description: "1-2 word name shown with the answer, e.g. Room, Priority" },
+                question: { type: "string", description: "One short question" },
+                options: { type: "array", items: { type: "string" }, description: "2-4 most probable answers, best first" },
+                multiSelect: { type: "boolean", description: "true only if several answers may apply together" },
+              },
+              required: ["question", "options"],
+            },
+          },
+        },
+        required: ["questions"],
+        additionalProperties: false,
+      }),
+      execute: async (args) => {
+        const card = buildClarifyingQuestions(args);
+        if (!card) return { ok: false, error: "Give at least one question with at least one concrete answer option." };
+        attachments.push(card as unknown as WorkspaceAttachment);
+        return card;
       },
     }),
   };
@@ -1297,8 +1346,10 @@ function buildTools(
   if (availableActions.length) {
     // Models only supply structured inputs. This endpoint runs all authorization,
     // freshness and property checks again with the signed-in user's JWT.
+    // Maintenance tickets always go through the confirmation card: Mira drafts
+    // title, description and priority, and the person checks them with one tap.
     const directActions = availableActions.filter(kind =>
-      ["create_guest_request", "set_bed_configuration", "create_ticket", "update_ticket_status", "adjust_revenue_prices"].includes(kind));
+      ["create_guest_request", "set_bed_configuration", "update_ticket_status", "adjust_revenue_prices"].includes(kind));
     if (directActions.length) tools.execute_action = tool({
       description: `Perform an explicitly requested HotelCare action NOW. For guest items, use create_guest_request with requestType (extra_towels / extra_pillow / blanket / baby_cot / iron / amenities / other), roomNumber and quantity. For beds together, use set_bed_configuration with configuration 'Double Bed'. For a whole-euro relative price change use adjust_revenue_prices with fromDate, toDate and signed deltaEur. NEVER act on ambiguous instructions, invented room numbers, dates, or a hotel not selected. Only claim completion on ok:true. Available: ${directActions.join(", ")}.`,
       inputSchema: jsonSchema<{ kind: string; input: Record<string, unknown> }>({
@@ -1362,7 +1413,7 @@ function buildTools(
           input: {
             type: "object",
             description:
-              "create_ticket: {hotelId, roomNumber, title, description, priority, department}. assign_room_cleaning: {hotelId, roomNumber, staffId, staffName, date, assignmentType}. update_ticket_status: {hotelId, ticketId, status, note}.",
+              "create_ticket: {hotelId, roomNumber, title, description, priority (low|medium|high|urgent), department (default maintenance)} — for a common area pass location (e.g. 'Lobby') instead of roomNumber. assign_room_cleaning: {hotelId, roomNumber, staffId, staffName, date, assignmentType}. update_ticket_status: {hotelId, ticketId, status, note}.",
             additionalProperties: true,
           },
         },
@@ -1372,19 +1423,66 @@ function buildTools(
       execute: async ({ kind, input, reason }) => {
         if (!availableActions.includes(kind as any)) throw new Error("That action is not available for your role");
         const requested = (input ?? {}) as Record<string, unknown>;
-        const ids = resolve(typeof requested.hotelId === "string" ? requested.hotelId : null);
-        if (ids.length !== 1) throw new Error("Name exactly one property for this action");
+        // A ticket with no hotel named belongs to the screen's hotel, then the person's own.
+        const requestedHotel = typeof requested.hotelId === "string" && requested.hotelId.trim()
+          ? requested.hotelId
+          : kind === "create_ticket" ? (pageHotelId || profile.assigned_hotel || null) : null;
+        const ids = resolve(requestedHotel);
+        if (ids.length !== 1) {
+          return {
+            ok: false,
+            error: "Several properties are possible. Ask which one with ask_user (the screen's hotel first).",
+            hotels: hotels.map((h) => h.hotel_name),
+          };
+        }
         const validated = validateAction(kind, { ...requested, hotelId: ids[0] });
         if (!validated.ok) throw new Error(validated.error);
+        const hotel = hotels.find((h) => h.hotel_id === ids[0]) ?? { hotel_id: ids[0], hotel_name: ids[0] };
+        let fields = validated.action.fields;
+        let proposalInput = validated.action.input;
+
+        if (validated.action.kind === "create_ticket") {
+          // Check now what Confirm would check, so the card never fails on tap.
+          if (!ticketHotelAllowed(profile, hotel)) {
+            return {
+              ok: false,
+              error: `This user can raise tickets for their own hotel only, not ${hotel.hotel_name}. Tell them plainly; do not show a card.`,
+            };
+          }
+          const place = await resolveTicketPlace(service, {
+            organizationSlug: orgSlug,
+            hotelId: hotel.hotel_id,
+            hotelName: hotel.hotel_name,
+            roomNumber: String(proposalInput.roomNumber ?? ""),
+            location: String(proposalInput.location ?? ""),
+          });
+          if (!place.ok) {
+            return {
+              ok: false,
+              error: place.error,
+              suggestions: place.suggestions,
+              next: place.suggestions.length
+                ? `Ask with ask_user which room it is, offering ${formatChoices(place.suggestions)}.`
+                : "Ask with ask_user which room or common area it is.",
+            };
+          }
+          proposalInput = place.kind === "room"
+            ? { ...proposalInput, roomNumber: place.roomNumber, location: "" }
+            : { ...proposalInput, roomNumber: "", location: place.location };
+          fields = fields.map((field, index) => index === 0
+            ? (place.kind === "room" ? { label: "Room", value: place.roomNumber } : { label: "Location", value: `${place.location} (common area)` })
+            : field);
+        }
+
         return {
           kind: "action_proposal",
           action: validated.action.kind,
           title: ACTION_LABEL[validated.action.kind],
           hotelId: ids[0],
-          hotelName: hotels.find((h) => h.hotel_id === ids[0])?.hotel_name ?? ids[0],
+          hotelName: hotel.hotel_name ?? ids[0],
           reason,
-          fields: validated.action.fields,
-          input: validated.action.input,
+          fields,
+          input: proposalInput,
           requiresApproval: true,
         };
       },
@@ -1889,13 +1987,18 @@ Deno.serve(async (req) => {
       return json({ error: "You have asked a lot of questions in a short time. Please try again in a few minutes." }, 429);
     }
 
-    const { data: storedRows, error: storedError } = await service
+    const loadHistory = (columns: string): PromiseLike<{ data: any[] | null; error: { message?: string } | null }> => service
       .from("assistant_messages")
-      .select("id,role,content,created_at")
+      .select(columns)
       .eq("thread_id", threadId)
       .eq("user_id", userData.user.id)
       .order("created_at", { ascending: true })
       .limit(200);
+    // Attachments carry the buttons Mira offered; tolerate a schema without them.
+    let { data: storedRows, error: storedError } = await loadHistory("id,role,content,created_at,attachments");
+    if (storedError && /attachments|column|schema cache/i.test(String(storedError.message ?? ""))) {
+      ({ data: storedRows, error: storedError } = await loadHistory("id,role,content,created_at"));
+    }
     if (storedError) return json({ error: `Could not load conversation history: ${storedError.message}` }, 500);
     // The full thread stays stored and visible in the app; the model only ever
     // sees a bounded recent window, so old turns cannot add noise or be reused
@@ -1904,7 +2007,10 @@ Deno.serve(async (req) => {
     const storedMessages: UIMessage[] = (storedRows ?? []).slice(-MODEL_HISTORY_TURNS).map((row: any) => ({
       id: row.id,
       role: row.role,
-      parts: [{ type: "text", text: row.content }],
+      parts: [{
+        type: "text",
+        text: row.role === "assistant" ? `${row.content ?? ""}${clarifyingHistoryNote(row.attachments)}` : row.content,
+      }],
     }));
 
     const modelMessages = [
@@ -2065,6 +2171,7 @@ Always say which hotel, date range and currency your numbers refer to.`
     const result = streamText({
       model: modelUsed,
       system: `You are Mira by HotelCare, the company's action-capable operations companion inside HotelCare.app.
+You are HotelCare's own assistant. Never name or hint at an underlying AI model, provider or vendor (no Gemini, Google AI, OpenAI, GPT, ChatGPT, Claude or similar). If asked which AI you are or who built you, say you are Mira, HotelCare's built-in operations assistant.
 Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
 The authenticated user's role is ${ACCESS_ROLE_LABEL[capabilitiesFor(profile).accessRole]} (permission level ${profile.role}). Their organization is ${profile.organization_slug ?? "none"}.
 Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).join("; ") || "none"}. Never mention or read any other organization or property.
@@ -2085,7 +2192,7 @@ GROUNDING — never guess Hotel Care data
 
 HOTEL AND DATE
 - Use the hotel of the screen the user is on unless they clearly name another property. Page context helps you interpret "this hotel" but never widens what you may read.
-- If the question could mean several properties and no hotel is selected, ask ONE short clarification naming the options, then stop.
+- If the question could mean several properties and no hotel is selected, ask which one with ask_user (the screen's or the user's own hotel first), then stop.
 - "today", "tomorrow", "this weekend", "next Friday" are resolved in Europe/Budapest time.
 
 OPERATIONAL READS
@@ -2100,14 +2207,28 @@ OPERATIONAL READS
 GUIDANCE AND ACTIONS
 - When answering from an in-app section (revenue, housekeeping, maintenance, reception or finance), give the hotel, business date or date range, and the dataset timestamp when supplied. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
-- For explicitly requested, supported routine actions (extra towels, room items, beds, maintenance tickets, ticket updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
-- For room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
-- Contradictory directions such as "increase by -2" must be clarified before any change.
+- For explicitly requested, supported routine actions (extra towels, room items, beds, ticket status updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
+- For maintenance tickets, room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
+- Contradictory directions such as "increase by -2" must be clarified with ask_user before any change.
 - Roles and hotel boundaries are enforced server-side. A user without top-management/admin privileges cannot change rates.
 - Unavailable tools are unavailable because of authorization. Say access is required, without speculating about the data. Never reveal another organization, hotel, venue, guest identity, credential or staff pay.
 - Be an operator, not a passive Q&A bot: for a supported job, explain whether you can complete it now, need a single missing detail, or need confirmation. Do not default to "Would you like me to help?" when the next action is already clear.
 - After an action, state precisely "completed", "recorded", "queued", "awaiting confirmation", or "not completed" based on the returned status. Never imply a queued price publication is already live. Never offer to sign in someone's shift unless a real authorized sign-in action exists.
 - For Hotel Care usage questions, use the workflow reference tool. For general (non Hotel Care) knowledge you already know confidently, answer normally.
+
+CLARIFYING QUESTIONS — tap to answer
+- Ask only when a REQUIRED detail is missing or genuinely ambiguous and you cannot read it from HotelCare data, the screen or the conversation. Never ask what you can safely infer: the screen's hotel, a priority that is obvious from the problem, a title you can write yourself.
+- Ask with ask_user, never as a typed list of questions. Write the question as one short sentence in your reply and call ask_user with the same question and the 2-4 most probable answers, best first. HotelCare adds an "Other" button so the person can type anything else; never add your own "Other".
+- Answers are short and concrete, from real data when possible: room numbers a lookup returned or suggested, the person's hotels, priorities, dates. Never offer an answer you could not act on.
+- Prefer one question. Put up to three in the same card only when they are independent and all are needed now.
+- After ask_user, stop: no other tools, no guessing, no card. Continue when the answer arrives; it may be a tapped option or typed text, and it may combine several answers ("Room: 406 · Priority: High").
+
+MAINTENANCE TICKETS
+- When someone reports something to fix (leak, broken item, no hot water, AC or heating, lights, noise, smell), prepare the ticket yourself with propose_action kind create_ticket; the card is the confirmation and the person taps Confirm. Do not ask them to confirm in words what the card already shows.
+- Write a short clear title (at most 8 words) and a factual description for the technician: what, where exactly, since when if known, guest impact. Department is maintenance unless the request clearly belongs to another department.
+- Priority from the problem: urgent = active leak or flooding, no power, gas or burning smell, safety or security risk, guest locked out; high = guest-affecting fault in an occupied room (suspected leak, no hot water, AC or heating failure, toilet or shower not working); medium = non-urgent fault; low = cosmetic.
+- Room number from the message ("406" for "room 406"). For a common area pass location ("Lobby", "3rd floor corridor") instead of roomNumber.
+- Use the screen's hotel. If the room or area is missing, or several hotels are possible and none is clear, ask with ask_user. If HotelCare answers that the room was not found and suggests rooms, ask with ask_user offering exactly those rooms. If it says the person may not file for that hotel, say so plainly.
 
 WEB SEARCH — for facts not stored in Hotel Care
 - NEVER answer "the system does not provide this" or "the current data does not specify" for a question about the public world. If Hotel Care tools cannot answer it, call search_web first — always. This includes: opening and breakfast hours, menus, à la carte vs buffet, prices, branches and locations of a café/restaurant/venue, company or people information published online, city events, weather, transport, and any general knowledge question.
@@ -2127,7 +2248,8 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
-      stopWhen: stepCountIs(routine ? 6 : plan.maxSteps),
+      // A clarifying question ends the turn: Mira waits for the tapped answer.
+      stopWhen: [stepCountIs(routine ? 6 : plan.maxSteps), hasToolCall("ask_user")],
 
       abortSignal: req.signal,
       onFinish: async ({ totalUsage }) => {
@@ -2155,7 +2277,9 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
       headers: corsHeaders,
       onFinish: async ({ responseMessage, isAborted }) => {
         if (isAborted) return;
-        const answer = extractText(responseMessage);
+        // A buttons-only question is stored with its words, so the thread reads
+        // correctly after a reload and in the next turn's history.
+        const answer = persistedAssistantText(extractText(responseMessage), attachments);
         // An answer may be only a chart or an image; that is still an answer.
         if (!answer && attachments.length === 0) return;
         const { error: assistantInsertError } = await insertTolerant(service, "assistant_messages", {
@@ -2211,7 +2335,8 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
       onError: (error) => {
         void refundMonthlyMessage(service, userData.user.id, messageId);
         console.error("assistant stream failed", error);
-        return error instanceof Error ? error.message : "The assistant could not complete the response";
+        // The person talks to Mira by HotelCare; provider names stay in the logs.
+        return brandSafeError(error instanceof Error ? error.message : "The assistant could not complete the response");
       },
     });
   } catch (error) {

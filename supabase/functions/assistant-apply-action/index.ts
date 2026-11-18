@@ -6,7 +6,7 @@
 
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { canRunAction, executeAction, validateAction } from "../_shared/assistantActions.ts";
+import { canRunAction, executeAction, ticketHotelAllowed, validateAction } from "../_shared/assistantActions.ts";
 import { resolveAssistantHotels } from "../_shared/assistantHotels.ts";
 import { ACCESS_ROLE_LABEL, capabilitiesFor } from "../_shared/accessPolicy.ts";
 import { rateConsentText, ratePlanRanges, type RatePlan } from "../_shared/ratePlan.ts";
@@ -463,14 +463,31 @@ Deno.serve(async (req) => {
     if (typeof body?.request_id === "string") {
       return await decideRequest({ service, supabaseUrl, anonKey, authHeader, userId: userData.user.id, profile, body });
     }
-    if (!canRunAction(profile.role, kind)) return json({ error: "Your role cannot perform that action" }, 403);
+    // Every refusal is logged (kind and reason only, no guest text), so a failed
+    // confirmation is never again an unexplained non-2xx in the function logs.
+    const refuse = (error: string, status: number) => {
+      console.warn("assistant-apply-action refused", JSON.stringify({ kind, status, error: error.slice(0, 300) }));
+      return json({ error }, status);
+    };
+
+    if (!canRunAction(profile.role, kind)) return refuse("Your role cannot perform that action", 403);
 
     const validated = validateAction(kind, input);
-    if (!validated.ok) return json({ error: validated.error }, 400);
+    if (!validated.ok) return refuse(validated.error, 400);
 
     const hotels = await resolveAssistantHotels(service, profile as any);
     const hotel = hotels.find((h) => h.hotel_id === validated.action.hotelId);
-    if (!hotel) return json({ error: "That property is outside your access" }, 403);
+    if (!hotel) return refuse("That property is outside your access", 403);
+    if (validated.action.kind === "create_ticket" && !ticketHotelAllowed(profile, hotel)) {
+      return refuse(`Your HotelCare role can raise tickets for your own hotel only, not ${hotel.hotel_name}.`, 403);
+    }
+
+    // The person's own session for writes that row-level security and database
+    // guards must judge as the signed-in user (tickets).
+    const userDb = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false },
+    });
 
     let result: AppliedResult;
     if (validated.action.kind === "adjust_revenue_prices") {
@@ -505,9 +522,10 @@ Deno.serve(async (req) => {
           hotelName: hotel.hotel_name,
         },
         { kind: validated.action.kind, input: validated.action.input },
+        { userDb },
       );
     }
-    if (!result.ok) return json({ error: result.error }, 400);
+    if (!result.ok) return refuse(result.error, 400);
 
     const actorFirstName = String(profile.full_name || profile.nickname || "").trim().split(/\s+/)[0] || "Staff member";
     const { error: auditError } = await service.from("assistant_audit_log").insert({
