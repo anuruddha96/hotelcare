@@ -239,11 +239,11 @@ from (values
   ('mika-downtown',     'booking_com', '2143082',   true,  'gross', 18, 0,  3.8095, 5,  '2026-08-24', null,         null),
   ('ottofiori',         'booking_com', '14416321',  true,  'gross', 23, 0,  3.8095, 5,  '2000-01-01', '2026-08-24', null),
   ('ottofiori',         'booking_com', '14416321',  true,  'gross', 18, 0,  3.8095, 5,  '2026-08-25', null,         null),
-  -- Agoda: base 15% + AGP. Net basis verified at Gozsdu and Ottofiori; Memories looked gross (one booking)
+  -- Agoda: base 15% + AGP. Amounts arrive net (payout + city tax): verified at Gozsdu, Ottofiori and Memories
   ('gozsdu-court',      'agoda',       '162363',    true,  'net',   15, 10, 3.8095, 5,  '2022-05-30', null,         'AGP Standard 10%; promos: Early 5%, Mobile 10%, Private Sale 10%'),
   ('gozsdu-court',      'agoda',       '243891',    false, 'net',   15, 8,  3.8095, 5,  '2023-11-09', null,         'Made Inn listing; AGP Basic 8%'),
   ('mika-downtown',     'agoda',       '4607588',   true,  'net',   15, 12, 3.8095, 5,  '2022-05-30', null,         'AGP Standard 12%'),
-  ('memories-budapest', 'agoda',       '5877720',   true,  'gross', 15, 0,  3.8095, 5,  '2000-01-01', null,         'No AGP; amount basis to confirm'),
+  ('memories-budapest', 'agoda',       '5877720',   true,  'net',   15, 0,  3.8095, 5,  '2000-01-01', null,         'No AGP; amount arrives net (payout + city tax), checked on booking 2068427205'),
   ('ottofiori',         'agoda',       '75934965',  true,  'net',   15, 0,  3.8095, 5,  '2000-01-01', null,         'No AGP; seasonal promos 10-20% + Private Sale 10%'),
   -- Expedia: 20% compensation; Expedia Collect -> the virtual card carries the net amount
   ('gozsdu-court',      'expedia',     '2932912',   true,  'net',   20, 0,  3.3898, 18, '2024-02-28', null,         'Expedia Collect'),
