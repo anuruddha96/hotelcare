@@ -122,6 +122,7 @@ export function starterPrompts(role: string | null | undefined, module?: string 
   const list = [...base];
   const revenueAllowed = canSeeRevenue ?? (!!role && revenueRoles.includes(role));
   if (module === "revenue" && revenueAllowed) list.unshift(...REVENUE.slice(0, 2));
+  else if (revenueAllowed && ["top_management", "top_management_manager"].includes(role ?? "")) list.unshift(REVENUE[1]);
   const extra = module ? MODULE_EXTRA[module] : undefined;
   if (extra) list.push(extra);
   return list.slice(0, 5);
