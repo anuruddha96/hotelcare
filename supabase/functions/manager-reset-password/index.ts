@@ -94,11 +94,19 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: 'Only a super administrator can reset this password' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
     }
 
-    // Non-admin managers can only reset passwords for housekeeping staff in their own hotel
+    // Protect privileged accounts from role-based password-reset escalation.
+    if (['admin', 'top_management', 'top_management_manager'].includes(targetProfile.role) &&
+      !callerProfile.is_super_admin && callerProfile.role !== 'admin') {
+      return new Response(JSON.stringify({ error: 'Only an administrator can reset this account' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+    }
+
+    // Property managers may reset non-managerial staff at their assigned hotel.
     if (!['admin', 'top_management', 'top_management_manager'].includes(callerProfile.role)) {
-      // Check if target is a housekeeper
-      if (targetProfile.role !== 'housekeeping') {
-        return new Response(JSON.stringify({ error: 'You can only reset passwords for housekeeping staff' }), {
+      // Housekeeping managers are limited to housekeepers; hotel managers may
+      // also assist other non-managerial staff at the same property.
+      const protectedRoles = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'maintenance_manager', 'reception_manager', 'marketing_manager', 'back_office_manager', 'control_manager', 'finance_manager'];
+      if ((callerProfile.role === 'housekeeping_manager' && targetProfile.role !== 'housekeeping') || protectedRoles.includes(targetProfile.role)) {
+        return new Response(JSON.stringify({ error: 'You can only reset non-managerial staff in your hotel' }), {
           status: 403,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
         });
@@ -122,7 +130,8 @@ Deno.serve(async (req) => {
     }
 
 
-    console.log(`Manager ${userData.user.id} resetting password for ${target_user_id}`);
+    // Do not log plaintext passwords or recovery tokens.
+    console.log('Authorized staff password reset requested', { actor: userData.user.id, target: target_user_id });
 
     // Reject short custom passwords instead of silently replacing them with generated ones.
     if (new_password && (String(new_password).length < 12 || String(new_password).length > 128)) {
