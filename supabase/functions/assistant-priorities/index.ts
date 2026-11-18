@@ -326,7 +326,7 @@ Deno.serve(async (req) => {
 
     const rank = { priority: 0, opportunity: 1, good: 2 } as const;
     cards.sort((a, b) => rank[a.tone] - rank[b.tone]);
-    return json({ cards: cards.slice(0, 12), hotel: { id: focus.hotel_id, name }, generatedAt: new Date().toISOString() });
+    return json({ cards: cards.slice(0, 50), hotel: { id: focus.hotel_id, name }, generatedAt: new Date().toISOString() });
   } catch (error) {
     console.error("assistant-priorities error", error);
     return json({ cards: [], error: "Priorities are unavailable right now" }, 200);
