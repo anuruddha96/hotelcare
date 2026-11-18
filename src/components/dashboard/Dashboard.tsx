@@ -310,7 +310,7 @@ export function Dashboard() {
       case 'top_management_manager': return 'housekeeping';
       case 'maintenance': return 'maintenance-tasks';
       case 'reception':
-      case 'front_office': return noMinibar ? 'rooms' : 'minibar';
+      case 'front_office': return 'tickets';
       default: return 'rooms';
     }
   };
