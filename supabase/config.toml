@@ -365,3 +365,9 @@ verify_jwt = false
 
 [functions.pi-history-import]
 verify_jwt = false
+
+# Public sales chat on hotelcare.app: no user session. The function checks the
+# Origin, rate-limits per hashed IP, authenticates each chat with a random session
+# secret, the worker with a Vault secret, and e-mail links with signed tokens.
+[functions.website-sales-chat]
+verify_jwt = false
