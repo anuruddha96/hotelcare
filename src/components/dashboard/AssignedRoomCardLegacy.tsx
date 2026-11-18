@@ -111,9 +111,11 @@ interface AssignedRoomCardProps {
   onStatusUpdate: (assignmentId: string, newStatus: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry') => void;
   /** Manager instructions specific to this room, kept within its card border. */
   roomNotices?: React.ReactNode;
+  /** Optional property-specific action presented with the checklist tools. */
+  additionalRoomTool?: React.ReactNode;
 }
 
-export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: AssignedRoomCardProps) {
+export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices, additionalRoomTool }: AssignedRoomCardProps) {
   const { t, language } = useTranslation();
   const { user, profile } = useAuth();
   const { toast: showToast } = useToast();
@@ -1017,125 +1019,117 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
 
   return (
     <Card className={`${cardClassName}${hasSpecialInstructions ? ' border-l-4 border-l-amber-400' : ''}`}>
-      <CardHeader className={assignment.rooms?.hotel === 'slnt-group' ? 'pb-2' : 'pb-4'}>
-        {/* Checkout Waiting Banner */}
-        {isCheckoutWaiting && assignment.rooms?.hotel !== 'slnt-group' && (
-          <div className="mb-4 p-3 bg-gradient-to-r from-orange-100 to-amber-100 dark:from-orange-900/40 dark:to-amber-900/40 rounded-lg border border-orange-300 dark:border-orange-700">
-            <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-orange-600 dark:text-orange-400 animate-pulse" />
-              <div>
-                <p className="font-semibold text-orange-800 dark:text-orange-200 text-sm">
-                  {t('housekeeping.waitingForCheckout') || 'Waiting for guest checkout'}
-                </p>
-                <p className="text-xs text-orange-600 dark:text-orange-400">
-                  {t('housekeeping.checkoutNotReady') || 'Guest is still in room - cannot start cleaning yet'}
-                </p>
-              </div>
-            </div>
+      <CardHeader className={assignment.rooms?.hotel === 'slnt-group' ? 'space-y-2.5 pb-3' : 'space-y-3 pb-3'}>
+        {/* One task state only; room condition and checkout readiness are distinct read-only facts. */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <CardTitle className="min-w-0 text-xl sm:text-2xl font-bold text-foreground break-words">
+            {assignment.rooms?.hotel === 'slnt-group' ? null : `${t('common.room')} `}{assignment.rooms?.room_number || 'N/A'}
+          </CardTitle>
+          <Badge className={`${getStatusColor(assignment.status)} shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold uppercase`}>
+            {assignment.status === 'in_progress'
+              ? t('housekeeping.inProgress')
+              : assignment.status === 'completed'
+              ? t('housekeeping.completed')
+              : assignment.status === 'assigned'
+              ? t('housekeeping.waiting')
+              : assignment.status === 'dnd_pending_retry'
+              ? t('status.dndPendingRetry')
+              : assignment.status.replace('_', ' ')}
+          </Badge>
+          {hasSpecialInstructions && (
+            <Badge
+              variant={assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck ? 'secondary' : 'destructive'}
+              className="cursor-pointer rounded-full px-2 py-1 text-xs"
+              onClick={(e) => { e.stopPropagation(); setWarningInfoOpen(true); }}
+            >
+              {assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck ? '📝' : '⚠️'} {instructionCount}
+            </Badge>
+          )}
+        </div>
+
+        {/* Room location once. The page already shows the assigned hotel. */}
+        {(assignment.rooms?.floor_number != null || assignment.rooms?.room_name ||
+          (assignment.rooms?.hotel && profile?.assigned_hotel && assignment.rooms.hotel !== profile.assigned_hotel &&
+            assignment.rooms.hotel !== 'slnt-group')) && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-testid="room-card-location">
+            {assignment.rooms?.floor_number != null && (
+              <span>{t('common.floor')} {assignment.rooms.floor_number}</span>
+            )}
+            {assignment.rooms?.room_name && (
+              <span className="break-words">{assignment.rooms.room_name}</span>
+            )}
+            {assignment.rooms?.hotel && profile?.assigned_hotel &&
+              assignment.rooms.hotel !== profile.assigned_hotel &&
+              assignment.rooms.hotel !== 'slnt-group' && (
+                <span className="font-medium">{assignment.rooms.hotel}</span>
+              )}
           </div>
         )}
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
-          <div className="flex items-center gap-3 flex-wrap min-w-0 flex-1">
-            <CardTitle className="text-xl sm:text-2xl font-bold text-foreground break-words">
-              {assignment.rooms?.hotel === 'slnt-group' ? null : `${t('common.room')} `}{assignment.rooms?.room_number || 'N/A'}
-            </CardTitle>
-            <Badge 
-              className={`${getStatusColor(assignment.status)} font-semibold px-3 py-1 text-xs uppercase rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center`}
-            >
-              {isCheckoutWaiting
-                ? (t('housekeeping.guestInRoom') || 'Guest in room')
-                : assignment.status === 'in_progress' 
-                ? t('housekeeping.inProgress')
-                : assignment.status === 'completed'
-                ? t('housekeeping.completed')
-                : assignment.status === 'assigned'
-                ? t('housekeeping.waiting')
-                : assignment.status === 'dnd_pending_retry'
-                ? t('status.dndPendingRetry')
-                : assignment.status.replace('_', ' ')
-
-              }
+        {/* Work type, guest night and special requirements (not a second progress label). */}
+        <div className="flex flex-wrap gap-1.5">
+          <Badge variant="outline" className="rounded-full bg-muted/50 px-2.5 py-1 text-xs font-medium">
+            {getAssignmentTypeLabel(
+              isCheckoutClean ? 'checkout_cleaning'
+                : assignment.assignment_type === 'checkout_cleaning' ? 'daily_cleaning'
+                : assignment.assignment_type,
+            )}
+          </Badge>
+          {(assignment.rooms?.guest_nights_stayed ?? 0) > 0 && (
+            <Badge variant="outline" className="rounded-full px-2.5 py-1 text-xs font-medium">
+              🌙 {t('roomCard.night')} {assignment.rooms.guest_nights_stayed}
             </Badge>
-            {hasSpecialInstructions && (
-              <Badge 
-                variant={assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck ? 'secondary' : 'destructive'} 
-                className="text-xs px-2 py-1 flex-shrink-0 cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setWarningInfoOpen(true);
-                }}
-              >
-                {assignment.rooms?.hotel === 'slnt-group' && !isSupervisorRecheck ? '📝' : '⚠️'} {instructionCount}
-              </Badge>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {/* Checkout Room Indicator */}
-            {isCheckoutWaiting && (
-              <Badge 
-                variant="default" 
-                className="bg-orange-500 text-white font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
-              >
-                🚪 {t('housekeeping.assignmentType.checkoutClean') || 'Checkout'}
-              </Badge>
-            )}
-            {/* Special Requirements Badges */}
-            {showTowelChange && !fullCleanInstruction && (
-              <Badge 
-                variant="default" 
-                className="bg-primary/10 text-primary border-primary/20 font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
-              >
-                🏺 {t('roomCard.towelChange')}
-              </Badge>
-            )}
-            {showLinenChange && (
-              <Badge 
-                variant="default" 
-                className="bg-accent text-accent-foreground border-border font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
-              >
-                🛏️ {fullCleanInstruction?.title || t('roomCard.linenChange')}
-              </Badge>
-            )}
-            {(assignment.rooms?.guest_nights_stayed ?? 0) > 0 && (
-              <Badge 
-                variant="outline" 
-                className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
-              >
-                🌙 {t('roomCard.night')} {assignment.rooms.guest_nights_stayed}
-              </Badge>
-            )}
-            
-            {assignment.priority > 1 && !isProvisionalPlanningPriority && assignment.status !== 'in_progress' && (
-              <Badge 
-                variant="outline" 
-                className={`${getPriorityColor(assignment.priority)} font-semibold px-3 py-1 text-xs border rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center`}
-              >
-                ⭐ {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
-              </Badge>
-            )}
-            {assignment.status === 'in_progress' && (
-              <Badge 
-                variant="default"
-                className="bg-primary text-primary-foreground font-semibold px-3 py-1 text-xs rounded-full shadow-sm flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
-              >
-                🔥 {t('housekeeping.inProgress')}
-              </Badge>
-            )}
-            {!isCheckoutWaiting && (
-              <Badge 
-                variant="outline" 
-                className="bg-muted text-foreground border-border font-semibold px-3 py-1 text-xs rounded-full hover:bg-muted/80 transition-colors flex-shrink-0 max-w-full whitespace-normal break-words leading-tight text-center"
-              >
-                {getAssignmentTypeLabel(
-                  isCheckoutClean ? 'checkout_cleaning'
-                    : assignment.assignment_type === 'checkout_cleaning' ? 'daily_cleaning'
-                    : assignment.assignment_type,
-                )}
-              </Badge>
-            )}
-          </div>
+          )}
+          {showTowelChange && !fullCleanInstruction && (
+            <Badge variant="outline" className="rounded-full px-2.5 py-1 text-xs font-medium">
+              🧺 {t('roomCard.towelChange')}
+            </Badge>
+          )}
+          {showLinenChange && (
+            <Badge variant="outline" className="rounded-full px-2.5 py-1 text-xs font-medium">
+              🛏️ {fullCleanInstruction?.title || t('roomCard.linenChange')}
+            </Badge>
+          )}
+          {assignment.priority > 1 && !isProvisionalPlanningPriority && assignment.status !== 'in_progress' && (
+            <Badge variant="outline" className={`${getPriorityColor(assignment.priority)} rounded-full px-2.5 py-1 text-xs`}>
+              ⭐ {assignment.priority === 3 ? t('housekeeping.priority.high') : t('housekeeping.priority.medium')}
+            </Badge>
+          )}
         </div>
+
+        {/* Room condition and RTC are informational, never room-status write controls. */}
+        {(assignment.rooms?.status || isCheckoutClean) && (
+          <div
+            role="status"
+            aria-label="Room and checkout status"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 pt-2 text-xs"
+          >
+            {assignment.rooms?.status && (
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                {language === 'hu' ? 'Szoba állapota:' : 'Room status:'}
+                <strong className="font-semibold text-foreground">
+                  {assignment.rooms.status === 'dirty' ? t('rooms.dirty') :
+                    assignment.rooms.status === 'clean' ? t('rooms.clean') :
+                    assignment.rooms.status === 'maintenance' ? t('rooms.maintenance') :
+                    assignment.rooms.status === 'out_of_order' ? t('rooms.outOfOrder') :
+                    assignment.rooms.status.replaceAll('_', ' ')}
+                </strong>
+              </span>
+            )}
+            {isCheckoutClean && (
+              <span className={`inline-flex items-center gap-1.5 font-semibold ${assignment.ready_to_clean ? 'text-teal-700 dark:text-teal-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                {assignment.ready_to_clean
+                  ? (language === 'hu' ? '✓ Takarításra kész' : '✓ Ready to clean')
+                  : (language === 'hu' ? 'Kijelentkezésre vár' : 'Awaiting checkout')}
+              </span>
+            )}
+          </div>
+        )}
+        {isCheckoutWaiting && assignment.rooms?.hotel !== 'slnt-group' && (
+          <p role="note" className="text-xs leading-snug text-amber-800 dark:text-amber-200">
+            {t('housekeeping.checkoutNotReady') || 'Guest is still in the room — wait for checkout confirmation before cleaning.'}
+          </p>
+        )}
       </CardHeader>
 
       {/* Room-specific manager notices must stay within this room card. */}
@@ -1299,35 +1293,6 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
       )}
 
       <CardContent className={assignment.rooms?.hotel === 'slnt-group' ? 'space-y-3' : 'space-y-4'}>
-        {/* Compact Room Info Line */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <MapPin className="h-3 w-3" />
-            {assignment.rooms?.floor_number != null && (
-              <>
-                <span>{t('common.floor')} {assignment.rooms.floor_number}</span>
-                <span>·</span>
-              </>
-            )}
-            <span>{assignment.rooms?.hotel || profile?.assigned_hotel || '—'}</span>
-            {assignment.rooms?.room_name && (
-              <>
-                <span>·</span>
-                <span className="font-medium text-foreground">{assignment.rooms.room_name}</span>
-              </>
-            )}
-          </div>
-          {/* Room Status as small badge */}
-          {assignment.rooms?.status && assignment.rooms.status !== 'clean' && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
-              {assignment.rooms.status === 'dirty' ? t('rooms.dirty') : 
-               assignment.rooms.status === 'maintenance' ? t('rooms.maintenance') :
-               assignment.rooms.status === 'out_of_order' ? t('rooms.outOfOrder') :
-               assignment.rooms.status}
-            </Badge>
-          )}
-        </div>
-
         {/* Timer - always visible while in-progress so housekeepers see time spent per room */}
         {assignment.status === 'in_progress' && assignment.started_at && (
           <div className="flex items-center justify-between p-2 bg-muted/30 rounded-lg">
@@ -1632,6 +1597,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
                     </span>
                     <span className={label}>{t('actions.minibar')}</span>
                   </button>}
+
+                  {additionalRoomTool}
 
                   <button
                     type="button"
