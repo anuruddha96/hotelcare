@@ -111,7 +111,7 @@ export function BudapestConditions() {
       <div className="flex flex-col whitespace-nowrap leading-tight">
         <span className="text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">{date} · {time} <span className="font-normal text-muted-foreground">CET/CEST</span></span>
         <span className="text-[11px] font-medium text-sky-700 dark:text-sky-300">Budapest{weather ? ` · ${Math.round(weather.temperature)}°C · ${label}` : ''}</span>
-        {weather && <a href="https://www.met.no/en" target="_blank" rel="noopener noreferrer" className="text-[9px] text-muted-foreground hover:underline" title="MET Norway forecast data · CC BY 4.0 · Conditions summarized and rounded" aria-label="Forecast data by MET Norway, CC BY 4.0">Forecast: MET Norway · <span className="underline">CC BY 4.0</span></a>}
+        {weather && <a href="https://www.met.no/en" target="_blank" rel="noopener noreferrer" className="text-[9px] text-muted-foreground hover:underline" title="MET Norway forecast data · CC BY 4.0 · Conditions summarized and rounded" aria-label="Forecast data by MET Norway, CC BY 4.0">Forecast: MET Norway · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer" className="underline" title="Forecast data license">CC BY 4.0</a></a>}
       </div>
     </div>
   );
