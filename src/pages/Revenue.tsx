@@ -342,7 +342,9 @@ export default function Revenue() {
     <div className="min-h-screen bg-background">
       <Header />
       <div className="container mx-auto p-4 space-y-4">
-      <MainTabsBar current="revenue" />
+      <div className="sticky z-40 bg-background/95 py-1.5 backdrop-blur-md" style={{ top: 'var(--hc-header-height, 0px)' }}>
+        <MainTabsBar current="revenue" />
+      </div>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}`)}>
