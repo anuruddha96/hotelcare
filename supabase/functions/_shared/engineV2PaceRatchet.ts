@@ -110,6 +110,7 @@ export const PACE_POLICY_FIELDS = {
   markdowns_per_day_selldown: { label: "Cuts per day, final sell-down", group: "decay", min: 1, max: 10, def: 4, integer: true },
   pace_tolerance_points: { label: "Behind the booking curve by more than this before any cut", group: "decay", min: 0, max: 30, def: 5, unit: "points" },
   glide_band_pct: { label: "Far-out prices may sit this far above the seasonal base", group: "decay", min: 0, max: 100, def: 15, unit: "%" },
+  glide_band_pct_high: { label: "Far-out High dates may sit this far above the seasonal base", group: "decay", min: 0, max: 150, def: 30, unit: "%" },
   glide_target_days_out: { label: "Far-out prices reach their base band by this many days out", group: "decay", min: 14, max: 90, def: 35, integer: true, unit: "days" },
   conv_guard_pct: { label: "Cuts stay within this much of the last price that converted", group: "decay", min: 0, max: 30, def: 5, unit: "%" },
   conv_memory_hours_far: { label: "How long a converting price is remembered, far out", group: "decay", min: 0, max: 720, def: 168, unit: "hours" },
@@ -439,6 +440,13 @@ export interface PaceFacts {
   /** Cheapest and dearest cell of the date column, as currently published. */
   lowestCellPrice: number | null;
   highestCellPrice: number | null;
+  /**
+   * Cheapest cell among room types that still have a room to sell. A sold-out
+   * room type's price cannot be booked, so it never justifies lifting a date —
+   * but it still limits how far the date may fall, because every cell of a
+   * date moves together. Defaults to the cheapest cell.
+   */
+  lowestSellableCellPrice?: number | null;
   /** The list price at which this date last took a booking, and when. */
   convertingPrice: number | null;
   convertedAt: string | null;
@@ -593,6 +601,12 @@ export function decidePaceRatchet(
     return hold("manual_lock", "A manager locked this date; no automatic changes are permitted.");
   }
   if (input.dataStale) return hold("stale_data", "The PMS feed is stale; no price may change.");
+  // A sold-out date has no room type on sale and therefore no reference price:
+  // say "sold out", not "no price".
+  if (occ != null && input.roomsRemaining != null
+    && (Math.round(input.roomsRemaining) <= 0 || occ >= core.soldOutOccupancyPct)) {
+    return hold("sold_out", "The date is sold out; the closing price stays.");
+  }
   if (input.currentPrice == null || !(input.currentPrice > 0)) {
     return hold("no_price", "No current price on file for this date.");
   }
@@ -601,9 +615,6 @@ export function decidePaceRatchet(
   }
   const current = whole(input.currentPrice);
   const left = Math.max(0, Math.round(input.roomsRemaining));
-  if (left <= 0 || occ >= core.soldOutOccupancyPct) {
-    return hold("sold_out", "The date is sold out; the closing price stays.");
-  }
 
   // --- Bounds, expressed for the reference cell -------------------------------
   // Every cell of the date moves by the same amount, so the date can fall only
@@ -614,6 +625,9 @@ export function decidePaceRatchet(
     : tier === "peak" ? s.peak_ceiling_eur : s.ceiling_eur);
   const lowest = whole(Number(facts.lowestCellPrice) > 0 ? Number(facts.lowestCellPrice) : current);
   const highest = whole(Number(facts.highestCellPrice) > 0 ? Number(facts.highestCellPrice) : current);
+  const lowestSellable = Math.max(lowest, whole(Number(facts.lowestSellableCellPrice) > 0
+    ? Number(facts.lowestSellableCellPrice)
+    : lowest));
   const maxDrop = Math.max(0, lowest - gridFloor);
   const maxRise = Math.max(0, cellCeiling - highest);
   const floorRef = current - maxDrop;
@@ -649,12 +663,12 @@ export function decidePaceRatchet(
   let softFloor = floorRef;
   let softFloorWhy: "price_floor" | "base_floor" | "converting_price_guard" = "price_floor";
 
-  if (lowest < gridFloor) {
-    // The owner's floor is a guardrail, not a demand signal: a date sitting
-    // under it is lifted back whatever the booking story says.
-    raw = Math.min(gridFloor - lowest, s.max_step_eur);
+  if (lowestSellable < gridFloor) {
+    // The owner's floor is a guardrail, not a demand signal: a date with a
+    // bookable price under it is lifted back whatever the booking story says.
+    raw = Math.min(gridFloor - lowestSellable, s.max_step_eur);
     reason = "net_floor_lift";
-    detail = `The cheapest price of this date (€${lowest}) banks less than the €${s.floor_net_eur} floor after OTA discounts; lifting the date by €${raw} to the €${gridFloor} list floor.`;
+    detail = `The cheapest bookable price of this date (€${lowestSellable}) banks less than the €${s.floor_net_eur} floor after OTA discounts; lifting the date by €${raw} to the €${gridFloor} list floor.`;
   } else if (pickup > 0) {
     const stillSelling = (zone === "arrival_day" || zone === "sell_down") && pressure > 0 && left > s.unsold_ok_rooms;
     if (stillSelling && !(zone === "arrival_day" && pickup >= 2)) {
@@ -748,7 +762,9 @@ export function decidePaceRatchet(
         if (gap != null && gap > s.pace_tolerance_points) {
           return hold("ahead_of_pace", `${paceText} ${input.daysOut} days out: ahead of pace, the price is working.`);
         }
-        const bandHigh = whole(basePrice * (1 + s.glide_band_pct / 100));
+        // A High date (arena concert, sister hotels priced up) may keep a bigger premium.
+        const bandPct = tier === "high" ? Math.max(s.glide_band_pct, s.glide_band_pct_high) : s.glide_band_pct;
+        const bandHigh = whole(basePrice * (1 + bandPct / 100));
         if (current <= bandHigh) {
           return hold("at_seasonal_base", `€${current} is within the seasonal band (base €${basePrice}, up to €${bandHigh}) ${input.daysOut} days out.`);
         }
@@ -781,6 +797,15 @@ export function decidePaceRatchet(
     const wanted = clamp(whole(current * pct / 100 * sup), s.min_step_eur, s.max_step_eur);
     const room = current - softFloor;
     if (room < s.min_step_eur) {
+      if (softFloorWhy === "price_floor" && lowest < lowestSellable) {
+        // Every cell of a date moves together, so one sold-out room type sitting
+        // at the floor stops the whole date. Only a person can change the gap
+        // between room types.
+        return hold(
+          "floor_pinned",
+          `Held: a room type with nothing left to sell is priced at €${lowest} on this date, at the €${gridFloor} list floor. All prices of a date move together, so the date cannot go lower until that room type's price is raised by hand (the cheapest bookable price is €${lowestSellable}).`,
+        );
+      }
       const why = softFloorWhy === "converting_price_guard"
         ? `Held near the last price that converted (€${facts.convertingPrice}); cuts stay within ${s.conv_guard_pct}% of it for ${memory}h.`
         : softFloorWhy === "base_floor"

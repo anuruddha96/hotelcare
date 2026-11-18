@@ -129,6 +129,8 @@ Deno.test("every decision fits the 13-cell date column: one uniform step, never 
     const facts: PaceFacts = {
       tier, tierSource: "test", basePrice: pick([null, 100, 150, 300]),
       lowestCellPrice: Math.min(...prices), highestCellPrice: Math.max(...prices),
+      // Sometimes the cheapest room types are sold out: only the reference and dearer cells are bookable.
+      lowestSellableCellPrice: rand() < 0.3 ? reference : Math.min(...prices),
       convertingPrice: pick([null, reference, reference + 20]), convertedAt: pick([null, "2026-11-19T06:00:00Z"]),
       freshPickup: booked, localMinutes: pick([6 * 60, 9 * 60, 13 * 60, 17 * 60, 21 * 60, 23 * 60]),
       sellableRooms: 21, dateCeilingEur: null, respectWindowCaps: true,
