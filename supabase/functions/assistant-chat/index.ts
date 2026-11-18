@@ -1513,6 +1513,93 @@ function buildTools(
     });
   }
 
+
+  // Evidence lookup for a specific authorized room and business date.
+  // Signed URLs are short-lived; never return raw storage paths or unrestricted lists.
+  if (scopes.has("housekeeping")) {
+    tools.get_room_photo_evidence = tool({
+      description: "Read timestamped DND and room completion photo evidence for a specific room/date in an authorized hotel. Use before answering 'show DND photos for room 105 yesterday' or a guest cleaning complaint. Do not infer negligence from a missing photo.",
+      inputSchema: jsonSchema<{ hotelId: string | null; roomNumber: string; date: string; type: "dnd" | "completion" | "both" }>(
+        hotelArgSchema({
+          roomNumber: { type: "string", description: "Exact room number" },
+          date: { type: "string", description: "Business date YYYY-MM-DD in Europe/Budapest time, e.g. yesterday's date" },
+          type: { type: "string", enum: ["dnd", "completion", "both"] },
+        }, ["roomNumber", "date", "type"]),
+      ),
+      execute: async ({ hotelId, roomNumber, date, type }) => {
+        if (!/^20\\d{2}-\\d{2}-\\d{2}$/.test(date) || Number.isNaN(Date.parse(date + "T12:00:00Z"))) {
+          return { error: "Provide a valid calendar date, YYYY-MM-DD. No records were read." };
+        }
+        const ids = resolve(hotelId);
+        if (ids.length !== 1) return { error: "Select one authorized hotel before requesting room photo evidence." };
+        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
+        const { data: rooms, error: roomError } = await service.from("rooms")
+          .select("id,room_number,hotel")
+          .eq("organization_slug", orgSlug)
+          .in("hotel", [...new Set([...ids, ...names])])
+          .eq("room_number", String(roomNumber).trim())
+          .limit(2);
+        if (roomError) return { error: "Could not verify the room for photo access." };
+        if (rooms?.length !== 1) return { error: rooms?.length ? "Ambiguous room number; choose a hotel." : "Room not found at this hotel." };
+        const room = rooms[0];
+        const photos: Array<{ kind: "dnd" | "completion"; captured_at: string | null; date: string; photo_url: string; expires_in_seconds: number }> = [];
+        let dndError: string | null = null;
+        let completionError: string | null = null;
+        if (type === "dnd" || type === "both") {
+          const { data, error } = await service.from("dnd_photos")
+            .select("id,photo_url,marked_at,assignment_date")
+            .eq("room_id", room.id)
+            .eq("assignment_date", date)
+            .order("marked_at", { ascending: false })
+            .limit(12);
+          if (error) dndError = "DND photo metadata could not be read";
+          else {
+            for (const item of data ?? []) {
+              const path = String(item.photo_url ?? "");
+              if (!path || /^https?:/i.test(path)) continue;
+              const { data: signed, error: signError } = await service.storage.from("dnd-photos").createSignedUrl(path, 900);
+              if (!signError && signed?.signedUrl) photos.push({
+                kind: "dnd", captured_at: item.marked_at, date: item.assignment_date,
+                photo_url: signed.signedUrl, expires_in_seconds: 900,
+              });
+            }
+          }
+        }
+        if (type === "completion" || type === "both") {
+          const { data, error } = await service.from("room_assignments")
+            .select("id,assignment_date,completed_at,completion_photos")
+            .eq("room_id", room.id)
+            .eq("assignment_date", date)
+            .not("completion_photos", "is", null)
+            .order("completed_at", { ascending: false })
+            .limit(15);
+          if (error) completionError = "Completion photo metadata could not be read";
+          else {
+            for (const assignment of data ?? []) {
+              for (const url of (Array.isArray(assignment.completion_photos) ? assignment.completion_photos : []).slice(0, 12)) {
+                const path = String(url ?? "");
+                if (!path || /^https?:/i.test(path)) continue;
+                const { data: signed, error: signError } = await service.storage.from("room-photos").createSignedUrl(path, 900);
+                if (!signError && signed?.signedUrl) photos.push({
+                  kind: "completion", captured_at: assignment.completed_at ?? null,
+                  date: assignment.assignment_date, photo_url: signed.signedUrl, expires_in_seconds: 900,
+                });
+                if (photos.length >= 20) break;
+              }
+              if (photos.length >= 20) break;
+            }
+          }
+        }
+        return {
+          hotel: room.hotel, room_number: room.room_number, date, type,
+          photos: photos.slice(0, 20), photo_count: photos.length,
+          errors: [dndError, completionError].filter(Boolean),
+          note: "Temporary signed links expire in 15 minutes. Missing evidence is not proof that cleaning did not happen. Do not invent photos, timestamps or staff conclusions.",
+        };
+      },
+    });
+  }
+
   if (scopes.has("finance")) {
     tools.get_purchase_invoices = tool({
       description:
@@ -2098,7 +2185,9 @@ OPERATIONAL READS
 - Do not call the same tool twice unless the user disputes the data, you are comparing periods, or the first attempt failed. Most questions need one to four reads.
 
 GUIDANCE AND ACTIONS
-- When answering from an in-app section (revenue, housekeeping, maintenance, reception or finance), give the hotel, business date or date range, and the dataset timestamp when supplied. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
+- When answering from an in-app section (revenue, housekeeping, maintenance, reception or finance), give the hotel, business date or date range, and the dataset timestamp when supplied.
+- For a guest complaint involving DND or room-cleaning photos, call get_room_photo_evidence for the exact authorized hotel, room and business date first. Include only returned evidence with timestamps and temporary links; never fabricate photos or accuse staff from incomplete records.
+- For a maintenance request, check room detail, existing open tickets, and available reservation snapshot where permitted before raising a new ticket. If reservation or maintenance technician assignment cannot be verified, say so. Use the user's exact problems and priority justified by safety/guest impact, never claim a notification was delivered without a confirmed result. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
 - For explicitly requested, supported routine actions (extra towels, room items, beds, maintenance tickets, ticket updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
 - For room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
