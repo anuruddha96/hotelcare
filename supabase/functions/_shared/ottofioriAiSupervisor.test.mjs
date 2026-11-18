@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { observeAiPrice, selectAiDates, validateAiMoves, aiMoveLimit, estimateSupervisorCost, availableSupervisorModel, softEventTest, peerPriceSignal } from './ottofioriAiSupervisor.ts';
+import { observeAiPrice, selectAiDates, validateAiMoves, aiMoveLimit, estimateSupervisorCost, availableSupervisorModel, softEventTest, peerPriceSignal, hasFreshPickupForIncrease } from './ottofioriAiSupervisor.ts';
 const now = new Date('2026-11-06T15:00:00Z');
 const policy = {created_at:'2026-11-06T14:00:00Z',valid_until:'2026-11-06T18:00:00Z'};
 test('AI observation outranks timer changes, expires, and releases for new pickup',()=>{
@@ -63,6 +63,15 @@ test('all last-four-day offers beat distant weak nights; stale or incomplete dat
 test('AI authority is 15% of the reference inside 14 days and 25% beyond, between €10 and €80',()=>{
  assert.equal(aiMoveLimit(65,150),38); assert.equal(aiMoveLimit(10,150),23);
  assert.equal(aiMoveLimit(3,40),10); assert.equal(aiMoveLimit(90,500),80); assert.equal(aiMoveLimit(5,null),10);
+});
+test('AI rises require a net booking inside the date quiet window',()=>{
+ const fresh=date({pickup_24h:1,pickup_6h:1,quiet_hours:2,cancellations_24h:0});
+ assert.equal(hasFreshPickupForIncrease(fresh,6),true);
+ assert.equal(hasFreshPickupForIncrease({...fresh,pickup_6h:0,quiet_hours:5.5},6),true);
+ assert.equal(hasFreshPickupForIncrease({...fresh,quiet_hours:6.1},6),false);
+ assert.equal(hasFreshPickupForIncrease({...fresh,pickup_24h:0,pickup_48h:2,quiet_hours:30},6),false);
+ assert.equal(hasFreshPickupForIncrease({...fresh,cancellations_24h:1},6),false);
+ assert.equal(hasFreshPickupForIncrease({...fresh,quiet_hours:null},6),false);
 });
 test('unknown dates, duplicates, fractional steps, oversized steps, malformed confidence fail closed',()=>{
  const valid={date:'2027-01-10',delta:-38,confidence:.9,reason:'No pickup and 21 rooms left; test a lower offer.'};
