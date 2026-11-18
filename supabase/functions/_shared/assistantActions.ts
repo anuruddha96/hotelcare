@@ -543,9 +543,17 @@ export async function executeAction(
         .eq("id", data.assigned_to).maybeSingle();
       if (staff?.organization_slug === org) assignment = `Assigned to ${staff.full_name || staff.nickname || "a maintenance member"}`;
     }
+    const { data: queue } = await service.from("maintenance_escalation_events")
+      .select("status")
+      .eq("ticket_id", data.id)
+      .eq("escalation_level", 0)
+      .maybeSingle();
+    const delivery = queue
+      ? `Notification job ${queue.status ?? "queued"}; actual delivery not yet confirmed`
+      : "Notification queue status unavailable; delivery not confirmed";
     return {
       ok: true, recordId: data.id,
-      summary: `Ticket ${data.ticket_number} created at ${ctx.hotelName} for ${roomNumber} (${priority}). ${assignment}. Notification delivery has not yet been verified.`,
+      summary: `Ticket ${data.ticket_number} created at ${ctx.hotelName} for ${roomNumber} (${priority}). ${assignment}. ${delivery}.`,
     };
   }
 
