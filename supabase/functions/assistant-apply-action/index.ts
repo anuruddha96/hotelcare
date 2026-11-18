@@ -505,6 +505,7 @@ Deno.serve(async (req) => {
           hotelName: hotel.hotel_name,
         },
         { kind: validated.action.kind, input: validated.action.input },
+        authClient,
       );
     }
     if (!result.ok) return json({ error: result.error }, 400);
