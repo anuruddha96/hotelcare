@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
     }
 
     // Check if caller has permission (admin, manager, housekeeping_manager)
-    const allowedRoles = ['admin', 'manager', 'housekeeping_manager'];
+    const allowedRoles = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager'];
     if (!allowedRoles.includes(callerProfile.role)) {
       return new Response(JSON.stringify({ error: 'Insufficient permissions' }), {
         status: 403,
@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
     }
 
     // Non-admin managers can only reset passwords for housekeeping staff in their own hotel
-    if (callerProfile.role !== 'admin') {
+    if (!['admin', 'top_management', 'top_management_manager'].includes(callerProfile.role)) {
       // Check if target is a housekeeper
       if (targetProfile.role !== 'housekeeping') {
         return new Response(JSON.stringify({ error: 'You can only reset passwords for housekeeping staff' }), {
@@ -97,8 +97,11 @@ Deno.serve(async (req) => {
       // Must be the same organization AND the same assigned hotel
       const sameOrg = !!callerProfile.organization_slug &&
         callerProfile.organization_slug === targetProfile.organization_slug;
+      const aliases = await admin.from('hotel_configurations').select('hotel_id, hotel_name').eq('is_active', true);
+      if (aliases.error) return new Response(JSON.stringify({ error: 'Unable to verify hotel access' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+      const resolveHotel = (value: string | null) => (aliases.data || []).find(h => h.hotel_id === value || h.hotel_name === value)?.hotel_id || value;
       const sameHotel = !!callerProfile.assigned_hotel &&
-        callerProfile.assigned_hotel === targetProfile.assigned_hotel;
+        resolveHotel(callerProfile.assigned_hotel) === resolveHotel(targetProfile.assigned_hotel);
 
       if (!sameOrg || !sameHotel) {
         return new Response(JSON.stringify({ error: 'You can only reset passwords for staff in your hotel' }), {
