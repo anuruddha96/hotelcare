@@ -17,7 +17,7 @@ import { loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetri
 type Card = {
   id: string;
   tone: "priority" | "opportunity" | "good";
-  area: "revenue" | "reputation" | "maintenance" | "restaurant";
+  area: "revenue" | "reputation" | "maintenance" | "restaurant" | "housekeeping";
   title: string;
   detail: string;
   prompt: string;
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
       }
     };
 
-    const [review, reputation, restaurant, tickets] = await Promise.all([
+    const [review, reputation, restaurant, tickets, housekeepingRooms] = await Promise.all([
       call("review_pricing", { hotelId: focus.hotel_id, startDate: null, days: 21 }),
       call("get_reputation_overview", { days: 14, hotelId: focus.hotel_id, portfolio: false }),
       call("get_restaurant_reservations", { hotelId: null, startDate: null, endDate: null }),
@@ -119,6 +119,13 @@ Deno.serve(async (req) => {
             .eq("organization_slug", profile.organization_slug)
             .in("hotel", [...new Set(hotels.flatMap((h) => [h.hotel_id, h.hotel_name]))])
             .neq("status", "completed")
+            .limit(500)
+        : Promise.resolve({ data: null }),
+      scopes.has("housekeeping")
+        ? service.from("rooms")
+            .select("id,room_number,hotel,status,is_dnd")
+            .eq("organization_slug", profile.organization_slug)
+            .in("hotel", [...new Set([focus.hotel_id, focus.hotel_name])])
             .limit(500)
         : Promise.resolve({ data: null }),
     ]);
@@ -235,6 +242,77 @@ Deno.serve(async (req) => {
       }
     }
 
+
+    // Housekeeping priorities use only the caller's authorized, focused hotel.
+    // Do not score individual employees from raw completion times: room type,
+    // checkout burden, staffing and DND retries must first be verified.
+    const rooms: any[] = (housekeepingRooms as any)?.data ?? [];
+    if (rooms.length && scopes.has("housekeeping")) {
+      const ids = rooms.map((r) => r.id);
+      const [{ data: assignments, error: assignmentError }, { data: notes, error: notesError }] = await Promise.all([
+        service.from("room_assignments")
+          .select("room_id,status,created_at,assigned_to")
+          .eq("assignment_date", today())
+          .in("room_id", ids)
+          .order("created_at", { ascending: false })
+          .limit(500),
+        service.from("housekeeping_notes")
+          .select("id,room_id,content,created_at")
+          .eq("note_type", "guest_request")
+          .eq("is_resolved", false)
+          .in("room_id", ids)
+          .order("created_at", { ascending: false })
+          .limit(100),
+      ]);
+      if (!notesError && notes?.length) {
+        const requests = notes.filter((n: any) => {
+          try {
+            const payload = JSON.parse(String(n.content ?? "{}"));
+            return payload.status === "requested" && payload.workDate === today();
+          } catch { return false; }
+        });
+        if (requests.length) {
+          cards.push({
+            id: "hk-guest-requests",
+            tone: "priority",
+            area: "housekeeping",
+            title: `${requests.length} guest request${requests.length === 1 ? "" : "s"} awaiting action`,
+            detail: `${name}: guest room-item requests still marked requested today. Check assignment and delivery status.`,
+            prompt: `Show unresolved guest room-item requests at ${name} today, with room numbers and assigned housekeepers. Identify who should follow up and verify delivery.`,
+          });
+        }
+      }
+      if (!assignmentError && assignments?.length) {
+        const newest = new Map<string, any>();
+        for (const row of assignments) if (!newest.has(row.room_id)) newest.set(row.room_id, row);
+        const active = [...newest.values()];
+        const unstarted = active.filter((r) => r.status === "assigned").length;
+        const inProgress = active.filter((r) => r.status === "in_progress").length;
+        const complete = active.filter((r) => r.status === "completed").length;
+        const dnd = active.filter((r) => r.status === "dnd_pending_retry").length;
+        if (dnd) {
+          cards.push({
+            id: "hk-dnd",
+            tone: "opportunity",
+            area: "housekeeping",
+            title: `${dnd} DND room${dnd === 1 ? "" : "s"} awaiting recheck`,
+            detail: `${name}: today's latest housekeeping assignments are marked DND pending retry.`,
+            prompt: `Which rooms at ${name} are DND pending retry today? Show documented attempts, time and available photos if authorized.`,
+          });
+        }
+        if (unstarted || inProgress) {
+          cards.push({
+            id: "hk-progress",
+            tone: unstarted ? "opportunity" : "good",
+            area: "housekeeping",
+            title: `${unstarted} assigned room${unstarted === 1 ? "" : "s"} not started`,
+            detail: `${name}: ${inProgress} in progress and ${complete} completed in today's latest assignments.`,
+            prompt: `Show today's verified housekeeping progress at ${name}: rooms not started, in progress, completed and guest requests. Suggest the next operational follow-up.`,
+          });
+        }
+      }
+    }
+
     if (restaurant && Number(restaurant.total_reservations ?? 0) > 0) {
       cards.push({
         id: "rest",
@@ -248,7 +326,7 @@ Deno.serve(async (req) => {
 
     const rank = { priority: 0, opportunity: 1, good: 2 } as const;
     cards.sort((a, b) => rank[a.tone] - rank[b.tone]);
-    return json({ cards: cards.slice(0, 5), hotel: { id: focus.hotel_id, name }, generatedAt: new Date().toISOString() });
+    return json({ cards: cards.slice(0, 12), hotel: { id: focus.hotel_id, name }, generatedAt: new Date().toISOString() });
   } catch (error) {
     console.error("assistant-priorities error", error);
     return json({ cards: [], error: "Priorities are unavailable right now" }, 200);
