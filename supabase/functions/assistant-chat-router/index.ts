@@ -900,6 +900,9 @@ Deno.serve(async (req) => {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   const latest = [...messages].reverse().find((m: any) => m?.role === "user");
   const question = extractText(latest);
+  // Multimodal input must reach the tool-using assistant, which validates and
+  // processes the actual files. The text-only report path would drop evidence.
+  const hasIncomingFiles = Array.isArray(latest?.parts) && latest.parts.some((part: any) => part?.type === "file");
   const threadId = typeof body?.thread_id === "string" ? body.thread_id : "";
   if (!question || !threadId) return json({ error: "A valid thread and question are required" }, 400);
 
@@ -910,9 +913,9 @@ Deno.serve(async (req) => {
   const pricingApprovalFollowup = isPricingApprovalContinuation(question, extractText(lastAssistantTurn));
   // Rates can be changed only by the authenticated, tool-using assistant with
   // explicit approval. Deep text-only analysis must never take its place.
-  const needsAgent = !readOnlyRevenueReport &&
-    (detectAssistantWorkflow(question) !== null || pricingApprovalFollowup || requestsOperationalAction(question));
-  if (!readOnlyRevenueReport && (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep"))) {
+  const needsAgent = hasIncomingFiles || (!readOnlyRevenueReport &&
+    (detectAssistantWorkflow(question) !== null || pricingApprovalFollowup || requestsOperationalAction(question)));
+  if (hasIncomingFiles || (!readOnlyRevenueReport && (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep")))) {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/assistant-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: authHeader },
