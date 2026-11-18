@@ -178,6 +178,7 @@ function buildTools(
   attachments: WorkspaceAttachment[],
   threadId: string | null = null,
   pricingApprovalFollowup = false,
+  incomingFiles: MiraIncomingFile[] = [],
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -1382,8 +1383,46 @@ function buildTools(
         if (!response.ok || !result?.ok) {
           return { ok: false, error: String(result?.error || "HotelCare did not confirm the change.") };
         }
-        return { ok: true, status: kind === "adjust_revenue_prices" ? "queued" : kind === "create_guest_request" ? "recorded" : "completed", summary: result.summary,
+        let evidenceSummary = "";
+        if (kind === "create_ticket" && incomingFiles.length) {
+          const ticketId = String(result.recordId ?? "");
+          const { data: ticket, error: ticketError } = await service.from("tickets")
+            .select("id,organization_slug,created_by,attachment_urls")
+            .eq("id", ticketId)
+            .eq("organization_slug", orgSlug)
+            .eq("created_by", profile.id)
+            .maybeSingle();
+          if (ticketError || !ticket) {
+            evidenceSummary = "Evidence could not be linked to the newly created ticket; ask a manager to check.";
+          } else {
+            const uploadedPaths: string[] = [];
+            for (const file of incomingFiles) {
+              const path = `${ticketId}/${crypto.randomUUID()}.${file.extension}`;
+              const { error: uploadError } = await service.storage.from("ticket-attachments")
+                .upload(path, file.bytes, { contentType: file.mediaType, upsert: false });
+              if (!uploadError) uploadedPaths.push(path);
+              else console.warn("Mira ticket evidence upload failed", uploadError.message);
+            }
+            if (uploadedPaths.length) {
+              const prior = Array.isArray(ticket.attachment_urls) ? ticket.attachment_urls : [];
+              const { data: linked, error: linkError } = await service.from("tickets")
+                .update({ attachment_urls: [...new Set([...prior, ...uploadedPaths])] })
+                .eq("id", ticketId).eq("created_by", profile.id).eq("organization_slug", orgSlug)
+                .select("id")
+                .maybeSingle();
+              if (linkError || !linked) {
+                await service.storage.from("ticket-attachments").remove(uploadedPaths);
+                evidenceSummary = "The ticket was created, but evidence linking failed; no files were confirmed attached.";
+              } else {
+                evidenceSummary = `${uploadedPaths.length} of ${incomingFiles.length} attached evidence file(s) saved to the ticket.`;
+              }
+            } else evidenceSummary = "The ticket was created, but none of the uploaded files could be saved.";
+          }
+        }
+        const summary = [result.summary, evidenceSummary, kind === "create_ticket" ? "Technician assignment and notification delivery must be checked in the maintenance queue." : ""].filter(Boolean).join(" ");
+        return { ok: true, status: kind === "adjust_revenue_prices" ? "queued" : kind === "create_guest_request" ? "recorded" : "completed", summary,
           hotelId: selected[0], recordId: result.recordId ?? null,
+          evidenceAttached: evidenceSummary ? !evidenceSummary.includes("could not") && !evidenceSummary.includes("none") && !evidenceSummary.includes("failed") : null,
           actor: result.actorFirstName ?? null };
       },
     });
