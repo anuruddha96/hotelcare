@@ -1,4 +1,4 @@
-import { decideDate as coreDecision, paceTargetFor, windowFor, pickupLadderFor, pickupStep, occupancyLiftBandFor, DEFAULT_OCCUPANCY_LIFT_LADDER, type Decision, type DecisionInput, type DecisionSettings } from "./engineV2Core.ts";
+import { decideDate as coreDecision, paceTargetFor, windowFor, pickupLadderFor, pickupStep, type Decision, type DecisionInput, type DecisionSettings } from "./engineV2Core.ts";
 
 /**
  * Policy (owner instruction, 14 Nov 2026): sell every room at the highest
@@ -11,9 +11,7 @@ import { decideDate as coreDecision, paceTargetFor, windowFor, pickupLadderFor, 
  */
 export const SCARCE_ROOMS = 3;
 /** Occupancy-led lifts repeat no more often than this per date. */
-export const OCCUPANCY_LIFT_SPACING_HOURS = 6;
 /** Demand counts as fresh for an occupancy lift inside this many hours. */
-export const FRESH_DEMAND_HOURS = 48;
 
 function hoursBetween(iso: string | null | undefined, now: Date): number | null {
   if (!iso) return null;
@@ -153,8 +151,8 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   const policy: DecisionSettings = {
     ...settings, respectConfiguredWindows: true,
     fill: { ...settings.fill!, enabled: true, windowDays: settings.fill?.windowDays ?? 14, maxTotalDropPct: settings.fill?.maxTotalDropPct ?? 15 },
-    // Occupancy-led lifts are decided here (with freshness and spacing rules),
-    // so the core must not add a second one on top.
+    // Only genuinely fresh unconsumed pickup may raise a price. Static occupancy
+    // and event evidence protect an offer but never create another increase.
     occupancyLiftEnabled: false, microPriceTests: false, allowSameDayReversal: true,
     // A cancelled room must be resold, especially after the free-cancellation deadline.
     rebookWindowHours: Math.min(settings.rebookWindowHours ?? 4, input.daysOut <= 7 ? 2 : 4),
@@ -181,9 +179,6 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
   // inventory is already scarce. Strong dates are never marked down.
   const strong = occ >= 85 || scarce
     || (input.daysOut > 7 && occ >= Math.max(50, (pace ?? 70) + 10));
-  const demandFresh = observed6h > 0 || input.pickup48h > 0
-    || (hoursQuiet != null && hoursQuiet <= FRESH_DEMAND_HOURS);
-  const sinceLastRise = input.lastDirection === "increase" ? hoursBetween(input.lastDecisionAt, settings.now) : null;
   const waited = hoursQuiet == null || hoursQuiet >= quietHours;
   const behind = gap == null ? 0 : Math.max(0, -gap);
   let raw = 0;
@@ -199,18 +194,7 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
     else if (scarce) raw = Math.round(raw * 1.25);
     reason = "pickup_yield";
     detail = `${pickup} fresh net booking(s) inside ${quietHours}h (${observed6h} in six hours), ${left} room(s) left: demand-led increase from the ${band.min_days_out}+ day ladder.`;
-  } else {
-    const liftBand = occupancyLiftBandFor(occ, input.daysOut, settings.occupancyLiftLadder ?? DEFAULT_OCCUPANCY_LIFT_LADDER);
-    if (liftBand && demandFresh && (sinceLastRise == null || sinceLastRise >= OCCUPANCY_LIFT_SPACING_HOURS)) {
-      // The occupancy itself is the evidence; demand must still be alive and
-      // the previous lift must have had time to be tested by the market.
-      raw = Math.max(Math.round(Number(liftBand.min_eur) || 0), Math.round(current * (Number(liftBand.pct) || 0) / 100));
-      reason = "occupancy_lift";
-      detail = `${occ}% sold ${input.daysOut} days out with ${left} room(s) left and demand inside ${FRESH_DEMAND_HOURS}h: lifting on strength of occupancy (${liftBand.pct}%).`;
-    } else if (liftBand && sinceLastRise != null && sinceLastRise < OCCUPANCY_LIFT_SPACING_HOURS) {
-      reason = "occupancy_lift_spacing";
-      detail = `${occ}% sold; the last lift was ${Math.round(sinceLastRise)}h ago and is still being tested by the market.`;
-    } else if (context.confirmedHighEvent) {
+  } else if (context.confirmedHighEvent) {
       reason = "event_demand_protected";
       detail = "A verified high-impact event protects this date; no markdown.";
     } else if (strong) {
