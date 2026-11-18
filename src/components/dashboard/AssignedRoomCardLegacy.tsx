@@ -124,6 +124,11 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
   const [newNote, setNewNote] = useState('');
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [roomDetailOpen, setRoomDetailOpen] = useState(false);
+  const [roomDetailView, setRoomDetailView] = useState<'details' | 'minibar'>('details');
+  const openRoomDetail = (view: 'details' | 'minibar') => {
+    setRoomDetailView(view);
+    setRoomDetailOpen(true);
+  };
   const [dndPhotoDialogOpen, setDndPhotoDialogOpen] = useState(false);
   const [enhancedDndPhotoDialogOpen, setEnhancedDndPhotoDialogOpen] = useState(false);
   const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
@@ -1618,12 +1623,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
 
                   {!noMinibar && <button
                     type="button"
-                    onClick={() => setRoomDetailOpen(true)}
+                    onClick={() => openRoomDetail('minibar')}
                     className={`${tileBase} border-border`}
                     data-training="minibar-button"
                   >
                     <span className={`${iconWrap} bg-purple-100 text-purple-700`}>
-                      <BedDouble className="h-4 w-4" />
+                      <span className="text-base leading-none" aria-hidden="true">🥤</span>
                     </span>
                     <span className={label}>{t('actions.minibar')}</span>
                   </button>}
@@ -1723,7 +1728,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
               <Button 
                 size="lg"
                 variant="outline" 
-                onClick={() => setRoomDetailOpen(true)} 
+                onClick={() => openRoomDetail('details')} 
                 className="w-full sm:w-auto"
               >
                 <Eye className="h-5 w-5" />
@@ -1768,10 +1773,10 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
               {!noMinibar && (<Button
                 size="sm"
                 variant="outline"
-                onClick={() => setRoomDetailOpen(true)}
+                onClick={() => openRoomDetail('minibar')}
                 className="w-full border-purple-300 text-purple-700 hover:bg-purple-100 h-auto min-h-[44px] py-2 px-2 whitespace-normal text-xs leading-tight flex items-center justify-center gap-2"
               >
-                <BedDouble className="h-4 w-4 shrink-0" />
+                <span className="text-base leading-none" aria-hidden="true">🥤</span>
                 <span className="text-center break-words">{t('roomCard.addMinibarLate')}</span>
               </Button>)}
               <Button
@@ -1920,6 +1925,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
           }}
           open={roomDetailOpen}
           onOpenChange={setRoomDetailOpen}
+          minibarOnly={roomDetailView === 'minibar'}
           lateAddition={assignment.status === 'completed'}
           alreadyApproved={assignment.status === 'completed' && !!assignment.supervisor_approved}
         />
@@ -2000,7 +2006,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate, roomNotices }: As
         }}
         onOpenMinibar={() => {
           setPreCompleteOpen(false);
-          setRoomDetailOpen(true);
+          openRoomDetail('minibar');
         }}
         showMinibar={!noMinibar}
         onConfirm={async () => {
