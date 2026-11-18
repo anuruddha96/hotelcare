@@ -93,6 +93,18 @@ export function aiMoveLimit(lead: number, reference: number | null): number {
   return Math.min(80, Math.max(10, Math.round(ref * pct)));
 }
 
+/**
+ * A price rise needs a genuinely fresh active booking inside the date's quiet
+ * window. Occupancy, events, peer moves and 48-hour-old pickup may protect a
+ * price, but they cannot manufacture a new increase.
+ */
+export function hasFreshPickupForIncrease(date: AiDate, quietWindowHours: number): boolean {
+  const quiet = Number(date.quiet_hours);
+  const window = Math.max(1, Number(quietWindowHours) || 1);
+  const net24 = Math.max(0, Number(date.pickup_24h) - Number(date.cancellations_24h));
+  return net24 > 0 && Number.isFinite(quiet) && quiet >= 0 && quiet <= window;
+}
+
 /** Reject malformed/unrequested dates before the independent database gate. */
 export function validateAiMoves(raw: unknown, dates: AiDate[]): { date: string; delta: number; reason: string; confidence: number }[] {
   if (!Array.isArray(raw)) throw new Error('AI response has no decisions array');
