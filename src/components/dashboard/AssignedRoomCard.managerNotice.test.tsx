@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { todayBudapest } from '@/lib/budapestTime';
 
 // Keep the test focused on which room owns the manager update, not on
@@ -138,7 +138,7 @@ describe('housekeeper manager update ownership', () => {
     render(<AssignedRoomCard assignment={assignedRoom as any} onStatusUpdate={() => {}} />);
 
     const card = screen.getByTestId('room-card-209');
-    within(card).getByRole('button', { name: 'Edit bed setup' }).click();
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit bed setup' }));
     expect(within(card).getByText('Bed setup for room 209')).not.toBeNull();
   });
 });
