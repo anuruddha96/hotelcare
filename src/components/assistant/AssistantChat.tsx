@@ -637,7 +637,17 @@ function ChatSession({
                       </div>
                       <MessageResponse>{text}</MessageResponse>
                     </>
-                  ) : <p className="whitespace-pre-wrap">{text}</p>}
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="whitespace-pre-wrap">{text}</p>
+                      {message.parts.filter((part) => part.type === "file").map((part, partIndex) => (
+                        <span key={partIndex} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-primary-foreground/10 px-2 py-1 text-xs">
+                          {part.mediaType === "application/pdf" ? <FileText className="h-3.5 w-3.5" /> : <FileImage className="h-3.5 w-3.5" />}
+                          <span className="max-w-52 truncate">{part.filename || "Attached evidence"}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {message.role === "assistant" &&
                     message.parts.map((part, partIndex) => {
                       if (!(part.type.startsWith("tool-") || part.type === "dynamic-tool")) return null;
