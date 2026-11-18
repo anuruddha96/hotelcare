@@ -8,7 +8,10 @@ import { todayBudapest } from '@/lib/budapestTime';
 // Keep the test focused on which room owns the manager update, not on
 // housekeeping mutations, photo upload, or database access.
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: () => ({ data: [] }),
+  useQuery: ({ queryKey }: { queryKey: string[] }) => ({
+    // Production returns a Map for Gozsdu building mapping and an array for notes.
+    data: queryKey[0] === 'gozsdu-housekeeper-building-map' ? new Map() : [],
+  }),
 }));
 const mockedAuth = vi.hoisted(() => ({ role: 'housekeeping' }));
 
