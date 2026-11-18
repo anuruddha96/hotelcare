@@ -28,13 +28,15 @@ vi.mock('@/lib/gozsduWorkPresentation', () => ({
 vi.mock('./ExtraRoomPhotos', () => ({ ExtraRoomPhotos: () => null }));
 vi.mock('./RoomCommunicationPanel', () => ({ RoomCommunicationPanel: ({ roomNumber }: { roomNumber: string }) => <p>Bed setup for room {roomNumber}</p> }));
 vi.mock('./AssignedRoomCardLegacy', () => ({
-  AssignedRoomCard: ({ assignment, roomNotices }: {
+  AssignedRoomCard: ({ assignment, roomNotices, additionalRoomTool }: {
     assignment: { rooms: { room_number: string } };
     roomNotices?: React.ReactNode;
+    additionalRoomTool?: React.ReactNode;
   }) => (
     <article data-testid={`room-card-${assignment.rooms.room_number}`}>
       <h2>Room {assignment.rooms.room_number}</h2>
       {roomNotices}
+      {additionalRoomTool && <section aria-label="Room checklist tools">{additionalRoomTool}</section>}
     </article>
   ),
 }));
@@ -88,7 +90,7 @@ describe('housekeeper manager update ownership', () => {
     expect(screen.getByText('Manager update · Room 130').closest('article')).toBe(room130);
   });
 
-  it('renders Memories room status, RTC and dirty action inside the same task card', () => {
+  it('never exposes Mark Room Dirty or an extra status panel to housekeepers at Memories', () => {
     const room206 = {
       ...assignment('206', false),
       assigned_to: 'housekeeper-1',
@@ -98,14 +100,12 @@ describe('housekeeper manager update ownership', () => {
     render(<AssignedRoomCard assignment={room206 as any} onStatusUpdate={() => {}} />);
 
     const card = screen.getByTestId('room-card-206');
-    expect(within(card).getByRole('region', { name: 'Live room and checkout status' })).not.toBeNull();
-    expect(within(card).getByText('Room: Dirty')).not.toBeNull();
-    expect(within(card).getByText('✓ RTC · Ready to Clean')).not.toBeNull();
-    expect(within(card).getByRole('button', { name: /Mark Room Dirty/i })).not.toBeNull();
-    expect(screen.getByRole('region', { name: 'Live room and checkout status' }).closest('article')).toBe(card);
+    expect(within(card).queryByRole('button', { name: /mark.*dirty|reopen cleaning/i })).toBeNull();
+    expect(within(card).queryByRole('region', { name: 'Live room and checkout status' })).toBeNull();
+    expect(screen.getAllByTestId('room-card-206')).toHaveLength(1);
   });
 
-  it('does not create a separate Memories status card for other hotels', () => {
+  it('does not render the old Memories-only status panel at any hotel', () => {
     const otherHotelRoom = {
       ...assignment('201', false),
       rooms: { ...assignment('201', false).rooms, hotel: 'Hotel Ottofiori Budapest' },
@@ -128,8 +128,9 @@ describe('housekeeper manager update ownership', () => {
     render(<AssignedRoomCard assignment={assignedRoom as any} onStatusUpdate={() => {}} />);
 
     const card = screen.getByTestId('room-card-207');
-    expect(within(card).getByRole('button', { name: /Add more room photos/i })).not.toBeNull();
-    expect(screen.getAllByRole('button', { name: /Add more room photos/i })).toHaveLength(1);
+    expect(within(card).getByRole('button', { name: /Extra room photos/i })).not.toBeNull();
+    expect(screen.getAllByRole('button', { name: /Extra room photos/i })).toHaveLength(1);
+    expect(within(card).getByRole('region', { name: 'Room checklist tools' })).not.toBeNull();
   });
 
   it('keeps the manager bed-setup editor inside the relevant room card for other hotels', () => {
