@@ -39,7 +39,7 @@ describe('room note provenance', () => {
     expect(describeRoomNoteTimestamp(observed)).toContain('original entry time unknown');
     const system = { ...history[0], source: 'system_change' as const };
     expect(describeRoomNoteTimestamp(system)).toContain('System update:');
-    expect(describeRoomNoteTimestamp(history[0])).toContain('Entered:');
+    expect(describeRoomNoteTimestamp(history[0])).toContain('Entered by Éva on');
   });
 
   it('shows a readable staff name before the precise Budapest date and time', () => {
