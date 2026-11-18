@@ -79,4 +79,30 @@ describe('housekeeper manager update ownership', () => {
     expect(room130.textContent).toContain('Changed by Melani');
     expect(screen.getByText('Manager update · Room 130').closest('article')).toBe(room130);
   });
+
+  it('renders Memories room status, RTC and dirty action inside the same task card', () => {
+    const room206 = {
+      ...assignment('206', false),
+      assigned_to: 'housekeeper-1',
+      assignment_type: 'checkout_cleaning',
+      ready_to_clean: true,
+    };
+    render(<AssignedRoomCard assignment={room206 as any} onStatusUpdate={() => {}} />);
+
+    const card = screen.getByTestId('room-card-206');
+    expect(within(card).getByRole('region', { name: 'Live room and checkout status' })).not.toBeNull();
+    expect(within(card).getByText('Room: Dirty')).not.toBeNull();
+    expect(within(card).getByText('✓ RTC · Ready to Clean')).not.toBeNull();
+    expect(within(card).getByRole('button', { name: /Mark Room Dirty/i })).not.toBeNull();
+    expect(screen.getByRole('region', { name: 'Live room and checkout status' }).closest('article')).toBe(card);
+  });
+
+  it('does not create a separate Memories status card for other hotels', () => {
+    const otherHotelRoom = {
+      ...assignment('201', false),
+      rooms: { ...assignment('201', false).rooms, hotel: 'Hotel Ottofiori Budapest' },
+    };
+    render(<AssignedRoomCard assignment={otherHotelRoom as any} onStatusUpdate={() => {}} />);
+    expect(screen.queryByRole('region', { name: 'Live room and checkout status' })).toBeNull();
+  });
 });
