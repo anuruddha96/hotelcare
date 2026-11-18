@@ -139,13 +139,15 @@ export function greeting(name?: string | null): string {
 /** Examples are suggestions, never a claim that Mira already performed an action. */
 export function rolePlaceholderExamples(role: string | null | undefined): string[] {
   if (["reception", "front_office", "reception_manager", "manager", "top_management", "top_management_manager", "admin"].includes(role ?? "")) {
-    return [
+    const common = [
       "Create a maintenance ticket for room 205: AC not working and water leaking in the bathroom.",
       "Show the DND photos for room 105 yesterday, including their timestamps.",
       "Which guest requests need attention right now?",
       "Help me prepare next month's staff schedule.",
-      "Which dates need revenue attention this week?",
     ];
+    return ["admin", "top_management", "top_management_manager"].includes(role ?? "")
+      ? [...common, "Which revenue dates need attention this week?"]
+      : common;
   }
   if (["housekeeping_manager", "supervisor"].includes(role ?? "")) {
     return [
