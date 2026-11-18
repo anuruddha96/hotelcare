@@ -149,7 +149,7 @@ const Index = () => {
 
   return (
     <StaffWorkVenueGate>
-    <div className="min-h-screen bg-background overflow-x-hidden">
+    <div className="min-h-screen min-w-0 bg-background">
       <Header />
 
 
