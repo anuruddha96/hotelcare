@@ -87,6 +87,8 @@ interface RoomDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRoomUpdated?: () => void;
+  /** Show only the minibar panel when accessed from the housekeeping checklist. */
+  minibarOnly?: boolean;
   /**
    * When true, minibar items added/updated through this dialog are flagged as
    * "late additions" — added by housekeepers AFTER the cleaning was completed.
@@ -101,7 +103,7 @@ interface RoomDetailDialogProps {
   alreadyApproved?: boolean;
 }
 
-export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
+export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, minibarOnly = false, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
   const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, room?.hotel);
@@ -600,19 +602,26 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
-        <DialogHeader className="flex-shrink-0 pb-4">
+      <DialogContent
+        data-testid={minibarOnly ? 'housekeeping-minibar-dialog' : 'room-details-dialog'}
+        className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] min-w-0 max-w-4xl flex-col gap-3 overflow-hidden p-3 sm:h-auto sm:max-h-[90dvh] sm:p-6"
+      >
+        <DialogHeader className="min-w-0 flex-shrink-0 pb-2 sm:pb-4">
           <div className="flex items-center justify-between">
             <div>
-              <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
-                <Hotel className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="text-base sm:text-xl">
-                  Room {room.room_number} {room.room_name && `- ${room.room_name}`}
+              <DialogTitle className="flex min-w-0 items-center gap-2 pr-6 text-left text-lg sm:text-xl">
+                {minibarOnly
+                  ? <Wine className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+                  : <Hotel className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />}
+                <span className="min-w-0 break-words text-base sm:text-xl">
+                  {minibarOnly
+                    ? `${t('actions.minibar')} · Room ${room.room_number}`
+                    : `Room ${room.room_number}${room.room_name ? ` - ${room.room_name}` : ''}`}
                 </span>
               </DialogTitle>
               <p className="text-xs sm:text-sm text-muted-foreground">{room.hotel}</p>
             </div>
-            {profile?.role === 'admin' && (
+            {!minibarOnly && profile?.role === 'admin' && (
               <Button
                 variant="outline"
                 size="sm"
@@ -628,9 +637,9 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto space-y-4 sm:space-y-6 pr-2">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y pr-1 sm:space-y-6 sm:pr-2">
           {/* Room Status Section - Hidden for housekeepers */}
-          {profile?.role !== 'housekeeping' && (
+          {!minibarOnly && profile?.role !== 'housekeeping' && (
             <Card>
               <CardHeader className="pb-3 sm:pb-4">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
@@ -775,13 +784,13 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
           {/* Gozsdu has no minibar; all other properties retain existing usage tools. */}
           {!noMinibar && <Card>
             <CardHeader className="pb-3 sm:pb-4">
-              <div className="flex items-center justify-between gap-2 w-full">
+              <div className="flex w-full min-w-0 flex-wrap items-start justify-between gap-2 sm:items-center">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                   <Wine className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                   <span>{t('minibar.usage')}</span>
                 </CardTitle>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <Badge className="text-base sm:text-lg font-bold px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Badge className="max-w-full break-words px-2 py-1 text-xs font-bold sm:px-3 sm:py-1.5 sm:text-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md">
                     {t('minibar.total')}: €{getTotalMinibarValue().toFixed(2)}
                   </Badge>
                   {minibarUsage.length > 0 && (
@@ -883,9 +892,9 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                   const isGuestReported = guestReportedItems.has(item.id);
                   return (
                     <div key={item.id} className={`flex flex-col gap-3 p-3 border rounded-xl transition-colors sm:flex-row sm:items-center sm:justify-between ${isGuestReported ? 'bg-amber-50 border-amber-200' : currentUsage > 0 ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-muted/20'}`}>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm sm:text-base">{item.name}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="min-w-0 break-words font-medium text-sm sm:text-base">{item.name}</span>
                           {isGuestReported && (
                             <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] gap-1">
                               <User className="h-3 w-3" /> {t('minibar.guestReported')}
@@ -908,14 +917,14 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                           {t('minibar.alreadyRecordedByGuest')}
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2 justify-center">
+                        <div className="flex shrink-0 items-center justify-center gap-2">
                           <Button
                             variant="outline"
                             size="sm"
                             onClick={() => updateMinibarUsage(item.id, -1)}
                             disabled={currentUsage === 0}
                             className="h-11 w-11 p-0 rounded-full"
-                            aria-label="Decrease"
+                            aria-label={`Decrease ${item.name}`}
                           >
                             <Minus className="h-5 w-5" />
                           </Button>
@@ -929,7 +938,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                             size="sm"
                             onClick={() => updateMinibarUsage(item.id, 1)}
                             className="h-11 w-11 p-0 rounded-full"
-                            aria-label="Increase"
+                            aria-label={`Increase ${item.name}`}
                           >
                             <Plus className="h-5 w-5" />
                           </Button>
@@ -950,8 +959,8 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
           </Card>}
 
 
-          {/* Recent Tickets Section */}
-          <Card>
+          {/* Keep the minibar workflow focused; tickets appear under full room details. */}
+          {!minibarOnly && <Card>
             <CardHeader>
               <CardTitle className="text-lg">Recent Tickets</CardTitle>
             </CardHeader>
@@ -980,7 +989,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 )}
               </div>
             </CardContent>
-          </Card>
+          </Card>}
         </div>
       </DialogContent>
 
