@@ -8,7 +8,7 @@ afterEach(() => {
 
 describe('notification display outside active dialogs', () => {
   it('does not block ordinary toast messages or popovers', () => {
-    document.body.innerHTML = '<div data-sonner-toaster></div><div data-state="open" role="menu"></div>';
+    document.body.innerHTML = '<div data-sonner-toaster></div><div data-state="open" role="menu"></div><div data-radix-popper-content-wrapper><div role="dialog" data-state="open"></div></div>';
     expect(hasBlockingDialog()).toBe(false);
   });
 
