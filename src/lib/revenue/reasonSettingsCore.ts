@@ -423,6 +423,12 @@ export const REASON_SETTINGS: Record<string, ReasonInfo> = {
     settings: [],
     note: "Change this by typing in the chat box at the top of the Automation panel.",
   },
+  floor_pinned: {
+    title: "Held by a sold-out room type at the floor",
+    explain: "A room type with nothing left to sell is priced at the floor on this date. All prices of a date move together, so the date cannot be lowered until that room type's price is raised by hand.",
+    settings: [],
+    note: "Raise that room type's price for this date in the rate calendar to free the date.",
+  },
   run_throttle: {
     title: "Next in line",
     explain: "Many dates were due a small cut at once. The nearest dates went first; this one follows in the next run a few minutes later.",

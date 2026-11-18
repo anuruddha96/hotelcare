@@ -1117,6 +1117,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             .filter((r: any) => r.stay_date === stayDate && Date.parse(r.first_seen_at) >= quietCutoff)
             .map((r: any) => String(r.reservation_id))).size;
           const cellValues = cells.map((c) => whole(c.price)).filter((v) => Number.isFinite(v) && v > 0);
+          // Prices of room types that still have a room to sell on this date.
+          const sellableValues = cells
+            .filter((c) => typeAvail.left(c.room_type_name, c.obk_id, stayDate) !== 0)
+            .map((c) => whole(c.price)).filter((v) => Number.isFinite(v) && v > 0);
           const conversion = paceConverting.get(stayDate);
           paceDecision = decidePaceRatchet(input, settings, pace, {
             tier: tier.tier,
@@ -1124,6 +1128,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             basePrice: paceBase.get(stayDate)?.base ?? null,
             lowestCellPrice: cellValues.length > 0 ? Math.min(...cellValues) : null,
             highestCellPrice: cellValues.length > 0 ? Math.max(...cellValues) : null,
+            lowestSellableCellPrice: sellableValues.length > 0 ? Math.min(...sellableValues) : null,
             convertingPrice: conversion?.price ?? null,
             convertedAt: conversion?.at ?? null,
             freshPickup: freshPolicy,

@@ -55,9 +55,9 @@ Rules that hold everywhere:
 - **Seasonal base.** Derived four times a day from the published prices of
   Gozsdu Court, Mika Downtown and Memories Budapest, scaled to Ottofiori's own
   ADR level. Before the free-cancellation deadline a date never falls under
-  80% of its base. Far-out dates priced more than 15% above base glide down so
-  they reach the band 35 days out — this is what stops January from sitting at
-  €137 with nobody booking.
+  80% of its base. Far-out dates priced more than 15% above base (30% on High
+  dates) glide down so they reach the band 35 days out — this is what stops
+  January from sitting at €137 with nobody booking.
 - **Sell-down.** In the last three days the cut depends on *pressure* = rooms
   left above the tolerance (2) minus the pickup the curve still expects. No
   pressure, no cut. A booking while rooms still have to go **locks** the price
@@ -80,8 +80,8 @@ Rules that hold everywhere:
 | Rooms that may stay unsold | 2 |
 | Newly live | every step and cap is halved for 48 hours |
 
-A date already under the €87 floor is lifted back to it whatever the booking
-story says. Every existing safeguard still applies unchanged: manager locks,
+A date with a bookable price under the €87 floor is lifted back to it whatever
+the booking story says. Every existing safeguard still applies unchanged: manager locks,
 the four-hour hold after a manual price, whole-euro prices, all 13 cells of a
 date moving by the same amount, the database markdown budget, the cancellation
 cooldown and the publication guard.
@@ -192,6 +192,13 @@ Tables: `revenue_date_tiers` (tags and review queue), `revenue_seasonal_base`,
 
 ## Known limits
 
+- **Pinned dates.** Every price of a date moves together, and no price may go
+  under the floor. When the cheaper room types are sold out and their prices
+  sit at the floor, the dearer rooms still on sale cannot be lowered either
+  (reason "held by a sold-out room type at the floor"). Only a person can
+  change the gap between room types: raise the sold-out type's price for that
+  date in the rate calendar and the date is free again. A sold-out type under
+  the floor never lifts a date.
 - The seasonal base follows what the sister hotels are listed at. If they are
   mispriced for a date, so is the base; the 80% floor is the only effect.
 - The €87 list floor assumes guests pay about 75% of the list price after OTA
