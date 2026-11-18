@@ -2,16 +2,21 @@
 
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { todayBudapest } from '@/lib/budapestTime';
 
 // Keep the test focused on which room owns the manager update, not on
 // housekeeping mutations, photo upload, or database access.
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: () => ({ data: [] }),
+  useQuery: ({ queryKey }: { queryKey: string[] }) => ({
+    // Production returns a Map for Gozsdu building mapping and an array for notes.
+    data: queryKey[0] === 'gozsdu-housekeeper-building-map' ? new Map() : [],
+  }),
 }));
+const mockedAuth = vi.hoisted(() => ({ role: 'housekeeping' }));
+
 vi.mock('@/hooks/useAuth', () => ({
-  useAuth: () => ({ user: { id: 'housekeeper-1' }, profile: { role: 'housekeeping' } }),
+  useAuth: () => ({ user: { id: 'housekeeper-1' }, profile: { role: mockedAuth.role } }),
 }));
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => ({ language: 'en' }),
@@ -21,7 +26,7 @@ vi.mock('@/lib/gozsduWorkPresentation', () => ({
   gozsduWorkPresentation: (assignment: unknown) => assignment,
 }));
 vi.mock('./ExtraRoomPhotos', () => ({ ExtraRoomPhotos: () => null }));
-vi.mock('./RoomCommunicationPanel', () => ({ RoomCommunicationPanel: () => null }));
+vi.mock('./RoomCommunicationPanel', () => ({ RoomCommunicationPanel: ({ roomNumber }: { roomNumber: string }) => <p>Bed setup for room {roomNumber}</p> }));
 vi.mock('./AssignedRoomCardLegacy', () => ({
   AssignedRoomCard: ({ assignment, roomNotices }: {
     assignment: { rooms: { room_number: string } };
@@ -61,7 +66,10 @@ function assignment(roomNumber: string, withManagerUpdate: boolean) {
   };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  mockedAuth.role = 'housekeeping';
+});
 
 describe('housekeeper manager update ownership', () => {
   it('places the update inside Room 130, not between Room 111 and Room 130', () => {
@@ -104,5 +112,36 @@ describe('housekeeper manager update ownership', () => {
     };
     render(<AssignedRoomCard assignment={otherHotelRoom as any} onStatusUpdate={() => {}} />);
     expect(screen.queryByRole('region', { name: 'Live room and checkout status' })).toBeNull();
+  });
+
+  it.each([
+    'Hotel Ottofiori Budapest',
+    'Hotel Mika Downtown',
+    'Gozsdu Court Budapest',
+    'slnt-group',
+  ])('keeps extra-photo action within the shared room card at %s', (hotel) => {
+    const assignedRoom = {
+      ...assignment('207', false),
+      status: 'in_progress',
+      rooms: { ...assignment('207', false).rooms, hotel },
+    };
+    render(<AssignedRoomCard assignment={assignedRoom as any} onStatusUpdate={() => {}} />);
+
+    const card = screen.getByTestId('room-card-207');
+    expect(within(card).getByRole('button', { name: /Add more room photos/i })).not.toBeNull();
+    expect(screen.getAllByRole('button', { name: /Add more room photos/i })).toHaveLength(1);
+  });
+
+  it('keeps the manager bed-setup editor inside the relevant room card for other hotels', () => {
+    mockedAuth.role = 'manager';
+    const assignedRoom = {
+      ...assignment('209', false),
+      rooms: { ...assignment('209', false).rooms, hotel: 'Hotel Ottofiori Budapest' },
+    };
+    render(<AssignedRoomCard assignment={assignedRoom as any} onStatusUpdate={() => {}} />);
+
+    const card = screen.getByTestId('room-card-209');
+    fireEvent.click(within(card).getByRole('button', { name: 'Edit bed setup' }));
+    expect(within(card).getByText('Bed setup for room 209')).not.toBeNull();
   });
 });

@@ -233,9 +233,14 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
 
   // A manager update shown between cards looks like part of the *previous*
   // room. Pass all room-specific notices into the card itself instead.
+  // All properties use the same card shell. Keep every room-specific action
+  // within that room's card instead of rendering orphaned panels between rooms.
+  const canShowBedSetup = !!room && canEditBedSetup && props.assignment.status !== 'completed';
+  const canShowExtraPhotos = !!room && props.assignment.status === 'in_progress';
   const hasRoomNotices = (isMemories && !!room)
     || (gozsduOverride && gozsduOverride.bucket !== 'other')
-    || !!activeManagerTypeNotice || plannedRoomNotes.length > 0;
+    || !!activeManagerTypeNotice || plannedRoomNotes.length > 0
+    || !!lateCheckoutTime || canShowBedSetup || canShowExtraPhotos;
   const roomNotices = hasRoomNotices ? <>
     {isMemories && room && (
       <section aria-label="Live room and checkout status" className="rounded-xl border border-slate-200 bg-white p-2.5 text-xs">
@@ -286,26 +291,25 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
         </div>
       </div>
     </div>}
-  </> : null;
-  return <div className={`space-y-2${isGozsduRoom ? ' gozsdu-housekeeper-card' : ''}${isCheckoutClean ? ' checkout-housekeeper-card' : ''}`}>
-    <ExistingAssignedRoomCard {...props} assignment={{ ...displayAssignment, rooms: roomForDisplay }} roomNotices={roomNotices} />
-    {room && canEditBedSetup && props.assignment.status !== 'completed' && <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-2 dark:border-blue-900 dark:bg-blue-950/20">
-      <Button type="button" variant="outline" size="sm" className="w-full justify-start border-blue-300 text-blue-900 dark:text-blue-200" aria-expanded={bedSetupOpen} onClick={() => setBedSetupOpen((value) => !value)}>
-        <BedDouble className="mr-2 h-4 w-4" />{bedSetupOpen ? 'Hide bed setup' : 'Edit bed setup'}
-      </Button>
-      {bedSetupOpen && <div className="mt-2"><RoomCommunicationPanel assignmentId={props.assignment.id} roomId={props.assignment.room_id} roomNumber={room.room_number} hotelName={room.hotel} /></div>}
-    </div>}
     {lateCheckoutTime && <div role="status" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
       <Clock3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span>{language === 'hu'
         ? `Késői kijelentkezés: várhatóan ${lateCheckoutTime}. A takarítással várjon, amíg a recepció megerősíti a kijelentkezést.`
         : `Late checkout until ${lateCheckoutTime}. Please wait for reception to confirm checkout before cleaning.`}</span>
     </div>}
-    {room && props.assignment.status === 'in_progress' && <>
-      <Button type="button" variant="outline" size="sm" className="w-full min-h-11 border-dashed" onClick={() => setOpen(true)}>
-        <ImagePlus className="h-4 w-4 mr-2" />{language === 'hu' ? 'További szobafotók / több szög' : 'Add more room photos / angles'}
+    {canShowBedSetup && <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-2 dark:border-blue-900 dark:bg-blue-950/20">
+      <Button type="button" variant="outline" size="sm" className="w-full justify-start border-blue-300 text-blue-900 dark:text-blue-200" aria-expanded={bedSetupOpen} onClick={() => setBedSetupOpen((value) => !value)}>
+        <BedDouble className="mr-2 h-4 w-4" />{bedSetupOpen ? 'Hide bed setup' : 'Edit bed setup'}
       </Button>
-      <ExtraRoomPhotos open={open} onOpenChange={setOpen} roomNumber={room.room_number} assignmentId={props.assignment.id} />
-    </>}
+      {bedSetupOpen && <div className="mt-2"><RoomCommunicationPanel assignmentId={props.assignment.id} roomId={props.assignment.room_id} roomNumber={room.room_number} hotelName={room.hotel} /></div>}
+    </div>}
+    {canShowExtraPhotos && <Button type="button" variant="outline" size="sm" className="w-full min-h-11 border-dashed" onClick={() => setOpen(true)}>
+      <ImagePlus className="h-4 w-4 mr-2" />{language === 'hu' ? 'További szobafotók / több szög' : 'Add more room photos / angles'}
+    </Button>}
+  </> : null;
+  return <div className={`space-y-2${isGozsduRoom ? ' gozsdu-housekeeper-card' : ''}${isCheckoutClean ? ' checkout-housekeeper-card' : ''}`}>
+    <ExistingAssignedRoomCard {...props} assignment={{ ...displayAssignment, rooms: roomForDisplay }} roomNotices={roomNotices} />
+    {/* The extra-photo dialog is a portal, not a standalone room action card. */}
+    {canShowExtraPhotos && <ExtraRoomPhotos open={open} onOpenChange={setOpen} roomNumber={room.room_number} assignmentId={props.assignment.id} />}
   </div>;
 }
