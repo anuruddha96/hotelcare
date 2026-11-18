@@ -6,13 +6,10 @@ import { decideDate as coreDecision, paceTargetFor, windowFor, pickupLadderFor, 
  * underpriced. Therefore:
  *  - every genuine booking earns the full lead-time ladder step (no €1–2 cap);
  *  - scarce inventory (≤ SCARCE_ROOMS left) and strong occupancy are never
- *    marked down, and earn occupancy-led lifts while demand is fresh;
+ *    marked down; only genuine fresh pickup can justify a rise;
  *  - markdowns are reserved for genuinely soft dates after a quiet window.
  */
 export const SCARCE_ROOMS = 3;
-/** Occupancy-led lifts repeat no more often than this per date. */
-/** Demand counts as fresh for an occupancy lift inside this many hours. */
-
 function hoursBetween(iso: string | null | undefined, now: Date): number | null {
   if (!iso) return null;
   const t = Date.parse(iso);
@@ -232,7 +229,6 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
           : "The offer is at its absolute hotel price floor; no further reduction is permitted.";
       }
     }
-  }
   if (raw === 0) return hold(reason, detail);
   effective.commercialIntent = { raw, reason, detail };
   const decision = coreDecision(effective, policy);
