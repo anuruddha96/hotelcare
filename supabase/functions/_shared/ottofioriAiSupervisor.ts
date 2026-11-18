@@ -99,6 +99,7 @@ export function aiMoveLimit(lead: number, reference: number | null): number {
  * price, but they cannot manufacture a new increase.
  */
 export function hasFreshPickupForIncrease(date: AiDate, quietWindowHours: number): boolean {
+  if (date.quiet_hours == null) return false;
   const quiet = Number(date.quiet_hours);
   const window = Math.max(1, Number(quietWindowHours) || 1);
   const net24 = Math.max(0, Number(date.pickup_24h) - Number(date.cancellations_24h));
