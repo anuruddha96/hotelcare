@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, Eye, EyeOff, Loader2, Mail, Unplug } from "lucide-react";
+import { CheckCircle2, ChevronDown, ExternalLink, Eye, EyeOff, Loader2, Mail, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import {
+  GOOGLE_APP_PASSWORDS_URL,
+  looksLikeGoogleAppPassword,
+  normalizeMailboxPassword,
+} from "../../../supabase/functions/_shared/mailLogin";
 
 type Provider = "google" | "microsoft" | "imap";
 type Account = { id: string; provider: Provider; email: string; status: string; created_at: string };
@@ -128,6 +133,11 @@ export default function MailboxesDialog({ open, onOpenChange }: { open: boolean;
   };
 
   const oauthProviders = status ? (["google", "microsoft"] as const).filter((p) => status.providers[p]) : [];
+  // Google shows app passwords as "abcd efgh ijkl mnop"; the server removes the
+  // spaces. Tell the person straight away whether what they pasted looks right.
+  const googleBox = Boolean(hint?.gmail);
+  const compactLength = normalizeMailboxPassword(password, { google: true }).length;
+  const appPasswordOk = googleBox && looksLikeGoogleAppPassword(password);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -208,7 +218,8 @@ export default function MailboxesDialog({ open, onOpenChange }: { open: boolean;
                       <Input
                         id="mail-password"
                         type={showPassword ? "text" : "password"}
-                        autoComplete="current-password"
+                        autoComplete={googleBox ? "off" : "current-password"}
+                        placeholder={googleBox ? "16-letter app password" : undefined}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className="pr-10"
@@ -222,10 +233,33 @@ export default function MailboxesDialog({ open, onOpenChange }: { open: boolean;
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
-                    {hint?.gmail && (
-                      <p className="text-xs text-muted-foreground">
-                        Google mailbox: use an <strong>app password</strong>, not your normal password. Google Account → Security → 2-Step Verification → App passwords.
-                      </p>
+                    {googleBox && (
+                      <div className="space-y-1.5 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+                        <p>
+                          Google mailbox: use an <strong>app password</strong>, not your normal Google password. It needs
+                          2-Step Verification. Paste the 16 letters exactly as Google shows them — spaces are fine.
+                        </p>
+                        <a
+                          href={GOOGLE_APP_PASSWORDS_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                        >
+                          Create an app password <ExternalLink className="h-3 w-3" />
+                        </a>
+                        {password && (
+                          appPasswordOk ? (
+                            <p className="flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Looks like an app password.
+                            </p>
+                          ) : (
+                            <p className="text-amber-700 dark:text-amber-400">
+                              An app password has 16 letters; this has {compactLength} character{compactLength === 1 ? "" : "s"}.
+                              Your normal Google password will not work here.
+                            </p>
+                          )
+                        )}
+                      </div>
                     )}
                     {hint?.microsoft && (
                       <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -267,7 +301,21 @@ export default function MailboxesDialog({ open, onOpenChange }: { open: boolean;
                     </div>
                   )}
 
-                  {formError && <p className="text-sm text-destructive">{formError}</p>}
+                  {formError && (
+                    <div className="space-y-1" role="alert">
+                      <p className="text-sm text-destructive">{formError}</p>
+                      {googleBox && (
+                        <a
+                          href={GOOGLE_APP_PASSWORDS_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                        >
+                          Open Google app passwords <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                    </div>
+                  )}
                   <Button type="submit" className="w-full" disabled={busy !== null || !email.trim() || !password}>
                     {busy === "imap" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {busy === "imap" ? "Checking the mail servers…" : "Connect mailbox"}
