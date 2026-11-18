@@ -318,7 +318,7 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
     case "reception":
       // The reception permission role starts on Maintenance. A front-office
       // manager holding the manager permission level starts on Housekeeping.
-      return subject?.role === "manager" ? null : `${base}?tab=tickets`;
+      return subject?.role === "manager" || subject?.role === "reception_manager" ? null : `${base}?tab=tickets`;
     default:
       return null;
   }
@@ -328,6 +328,6 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
 export function defaultDashboardTabFor(subject: AccessSubject): string | null {
   const accessRole = effectiveAccessRole(subject);
   if (accessRole === "hr") return "attendance";
-  if (accessRole === "reception" && subject?.role === "manager") return "housekeeping";
+  if (accessRole === "reception" && ["manager", "reception_manager"].includes(subject?.role ?? "")) return "housekeeping";
   return null;
 }
