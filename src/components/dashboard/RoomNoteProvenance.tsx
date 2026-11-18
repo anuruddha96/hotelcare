@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Clock3, History, UserRound } from 'lucide-react';
+import { Clock3, History } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import {
   formatBudapestNoteTimestamp,
@@ -92,12 +92,6 @@ export function RoomNoteProvenance({
         <span className={isOlder ? 'font-semibold text-amber-800 dark:text-amber-300' : 'font-medium'}>
           {statusText}
         </span>
-        {current && !draftChanged && currentTimestamp && (
-          <span className="inline-flex items-center gap-1 text-[10px]">
-            <UserRound className="h-3 w-3" aria-hidden="true" />
-            {hu ? 'Budapesti idő' : 'Budapest time'}
-          </span>
-        )}
       </div>
       {showHistory && data.length > 0 && (
         <div className="mt-2">

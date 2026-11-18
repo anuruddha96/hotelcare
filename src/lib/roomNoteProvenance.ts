@@ -72,6 +72,28 @@ export function describeRoomNoteTimestamp(
       ? `A szobarekord létrehozásakor rögzítve: ${date}`
       : `Recorded when room was created: ${date}`;
   }
-  const author = entry.created_by_name?.trim() || (hu ? 'Ismeretlen szerző' : 'Unknown author');
-  return hu ? `Rögzítve: ${date} · ${author}` : `Entered: ${date} · ${author}`;
+  // Names must come from the staff profile, never a technical login, nickname
+  // with an account suffix, UUID, or email. Older cached RPC responses can still
+  // contain those values until the corresponding database migration is applied.
+  const rawAuthor = entry.created_by_name?.trim() || '';
+  const author = rawAuthor && !/[_@]|[0-9]{3,}/.test(rawAuthor)
+    ? rawAuthor
+    : (hu ? 'egy munkatárs' : 'a staff member');
+  const timestamp = new Date(entry.created_at);
+  const locale = hu ? 'hu-HU' : 'en-GB';
+  const dateOnly = new Intl.DateTimeFormat(locale, {
+    timeZone: 'Europe/Budapest',
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+  }).format(timestamp);
+  const timeOnly = new Intl.DateTimeFormat(locale, {
+    timeZone: 'Europe/Budapest',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(timestamp);
+  return hu
+    ? `Rögzítette: ${author} · ${dateOnly} ${timeOnly}`
+    : `Entered by ${author} on ${dateOnly} at ${timeOnly}`;
 }

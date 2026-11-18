@@ -39,7 +39,22 @@ describe('room note provenance', () => {
     expect(describeRoomNoteTimestamp(observed)).toContain('original entry time unknown');
     const system = { ...history[0], source: 'system_change' as const };
     expect(describeRoomNoteTimestamp(system)).toContain('System update:');
-    expect(describeRoomNoteTimestamp(history[0])).toContain('Entered:');
+    expect(describeRoomNoteTimestamp(history[0])).toContain('Entered by Éva on');
+  });
+
+  it('shows a readable staff name before the precise Budapest date and time', () => {
+    expect(describeRoomNoteTimestamp({ ...history[0], created_by_name: 'Macsko Éva' }))
+      .toBe('Entered by Macsko Éva on 22 Oct 2026 at 07:47');
+    expect(describeRoomNoteTimestamp({ ...history[0], created_by_name: 'Macsko Éva' }, 'hu'))
+      .toMatch(/^Rögzítette: Macsko Éva · .*07:47$/);
+  });
+
+  it('never exposes technical usernames or email addresses as the author', () => {
+    for (const accountName of ['Éva_0005', 'eva@example.com', null]) {
+      const label = describeRoomNoteTimestamp({ ...history[0], created_by_name: accountName });
+      expect(label).toContain('Entered by a staff member on');
+      expect(label).not.toContain(accountName || 'Unknown author');
+    }
   });
 
   it('uses Budapest civil time, including seasonal daylight savings', () => {
