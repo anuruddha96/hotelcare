@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type ChatStatus, type UIMessage } from "ai";
-import { CheckCircle2, Flag, Loader2, Mic, MicOff, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
+import { DefaultChatTransport, type ChatStatus, type FileUIPart, type UIMessage } from "ai";
+import { CheckCircle2, FileImage, FileText, Flag, Loader2, Mic, MicOff, Paperclip, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Conversation,
@@ -11,11 +11,16 @@ import {
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import {
   PromptInput,
+  PromptInputActionAddAttachments,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
   PromptInputButton,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
@@ -292,6 +297,39 @@ function useMiraTypewriter(examples: string[], enabled: boolean) {
   return preview || "Ask Mira anything about your hotel…";
 }
 
+const MIRA_FILE_ACCEPT = "image/png,image/jpeg,image/webp,application/pdf,.pdf";
+const MIRA_FILE_MAX_BYTES = 4 * 1024 * 1024;
+
+/** Keep previews inside PromptInput's attachment context; private files are not public links. */
+function MiraFilePreview() {
+  const { files, remove } = usePromptInputAttachments();
+  if (!files.length) return null;
+  return (
+    <div className="flex flex-wrap gap-2 border-b px-3 pb-2 pt-2" aria-label="Files ready to attach">
+      {files.map((file) => (
+        <span key={file.id} className="inline-flex max-w-full items-center gap-2 rounded-lg border bg-muted/50 px-2 py-1 text-xs">
+          {file.mediaType === "application/pdf" ? <FileText className="h-4 w-4 shrink-0" /> : <FileImage className="h-4 w-4 shrink-0" />}
+          <span className="max-w-40 truncate">{file.filename || "Attachment"}</span>
+          <button type="button" aria-label={`Remove ${file.filename || "attachment"}`} onClick={() => remove(file.id)} className="rounded p-1 hover:bg-accent"><X className="h-3.5 w-3.5" /></button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function MiraAddFileMenu() {
+  return (
+    <PromptInputActionMenu>
+      <PromptInputActionMenuTrigger className="h-9 gap-1.5 rounded-full border px-3 text-xs font-medium" aria-label="Attach a photo or PDF">
+        <Paperclip className="h-4 w-4" /><span>Photo / PDF</span>
+      </PromptInputActionMenuTrigger>
+      <PromptInputActionMenuContent>
+        <PromptInputActionAddAttachments label="Attach photos or a PDF" />
+      </PromptInputActionMenuContent>
+    </PromptInputActionMenu>
+  );
+}
+
 function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: string }) {
   const { profile } = useAuth();
   const [sent, setSent] = useState<null | boolean>(null);
@@ -325,6 +363,7 @@ function ChatSession({
   initialMessages,
   language,
   initialPrompt,
+  initialFiles,
   externalPrompt,
   onExternalPromptConsumed,
   onThreadUpdated,
@@ -336,6 +375,7 @@ function ChatSession({
   initialMessages: AssistantUiMessage[];
   language: string;
   initialPrompt?: string | null;
+  initialFiles?: FileUIPart[];
   externalPrompt?: { id: number; text: string } | null;
   onExternalPromptConsumed?: () => void;
   onThreadUpdated: () => void;
@@ -440,8 +480,8 @@ function ChatSession({
     if (!initialPrompt || initialPromptSentRef.current) return;
     initialPromptSentRef.current = true;
     lastQuestionRef.current = initialPrompt;
-    void sendMessage({ text: initialPrompt });
-  }, [initialPrompt, sendMessage]);
+    void sendMessage({ text: initialPrompt, files: initialFiles });
+  }, [initialPrompt, initialFiles, sendMessage]);
   const lastExternalPromptIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (!externalPrompt || lastExternalPromptIdRef.current === externalPrompt.id) return;
@@ -487,14 +527,14 @@ function ChatSession({
     else toast.success("Access request sent to your manager");
   };
 
-  const submit = async ({ text }: { text: string }) => {
-    const value = text.trim();
+  const submit = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
+    const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
     if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return;
     setDraft("");
     setShowResume(false);
     setFailed(null);
     lastQuestionRef.current = value;
-    await sendMessage({ text: value });
+    await sendMessage({ text: value, files });
   };
 
   const retryLastQuestion = async () => {
@@ -840,7 +880,8 @@ function ChatSession({
             Your 20 monthly messages are used. Your allowance resets on the 1st.
           </p>
         )}
-        <PromptInput onSubmit={submit} className="rounded-2xl bg-background shadow-sm">
+        <PromptInput onSubmit={submit} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className="rounded-2xl bg-background shadow-sm">
+          <MiraFilePreview />
           <PromptInputTextarea
             ref={textareaRef}
             value={draft}
@@ -854,6 +895,7 @@ function ChatSession({
           />
           <PromptInputFooter>
             <PromptInputTools>
+              <MiraAddFileMenu />
               <PromptInputButton
                 tooltip={
                   !supported ? "Microphone input requires browser permission and a secure connection"
@@ -963,12 +1005,12 @@ export default function AssistantChat({
   // The first question of a brand-new chat is kept together with the thread it
   // belongs to. Keeping them in one value means the URL update that follows
   // thread creation can no longer race the transcript into dropping it.
-  const [pending, setPending] = useState<{ id: string; text: string } | null>(null);
+  const [pending, setPending] = useState<{ id: string; text: string; files?: FileUIPart[] } | null>(null);
   const [starting, setStarting] = useState(false);
   const activeThreadId = threadId ?? pending?.id ?? null;
 
-  const createAndSend = async ({ text }: { text: string }) => {
-    const value = text.trim();
+  const createAndSend = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
+    const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
     if (!value || starting) return;
     setWelcomeDraft("");
     setStarting(true);
@@ -978,7 +1020,7 @@ export default function AssistantChat({
         toast.error("Could not start a conversation");
         return;
       }
-      setPending({ id, text: value });
+      setPending({ id, text: value, files });
     } finally {
       setStarting(false);
     }
@@ -998,7 +1040,8 @@ export default function AssistantChat({
         </div>
         <div className="z-10 w-full shrink-0 border-t bg-background px-3 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_22px_-18px_rgba(0,0,0,0.35)] sm:px-6">
           <div className="mx-auto w-full max-w-3xl">
-            <PromptInput onSubmit={async ({ text }) => createAndSend({ text: text || welcomeDraft })} className={cn("border bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
+            <PromptInput onSubmit={async ({ text, files }) => createAndSend({ text: text || welcomeDraft, files })} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className={cn("border bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
+              <MiraFilePreview />
               <PromptInputTextarea
                 ref={welcomeTextareaRef}
                 value={welcomeDraft}
@@ -1012,6 +1055,7 @@ export default function AssistantChat({
               />
               <PromptInputFooter>
                 <PromptInputTools>
+                  <MiraAddFileMenu />
                   <PromptInputButton
                     tooltip={welcomeVoiceSupported ? "Speak instead of typing" : "Voice input requires microphone permission and a secure browser"}
                     variant={welcomeDictation === "recording" ? "default" : "outline"}
@@ -1052,6 +1096,7 @@ export default function AssistantChat({
       initialMessages={assistantRowsToUiMessages(rows) as AssistantUiMessage[]}
       language={language}
       initialPrompt={pending?.id === activeThreadId ? pending.text : null}
+      initialFiles={pending?.id === activeThreadId ? pending.files : undefined}
       externalPrompt={pending?.id === activeThreadId ? null : suggestedPrompt}
       onExternalPromptConsumed={onSuggestedPromptConsumed}
       onNavigate={onNavigate}
