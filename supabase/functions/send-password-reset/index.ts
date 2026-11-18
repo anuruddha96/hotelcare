@@ -8,8 +8,6 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const resend = mailClient();
-
 interface PasswordResetRequest {
   email: string;
 }
@@ -36,7 +34,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Check if user exists in profiles table
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('id, full_name, email')
+      .select('id, full_name, email, organization_slug')
       .eq('email', email)
       .single();
 
@@ -56,9 +54,9 @@ const handler = async (req: Request): Promise<Response> => {
 
 
     // Generate password reset link
-    const redirectUrl = `${Deno.env.get("SITE_URL") || "http://localhost:3000"}/auth?mode=recovery`;
+    const redirectUrl = "https://my.hotelcare.app/reset-password";
     
-    const { error: resetError } = await supabase.auth.admin.generateLink({
+    const { data: recoveryData, error: resetError } = await supabase.auth.admin.generateLink({
       type: 'recovery',
       email: email,
       options: {
@@ -74,7 +72,16 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
 
-    // Send email using Resend
+    // The one-time action_link includes the recovery token. A plain redirect
+    // URL cannot authorize a password change and must never replace this link.
+    const actionLink = recoveryData?.properties?.action_link;
+    if (!actionLink) {
+      console.error('Password reset link was not generated');
+      return new Response(JSON.stringify({ error: 'Unable to generate a recovery link' }), { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+    }
+    const safeActionLink = actionLink.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+    // Send email through the organization's configured transactional sender.
     const emailHtml = `
       <!DOCTYPE html>
       <html lang="en">
@@ -112,7 +119,7 @@ const handler = async (req: Request): Promise<Response> => {
             </div>
             
             <div style="text-align: center;">
-              <a href="${redirectUrl}" class="reset-button">Reset My Password</a>
+              <a href="${safeActionLink}" class="reset-button">Reset My Password</a>
             </div>
             
             <div class="security-note">
@@ -121,7 +128,7 @@ const handler = async (req: Request): Promise<Response> => {
             
             <div class="message">
               If the button above doesn't work, you can copy and paste this link into your browser:<br>
-              <a href="${redirectUrl}" style="color: #2563eb; word-break: break-all;">${redirectUrl}</a>
+              <a href="${safeActionLink}" style="color: #2563eb; word-break: break-all;">${safeActionLink}</a>
             </div>
           </div>
           
@@ -137,7 +144,7 @@ const handler = async (req: Request): Promise<Response> => {
       </html>
     `;
 
-    const { error: emailError } = await resend.emails.send({
+    const { error: emailError } = await mailClient(profile.organization_slug).emails.send({
       from: "RD Hotels <noreply@rdhotels.com>",
       to: [email],
       subject: "Reset Your Password - RD Hotels",
