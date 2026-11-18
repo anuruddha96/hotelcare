@@ -63,7 +63,7 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
   const role = profile?.role || '';
   const accessRole = effectiveAccessRole(profile);
   const hrRestricted = accessRole === 'hr' && !profile?.is_super_admin;
-  const manager = ['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager'].includes(role);
+  const manager = ['manager', 'reception_manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager'].includes(role);
   const operationsManager = manager && !hrRestricted;
   const executive = ['admin', 'top_management', 'top_management_manager'].includes(role);
   const frontDesk = role === 'reception' || role === 'front_office';
@@ -108,10 +108,11 @@ export function OperationsNavigation({ current, onDashboardTabChange, className 
     el.scrollTo({ left: Math.max(0, center), behavior: 'smooth' });
   }, [active]);
 
-  const move = (direction: number) => scrollerRef.current?.scrollBy({
-    left: direction * Math.max(240, scrollerRef.current.clientWidth * 0.7),
-    behavior: 'smooth',
-  });
+  const move = (direction: number) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * Math.max(240, el.clientWidth * 0.7), behavior: 'smooth' });
+  };
 
   const openTab = (tab: DashboardTab) => {
     if (onDashboardTabChange) onDashboardTabChange(tab);
