@@ -13,6 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { UserPlus, Users, Edit, Key, Trash2, CheckCircle2, XCircle, Loader2, Wrench } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from '@/hooks/use-toast';
+import { edgeFunctionError } from '@/lib/edgeFunctionError';
 import { useTranslation } from '@/hooks/useTranslation';
 import { TrainingAssignmentManager } from '@/components/training';
 
@@ -86,6 +87,7 @@ export function HousekeepingStaffManagement() {
   const [resetPasswordUserName, setResetPasswordUserName] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');
   const [generatedPassword, setGeneratedPassword] = useState<string>('');
+  const [resetFeedback, setResetFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   
   // Delete state
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -597,35 +599,35 @@ export function HousekeepingStaffManagement() {
     setResetPasswordUserName(member.full_name);
     setNewPassword('');
     setGeneratedPassword('');
+    setResetFeedback(null);
     setResetPasswordOpen(true);
   };
 
   const handleResetPassword = async () => {
+    setResetFeedback(null);
+    if (newPassword && (newPassword.length < 12 || newPassword.length > 128)) {
+      setResetFeedback({ kind: 'error', message: 'Custom passwords must contain 12–128 characters.' });
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('manager-reset-password', {
-        body: {
-          target_user_id: resetPasswordUserId,
-          new_password: newPassword || null,
-        },
+        body: { target_user_id: resetPasswordUserId, new_password: newPassword || null },
       });
-
-      if (error) throw new Error(error.message);
-      
-      const result = data as { success: boolean; password?: string; error?: string };
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to reset password');
-      }
+      if (error) throw new Error(await edgeFunctionError(error, 'Could not reset the password.'));
+      const result = data as { success?: boolean; password?: string; error?: string; message?: string } | null;
+      if (!result?.success) throw new Error(result?.error || 'Password reset was not confirmed by the server.');
 
       setGeneratedPassword(result.password || '');
-      toast({ 
-        title: 'Password Reset', 
-        description: `Password has been reset for ${resetPasswordUserName}` 
+      setResetFeedback({
+        kind: 'success',
+        message: result.message || 'Password reset successfully. Share the temporary password privately with the employee.',
       });
+      toast({ title: 'Password reset successful', description: result.message || resetPasswordUserName });
     } catch (err: any) {
-      console.error('Password reset failed:', err);
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      const message = err?.message || 'Password reset failed. No password change was confirmed.';
+      setResetFeedback({ kind: 'error', message });
+      toast({ title: 'Password reset failed', description: message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -1284,15 +1286,28 @@ export function HousekeepingStaffManagement() {
             <div className="space-y-2">
               <Label>New Password (leave empty to auto-generate)</Label>
               <Input
-                type="text"
+                type="password"
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
+                disabled={loading || resetFeedback?.kind === "success"}
                 placeholder="Enter new password or leave empty"
               />
               <p className="text-xs text-muted-foreground">
-                Enter a custom password or leave empty to generate a secure one
+                Enter at least 12 characters, or leave empty to generate a secure temporary password.
               </p>
             </div>
+            {resetFeedback && (
+              <div
+                role={resetFeedback.kind === 'error' ? 'alert' : 'status'}
+                className={resetFeedback.kind === 'error'
+                  ? 'rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive'
+                  : 'rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900 dark:border-green-700 dark:bg-green-950 dark:text-green-100'}
+              >
+                <strong>{resetFeedback.kind === 'success' ? 'Success: ' : 'Reset failed: '}</strong>
+                {resetFeedback.message}
+              </div>
+            )}
             {generatedPassword && (
               <div className="p-4 bg-green-50 dark:bg-green-950 rounded border border-green-200 dark:border-green-800">
                 <Label className="text-green-800 dark:text-green-200">New Password:</Label>
@@ -1309,7 +1324,7 @@ export function HousekeepingStaffManagement() {
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setResetPasswordOpen(false)}>Close</Button>
-            {!generatedPassword && (
+            {resetFeedback?.kind !== 'success' && (
               <Button onClick={handleResetPassword} disabled={loading}>
                 {loading ? 'Resetting...' : 'Reset Password'}
               </Button>
