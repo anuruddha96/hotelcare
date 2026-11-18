@@ -35,7 +35,7 @@ const handler = async (req: Request): Promise<Response> => {
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('id, full_name, email, organization_slug')
-      .eq('email', email)
+      .ilike('email', email.trim())
       .single();
 
     // Generic response prevents account enumeration through this endpoint.
