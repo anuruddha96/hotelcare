@@ -48,6 +48,7 @@ import { pricingProposalKey, pricingReviewApprovals } from "@/lib/assistant/pric
 import AssistantActions, { isAssistantActions } from "./AssistantActions";
 import ActivityLine from "./ActivityLine";
 import PremiumTopupCard, { type PremiumPackage } from "./PremiumTopupCard";
+import { rolePlaceholderExamples } from "@/lib/assistant/starters";
 
 const SCOPE_LABEL: Record<string, string> = {
   revenue: "Revenue management",
@@ -265,6 +266,32 @@ function useDictation(onText: (text: string) => void, language: string, onInteri
   return { state, supported, toggle };
 }
 
+/** A visual suggestion only: this never sends a message by itself. */
+function useMiraTypewriter(examples: string[], enabled: boolean) {
+  const [preview, setPreview] = useState("");
+  const examplesKey = examples.join("|");
+  useEffect(() => {
+    if (!enabled || !examples.length) { setPreview(""); return; }
+    let current = 0;
+    let typed = 0;
+    let hold = 0;
+    const tick = window.setInterval(() => {
+      const example = examples[current];
+      if (typed < example.length) {
+        typed += 1;
+        setPreview(example.slice(0, typed));
+      } else if (++hold >= 32) {
+        current = (current + 1) % examples.length;
+        typed = 0;
+        hold = 0;
+        setPreview("");
+      }
+    }, 60);
+    return () => window.clearInterval(tick);
+  }, [enabled, examplesKey]);
+  return preview || "Ask Mira anything about your hotel…";
+}
+
 function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: string }) {
   const { profile } = useAuth();
   const [sent, setSent] = useState<null | boolean>(null);
@@ -318,7 +345,9 @@ function ChatSession({
 }) {
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
+  const typewriterExamples = useMemo(() => rolePlaceholderExamples(profile?.role), [profile?.role]);
   const [draft, setDraft] = useState(() => loadAssistantDraft(threadId));
+  const typedPlaceholder = useMiraTypewriter(typewriterExamples, !draft.trim());
   useEffect(() => { saveAssistantDraft(threadId, draft); }, [threadId, draft]);
   const [showResume, setShowResume] = useState(initialMessages.length > 0);
   const [modelTier, setModelTier] = useState<"auto" | "fast" | "balanced" | "deep">("auto");
@@ -538,7 +567,7 @@ function ChatSession({
             </div>
           )}
           {messages.length === 0 && (
-            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} />
+            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} onVoice={toggle} voiceSupported={supported} />
           )}
 
           {messages.map((message, index) => {
@@ -816,7 +845,7 @@ function ChatSession({
             ref={textareaRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask Mira to check, explain, or handle a task…"
+            placeholder={typedPlaceholder}
             rows={1}
             enterKeyHint="send"
             autoCapitalize="sentences"
@@ -891,6 +920,31 @@ export default function AssistantChat({
   onSuggestedPromptConsumed?: () => void;
 }) {
   const { language } = useTranslation();
+  const { profile } = useAuth();
+  const [welcomeDraft, setWelcomeDraft] = useState("");
+  const welcomeTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const dictationBaseRef = useRef<string | null>(null);
+  const { state: welcomeDictation, supported: welcomeVoiceSupported, toggle: toggleWelcomeVoice } = useDictation(
+    useCallback((spoken: string) => {
+      setWelcomeDraft((existing) => {
+        const base = dictationBaseRef.current ?? existing;
+        dictationBaseRef.current = null;
+        return base ? `${base} ${spoken}` : spoken;
+      });
+      window.requestAnimationFrame(() => welcomeTextareaRef.current?.focus({ preventScroll: true }));
+    }, []),
+    language,
+    useCallback((live: string | null) => {
+      if (live === null) { dictationBaseRef.current = null; return; }
+      setWelcomeDraft((existing) => {
+        if (dictationBaseRef.current === null) dictationBaseRef.current = existing;
+        const base = dictationBaseRef.current;
+        return base ? `${base} ${live}` : live;
+      });
+    }, []),
+  );
+  const welcomeExamples = useMemo(() => rolePlaceholderExamples(profile?.role), [profile?.role]);
+  const welcomePlaceholder = useMiraTypewriter(welcomeExamples, !welcomeDraft.trim());
   const { messages: rows, loadingMessages, loadThreads } = useAssistant(threadId);
   const latestVisibleReply = rows.filter((item) => item.role === "assistant").at(-1)?.created_at ?? null;
   useEffect(() => {
@@ -916,6 +970,7 @@ export default function AssistantChat({
   const createAndSend = async ({ text }: { text: string }) => {
     const value = text.trim();
     if (!value || starting) return;
+    setWelcomeDraft("");
     setStarting(true);
     try {
       const id = await onNeedThread();
@@ -938,27 +993,43 @@ export default function AssistantChat({
   if (!activeThreadId) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} />
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
+          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} onVoice={toggleWelcomeVoice} voiceSupported={welcomeVoiceSupported} />
         </div>
-        <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-4xl sm:px-6" : "border-t")}>
-          <PromptInput onSubmit={createAndSend} className={cn("bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
-            <PromptInputTextarea
-              rows={1}
-              enterKeyHint="send"
-              autoCapitalize="sentences"
-              autoCorrect="on"
-              className="min-h-16 max-h-44 text-base leading-relaxed"
-              placeholder="Ask Mira anything about your hotel…"
-              autoFocus
-            />
-            <PromptInputFooter className="justify-end">
-              <PromptInputSubmit
-                className="h-10 w-10 rounded-full"
-                status={starting ? "submitted" : undefined}
+        <div className="z-10 w-full shrink-0 border-t bg-background px-3 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_22px_-18px_rgba(0,0,0,0.35)] sm:px-6">
+          <div className="mx-auto w-full max-w-3xl">
+            <PromptInput onSubmit={async ({ text }) => createAndSend({ text: text || welcomeDraft })} className={cn("border bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
+              <PromptInputTextarea
+                ref={welcomeTextareaRef}
+                value={welcomeDraft}
+                onChange={(event) => setWelcomeDraft(event.target.value)}
+                rows={1}
+                enterKeyHint="send"
+                autoCapitalize="sentences"
+                autoCorrect="on"
+                className="min-h-14 max-h-40 resize-none text-base leading-relaxed"
+                placeholder={welcomePlaceholder}
+                autoFocus
               />
-            </PromptInputFooter>
-          </PromptInput>
+              <PromptInputFooter>
+                <PromptInputTools>
+                  <PromptInputButton
+                    tooltip={welcomeVoiceSupported ? "Speak instead of typing" : "Voice input requires microphone permission and a secure browser"}
+                    variant={welcomeDictation === "recording" ? "default" : "outline"}
+                    onClick={toggleWelcomeVoice}
+                    disabled={!welcomeVoiceSupported || welcomeDictation === "transcribing" || starting}
+                    aria-label={welcomeDictation === "recording" ? "Stop and transcribe voice input" : "Start voice-to-text"}
+                    className="h-9 gap-2 rounded-full border px-3 text-xs font-medium"
+                  >
+                    {welcomeDictation === "transcribing" ? <Loader2 className="h-4 w-4 animate-spin" /> : welcomeDictation === "recording" ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    <span>{welcomeDictation === "recording" ? "Stop & transcribe" : welcomeDictation === "transcribing" ? "Transcribing…" : "Voice to text"}</span>
+                  </PromptInputButton>
+                  {welcomeDictation === "recording" && <span className="flex items-center gap-1 text-xs text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Listening…</span>}
+                </PromptInputTools>
+                <PromptInputSubmit className="h-10 w-10 rounded-full" status={starting ? "submitted" : undefined} disabled={starting || !welcomeDraft.trim()} />
+              </PromptInputFooter>
+            </PromptInput>
+          </div>
         </div>
       </div>
     );
