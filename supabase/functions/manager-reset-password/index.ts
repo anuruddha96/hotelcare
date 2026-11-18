@@ -48,11 +48,11 @@ Deno.serve(async (req) => {
     // Get caller's profile (role and assigned hotel)
     const { data: callerProfile, error: callerErr } = await admin
       .from('profiles')
-      .select('role, assigned_hotel, organization_slug')
+      .select('role, assigned_hotel, organization_slug, is_super_admin, deleted_at')
       .eq('id', userData.user.id)
       .maybeSingle();
 
-    if (callerErr || !callerProfile) {
+    if (callerErr || !callerProfile || callerProfile.deleted_at) {
       console.error('Caller profile error:', callerErr);
       return new Response(JSON.stringify({ error: 'Failed to verify permissions' }), {
         status: 500,
@@ -72,16 +72,26 @@ Deno.serve(async (req) => {
     // Get target user's profile
     const { data: targetProfile, error: targetErr } = await admin
       .from('profiles')
-      .select('role, assigned_hotel, organization_slug, full_name')
+      .select('role, assigned_hotel, organization_slug, full_name, is_super_admin, deleted_at')
       .eq('id', target_user_id)
       .maybeSingle();
 
-    if (targetErr || !targetProfile) {
+    if (targetErr || !targetProfile || targetProfile.deleted_at) {
       console.error('Target profile error:', targetErr);
       return new Response(JSON.stringify({ error: 'Target user not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
+    }
+
+    // Tenant scope applies to every management role, including top management.
+    const sameOrganization = !!callerProfile.organization_slug &&
+      callerProfile.organization_slug === targetProfile.organization_slug;
+    if (!sameOrganization && !callerProfile.is_super_admin) {
+      return new Response(JSON.stringify({ error: 'Cannot reset passwords outside your organization' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+    }
+    if (targetProfile.is_super_admin && !callerProfile.is_super_admin) {
+      return new Response(JSON.stringify({ error: 'Only a super administrator can reset this password' }), { status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
     }
 
     // Non-admin managers can only reset passwords for housekeeping staff in their own hotel
@@ -114,10 +124,11 @@ Deno.serve(async (req) => {
 
     console.log(`Manager ${userData.user.id} resetting password for ${target_user_id}`);
 
-    // Generate or use provided password
-    const finalPassword = new_password && String(new_password).trim().length >= 6
-      ? String(new_password).trim()
-      : `RD${crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`;
+    // Reject short custom passwords instead of silently replacing them with generated ones.
+    if (new_password && (String(new_password).length < 12 || String(new_password).length > 128)) {
+      return new Response(JSON.stringify({ error: 'A custom password must contain 12–128 characters' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+    }
+    const finalPassword = new_password || crypto.randomUUID().replace(/-/g, '') + '!aA9';
 
     // Update the user's password
     const { error: updateErr } = await admin.auth.admin.updateUserById(target_user_id, {
