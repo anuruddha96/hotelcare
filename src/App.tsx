@@ -22,6 +22,7 @@ import { effectiveAccessRole } from "@/lib/accessPolicy";
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
 const Auth = lazy(() => import("./pages/Auth"));
+const PasswordRecovery = lazy(() => import("./pages/PasswordRecovery"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const GuestMinibar = lazy(() => import("./pages/GuestMinibar"));
@@ -169,6 +170,7 @@ const TenantRouter = () => {
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
+                  <Route path="/reset-password" element={<PasswordRecovery />} />
           <Route path="/front-desk" element={<FrontDesk />} />
           <Route path="/reservations" element={<Reservations />} />
           <Route path="/reservations/:id" element={<ReservationDetail />} />
@@ -231,6 +233,8 @@ const AuthenticatedShell = ({ children }: { children: React.ReactNode }) => {
     observeSessionSuspension, getSessionSuspension, () => null,
   );
 
+  // Recovery is a standalone authentication screen, not an operational workspace.
+  if (location.pathname === '/reset-password') return <>{children}</>;
   if (!user) return <>{children}</>;
 
   // Unmount the entire operational subtree after 30 minutes without input
@@ -284,6 +288,7 @@ const MainApp = () => (
                 <Routes>
                   <Route path="/" element={<RootRedirect />} />
                   <Route path="/auth" element={<Auth />} />
+                   <Route path="/reset-password" element={<PasswordRecovery />} />
                   <Route path="/oauth/consent" element={<OAuthConsent />} />
                   <Route path="/suite" element={<InSuiteGuest />} />
                   <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />
