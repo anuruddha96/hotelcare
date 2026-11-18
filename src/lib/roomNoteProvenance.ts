@@ -76,7 +76,7 @@ export function describeRoomNoteTimestamp(
   // with an account suffix, UUID, or email. Older cached RPC responses can still
   // contain those values until the corresponding database migration is applied.
   const rawAuthor = entry.created_by_name?.trim() || '';
-  const author = rawAuthor && !/[_@]|\\b[0-9]{3,}\\b/.test(rawAuthor)
+  const author = rawAuthor && !/[_@]|[0-9]{3,}/.test(rawAuthor)
     ? rawAuthor
     : (hu ? 'egy munkatárs' : 'a staff member');
   const timestamp = new Date(entry.created_at);
