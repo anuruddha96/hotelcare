@@ -33,6 +33,7 @@ import {
 } from '@/lib/revenue/automationSummary';
 import { ReasonSettingEditor } from '@/components/revenue/ReasonSettingEditor';
 import { reasonInfo } from '@/lib/revenue/reasonSettings';
+import { hasBlockingDialog } from '@/lib/notificationPresentation';
 
 
 const money = (value: number | null | undefined, currency: string | null | undefined) =>
@@ -75,19 +76,30 @@ export function RevenueAutomationNotifications() {
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<keyof typeof SOURCE_LABEL>('all');
   const welcomed = useRef(false);
+  // Realtime refreshes can replace the items array frequently. Keep the toast
+  // delay stable while still reading the latest unread items when it fires.
+  const latestItemsRef = useRef(items);
+  latestItemsRef.current = items;
+  const hasUnread = unreadCount > 0;
 
-  // One lightweight catch-up per session. Give the dashboard a quiet first
-  // impression before surfacing non-urgent automation history.
+  // One non-urgent catch-up per mount. A Radix modal traps outside interaction,
+  // so defer the toast until the manager has finished with the open dialog.
+  // Closing a toast never marks the underlying revenue activity as read.
   useEffect(() => {
-    if (!canSee || welcomed.current || unreadCount === 0) return;
+    if (!canSee || welcomed.current || !hasUnread) return;
 
-    const timer = window.setTimeout(() => {
-      if (welcomed.current) return;
-      const unread = items.filter((n) => !n.read);
-      if (unread.length === 0) return;
+    let settleTimer: number | undefined;
+    let observer: MutationObserver | undefined;
+
+    const showCatchUp = () => {
+      if (welcomed.current || hasBlockingDialog()) return;
+      const unread = latestItemsRef.current.filter((notification) => !notification.read);
+      if (!unread.length) return;
 
       welcomed.current = true;
-      const changes = unread.reduce((sum, n) => sum + (n.actions_count || n.changes.length), 0);
+      observer?.disconnect();
+      const changes = unread.reduce((sum, notification) =>
+        sum + (notification.actions_count || notification.changes.length), 0);
       toast.message(
         `${changes} revenue automation update${changes === 1 ? '' : 's'} completed while you were away`,
         {
@@ -95,10 +107,41 @@ export function RevenueAutomationNotifications() {
           duration: 8_000,
         },
       );
+    };
+
+    const watchForModalClose = () => {
+      if (!hasBlockingDialog() && settleTimer === undefined) {
+        // Allow closing animations and focus restoration to complete.
+        settleTimer = window.setTimeout(() => {
+          settleTimer = undefined;
+          showCatchUp();
+        }, 350);
+      } else if (hasBlockingDialog() && settleTimer !== undefined) {
+        window.clearTimeout(settleTimer);
+        settleTimer = undefined;
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      if (!hasBlockingDialog()) {
+        showCatchUp();
+        return;
+      }
+      observer = new MutationObserver(watchForModalClose);
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['data-state', 'aria-modal'],
+      });
     }, CATCH_UP_DELAY_MS);
 
-    return () => window.clearTimeout(timer);
-  }, [canSee, unreadCount, items]);
+    return () => {
+      window.clearTimeout(timer);
+      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
+      observer?.disconnect();
+    };
+  }, [canSee, hasUnread]);
 
   // Keep an open detail dialog in sync with freshly loaded push outcomes.
   useEffect(() => {
