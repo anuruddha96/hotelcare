@@ -120,7 +120,8 @@ const META: ChannelMeta[] = [
   { key: "hotelbeds", label: "HotelBeds", labelHu: "HotelBeds", type: "wholesale" },
   { key: "edreams", label: "eDreams", labelHu: "eDreams", type: "ota" },
   { key: "trip_com", label: "Trip.com", labelHu: "Trip.com", type: "ota" },
-  { key: "hoteltonight", label: "HotelTonight", labelHu: "HotelTonight", type: "ota" },
+  // Airbnb hotel bookings reach Previo through HotelTonight (same company)
+  { key: "hoteltonight", label: "Airbnb (HotelTonight)", labelHu: "Airbnb (HotelTonight)", type: "ota", short: "Airbnb (HT)", shortHu: "Airbnb (HT)" },
   { key: "airbnb", label: "Airbnb", labelHu: "Airbnb", type: "ota" },
   { key: "direct_web", label: "Website (booking engine)", labelHu: "Weboldal (foglalómotor)", type: "direct", short: "Website", shortHu: "Weboldal" },
   { key: "google", label: "Google (free booking links)", labelHu: "Google (ingyenes foglalási linkek)", type: "direct", short: "Google", shortHu: "Google" },
