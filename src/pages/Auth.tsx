@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
+import { edgeFunctionError } from '@/lib/edgeFunctionError';
 import { Eye, EyeOff } from 'lucide-react';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { SwipeAction } from '@/components/ui/swipe-action';
@@ -24,6 +25,7 @@ export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+  const [recoveryFeedback, setRecoveryFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showSignUpPassword, setShowSignUpPassword] = useState(false);
   const [otpStep, setOtpStep] = useState(false);
@@ -94,82 +96,79 @@ export default function Auth() {
   const handleForgotPassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setResetLoading(true);
-    
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('reset-email') as string;
-
-    const { error } = await supabase.functions.invoke('send-password-reset', {
-      body: { email }
-    });
-    
-    if (error) {
-      toast.error(error.message || t('auth.failedReset'));
-    } else {
-      toast.success(t('auth.passwordResetSent'));
-      setForgotPasswordOpen(false);
+    setRecoveryFeedback(null);
+    try {
+      const email = String(new FormData(e.currentTarget).get('reset-email') || '').trim();
+      const { data, error } = await supabase.functions.invoke('send-password-reset', { body: { email } });
+      if (error) throw new Error(await edgeFunctionError(error, t('auth.failedReset')));
+      if (data?.error || data?.success !== true) throw new Error(data?.error || t('auth.failedReset'));
+      const message = data.message || t('auth.passwordResetSent');
+      setRecoveryFeedback({ kind: 'success', message });
+      toast.success(message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('auth.failedReset');
+      setRecoveryFeedback({ kind: 'error', message });
+      toast.error(message);
+    } finally {
+      setResetLoading(false);
     }
-    
-    setResetLoading(false);
   };
 
   const handleSendOTP = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setResetLoading(true);
-    
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('otp-email') as string;
-
-    const { error } = await supabase.functions.invoke('send-otp-password-reset', {
-      body: { email }
-    });
-    
-    if (error) {
-      toast.error(error.message || t('auth.failedOtp'));
-    } else {
-      toast.success(t('auth.otpSent'));
+    setRecoveryFeedback(null);
+    try {
+      const email = String(new FormData(e.currentTarget).get('otp-email') || '').trim();
+      const { data, error } = await supabase.functions.invoke('send-otp-password-reset', { body: { email } });
+      if (error) throw new Error(await edgeFunctionError(error, t('auth.failedOtp')));
+      if (data?.error || data?.success !== true) throw new Error(data?.error || t('auth.failedOtp'));
       setOtpEmail(email);
       setOtpStep(true);
+      const message = data.message || t('auth.otpSent');
+      setRecoveryFeedback({ kind: 'success', message });
+      toast.success(message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('auth.failedOtp');
+      setRecoveryFeedback({ kind: 'error', message });
+      toast.error(message);
+    } finally {
+      setResetLoading(false);
     }
-    
-    setResetLoading(false);
   };
 
   const handleVerifyOTP = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setRecoveryFeedback(null);
+    if (!/^\\d{6}$/.test(otpCode)) {
+      setRecoveryFeedback({ kind: 'error', message: t('auth.invalidOtp') });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setRecoveryFeedback({ kind: 'error', message: t('auth.passwordTooShort') });
+      return;
+    }
     setResetLoading(true);
-    
-    if (!otpCode || otpCode.length !== 6) {
-      toast.error(t('auth.invalidOtp'));
-      setResetLoading(false);
-      return;
-    }
-
-    if (!newPassword || newPassword.length < 6) {
-      toast.error(t('auth.passwordTooShort'));
-      setResetLoading(false);
-      return;
-    }
-
-    const { error } = await supabase.functions.invoke('verify-otp-reset-password', {
-      body: { 
-        email: otpEmail,
-        otp_code: otpCode,
-        new_password: newPassword
-      }
-    });
-    
-    if (error) {
-      toast.error(error.message || t('auth.failedResetPassword'));
-    } else {
-      toast.success(t('auth.resetSuccess'));
-      setForgotPasswordOpen(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('verify-otp-reset-password', {
+        body: { email: otpEmail, otp_code: otpCode, new_password: newPassword },
+      });
+      if (error) throw new Error(await edgeFunctionError(error, t('auth.failedResetPassword')));
+      if (data?.error || data?.success !== true) throw new Error(data?.error || t('auth.failedResetPassword'));
       setOtpStep(false);
       setOtpCode('');
       setNewPassword('');
       setOtpEmail('');
+      const message = data.message || t('auth.resetSuccess');
+      setRecoveryFeedback({ kind: 'success', message });
+      toast.success(message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('auth.failedResetPassword');
+      setRecoveryFeedback({ kind: 'error', message });
+      toast.error(message);
+    } finally {
+      setResetLoading(false);
     }
-    
-    setResetLoading(false);
   };
 
   const handleSendSMSOTP = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -349,6 +348,17 @@ export default function Auth() {
                       {t('auth.resetOrResendDesc')}
                     </DialogDescription>
                   </DialogHeader>
+                  {recoveryFeedback && (
+                    <div
+                      role={recoveryFeedback.kind === 'error' ? 'alert' : 'status'}
+                      className={recoveryFeedback.kind === 'error'
+                        ? 'rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive'
+                        : 'rounded-md border border-green-300 bg-green-50 p-3 text-sm text-green-900 dark:border-green-700 dark:bg-green-950 dark:text-green-100'}
+                    >
+                      <strong>{recoveryFeedback.kind === 'success' ? 'Success: ' : 'Error: '}</strong>
+                      {recoveryFeedback.message}
+                    </div>
+                  )}
                   {!otpStep ? (
                     <Tabs defaultValue="otp" className="w-full">
                       <TabsList className="grid w-full grid-cols-4 h-8 sm:h-10">
