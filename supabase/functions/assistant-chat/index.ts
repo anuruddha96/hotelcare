@@ -76,6 +76,44 @@ function extractText(message: UIMessage | undefined): string {
     .trim();
 }
 
+type MiraIncomingFile = { filename: string; mediaType: string; url: string; bytes: Uint8Array; extension: string };
+const MIRA_ALLOWED_MIME: Record<string, string> = {
+  "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "application/pdf": "pdf",
+};
+const MIRA_MAX_FILE_BYTES = 4 * 1024 * 1024;
+
+function parseMiraIncomingFiles(message: UIMessage | undefined): { files: MiraIncomingFile[]; error?: string } {
+  const parts = (message?.parts ?? []).filter((part) => part.type === "file");
+  if (parts.length > 3) return { files: [], error: "Attach at most three images/PDFs per request." };
+  const files: MiraIncomingFile[] = [];
+  for (const part of parts) {
+    const mediaType = String((part as any).mediaType ?? "").toLowerCase();
+    const extension = MIRA_ALLOWED_MIME[mediaType];
+    if (!extension) return { files: [], error: "Only PNG, JPEG, WebP and PDF attachments are supported." };
+    const url = String((part as any).url ?? "");
+    const prefix = `data:${mediaType};base64,`;
+    if (!url.startsWith(prefix) || url.length > 6_000_000) {
+      return { files: [], error: "Files must be uploaded directly and be under 4 MB each." };
+    }
+    try {
+      const binary = atob(url.slice(prefix.length));
+      if (!binary || binary.length > MIRA_MAX_FILE_BYTES) return { files: [], error: "A file exceeds the 4 MB limit." };
+      const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+      const ascii = (offset: number, length: number) => String.fromCharCode(...bytes.subarray(offset, offset + length));
+      const valid = mediaType === "application/pdf" ? ascii(0, 4) === "%PDF"
+        : mediaType === "image/png" ? bytes[0] === 0x89 && ascii(1, 3) === "PNG"
+        : mediaType === "image/jpeg" ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+        : ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP";
+      if (!valid) return { files: [], error: "Attachment content does not match its image/PDF format." };
+      const filename = String((part as any).filename ?? `evidence.${extension}`).replace(/[^A-Za-z0-9._ -]/g, "_").slice(0, 100);
+      files.push({ filename, mediaType, url, bytes, extension });
+    } catch {
+      return { files: [], error: "Could not read the uploaded file. Try a smaller PNG, JPEG, WebP or PDF." };
+    }
+  }
+  return { files };
+}
+
 function normalizeMessages(value: unknown): UIMessage[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > 200) return null;
   const messages = value.filter(
@@ -1973,6 +2011,9 @@ Deno.serve(async (req) => {
     const latest = [...messages].reverse().find((message) => message.role === "user");
     const question = extractText(latest);
     if (!question || question.length > 10_000) return json({ error: "Question is empty or too long" }, 400);
+    const parsedFiles = parseMiraIncomingFiles(latest);
+    if (parsedFiles.error) return json({ error: parsedFiles.error }, 400);
+    const incomingFiles = parsedFiles.files;
 
     const [{ data: profile, error: profileError }, { data: thread, error: threadError }] = await Promise.all([
       service
@@ -2041,9 +2082,13 @@ Deno.serve(async (req) => {
       parts: [{ type: "text", text: row.content }],
     }));
 
-    const modelMessages = [
+    const latestParts = [
+      { type: "text" as const, text: question },
+      ...incomingFiles.map(({ filename, mediaType, url }) => ({ type: "file" as const, filename, mediaType, url })),
+    ];
+    const modelMessages: UIMessage[] = [
       ...storedMessages,
-      { id: latest?.id ?? crypto.randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: question }] },
+      { id: latest?.id ?? crypto.randomUUID(), role: "user", parts: latestParts },
     ];
     const precedingAssistantTurn = [...(storedRows ?? [])].reverse()
       .find((row: any) => row.role === "assistant");
@@ -2234,7 +2279,8 @@ OPERATIONAL READS
 GUIDANCE AND ACTIONS
 - When answering from an in-app section (revenue, housekeeping, maintenance, reception or finance), give the hotel, business date or date range, and the dataset timestamp when supplied.
 - For a guest complaint involving DND or room-cleaning photos, call get_room_photo_evidence for the exact authorized hotel, room and business date first. Include only returned evidence with timestamps and temporary links; never fabricate photos or accuse staff from incomplete records.
-- For a maintenance request, check room detail, existing open tickets, and available reservation snapshot where permitted before raising a new ticket. If reservation or maintenance technician assignment cannot be verified, say so. Use the user's exact problems and priority justified by safety/guest impact, never claim a notification was delivered without a confirmed result. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
+- For a maintenance request, check room detail, existing open tickets, and available reservation snapshot where permitted before raising a new ticket.
+- If the latest user message includes attached images or a PDF, examine the actual file content before describing it. State uncertainty clearly. A file is not proof of a repair request unless the user asked for one. For requested ticket creation, include all explicitly reported issues in the title/description, and use attached evidence through the confirmed ticket workflow; do not claim evidence was linked unless the action confirms it. If reservation or maintenance technician assignment cannot be verified, say so. Use the user's exact problems and priority justified by safety/guest impact, never claim a notification was delivered without a confirmed result. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
 - For explicitly requested, supported routine actions (extra towels, room items, beds, maintenance tickets, ticket updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
 - For room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
@@ -2259,7 +2305,7 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
         canWriteRates: actionsForRole(profile.role).includes("adjust_revenue_prices"),
       })}${scheduleToolsAvailable(capabilitiesFor(profile), profile.organization_slug) ? schedulePrompt() : ""}${mailToolsAvailable(profile.role) ? mailPrompt() : ""}${projectBrief}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey ?? "", authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup),
+      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey ?? "", authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup, incomingFiles),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
