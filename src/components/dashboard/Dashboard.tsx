@@ -423,7 +423,9 @@ export function Dashboard() {
           <div className="flex flex-col gap-4 justify-between items-start">
             <div><h1 className="text-2xl sm:text-3xl font-bold text-foreground">{hotelDisplayName || t('dashboard.title')}</h1>
               <p className="text-sm sm:text-base text-muted-foreground">{hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}</p></div>
-            <div className="w-full overflow-x-auto">
+          </div>
+          <div className="sticky z-40 min-w-0 w-full bg-background/95 py-1.5 backdrop-blur-md" style={{ top: 'var(--hc-header-height, 0px)' }}>
+            <div className="w-full min-w-0">
               {profile?.role === 'housekeeping' ? (
                 <TabsList className={((profile?.role as string) === 'hr' || profile?.is_super_admin) ? 'inline-flex h-10 sm:h-12 w-auto min-w-max gap-1' : 'grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12'} data-training="main-tabs">
                   <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.tickets')}</span></TabsTrigger>
