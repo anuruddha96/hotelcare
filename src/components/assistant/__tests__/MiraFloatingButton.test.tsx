@@ -50,6 +50,16 @@ function drag(button: HTMLElement, path: Array<[number, number]>, { pauseBeforeR
   else fireEvent.pointerUp(button, { pointerId: 1, clientX: endX, clientY: endY });
 }
 
+/** The app's sticky header (z-50), which the button must never slide under. */
+function installHeader(height: number) {
+  const header = document.createElement("header");
+  header.style.position = "sticky";
+  header.style.zIndex = "50";
+  header.getBoundingClientRect = () => ({ top: 0, bottom: height, left: 0, right: window.innerWidth, width: window.innerWidth, height, x: 0, y: 0, toJSON: () => ({}) });
+  document.body.appendChild(header);
+  (document as unknown as { elementsFromPoint: (x: number, y: number) => Element[] }).elementsFromPoint = (_x, y) => (y < height ? [header] : []);
+}
+
 function renderButton(onOpen = vi.fn()) {
   render(<MiraFloatingButton storageKey={KEY} unread={false} onOpen={onOpen} />);
   return { button: screen.getByRole("button", { name: "Open Mira AI Operator" }), onOpen };
@@ -62,7 +72,12 @@ describe("Mira floating button", () => {
     now = 1000;
     vi.spyOn(performance, "now").mockImplementation(() => now);
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    delete (document as unknown as { elementsFromPoint?: unknown }).elementsFromPoint;
+    document.querySelectorAll("header").forEach((header) => header.remove());
+  });
 
   it("is a round button resting on the right edge, and a tap opens Mira", () => {
     const { button, onOpen } = renderButton();
@@ -154,6 +169,51 @@ describe("Mira floating button", () => {
     const { button } = renderButton();
     expect(button).toHaveAttribute("data-side", "right");
     expect(position(button)).toEqual({ x: RIGHT_X, y: 640 });
+  });
+
+  it("stops below the sticky header when dragged up into it", () => {
+    installHeader(130);
+    const { button } = renderButton();
+    const start = position(button);
+    fireEvent.pointerDown(button, { pointerId: 1, clientX: start.x + 28, clientY: start.y + 28 });
+    now += 16;
+    fireEvent.pointerMove(button, { pointerId: 1, clientX: start.x + 28, clientY: 20 }); // finger up in the header
+    expect(position(button).y).toBe(130 + 12);
+
+    now += 250;
+    fireEvent.pointerUp(button, { pointerId: 1, clientX: start.x + 28, clientY: 20 });
+    expect(position(button)).toEqual({ x: RIGHT_X, y: 142 });
+  });
+
+  it("rests just below the header when its saved spot is the very top", () => {
+    localStorage.setItem(KEY, JSON.stringify({ side: "left", ratio: 0 }));
+    installHeader(130);
+    const { button } = renderButton();
+    expect(position(button)).toEqual({ x: LEFT_X, y: 142 });
+  });
+
+  it("moves out from under a header that appears after it", () => {
+    localStorage.setItem(KEY, JSON.stringify({ side: "right", ratio: 0 }));
+    const { button } = renderButton();
+    expect(position(button).y).toBe(12);
+
+    installHeader(130);
+    act(() => { window.dispatchEvent(new Event("resize")); });
+    expect(position(button).y).toBe(142);
+  });
+
+  it("makes room for a bar that sticks under the header while scrolling", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    localStorage.setItem(KEY, JSON.stringify({ side: "right", ratio: 0 }));
+    installHeader(130);
+    const { button } = renderButton();
+    expect(position(button).y).toBe(142);
+
+    installHeader(180); // the header plus a sticky strip pinned under it
+    act(() => { window.dispatchEvent(new Event("scroll")); });
+    expect(position(button).y).toBe(142); // waits for scrolling to stop
+    act(() => { vi.advanceTimersByTime(150); });
+    expect(position(button).y).toBe(192);
   });
 
   it("announces an unread reply", () => {

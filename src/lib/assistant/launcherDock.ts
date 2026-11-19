@@ -42,6 +42,17 @@ export const VELOCITY_WINDOW_MS = 100;
 
 export const DEFAULT_DOCK: LauncherDock = { side: "right", ratio: 0.6 };
 
+/**
+ * A bar pinned to the top of the screen hides or crowds the button when it is
+ * stacked at least as high (the app header is z-50, the button z-40), spans
+ * most of the width and is not a full-screen overlay or drawer.
+ */
+const TOP_BAR_MIN_Z_INDEX = 40;
+const TOP_BAR_MIN_WIDTH = 0.6;
+const TOP_BAR_MAX_HEIGHT = 0.4;
+/** Enough passes for a header with a sticky navigation strip or two under it. */
+const TOP_BAR_MAX_LAYERS = 4;
+
 /** The previous launcher was a pill about this wide; saved positions are its top-left corner. */
 const LEGACY_PILL_WIDTH = 100;
 const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -49,9 +60,13 @@ const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
-export function dockBounds(viewport: Size, insets: Insets = NO_INSETS, size = LAUNCHER_SIZE): DockBounds {
+/**
+ * @param topBars Bottom edge of the bars pinned to the top of the screen, such
+ *   as the sticky app header. The button always stays below them.
+ */
+export function dockBounds(viewport: Size, insets: Insets = NO_INSETS, topBars = 0, size = LAUNCHER_SIZE): DockBounds {
   const minX = insets.left + SIDE_GAP;
-  const minY = insets.top + TOP_GAP;
+  const minY = Math.max(insets.top, topBars) + TOP_GAP;
   return {
     minX,
     maxX: Math.max(minX, viewport.width - insets.right - SIDE_GAP - size),
@@ -124,9 +139,10 @@ export function serializeDock(dock: LauncherDock): string {
 }
 
 /**
- * Measures the area the button may use, keeping clear of notches and the home
- * indicator. documentElement.clientHeight ignores collapsing mobile browser
- * toolbars, so the button doesn't jump while the page scrolls.
+ * Measures the area the button may use: below the sticky app header (and any
+ * sticky bar stacked under it), clear of notches and the home indicator.
+ * documentElement.clientHeight ignores collapsing mobile browser toolbars, so
+ * the button doesn't jump while the page scrolls.
  */
 export function measureDockBounds(win: Window = window): DockBounds {
   const root = win.document.documentElement;
@@ -134,7 +150,40 @@ export function measureDockBounds(win: Window = window): DockBounds {
     width: root.clientWidth || win.innerWidth,
     height: root.clientHeight || win.innerHeight,
   };
-  return dockBounds(viewport, readSafeAreaInsets(win.document));
+  const insets = readSafeAreaInsets(win.document);
+  // The two columns the button docks in.
+  const columns = [
+    insets.left + SIDE_GAP + LAUNCHER_SIZE / 2,
+    viewport.width - insets.right - SIDE_GAP - LAUNCHER_SIZE / 2,
+  ];
+  return dockBounds(viewport, insets, measureTopBars(win, viewport, columns));
+}
+
+/**
+ * Bottom edge of the bars pinned to the top of the screen that would cover the
+ * button, such as the sticky app header and sticky navigation stacked under
+ * it. Probes straight down the given columns, one bar at a time. 0 if none.
+ */
+export function measureTopBars(win: Window, viewport: Size, columns: number[]): number {
+  const doc = win.document;
+  if (typeof doc.elementsFromPoint !== "function") return 0;
+  let bottom = 0;
+  for (let layer = 0; layer < TOP_BAR_MAX_LAYERS; layer += 1) {
+    let next = bottom;
+    for (const x of columns) {
+      for (const element of doc.elementsFromPoint(x, bottom + 1)) {
+        const style = win.getComputedStyle(element);
+        if (style.position !== "fixed" && style.position !== "sticky") continue;
+        if ((Number.parseInt(style.zIndex, 10) || 0) < TOP_BAR_MIN_Z_INDEX) continue;
+        const box = element.getBoundingClientRect();
+        if (box.width < viewport.width * TOP_BAR_MIN_WIDTH || box.height > viewport.height * TOP_BAR_MAX_HEIGHT) continue;
+        next = Math.max(next, box.bottom);
+      }
+    }
+    if (next <= bottom) break;
+    bottom = next;
+  }
+  return bottom;
 }
 
 function readSafeAreaInsets(doc: Document): Insets {
