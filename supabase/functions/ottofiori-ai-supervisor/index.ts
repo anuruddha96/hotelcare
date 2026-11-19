@@ -30,10 +30,15 @@ async function run(admin: any, apiKey: string) {
     if (lockError) throw lockError;
     if (got !== true) return; // The existing engine is already evaluating; never compete.
     lease = true;
+    // A manual launch near a slot boundary must not double paid reviews. The
+    // window is deliberately shorter than the four-hour schedule: the cron fires
+    // at :11:00 and the previous review started a few seconds after :11:00 four
+    // hours earlier, so a full four-hour look-back skipped every second slot.
+    // The unique slot key below still guarantees one paid review per slot.
     const recent=await admin.from('ottofiori_ai_review_runs').select('id').eq('status','completed')
-      .gte('started_at',new Date(Date.now()-4*3600_000).toISOString()).limit(1);
+      .gte('started_at',new Date(Date.now()-3*3600_000).toISOString()).limit(1);
     if(recent.error) throw recent.error;
-    if(recent.data?.length) return; // A manual launch near a slot boundary must not double paid reviews.
+    if(recent.data?.length) return;
     const slot = Math.floor(Date.now() / 14_400_000);
     const inserted = await admin.from('ottofiori_ai_review_runs').insert({slot}).select('id').single();
     if (inserted.error?.code === '23505') return; // One paid review per four-hour slot, including retries.
@@ -257,8 +262,14 @@ Deno.serve(async req=>{
       openai_fallback_configured:Boolean(key)});
   }
   if(body.action==='readback') {
-    const review=await admin.from('ottofiori_ai_review_runs').select('id,status,outcomes').eq('id',body.review_id).single();
-    if(review.error || review.data.status!=='completed') return json({error:'Completed Ottofiori review required'},400);
+    // Without a review_id (the scheduled readback), confirm the latest completed
+    // review whose queued prices have not been read back yet.
+    let reviewQuery=admin.from('ottofiori_ai_review_runs').select('id,status,outcomes');
+    reviewQuery=body.review_id ? reviewQuery.eq('id',body.review_id)
+      : reviewQuery.eq('status','completed').gte('started_at',new Date(Date.now()-6*3600_000).toISOString()).order('started_at',{ascending:false}).limit(1);
+    const review=await reviewQuery.maybeSingle();
+    if(review.error || !review.data || review.data.status!=='completed') return json({error:'Completed Ottofiori review required'},400);
+    if(!body.review_id && (review.data.outcomes as any[]).some(o=>o.push_run_id && o.pms_readback_at)) return json({review_id:review.data.id,reason:'Already read back'});
     const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/previo-revenue-sync`,{
       method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`},
       body:JSON.stringify({hotelId:HOTEL,horizonDays:120,mode:'automation_full'}),signal:AbortSignal.timeout(90_000),
