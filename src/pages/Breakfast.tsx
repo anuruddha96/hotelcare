@@ -12,6 +12,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
 import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
 import RestaurantReservations from "@/components/breakfast/RestaurantReservations";
+import BreakfastRecipes from "@/components/breakfast/BreakfastRecipes";
 import BreakfastAuthControl from "@/components/breakfast/BreakfastAuthControl";
 
 
@@ -92,7 +93,7 @@ export default function Breakfast() {
   const [dataSource, setDataSource] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [tab, setTab] = useState<"rooms" | "reservations">("rooms");
+  const [tab, setTab] = useState<"rooms" | "reservations" | "recipes">("rooms");
   const resultRef = useRef<HTMLDivElement | null>(null);
 
 
@@ -418,7 +419,7 @@ export default function Breakfast() {
 
   return (
     <div className="min-h-screen bg-background flex items-start justify-center p-2 sm:items-center sm:p-4">
-      <Card className="w-full max-w-xl overflow-hidden">
+      <Card className={["w-full overflow-hidden", tab === "recipes" ? "max-w-3xl" : "max-w-xl"].join(" ")}>
         <CardHeader className="pb-2 px-4 sm:px-6">
           <div className="flex items-start justify-between gap-3">
             <CardTitle className="flex min-w-0 items-center gap-2 text-xl">
@@ -438,10 +439,11 @@ export default function Breakfast() {
         </CardHeader>
         <CardContent className="space-y-3 px-3 pb-4 sm:px-6 sm:pb-6">
           {!hotelCode && selection && (
-            <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+            <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1" role="group" aria-label={tt("title")}>
               <button
                 type="button"
                 onClick={() => setTab("rooms")}
+                aria-pressed={tab === "rooms"}
                 className={`min-h-11 rounded-md px-2 py-2 text-sm font-medium transition-colors ${tab === "rooms" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
               >
                 {tt("tabRooms")}
@@ -449,9 +451,18 @@ export default function Breakfast() {
               <button
                 type="button"
                 onClick={() => setTab("reservations")}
+                aria-pressed={tab === "reservations"}
                 className={`min-h-11 rounded-md px-2 py-2 text-sm font-medium transition-colors ${tab === "reservations" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
               >
                 {tt("tabReservations")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("recipes")}
+                aria-pressed={tab === "recipes"}
+                className={["min-h-11 rounded-md px-2 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500", tab === "recipes" ? "bg-background shadow-sm" : "text-muted-foreground"].join(" ")}
+              >
+                {tt("tabRecipes")}
               </button>
             </div>
           )}
@@ -464,6 +475,10 @@ export default function Breakfast() {
               </div>
               <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} />
             </>
+          )}
+
+          {!hotelCode && selection && tab === "recipes" && (
+            <BreakfastRecipes language={language} />
           )}
 
           {tab === "rooms" && (
