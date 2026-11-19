@@ -371,3 +371,8 @@ verify_jwt = false
 # secret, the worker with a Vault secret, and e-mail links with signed tokens.
 [functions.website-sales-chat]
 verify_jwt = false
+
+# NTAK PMS v9: the cron worker authenticates with the Vault worker secret; UI
+# actions validate the user's JWT and hotel access inside the function.
+[functions.ntak-pms]
+verify_jwt = false

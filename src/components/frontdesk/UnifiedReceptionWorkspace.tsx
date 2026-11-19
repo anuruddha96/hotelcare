@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { ReservationCalendar, type RoomStatus } from '@/components/reservations/ReservationCalendar';
 import { VizaStatusCard } from '@/components/frontdesk/VizaStatusCard';
+import { NtakStatusCard } from '@/components/ntak/NtakStatusCard';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
@@ -358,6 +359,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     </div>
 
     {hotelId && <VizaStatusCard hotelId={hotelId} />}
+    {hotelId && <NtakStatusCard hotelId={hotelId} />}
 
     <div className="relative" data-training="fd-quick-search">
       <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />

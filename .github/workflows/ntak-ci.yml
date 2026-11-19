@@ -1,0 +1,87 @@
+name: NTAK PMS v9 CI
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/ntak/**'
+      - 'supabase/functions/ntak-pms/**'
+      - 'supabase/migrations/20261119100000_ntak_pms_v9.sql'
+      - 'supabase/tests/ntak_*.sql'
+      - 'src/components/ntak/**'
+      - 'src/lib/ntak-translations.ts'
+      - '.github/workflows/ntak-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    name: Migration, triggers, Vault helpers, RLS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Run NTAK SQL checks
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261119100000_ntak_pms_v9.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_integration.sql
+
+  edge:
+    name: Edge function type check and Deno tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Install xmllint, openssl and the independent signature checker
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libxml2-utils openssl
+          python3 -m pip install --quiet lxml cryptography
+      - name: Type-check ntak-pms
+        run: deno check --node-modules-dir=auto supabase/functions/ntak-pms/index.ts
+      - name: NTAK library tests (schema, signature, CSR, closure rules)
+        run: deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env supabase/functions/_shared/ntak/ntak_test.ts
+      - name: Engine end-to-end test (fake NTAK endpoint)
+        run: deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env --allow-net supabase/functions/ntak-pms/engine_test.ts
+
+  unit:
+    name: UI tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: NTAK UI tests
+        run: bunx vitest run src/components/ntak
+      - name: Production UI build
+        run: bun run build

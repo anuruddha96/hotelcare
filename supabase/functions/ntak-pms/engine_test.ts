@@ -1,0 +1,349 @@
+// deno-lint-ignore-file no-explicit-any
+/**
+ * End-to-end test of the ntak-pms engine without network or a real database:
+ * an in-memory Supabase client (column names checked against the repo's
+ * migrations and generated types) and a local fake NTAK endpoint that checks
+ * every request's WS-Security signature and validates it against the v9
+ * schema before answering like NTAK does.
+ *
+ *   deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env --allow-net supabase/functions/ntak-pms/engine_test.ts
+ */
+import { strict as assert } from "node:assert";
+import { verifyEnvelope } from "../_shared/ntak/wssec.ts";
+import { addDays } from "../_shared/ntak/ledger.ts";
+import {
+  classificationFor, detectDrift, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
+} from "./engine.ts";
+
+const ROOT = new URL("../../../", import.meta.url).pathname;
+const XSD = ROOT + "supabase/functions/_shared/ntak/testdata/ntak-v9.xsd";
+
+// ---------------------------------------------------------------------------
+// Schema registry from generated types + migrations
+
+function schemaColumns(): Record<string, Set<string>> {
+  const cols: Record<string, Set<string>> = {};
+  const add = (t: string, c: string) => (cols[t] ??= new Set()).add(c);
+  const types = Deno.readTextFileSync(ROOT + "src/integrations/supabase/types.ts");
+  for (const m of types.matchAll(/\n {6}(\w+): \{\n {8}Row: \{\n([\s\S]*?)\n {8}\}/g)) for (const c of m[2].matchAll(/^ {10}(\w+)\??:/gm)) add(m[1], c[1]);
+  for (const f of [...Deno.readDirSync(ROOT + "supabase/migrations")].map((e) => e.name).sort()) {
+    const sql = Deno.readTextFileSync(ROOT + "supabase/migrations/" + f);
+    for (const m of sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?public\.(\w+) \(([\s\S]*?)\n\);/g)) {
+      for (const line of m[2].split("\n")) {
+        const w = line.trim().match(/^(\w+)\s+\w/);
+        if (w && !/^(PRIMARY|UNIQUE|CHECK|FOREIGN|CONSTRAINT|EXCLUDE)$/i.test(w[1])) add(m[1], w[1]);
+      }
+    }
+    for (const m of sql.matchAll(/ALTER TABLE (?:IF EXISTS )?(?:ONLY )?public\.(\w+)([^;]*);/gi)) {
+      for (const c of m[2].matchAll(/ADD COLUMN (?:IF NOT EXISTS )?(\w+)/gi)) add(m[1], c[1]);
+    }
+  }
+  return cols;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory Supabase client (the subset the engine uses)
+
+type Row = Record<string, any>;
+const RELS: Record<string, Record<string, { table: string; local: string; foreign: string }>> = {
+  folio_lines: {
+    reservation_folios: { table: "reservation_folios", local: "folio_id", foreign: "id" },
+    service_catalog_items: { table: "service_catalog_items", local: "service_catalog_item_id", foreign: "id" },
+  },
+  ntak_unit_profiles: { rooms: { table: "rooms", local: "room_id", foreign: "id" } },
+};
+const DEFAULTS: Record<string, () => Row> = {
+  ntak_messages: () => ({ state: "queued", attempts: 0, warnings: [], errors: [], verify_attempts: 0, next_attempt_at: new Date(Date.now() - 1000).toISOString(), created_at: new Date().toISOString() }),
+  ntak_daily_closures: () => ({ accepted_once: false, needs_correction: false }),
+  ntak_booking_queue: () => ({ cancelled_sent: false, dirty_at: new Date().toISOString() }),
+};
+
+function splitTop(s: string): string[] {
+  const out: string[] = []; let depth = 0; let cur = "";
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { out.push(cur.trim()); cur = ""; } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+class FakeDb {
+  tables: Record<string, Row[]> = {};
+  secrets = new Map<string, string>();
+  constructor(public columns: Record<string, Set<string>>) {}
+  check(table: string, col: string) {
+    if (!this.columns[table]) throw new Error(`unknown table ${table}`);
+    if (!this.columns[table].has(col)) throw new Error(`unknown column ${table}.${col}`);
+  }
+  rows(t: string) { return (this.tables[t] ??= []); }
+  from(t: string) { if (!this.columns[t]) throw new Error(`unknown table ${t}`); return new Query(this, t); }
+  rpc(name: string, args: any) {
+    const k = `${args._hotel_id}|${args._kind}`;
+    if (name === "ntak_get_secret") return Promise.resolve({ data: this.secrets.get(k) || null, error: null });
+    if (name === "ntak_put_secret") { this.secrets.set(k, args._value); return Promise.resolve({ data: null, error: null }); }
+    return Promise.resolve({ data: null, error: { message: `unknown rpc ${name}` } });
+  }
+}
+
+class Query {
+  private filters: ((r: Row) => boolean)[] = [];
+  private op: "select" | "insert" | "update" | "upsert" = "select";
+  private cols = "*"; private count = false; private head = false;
+  private payload: Row[] = []; private patch: Row = {}; private conflict: string[] = []; private ignoreDup = false;
+  private orderBy: { col: string; asc: boolean } | null = null; private max: number | null = null;
+  private singleMode: "one" | "maybe" | null = null; private returning: string | null = null;
+  constructor(private db: FakeDb, private table: string) {}
+
+  select(cols = "*", opts: any = {}) { if (this.op === "select") { this.cols = cols; this.count = opts.count === "exact"; this.head = !!opts.head; } else this.returning = cols; return this; }
+  insert(rows: Row | Row[]) { this.op = "insert"; this.payload = Array.isArray(rows) ? rows : [rows]; return this; }
+  upsert(rows: Row | Row[], opts: any = {}) { this.op = "upsert"; this.payload = Array.isArray(rows) ? rows : [rows]; this.conflict = String(opts.onConflict ?? "id").split(","); this.ignoreDup = !!opts.ignoreDuplicates; return this; }
+  update(patch: Row) { this.op = "update"; this.patch = patch; return this; }
+  private val(r: Row, col: string) {
+    if (col.includes(".")) { const [rel, c] = col.split("."); return this.embed(r, rel)?.[c]; }
+    this.db.check(this.table, col);
+    return r[col];
+  }
+  eq(c: string, v: any) { this.filters.push((r) => this.val(r, c) === v); return this; }
+  in(c: string, v: any[]) { this.filters.push((r) => v.includes(this.val(r, c))); return this; }
+  lte(c: string, v: any) { this.filters.push((r) => this.val(r, c) != null && this.val(r, c) <= v); return this; }
+  gte(c: string, v: any) { this.filters.push((r) => this.val(r, c) != null && this.val(r, c) >= v); return this; }
+  lt(c: string, v: any) { this.filters.push((r) => this.val(r, c) != null && this.val(r, c) < v); return this; }
+  is(c: string, v: null) { this.filters.push((r) => (this.val(r, c) ?? null) === v); return this; }
+  not(c: string, op: string, v: any) {
+    if (op === "is") this.filters.push((r) => (this.val(r, c) ?? null) !== v);
+    else if (op === "in") { const list = String(v).replace(/[()]/g, "").split(","); this.filters.push((r) => !list.includes(String(this.val(r, c)))); }
+    else throw new Error(`unsupported not ${op}`);
+    return this;
+  }
+  order(col: string, opts: any = {}) { this.orderBy = { col, asc: opts.ascending !== false }; return this; }
+  limit(n: number) { this.max = n; return this; }
+  maybeSingle() { this.singleMode = "maybe"; return this; }
+  single() { this.singleMode = "one"; return this; }
+  private embed(r: Row, relName: string) {
+    const rel = RELS[this.table]?.[relName.replace("!inner", "")];
+    if (!rel) throw new Error(`unknown relation ${this.table}.${relName}`);
+    return this.db.rows(rel.table).find((x) => x[rel.foreign] === r[rel.local]) ?? null;
+  }
+  private project(r: Row, cols: string, table: string): Row | null {
+    if (cols === "*") return { ...r };
+    const out: Row = {};
+    for (const part of splitTop(cols)) {
+      const m = part.match(/^(\w+)(!inner)?\((.*)\)$/);
+      if (m) {
+        const rel = RELS[table]?.[m[1]];
+        if (!rel) throw new Error(`unknown relation ${table}.${m[1]}`);
+        const target = this.db.rows(rel.table).find((x) => x[rel.foreign] === r[rel.local]) ?? null;
+        if (!target && m[2]) return null;
+        out[m[1]] = target ? this.project(target, m[3], rel.table) : null;
+      } else {
+        this.db.check(table, part);
+        out[part] = r[part] ?? null;
+      }
+    }
+    return out;
+  }
+  private run(): { data: any; error: any; count?: number } {
+    const rows = this.db.rows(this.table);
+    for (const r of [...this.payload, this.patch]) for (const k of Object.keys(r)) this.db.check(this.table, k);
+    if (this.op === "insert" || this.op === "upsert") {
+      const out: Row[] = [];
+      for (const p of this.payload) {
+        const existing = this.op === "upsert" ? rows.find((r) => this.conflict.every((c) => r[c] === p[c])) : undefined;
+        if (existing) { if (!this.ignoreDup) Object.assign(existing, p); out.push(existing); continue; }
+        const row = { ...(DEFAULTS[this.table]?.() ?? {}), ...(this.db.columns[this.table].has("id") && !p.id ? { id: crypto.randomUUID() } : {}), ...p };
+        rows.push(row); out.push(row);
+      }
+      const data = this.returning ? out.map((r) => this.project(r, this.returning!, this.table)) : null;
+      return { data: this.singleMode && data ? data[0] : data, error: null };
+    }
+    let hit = rows.filter((r) => this.filters.every((f) => f(r)));
+    if (this.op === "update") { for (const r of hit) Object.assign(r, this.patch); return { data: null, error: null }; }
+    if (this.orderBy) { const { col, asc } = this.orderBy; hit = [...hit].sort((a, b) => (a[col] > b[col] ? 1 : a[col] < b[col] ? -1 : 0) * (asc ? 1 : -1)); }
+    const count = hit.length;
+    if (this.max !== null) hit = hit.slice(0, this.max);
+    const data = hit.map((r) => this.project(r, this.cols, this.table)).filter(Boolean);
+    if (this.head) return { data: null, error: null, count };
+    if (this.singleMode === "maybe") return { data: data[0] ?? null, error: null };
+    if (this.singleMode === "one") return data.length === 1 ? { data: data[0], error: null } : { data: null, error: { message: "not exactly one row" } };
+    return { data, error: null, ...(this.count ? { count } : {}) };
+  }
+  then(resolve: (v: any) => any, reject?: (e: any) => any) {
+    try { return Promise.resolve(this.run()).then(resolve, reject); } catch (e) { return Promise.reject(e).then(resolve, reject); }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fake NTAK endpoint
+
+interface FakeNtak { url: string; requests: { root: string; uzenetId: string; xml: string }[]; rejectNext: string | null; close(): Promise<void> }
+
+async function xmllint(xml: string): Promise<string | null> {
+  const file = await Deno.makeTempFile({ suffix: ".xml" });
+  await Deno.writeTextFile(file, xml);
+  const out = await new Deno.Command("xmllint", { args: ["--noout", "--schema", XSD, file], stderr: "piped", stdout: "null" }).output();
+  return out.code === 0 ? null : new TextDecoder().decode(out.stderr);
+}
+
+function startFakeNtak(): FakeNtak {
+  const kinds = new Map<string, string>();
+  const state: FakeNtak = { url: "", requests: [], rejectNext: null, close: async () => {} };
+  const env = (inner: string) => `<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Header/><SOAP-ENV:Body>${inner}</SOAP-ENV:Body></SOAP-ENV:Envelope>`;
+  const fault = (key: string, msg: string) => env(`<SOAP-ENV:Fault><faultcode>SOAP-ENV:Server</faultcode><faultstring xml:lang="en">Validation Error</faultstring><detail><error hibaKulcs="${key}" hibaUzenet="${msg}" mezoNeve="GLOBAL"/></detail></SOAP-ENV:Fault>`);
+  const server = Deno.serve({ port: 0, hostname: "127.0.0.1", onListen: () => {} }, async (req) => {
+    const body = await req.text();
+    if (req.headers.get("content-type")?.startsWith("text/xml") !== true) return new Response(fault("Formatum", "content type"), { status: 500 });
+    const sig = await verifyEnvelope(body);
+    if (!sig.ok) return new Response(fault("FAILED_CHECK", sig.problems.join("; ")), { status: 500 });
+    const request = body.match(/<soapenv:Body[^>]*>([\s\S]*)<\/soapenv:Body>/)?.[1] ?? "";
+    const schemaError = await xmllint(request);
+    if (schemaError) return new Response(env(`<SOAP-ENV:Fault><faultcode>SOAP-ENV:Server</faultcode><faultstring xml:lang="en">Schema Error</faultstring><detail><error hibaUzenet="${schemaError.replace(/[<>&"]/g, " ").slice(0, 300)}" mezoNeve="GLOBAL"/></detail></SOAP-ENV:Fault>`), { status: 500 });
+    const root = request.match(/^<v9:(\w+)/)?.[1] ?? "";
+    const uzenetId = request.match(/<v9:uzenetId>([^<]+)</)?.[1] ?? "";
+    state.requests.push({ root, uzenetId, xml: request });
+    if (state.rejectNext && root !== "ellenorzesRequest") { const key = state.rejectNext; state.rejectNext = null; return new Response(fault(key, "rejected by test"), { status: 500 }); }
+    if (root === "ellenorzesRequest") {
+      const ids = [...request.matchAll(/<v9:feldolgozasAzonosito>([^<]+)</g)].map((m) => m[1]);
+      return new Response(env(`<ns2:ellenorzesResponse xmlns:ns2="http://mtu.gov.hu/ntak/v9">${ids.map((id) => {
+        const kind = kinds.get(id);
+        const warn = kind === "napiZarasRequest" ? `<ns2:figyelmeztetesLista><ns2:hiba><ns2:mezoNeve>napiFeltoltes.szobaAdatok.osszesSzoba</ns2:mezoNeve><ns2:kuldottErtek>2</ns2:kuldottErtek><ns2:hibaKulcs>ElteresRegisztraltAdatokban</ns2:hibaKulcs><ns2:hibaUzenet>Értéke eltér</ns2:hibaUzenet></ns2:hiba></ns2:figyelmeztetesLista>` : "<ns2:figyelmeztetesLista/>";
+        const status = kind === "napiZarasRequest" ? "VIZSGALANDO" : "TELJESEN_SIKERES";
+        const start = kind === "adatszolgaltatasKezdoDatumRequest" ? "<ns2:elvartAdatszolgaltatasKezdoDatuma>2026-01-01</ns2:elvartAdatszolgaltatasKezdoDatuma>" : "";
+        return `<ns2:uzenetValaszok><ns2:feldolgozasAzonosito>${id}</ns2:feldolgozasAzonosito><ns2:statusz>${status}</ns2:statusz>${warn}<ns2:hibaLista/>${start}</ns2:uzenetValaszok>`;
+      }).join("")}</ns2:ellenorzesResponse>`));
+    }
+    const id = crypto.randomUUID();
+    kinds.set(id, root);
+    return new Response(env(`<ns2:${root.replace("Request", "Response")} xmlns:ns2="http://mtu.gov.hu/ntak/v9"><ns2:feldolgozasAzonosito>${id}</ns2:feldolgozasAzonosito></ns2:${root.replace("Request", "Response")}>`));
+  });
+  state.url = `http://127.0.0.1:${(server.addr as Deno.NetAddr).port}/ntak/v9`;
+  state.close = () => server.shutdown();
+  return state;
+}
+
+async function testCert(): Promise<{ certPem: string; keyPem: string }> {
+  const dir = await Deno.makeTempDir();
+  const out = await new Deno.Command("openssl", { args: ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", `${dir}/k.pem`, "-out", `${dir}/c.pem`, "-days", "30", "-subj", "/CN=SZ25003491"], stderr: "piped" }).output();
+  assert.equal(out.code, 0, new TextDecoder().decode(out.stderr));
+  return { certPem: await Deno.readTextFile(`${dir}/c.pem`), keyPem: await Deno.readTextFile(`${dir}/k.pem`) };
+}
+
+// ---------------------------------------------------------------------------
+
+Deno.test("engine: closure, booking, events and start date go through signing, sending and verification", async () => {
+  const ntak = startFakeNtak();
+  try {
+    const db = new FakeDb(schemaColumns());
+    const T = today();
+    const Y = addDays(T, -1);
+    const { certPem, keyPem } = await testCert();
+    db.secrets.set("h1|cert", certPem);
+    db.secrets.set("h1|key", keyPem);
+
+    const s: Settings = {
+      hotel_id: "h1", organization_slug: "rd", enabled: true, environment: "test", endpoint_url: ntak.url, software_id: "HOTELCARE01",
+      software_version: "v1.0.0", registration_number: "SZ25003491", provider_tax_number: "69861195-2-44", registered_room_count: 2,
+      accommodation_class: "hotel_4", region: "budapest", ifa_type: "SZAZALEKOS", ifa_rate: 4, ifa_vat: 0, accommodation_vat: 18,
+      signature_profile: "rsa-sha384", unknown_country_code: "EGYEBKULFOLDI", closure_mode: "manual", auto_close_time: "05:00:00",
+      first_closure_date: addDays(T, -10), software_change_date: null, data_start_date: null, ledger_config: {},
+      cert_not_after: new Date(Date.now() + 20 * 86400000).toISOString(), sending_blocked_reason: null,
+      initial_booking_sync_started_at: null, initial_booking_sync_done_at: null,
+    };
+    db.rows("ntak_settings").push({ ...s });
+    db.rows("rooms").push({ id: "r101", room_number: "101", status: "clean", hotel: "h1" }, { id: "r102", room_number: "102", status: "out_of_order", hotel: "h1" });
+    db.rows("ntak_unit_profiles").push(
+      { room_id: "r101", hotel_id: "h1", building: "A", room_number: "101", unit_type: "STANDARD", single_beds: 0, double_beds: 1, extra_beds: 1, active: true },
+      { room_id: "r102", hotel_id: "h1", building: "A", room_number: "102", unit_type: "SUPERIOR", single_beds: 2, double_beds: 0, extra_beds: 0, active: true },
+    );
+    db.rows("guests").push(
+      { id: "g1", first_name: "Edit", last_name: "Teszt", birth_place: "Budapest", date_of_birth: "1979-07-12", gender: "female", nationality: "HUN", country: "HU", postal_code: "1051", company_name: null, tax_id: null },
+      { id: "g2", first_name: "Hans", last_name: "Müller", birth_place: "Berlin", date_of_birth: "1980-01-02", gender: "male", nationality: "DE", country: "DE", postal_code: "10115", company_name: null, tax_id: null },
+    );
+    const base = { hotel_id: "h1", actual_check_out: null, rate_per_night: 40000, currency: "HUF", children: 0, source: null, pms_channel: null, pms_reservation_id: null, pms_group_note: null, pms_rate_plan_id: null, room_type_id: null, created_at: addDays(T, -30) + "T10:00:00Z" };
+    db.rows("reservations").push(
+      { ...base, id: "R1", status: "checked_in", check_in_date: Y, check_out_date: addDays(T, 2), room_id: "r101", total_amount: 120000, adults: 2, ota_name: "Booking.com", channex_booking_id: "CHX-1", reservation_number: "HC-1", guest_id: "g1" },
+      { ...base, id: "R2", status: "confirmed", check_in_date: addDays(T, 5), check_out_date: addDays(T, 7), room_id: null, room_type_id: "rt1", total_amount: 90000, adults: 2, ota_name: null, channex_booking_id: null, reservation_number: "HC-2", guest_id: "g2" },
+    );
+    db.rows("reservation_guests").push({ reservation_id: "R1", guest_id: "g1", is_primary: true, ifa_status: null }, { reservation_id: "R1", guest_id: "g2", is_primary: false, ifa_status: null });
+    db.rows("room_types").push({ id: "rt1", hotel_id: "h1", name: "Double" });
+    db.rows("ntak_room_type_units").push({ room_type_id: "rt1", hotel_id: "h1", unit_type: "STANDARD", capacity: 2 });
+    db.rows("reservation_folios").push({ id: "f1", reservation_id: "R1", hotel_id: "h1" });
+    db.rows("service_catalog_items").push({ id: "sc1", category: "minibar" });
+    db.rows("folio_lines").push({ id: "l1", folio_id: "f1", service_catalog_item_id: "sc1", service_date: Y, room_id: "r101", gross_total: 2500, vat_rate: 27, currency: "HUF", status: "open", source_type: "manual" });
+    db.rows("payments").push(
+      { id: "p1", reservation_id: "R1", hotel_id: "h1", amount: 20000, currency: "HUF", method: "card", status: "recorded", received_at: addDays(Y, -3) + "T09:00:00Z" },
+      { id: "p2", reservation_id: "R1", hotel_id: "h1", amount: 5000, currency: "HUF", method: "cash", status: "recorded", received_at: Y + "T15:00:00Z" },
+    );
+    db.rows("ntak_booking_queue").push({ hotel_id: "h1", booking_no: "HC-2", dirty_at: new Date().toISOString(), last_sent_at: null, cancelled_sent: false },
+      { hotel_id: "h1", booking_no: "CHX-1", dirty_at: new Date().toISOString(), last_sent_at: null, cancelled_sent: false });
+    db.rows("ntak_event_queue").push({ id: "e1", hotel_id: "h1", reservation_id: "R1", kind: "erkezett", occurred_at: Y + "T14:00:00Z", room_id: "r101", from_room_id: null, state: "queued", is_correction: false });
+
+    // 1. Daily closure for yesterday.
+    const closure = await queueClosure(db, s, Y, { actor: "u1" });
+    assert.ok(closure.ok, JSON.stringify(closure.build.checklist));
+    assert.equal(closure.build.classification, "UJ");
+    assert.deepEqual(closure.build.closure.rooms, { total: 2, ooo: 1, oos: 0, rented: 1, available: 1 });
+    const night = closure.build.closure.nights[0];
+    assert.equal(night.guests.length, 2);
+    assert.equal(night.guests[0].nationality, "HU", "alpha-3 nationality mapped to ISO-2");
+    assert.deepEqual(night.sold!.payments, [{ amount: 20000, type: "BANKKARTYA" }, { amount: 5000, type: "KESZPENZ" }]);
+    assert.deepEqual(night.sold!.outPackage.map((c) => c.main), ["IFA", "IFA", "EGYEB"]);
+    assert.equal(db.rows("ntak_guest_ids").length, 2, "guest ids stored at first report");
+
+    // 2. Advance bookings: HC-2 is sent, CHX-1 (already arrived) is skipped.
+    assert.deepEqual(await processBookings(db, s, 10), { queued: 1, clean: 1, problems: 0 });
+    assert.match(db.rows("ntak_booking_queue").find((q) => q.booking_no === "CHX-1")!.last_problem, /past/);
+
+    // 3. Stay event and 4. start-date query.
+    assert.deepEqual(await processEvents(db, s, 10), { queued: 1, waiting: 0 });
+    await queueStartDateQuery(db, s, "u1");
+
+    // 5. Send: every request must pass signature + schema checks at the fake endpoint.
+    const sent = await sendDue(db, s, { limit: 10, deadline: Date.now() + 60000 });
+    assert.equal(sent.sent, 4, JSON.stringify(db.rows("ntak_messages").map((m) => [m.kind, m.state, m.last_error])));
+    assert.deepEqual(db.rows("ntak_messages").map((m) => m.state), ["accepted", "accepted", "accepted", "accepted"]);
+    assert.deepEqual(ntak.requests.map((r) => r.root).sort(), ["adatszolgaltatasKezdoDatumRequest", "esemenyvezereltAdatkuldesRequest", "foglalasEsemenyRequest", "napiZarasRequest"]);
+    assert.equal(new Set(ntak.requests.map((r) => r.uzenetId)).size, 4, "fresh uzenetId per send");
+
+    // 6. Verification results land on messages, the closure register and settings.
+    assert.equal((await verifyDue(db, s, true)).checked, 4);
+    const c = db.rows("ntak_daily_closures").find((x) => x.closed_day === Y)!;
+    assert.equal(c.state, "warnings");
+    assert.equal(c.accepted_once, true);
+    const closureMsg = db.rows("ntak_messages").find((m) => m.kind === "closure")!;
+    assert.equal(closureMsg.ntak_status, "VIZSGALANDO");
+    assert.equal(closureMsg.warnings[0].key, "ElteresRegisztraltAdatokban");
+    assert.match(closureMsg.warnings[0].hint, /registration/);
+    assert.equal(db.rows("ntak_settings")[0].data_start_date, "2026-01-01");
+    assert.equal(await classificationFor(db, s, Y), "MODOSITO");
+
+    // 7. A correction needs a record id and a reason, then goes out as MODOSITO.
+    assert.equal((await queueClosure(db, s, Y, {})).ok, false);
+    const fix = await queueClosure(db, s, Y, { protocolId: "JK-1", reason: "Minibár tétel javítása" });
+    assert.ok(fix.ok);
+    assert.match(fix.build.xml, /<v9:besorolas>MODOSITO<\/v9:besorolas><v9:jegyzokonyvAzonosito>JK-1</);
+
+    // 8. Server error -> retry in 1 minute; certificate/registration error -> sending stops.
+    ntak.rejectNext = "SzerverHiba";
+    await sendDue(db, s, { limit: 1, deadline: Date.now() + 60000 });
+    const retry = db.rows("ntak_messages").find((m) => m.state === "retry")!;
+    assert.ok(Date.parse(retry.next_attempt_at) - Date.now() > 50000);
+    retry.next_attempt_at = new Date(Date.now() - 1000).toISOString();
+    ntak.rejectNext = "ElteresCnAdatok";
+    await sendDue(db, s, { limit: 1, deadline: Date.now() + 60000 });
+    assert.match(db.rows("ntak_settings")[0].sending_blocked_reason, /ElteresCnAdatok/);
+    assert.match((await sendDue(db, s, { limit: 1, deadline: Date.now() + 60000 })).skipped!, /Sending stopped/);
+
+    // 9. Data changed after acceptance -> the day is flagged for a correction.
+    s.sending_blocked_reason = null;
+    db.rows("ntak_daily_closures")[0].state = "accepted";
+    db.rows("ntak_daily_closures")[0].updated_at = new Date(Date.now() - 2 * 3600000).toISOString(); // drift checks run hourly
+    db.rows("ntak_daily_closures")[0].snapshot = closure.build && { closure: closure.build.closure, checklist: [], totals: closure.build.totals };
+    db.rows("folio_lines")[0].gross_total = 3000;
+    assert.equal(await detectDrift(db, s), 1);
+    assert.equal(db.rows("ntak_daily_closures")[0].needs_correction, true);
+  } finally {
+    await ntak.close();
+  }
+});
