@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type ChatStatus, type FileUIPart, type UIMessage } from "ai";
-import { CheckCircle2, FileImage, FileText, Flag, Loader2, Mic, MicOff, Paperclip, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Brain, Check, CheckCircle2, Copy, FileImage, FileText, Flag, Loader2, Mic, MicOff, Paperclip, Pencil, RefreshCw, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Conversation,
@@ -43,7 +43,10 @@ import EmailDraftCard, { isEmailDraft } from "./EmailDraftCard";
 import ReviewReplyCard, { isReviewReply } from "./ReviewReplyCard";
 import { cn } from "@/lib/utils";
 import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
-import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
+import { sendAssistantFeedback } from "@/lib/assistant/issueReports";
+import { fetchAssistantUsage, usageBlocked, usageNotice, type AssistantUsage } from "@/lib/assistant/usage";
+import { answerLooksUnresolved } from "@/lib/assistant/answerSignals";
+import ReportProblemDialog from "./ReportProblemDialog";
 import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
 import ActionConfirmCard, { isActionProposal } from "./ActionConfirmCard";
 import ClarifyingQuestionCard, { isClarifyingQuestions } from "./ClarifyingQuestionCard";
@@ -65,6 +68,9 @@ const SCOPE_LABEL: Record<string, string> = {
 
 type AssistantMetadata = {
   needsScope?: string;
+  /** Mira declined: outside HotelCare work or outside the person's role. */
+  declined?: string;
+  refused?: boolean;
   /** Charts and images of a stored answer, restored when a chat is reopened. */
   attachments?: unknown[];
   premiumRequired?: boolean;
@@ -341,8 +347,8 @@ function MiraSubmit({ draft, status, busy = false, quotaReached = false, onStop 
 function MiraAddFileMenu() {
   return (
     <PromptInputActionMenu>
-      <PromptInputActionMenuTrigger className="h-9 gap-1.5 rounded-full border px-3 text-xs font-medium" aria-label="Attach a photo or PDF">
-        <Paperclip className="h-4 w-4" /><span>Photo / PDF</span>
+      <PromptInputActionMenuTrigger className="h-9 gap-1.5 rounded-full border px-2.5 text-xs font-medium sm:px-3" aria-label="Attach a photo or PDF">
+        <Paperclip className="h-4 w-4" /><span className="hidden sm:inline">Photo / PDF</span>
       </PromptInputActionMenuTrigger>
       <PromptInputActionMenuContent>
         <PromptInputActionAddAttachments label="Attach photos or a PDF" />
@@ -351,12 +357,40 @@ function MiraAddFileMenu() {
   );
 }
 
-function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: string }) {
+/** Copies text and briefly shows a tick, like other chat apps. */
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={copied ? "Copied" : label}
+      title={copied ? "Copied" : label}
+      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        }).catch(() => toast.error("Could not copy"));
+      }}
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
+/** Actions under an answer: copy, regenerate, rate, report. */
+function AnswerActions({
+  threadId, messageId, text, canRegenerate, onRegenerate, onReport,
+}: {
+  threadId: string;
+  messageId: string;
+  text: string;
+  canRegenerate: boolean;
+  onRegenerate: () => void;
+  onReport: () => void;
+}) {
   const { profile } = useAuth();
   const [sent, setSent] = useState<null | boolean>(null);
-  if (sent !== null) {
-    return <p className="mt-2 text-xs text-muted-foreground">Thanks for the feedback.</p>;
-  }
   const send = (helpful: boolean) => {
     setSent(helpful);
     void sendAssistantFeedback({
@@ -366,14 +400,31 @@ function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: 
       organizationSlug: profile?.organization_slug ?? null,
       hotelId: profile?.assigned_hotel ?? null,
     });
+    if (!helpful) toast("Thanks. Want the HotelCare team to look at it?", { action: { label: "Report", onClick: onReport } });
   };
+  const iconButton = "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
   return (
-    <div className="mt-2 flex items-center gap-1 opacity-60 transition-opacity hover:opacity-100">
-      <button aria-label="Helpful" className="rounded p-1 hover:bg-accent" onClick={() => send(true)}>
-        <ThumbsUp className="h-3.5 w-3.5" />
-      </button>
-      <button aria-label="Not helpful" className="rounded p-1 hover:bg-accent" onClick={() => send(false)}>
-        <ThumbsDown className="h-3.5 w-3.5" />
+    <div className="mt-1.5 flex items-center gap-0.5 opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100" aria-label="Answer actions">
+      <CopyButton text={text} label="Copy answer" />
+      {canRegenerate && (
+        <button type="button" aria-label="Regenerate answer" title="Regenerate" className={iconButton} onClick={onRegenerate}>
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {sent === null ? (
+        <>
+          <button type="button" aria-label="Helpful" title="Helpful" className={iconButton} onClick={() => send(true)}>
+            <ThumbsUp className="h-3.5 w-3.5" />
+          </button>
+          <button type="button" aria-label="Not helpful" title="Not helpful" className={iconButton} onClick={() => send(false)}>
+            <ThumbsDown className="h-3.5 w-3.5" />
+          </button>
+        </>
+      ) : (
+        <span className="px-1.5 text-xs text-muted-foreground">Thanks for the feedback.</span>
+      )}
+      <button type="button" aria-label="Report this answer to the HotelCare team" title="Report to the HotelCare team" className={iconButton} onClick={onReport}>
+        <Flag className="h-3.5 w-3.5" />
       </button>
     </div>
   );
@@ -412,12 +463,17 @@ function ChatSession({
   useEffect(() => { saveAssistantDraft(threadId, draft); }, [threadId, draft]);
   const [showResume, setShowResume] = useState(initialMessages.length > 0);
   const [modelTier, setModelTier] = useState<"auto" | "fast" | "balanced" | "deep">("auto");
-  const [usage, setUsage] = useState<{ used: number; remaining: number | null; unlimited: boolean; resets_on?: string } | null>(null);
+  // Plan and usage come from the server; sending pauses only at a real limit.
+  const [usage, setUsage] = useState<AssistantUsage | null>(null);
   const refreshUsage = useCallback(async () => {
-    const { data, error } = await (supabase as any).rpc("assistant_monthly_status");
-    if (!error && data) setUsage(data);
+    const next = await fetchAssistantUsage().catch(() => null);
+    if (next) setUsage(next);
   }, []);
   useEffect(() => { void refreshUsage(); }, [refreshUsage]);
+  const blocked = usageBlocked(usage);
+  const notice = usageNotice(usage);
+  // Report to the HotelCare team: from an answer, a failure or the composer.
+  const [report, setReport] = useState<{ messageId: string | null; error: string | null; category?: string } | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const failureDetailsRef = useRef<string | null>(null);
   const [analysisElapsedMs, setAnalysisElapsedMs] = useState(0);
@@ -449,10 +505,10 @@ function ChatSession({
     onError: (error) => {
       void refreshUsage();
       failureDetailsRef.current = error instanceof Error ? error.message.slice(0, 700) : String(error).slice(0, 700);
-      const quotaFailure = /monthly (?:allowance|message|quota)|message limit reached/i.test(failureDetailsRef.current);
-      setFailed(quotaFailure
-        ? "Your monthly message allowance has been reached. It resets on the 1st."
-        : "The assistant could not process this request. No action has been confirmed.");
+      const limitFailure = /monthly|daily safety limit|messages to Mira|allowance|message limit/i.test(failureDetailsRef.current);
+      setFailed(limitFailure
+        ? failureDetailsRef.current.replace(/^.*?"error"\s*:\s*"([^"]+)".*$/s, "$1")
+        : "Mira could not answer this just now. Nothing was changed. Try again, or report it and the HotelCare team will look at it.");
     },
     onFinish: async ({ message, isAbort }) => {
       if (isAbort && user && !cancelSavedRef.current) {
@@ -550,7 +606,7 @@ function ChatSession({
 
   const submit = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
     const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
-    if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return;
+    if (!value || blocked || status === "submitted" || status === "streaming") return;
     setDraft("");
     setShowResume(false);
     setFailed(null);
@@ -561,7 +617,7 @@ function ChatSession({
   // A tapped answer to Mira's question. Unlike submit, a half-typed draft stays.
   const sendQuickAnswer = (text: string): boolean => {
     const value = text.trim();
-    if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return false;
+    if (!value || blocked || status === "submitted" || status === "streaming") return false;
     setShowResume(false);
     setFailed(null);
     lastQuestionRef.current = value;
@@ -575,19 +631,18 @@ function ChatSession({
     await regenerate();
   };
 
-  const reportFailure = async () => {
-    const result = await reportAssistantIssue({
-      title: "The assistant could not answer",
-      description: lastQuestionRef.current || "No question captured",
-      category: "assistant",
-      severity: "normal",
-      threadId,
-      page,
-      diagnostics: { error: failureDetailsRef.current },
+  const reportFailure = () => setReport({ messageId: null, error: failureDetailsRef.current, category: "assistant" });
+
+  /** Edit the last question: it goes back into the composer, ready to resend. */
+  const editLastQuestion = (text: string) => {
+    if (status === "submitted" || status === "streaming") return;
+    setDraft(text);
+    window.requestAnimationFrame(() => {
+      const box = textareaRef.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(text.length, text.length);
     });
-    if (!result.ok) toast.error(result.error ?? "Could not save the report.");
-    else if (result.emailed) toast.success("Report saved and emailed to administrators.");
-    else toast.warning("Report saved as " + result.id + ", but email delivery could not be confirmed.");
   };
 
   const generating = status === "submitted" || status === "streaming";
@@ -613,6 +668,11 @@ function ChatSession({
     }, 500);
     return () => window.clearInterval(timer);
   }, [generating]);
+
+  const lastUserIndex = useMemo(
+    () => messages.reduce((last, m, i) => (m.role === "user" ? i : last), -1),
+    [messages],
+  );
 
   const analysisLabel = useMemo(() => {
     const q = lastQuestionRef.current.toLowerCase();
@@ -660,17 +720,16 @@ function ChatSession({
                 >
                   {message.role === "assistant" ? (
                     <>
-                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                      <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                         <span className="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-primary">
                           <Sparkles className="h-3.5 w-3.5" />
                         </span>
                         <span className="text-foreground">Mira</span>
-                        <span className="font-normal">HotelCare Operator</span>
                       </div>
                       <MessageResponse>{text}</MessageResponse>
                     </>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="group/user space-y-2">
                       <p className="whitespace-pre-wrap">{text}</p>
                       {message.parts.filter((part) => part.type === "file").map((part, partIndex) => (
                         <span key={partIndex} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-primary-foreground/10 px-2 py-1 text-xs">
@@ -687,6 +746,16 @@ function ChatSession({
                       const toolName = part.type === "dynamic-tool" ? toolPart.toolName : part.type.slice(5);
                       const key = `${message.id}-${partIndex}`;
 
+                      if ((toolName === "remember_about_user" || toolName === "forget_about_user") && toolPart.state === "output-available") {
+                        const saved = toolPart.output?.memoryUpdate === "saved";
+                        const deleted = toolPart.output?.memoryUpdate === "deleted";
+                        if (!saved && !deleted) return null;
+                        return (
+                          <p key={`${key}-memory`} className="mt-2 inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+                            <Brain className="h-3 w-3" /> {saved ? "Memory updated" : "Removed from memory"}
+                          </p>
+                        );
+                      }
                       if (toolName === "execute_action" && toolPart.output?.ok === true) {
                         return (
                           <div key={key} className="mt-2 flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-xs">
@@ -878,10 +947,43 @@ function ChatSession({
                       </Button>
                     </div>
                   )}
+                  {message.role === "assistant" && !generating && text.length > 0 && isLast &&
+                    !message.metadata?.declined && !needsScope && answerLooksUnresolved(text) && (
+                    <Button size="sm" variant="outline" className="mt-3 h-8 gap-1.5 rounded-full text-xs"
+                      onClick={() => setReport({ messageId: message.id, error: null, category: "assistant" })}>
+                      <Flag className="h-3.5 w-3.5" /> Report to the HotelCare team
+                    </Button>
+                  )}
                   {message.role === "assistant" && !generating && text.length > 0 && (
-                    <AnswerFeedback threadId={threadId} messageId={message.id} />
+                    <AnswerActions
+                      threadId={threadId}
+                      messageId={message.id}
+                      text={text}
+                      canRegenerate={isLast}
+                      onRegenerate={() => void retryLastQuestion()}
+                      onReport={() => setReport({ messageId: message.id, error: null })}
+                    />
                   )}
                 </MessageContent>
+                {message.role === "user" && text.length > 0 && (
+                  <div className={cn(
+                    "ml-auto flex items-center gap-0.5 transition-opacity",
+                    index === lastUserIndex ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-70 focus-within:opacity-100",
+                  )}>
+                    <CopyButton text={text} label="Copy message" />
+                    {index === lastUserIndex && !generating && (
+                      <button
+                        type="button"
+                        aria-label="Edit and resend"
+                        title="Edit and resend"
+                        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        onClick={() => editLastQuestion(text)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
               </Message>
             );
           })}
@@ -924,10 +1026,6 @@ function ChatSession({
       </Conversation>
 
       <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-3xl px-2 sm:px-6" : "border-t")}>
-        <div className="mb-2 flex items-center justify-between gap-2 px-2 text-[11px] text-muted-foreground">
-          <span className="truncate">Mira · {page.hotelId || profile?.assigned_hotel || "Your authorized hotels"} · Permission-aware</span>
-          {usage && <span>{usage.unlimited ? "Unlimited messages" : `${usage.used}/20 messages this month`}</span>}
-        </div>
         {profile?.role === "admin" && (
           <div className="mb-2 flex items-center gap-2 px-2">
             <span className="text-xs text-muted-foreground">AI model</span>
@@ -942,9 +1040,9 @@ function ChatSession({
             </Select>
           </div>
         )}
-        {usage && !usage.unlimited && usage.remaining === 0 && (
+        {notice && (
           <p role="status" className="mb-2 rounded-lg bg-muted px-3 py-2 text-xs">
-            Your 20 monthly messages are used. Your allowance resets on the 1st.
+            {notice}
           </p>
         )}
         <PromptInput onSubmit={submit} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className="rounded-2xl bg-background shadow-sm">
@@ -983,7 +1081,7 @@ function ChatSession({
                 ) : (
                   <Mic className="h-4 w-4" />
                 )}
-                <span>{dictation === "recording" ? "Stop & transcribe" : dictation === "transcribing" ? "Transcribing…" : "Voice to text"}</span>
+                <span className={dictation === "idle" ? "hidden sm:inline" : undefined}>{dictation === "recording" ? "Stop & transcribe" : dictation === "transcribing" ? "Transcribing…" : "Voice"}</span>
               </PromptInputButton>
               {dictation === "recording" && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -995,10 +1093,24 @@ function ChatSession({
               )}
             </PromptInputTools>
 
-            <MiraSubmit draft={draft} status={status as ChatStatus} onStop={() => void stop()} quotaReached={Boolean(usage && !usage.unlimited && usage.remaining === 0)} />
+            <MiraSubmit draft={draft} status={status as ChatStatus} onStop={() => void stop()} quotaReached={blocked} />
           </PromptInputFooter>
         </PromptInput>
+        <div className="mt-1.5 flex items-center justify-center gap-1.5 px-2 text-center text-[11px] text-muted-foreground">
+          <span>Mira can make mistakes<span className="hidden sm:inline">; check important details</span>.</span>
+          <button type="button" className="whitespace-nowrap underline-offset-2 hover:underline" onClick={() => setReport({ messageId: null, error: null })}>
+            Report a problem
+          </button>
+        </div>
       </div>
+      <ReportProblemDialog
+        open={report !== null}
+        onOpenChange={(open) => { if (!open) setReport(null); }}
+        threadId={threadId}
+        messageId={report?.messageId ?? null}
+        defaultCategory={report?.category}
+        technicalError={report?.error ?? null}
+      />
     </div>
   );
 }
@@ -1124,10 +1236,10 @@ export default function AssistantChat({
                     onClick={toggleWelcomeVoice}
                     disabled={!welcomeVoiceSupported || welcomeDictation === "transcribing" || starting}
                     aria-label={welcomeDictation === "recording" ? "Stop and transcribe voice input" : "Start voice-to-text"}
-                    className="h-9 gap-2 rounded-full border px-3 text-xs font-medium"
+                    className="h-9 gap-2 rounded-full border px-2.5 text-xs font-medium sm:px-3"
                   >
                     {welcomeDictation === "transcribing" ? <Loader2 className="h-4 w-4 animate-spin" /> : welcomeDictation === "recording" ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    <span>{welcomeDictation === "recording" ? "Stop & transcribe" : welcomeDictation === "transcribing" ? "Transcribing…" : "Voice to text"}</span>
+                    <span className={welcomeDictation === "idle" ? "hidden sm:inline" : undefined}>{welcomeDictation === "recording" ? "Stop & transcribe" : welcomeDictation === "transcribing" ? "Transcribing…" : "Voice"}</span>
                   </PromptInputButton>
                   {welcomeDictation === "recording" && <span className="flex items-center gap-1 text-xs text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Listening…</span>}
                 </PromptInputTools>

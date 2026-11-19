@@ -26,6 +26,7 @@ import AssistantChat from "@/components/assistant/AssistantChat";
 import AssistantSidebar from "@/components/assistant/AssistantSidebar";
 import AssistantAccessRequests, { canApproveAssistantAccess } from "@/components/assistant/AssistantAccessRequests";
 import ReportProblemDialog from "@/components/assistant/ReportProblemDialog";
+import MemoryDialog from "@/components/assistant/MemoryDialog";
 import ApprovalsHistory from "@/components/assistant/plans/ApprovalsHistory";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MailboxesDialog from "@/components/assistant/MailboxesDialog";
@@ -71,6 +72,7 @@ export default function AssistantPage() {
   });
   const [mobileNav, setMobileNav] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [mailOpen, setMailOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -289,6 +291,7 @@ export default function AssistantPage() {
       onDeleteProject={setDeletingProject}
       onOpenInsights={() => navigate(`/${profile?.organization_slug}/assistant-insights`)}
       onReport={() => setReportOpen(true)}
+      onOpenMemory={() => { setMobileNav(false); setMemoryOpen(true); }}
       onBack={() => navigate(getAssistantReturnPath(userId, organizationSlug) ?? `/${profile?.organization_slug ?? ""}`)}
       onCollapse={onCollapse}
     />
@@ -323,7 +326,7 @@ export default function AssistantPage() {
             <div className="min-w-0">
               <h1 className="flex items-center gap-2 text-sm font-semibold leading-5">
                 <span>Mira</span>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">AI Operator</span>
+                <span className="hidden whitespace-nowrap rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary sm:inline">AI Operator</span>
               </h1>
               <p className="truncate text-xs text-muted-foreground">
                 {activeProject ? `${activeProject.name} · ` : ""}
@@ -558,6 +561,7 @@ export default function AssistantPage() {
 
       <MailboxesDialog open={mailOpen} onOpenChange={setMailOpen} />
       <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} threadId={threadId ?? null} />
+      <MemoryDialog open={memoryOpen} onOpenChange={setMemoryOpen} />
     </div>
   );
 }

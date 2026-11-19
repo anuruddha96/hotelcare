@@ -8,7 +8,8 @@
  */
 export function geminiFirstStreamingModel(
   candidates: any[],
-  openaiFallback: any,
+  // One OpenAI model, or several in order (strongest first, widely available last).
+  openaiFallback: any | any[],
   options: {containsSensitiveData?:boolean} = {},
 ): any {
   const paidApproved = Deno.env.get("GEMINI_PAID_DATA_PROCESSING_CONFIRMED") === "true";
@@ -16,8 +17,9 @@ export function geminiFirstStreamingModel(
     Deno.env.get("GEMINI_DISABLED") !== "true" &&
     (!options.containsSensitiveData || paidApproved);
   const preferred = allowed ? candidates : [];
+  const fallbacks = (Array.isArray(openaiFallback) ? openaiFallback : [openaiFallback]).filter(Boolean);
   const chain = [...preferred, ...(Deno.env.get("OPENAI_API_KEY") &&
-    Deno.env.get("GEMINI_OPENAI_FALLBACK_DISABLED") !== "true" ? [openaiFallback] : [])];
+    Deno.env.get("GEMINI_OPENAI_FALLBACK_DISABLED") !== "true" ? fallbacks : [])];
   if (!chain.length) throw new Error("No approved Gemini or OpenAI model is available");
   const model = chain[0];
   let actualModelId = String(model.modelId);

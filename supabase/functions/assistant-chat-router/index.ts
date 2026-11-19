@@ -3,8 +3,14 @@ import { createOpenAI } from "npm:@ai-sdk/openai@4";
 import { geminiFirstStreamingModel } from "../_shared/geminiFirstStreamingModel.ts";
 import { streamText } from "npm:ai@7";
 import { logAiUsage } from "../_shared/aiBudget.ts";
-import { reserveMonthlyMessage, recordAssistantTokenUsage, refundMonthlyMessage } from "../_shared/assistantGovernance.ts";
-import { detectAssistantWorkflow, isPricingApprovalContinuation, MODEL_BY_PURPOSE } from "../_shared/aiModelPolicy.ts";
+import {
+  notifyMiraOutage, recordAssistantTokenUsage, refundMonthlyMessage, reserveAssistantMessage,
+} from "../_shared/assistantGovernance.ts";
+import { buildDateContext, dateContextPrompt } from "../_shared/miraDates.ts";
+import { miraLadder } from "../_shared/miraModels.ts";
+import { limitReachedMessage, miraUsagePolicyFor } from "../_shared/miraUsagePolicy.ts";
+import { detectPromptInjection } from "../_shared/miraGuard.ts";
+import { detectAssistantWorkflow, isPricingApprovalContinuation } from "../_shared/aiModelPolicy.ts";
 import { generateLowCostText } from "../_shared/lowCostAi.ts";
 import { capabilitiesFor, miraScopesFor } from "../_shared/accessPolicy.ts";
 
@@ -12,9 +18,6 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-const configuredPremium = Deno.env.get("OPENAI_PREMIUM_MODEL") || MODEL_BY_PURPOSE.premium;
-const PREMIUM_MODEL = /^gpt-(?:6(?:\\.|-|$)|5\\.6(?:\\.|-|$))/i.test(configuredPremium)
-  ? "gpt-4.1-mini" : configuredPremium;
 const HOTEL_TZ = "Europe/Budapest";
 
 type Scope = "revenue" | "housekeeping" | "maintenance" | "reception";
@@ -926,10 +929,14 @@ Deno.serve(async (req) => {
   const pricingApprovalFollowup = isPricingApprovalContinuation(question, extractText(lastAssistantTurn));
   // Rates can be changed only by the authenticated, tool-using assistant with
   // explicit approval. Deep text-only analysis must never take its place.
-  const needsAgent = hasIncomingFiles || (!readOnlyRevenueReport &&
+  const needsAgent = hasIncomingFiles || detectPromptInjection(question) || (!readOnlyRevenueReport &&
     (detectAssistantWorkflow(question) !== null || pricingApprovalFollowup || requestsOperationalAction(question) ||
       answersClarifyingQuestion(lastAssistantTurn)));
-  if (hasIncomingFiles || (!readOnlyRevenueReport && (needsAgent || isOperationalWrite(question) || (!isComplexQuestion(question) && body?.model_tier !== "deep")))) {
+  // The text-only deep analysis has a rich revenue context only. Complex
+  // housekeeping, maintenance, reception or people questions go to the agent,
+  // which now reasons with the strong model AND can look up any day and room.
+  const deepRevenueAnalysis = isComplexQuestion(question) && requestedScope(question) === "revenue";
+  if (hasIncomingFiles || (!readOnlyRevenueReport && (needsAgent || isOperationalWrite(question) || (!deepRevenueAnalysis && body?.model_tier !== "deep")))) {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/assistant-chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: authHeader },
@@ -989,8 +996,11 @@ Deno.serve(async (req) => {
     firstName: "", role: profile.role, hotelId: profile.assigned_hotel,
     organizationSlug: targetOrgSlug,
   };
-  const quota = await reserveMonthlyMessage(db, monthlyActor, messageId);
-  if (!quota.allowed) return json({ error: "Your 20 monthly HotelCare Assistant messages have been used. The allowance resets on the 1st.", quota }, 429);
+  const { data: unlimitedRow } = await db.from("assistant_unlimited_users")
+    .select("enabled").eq("user_id", authData.user.id).maybeSingle();
+  const usagePolicy = miraUsagePolicyFor(profile, { unlimitedOverride: unlimitedRow?.enabled === true });
+  const quota = await reserveAssistantMessage(db, monthlyActor, messageId, usagePolicy);
+  if (!quota.allowed) return json({ error: limitReachedMessage(usagePolicy, quota.reason ?? "monthly"), quota }, 429);
   if (quota.duplicate) return json({ error: "This message was already submitted. Check your conversation first." }, 409);
 
   let finalize: ((success: boolean) => Promise<void>) | null = null;
@@ -1015,7 +1025,7 @@ Deno.serve(async (req) => {
       content: String(row.content ?? "").slice(0, 5000),
     }));
 
-    // The unified 20-message monthly allowance replaces the old 5/day deep-chat
+    // The role-based message allowance (miraUsagePolicy) replaces the old 5/day deep-chat
     // billing gate. Do not demand paid credits for a message already permitted.
     const reservation = { allowed: true, usage_id: null };
     if (!reservation?.allowed) {
@@ -1095,14 +1105,19 @@ Deno.serve(async (req) => {
     const geminiKey=Deno.env.get("GEMINI_API_KEY");
     const gemini=geminiKey?createOpenAI({apiKey:geminiKey,
       baseURL:"https://generativelanguage.googleapis.com/v1beta/openai/"}):null;
-    const modelUsed=geminiFirstStreamingModel(gemini?[
-      gemini.chat(Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite"),
-      gemini.chat(Deno.env.get("GEMINI_SECONDARY_MODEL") || "gemini-3.5-flash"),
-    ]:[],openai.responses(PREMIUM_MODEL),{containsSensitiveData:true});
+    // Deep analysis uses the reasoning ladder: strongest models first.
+    const ladder = miraLadder("reasoning");
+    const modelUsed = geminiFirstStreamingModel(
+      gemini ? ladder.gemini.map((id) => gemini.chat(id)) : [],
+      ladder.openai.map((id) => openai.responses(id)),
+      { containsSensitiveData: true },
+    );
     const result = streamText({
       model: modelUsed,
       system: `You are HotelCare Deep Analysis, the highest-intelligence problem-solving tier inside HotelCare.app. Use the strongest available reasoning for questions that require KPI diagnosis, revenue strategy, root-cause analysis or multi-signal decisions. The answer must feel like an experienced hotel revenue manager investigated the problem, not like a generic chatbot.
 You speak as Mira by HotelCare. Never name or hint at an underlying AI model, provider or vendor (no Gemini, Google AI, OpenAI, GPT, ChatGPT, Claude or similar); if asked, you are HotelCare's built-in assistant.
+
+${dateContextPrompt(buildDateContext(new Date()))}
 
 CURRENT HOTELCARE CONTEXT is authoritative for this turn and OVERRIDES earlier assistant messages. If an earlier answer claimed data was unavailable but current context contains it, ignore the old claim.
 
@@ -1170,7 +1185,7 @@ Never expose table names, database fields, internal ids, tools, model names, quo
         });
       },
       providerOptions: {
-        openai: { store: false },
+        openai: { store: false, ...(ladder.reasoningEffort ? { reasoningEffort: ladder.reasoningEffort } : {}) },
       },
     });
 
@@ -1191,7 +1206,7 @@ Never expose table names, database fields, internal ids, tools, model names, quo
           user_id: authData.user.id,
           role: "assistant",
           content: answer,
-          model: PREMIUM_MODEL,
+          model: modelUsed.actualModelId,
           refused: false,
         });
         if (saveError) {
@@ -1208,7 +1223,7 @@ Never expose table names, database fields, internal ids, tools, model names, quo
           question,
           refused: false,
           scopes_used: scope ? [`premium-${scope}`] : ["premium-analysis"],
-          model: PREMIUM_MODEL,
+          model: modelUsed.actualModelId,
         });
         await finalize?.(true);
       },
@@ -1216,6 +1231,9 @@ Never expose table names, database fields, internal ids, tools, model names, quo
         if (finalize) runInBackground(finalize(false));
         runInBackground(refundMonthlyMessage(db, authData.user.id, messageId));
         console.error("premium assistant stream failed", error);
+        runInBackground(notifyMiraOutage(db, monthlyActor, {
+          stage: "deep analysis stream", error: error instanceof Error ? error.message : String(error ?? ""), threadId, question,
+        }));
         return "The deep analysis could not finish. Your allowance has been returned; please try again.";
       },
     });
@@ -1224,6 +1242,9 @@ Never expose table names, database fields, internal ids, tools, model names, quo
     await refundMonthlyMessage(db, authData.user.id, messageId);
     if (error instanceof DOMException && error.name === "AbortError") return json({ error: "Request cancelled" }, 499);
     console.error("assistant-chat-router premium error", error);
+    runInBackground(notifyMiraOutage(db, monthlyActor, {
+      stage: "deep analysis", error: error instanceof Error ? error.message : String(error ?? ""), threadId, question,
+    }));
     return json({ error: error instanceof Error ? error.message : "Deep analysis failed" }, 500);
   }
 });
