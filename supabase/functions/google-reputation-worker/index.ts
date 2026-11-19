@@ -121,15 +121,21 @@ function autoEligible(location: any, stars: number, risk: string, reviewTime: st
  * Listings added to (or shared with) the connected Google account after the
  * initial setup used to stay invisible until a manager re-ran discovery by
  * hand, so their reviews were never synced or answered. The scheduled worker
- * now checks each connection for new listings on this interval. New listings
+ * now checks every connection for new listings once per cycle. New listings
  * are added with auto-reply OFF (column defaults); publishing still requires
  * explicit consent in Reputation settings.
+ *
+ * Each connection owns one two-minute cron slot per cycle (180 slots = 6 h),
+ * so no schedule state needs to be stored and connections are spread out.
  */
-const LOCATION_DISCOVERY_INTERVAL_MS = 6 * 3_600_000;
+const CRON_TICK_MS = 120_000;
+const LOCATION_DISCOVERY_SLOTS = 180;
 
-function locationDiscoveryDue(connection: any) {
-  const checked = new Date(connection?.location_discovery_checked_at || "").getTime();
-  return !Number.isFinite(checked) || Date.now() - checked >= LOCATION_DISCOVERY_INTERVAL_MS;
+function connectionsDueForDiscovery(connections: any[], now = Date.now()) {
+  const slot = Math.floor(now / CRON_TICK_MS) % LOCATION_DISCOVERY_SLOTS;
+  return [...connections]
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .filter((_, index) => index % LOCATION_DISCOVERY_SLOTS === slot);
 }
 
 Deno.serve(async (req) => {
@@ -349,14 +355,6 @@ Deno.serve(async (req) => {
         discovery_connection_id: connection.id,
         error: `Location discovery: ${error instanceof Error ? error.message : String(error)}`,
       });
-    } finally {
-      // Stamp attempts too, so a persistent failure retries on the interval
-      // instead of on every two-minute tick.
-      const { error: stampError } = await admin
-        .from("google_business_connections")
-        .update({ location_discovery_checked_at: new Date().toISOString() })
-        .eq("id", connection.id);
-      if (stampError) console.error("google-reputation-discovery stamp", stampError.message);
     }
   }
 
@@ -699,13 +697,13 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       }
     }
 
-    // Look for newly accessible Google listings after the review work, at most
-    // one connection per tick. This also covers a connection with no imported
-    // listings yet, which the location round-robin above never selects.
+    // Look for newly accessible Google listings after the review work. This
+    // also covers a connection with no imported listings yet, which the
+    // location round-robin above never selects.
     if (roundRobin) {
-      const dueConnection = (connections || []).find((connection: any) =>
-        locationDiscoveryDue(connection) && !shouldBackoff(connection));
-      if (dueConnection) await runLocationDiscovery(dueConnection);
+      for (const connection of connectionsDueForDiscovery(connections || [])) {
+        if (!shouldBackoff(connection)) await runLocationDiscovery(connection);
+      }
     }
 
     // A cron tick without any discovered listings is not a completed review sync.
