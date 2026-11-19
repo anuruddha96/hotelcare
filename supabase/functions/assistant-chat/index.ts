@@ -93,6 +93,44 @@ function extractText(message: UIMessage | undefined): string {
     .trim();
 }
 
+type MiraIncomingFile = { filename: string; mediaType: string; url: string; bytes: Uint8Array; extension: string };
+const MIRA_ALLOWED_MIME: Record<string, string> = {
+  "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "application/pdf": "pdf",
+};
+const MIRA_MAX_FILE_BYTES = 4 * 1024 * 1024;
+
+function parseMiraIncomingFiles(message: UIMessage | undefined): { files: MiraIncomingFile[]; error?: string } {
+  const parts = (message?.parts ?? []).filter((part) => part.type === "file");
+  if (parts.length > 3) return { files: [], error: "Attach at most three images/PDFs per request." };
+  const files: MiraIncomingFile[] = [];
+  for (const part of parts) {
+    const mediaType = String((part as any).mediaType ?? "").toLowerCase();
+    const extension = MIRA_ALLOWED_MIME[mediaType];
+    if (!extension) return { files: [], error: "Only PNG, JPEG, WebP and PDF attachments are supported." };
+    const url = String((part as any).url ?? "");
+    const prefix = `data:${mediaType};base64,`;
+    if (!url.startsWith(prefix) || url.length > 6_000_000) {
+      return { files: [], error: "Files must be uploaded directly and be under 4 MB each." };
+    }
+    try {
+      const binary = atob(url.slice(prefix.length));
+      if (!binary || binary.length > MIRA_MAX_FILE_BYTES) return { files: [], error: "A file exceeds the 4 MB limit." };
+      const bytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+      const ascii = (offset: number, length: number) => String.fromCharCode(...bytes.subarray(offset, offset + length));
+      const valid = mediaType === "application/pdf" ? ascii(0, 4) === "%PDF"
+        : mediaType === "image/png" ? bytes[0] === 0x89 && ascii(1, 3) === "PNG"
+        : mediaType === "image/jpeg" ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+        : ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP";
+      if (!valid) return { files: [], error: "Attachment content does not match its image/PDF format." };
+      const filename = String((part as any).filename ?? `evidence.${extension}`).replace(/[^A-Za-z0-9._ -]/g, "_").slice(0, 100);
+      files.push({ filename, mediaType, url, bytes, extension });
+    } catch {
+      return { files: [], error: "Could not read the uploaded file. Try a smaller PNG, JPEG, WebP or PDF." };
+    }
+  }
+  return { files };
+}
+
 function normalizeMessages(value: unknown): UIMessage[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > 200) return null;
   const messages = value.filter(
@@ -157,6 +195,7 @@ function buildTools(
   attachments: WorkspaceAttachment[],
   threadId: string | null = null,
   pricingApprovalFollowup = false,
+  incomingFiles: MiraIncomingFile[] = [],
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -1537,8 +1576,46 @@ function buildTools(
         if (!response.ok || !result?.ok) {
           return { ok: false, error: String(result?.error || "HotelCare did not confirm the change.") };
         }
-        return { ok: true, status: kind === "adjust_revenue_prices" ? "queued" : kind === "create_guest_request" ? "recorded" : "completed", summary: result.summary,
+        let evidenceSummary = "";
+        if (kind === "create_ticket" && incomingFiles.length) {
+          const ticketId = String(result.recordId ?? "");
+          const { data: ticket, error: ticketError } = await service.from("tickets")
+            .select("id,organization_slug,created_by,attachment_urls")
+            .eq("id", ticketId)
+            .eq("organization_slug", orgSlug)
+            .eq("created_by", profile.id)
+            .maybeSingle();
+          if (ticketError || !ticket) {
+            evidenceSummary = "Evidence could not be linked to the newly created ticket; ask a manager to check.";
+          } else {
+            const uploadedPaths: string[] = [];
+            for (const file of incomingFiles) {
+              const path = `${ticketId}/${crypto.randomUUID()}.${file.extension}`;
+              const { error: uploadError } = await service.storage.from("ticket-attachments")
+                .upload(path, file.bytes, { contentType: file.mediaType, upsert: false });
+              if (!uploadError) uploadedPaths.push(path);
+              else console.warn("Mira ticket evidence upload failed", uploadError.message);
+            }
+            if (uploadedPaths.length) {
+              const prior = Array.isArray(ticket.attachment_urls) ? ticket.attachment_urls : [];
+              const { data: linked, error: linkError } = await service.from("tickets")
+                .update({ attachment_urls: [...new Set([...prior, ...uploadedPaths])] })
+                .eq("id", ticketId).eq("created_by", profile.id).eq("organization_slug", orgSlug)
+                .select("id")
+                .maybeSingle();
+              if (linkError || !linked) {
+                await service.storage.from("ticket-attachments").remove(uploadedPaths);
+                evidenceSummary = "The ticket was created, but evidence linking failed; no files were confirmed attached.";
+              } else {
+                evidenceSummary = `${uploadedPaths.length} of ${incomingFiles.length} attached evidence file(s) saved to the ticket.`;
+              }
+            } else evidenceSummary = "The ticket was created, but none of the uploaded files could be saved.";
+          }
+        }
+        const summary = [result.summary, evidenceSummary, kind === "create_ticket" ? "Technician assignment and notification delivery must be checked in the maintenance queue." : ""].filter(Boolean).join(" ");
+        return { ok: true, status: kind === "adjust_revenue_prices" ? "queued" : kind === "create_guest_request" ? "recorded" : "completed", summary,
           hotelId: selected[0], recordId: result.recordId ?? null,
+          evidenceAttached: evidenceSummary ? !evidenceSummary.includes("could not") && !evidenceSummary.includes("none") && !evidenceSummary.includes("failed") : null,
           actor: result.actorFirstName ?? null };
       },
     });
@@ -1749,6 +1826,140 @@ function buildTools(
           openNotes: notes.data ?? [],
         };
 
+      },
+    });
+  }
+
+
+
+  if (scopes.has("reception")) {
+    tools.get_room_reservation_context = tool({
+      description: "Check the latest available Previo daily overview for a specified hotel room and business date, before preparing a guest-related maintenance task. Returns booking-stay dates and status if verified. This is an observation, not a reservation API. Never invent a guest name or reservation ID.",
+      inputSchema: jsonSchema<{ hotelId: string | null; roomNumber: string; date: string }>(
+        hotelArgSchema({
+          roomNumber: { type: "string", description: "Exact room number at the specified hotel" },
+          date: { type: "string", description: "Hotel local business date YYYY-MM-DD, usually today" },
+        }, ["roomNumber", "date"]),
+      ),
+      execute: async ({ hotelId, roomNumber, date }) => {
+        if (!/^20\\d{2}-\\d{2}-\\d{2}$/.test(date) || Number.isNaN(Date.parse(date + "T12:00:00Z"))) {
+          return { verified: false, error: "Specify a valid business date YYYY-MM-DD." };
+        }
+        const ids = resolve(hotelId);
+        if (ids.length !== 1) return { verified: false, error: "Specify exactly one authorized hotel." };
+        const { data, error } = await service.from("daily_overview_snapshots")
+          .select("hotel_id,business_date,room_number,room_label,arrival_date,departure_date,status,pax,breakfast,captured_at")
+          .eq("organization_slug", orgSlug)
+          .eq("hotel_id", ids[0])
+          .eq("source", "previo")
+          .eq("business_date", date)
+          .order("captured_at", { ascending: false })
+          .limit(1500);
+        if (error) return { verified: false, error: "Reservation overview could not be read." };
+        const all = data ?? [];
+        const latest = all[0]?.captured_at ?? null;
+        const matches = all.filter((row: any) =>
+          String(row.room_number ?? "").trim() === String(roomNumber).trim() && row.captured_at === latest);
+        const ageMs = latest ? Date.now() - Date.parse(latest) : Number.POSITIVE_INFINITY;
+        const fresh = ageMs >= 0 && ageMs <= 4 * 60 * 60 * 1000;
+        return {
+          hotel_id: ids[0], room_number: String(roomNumber).trim(), business_date: date,
+          captured_at: latest, verified: fresh && matches.length > 0,
+          observations: matches.slice(0, 5).map((row: any) => ({
+            arrival_date: row.arrival_date, departure_date: row.departure_date,
+            status: row.status, pax: row.pax, breakfast: row.breakfast,
+          })),
+          note: matches.length ? fresh
+            ? "Current-day room/booking overview observation, not the reservation system of record."
+            : "Snapshot is older than four hours; do not rely on it as a verified current reservation."
+            : "No room-level reservation observation found; do not infer whether a guest is staying.",
+        };
+      },
+    });
+  }
+
+  // Evidence lookup for a specific authorized room and business date.
+  // Signed URLs are short-lived; never return raw storage paths or unrestricted lists.
+  if (scopes.has("housekeeping")) {
+    tools.get_room_photo_evidence = tool({
+      description: "Read timestamped DND and room completion photo evidence for a specific room/date in an authorized hotel. Use before answering 'show DND photos for room 105 yesterday' or a guest cleaning complaint. Do not infer negligence from a missing photo.",
+      inputSchema: jsonSchema<{ hotelId: string | null; roomNumber: string; date: string; type: "dnd" | "completion" | "both" }>(
+        hotelArgSchema({
+          roomNumber: { type: "string", description: "Exact room number" },
+          date: { type: "string", description: "Business date YYYY-MM-DD in Europe/Budapest time, e.g. yesterday's date" },
+          type: { type: "string", enum: ["dnd", "completion", "both"] },
+        }, ["roomNumber", "date", "type"]),
+      ),
+      execute: async ({ hotelId, roomNumber, date, type }) => {
+        if (!/^20\\d{2}-\\d{2}-\\d{2}$/.test(date) || Number.isNaN(Date.parse(date + "T12:00:00Z"))) {
+          return { error: "Provide a valid calendar date, YYYY-MM-DD. No records were read." };
+        }
+        const ids = resolve(hotelId);
+        if (ids.length !== 1) return { error: "Select one authorized hotel before requesting room photo evidence." };
+        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
+        const { data: rooms, error: roomError } = await service.from("rooms")
+          .select("id,room_number,hotel")
+          .eq("organization_slug", orgSlug)
+          .in("hotel", [...new Set([...ids, ...names])])
+          .eq("room_number", String(roomNumber).trim())
+          .limit(2);
+        if (roomError) return { error: "Could not verify the room for photo access." };
+        if (rooms?.length !== 1) return { error: rooms?.length ? "Ambiguous room number; choose a hotel." : "Room not found at this hotel." };
+        const room = rooms[0];
+        const photos: Array<{ kind: "dnd" | "completion"; captured_at: string | null; date: string; photo_url: string; expires_in_seconds: number }> = [];
+        let dndError: string | null = null;
+        let completionError: string | null = null;
+        if (type === "dnd" || type === "both") {
+          const { data, error } = await service.from("dnd_photos")
+            .select("id,photo_url,marked_at,assignment_date")
+            .eq("room_id", room.id)
+            .eq("assignment_date", date)
+            .order("marked_at", { ascending: false })
+            .limit(12);
+          if (error) dndError = "DND photo metadata could not be read";
+          else {
+            for (const item of data ?? []) {
+              const path = String(item.photo_url ?? "");
+              if (!path || /^https?:/i.test(path)) continue;
+              const { data: signed, error: signError } = await service.storage.from("dnd-photos").createSignedUrl(path, 900);
+              if (!signError && signed?.signedUrl) photos.push({
+                kind: "dnd", captured_at: item.marked_at, date: item.assignment_date,
+                photo_url: signed.signedUrl, expires_in_seconds: 900,
+              });
+            }
+          }
+        }
+        if (type === "completion" || type === "both") {
+          const { data, error } = await service.from("room_assignments")
+            .select("id,assignment_date,completed_at,completion_photos")
+            .eq("room_id", room.id)
+            .eq("assignment_date", date)
+            .not("completion_photos", "is", null)
+            .order("completed_at", { ascending: false })
+            .limit(15);
+          if (error) completionError = "Completion photo metadata could not be read";
+          else {
+            for (const assignment of data ?? []) {
+              for (const url of (Array.isArray(assignment.completion_photos) ? assignment.completion_photos : []).slice(0, 12)) {
+                const path = String(url ?? "");
+                if (!path || /^https?:/i.test(path)) continue;
+                const { data: signed, error: signError } = await service.storage.from("room-photos").createSignedUrl(path, 900);
+                if (!signError && signed?.signedUrl) photos.push({
+                  kind: "completion", captured_at: assignment.completed_at ?? null,
+                  date: assignment.assignment_date, photo_url: signed.signedUrl, expires_in_seconds: 900,
+                });
+                if (photos.length >= 20) break;
+              }
+              if (photos.length >= 20) break;
+            }
+          }
+        }
+        return {
+          hotel: room.hotel, room_number: room.room_number, date, type,
+          photos: photos.slice(0, 20), photo_count: photos.length,
+          errors: [dndError, completionError].filter(Boolean),
+          note: "Temporary signed links expire in 15 minutes. Missing evidence is not proof that cleaning did not happen. Do not invent photos, timestamps or staff conclusions.",
+        };
       },
     });
   }
@@ -2079,6 +2290,9 @@ Deno.serve(async (req) => {
     const latest = [...messages].reverse().find((message) => message.role === "user");
     const question = extractText(latest);
     if (!question || question.length > 10_000) return json({ error: "Question is empty or too long" }, 400);
+    const parsedFiles = parseMiraIncomingFiles(latest);
+    if (parsedFiles.error) return json({ error: parsedFiles.error }, 400);
+    const incomingFiles = parsedFiles.files;
 
     const [{ data: profile, error: profileError }, { data: thread, error: threadError }] = await Promise.all([
       service
@@ -2155,9 +2369,13 @@ Deno.serve(async (req) => {
       }],
     }));
 
-    const modelMessages = [
+    const latestParts = [
+      { type: "text" as const, text: question },
+      ...incomingFiles.map(({ filename, mediaType, url }) => ({ type: "file" as const, filename, mediaType, url })),
+    ];
+    const modelMessages: UIMessage[] = [
       ...storedMessages,
-      { id: latest?.id ?? crypto.randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: question }] },
+      { id: latest?.id ?? crypto.randomUUID(), role: "user", parts: latestParts },
     ];
     const precedingAssistantTurn = [...(storedRows ?? [])].reverse()
       .find((row: any) => row.role === "assistant");
@@ -2348,7 +2566,10 @@ OPERATIONAL READS
 - Do not call the same tool twice unless the user disputes the data, you are comparing periods, or the first attempt failed. Most questions need one to four reads.
 
 GUIDANCE AND ACTIONS
-- When answering from an in-app section (revenue, housekeeping, maintenance, reception or finance), give the hotel, business date or date range, and the dataset timestamp when supplied. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
+- When answering from an in-app section (revenue, housekeeping, maintenance, reception or finance), give the hotel, business date or date range, and the dataset timestamp when supplied.
+- For a guest complaint involving DND or room-cleaning photos, call get_room_photo_evidence for the exact authorized hotel, room and business date first. Include only returned evidence with timestamps and temporary links; never fabricate photos or accuse staff from incomplete records.
+- For a maintenance request, check room detail, existing open tickets, and available reservation snapshot where permitted before raising a new ticket.
+- If the latest user message includes attached images or a PDF, examine the actual file content before describing it. State uncertainty clearly. A file is not proof of a repair request unless the user asked for one. For requested ticket creation, include all explicitly reported issues in the title/description, and use attached evidence through the confirmed ticket workflow; do not claim evidence was linked unless the action confirms it. If reservation or maintenance technician assignment cannot be verified, say so. Use the user's exact problems and priority justified by safety/guest impact, never claim a notification was delivered without a confirmed result. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
 - For explicitly requested, supported routine actions (extra towels, room items, beds, ticket status updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
 - For maintenance tickets, room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
@@ -2387,7 +2608,7 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
         canWriteRates: actionsForRole(profile.role).includes("adjust_revenue_prices"),
       })}${scheduleToolsAvailable(capabilitiesFor(profile), profile.organization_slug) ? schedulePrompt() : ""}${mailToolsAvailable(profile.role) ? mailPrompt() : ""}${projectBrief}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey ?? "", authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup),
+      tools: buildTools(service, profile as Profile, activeScopes, hotels, capabilities, openAiKey ?? "", authHeader, supabaseUrl, typeof page?.hotelId === "string" ? page.hotelId : null, question, attachments, threadId, pricingApprovalFollowup, incomingFiles),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.

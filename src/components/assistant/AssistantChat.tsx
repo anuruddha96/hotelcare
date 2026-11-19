@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type ChatStatus, type UIMessage } from "ai";
-import { CheckCircle2, Flag, Loader2, Mic, MicOff, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
+import { DefaultChatTransport, type ChatStatus, type FileUIPart, type UIMessage } from "ai";
+import { CheckCircle2, FileImage, FileText, Flag, Loader2, Mic, MicOff, Paperclip, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Conversation,
@@ -11,11 +11,16 @@ import {
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import {
   PromptInput,
+  PromptInputActionAddAttachments,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
   PromptInputButton,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
@@ -49,6 +54,7 @@ import { pricingProposalKey, pricingReviewApprovals } from "@/lib/assistant/pric
 import AssistantActions, { isAssistantActions } from "./AssistantActions";
 import ActivityLine from "./ActivityLine";
 import PremiumTopupCard, { type PremiumPackage } from "./PremiumTopupCard";
+import { rolePlaceholderExamples } from "@/lib/assistant/starters";
 
 const SCOPE_LABEL: Record<string, string> = {
   revenue: "Revenue management",
@@ -266,6 +272,85 @@ function useDictation(onText: (text: string) => void, language: string, onInteri
   return { state, supported, toggle };
 }
 
+/** A visual suggestion only: this never sends a message by itself. */
+function useMiraTypewriter(examples: string[], enabled: boolean) {
+  const [preview, setPreview] = useState("");
+
+  useEffect(() => {
+    if (!enabled || !examples.length) { setPreview(""); return; }
+    let current = 0;
+    let typed = 0;
+    let hold = 0;
+    const tick = window.setInterval(() => {
+      const example = examples[current];
+      if (typed < example.length) {
+        typed += 1;
+        setPreview(example.slice(0, typed));
+      } else if (++hold >= 32) {
+        current = (current + 1) % examples.length;
+        typed = 0;
+        hold = 0;
+        setPreview("");
+      }
+    }, 60);
+    return () => window.clearInterval(tick);
+  }, [enabled, examples]);
+  return preview || "Ask Mira anything about your hotel…";
+}
+
+const MIRA_FILE_ACCEPT = "image/png,image/jpeg,image/webp,application/pdf,.pdf";
+const MIRA_FILE_MAX_BYTES = 4 * 1024 * 1024;
+
+/** Keep previews inside PromptInput's attachment context; private files are not public links. */
+function MiraFilePreview() {
+  const { files, remove } = usePromptInputAttachments();
+  if (!files.length) return null;
+  return (
+    <div className="flex flex-wrap gap-2 border-b px-3 pb-2 pt-2" aria-label="Files ready to attach">
+      {files.map((file) => (
+        <span key={file.id} className="inline-flex max-w-full items-center gap-2 rounded-lg border bg-muted/50 px-2 py-1 text-xs">
+          {file.mediaType === "application/pdf" ? <FileText className="h-4 w-4 shrink-0" /> : <FileImage className="h-4 w-4 shrink-0" />}
+          <span className="max-w-40 truncate">{file.filename || "Attachment"}</span>
+          <button type="button" aria-label={`Remove ${file.filename || "attachment"}`} onClick={() => remove(file.id)} className="rounded p-1 hover:bg-accent"><X className="h-3.5 w-3.5" /></button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** File-only asks are valid; disable Submit only when neither text nor files exist. */
+function MiraSubmit({ draft, status, busy = false, quotaReached = false, onStop }: {
+  draft: string;
+  status?: ChatStatus;
+  busy?: boolean;
+  quotaReached?: boolean;
+  onStop?: () => void;
+}) {
+  const { files } = usePromptInputAttachments();
+  const generating = status === "submitted" || status === "streaming";
+  return (
+    <PromptInputSubmit
+      className="h-10 w-10 rounded-full"
+      status={status}
+      onStop={onStop}
+      disabled={!generating && (busy || quotaReached || (!draft.trim() && files.length === 0))}
+    />
+  );
+}
+
+function MiraAddFileMenu() {
+  return (
+    <PromptInputActionMenu>
+      <PromptInputActionMenuTrigger className="h-9 gap-1.5 rounded-full border px-3 text-xs font-medium" aria-label="Attach a photo or PDF">
+        <Paperclip className="h-4 w-4" /><span>Photo / PDF</span>
+      </PromptInputActionMenuTrigger>
+      <PromptInputActionMenuContent>
+        <PromptInputActionAddAttachments label="Attach photos or a PDF" />
+      </PromptInputActionMenuContent>
+    </PromptInputActionMenu>
+  );
+}
+
 function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: string }) {
   const { profile } = useAuth();
   const [sent, setSent] = useState<null | boolean>(null);
@@ -299,6 +384,7 @@ function ChatSession({
   initialMessages,
   language,
   initialPrompt,
+  initialFiles,
   externalPrompt,
   onExternalPromptConsumed,
   onThreadUpdated,
@@ -310,6 +396,7 @@ function ChatSession({
   initialMessages: AssistantUiMessage[];
   language: string;
   initialPrompt?: string | null;
+  initialFiles?: FileUIPart[];
   externalPrompt?: { id: number; text: string } | null;
   onExternalPromptConsumed?: () => void;
   onThreadUpdated: () => void;
@@ -319,7 +406,9 @@ function ChatSession({
 }) {
   const { user, profile } = useAuth();
   const { page, capabilities } = useAssistantContext();
+  const typewriterExamples = useMemo(() => rolePlaceholderExamples(profile?.role), [profile?.role]);
   const [draft, setDraft] = useState(() => loadAssistantDraft(threadId));
+  const typedPlaceholder = useMiraTypewriter(typewriterExamples, !draft.trim());
   useEffect(() => { saveAssistantDraft(threadId, draft); }, [threadId, draft]);
   const [showResume, setShowResume] = useState(initialMessages.length > 0);
   const [modelTier, setModelTier] = useState<"auto" | "fast" | "balanced" | "deep">("auto");
@@ -412,8 +501,8 @@ function ChatSession({
     if (!initialPrompt || initialPromptSentRef.current) return;
     initialPromptSentRef.current = true;
     lastQuestionRef.current = initialPrompt;
-    void sendMessage({ text: initialPrompt });
-  }, [initialPrompt, sendMessage]);
+    void sendMessage({ text: initialPrompt, files: initialFiles });
+  }, [initialPrompt, initialFiles, sendMessage]);
   const lastExternalPromptIdRef = useRef<number | null>(null);
   useEffect(() => {
     if (!externalPrompt || lastExternalPromptIdRef.current === externalPrompt.id) return;
@@ -459,14 +548,14 @@ function ChatSession({
     else toast.success("Access request sent to your manager");
   };
 
-  const submit = async ({ text }: { text: string }) => {
-    const value = text.trim();
+  const submit = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
+    const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
     if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return;
     setDraft("");
     setShowResume(false);
     setFailed(null);
     lastQuestionRef.current = value;
-    await sendMessage({ text: value });
+    await sendMessage({ text: value, files });
   };
 
   // A tapped answer to Mira's question. Unlike submit, a half-typed draft stays.
@@ -550,7 +639,7 @@ function ChatSession({
             </div>
           )}
           {messages.length === 0 && (
-            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} />
+            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} onVoice={toggle} voiceSupported={supported} />
           )}
 
           {messages.map((message, index) => {
@@ -580,7 +669,17 @@ function ChatSession({
                       </div>
                       <MessageResponse>{text}</MessageResponse>
                     </>
-                  ) : <p className="whitespace-pre-wrap">{text}</p>}
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="whitespace-pre-wrap">{text}</p>
+                      {message.parts.filter((part) => part.type === "file").map((part, partIndex) => (
+                        <span key={partIndex} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-primary-foreground/10 px-2 py-1 text-xs">
+                          {part.mediaType === "application/pdf" ? <FileText className="h-3.5 w-3.5" /> : <FileImage className="h-3.5 w-3.5" />}
+                          <span className="max-w-52 truncate">{part.filename || "Attached evidence"}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {message.role === "assistant" &&
                     message.parts.map((part, partIndex) => {
                       if (!(part.type.startsWith("tool-") || part.type === "dynamic-tool")) return null;
@@ -848,12 +947,13 @@ function ChatSession({
             Your 20 monthly messages are used. Your allowance resets on the 1st.
           </p>
         )}
-        <PromptInput onSubmit={submit} className="rounded-2xl bg-background shadow-sm">
+        <PromptInput onSubmit={submit} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className="rounded-2xl bg-background shadow-sm">
+          <MiraFilePreview />
           <PromptInputTextarea
             ref={textareaRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask Mira to check, explain, or handle a task…"
+            placeholder={typedPlaceholder}
             rows={1}
             enterKeyHint="send"
             autoCapitalize="sentences"
@@ -862,6 +962,7 @@ function ChatSession({
           />
           <PromptInputFooter>
             <PromptInputTools>
+              <MiraAddFileMenu />
               <PromptInputButton
                 tooltip={
                   !supported ? "Microphone input requires browser permission and a secure connection"
@@ -894,12 +995,7 @@ function ChatSession({
               )}
             </PromptInputTools>
 
-            <PromptInputSubmit
-              className="h-10 w-10 rounded-full"
-              status={status as ChatStatus}
-              onStop={() => void stop()}
-              disabled={!generating && (!draft.trim() || Boolean(usage && !usage.unlimited && usage.remaining === 0))}
-            />
+            <MiraSubmit draft={draft} status={status as ChatStatus} onStop={() => void stop()} quotaReached={Boolean(usage && !usage.unlimited && usage.remaining === 0)} />
           </PromptInputFooter>
         </PromptInput>
       </div>
@@ -928,6 +1024,31 @@ export default function AssistantChat({
   onSuggestedPromptConsumed?: () => void;
 }) {
   const { language } = useTranslation();
+  const { profile } = useAuth();
+  const [welcomeDraft, setWelcomeDraft] = useState("");
+  const welcomeTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const dictationBaseRef = useRef<string | null>(null);
+  const { state: welcomeDictation, supported: welcomeVoiceSupported, toggle: toggleWelcomeVoice } = useDictation(
+    useCallback((spoken: string) => {
+      setWelcomeDraft((existing) => {
+        const base = dictationBaseRef.current ?? existing;
+        dictationBaseRef.current = null;
+        return base ? `${base} ${spoken}` : spoken;
+      });
+      window.requestAnimationFrame(() => welcomeTextareaRef.current?.focus({ preventScroll: true }));
+    }, []),
+    language,
+    useCallback((live: string | null) => {
+      if (live === null) { dictationBaseRef.current = null; return; }
+      setWelcomeDraft((existing) => {
+        if (dictationBaseRef.current === null) dictationBaseRef.current = existing;
+        const base = dictationBaseRef.current;
+        return base ? `${base} ${live}` : live;
+      });
+    }, []),
+  );
+  const welcomeExamples = useMemo(() => rolePlaceholderExamples(profile?.role), [profile?.role]);
+  const welcomePlaceholder = useMiraTypewriter(welcomeExamples, !welcomeDraft.trim());
   const { messages: rows, loadingMessages, loadThreads } = useAssistant(threadId);
   const latestVisibleReply = rows.filter((item) => item.role === "assistant").at(-1)?.created_at ?? null;
   useEffect(() => {
@@ -946,13 +1067,14 @@ export default function AssistantChat({
   // The first question of a brand-new chat is kept together with the thread it
   // belongs to. Keeping them in one value means the URL update that follows
   // thread creation can no longer race the transcript into dropping it.
-  const [pending, setPending] = useState<{ id: string; text: string } | null>(null);
+  const [pending, setPending] = useState<{ id: string; text: string; files?: FileUIPart[] } | null>(null);
   const [starting, setStarting] = useState(false);
   const activeThreadId = threadId ?? pending?.id ?? null;
 
-  const createAndSend = async ({ text }: { text: string }) => {
-    const value = text.trim();
+  const createAndSend = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
+    const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
     if (!value || starting) return;
+    setWelcomeDraft("");
     setStarting(true);
     try {
       const id = await onNeedThread();
@@ -960,7 +1082,7 @@ export default function AssistantChat({
         toast.error("Could not start a conversation");
         return;
       }
-      setPending({ id, text: value });
+      setPending({ id, text: value, files });
     } finally {
       setStarting(false);
     }
@@ -975,27 +1097,44 @@ export default function AssistantChat({
   if (!activeThreadId) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} />
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
+          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} onVoice={toggleWelcomeVoice} voiceSupported={welcomeVoiceSupported} />
         </div>
-        <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-4xl sm:px-6" : "border-t")}>
-          <PromptInput onSubmit={createAndSend} className={cn("bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
-            <PromptInputTextarea
-              rows={1}
-              enterKeyHint="send"
-              autoCapitalize="sentences"
-              autoCorrect="on"
-              className="min-h-16 max-h-44 text-base leading-relaxed"
-              placeholder="Ask Mira anything about your hotel…"
-              autoFocus
-            />
-            <PromptInputFooter className="justify-end">
-              <PromptInputSubmit
-                className="h-10 w-10 rounded-full"
-                status={starting ? "submitted" : undefined}
+        <div className="z-10 w-full shrink-0 border-t bg-background px-3 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_22px_-18px_rgba(0,0,0,0.35)] sm:px-6">
+          <div className="mx-auto w-full max-w-3xl">
+            <PromptInput onSubmit={async ({ text, files }) => createAndSend({ text: text || welcomeDraft, files })} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className={cn("border bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
+              <MiraFilePreview />
+              <PromptInputTextarea
+                ref={welcomeTextareaRef}
+                value={welcomeDraft}
+                onChange={(event) => setWelcomeDraft(event.target.value)}
+                rows={1}
+                enterKeyHint="send"
+                autoCapitalize="sentences"
+                autoCorrect="on"
+                className="min-h-14 max-h-40 resize-none text-base leading-relaxed"
+                placeholder={welcomePlaceholder}
               />
-            </PromptInputFooter>
-          </PromptInput>
+              <PromptInputFooter>
+                <PromptInputTools>
+                  <MiraAddFileMenu />
+                  <PromptInputButton
+                    tooltip={welcomeVoiceSupported ? "Speak instead of typing" : "Voice input requires microphone permission and a secure browser"}
+                    variant={welcomeDictation === "recording" ? "default" : "outline"}
+                    onClick={toggleWelcomeVoice}
+                    disabled={!welcomeVoiceSupported || welcomeDictation === "transcribing" || starting}
+                    aria-label={welcomeDictation === "recording" ? "Stop and transcribe voice input" : "Start voice-to-text"}
+                    className="h-9 gap-2 rounded-full border px-3 text-xs font-medium"
+                  >
+                    {welcomeDictation === "transcribing" ? <Loader2 className="h-4 w-4 animate-spin" /> : welcomeDictation === "recording" ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    <span>{welcomeDictation === "recording" ? "Stop & transcribe" : welcomeDictation === "transcribing" ? "Transcribing…" : "Voice to text"}</span>
+                  </PromptInputButton>
+                  {welcomeDictation === "recording" && <span className="flex items-center gap-1 text-xs text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Listening…</span>}
+                </PromptInputTools>
+                <MiraSubmit draft={welcomeDraft} status={starting ? "submitted" : undefined} busy={starting} />
+              </PromptInputFooter>
+            </PromptInput>
+          </div>
         </div>
       </div>
     );
@@ -1019,6 +1158,7 @@ export default function AssistantChat({
       initialMessages={assistantRowsToUiMessages(rows) as AssistantUiMessage[]}
       language={language}
       initialPrompt={pending?.id === activeThreadId ? pending.text : null}
+      initialFiles={pending?.id === activeThreadId ? pending.files : undefined}
       externalPrompt={pending?.id === activeThreadId ? null : suggestedPrompt}
       onExternalPromptConsumed={onSuggestedPromptConsumed}
       onNavigate={onNavigate}
