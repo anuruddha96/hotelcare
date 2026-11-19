@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvedEarlyCheckoutForLinen, groupCurrentLaundryRooms, laundryAccess, laundryService, type LaundryAssignment } from './gozsduLaundryReadiness';
+import { approvedEarlyCheckoutForLinen, groupCurrentLaundryRooms, laundryAccess, laundryService, visibleLaundryHousekeeperIds, type LaundryAssignment } from './gozsduLaundryReadiness';
 import type { LaundryRoom } from './gozsduLaundryner';
 
 const date = '2026-09-19';
@@ -89,6 +89,18 @@ describe('Gozsdu laundry room access', () => {
   it('does not claim guest consent for an occupied stayover', () => {
     expect(laundryAccess(room({ is_checkout_room: false,
       pms_metadata: { gozsduAvailability: { status: 'operating' }, scheduledDepartureToday: false } }), [], date)).toBe('guest_permission');
+  });
+});
+
+describe('Gozsdu laundry attribution', () => {
+  it('shows completed colleagues while keeping cancelled and maintenance work out', () => {
+    expect(visibleLaundryHousekeeperIds([
+      assignment({ id: 'complete', assigned_to: 'staff-1', status: 'completed' }),
+      assignment({ id: 'active', assigned_to: 'staff-2', status: 'in_progress' }),
+      assignment({ id: 'duplicate', assigned_to: 'staff-1', status: 'assigned' }),
+      assignment({ id: 'cancelled', assigned_to: 'staff-3', status: 'cancelled' }),
+      assignment({ id: 'maintenance', assigned_to: 'staff-4', assignment_type: 'maintenance' }),
+    ])).toEqual(['staff-1', 'staff-2']);
   });
 });
 
