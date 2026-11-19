@@ -26,6 +26,17 @@ export type LaundryService = 'full' | 'textile' | 'towel' | 'daily' | 'none';
 export const isCheckout = (room: LaundryRoom | null | undefined): boolean =>
   room?.is_checkout_room === true || room?.pms_metadata?.scheduledDepartureToday === true;
 
+/** Display current-day housekeeping staff even after their room has been completed.
+ * This is for attribution only; collection access still uses laundryAccess().
+ */
+export function visibleLaundryHousekeeperIds(rows: LaundryAssignment[]): string[] {
+  return [...new Set(rows.filter(row =>
+    row.assignment_type !== 'maintenance'
+    && ['assigned', 'in_progress', 'completed'].includes(row.status)
+    && !!row.assigned_to,
+  ).map(row => row.assigned_to as string))];
+}
+
 export function activeLaundryAssignments(rows: LaundryAssignment[]): LaundryAssignment[] {
   return rows.filter(row => row.assignment_type !== 'maintenance' && row.status !== 'cancelled'
     && row.status !== 'dnd_pending_retry' && ['assigned', 'in_progress'].includes(row.status));
