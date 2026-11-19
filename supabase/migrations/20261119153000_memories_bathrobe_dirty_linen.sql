@@ -11,6 +11,7 @@ WHERE NOT EXISTS (
 
 -- Leave the shared, Gozsdu, and SLNT SELECT policies untouched.
 -- This additional permissive SELECT rule grants visibility only to Memories staff.
+DROP POLICY IF EXISTS "Hotel Memories staff read bathrobe linen item" ON public.dirty_linen_items;
 CREATE POLICY "Hotel Memories staff read bathrobe linen item"
 ON public.dirty_linen_items FOR SELECT TO authenticated
 USING (
