@@ -23,7 +23,7 @@ export function MemoriesLinenItemsConfiguration() {
   return <Card data-testid="memories-linen-items-configuration">
     <CardHeader><CardTitle>Hotel Memories Budapest — Linen items / Szennyes textíliák</CardTitle></CardHeader>
     <CardContent className="space-y-3">
-      <p className="text-sm text-muted-foreground">Only the seven laundry-provider items are available here, in their approved paper-sheet order. Quantity corrections, printing and exports are in Dirty Linen Management. Other properties' item configuration is unchanged.</p>
+      <p className="text-sm text-muted-foreground">The original seven laundry-provider items and the new Bathrobe / Köntös item are listed here in collection-sheet order. Quantity corrections, printing and exports are in Dirty Linen Management. Other properties' item configuration is unchanged.</p>
       {error && <p role="alert" className="text-destructive">{error}</p>}
       <ol className="list-decimal pl-6 space-y-2">{items.map(item =>
         <li key={item.id} className="border-b pb-2 text-sm">{memoriesLinenLabel(item, true)}</li>)}</ol>
