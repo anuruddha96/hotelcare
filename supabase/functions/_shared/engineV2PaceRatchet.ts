@@ -55,6 +55,9 @@ export const PACE_POLICY_FIELDS = {
   // --- Guardrails -----------------------------------------------------------
   floor_net_eur: { label: "Lowest banked rate (after OTA discounts, before commission)", group: "guardrails", min: 30, max: 400, def: 65, unit: "EUR" },
   net_rate_factor: { label: "Banked rate as a share of the list price", group: "guardrails", min: 0.5, max: 1, def: 0.75, unit: "x" },
+  // The floor always limits the system's own cuts. Raising a price that a
+  // person set BELOW the floor is a separate choice, off unless switched on.
+  floor_lift: { label: "Raise prices found under the floor back up to it (0 = no, 1 = yes)", group: "guardrails", min: 0, max: 1, def: 0, integer: true },
   ceiling_eur: { label: "Highest list price on ordinary dates", group: "guardrails", min: 150, max: 2000, def: 500, unit: "EUR" },
   peak_ceiling_eur: { label: "Highest list price on Peak dates", group: "guardrails", min: 150, max: 3000, def: 900, unit: "EUR" },
   unsold_ok_rooms: { label: "Rooms that may stay unsold at arrival", group: "guardrails", min: 0, max: 5, def: 2, integer: true, unit: "rooms" },
@@ -504,6 +507,12 @@ export function paceRaiseStep(args: {
   paceGap: number | null;
   roomsLeft: number;
   supervisedFactor: number;
+  /**
+   * True when the date is High only because its bookings run ahead of the
+   * curve. That evidence has already bought the bigger High raise, so the
+   * "hot date" multiplier must not count it a second time.
+   */
+  tierFromPace?: boolean;
 }, s: PaceSettings): number {
   const { current, tier, zone, bookings, daysOut, paceGap, roomsLeft } = args;
   let eur: number;
@@ -516,8 +525,9 @@ export function paceRaiseStep(args: {
     if (daysOut > 60) eur *= s.very_far_raise_factor;
     else if (daysOut > s.booking_window_days) eur *= s.far_raise_factor;
     if (paceGap != null) {
-      if (paceGap >= s.hot_pace_points) eur *= s.hot_raise_factor;
-      else if (paceGap <= -s.cold_pace_points) eur *= s.cold_raise_factor;
+      if (paceGap >= s.hot_pace_points) {
+        if (!args.tierFromPace) eur *= s.hot_raise_factor;
+      } else if (paceGap <= -s.cold_pace_points) eur *= s.cold_raise_factor;
     }
   }
   if (bookings >= 3) eur *= s.third_booking_factor;
@@ -663,9 +673,11 @@ export function decidePaceRatchet(
   let softFloor = floorRef;
   let softFloorWhy: "price_floor" | "base_floor" | "converting_price_guard" | "seasonal_band" = "price_floor";
 
-  if (lowestSellable < gridFloor) {
-    // The owner's floor is a guardrail, not a demand signal: a date with a
-    // bookable price under it is lifted back whatever the booking story says.
+  if (s.floor_lift >= 1 && lowestSellable < gridFloor) {
+    // Opt-in. The floor is first of all a limit on the system's own cuts. A
+    // bookable price under it was put there by a person, so the system leaves
+    // it alone (and never cuts it further) unless the hotel has asked for such
+    // prices to be lifted back, whatever the booking story says.
     raw = Math.min(gridFloor - lowestSellable, s.max_step_eur);
     reason = "net_floor_lift";
     detail = `The cheapest bookable price of this date (€${lowestSellable}) banks less than the €${s.floor_net_eur} floor after OTA discounts; lifting the date by €${raw} to the €${gridFloor} list floor.`;
@@ -681,7 +693,7 @@ export function decidePaceRatchet(
     }
     raw = paceRaiseStep({
       current, tier, zone, bookings: pickup, daysOut: input.daysOut, paceGap: gap,
-      roomsLeft: left, supervisedFactor: sup,
+      roomsLeft: left, supervisedFactor: sup, tierFromPace: facts.tierSource === "pace",
     }, s);
     reason = "pickup_ratchet";
     const pct = Math.round((raw / current) * 1000) / 10;
@@ -797,6 +809,14 @@ export function decidePaceRatchet(
     const wanted = clamp(whole(current * pct / 100 * sup), s.min_step_eur, s.max_step_eur);
     const room = current - softFloor;
     if (room < s.min_step_eur) {
+      if (softFloorWhy === "price_floor" && lowestSellable < gridFloor) {
+        // A bookable price under the floor was set by a person. The system
+        // does not undercut it and (unless asked to) does not raise it either.
+        return hold(
+          "price_floor",
+          `Held: the cheapest bookable price of this date (€${lowestSellable}) is already under the €${gridFloor} list floor, which banks about €${s.floor_net_eur} after OTA discounts. Automation never cuts below the floor; a booking can still raise the date.`,
+        );
+      }
       if (softFloorWhy === "price_floor" && lowest < lowestSellable) {
         // Every cell of a date moves together, so one sold-out room type sitting
         // at the floor stops the whole date. Only a person can change the gap

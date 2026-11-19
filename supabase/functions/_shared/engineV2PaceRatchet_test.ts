@@ -106,7 +106,11 @@ Deno.test("every decision fits the 13-cell date column: one uniform step, never 
   const pick = <T>(list: T[]): T => list[Math.floor(rand() * list.length)];
   let moves = 0;
   for (let i = 0; i < 4000; i++) {
-    const s = resolvePaceSettings({ mode: "live", supervised_until: rand() < 0.3 ? "2026-11-21T00:00:00Z" : null });
+    // Half the runs with the opt-in floor lift on, so both paths meet the publisher.
+    const s = resolvePaceSettings({
+      mode: "live", floor_lift: rand() < 0.5 ? 1 : 0,
+      supervised_until: rand() < 0.3 ? "2026-11-21T00:00:00Z" : null,
+    });
     const tier = pick(["normal", "normal", "high", "peak"] as const);
     const ceiling = tier === "peak" ? s.peak_ceiling_eur : s.ceiling_eur;
     const daysOut = pick([0, 0, 1, 2, 3, 5, 7, 9, 15, 25, 31, 45, 70, 110]);

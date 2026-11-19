@@ -406,8 +406,8 @@ export const REASON_SETTINGS: Record<string, ReasonInfo> = {
     note: "Change this by typing in the chat box at the top of the Automation panel.",
   },
   price_floor: {
-    title: "At the floor",
-    explain: "The cheapest price of this date already banks the lowest rate the hotel accepts after OTA discounts.",
+    title: "At or under the floor",
+    explain: "The cheapest price of this date already banks the lowest rate the hotel accepts after OTA discounts, or a person set it lower than that. The rules never cut below the floor; a booking can still raise the date.",
     settings: [],
     note: "Change this by typing in the chat box at the top of the Automation panel.",
   },
