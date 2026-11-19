@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   ArrowLeft,
   BarChart3,
+  Brain,
   ChevronRight,
   CheckCircle2,
   CircleDot,
@@ -81,6 +82,8 @@ export interface AssistantSidebarProps {
   onDeleteProject: (project: AssistantProject) => void;
   onOpenInsights: () => void;
   onReport: () => void;
+  /** Opens what Mira remembers about this person. */
+  onOpenMemory?: () => void;
   onBack: () => void;
   onCollapse?: () => void;
 }
@@ -338,6 +341,11 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
         {props.canSeeInsights && (
           <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onOpenInsights}>
             <BarChart3 className="h-3.5 w-3.5" /> Usage and audit trail
+          </Button>
+        )}
+        {props.onOpenMemory && (
+          <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onOpenMemory}>
+            <Brain className="h-3.5 w-3.5" /> Mira's memory
           </Button>
         )}
         <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onReport}>

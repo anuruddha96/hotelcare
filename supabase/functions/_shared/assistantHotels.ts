@@ -18,7 +18,7 @@ export async function resolveAssistantHotels(
   const fallback: AssistantHotel[] = profile.assigned_hotel
     ? [{ hotel_id: profile.assigned_hotel, hotel_name: profile.assigned_hotel }]
     : [];
-  if (!isPortfolioRole(profile.role) || !profile.organization_slug) return fallback;
+  if (!profile.organization_slug) return fallback;
 
   const { data: org } = await service
     .from("organizations")
@@ -34,7 +34,23 @@ export async function resolveAssistantHotels(
     .eq("is_active", true)
     .order("hotel_name");
   if (error || !data?.length) return fallback;
-  return data.map((row: any) => ({ hotel_id: row.hotel_id, hotel_name: row.hotel_name ?? row.hotel_id }));
+  const all: AssistantHotel[] = data.map((row: any) => ({ hotel_id: row.hotel_id, hotel_name: row.hotel_name ?? row.hotel_id }));
+  if (isPortfolioRole(profile.role)) return all;
+  return ownHotel(all, profile.assigned_hotel) ?? fallback;
+}
+
+/**
+ * Everyone outside the portfolio roles stays pinned to their own hotel. A
+ * profile stores it as the hotel id ("memories-budapest") or as its name
+ * ("Hotel Memories Budapest"); rooms are stored by name and most settings by
+ * id, so the hotel is resolved to both. Without this, Mira found no rooms
+ * for receptionists whose profile held the id.
+ */
+export function ownHotel(all: AssistantHotel[], assigned: string | null | undefined): AssistantHotel[] | null {
+  const key = String(assigned ?? "").trim().toLowerCase();
+  if (!key) return null;
+  const own = all.filter((h) => h.hotel_id.toLowerCase() === key || (h.hotel_name ?? "").toLowerCase() === key);
+  return own.length ? own : null;
 }
 
 /**

@@ -198,6 +198,11 @@ verify_jwt = false
 [functions.assistant-mail-oauth-callback]
 verify_jwt = false
 
+# Mira usage: the app's plan/usage status (JWT checked in code) and the daily
+# report worker (x-worker-secret from Vault).
+[functions.assistant-usage]
+verify_jwt = false
+
 [functions.previo-sync-daily-overview]
 verify_jwt = false
 

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Flag, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Flag, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +25,7 @@ import { reportAssistantIssue } from "@/lib/assistant/issueReports";
 
 const CATEGORIES = [
   { value: "wrong_data", label: "Wrong or missing data" },
-  { value: "assistant", label: "Assistant answer problem" },
+  { value: "assistant", label: "Mira could not do it" },
   { value: "bug", label: "Something is broken" },
   { value: "access", label: "Access or permissions" },
   { value: "idea", label: "Idea or improvement" },
@@ -40,28 +40,46 @@ const SEVERITIES = [
 ];
 
 /**
- * Formal complaint / problem report that reaches the Hotel Care team by e-mail.
- * Available at any time from the assistant header, not only after a failure.
+ * Report to the HotelCare team, by e-mail. With a conversation attached, Mira
+ * writes the summary and the technical log itself; the person only adds a
+ * note if they want to. Available at any time, not only after a failure.
  */
 export default function ReportProblemDialog({
   open,
   onOpenChange,
   threadId,
+  messageId,
+  defaultCategory,
+  defaultNote,
+  technicalError,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   threadId?: string | null;
+  /** The answer the report starts from, if any. */
+  messageId?: string | null;
+  defaultCategory?: string;
+  defaultNote?: string;
+  /** The error the app showed, sent with the technical log. */
+  technicalError?: string | null;
 }) {
   const { page } = useAssistantContext();
+  const withConversation = Boolean(threadId);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("wrong_data");
+  const [category, setCategory] = useState(defaultCategory ?? (withConversation ? "assistant" : "wrong_data"));
   const [severity, setSeverity] = useState("normal");
   const [sending, setSending] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+    setCategory(defaultCategory ?? (withConversation ? "assistant" : "wrong_data"));
+    setDescription(defaultNote ?? "");
+  }, [open, defaultCategory, defaultNote, withConversation]);
+
   const submit = async () => {
-    if (title.trim().length < 3) {
-      toast.error("Please add a short title");
+    if (!withConversation && title.trim().length < 3 && description.trim().length < 3) {
+      toast.error("Tell us briefly what went wrong");
       return;
     }
     setSending(true);
@@ -71,18 +89,19 @@ export default function ReportProblemDialog({
       category,
       severity,
       threadId: threadId ?? null,
+      messageId: messageId ?? null,
       page,
+      diagnostics: { error: technicalError ?? null },
     });
     setSending(false);
     if (!result.ok) {
       toast.error(result.error ?? "Could not send the report just now.");
       return;
     }
-    if (result.emailed) toast.success("Report saved and emailed to HotelCare administrators.");
-    else toast.warning("Report saved (reference " + result.id + "), but the administrator email could not be confirmed.");
+    if (result.emailed) toast.success(`Sent to the HotelCare team (reference ${String(result.id).slice(0, 8)}). Thank you.`);
+    else toast.warning(`Report saved (reference ${String(result.id).slice(0, 8)}), but the e-mail could not be confirmed.`);
     setTitle("");
     setDescription("");
-    setCategory("wrong_data");
     setSeverity("normal");
     onOpenChange(false);
   };
@@ -92,24 +111,35 @@ export default function ReportProblemDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Flag className="h-4 w-4" /> Report a problem
+            <Flag className="h-4 w-4" /> Report to the HotelCare team
           </DialogTitle>
           <DialogDescription>
-            Your report will be saved and emailed to HotelCare administrators with the page and technical context.
+            {withConversation
+              ? "Mira summarises this conversation and adds the technical log. Add a note if you like, then send."
+              : "Your report is e-mailed to the HotelCare team with the page and technical details."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="report-title">What is the problem?</Label>
-            <Input
-              id="report-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Occupancy for tomorrow looks wrong"
-              maxLength={200}
-            />
-          </div>
+          {withConversation && (
+            <div className="flex items-start gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+              <span>Included: Mira's summary of the problem, the latest messages of this chat, and what Mira checked (no passwords or keys).</span>
+            </div>
+          )}
+
+          {!withConversation && (
+            <div className="space-y-1.5">
+              <Label htmlFor="report-title">What is the problem?</Label>
+              <Input
+                id="report-title"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Occupancy for tomorrow looks wrong"
+                maxLength={200}
+              />
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
@@ -145,12 +175,12 @@ export default function ReportProblemDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="report-description">Details</Label>
+            <Label htmlFor="report-description">{withConversation ? "Your note (optional)" : "Details"}</Label>
             <Textarea
               id="report-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="What did you expect, and what happened instead?"
+              placeholder={withConversation ? "For example: it named the wrong supervisor" : "What did you expect, and what happened instead?"}
               rows={4}
               maxLength={4000}
             />
@@ -162,7 +192,7 @@ export default function ReportProblemDialog({
             Cancel
           </Button>
           <Button onClick={() => void submit()} disabled={sending} className="gap-1.5">
-            {sending && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Send report
+            {sending && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {sending ? "Sending…" : "Send report"}
           </Button>
         </DialogFooter>
       </DialogContent>
