@@ -46,6 +46,9 @@ Rules that hold everywhere:
 - **A booking raises, quiet hours ease.** One booking pays for exactly one
   raise. Two or three bookings together earn 1.6× / 2.2×. Bookings far ahead
   earn more (1.3× beyond 30 days, 1.6× beyond 60), the last rooms earn more.
+  A date running 10 points or more ahead of its curve earns 1.3× — except a
+  date that is High *only because* of that pace: the High raise is already its
+  reward, so the same bookings are not counted twice.
 - **No cut right after a booking**, and never while the date is on or ahead of
   its booking curve. The curve is read off the saved pace targets and
   interpolated, so a date does not jump 15 points at midnight.
@@ -80,8 +83,12 @@ Rules that hold everywhere:
 | Rooms that may stay unsold | 2 |
 | Newly live | every step and cap is halved for 48 hours |
 
-A date with a bookable price under the €87 floor is lifted back to it whatever
-the booking story says. Every existing safeguard still applies unchanged: manager locks,
+The floor limits the rules' own cuts: they never take the cheapest price of a
+date under €87. A price that a person set lower than that is left alone — not
+cut further, and raised only by a booking, like any other price. A hotel that
+wants such prices lifted back to the floor can switch that on
+(`policy.floor_lift` = 1; off by default, so the rules never override a
+manager's lower price). Every existing safeguard still applies unchanged: manager locks,
 the four-hour hold after a manual price, whole-euro prices, all 13 cells of a
 date moving by the same amount, the database markdown budget, the cancellation
 cooldown and the publication guard.
@@ -119,6 +126,7 @@ answers with a before/after card and nothing changes until **Apply**.
 | "Tag 31 December as Peak" | `tier.2026-12-31` → peak |
 | "Champions League night can go to 1200" | `tier.<date>` → peak, `ceiling.<date>` → 1200 |
 | "Dismiss 28 May" | `tier.2027-05-28` → dismissed |
+| "Lift prices that are under the floor" | `policy.floor_lift` 0 → 1 |
 | "Why is next Tuesday not moving?" | reads the rules' decision for that date |
 
 Every number has a safe range in `PACE_POLICY_FIELDS`
@@ -155,7 +163,8 @@ would do, next to what was published. Go-live needs all of:
   cheapest cell under €87 or the dearest over its ceiling;
 - no planned cut on a date with a fresh booking, 2 or fewer rooms left, a
   manager lock, or outside selling hours;
-- raises only where a booking arrived (or a date sat under the floor);
+- raises only where a booking arrived (or, with `policy.floor_lift` on, a date
+  sat under the floor);
 - the volume of moves within what the publisher already handles.
 
 ## Where things live

@@ -272,6 +272,24 @@ test('a booking on a date far behind its curve earns half; one far ahead earns m
   assert.equal(decide({ ...booked(), occupancyPct: 95.2, roomsRemaining: 1 }).movement, 19);  // hot ×1.3, last room ×1.5
 });
 
+test('a date that is High only because of its pace is not rewarded twice for the same bookings', () => {
+  // 7 Dec 2026 in the shadow run: €278, 76% sold against 61% expected, 18 days out, High by pace.
+  const hot = { ...booked(), daysOut: 18, currentPrice: 278, occupancyPct: 76.2, roomsSold: 16, roomsRemaining: 5 };
+  const f = { lowestCellPrice: 260, highestCellPrice: 380, basePrice: 200 };
+  const byPace = decide(hot, { ...f, tier: 'high', tierSource: 'pace' });
+  assert.equal(byPace.movement, 36);            // 13% of €278, not 16.9% (€47)
+  // An event or the sister hotels are separate evidence: pace on top of them still counts.
+  assert.equal(decide(hot, { ...f, tier: 'high', tierSource: 'event' }).movement, 45 + 2); // 13% × 1.3
+  assert.equal(decide(hot, { ...f, tier: 'high', tierSource: 'sister_prices' }).movement, 47);
+  assert.equal(decide(hot, { ...f, tier: 'high', tierSource: 'manual' }).movement, 47);
+  // The helper in isolation, and the cold side is untouched.
+  const base = { current: 200, tier: 'high', zone: 'booking_window', bookings: 1, daysOut: 18, roomsLeft: 8, supervisedFactor: 1 };
+  assert.equal(paceRaiseStep({ ...base, paceGap: 20 }, S), 34);
+  assert.equal(paceRaiseStep({ ...base, paceGap: 20, tierFromPace: true }, S), 26);
+  assert.equal(paceRaiseStep({ ...base, paceGap: -20, tierFromPace: true }, S), paceRaiseStep({ ...base, paceGap: -20 }, S));
+  assert.equal(paceRaiseStep({ ...base, paceGap: 0, tierFromPace: true }, S), 26);
+});
+
 test('no raise without a fresh booking: occupancy, events and stale pickup do not lift a price', () => {
   assert.equal(decide({ occupancyPct: 90, roomsRemaining: 2 }).direction, 'hold');
   assert.equal(decide({ occupancyPct: 81, roomsRemaining: 4 }, { tier: 'peak' }).direction, 'hold');
@@ -474,14 +492,15 @@ test('a sold-out room type under the floor never lifts a date, but still stops i
   assert.match(quiet.reasonDetail, /cheapest bookable price is €130/);
   // A booking still raises it.
   assert.equal(decide({ ...BEHIND, daysOut: 4, currentPrice: 145, ...booked() }, pinned).direction, 'increase');
-  // A BOOKABLE price under the floor is lifted, by exactly what that price needs.
+  // When the hotel asks for it, a BOOKABLE price under the floor is lifted, by exactly what that price needs.
+  const LIFT = settings({ floor_lift: 1 });
   const lift = decide({ daysOut: 89, currentPrice: 84, occupancyPct: 0, roomsSold: 0, roomsRemaining: 21 },
-    { lowestCellPrice: 60, lowestSellableCellPrice: 72, highestCellPrice: 396 });
+    { lowestCellPrice: 60, lowestSellableCellPrice: 72, highestCellPrice: 396 }, LIFT);
   assert.equal(lift.direction, 'increase'); assert.equal(lift.movement, 15);
   assert.equal(lift.trace.policyReason, 'net_floor_lift');
   // With no availability detail the cheapest cell decides, as before.
   const plain = decide({ daysOut: 89, currentPrice: 84, occupancyPct: 0, roomsSold: 0, roomsRemaining: 21 },
-    { lowestCellPrice: 72, highestCellPrice: 396 });
+    { lowestCellPrice: 72, highestCellPrice: 396 }, LIFT);
   assert.equal(plain.movement, 15);
   // A date held at the floor by a bookable price keeps the ordinary wording.
   const atFloor = decide({ ...BEHIND, daysOut: 4, currentPrice: 97 }, { lowestCellPrice: 87, lowestSellableCellPrice: 87, highestCellPrice: 180 });
@@ -526,15 +545,47 @@ test('a far-out High date may keep a bigger premium over its seasonal base than 
   assert.equal(decide({ ...far, currentPrice: 135 }, { ...f, lowestCellPrice: 122, tier: 'high' }, tight).reason, 'at_seasonal_base');
 });
 
-test('a date already under the floor is lifted back to it, booking or not', () => {
-  const d = decide({ daysOut: 2, currentPrice: 92, occupancyPct: 42.9, roomsRemaining: 12, hoursSinceLastPickup: 30 }, { lowestCellPrice: 80 });
+test('a price a person set under the floor is left alone: never cut further, never raised without a booking', () => {
+  assert.equal(S.floor_lift, 0); // lifting is a choice the hotel has to make
+  // 19 Nov 2026: a manager priced tonight's cheapest room at €82 by hand, €5 under the €87 list floor.
+  const quiet = { daysOut: 2, currentPrice: 92, occupancyPct: 42.9, roomsRemaining: 12, hoursSinceLastPickup: 30 };
+  const d = decide(quiet, { lowestCellPrice: 82 });
+  assert.equal(d.direction, 'hold'); assert.equal(d.movement, 0);
+  assert.equal(d.reason, 'price_floor');
+  assert.match(d.reasonDetail, /cheapest bookable price of this date \(€82\) is already under the €87 list floor/);
+  // The same on the arrival day, at any hour, and far out.
+  for (const minutes of [9 * 60, 13 * 60, 18 * 60, 21 * 60]) {
+    const t = decide({ ...quiet, daysOut: 0, hoursSinceLastPickup: 5 }, { lowestCellPrice: 82, localMinutes: minutes });
+    assert.equal(t.direction, 'hold', `arrival day ${minutes}`);
+  }
+  const far = decide({ daysOut: 88, currentPrice: 84, occupancyPct: 0, roomsSold: 0, roomsRemaining: 21, hoursSinceLastPickup: null },
+    { lowestCellPrice: 72, highestCellPrice: 396, basePrice: 60 });
+  assert.equal(far.direction, 'hold'); assert.equal(far.reason, 'price_floor');
+  // A sold-out room type even cheaper does not change the story: the bookable price is what is under the floor.
+  const both = decide(quiet, { lowestCellPrice: 70, lowestSellableCellPrice: 82 });
+  assert.equal(both.reason, 'price_floor');
+  assert.match(both.reasonDetail, /\(€82\) is already under/);
+  // A genuine booking still raises it, by the ordinary step and no more.
+  const sold = decide({ ...quiet, daysOut: 15, occupancyPct: 66.7, roomsRemaining: 7, ...booked() }, { lowestCellPrice: 82 });
+  assert.equal(sold.direction, 'increase');
+  assert.equal(sold.trace.policyReason, 'pickup_ratchet');
+  assert.equal(sold.movement, decide({ ...quiet, daysOut: 15, occupancyPct: 66.7, roomsRemaining: 7, ...booked() }, { lowestCellPrice: 120 }).movement);
+});
+
+test('when the hotel asks for it, a date already under the floor is lifted back to it, booking or not', () => {
+  const LIFT = settings({ floor_lift: 1 });
+  const d = decide({ daysOut: 2, currentPrice: 92, occupancyPct: 42.9, roomsRemaining: 12, hoursSinceLastPickup: 30 }, { lowestCellPrice: 80 }, LIFT);
   assert.equal(d.direction, 'increase');
   assert.equal(d.movement, 7);
   assert.equal(d.trace.policyReason, 'net_floor_lift');
   // …but a manager's protected price is not overridden.
   const held = decide({ daysOut: 2, currentPrice: 92, occupancyPct: 42.9, roomsRemaining: 12, hoursSinceLastPickup: 30,
-    manualHoldUntil: new Date(NOW.getTime() + 3_600_000).toISOString(), holdKind: 'soft' }, { lowestCellPrice: 80 });
+    manualHoldUntil: new Date(NOW.getTime() + 3_600_000).toISOString(), holdKind: 'soft' }, { lowestCellPrice: 80 }, LIFT);
   assert.equal(held.reason, 'manual_hold');
+  // The switch is a whole number: anything else is read as off or on, never as "half".
+  assert.equal(settings({ floor_lift: 0.4 }).floor_lift, 0);
+  assert.equal(settings({ floor_lift: 7 }).floor_lift, 1);
+  assert.equal(settings({ floor_lift: 'yes' }).floor_lift, 0);
 });
 
 test('ordinary dates stop at €500 on their dearest cell; Peak dates and manager ceilings may go higher', () => {
@@ -618,7 +669,7 @@ test('invariants hold for 6,000 random dates, settings and times', () => {
       raise_pct_normal: between(1, 25), raise_pct_peak: between(5, 80), decay_pct_selldown: between(0.5, 12),
       day_cap_pct_arrival: between(5, 60), max_step_eur: between(5, 80), min_step_eur: Math.floor(between(1, 6)),
       conv_guard_pct: between(0, 30), base_floor_pct: between(50, 100), glide_band_pct: between(0, 60),
-      glide_band_pct_high: between(0, 120),
+      glide_band_pct_high: between(0, 120), floor_lift: rnd() < 0.5 ? 1 : 0,
       supervised_until: rnd() < 0.2 ? new Date(NOW.getTime() + 3_600_000).toISOString() : null,
     });
     const gridFloor = paceGridFloor(s);
@@ -692,8 +743,9 @@ test('invariants hold for 6,000 random dates, settings and times', () => {
       assert.ok(d.movement > 0, ctx);
       assert.ok(highest + d.movement <= ceiling, ctx);                  // the dearest cell stays on or under the ceiling
       const net = Math.max(0, inp.pickup24h - inp.cancellations24h);
-      // A rise needs a genuine booking — or a BOOKABLE price sitting under the owner's floor.
+      // A rise needs a genuine booking — or, where the hotel switched lifting on, a BOOKABLE price under the floor.
       assert.ok(net > 0 || (d.trace.policyReason === 'net_floor_lift' && (sellable ?? lowest) < gridFloor), ctx);
+      assert.ok(d.trace.policyReason !== 'net_floor_lift' || s.floor_lift === 1, ctx);
       if (d.trace.policyReason === 'net_floor_lift') {
         // The lift is exactly what the cheapest bookable price needs, never more.
         assert.ok((sellable ?? lowest) + d.movement <= Math.max(gridFloor, (sellable ?? lowest)), ctx);
