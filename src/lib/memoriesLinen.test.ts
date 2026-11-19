@@ -10,11 +10,12 @@ import {
 
 const rows = MEMORIES_LINEN.map((item, index) => ({
   id: `id-${index}`, name: item.name, display_name: `old-${index}`, sort_order: index + 3,
+  hotel_scope: item.name === 'memories_bathrobe' ? 'memories-budapest' : null,
 }));
 
 function stub(result: unknown) {
   const chain: Record<string, any> = {};
-  ['select', 'is', 'eq'].forEach(method => { chain[method] = vi.fn(() => chain); });
+  ['select', 'is', 'eq', 'or'].forEach(method => { chain[method] = vi.fn(() => chain); });
   chain.in = vi.fn(async () => ({ data: result, error: null }));
   query.mockReturnValue(chain);
   return chain;
@@ -30,25 +31,31 @@ describe('Hotel Memories provider linen catalogue', () => {
     expect(isMemoriesHotel('hotel-memories-test')).toBe(false);
   });
 
-  it('holds the photographed seven columns in their exact order with English and Hungarian labels', () => {
+  it('preserves the original seven provider columns and appends Bathrobe / Köntös', () => {
     expect(MEMORIES_LINEN.map(item => item.name)).toEqual([
       'bed_sheets_twin_size', 'duvet_covers', 'small_pillow', 'big_pillow',
-      'small_towel', 'big_towel', 'bath_mat',
+      'small_towel', 'big_towel', 'bath_mat', 'memories_bathrobe',
     ]);
     expect(memoriesLinenLabel(rows[0], true)).toBe('Bed Sheet / Lepedő mosása');
     expect(memoriesLinenLabel(rows[6], true)).toBe('Bath mat / Kilépő mosása');
+    expect(memoriesLinenLabel(rows[7], true)).toBe('Bathrobe / Köntös');
   });
 
-  it('loads only active shared IDs, reorders them and never changes the stored names or IDs', async () => {
+  it('loads active shared items and the Memories-scoped bathrobe without rewriting IDs', async () => {
     const chain = stub([...rows].reverse());
     const result = await loadMemoriesLinenCatalogue();
     expect(query).toHaveBeenCalledWith('dirty_linen_items');
-    expect(chain.is).toHaveBeenCalledWith('hotel_scope', null);
+    expect(chain.or).toHaveBeenCalledWith('hotel_scope.is.null,hotel_scope.eq.memories-budapest');
     expect(chain.eq).toHaveBeenCalledWith('is_active', true);
     expect(chain.in).toHaveBeenCalledWith('name', MEMORIES_LINEN.map(item => item.name));
     expect(result.map(item => item.name)).toEqual(MEMORIES_LINEN.map(item => item.name));
     expect(result.map(item => item.id)).toEqual(rows.map(row => row.id));
-    expect(result.map(item => item.sort_order)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(result.map(item => item.sort_order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('rejects a bathrobe row from the shared catalogue or a different property', async () => {
+    stub(rows.map(row => row.name === 'memories_bathrobe' ? { ...row, hotel_scope: null } : row));
+    await expect(loadMemoriesLinenCatalogue()).rejects.toThrow('incomplete');
   });
 
   it('fails closed if a required item is missing rather than showing the global catalogue', async () => {
@@ -70,7 +77,7 @@ describe('Hotel Memories provider linen catalogue', () => {
     expect(chain.in).toHaveBeenCalledWith('name', Object.keys(MEMORIES_LEGACY_GROUPS));
   });
 
-  it('includes old sheets/covers in seven-column totals while retaining original record IDs, counts and unknown categories', () => {
+  it('includes old sheets/covers in expanded totals while retaining original record IDs, counts and unknown categories', () => {
     const originals = [
       { id: 'r1', linen_item_id: 'id-0', count: 2 },
       { id: 'r2', linen_item_id: 'queen', count: 3 },
