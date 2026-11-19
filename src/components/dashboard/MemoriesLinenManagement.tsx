@@ -166,6 +166,7 @@ export function MemoriesLinenManagement() {
     { label: 'Hotel - fürdőlepedő mosása', sent: vendorItemTotalsByName.get('big_towel') || 0 },
     { label: 'Hotel - kéztörlő mosása', sent: vendorItemTotalsByName.get('small_towel') || 0 },
     { label: 'Hotel - kádelő mosása', sent: vendorItemTotalsByName.get('bath_mat') || 0 },
+    { label: 'Hotel - köntös mosása', sent: vendorItemTotalsByName.get('memories_bathrobe') || 0 },
     { label: 'Hotel - ágysál mosása', sent: 0 },
     { label: 'Hotel - ágytakaró mosása', sent: 0 },
     { label: 'Hotel - díszpárnahuzat mosása', sent: 0 },
@@ -373,7 +374,7 @@ export function MemoriesLinenManagement() {
     `}</style>
     <div className="flex items-center justify-between flex-wrap gap-3">
       <div><h2 className="text-2xl font-bold flex items-center gap-2"><Shirt className="h-5 w-5" />Dirty Linen Management</h2>
-        <p className="text-sm text-muted-foreground">Hotel Memories Budapest · exact seven-column laundry provider order</p></div>
+        <p className="text-sm text-muted-foreground">Hotel Memories Budapest · seven standard linen types + Bathrobe / Köntös</p></div>
       <div className="flex flex-wrap items-center gap-2">
         <img
           src="/deluxe-mosoda-logo.svg"
@@ -391,13 +392,13 @@ export function MemoriesLinenManagement() {
     </label>
     {error && <Card role="alert" className="p-3 text-destructive">{error}</Card>}
     {!!unclassifiedTotal && <Card role="alert" className="p-3 text-amber-700 text-sm">
-      {unclassifiedTotal} items were recorded under other historical categories and are not included in the seven-column provider sheet.
+      {unclassifiedTotal} items were recorded under other historical categories and are not included in the Memories laundry collection sheet.
       Queen-size sheets and small/big pillow covers ARE included in their approved columns; remaining unclassified items are preserved. Review before sending.
     </Card>}
     <Card id="memories-linen-print" className="p-4 overflow-x-auto">
       <h3 className="font-bold text-lg mb-1">Hotel Memories Budapest — Dirty linen / Szennyes textília</h3>
       <p className="text-sm mb-4">Date / Dátum: {workDate}</p>
-      <table className="w-full min-w-[850px] border-collapse text-xs" aria-label="Hotel Memories laundry provider collection sheet">
+      <table className="w-full min-w-[980px] border-collapse text-xs" aria-label="Hotel Memories laundry provider collection sheet">
         <thead><tr>
           <th className="border p-2 text-left w-40">Housekeepers / Takarítók</th>
           {items.map(item => <th key={item.id} className="border p-2 text-center break-words">{memoriesLinenLabel(item, true)}</th>)}
