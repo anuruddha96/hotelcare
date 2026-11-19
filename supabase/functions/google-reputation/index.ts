@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
 import { generateLowCostText, containsLikelySensitiveData } from "../_shared/lowCostAi.ts";
-import { buildCuratedReply, CURATED_REPLY_BASE_COUNT, requiresCarefulReview } from "../_shared/reputation-replies.ts";
+import { buildCuratedReply, classifyReview, CURATED_REPLY_BASE_COUNT, requiresCarefulReview } from "../_shared/reputation-replies.ts";
 import { buildReplyCustomizationPrompt, validateReplyChoices } from "../_shared/reputation-customization.ts";
 import { capabilitiesFor } from "../_shared/accessPolicy.ts";
 
@@ -94,54 +94,6 @@ function friendlyGoogleError(status: number, code: string, rawMessage: string) {
       " Confirm this Cloud project has Google Business Profile API access and that the signed-in Google account is an owner or manager of the listings.";
   }
   return `${prefix}: ${message.slice(0, 450)}${hint}`.trim();
-}
-
-function classifyReview(stars: number, comment: string) {
-  const text = String(comment || "").toLowerCase();
-  const categories: string[] = [];
-  const add = (name: string, words: string[]) => {
-    if (words.some((w) => text.includes(w))) categories.push(name);
-  };
-  add("cleanliness", ["clean", "dirty", "dust", "smell", "bathroom", "toilet"]);
-  add("breakfast", ["breakfast", "brunch", "coffee", "food", "buffet"]);
-  add("staff", ["staff", "reception", "service", "waiter", "friendly", "rude"]);
-  add("noise", ["noise", "noisy", "loud", "street", "music"]);
-  add("room", ["room", "bed", "mattress", "small", "spacious"]);
-  add("maintenance", ["air conditioning", "ac ", "heater", "broken", "shower", "water", "wifi", "elevator"]);
-  add("price", ["price", "expensive", "value", "cost", "charge"]);
-  add("location", ["location", "metro", "tram", "central", "walk"]);
-  add("check-in", ["check in", "check-in", "arrival", "key", "late"]);
-  add("cafe", ["cafe", "café", "pastry", "barista"]);
-
-  const highRiskWords = [
-    "refund",
-    "fraud",
-    "stolen",
-    "theft",
-    "police",
-    "injury",
-    "injured",
-    "unsafe",
-    "discrimination",
-    "racist",
-    "bedbug",
-    "bed bug",
-    "food poisoning",
-    "legal",
-    "lawyer",
-  ];
-  const mediumRiskWords = ["complaint", "manager", "charged", "overcharged", "mold", "mould", "cockroach"];
-  const risk =
-    stars <= 1 || highRiskWords.some((w) => text.includes(w))
-      ? "high"
-      : stars <= 3 || mediumRiskWords.some((w) => text.includes(w)) || requiresCarefulReview(comment)
-        ? "medium"
-        : "low";
-  const sentiment = stars >= 4 ? "positive" : stars === 3 ? "mixed" : "negative";
-  const summary = comment
-    ? comment.replace(/\s+/g, " ").trim().slice(0, 180)
-    : `${stars}-star rating without written comment`;
-  return { categories, risk, sentiment, summary, confidence: comment ? 0.9 : 0.7 };
 }
 
 const toneInstruction: Record<string, string> = {

@@ -221,8 +221,131 @@ const keywords: Array<[ReviewTopic, RegExp]> = [
   ["value", /\b(value|price|pricing|affordable|worth|reasonable)\b|ár.?érték|megéri|árak/i],
   ["rooms", /\b(room|bed|suite|accommodation|sleep|mattress)\b|szoba|ágy|alvás/i],
 ];
-const negatives = /\b(but|however|unfortunately|disappoint|poor|bad|cold|overpriced|slow|rude|dirty|noisy|not good|not enough|waited|problem|issue|complaint|terrible|broken|worse|late)\b|de\s|viszont|sajnos|rossz|hideg|lassú|drága|koszos|piszkos|panasz|probléma|zajos|nem\s/i;
 const hungarianWords = /nagyon|köszön|kedves|személyzet|kiszolgálás|finom|reggeli|kávé|hangulat|szoba|elhelyezkedés|tisztaság|visszatér|ajánlom|tetszett|szuper|élmény|gyors|remek|kellemes/i;
+
+/*
+ * Risk screening for automatic publishing.
+ *
+ * Only reviews that pass this screen can receive an automatic curated reply.
+ * Keyword checks use Unicode word boundaries: the previous `de\s` / `nem\s`
+ * Hungarian checks matched inside ordinary words ("made me happy", "wide
+ * selection") and the Spanish/French/Dutch "de", which held back many
+ * genuinely positive five-star reviews.
+ */
+const WORD_CHARS = "\\p{L}\\p{N}_";
+const wordPattern = (alternatives: string[], flags: string, prefixOnly = false) =>
+  new RegExp(`(?<![${WORD_CHARS}])(?:${alternatives.join("|")})${prefixOnly ? "" : `(?![${WORD_CHARS}])`}`, flags);
+
+const NEGATED = "(?:not|never|won't|wouldn't|will not|would not|didn't|did not|don't|do not|doesn't|does not|" +
+  "wasn't|was not|weren't|were not|isn't|is not|aren't|are not|can't|cannot|couldn't|could not)";
+
+// Phrases that contain a negative keyword but are positive in context.
+// They are removed before the negative keywords are checked.
+const ENGLISH_BENIGN = wordPattern([
+  "no (?:problems?|issues?|complaints?|negatives?|downsides?|drawbacks?|regrets?|queues?)",
+  "not (?:a|any|one|a single) (?:problem|issue|complaint|negative)s?",
+  "without (?:any |a )?(?:problems?|issues?|complaints?|hiccups?)",
+  "(?:never|zero) (?:a |any )?(?:problems?|issues?|complaints?|regrets?)",
+  "nothing (?:to complain about|to fault|negative|bad)",
+  "(?:can't|cannot|couldn't|could not) (?:complain|fault)",
+  "no reason to complain",
+  "not (?:too |a |that )?bad",
+  "nothing bad",
+  `${NEGATED}\\s+(?:be\\s+|been\\s+|get\\s+|feel\\s+|leave\\s+|ever\\s+)?disappoint\\p{L}*`,
+  "(?:no|zero|without)\\s+disappointment",
+  `${NEGATED} regret(?:ted)?`,
+  "nothing (?:was |is )?missing",
+  "missing nothing",
+  "no lack of",
+  `${NEGATED} (?:too |very |at all |that |overly |super )?(?:expensive|overpriced|pricey|cramped|tiny|slow|noisy|loud|crowded|cold|dirty|rude|late|lacking)`,
+  "cold (?:cuts?|brew|drinks?|beverages?|dishes|options|selection|items|meats?|plates?|platters?|starters?|salads?|weather|days?|mornings?|evenings?|nights?|winter|outside|season)",
+  "(?:hot|warm) (?:and|&|or) cold",
+  "cold (?:and|&|or) (?:hot|warm)",
+  "late[- ](?:check[- ]?out|checkout|breakfast|brunch|lunch|dinner|night|evening|opening|hours)",
+  "(?:open|opened|until|till|stay|stayed|up|out) late",
+  "(?:can't|cannot|couldn't|could not) wait",
+  "worth (?:the )?wait(?:ing)?",
+  "(?:no|without|without any|without a|little|short|minimal|zero) wait(?:ing)?(?: time)?",
+  "(?:didn't|did not|never|don't|do not) (?:have to |need to )?wait",
+  "wait(?:ing)?[- ]?staff",
+  "waited on by",
+  "no (?:street )?noise",
+  "without (?:any )?noise",
+  "slow[- ](?:cooked|roasted|braised|food|travel|mornings?|breakfast|start|living|pace)",
+  "smell(?:s|ed)? (?:so |really |very )?(?:amazing|great|good|delicious|wonderful|lovely|fantastic|divine|heavenly|incredible|nice)",
+  "(?:the )?smell of (?:fresh|freshly|coffee|baking|pastries|croissants|bread)",
+  "but (?:also|above all|most of all|especially|most importantly|more importantly|even better)",
+  "not only",
+], "giu");
+
+const ENGLISH_NEGATIVE = wordPattern([
+  "but", "however", "although", "though", "except", "unfortunately", "sadly",
+  "disappoint\\p{L}*", "poor(?:ly)?", "bad(?:ly)?", "awful", "horrible", "terrible", "worst", "worse",
+  "mediocre", "disgusting", "rude", "unfriendly", "unhelpful", "impolite", "unprofessional",
+  "dirty", "filthy", "stain(?:s|ed)?", "smell(?:s|ed|y)?", "stink(?:s|y)?", "stank", "damp", "mou?ldy?", "mildew",
+  "cold", "lukewarm", "overpriced", "expensive", "pricey",
+  "slow(?:ly)?", "wait(?:ed|ing)?", "queue[sd]?",
+  "late", "noisy", "noise", "loud", "crowded", "overcrowded", "cramped", "tiny",
+  "broken", "not working", "out of order", "(?:did not|didn't|does not|doesn't) work",
+  "problems?", "issues?", "complain(?:t|ts|ed|ing)?", "downsides?", "drawbacks?", "negatives?",
+  "shame", "pity", "lack(?:s|ed|ing)?", "missing",
+  "not (?:good|great|enough|clean|worth|ideal|impressed|recommended)",
+  "not as (?:good|expected|described|advertised)",
+  "could (?:be|have been) better",
+  "needs? (?:improvement|renovation|repainting|updating|refurbishment|a refresh)",
+  "room for improvement", "regret(?:s|ted|table)?", "avoid", "uncomfortable", "unpleasant",
+  "(?:the )?only (?:thing|issue|problem|negative|minus|complaint|criticism|con|downside|drawback)",
+  "never again", "waste of",
+], "iu");
+
+// "de" (but) and "nem" (not) are only checked on Hungarian text: they are
+// ordinary words in Spanish, French and Dutch. The other Hungarian stems are
+// unambiguous and always checked.
+const HUNGARIAN_BENIGN = wordPattern([
+  "nem csalód\\p{L}*",
+  "nem (?:volt |is )?rossz",
+  "nincs(?:en)? (?:semmi )?(?:panasz|probléma|gond)\\p{L}*",
+  "semmi (?:panasz|probléma|gond)\\p{L}*",
+  "nem volt (?:semmi )?(?:panasz|probléma|gond)\\p{L}*",
+  "nem bán\\p{L}*",
+  "nem (?:volt )?drága",
+  "hideg (?:és|meg|-) ?meleg\\p{L}*",
+  "meleg (?:és|meg|-) ?hideg\\p{L}*",
+  "hidegtál\\p{L}*",
+], "giu");
+const HUNGARIAN_AMBIGUOUS = wordPattern(["de", "nem"], "iu");
+const HUNGARIAN_NEGATIVE = wordPattern([
+  "viszont", "sajnos", "azonban",
+  "rossz", "hideg", "lassú", "lassan", "drág", "koszos", "piszkos", "panasz", "probléma", "zajos",
+  "büdös", "csalód", "kellemetlen", "udvariatlan", "bunkó",
+], "iu", true);
+const HUNGARIAN_FUNCTION_WORDS = wordPattern(["hogy", "volt", "és", "csak", "minden", "jó", "egy", "voltunk", "lehet"], "iu");
+
+const looksHungarian = (text: string) =>
+  /[őűŐŰ]/u.test(text) || hungarianWords.test(text) || HUNGARIAN_FUNCTION_WORDS.test(text);
+
+/**
+ * Google appends machine translations to reviews written in another language,
+ * either "(Translated by Google) <translation> (Original) <original>" or
+ * "<original> (Translated by Google) <translation>". Screen the translation:
+ * foreign function words in the original are not reliable risk signals.
+ */
+export function reviewTextForRiskCheck(comment: string) {
+  const text = String(comment || "");
+  const marker = /\(Translated by Google\)/i.exec(text);
+  if (!marker) return text.trim();
+  const before = text.slice(0, marker.index);
+  const after = text.slice(marker.index + marker[0].length);
+  if (before.trim()) return after.trim();
+  const original = after.search(/\(Original\)/i);
+  return (original >= 0 ? after.slice(0, original) : after).trim();
+}
+
+function screenedRiskText(comment: string) {
+  const text = reviewTextForRiskCheck(comment).normalize("NFC").replace(/[‘’ʼ]/g, "'");
+  const screened = text.replace(ENGLISH_BENIGN, " ").replace(HUNGARIAN_BENIGN, " ");
+  return { screened, hungarian: looksHungarian(text) };
+}
 const starters: Record<Rating, string[]> = {
   "5": [
     "Thank you for the five stars{guest}!",
@@ -299,7 +422,55 @@ export function replyTopic(comment: string): ReviewTopic {
   return "general";
 }
 export function requiresCarefulReview(comment: string) {
-  return Boolean(comment && negatives.test(comment));
+  if (!comment || !String(comment).trim()) return false;
+  const { screened, hungarian } = screenedRiskText(comment);
+  return ENGLISH_NEGATIVE.test(screened) || HUNGARIAN_NEGATIVE.test(screened) ||
+    (hungarian && HUNGARIAN_AMBIGUOUS.test(screened));
+}
+
+const HIGH_RISK = wordPattern([
+  "refund\\p{L}*", "fraud\\p{L}*", "stolen", "theft", "police", "injur(?:y|ies|ed)", "unsafe",
+  "discriminat\\p{L}*", "racis(?:m|t|ts)", "bed ?bugs?", "food poisoning", "(?:il)?legal(?:ly)?", "lawyers?", "scam(?:s|med)?",
+], "iu");
+const MEDIUM_RISK = wordPattern([
+  "complain(?:t|ts|ed|ing)?", "manager", "(?:over)?charged", "mou?ld(?:y)?", "cockroach(?:es)?",
+], "iu");
+
+export type ReviewRisk = "low" | "medium" | "high";
+
+/**
+ * Shared risk/sentiment classification for the Google reputation functions.
+ * Only "low" risk 4–5★ reviews may be answered automatically.
+ */
+export function classifyReview(stars: number, comment: string) {
+  const text = String(comment || "").toLowerCase();
+  const categories: string[] = [];
+  const add = (name: string, words: string[]) => {
+    if (words.some((word) => text.includes(word))) categories.push(name);
+  };
+  add("cleanliness", ["clean", "dirty", "dust", "smell", "bathroom", "toilet"]);
+  add("breakfast", ["breakfast", "brunch", "coffee", "food", "buffet"]);
+  add("staff", ["staff", "reception", "service", "waiter", "friendly", "rude"]);
+  add("noise", ["noise", "noisy", "loud", "street", "music"]);
+  add("room", ["room", "bed", "mattress", "small", "spacious"]);
+  add("maintenance", ["air conditioning", "ac ", "heater", "broken", "shower", "water", "wifi", "elevator"]);
+  add("price", ["price", "expensive", "value", "cost", "charge"]);
+  add("location", ["location", "metro", "tram", "central", "walk"]);
+  add("check-in", ["check in", "check-in", "arrival", "key", "late"]);
+  add("cafe", ["cafe", "café", "pastry", "barista"]);
+
+  const { screened } = comment ? screenedRiskText(comment) : { screened: "" };
+  const risk: ReviewRisk =
+    stars <= 1 || HIGH_RISK.test(screened)
+      ? "high"
+      : stars <= 3 || MEDIUM_RISK.test(screened) || requiresCarefulReview(comment)
+        ? "medium"
+        : "low";
+  const sentiment = stars >= 4 ? "positive" : stars === 3 ? "mixed" : "negative";
+  const summary = comment
+    ? comment.replace(/\s+/g, " ").trim().slice(0, 180)
+    : `${stars}-star rating without written comment`;
+  return { categories, risk, sentiment, summary, confidence: comment ? 0.9 : 0.7 };
 }
 export type PoolReplyInput = {
   reviewId: string;
