@@ -13,6 +13,7 @@ export const MEMORIES_LINEN = [
   { name: 'small_towel', en: 'Small towel', hu: 'Kéztörlő' },
   { name: 'big_towel', en: 'Big towel', hu: 'Fürdőlepedő' },
   { name: 'bath_mat', en: 'Bath mat', hu: 'Kilépő mosása' },
+  { name: 'memories_bathrobe', en: 'Bathrobe', hu: 'Köntös' },
 ] as const;
 
 /** Approved historical-to-provider-sheet mapping for Memories reporting ONLY.
@@ -34,17 +35,20 @@ export function memoriesLinenLabel(item: Pick<MemoriesLinenItem, 'name' | 'displ
   return bilingual ? `${definition.en} / ${definition.hu}` : definition.en;
 }
 
-/** Reuse the seven existing active global IDs rather than deleting or rewriting historic records.
+/** Reuse the seven existing active shared IDs plus one Memories-scoped bathrobe ID.
  * Fixed ordering and labels are ONLY exposed for Hotel Memories. An incomplete catalogue
- * fails closed so staff never see the unrelated global options by accident. */
+ * fails closed so staff never see unrelated options or lose an item silently. */
 export async function loadMemoriesLinenCatalogue(): Promise<MemoriesLinenItem[]> {
   const { data, error } = await (supabase as any).from('dirty_linen_items')
-    .select('id,name,display_name,sort_order')
-    .is('hotel_scope', null)
+    .select('id,name,display_name,sort_order,hotel_scope')
     .eq('is_active', true)
+    .or('hotel_scope.is.null,hotel_scope.eq.memories-budapest')
     .in('name', MEMORIES_LINEN.map(item => item.name));
   if (error) throw error;
-  const rows = (data || []) as MemoriesLinenItem[];
+  // An explicit scope check prevents a same-named item from another catalogue
+  // ever replacing the seven shared categories or the dedicated bathrobe.
+  const rows = ((data || []) as Array<MemoriesLinenItem & { hotel_scope: string | null }>).filter(item =>
+    item.hotel_scope === (item.name === 'memories_bathrobe' ? 'memories-budapest' : null));
   if (rows.length !== MEMORIES_LINEN.length || new Set(rows.map(row => row.name)).size !== MEMORIES_LINEN.length) {
     throw new Error('Hotel Memories linen catalogue is incomplete. Please contact a manager.');
   }
