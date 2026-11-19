@@ -6,7 +6,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
 import { type LaundryBucket, type LaundryRoom, isEligibleLaundryRoom } from '@/lib/gozsduLaundryner';
-import { type LaundryAssignment, activeLaundryAssignments, activeCleaningHousekeeperIds, groupCurrentLaundryRooms, isCheckout, laundryAccess, laundryService } from '@/lib/gozsduLaundryReadiness';
+import { type LaundryAssignment, activeCleaningHousekeeperIds, visibleLaundryHousekeeperIds, groupCurrentLaundryRooms, isCheckout, laundryAccess, laundryService } from '@/lib/gozsduLaundryReadiness';
 import { laundryAccessCopy } from '@/lib/gozsduLaundryReadinessI18n';
 import { gozsduLaundryActiveCopy } from '@/lib/gozsduLaundryActiveI18n';
 import { gozsduLinenLabel, loadHotelLinenCatalogue, type LinenCatalogueItem } from '@/lib/gozsduLinenCatalogue';
@@ -160,8 +160,7 @@ export function GozsduLaundrynerTasksV2() {
         const sections = new Map((sectionsResponse.data || []).map((section: any) => [section.id, section.name]));
         if (!sectionResponse.error) for (const mapping of sectionResponse.data || []) names[mapping.room_id] = sections.get(mapping.section_id) as string || '';
       }
-      const staffIds = [...new Set(activeLaundryAssignments(liveAssignments)
-        .map(row => row.assigned_to).filter((id): id is string => !!id))];
+      const staffIds = visibleLaundryHousekeeperIds(liveAssignments);
       let people: Staff[] = [];
       if (staffIds.length) {
         const staffResponse = await supabase.from('profiles').select('id,full_name,nickname')
@@ -254,7 +253,7 @@ export function GozsduLaundrynerTasksV2() {
       : service === 'towel' ? accessCopy.towel : service === 'daily' ? accessCopy.daily : accessCopy.noService;
   };
   const housekeepers = (rows: LaundryAssignment[]) => {
-    const ids = [...new Set(activeLaundryAssignments(rows).map(row => row.assigned_to).filter((id): id is string => !!id))];
+    const ids = visibleLaundryHousekeeperIds(rows);
     return ids.length ? ids.map(id => staffNames.get(id) || activeCopy.nameUnavailable).join(', ') : accessCopy.unassigned;
   };
   const activelyCleaning = (rows: LaundryAssignment[]) => activeCleaningHousekeeperIds(rows)
