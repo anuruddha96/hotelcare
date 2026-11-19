@@ -19,7 +19,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { NextDayAssignmentPlanner } from './NextDayAssignmentPlanner';
+import {
+  filterRoomsToMappedTeam,
+  filterSnapshotRowsToMappedRooms,
+  loadActiveSlntTeamRoomIds,
+  summarizeTeamWorkload,
+} from '@/lib/slntTeamHousekeepingScope';
+import { SlntSelectedDateAssignmentPlanner } from './SlntSelectedDateAssignmentPlanner';
 
 type PlanStatus = 'draft' | 'approved' | 'releasing' | 'released' | 'cancelled' | 'failed';
 
@@ -61,10 +67,11 @@ function planBadge(status: PlanStatus | null) {
  * SLNT-only future housekeeping surface.
  *
  * It intentionally reuses the same Previo daily-overview feed and selected-date
- * workload builder as tomorrow planning. The preferred path is one range sync
- * covering D+1..D+14. If that range call cannot complete, the exact same edge
- * function is retried once per business date. Group A/B assignment is a later
- * configuration layer and is deliberately not hardcoded here.
+ * workload builder as Team B selected-date planning. The preferred path is one
+ * SLNT portfolio range sync covering D+1..D+14. Both Previo accounts are synced,
+ * then the portfolio snapshot is narrowed to the 46 explicitly mapped Team B
+ * units before counts are calculated. Team A stays active but is excluded from
+ * the Team B launch workflow.
  */
 export function Slnt14DayHousekeepingPlanner() {
   const { profile } = useAuth();
@@ -121,6 +128,12 @@ export function Slnt14DayHousekeepingPlanner() {
     if (planResult.error) throw planResult.error;
     if (scheduleResult.error) throw scheduleResult.error;
 
+    const teamRoomIds = await loadActiveSlntTeamRoomIds('slnt', hotelId);
+    const mappedRooms = filterRoomsToMappedTeam(roomResult.data || [], teamRoomIds);
+    if (mappedRooms.length !== teamRoomIds.length) {
+      throw new Error(`Team B room registry is incomplete: ${mappedRooms.length}/${teamRoomIds.length} mapped rooms are available.`);
+    }
+
     const snapshotRows = (snapshotResult.data || []) as Array<DailyOverviewWorkRow & { business_date: string }>;
     const snapshotsByDate = groupRowsByBusinessDate(snapshotRows, planningWindow.dates);
     const planByDate = new Map<string, PlanStatus>(
@@ -135,17 +148,22 @@ export function Slnt14DayHousekeepingPlanner() {
     );
 
     const next = planningWindow.dates.map(date => {
-      const workload = buildSelectedDateHousekeepingWorkload(
-        roomResult.data || [],
+      const scopedSnapshot = filterSnapshotRowsToMappedRooms(
         snapshotsByDate.get(date) || [],
+        mappedRooms,
+      );
+      const workload = buildSelectedDateHousekeepingWorkload(
+        mappedRooms,
+        scopedSnapshot,
         date,
       );
+      const teamSummary = summarizeTeamWorkload(workload.rooms);
       const schedules = schedulesByDate.get(date) || [];
       return {
         date,
-        checkoutCount: Math.max(0, workload.checkoutCount - workload.potentialCheckoutCount),
-        dailyCount: workload.dailyCount,
-        potentialCheckoutCount: workload.potentialCheckoutCount,
+        checkoutCount: teamSummary.confirmedCheckoutCount,
+        dailyCount: teamSummary.dailyCount,
+        potentialCheckoutCount: teamSummary.unsoldCount,
         towelCount: workload.rooms.filter(room => room.towel_change_required === true).length,
         linenCount: workload.rooms.filter(room => room.linen_change_required === true).length,
         pmsCapturedAt: workload.capturedAt,
@@ -170,7 +188,7 @@ export function Slnt14DayHousekeepingPlanner() {
       const nextDate = new Date(`${date}T00:00:00Z`);
       nextDate.setUTCDate(nextDate.getUTCDate() + 1);
       const toDate = nextDate.toISOString().slice(0, 10);
-      const { data, error: invokeError } = await supabase.functions.invoke('previo-sync-daily-overview', {
+      const { data, error: invokeError } = await supabase.functions.invoke('slnt-sync-daily-overview', {
         body: { hotelId, fromDate: date, toDate, days: 1 },
       });
       if (invokeError || (data as any)?.ok === false || (data as any)?.error) {
@@ -190,7 +208,7 @@ export function Slnt14DayHousekeepingPlanner() {
       ]);
       if (!hotelId || hotelKeys.length === 0) throw new Error('The selected SLNT property could not be resolved.');
 
-      const { data, error: invokeError } = await supabase.functions.invoke('previo-sync-daily-overview', {
+      const { data, error: invokeError } = await supabase.functions.invoke('slnt-sync-daily-overview', {
         body: {
           hotelId,
           fromDate: planningWindow.fromDate,
@@ -295,10 +313,6 @@ export function Slnt14DayHousekeepingPlanner() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto py-4">
-            <div className="mb-4 rounded-lg border border-amber-300/60 bg-amber-50/60 p-3 text-sm text-amber-950 dark:bg-amber-950/20 dark:text-amber-100">
-              <strong>Group mapping pending Excel.</strong> The 14-day PMS, workload, plan lifecycle and Staff Schedule foundations are active now. Group A/B room ownership will be connected as a separate assignment strategy when the mapping sheet is imported.
-            </div>
-
             {error && (
               <div role="alert" className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
                 {error}
@@ -382,7 +396,7 @@ export function Slnt14DayHousekeepingPlanner() {
       </Dialog>
 
       {selectedDate && dayPlannerOpen && (
-        <NextDayAssignmentPlanner
+        <SlntSelectedDateAssignmentPlanner
           open={dayPlannerOpen}
           selectedDate={selectedDate}
           onOpenChange={(nextOpen) => {

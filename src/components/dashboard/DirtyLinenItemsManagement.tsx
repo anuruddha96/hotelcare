@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
-import { gozsduLinenLabel, loadHotelLinenCatalogue } from '@/lib/gozsduLinenCatalogue';
+import { gozsduLinenLabel, isSlntLinenHotel, loadHotelLinenCatalogue, slntLinenLabel } from '@/lib/gozsduLinenCatalogue';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,8 @@ export function DirtyLinenItemsManagement() {
   const { profile } = useAuth();
   const { t, language } = useTranslation();
   const gozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
+  const slnt = isSlntLinenHotel(profile?.assigned_hotel);
+  const fixedCatalogue = gozsdu || slnt;
   const [linenItems, setLinenItems] = useState<LinenItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingItem, setEditingItem] = useState<LinenItem | null>(null);
@@ -51,7 +53,7 @@ export function DirtyLinenItemsManagement() {
   const fetchLinenItems = useCallback(async () => {
     setLoading(true);
     try {
-      if (gozsdu) {
+      if (fixedCatalogue) {
         const data = await loadHotelLinenCatalogue(profile?.assigned_hotel);
         setLinenItems(data.map(item => ({ ...item, is_active: true })));
       } else {
@@ -65,24 +67,24 @@ export function DirtyLinenItemsManagement() {
       setLinenItems([]);
       toast.error('Failed to load linen items');
     } finally { setLoading(false); }
-  }, [gozsdu, profile?.assigned_hotel]);
+  }, [fixedCatalogue, profile?.assigned_hotel]);
   useEffect(() => { void fetchLinenItems(); }, [fetchLinenItems]);
 
   const handleAdd = () => {
-    if (gozsdu) return;
+    if (fixedCatalogue) return;
     setEditingItem(null);
     setFormData({ name: '', display_name: '', is_active: true,
       sort_order: Math.max(...linenItems.map(item => item.sort_order), 0) + 1 });
     setIsAddDialogOpen(true);
   };
   const handleEdit = (item: LinenItem) => {
-    if (gozsdu) return;
+    if (fixedCatalogue) return;
     setEditingItem(item);
     setFormData({ name: item.name, display_name: item.display_name, is_active: item.is_active, sort_order: item.sort_order });
     setIsEditDialogOpen(true);
   };
   const handleSave = async () => {
-    if (gozsdu) return;
+    if (fixedCatalogue) return;
     if (!formData.name.trim() || !formData.display_name.trim()) { toast.error('Please fill in all required fields'); return; }
     try {
       const values = { ...formData, name: formData.name.toLowerCase().replace(/\s+/g, '_') };
@@ -101,7 +103,7 @@ export function DirtyLinenItemsManagement() {
     } catch (error) { console.error('Error saving linen item:', error); toast.error('Failed to save linen item'); }
   };
   const handleDelete = async (item: LinenItem) => {
-    if (gozsdu) return;
+    if (fixedCatalogue) return;
     try {
       const { error } = await supabase.from('dirty_linen_items').delete().eq('id', item.id);
       if (error) throw error;
@@ -110,7 +112,7 @@ export function DirtyLinenItemsManagement() {
     } catch (error) { console.error('Error deleting linen item:', error); toast.error('Failed to delete linen item'); }
   };
   const toggleActive = async (item: LinenItem) => {
-    if (gozsdu) return;
+    if (fixedCatalogue) return;
     try {
       const { error } = await supabase.from('dirty_linen_items').update({ is_active: !item.is_active }).eq('id', item.id);
       if (error) throw error;
@@ -121,24 +123,26 @@ export function DirtyLinenItemsManagement() {
   return <div className="space-y-6">
     <div className="flex justify-between items-center gap-2">
       <div className="flex items-center gap-2"><Settings className="h-6 w-6 text-primary" /><h2 className="text-xl font-semibold">Linen Items Configuration</h2></div>
-      {!gozsdu && <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+      {!fixedCatalogue && <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
         <DialogTrigger asChild><Button onClick={handleAdd} className="flex items-center gap-2"><Plus className="h-4 w-4" />Add Linen Item</Button></DialogTrigger>
         <DialogContent><DialogHeader><DialogTitle>Add New Linen Item</DialogTitle></DialogHeader>
           <LinenItemForm formData={formData} setFormData={setFormData} editing={false} onSave={handleSave} onCancel={() => setIsAddDialogOpen(false)} />
         </DialogContent>
       </Dialog>}
     </div>
-    {gozsdu && <p role="status" className="rounded-md border p-3 text-sm text-muted-foreground">
-      Gozsdu Court Budapest: fixed 15-item paper-sheet catalogue. Order and categories are shared by housekeepers, Laundryners and managers; other hotels are unaffected.
+    {fixedCatalogue && <p role="status" className="rounded-md border p-3 text-sm text-muted-foreground">
+      {gozsdu
+        ? 'Gozsdu Court Budapest: fixed 15-item paper-sheet catalogue. Order and categories are shared by housekeepers, Laundryners and managers; other hotels are unaffected.'
+        : 'SLNT Group: fixed workbook linen catalogue for Team B. Standard items apply to every Team B unit; Dish towel appears only for the configured apartments and K4 rooms.'}
     </p>}
     <Card><CardHeader><CardTitle>Linen Items</CardTitle></CardHeader><CardContent>
       {loading ? <div className="flex justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>
         : <div className="space-y-2">{linenItems.map(item => <div key={item.id}
           className={`flex items-center justify-between p-3 border rounded-lg ${!item.is_active ? 'opacity-60 bg-gray-50' : ''}`}>
           <div className="flex items-center gap-3 min-w-0"><GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
-            <div className="min-w-0"><div className="font-medium">{gozsdu ? gozsduLinenLabel(item, language, t) : item.display_name}</div>
+            <div className="min-w-0"><div className="font-medium">{gozsdu ? gozsduLinenLabel(item, language, t) : slnt ? slntLinenLabel(item, language) : item.display_name}</div>
               <div className="text-sm text-muted-foreground">{item.name} • Order: {item.sort_order}</div></div></div>
-          {!gozsdu && <div className="flex items-center gap-2">
+          {!fixedCatalogue && <div className="flex items-center gap-2">
             <Switch checked={item.is_active} onCheckedChange={() => { void toggleActive(item); }} />
             <Dialog open={isEditDialogOpen && editingItem?.id === item.id} onOpenChange={setIsEditDialogOpen}>
               <DialogTrigger asChild><Button variant="outline" size="sm" onClick={() => handleEdit(item)}><Edit2 className="h-3 w-3" /></Button></DialogTrigger>
