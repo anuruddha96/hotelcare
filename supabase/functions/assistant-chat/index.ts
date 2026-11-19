@@ -6,15 +6,32 @@ import { fetchGeminiFirstChat } from "../_shared/geminiFirstChat.ts";
 import { geminiFirstStreamingModel } from "../_shared/geminiFirstStreamingModel.ts";
 import {
   convertToModelMessages,
+  hasToolCall,
   jsonSchema,
   stepCountIs,
   streamText,
   tool,
   type UIMessage,
 } from "npm:ai@7";
-import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_shared/assistantAutomationFields.ts";
+import {
+  AUTOMATION_FIELDS, canChangeAutomation, describeDateTier, mergePolicyChanges, policyFieldLabel, validateChanges,
+} from "../_shared/assistantAutomationFields.ts";
+import { PACE_POLICY_FIELDS, paceGridFloor, resolvePaceSettings, type PaceNumericKey } from "../_shared/engineV2PaceRatchet.ts";
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
-import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
+import {
+  ACTION_LABEL,
+  actionsForRole,
+  formatChoices,
+  resolveTicketPlace,
+  ticketHotelAllowed,
+  validateAction,
+} from "../_shared/assistantActions.ts";
+import {
+  brandSafeError,
+  buildClarifyingQuestions,
+  clarifyingHistoryNote,
+  persistedAssistantText,
+} from "../_shared/assistantClarify.ts";
 import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
 import { isPricingApprovalContinuation, MODEL_BY_PURPOSE, planAssistantTurn } from "../_shared/aiModelPolicy.ts";
 import { buildWorkspaceTools, canGenerateImages, canReadReputation, workspacePrompt, type WorkspaceAttachment } from "../_shared/assistantWorkspace.ts";
@@ -435,6 +452,41 @@ function buildTools(
         return payload;
       },
     }),
+    // Tap-to-answer clarification. The card offers the likely answers plus
+    // "Other"; a tap comes back as the user's next message. Reads and writes
+    // nothing, and the turn stops right after it (see stopWhen).
+    ask_user: tool({
+      description:
+        "Ask the user a clarifying question as tap-to-answer buttons, when a REQUIRED detail is missing or genuinely ambiguous and cannot be read from HotelCare data, the current screen or the conversation. Give the 2-4 most probable answers, best first, each 1-4 words, taken from real data where possible (room numbers, the user's hotels, priorities, dates). The app adds an 'Other' button for typing, so never include 'Other'. Prefer ONE question; up to three only if all are required now. Also write the question as one short sentence in your reply. After calling this, stop and wait for the answer.",
+      inputSchema: jsonSchema<{ questions: Array<{ id?: string; label?: string; question: string; options: string[]; multiSelect?: boolean }> }>({
+        type: "object",
+        properties: {
+          questions: {
+            type: "array",
+            description: "1-3 questions, most important first.",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", description: "Short key, e.g. room, hotel, priority" },
+                label: { type: "string", description: "1-2 word name shown with the answer, e.g. Room, Priority" },
+                question: { type: "string", description: "One short question" },
+                options: { type: "array", items: { type: "string" }, description: "2-4 most probable answers, best first" },
+                multiSelect: { type: "boolean", description: "true only if several answers may apply together" },
+              },
+              required: ["question", "options"],
+            },
+          },
+        },
+        required: ["questions"],
+        additionalProperties: false,
+      }),
+      execute: async (args) => {
+        const card = buildClarifyingQuestions(args);
+        if (!card) return { ok: false, error: "Give at least one question with at least one concrete answer option." };
+        attachments.push(card as unknown as WorkspaceAttachment);
+        return card;
+      },
+    }),
   };
 
 
@@ -625,6 +677,48 @@ function buildTools(
           .in("hotel_id", ids)
           .limit(50);
         if (error) throw new Error(`Automation rule lookup failed: ${error.message}`);
+        // Hotels priced by the pace-ratchet policy: its numbers, the stay dates
+        // a person tagged, and the Peak candidates waiting for a manager.
+        const policyRules = ((data ?? []) as any[]).filter((r) => resolvePaceSettings(r.pace_policy).mode !== "off");
+        let pricingPolicy: unknown[] = [];
+        if (policyRules.length > 0) {
+          const { data: tagRows, error: tagError } = await service
+            .from("revenue_date_tiers")
+            .select("hotel_id,stay_date,tier,status,source,event_title,reason,ceiling_eur")
+            .in("hotel_id", policyRules.map((r) => r.hotel_id))
+            .gte("stay_date", today())
+            .order("stay_date")
+            .limit(300);
+          if (tagError) throw new Error(`Date tag lookup failed: ${tagError.message}`);
+          pricingPolicy = policyRules.map((r) => {
+            const settings = resolvePaceSettings(r.pace_policy);
+            const rows = ((tagRows ?? []) as any[]).filter((t) => t.hotel_id === r.hotel_id);
+            return {
+              hotel_id: r.hotel_id,
+              mode: settings.mode,
+              modeMeaning: settings.mode === "live"
+                ? "These rules set the prices."
+                : "Shadow test: these rules are only recorded next to the live prices; they publish nothing yet.",
+              halfStepsUntil: settings.supervised_until,
+              listFloorEur: paceGridFloor(settings),
+              settings: (Object.keys(PACE_POLICY_FIELDS) as PaceNumericKey[]).map((key) => ({
+                field: `policy.${key}`,
+                label: policyFieldLabel(key),
+                group: PACE_POLICY_FIELDS[key].group,
+                value: settings[key],
+                min: PACE_POLICY_FIELDS[key].min,
+                max: PACE_POLICY_FIELDS[key].max,
+              })),
+              taggedDates: rows.filter((t) => t.status === "confirmed").map((t) => ({
+                stay_date: t.stay_date, tier: t.tier, highestPriceEur: t.ceiling_eur ?? null, why: t.event_title ?? t.reason ?? null,
+              })),
+              awaitingReview: rows.filter((t) => t.status === "needs_review").map((t) => ({
+                stay_date: t.stay_date, candidate: t.tier, why: t.reason ?? t.event_title ?? null,
+              })),
+              dismissed: rows.filter((t) => t.status === "dismissed").map((t) => t.stay_date),
+            };
+          });
+        }
         return {
           changeableFields: Object.entries(AUTOMATION_FIELDS).map(([field, spec]) => ({
             field,
@@ -632,6 +726,73 @@ function buildTools(
             ...(spec.kind === "number" ? { min: spec.min, max: spec.max } : { type: "boolean" }),
           })),
           rules: data ?? [],
+          pricingPolicy,
+          pricingPolicyHelp: pricingPolicy.length === 0 ? null : {
+            numbers: "Change a policy number with the field name shown, e.g. { \"policy.floor_net_eur\": 70 }.",
+            dateTags: "Tag a stay date with { \"tier.YYYY-MM-DD\": \"normal\" | \"high\" | \"peak\" }. Use \"dismissed\" to reject a Peak candidate and \"auto\" to remove a tag. A date range needs one entry per night.",
+            dateCeiling: "Give a tagged date its own highest price with { \"ceiling.YYYY-MM-DD\": 700 } (whole euros, 100–3000, null removes it).",
+            mode: "The mode (off, shadow, live) cannot be changed from chat.",
+          },
+        };
+      },
+    });
+
+    tools.get_pricing_policy_decisions = tool({
+      description:
+        "For hotels priced by the pace-ratchet policy: what the policy decided for each stay date in a range (raise, cut or hold, by how much and why), next to what the other rule set did. Use it to explain why a date moved or did not move, and to check the shadow test.",
+      inputSchema: jsonSchema<{ hotelId: string | null; startDate: string | null; endDate: string | null }>(
+        hotelArgSchema(
+          {
+            startDate: { type: ["string", "null"], description: "First stay date, YYYY-MM-DD, or null for today" },
+            endDate: { type: ["string", "null"], description: "Last stay date, YYYY-MM-DD, or null for 13 days after the first; at most 31 nights" },
+          },
+          ["startDate", "endDate"],
+        ),
+      ),
+      execute: async ({ hotelId, startDate, endDate }) => {
+        const ids = resolve(hotelId);
+        if (ids.length !== 1) throw new Error("Name exactly one hotel");
+        const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+        const from = startDate && isoDate.test(startDate) ? startDate : today();
+        const latest = new Date(Date.parse(`${from}T00:00:00Z`) + 30 * 86_400_000).toISOString().slice(0, 10);
+        const wanted = endDate && isoDate.test(endDate)
+          ? endDate
+          : new Date(Date.parse(`${from}T00:00:00Z`) + 13 * 86_400_000).toISOString().slice(0, 10);
+        const to = wanted > latest ? latest : wanted < from ? from : wanted;
+        const { data: ruleRow, error: ruleError } = await service
+          .from("revenue_pickup_automation_rules")
+          .select("pace_policy")
+          .eq("organization_slug", orgSlug)
+          .eq("hotel_id", ids[0])
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (ruleError) throw new Error(`Automation rule lookup failed: ${ruleError.message}`);
+        const mode = resolvePaceSettings(ruleRow?.pace_policy).mode;
+        if (mode === "off") return { hotel_id: ids[0], mode, note: "This hotel is not priced by the pace-ratchet policy.", dates: [] };
+        // The policy writes one row per stay date per run; three hours always
+        // holds the newest row for every date.
+        const { data, error } = await service
+          .from("revenue_pace_policy_log")
+          .select("stay_date,created_at,mode,days_out,tier,tier_source,zone,current_price,base_price,converting_price,occupancy_pct,rooms_remaining,expected_pct,policy_direction,policy_movement,policy_target,policy_intent,policy_detail,live_direction,live_movement,live_reason")
+          .eq("hotel_id", ids[0])
+          .gte("stay_date", from)
+          .lte("stay_date", to)
+          .gte("created_at", new Date(Date.now() - 3 * 3_600_000).toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1000);
+        if (error) throw new Error(`Policy decision lookup failed: ${error.message}`);
+        const newest = new Map<string, any>();
+        for (const row of (data ?? []) as any[]) if (!newest.has(row.stay_date)) newest.set(row.stay_date, row);
+        return {
+          hotel_id: ids[0],
+          mode,
+          from,
+          to,
+          legend: mode === "live"
+            ? "policy_* is what was decided and published; live_* is what the previous rule set would have done."
+            : "Shadow test: policy_* is what the new rules WOULD do; live_* is what was actually published.",
+          dates: [...newest.values()].sort((a, b) => String(a.stay_date).localeCompare(String(b.stay_date))),
         };
       },
     });
@@ -711,7 +872,7 @@ function buildTools(
             reason: { type: "string", description: "Why this change helps occupancy or ADR, in one or two sentences" },
             changes: {
               type: "object",
-              description: "Map of allowed rule field -> new value. Read get_automation_rules for the allowed fields.",
+              description: "Map of allowed field -> new value. Read get_automation_rules first: changeableFields lists rule columns; for hotels with a pricingPolicy it also lists policy.<setting> numbers, and stay dates are tagged with tier.YYYY-MM-DD and ceiling.YYYY-MM-DD.",
               additionalProperties: true,
             },
           },
@@ -721,7 +882,7 @@ function buildTools(
         execute: async ({ hotelId, changes, reason }) => {
           const ids = resolve(hotelId);
           if (ids.length !== 1) throw new Error("Name exactly one hotel for an automation change");
-          const validated = validateChanges(changes);
+          const validated = validateChanges(changes, { today: today() });
           if (!validated.ok) throw new Error(validated.error);
           const { data: rule, error } = await service
             .from("revenue_pickup_automation_rules")
@@ -733,13 +894,43 @@ function buildTools(
             .maybeSingle();
           if (error) throw new Error(`Automation rule lookup failed: ${error.message}`);
           if (!rule) throw new Error(`No automation configuration exists yet for ${ids[0]}`);
+          const policyChanges = validated.changes.filter((change) => change.target === "policy");
+          const dateChanges = validated.changes.filter((change) => change.target === "tier" || change.target === "ceiling");
+          if (policyChanges.length + dateChanges.length > 0 && resolvePaceSettings(rule.pace_policy).mode === "off") {
+            throw new Error(`${ids[0]} is not priced by the pace-ratchet policy, so it has no policy settings or date tags to change`);
+          }
+          const merged = mergePolicyChanges(rule.pace_policy, validated.changes);
+          if (merged.adjusted.length > 0) throw new Error(`${merged.adjusted.join("; ")}. Change the conflicting setting in the same proposal.`);
+          const tagRows = new Map<string, any>();
+          if (dateChanges.length > 0) {
+            const { data: rows, error: tagError } = await service
+              .from("revenue_date_tiers")
+              .select("stay_date,tier,status,ceiling_eur")
+              .eq("hotel_id", ids[0])
+              .in("stay_date", [...new Set(dateChanges.map((change) => (change as { stayDate: string }).stayDate))]);
+            if (tagError) throw new Error(`Date tag lookup failed: ${tagError.message}`);
+            for (const row of (rows ?? []) as any[]) tagRows.set(row.stay_date, row);
+          }
+          for (const change of validated.changes) {
+            if (change.target !== "ceiling" || change.value == null) continue;
+            const tag = validated.changes.find((other) => other.target === "tier" && other.stayDate === change.stayDate);
+            const tagged = tag
+              ? ["normal", "high", "peak"].includes(String(tag.value))
+              : tagRows.get(change.stayDate)?.status === "confirmed";
+            if (!tagged) throw new Error(`Tag ${change.stayDate} as normal, high or peak in the same proposal before giving it its own highest price`);
+          }
           const diff = validated.changes
-            .map((change) => ({
-              field: change.field,
-              label: change.label,
-              from: rule[change.field] ?? null,
-              to: change.value,
-            }))
+            .map((change) => {
+              let from: unknown;
+              let to: unknown = change.value;
+              if (change.target === "policy") from = merged.before[change.key];
+              else if (change.target === "tier") {
+                from = describeDateTier(tagRows.get(change.stayDate));
+                to = change.value === "auto" ? "automatic" : change.value;
+              } else if (change.target === "ceiling") from = tagRows.get(change.stayDate)?.ceiling_eur ?? null;
+              else from = rule[change.field] ?? null;
+              return { field: change.field, label: change.label, from, to };
+            })
             .filter((row) => String(row.from) !== String(row.to));
           if (!diff.length) throw new Error("Those values are already configured — nothing to change");
           return {
@@ -1336,8 +1527,10 @@ function buildTools(
   if (availableActions.length) {
     // Models only supply structured inputs. This endpoint runs all authorization,
     // freshness and property checks again with the signed-in user's JWT.
+    // Maintenance tickets always go through the confirmation card: Mira drafts
+    // title, description and priority, and the person checks them with one tap.
     const directActions = availableActions.filter(kind =>
-      ["create_guest_request", "set_bed_configuration", "create_ticket", "update_ticket_status", "adjust_revenue_prices"].includes(kind));
+      ["create_guest_request", "set_bed_configuration", "update_ticket_status", "adjust_revenue_prices"].includes(kind));
     if (directActions.length) tools.execute_action = tool({
       description: `Perform an explicitly requested HotelCare action NOW. For guest items, use create_guest_request with requestType (extra_towels / extra_pillow / blanket / baby_cot / iron / amenities / other), roomNumber and quantity. For beds together, use set_bed_configuration with configuration 'Double Bed'. For a whole-euro relative price change use adjust_revenue_prices with fromDate, toDate and signed deltaEur. NEVER act on ambiguous instructions, invented room numbers, dates, or a hotel not selected. Only claim completion on ok:true. Available: ${directActions.join(", ")}.`,
       inputSchema: jsonSchema<{ kind: string; input: Record<string, unknown> }>({
@@ -1439,7 +1632,7 @@ function buildTools(
           input: {
             type: "object",
             description:
-              "create_ticket: {hotelId, roomNumber, title, description, priority, department}. assign_room_cleaning: {hotelId, roomNumber, staffId, staffName, date, assignmentType}. update_ticket_status: {hotelId, ticketId, status, note}.",
+              "create_ticket: {hotelId, roomNumber, title, description, priority (low|medium|high|urgent), department (default maintenance)} — for a common area pass location (e.g. 'Lobby') instead of roomNumber. assign_room_cleaning: {hotelId, roomNumber, staffId, staffName, date, assignmentType}. update_ticket_status: {hotelId, ticketId, status, note}.",
             additionalProperties: true,
           },
         },
@@ -1449,19 +1642,66 @@ function buildTools(
       execute: async ({ kind, input, reason }) => {
         if (!availableActions.includes(kind as any)) throw new Error("That action is not available for your role");
         const requested = (input ?? {}) as Record<string, unknown>;
-        const ids = resolve(typeof requested.hotelId === "string" ? requested.hotelId : null);
-        if (ids.length !== 1) throw new Error("Name exactly one property for this action");
+        // A ticket with no hotel named belongs to the screen's hotel, then the person's own.
+        const requestedHotel = typeof requested.hotelId === "string" && requested.hotelId.trim()
+          ? requested.hotelId
+          : kind === "create_ticket" ? (pageHotelId || profile.assigned_hotel || null) : null;
+        const ids = resolve(requestedHotel);
+        if (ids.length !== 1) {
+          return {
+            ok: false,
+            error: "Several properties are possible. Ask which one with ask_user (the screen's hotel first).",
+            hotels: hotels.map((h) => h.hotel_name),
+          };
+        }
         const validated = validateAction(kind, { ...requested, hotelId: ids[0] });
         if (!validated.ok) throw new Error(validated.error);
+        const hotel = hotels.find((h) => h.hotel_id === ids[0]) ?? { hotel_id: ids[0], hotel_name: ids[0] };
+        let fields = validated.action.fields;
+        let proposalInput = validated.action.input;
+
+        if (validated.action.kind === "create_ticket") {
+          // Check now what Confirm would check, so the card never fails on tap.
+          if (!ticketHotelAllowed(profile, hotel)) {
+            return {
+              ok: false,
+              error: `This user can raise tickets for their own hotel only, not ${hotel.hotel_name}. Tell them plainly; do not show a card.`,
+            };
+          }
+          const place = await resolveTicketPlace(service, {
+            organizationSlug: orgSlug,
+            hotelId: hotel.hotel_id,
+            hotelName: hotel.hotel_name,
+            roomNumber: String(proposalInput.roomNumber ?? ""),
+            location: String(proposalInput.location ?? ""),
+          });
+          if (!place.ok) {
+            return {
+              ok: false,
+              error: place.error,
+              suggestions: place.suggestions,
+              next: place.suggestions.length
+                ? `Ask with ask_user which room it is, offering ${formatChoices(place.suggestions)}.`
+                : "Ask with ask_user which room or common area it is.",
+            };
+          }
+          proposalInput = place.kind === "room"
+            ? { ...proposalInput, roomNumber: place.roomNumber, location: "" }
+            : { ...proposalInput, roomNumber: "", location: place.location };
+          fields = fields.map((field, index) => index === 0
+            ? (place.kind === "room" ? { label: "Room", value: place.roomNumber } : { label: "Location", value: `${place.location} (common area)` })
+            : field);
+        }
+
         return {
           kind: "action_proposal",
           action: validated.action.kind,
           title: ACTION_LABEL[validated.action.kind],
           hotelId: ids[0],
-          hotelName: hotels.find((h) => h.hotel_id === ids[0])?.hotel_name ?? ids[0],
+          hotelName: hotel.hotel_name ?? ids[0],
           reason,
-          fields: validated.action.fields,
-          input: validated.action.input,
+          fields,
+          input: proposalInput,
           requiresApproval: true,
         };
       },
@@ -2103,13 +2343,18 @@ Deno.serve(async (req) => {
       return json({ error: "You have asked a lot of questions in a short time. Please try again in a few minutes." }, 429);
     }
 
-    const { data: storedRows, error: storedError } = await service
+    const loadHistory = (columns: string): PromiseLike<{ data: any[] | null; error: { message?: string } | null }> => service
       .from("assistant_messages")
-      .select("id,role,content,created_at")
+      .select(columns)
       .eq("thread_id", threadId)
       .eq("user_id", userData.user.id)
       .order("created_at", { ascending: true })
       .limit(200);
+    // Attachments carry the buttons Mira offered; tolerate a schema without them.
+    let { data: storedRows, error: storedError } = await loadHistory("id,role,content,created_at,attachments");
+    if (storedError && /attachments|column|schema cache/i.test(String(storedError.message ?? ""))) {
+      ({ data: storedRows, error: storedError } = await loadHistory("id,role,content,created_at"));
+    }
     if (storedError) return json({ error: `Could not load conversation history: ${storedError.message}` }, 500);
     // The full thread stays stored and visible in the app; the model only ever
     // sees a bounded recent window, so old turns cannot add noise or be reused
@@ -2118,7 +2363,10 @@ Deno.serve(async (req) => {
     const storedMessages: UIMessage[] = (storedRows ?? []).slice(-MODEL_HISTORY_TURNS).map((row: any) => ({
       id: row.id,
       role: row.role,
-      parts: [{ type: "text", text: row.content }],
+      parts: [{
+        type: "text",
+        text: row.role === "assistant" ? `${row.content ?? ""}${clarifyingHistoryNote(row.attachments)}` : row.content,
+      }],
     }));
 
     const latestParts = [
@@ -2272,6 +2520,7 @@ All revenue numbers come from the published Revenue dataset, which is the same d
 Never substitute a global automation-rule change for a specific stay-date price review. HotelCare supports authorised date-specific price changes through propose_action with kind adjust_revenue_prices, and explicit confirmation cards.
 ${pricingApprovalFollowup ? "FOLLOW-UP RATE APPROVAL: The manager accepted an earlier rate review in words. That acceptance is NOT authorization to publish unverified prices. Re-run review_pricing for the selected hotel and up to 30 upcoming nights; its proposals are rendered as confirmation cards automatically. Do not call execute_action on this followup. Do not call propose_automation_change unless the manager explicitly requests global rules. Do not say date-specific changes are unsupported." : ""}
 When a rule change would help AND the user explicitly requests automation configuration, call propose_automation_change. It only creates a proposal the user taps Apply on, so never claim you changed anything.
+PACE-RATCHET HOTELS: when get_automation_rules returns a pricingPolicy for a hotel, that hotel is priced by percentage rules, not by the older euro fields: a booking raises the date by a share of its price (bigger on High and Peak dates), quiet hours cut it a little while the date is behind its booking curve, far-out dates glide to their seasonal base, the last three days sell down, and the arrival day steps down until a price converts. When the user types an instruction for that hotel ("lowest rate 70", "sell the last rooms faster", "tag 31 December as Peak", "Champions League night can go to 900"), read get_automation_rules, pick the matching policy.<setting>, tier.<date> or ceiling.<date> fields, and call propose_automation_change with them. Change as few settings as the request needs, and say in one sentence what the change does with one worked euro example. Dates awaiting review are Peak candidates: propose "peak" to confirm one, "dismissed" to reject it. Use get_pricing_policy_decisions to explain why a date moved or held. You cannot switch the policy between off, shadow and live; if asked, say the system owner does that.
 Respect and mention the app's guardrails when relevant: whole-number prices, room-type/occupancy ladder safety, sold-out and high-occupancy guards, minimum ADR, far-out floors and top-ups, manual-price hold.
 Always say which hotel, date range and currency your numbers refer to.`
       : "";
@@ -2283,6 +2532,7 @@ Always say which hotel, date range and currency your numbers refer to.`
     const result = streamText({
       model: modelUsed,
       system: `You are Mira by HotelCare, the company's action-capable operations companion inside HotelCare.app.
+You are HotelCare's own assistant. Never name or hint at an underlying AI model, provider or vendor (no Gemini, Google AI, OpenAI, GPT, ChatGPT, Claude or similar). If asked which AI you are or who built you, say you are Mira, HotelCare's built-in operations assistant.
 Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
 The authenticated user's role is ${ACCESS_ROLE_LABEL[capabilitiesFor(profile).accessRole]} (permission level ${profile.role}). Their organization is ${profile.organization_slug ?? "none"}.
 Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).join("; ") || "none"}. Never mention or read any other organization or property.
@@ -2303,7 +2553,7 @@ GROUNDING — never guess Hotel Care data
 
 HOTEL AND DATE
 - Use the hotel of the screen the user is on unless they clearly name another property. Page context helps you interpret "this hotel" but never widens what you may read.
-- If the question could mean several properties and no hotel is selected, ask ONE short clarification naming the options, then stop.
+- If the question could mean several properties and no hotel is selected, ask which one with ask_user (the screen's or the user's own hotel first), then stop.
 - "today", "tomorrow", "this weekend", "next Friday" are resolved in Europe/Budapest time.
 
 OPERATIONAL READS
@@ -2321,14 +2571,28 @@ GUIDANCE AND ACTIONS
 - For a maintenance request, check room detail, existing open tickets, and available reservation snapshot where permitted before raising a new ticket.
 - If the latest user message includes attached images or a PDF, examine the actual file content before describing it. State uncertainty clearly. A file is not proof of a repair request unless the user asked for one. For requested ticket creation, include all explicitly reported issues in the title/description, and use attached evidence through the confirmed ticket workflow; do not claim evidence was linked unless the action confirms it. If reservation or maintenance technician assignment cannot be verified, say so. Use the user's exact problems and priority justified by safety/guest impact, never claim a notification was delivered without a confirmed result. Where a permitted destination exists, offer a clearly labeled "Open in HotelCare" action by using find_destination then suggest_actions. Its destination id MUST come from the user's role-filtered catalogue; never invent page paths, source records or URLs. A reference to a section is not evidence of a particular record unless the tool actually returned that record.
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
-- For explicitly requested, supported routine actions (extra towels, room items, beds, maintenance tickets, ticket updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
-- For room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
-- Contradictory directions such as "increase by -2" must be clarified before any change.
+- For explicitly requested, supported routine actions (extra towels, room items, beds, ticket status updates, authorized bounded euro price changes), use execute_action immediately rather than sending a user through menus. Report completion in ONE short line ONLY if the tool returned ok:true. Never invent results or claim a notification was delivered if it was merely recorded.
+- For maintenance tickets, room assignments, absolute price-cell edits and minimum-stay changes, use propose_action and require confirmation.
+- Contradictory directions such as "increase by -2" must be clarified with ask_user before any change.
 - Roles and hotel boundaries are enforced server-side. A user without top-management/admin privileges cannot change rates.
 - Unavailable tools are unavailable because of authorization. Say access is required, without speculating about the data. Never reveal another organization, hotel, venue, guest identity, credential or staff pay.
 - Be an operator, not a passive Q&A bot: for a supported job, explain whether you can complete it now, need a single missing detail, or need confirmation. Do not default to "Would you like me to help?" when the next action is already clear.
 - After an action, state precisely "completed", "recorded", "queued", "awaiting confirmation", or "not completed" based on the returned status. Never imply a queued price publication is already live. Never offer to sign in someone's shift unless a real authorized sign-in action exists.
 - For Hotel Care usage questions, use the workflow reference tool. For general (non Hotel Care) knowledge you already know confidently, answer normally.
+
+CLARIFYING QUESTIONS — tap to answer
+- Ask only when a REQUIRED detail is missing or genuinely ambiguous and you cannot read it from HotelCare data, the screen or the conversation. Never ask what you can safely infer: the screen's hotel, a priority that is obvious from the problem, a title you can write yourself.
+- Ask with ask_user, never as a typed list of questions. Write the question as one short sentence in your reply and call ask_user with the same question and the 2-4 most probable answers, best first. HotelCare adds an "Other" button so the person can type anything else; never add your own "Other".
+- Answers are short and concrete, from real data when possible: room numbers a lookup returned or suggested, the person's hotels, priorities, dates. Never offer an answer you could not act on.
+- Prefer one question. Put up to three in the same card only when they are independent and all are needed now.
+- After ask_user, stop: no other tools, no guessing, no card. Continue when the answer arrives; it may be a tapped option or typed text, and it may combine several answers ("Room: 406 · Priority: High").
+
+MAINTENANCE TICKETS
+- When someone reports something to fix (leak, broken item, no hot water, AC or heating, lights, noise, smell), prepare the ticket yourself with propose_action kind create_ticket; the card is the confirmation and the person taps Confirm. Do not ask them to confirm in words what the card already shows.
+- Write a short clear title (at most 8 words) and a factual description for the technician: what, where exactly, since when if known, guest impact. Department is maintenance unless the request clearly belongs to another department.
+- Priority from the problem: urgent = active leak or flooding, no power, gas or burning smell, safety or security risk, guest locked out; high = guest-affecting fault in an occupied room (suspected leak, no hot water, AC or heating failure, toilet or shower not working); medium = non-urgent fault; low = cosmetic.
+- Room number from the message ("406" for "room 406"). For a common area pass location ("Lobby", "3rd floor corridor") instead of roomNumber.
+- Use the screen's hotel. If the room or area is missing, or several hotels are possible and none is clear, ask with ask_user. If HotelCare answers that the room was not found and suggests rooms, ask with ask_user offering exactly those rooms. If it says the person may not file for that hotel, say so plainly.
 
 WEB SEARCH — for facts not stored in Hotel Care
 - NEVER answer "the system does not provide this" or "the current data does not specify" for a question about the public world. If Hotel Care tools cannot answer it, call search_web first — always. This includes: opening and breakfast hours, menus, à la carte vs buffet, prices, branches and locations of a café/restaurant/venue, company or people information published online, city events, weather, transport, and any general knowledge question.
@@ -2348,7 +2612,8 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
-      stopWhen: stepCountIs(routine ? 6 : plan.maxSteps),
+      // A clarifying question ends the turn: Mira waits for the tapped answer.
+      stopWhen: [stepCountIs(routine ? 6 : plan.maxSteps), hasToolCall("ask_user")],
 
       abortSignal: req.signal,
       onFinish: async ({ totalUsage }) => {
@@ -2376,7 +2641,9 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
       headers: corsHeaders,
       onFinish: async ({ responseMessage, isAborted }) => {
         if (isAborted) return;
-        const answer = extractText(responseMessage);
+        // A buttons-only question is stored with its words, so the thread reads
+        // correctly after a reload and in the next turn's history.
+        const answer = persistedAssistantText(extractText(responseMessage), attachments);
         // An answer may be only a chart or an image; that is still an answer.
         if (!answer && attachments.length === 0) return;
         const { error: assistantInsertError } = await insertTolerant(service, "assistant_messages", {
@@ -2432,7 +2699,8 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
       onError: (error) => {
         void refundMonthlyMessage(service, userData.user.id, messageId);
         console.error("assistant stream failed", error);
-        return error instanceof Error ? error.message : "The assistant could not complete the response";
+        // The person talks to Mira by HotelCare; provider names stay in the logs.
+        return brandSafeError(error instanceof Error ? error.message : "The assistant could not complete the response");
       },
     });
   } catch (error) {

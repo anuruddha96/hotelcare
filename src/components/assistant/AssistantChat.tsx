@@ -46,6 +46,7 @@ import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
 import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
 import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
 import ActionConfirmCard, { isActionProposal } from "./ActionConfirmCard";
+import ClarifyingQuestionCard, { isClarifyingQuestions } from "./ClarifyingQuestionCard";
 import ActionRequestCard from "./plans/ActionRequestCard";
 import { RatePlanView } from "./plans/RatePlanView";
 import { isActionRequestAttachment, isRatePlan } from "./plans/types";
@@ -557,6 +558,17 @@ function ChatSession({
     await sendMessage({ text: value, files });
   };
 
+  // A tapped answer to Mira's question. Unlike submit, a half-typed draft stays.
+  const sendQuickAnswer = (text: string): boolean => {
+    const value = text.trim();
+    if (!value || (usage && !usage.unlimited && usage.remaining === 0) || status === "submitted" || status === "streaming") return false;
+    setShowResume(false);
+    setFailed(null);
+    lastQuestionRef.current = value;
+    void sendMessage({ text: value });
+    return true;
+  };
+
   const retryLastQuestion = async () => {
     if (!lastQuestionRef.current || status === "submitted" || status === "streaming") return;
     setFailed(null);
@@ -689,6 +701,21 @@ function ChatSession({
                       if (toolName === "execute_action" && toolPart.output?.ok === false) {
                         return <p key={key} className="mt-2 text-xs text-destructive">Not completed: {String(toolPart.output.error || "Action not verified.")}</p>;
                       }
+                      // Mira's clarifying question: tap an answer or type "Other".
+                      // Only the latest question is answerable; once answered,
+                      // the reply below it shows what was chosen.
+                      if (toolName === "ask_user") {
+                        if (!isLast || !isClarifyingQuestions(toolPart.output)) return null;
+                        return (
+                          <ClarifyingQuestionCard
+                            key={`${key}-ask`}
+                            spec={toolPart.output}
+                            messageText={text}
+                            interactive={!generating}
+                            onAnswer={sendQuickAnswer}
+                          />
+                        );
+                      }
                       if (toolName === "render_chart" && isAssistantChart(toolPart.output)) {
                         return <AssistantChart key={`${key}-chart`} spec={toolPart.output} />;
                       }
@@ -814,6 +841,16 @@ function ChatSession({
                         <AssistantActions key={`${message.id}-saved-${attachmentIndex}`} payload={attachment} page={page} onNavigate={onNavigate} />
                       ) : isActionRequestAttachment(attachment) ? (
                         <ActionRequestCard key={`${message.id}-saved-${attachmentIndex}`} requestId={attachment.requestId} />
+                      ) : isClarifyingQuestions(attachment) ? (
+                        isLast ? (
+                          <ClarifyingQuestionCard
+                            key={`${message.id}-saved-${attachmentIndex}`}
+                            spec={attachment}
+                            messageText={text}
+                            interactive={!generating}
+                            onAnswer={sendQuickAnswer}
+                          />
+                        ) : null
                       ) : null,
                     )}
                   {needsScope && isLast && (

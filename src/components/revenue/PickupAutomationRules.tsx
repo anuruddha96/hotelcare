@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Bot, Loader2, HelpCircle, Clock, TrendingUp, TrendingDown,
-  ShieldCheck, CalendarRange, FileText, Users,
+  ShieldCheck, CalendarRange, FileText, Users, MessageSquareText, Send,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -27,6 +27,9 @@ import EngineV2Controls, { type EngineV2WindowRule } from "@/components/revenue/
 
 import ActivateModuleDialog from "@/components/billing/ActivateModuleDialog";
 import { automationUnlocked, fetchBillingSummary, type BillingSummary } from "@/hooks/useBilling";
+import { useAuth } from "@/hooks/useAuth";
+import { canUseAssistant } from "@/lib/assistantAccess";
+import { automationChatExamples, automationChatPrompt, pacePolicyStatus } from "@/lib/revenue/automationChat";
 
 interface Props { hotelId: string | null; organizationSlug: string | null; }
 interface Tier { max_days: number | null; increase: number; }
@@ -412,6 +415,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [stats, setStats] = useState({ pushed: 0, failed: 0, lastActionAt: null as string | null });
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [guestStep, setGuestStep] = useState<number>(1);
+  const [ask, setAsk] = useState("");
+  const { profile } = useAuth();
+  const chatAvailable = canUseAssistant(profile);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -807,6 +813,15 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
 
   const cur = rule.currency;
   const showV2Controls = Number(rule.engine_version ?? 1) >= 2;
+  const paceStatus = pacePolicyStatus((rule as unknown as { pace_policy?: unknown }).pace_policy);
+
+  /** Hand a typed instruction to Mira, who answers with a before/after card. */
+  function askMira(text: string) {
+    const prompt = automationChatPrompt(hotelName, hotelId, text);
+    if (!prompt) return;
+    window.dispatchEvent(new CustomEvent("hotelcare:ask-ai", { detail: { prompt } }));
+    setAsk("");
+  }
 
   return (
     <>
@@ -849,6 +864,53 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         {loading ? <div className="flex flex-1 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : (
           <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="space-y-3 border-b bg-muted/30 p-4">
+              {chatAvailable && hasSavedRule && (
+                <div className="rounded-xl border bg-card p-3 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <MessageSquareText className="h-4 w-4 shrink-0 text-primary" />
+                    <p className="text-sm font-semibold">Tell the automation what you want</p>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Type it in your own words. Mira turns it into a rule change and shows a before and after —
+                    nothing changes until you tap Apply.
+                  </p>
+                  <form
+                    className="mt-2 flex gap-2"
+                    onSubmit={(event) => { event.preventDefault(); askMira(ask); }}
+                  >
+                    <Input
+                      value={ask}
+                      onChange={(event) => setAsk(event.target.value)}
+                      placeholder="e.g. Lowest rate €70"
+                      maxLength={400}
+                      aria-label={`Instruction for ${hotelName}'s price automation`}
+                      className="h-9 text-sm"
+                    />
+                    <Button type="submit" size="sm" className="h-9 shrink-0 gap-1.5" disabled={!ask.trim()}>
+                      <Send className="h-3.5 w-3.5" />
+                      Ask
+                    </Button>
+                  </form>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {automationChatExamples(paceStatus.mode).map((example) => (
+                      <button
+                        key={example}
+                        type="button"
+                        onClick={() => setAsk(example)}
+                        className="rounded-full border bg-background px-2.5 py-1 text-left text-[11px] text-muted-foreground hover:bg-muted"
+                      >
+                        {example}
+                      </button>
+                    ))}
+                  </div>
+                  {paceStatus.note && (
+                    <p className="mt-2 rounded-lg bg-muted/60 px-2.5 py-1.5 text-[11px] leading-snug text-muted-foreground">
+                      <span className="font-medium text-foreground">{paceStatus.label}</span> {paceStatus.note}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-start justify-between gap-3 rounded-xl border bg-card p-3 shadow-sm">
                 <div className="min-w-0">
                   <p className="font-semibold">

@@ -33,6 +33,7 @@ import {
 } from '@/lib/revenue/automationSummary';
 import { ReasonSettingEditor } from '@/components/revenue/ReasonSettingEditor';
 import { reasonInfo } from '@/lib/revenue/reasonSettings';
+import { hasBlockingDialog } from '@/lib/notificationPresentation';
 
 
 const money = (value: number | null | undefined, currency: string | null | undefined) =>
@@ -75,19 +76,30 @@ export function RevenueAutomationNotifications() {
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState<keyof typeof SOURCE_LABEL>('all');
   const welcomed = useRef(false);
+  // Realtime refreshes can replace the items array frequently. Keep the toast
+  // delay stable while still reading the latest unread items when it fires.
+  const latestItemsRef = useRef(items);
+  latestItemsRef.current = items;
+  const hasUnread = unreadCount > 0;
 
-  // One lightweight catch-up per session. Give the dashboard a quiet first
-  // impression before surfacing non-urgent automation history.
+  // One non-urgent catch-up per mount. A Radix modal traps outside interaction,
+  // so defer the toast until the manager has finished with the open dialog.
+  // Closing a toast never marks the underlying revenue activity as read.
   useEffect(() => {
-    if (!canSee || welcomed.current || unreadCount === 0) return;
+    if (!canSee || welcomed.current || !hasUnread) return;
 
-    const timer = window.setTimeout(() => {
-      if (welcomed.current) return;
-      const unread = items.filter((n) => !n.read);
-      if (unread.length === 0) return;
+    let settleTimer: number | undefined;
+    let observer: MutationObserver | undefined;
+
+    const showCatchUp = () => {
+      if (welcomed.current || hasBlockingDialog()) return;
+      const unread = latestItemsRef.current.filter((notification) => !notification.read);
+      if (!unread.length) return;
 
       welcomed.current = true;
-      const changes = unread.reduce((sum, n) => sum + (n.actions_count || n.changes.length), 0);
+      observer?.disconnect();
+      const changes = unread.reduce((sum, notification) =>
+        sum + (notification.actions_count || notification.changes.length), 0);
       toast.message(
         `${changes} revenue automation update${changes === 1 ? '' : 's'} completed while you were away`,
         {
@@ -95,10 +107,41 @@ export function RevenueAutomationNotifications() {
           duration: 8_000,
         },
       );
+    };
+
+    const watchForModalClose = () => {
+      if (!hasBlockingDialog() && settleTimer === undefined) {
+        // Allow closing animations and focus restoration to complete.
+        settleTimer = window.setTimeout(() => {
+          settleTimer = undefined;
+          showCatchUp();
+        }, 350);
+      } else if (hasBlockingDialog() && settleTimer !== undefined) {
+        window.clearTimeout(settleTimer);
+        settleTimer = undefined;
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      if (!hasBlockingDialog()) {
+        showCatchUp();
+        return;
+      }
+      observer = new MutationObserver(watchForModalClose);
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['data-state', 'aria-modal'],
+      });
     }, CATCH_UP_DELAY_MS);
 
-    return () => window.clearTimeout(timer);
-  }, [canSee, unreadCount, items]);
+    return () => {
+      window.clearTimeout(timer);
+      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
+      observer?.disconnect();
+    };
+  }, [canSee, hasUnread]);
 
   // Keep an open detail dialog in sync with freshly loaded push outcomes.
   useEffect(() => {
@@ -239,7 +282,7 @@ export function RevenueAutomationNotifications() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
-              {detail?.hotel_name} — {detail && isAiReviewFailure(detail) ? 'AI review unavailable' : detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
+              {detail?.hotel_name} — {detail && isAiReviewFailure(detail) ? 'AI review unavailable' : detail?.notification_type === 'peak_review' ? 'dates to review' : detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
             </DialogTitle>
             <DialogDescription>
               {detail
@@ -472,6 +515,29 @@ export function RevenueAutomationNotifications() {
                                 compact
                               />
                             </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : detail.notification_type === 'peak_review' && detail.changes.length > 0 ? (
+                <div className="rounded-lg border overflow-x-auto">
+                  <table className="w-full text-[13px]">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="text-left">
+                        <th className="px-2.5 py-2 font-semibold">Stay date</th>
+                        <th className="px-2.5 py-2 font-semibold">Why it may be a Peak date</th>
+                        <th className="px-2.5 py-2 font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.changes.map((row, index) => (
+                        <tr key={`${row.stay_date}-${index}`} className="border-t align-top odd:bg-muted/30">
+                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{row.stay_date}</td>
+                          <td className="px-2.5 py-2 min-w-[240px]">{row.reason_detail ?? row.event_title ?? 'Unusually strong demand expected'}</td>
+                          <td className="px-2.5 py-2">
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Awaiting review</Badge>
                           </td>
                         </tr>
                       ))}

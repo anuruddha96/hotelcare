@@ -16,8 +16,8 @@ import { toast } from "sonner";
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Upload, TrendingUp, TrendingDown,
   AlertTriangle, Loader2, Check, Edit3, X, Calendar as CalIcon, BarChart3,
-  Settings2, Sparkles, Plus, RefreshCw, Bot, History as HistoryIcon, Gauge, Activity,
-  PieChart, Binoculars, Mail,
+  Settings2, Sparkles, Plus, RefreshCw, Bot, History as HistoryIcon,
+  Binoculars, Mail, Target, Wallet,
 } from "lucide-react";
 import SegmentPerformancePanel from "@/components/revenue/SegmentPerformancePanel";
 import YearOverYearPanel from "@/components/revenue/YearOverYearPanel";
@@ -48,7 +48,8 @@ import EventsPanel from "@/components/revenue/EventsPanel";
 import DemandPricingPanel from "@/components/revenue/DemandPricingPanel";
 
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
-import RevenueToolsBar from "@/components/revenue/RevenueToolsBar";
+import RevenueInsightsHub from "@/components/revenue/RevenueInsightsHub";
+import ChannelEconomicsPanel from "@/components/revenue/channels/ChannelEconomicsPanel";
 
 import PickupMovementBoard from "@/components/revenue/PickupMovementBoard";
 import MarketIntelligenceChart from "@/components/revenue/MarketIntelligenceChart";
@@ -144,6 +145,16 @@ export default function RevenueHotelDetail() {
       <main className="container mx-auto px-3 sm:px-6 py-4 space-y-4">
         <MainTabsBar current="revenue" />
         <NativeAriCalendar hotelId={hotelId} />
+        {/* Same channel economics as Previo hotels, from HotelCare's own bookings. */}
+        {navProfile && (navProfile.is_super_admin || isRevenueAdmin(navProfile.role)) && (
+          <section className="rounded-xl border bg-card p-3">
+            <ChannelEconomicsPanel
+              hotelId={hotelId}
+              selectedMonth={new Date().toISOString().slice(0, 7)}
+              canEdit={isRevenueAdmin(navProfile.role) || !!navProfile.is_super_admin}
+            />
+          </section>
+        )}
       </main>
     </div>;
   }
@@ -1298,98 +1309,154 @@ function PrevioRevenueHotelDetail() {
           />
 
 
-          {/* Sales targets are sensitive: top management and above, and Controlling. */}
-          {capabilitiesFor(profile).salesGoal && (
-            <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
-          )}
-          <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
-
-
-           <RevenueToolsBar
-            tools={[
+          {/* Analysis lives in one place under the charts, grouped by the
+              question it answers: on track? where does revenue come from and
+              what do we keep? what is the market doing? what is reported? */}
+          <RevenueInsightsHub
+            title={hu ? "Elemzések és döntéstámogatás" : "Analysis & decisions"}
+            sections={[
               {
-                key: "segments",
-                label: hu ? "Szegmensek és csatornák" : "Segments & channels",
-                icon: <PieChart className="h-4 w-4" />,
-                featureKey: "revenue.segments",
-                render: () => (
-                  <SegmentPerformancePanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
-                ),
+                key: "performance",
+                label: hu ? "Teljesítmény" : "Performance",
+                icon: <Target className="h-4 w-4" />,
+                question: hu
+                  ? "Tartjuk a célt? A mai eladások az ADR-célhoz és az előző évhez mérve."
+                  : "Are we on track? Today's sales against the ADR goal, and against last year.",
+                items: [
+                  // Sales targets are sensitive: top management and above, and Controlling.
+                  ...(capabilitiesFor(profile).salesGoal
+                    ? [{
+                        key: "goal",
+                        label: hu ? "Mai eladások és ADR-cél" : "Today's sales & ADR goal",
+                        render: () => <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />,
+                      }]
+                    : []),
+                  {
+                    key: "yoy",
+                    label: hu ? "Éves összehasonlítás" : "Year over year",
+                    featureKey: "revenue.yoy",
+                    render: () => <YearOverYearPanel hotelId={hotelId ?? null} />,
+                  },
+                ],
               },
               {
-                key: "yoy",
-                label: hu ? "Éves összehasonlítás" : "Year over year",
-                icon: <BarChart3 className="h-4 w-4" />,
-                featureKey: "revenue.yoy",
-                render: () => <YearOverYearPanel hotelId={hotelId ?? null} />,
+                key: "channels",
+                label: hu ? "Csatornák és nettó bevétel" : "Channels & net revenue",
+                icon: <Wallet className="h-4 w-4" />,
+                question: hu
+                  ? "Honnan jön a bevétel, és mennyi marad a szállodánál az OTA-jutalék után?"
+                  : "Where does revenue come from, and how much does the hotel keep after OTA commission?",
+                items: [
+                  {
+                    key: "economics",
+                    label: hu ? "Nettó bevétel és jutalék" : "Net revenue & commission",
+                    featureKey: "revenue.channelEconomics",
+                    render: () => (
+                      <ChannelEconomicsPanel
+                        hotelId={hotelId ?? null}
+                        hotelName={tenantHotels.find((h) => h.hotel_id === hotelId)?.hotel_name ?? hotelId ?? null}
+                        selectedMonth={selectedMonth}
+                        canEdit={revAdmin}
+                      />
+                    ),
+                  },
+                  {
+                    key: "mix",
+                    label: hu ? "Csatornamix az előző hónaphoz képest" : "Channel mix vs last month",
+                    featureKey: "revenue.segments",
+                    render: () => <SegmentPerformancePanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />,
+                  },
+                ],
               },
               {
-                key: "compset",
-                label: hu ? "Versenytársi árak" : "Competitor rates",
+                key: "market",
+                label: hu ? "Piac és kereslet" : "Market & demand",
                 icon: <Binoculars className="h-4 w-4" />,
-                featureKey: "revenue.compset",
-                render: () => (
-                  <CompetitorRatePanel
-                    hotelId={hotelId ?? null}
-                    organizationSlug={organizationSlug ?? null}
-                    canEdit={revAdmin}
-                    ratesByDate={ourRateByDate}
-                  />
-                ),
+                question: hu
+                  ? "Mit csinál a piac? Versenytársi árak, események és kereslet."
+                  : "What is the market doing? Competitor prices, events and demand.",
+                items: [
+                  {
+                    key: "compset",
+                    label: hu ? "Versenytársi árak" : "Competitor rates",
+                    featureKey: "revenue.compset",
+                    render: () => (
+                      <CompetitorRatePanel
+                        hotelId={hotelId ?? null}
+                        organizationSlug={organizationSlug ?? null}
+                        canEdit={revAdmin}
+                        ratesByDate={ourRateByDate}
+                      />
+                    ),
+                  },
+                  {
+                    key: "events",
+                    label: hu ? "Események" : "Events",
+                    render: () => <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />,
+                  },
+                  ...(isTechnicalAdmin
+                    ? [{
+                        key: "demand",
+                        label: hu ? "Keresletelemzés" : "Demand desk",
+                        render: () => (
+                          <DemandPricingPanel
+                            hotelId={hotelId ?? null}
+                            organizationSlug={organizationSlug ?? null}
+                            today={live.today}
+                            nights={live.nights}
+                            rates={live.rates}
+                            canEdit={revAdmin}
+                          />
+                        ),
+                      }]
+                    : []),
+                ],
               },
               {
-                key: "digest",
-                label: hu ? "Reggeli e-mail" : "Morning e-mail",
+                key: "reports",
+                label: hu ? "Jelentések és AI" : "Reports & AI",
                 icon: <Mail className="h-4 w-4" />,
-                featureKey: "revenue.digest",
-                render: () => (
-                  <MorningDigestPanel
-                    hotelId={hotelId ?? null}
-                    organizationSlug={organizationSlug ?? null}
-                    canEdit={revAdmin}
-                  />
-                ),
+                question: hu
+                  ? "Mit kap meg a vezetés automatikusan, és mit lát az elemzés?"
+                  : "What does management receive automatically, and what does the analysis see?",
+                items: [
+                  {
+                    key: "digest",
+                    label: hu ? "Reggeli e-mail" : "Morning e-mail",
+                    featureKey: "revenue.digest",
+                    render: () => (
+                      <MorningDigestPanel
+                        hotelId={hotelId ?? null}
+                        organizationSlug={organizationSlug ?? null}
+                        canEdit={revAdmin}
+                      />
+                    ),
+                  },
+                  ...(isTechnicalAdmin
+                    ? [
+                        {
+                          key: "pulse",
+                          label: hu ? "Bevételi pillanatkép" : "Revenue pulse",
+                          render: () => (
+                            <RevenuePulsePanel
+                              today={live.today}
+                              metrics={live.metrics}
+                              roomsAvailable={live.roomsAvailable}
+                              thresholds={live.thresholds}
+                            />
+                          ),
+                        },
+                        {
+                          key: "ai",
+                          label: hu ? "AI elemzés" : "AI intelligence",
+                          render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
+                        },
+                      ]
+                    : []),
+                ],
               },
-              ...(isTechnicalAdmin
-                ? [
-                    {
-                      key: "demand",
-                      label: hu ? "Keresletelemzés" : "Demand desk",
-                      icon: <Gauge className="h-4 w-4" />,
-                      render: () => (
-                        <DemandPricingPanel
-                          hotelId={hotelId ?? null}
-                          organizationSlug={organizationSlug ?? null}
-                          today={live.today}
-                          nights={live.nights}
-                          rates={live.rates}
-                          canEdit={revAdmin}
-                        />
-                      ),
-                    },
-                    {
-                      key: "pulse",
-                      label: hu ? "Bevételi pillanatkép" : "Revenue pulse",
-                      icon: <Activity className="h-4 w-4" />,
-                      render: () => (
-                        <RevenuePulsePanel
-                          today={live.today}
-                          metrics={live.metrics}
-                          roomsAvailable={live.roomsAvailable}
-                          thresholds={live.thresholds}
-                        />
-                      ),
-                    },
-                    {
-                      key: "ai",
-                      label: hu ? "AI elemzés" : "AI intelligence",
-                      icon: <Sparkles className="h-4 w-4" />,
-                      render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
-                    },
-                  ]
-                : []),
             ]}
-           />
+          />
 
 
 

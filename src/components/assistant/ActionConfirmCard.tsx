@@ -1,8 +1,22 @@
 import { useState } from "react";
-import { Check, ClipboardCheck, X } from "lucide-react";
+import { AlertTriangle, Check, ClipboardCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { edgeFunctionError } from "@/lib/edgeFunctionError";
+
+const NOT_COMPLETED = "HotelCare could not complete this. Nothing was changed.";
+
+/**
+ * The reason HotelCare gave. supabase-js hides a non-2xx body behind
+ * "Edge Function returned a non-2xx status code", which tells nobody anything.
+ */
+export async function actionFailureMessage(error: unknown, data: unknown): Promise<string> {
+  const message = error
+    ? await edgeFunctionError(error, NOT_COMPLETED)
+    : String((data as { error?: unknown } | null)?.error ?? "").trim() || NOT_COMPLETED;
+  return /non-2xx|failed to send a request/i.test(message) ? NOT_COMPLETED : message;
+}
 
 export type ActionProposal = {
   kind: "action_proposal";
@@ -28,16 +42,19 @@ export function isActionProposal(value: unknown): value is ActionProposal {
 export default function ActionConfirmCard({ proposal }: { proposal: ActionProposal }) {
   const [state, setState] = useState<"idle" | "saving" | "done" | "dismissed">("idle");
   const [summary, setSummary] = useState("");
+  const [failure, setFailure] = useState<string | null>(null);
 
   const confirm = async () => {
     setState("saving");
+    setFailure(null);
     const { data, error } = await supabase.functions.invoke("assistant-apply-action", {
       body: { kind: proposal.action, input: proposal.input },
     });
-    const failure = (error as any)?.message || (data as any)?.error;
-    if (failure || !(data as any)?.ok) {
+    if (error || !(data as any)?.ok) {
+      const message = await actionFailureMessage(error, data);
       setState("idle");
-      toast.error(typeof failure === "string" ? failure : "That could not be completed");
+      setFailure(message);
+      toast.error(message);
       return;
     }
     setSummary((data as any).summary ?? "Done");
@@ -68,6 +85,12 @@ export default function ActionConfirmCard({ proposal }: { proposal: ActionPropos
         <p className="mt-2 text-xs text-muted-foreground">
           Not published yet. This is a relative adjustment to the latest live prices;
           the safe publishing queue will confirm the result.
+        </p>
+      )}
+      {failure && state === "idle" && (
+        <p role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{failure}</span>
         </p>
       )}
       {state === "done" ? (

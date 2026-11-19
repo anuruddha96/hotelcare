@@ -1,0 +1,116 @@
+name: Website sales chat
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/website-sales-chat/**'
+      - 'supabase/functions/_shared/salesChat*.ts'
+      - 'supabase/migrations/*website_sales_chat*.sql'
+      - 'supabase/tests/website_sales_chat_*'
+      - '.github/workflows/website-sales-chat-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Redaction, on-brand replies, consent-only e-mails, reminder timing, signed links
+        run: deno test --allow-env supabase/functions/_shared/salesChat_test.ts
+      - name: Gemini first, OpenAI fallback, validated JSON only
+        run: deno test --allow-env supabase/functions/_shared/salesChatAi_test.ts
+      - name: Type-check the public endpoint
+        run: deno check --node-modules-dir=auto supabase/functions/website-sales-chat/index.ts
+
+  sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wsc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wsc_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Service-role only, rate limits, worker gate, retention, idempotent re-run
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 \
+            -f supabase/tests/website_sales_chat_fixture.sql \
+            -f supabase/migrations/20261118170000_website_sales_chat.sql \
+            -f supabase/migrations/20261118170000_website_sales_chat.sql \
+            -f supabase/tests/website_sales_chat_integration.sql
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wsc_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wsc_e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Throwaway database with the migration
+        run: |
+          set -euo pipefail
+          psql -X -q -v ON_ERROR_STOP=1 \
+            -f supabase/tests/website_sales_chat_fixture.sql \
+            -f supabase/migrations/20261118170000_website_sales_chat.sql \
+            -f supabase/tests/website_sales_chat_e2e_setup.sql
+          psql -X -q -c "ALTER ROLE authenticator PASSWORD 'authenticator'"
+      - name: Local PostgREST (test only; anonymous role = the test database's service role)
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/postgrest.tar.xz https://github.com/PostgREST/postgrest/releases/download/v12.2.3/postgrest-v12.2.3-linux-static-x64.tar.xz
+          tar -xf /tmp/postgrest.tar.xz -C /tmp
+          printf '%s\n' 'db-uri = "postgres://authenticator:authenticator@localhost:5432/wsc_e2e"' 'db-schemas = "public"' \
+            'db-anon-role = "service_role"' 'server-host = "127.0.0.1"' 'server-port = 3001' > /tmp/postgrest.conf
+          /tmp/postgrest /tmp/postgrest.conf > /tmp/postgrest.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3001/ > /dev/null && break; sleep 1; done
+      - name: Chat, consent, lead e-mail, reminders, resume, unsubscribe, erase, abuse limits
+        run: deno run --allow-net --allow-env --allow-read --node-modules-dir=auto supabase/tests/website_sales_chat_e2e.ts

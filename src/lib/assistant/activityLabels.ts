@@ -13,6 +13,7 @@ const LABELS: Record<string, string> = {
   get_rate_calendar: "Checking prices and restrictions…",
   get_automation_rules: "Reading your automation setup…",
   get_automation_activity: "Reviewing recent pricing activity…",
+  get_pricing_policy_decisions: "Checking what the pricing rules decided…",
   get_demand_context: "Checking demand and events…",
   propose_automation_change: "Preparing a change for your approval…",
   get_housekeeping_status: "Checking today's housekeeping…",

@@ -54,6 +54,9 @@ export interface RunReason {
 export type RunTone = "attention" | "done" | "working" | "quiet";
 
 const isMinStay = (run: AutomationRunLike) => run.notification_type === "min_stay_automation";
+/** Possible Peak-demand dates the pricing rules found and want a manager to check. */
+export const isPeakReview = (run: AutomationRunLike) => run.notification_type === "peak_review";
+const peakReviewCount = (run: AutomationRunLike) => Math.max(run.actions_count ?? 0, (run.changes ?? []).length);
 const isAiReferenceRun = (run: AutomationRunLike) =>
   (run.changes ?? []).some((row) => row.date != null && row.reference_before != null && row.reference_target != null);
 
@@ -175,6 +178,7 @@ function direction(run: AutomationRunLike): "lowered" | "raised" | "repaired" | 
 const plural = (count: number, word: string) => `${count.toLocaleString()} ${word}${count === 1 ? "" : "s"}`;
 
 export function runHeadline(run: AutomationRunLike): string {
+  if (isPeakReview(run)) return `${plural(peakReviewCount(run), "possible Peak-demand date")} to review`;
   if (isAiReviewFailure(run)) {
     return isAiCreditsFailure(run) ? 'AI review paused — API credits exhausted' : 'AI pricing review could not run';
   }
@@ -206,6 +210,12 @@ export function runHeadline(run: AutomationRunLike): string {
 }
 
 export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone } {
+  if (isPeakReview(run)) {
+    return {
+      text: "Check the price for each date, then confirm or dismiss it by typing in the Automation chat — for example “Confirm 31 December as Peak”. No price was changed by this notice.",
+      tone: "attention",
+    };
+  }
   if (isAiReviewFailure(run)) {
     return isAiCreditsFailure(run)
       ? { text: 'OpenAI API credits are exhausted. The AI supervisor did not adjust prices. Add credits in OpenAI API billing to resume AI reviews; automatic pricing remains active.', tone: 'attention' }
@@ -274,6 +284,7 @@ export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone
 
 /** One-line preview used in the bell list. */
 export function runPreview(run: AutomationRunLike): string {
+  if (isPeakReview(run)) return `Manager review · ${plural(peakReviewCount(run), "possible Peak-demand date")}`;
   if (isAiReviewFailure(run)) {
     return isAiCreditsFailure(run) ? 'AI review unavailable · OpenAI API credits exhausted' : 'AI review unavailable · no prices were changed';
   }
@@ -321,6 +332,7 @@ export function runPreview(run: AutomationRunLike): string {
 /** Only the numbers that mean something to a manager, zeros dropped. */
 export function runStats(run: AutomationRunLike): Array<{ label: string; value: number; danger?: boolean }> {
   const stats: Array<{ label: string; value: number; danger?: boolean }> = [];
+  if (isPeakReview(run)) return [{ label: "Dates to review", value: peakReviewCount(run) }];
   if (isAiReviewFailure(run)) return [{ label: 'Failed AI reviews', value: run.failed_count ?? 0, danger: true }];
   if (isAiReferenceRun(run)) {
     const { total, acceptedDates, acceptedCells, failedDates } = aiPushOutcome(run);

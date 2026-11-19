@@ -338,6 +338,109 @@ export const REASON_SETTINGS: Record<string, ReasonInfo> = {
     settings: [],
     note: "This rule has no setting — it protects the price from moving both ways in one day.",
   },
+  // Pace-ratchet pricing rules (see docs/ottofiori-pace-ratchet.md).
+  revenue_director_yield: {
+    title: "Raised after a booking",
+    explain: "A genuine new booking arrived for this date, so every price of the date went up together.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  revenue_director_fill: {
+    title: "Eased to keep the date selling",
+    explain: "No booking arrived for a while and the date still has rooms to sell, so every price of the date came down a little, inside the daily limit and above the floor.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  awaiting_quiet_window: {
+    title: "Booked recently — waiting",
+    explain: "A booking arrived a short while ago. The price is left alone until the quiet period for this lead time has passed.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  converting_price_lock: {
+    title: "Holding the price that just sold",
+    explain: "A booking converted at this price while rooms still have to sell, so the price is kept exactly where it is working.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  converting_price_guard: {
+    title: "Close to the last price that sold",
+    explain: "The date is already near the last price that took a booking. Cuts stay within a few percent of it while that memory is fresh.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  last_rooms_hold: {
+    title: "Last rooms keep their price",
+    explain: "Only the last couple of rooms are left, which is inside the number allowed to stay unsold, so nothing is cut.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  ahead_of_pace: {
+    title: "Ahead of pace — price is working",
+    explain: "More rooms are sold than expected at this lead time, so the price holds.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  sell_down_on_track: {
+    title: "Final days on track",
+    explain: "The rooms still left are expected to sell at this price before arrival, so no cut is needed.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  at_seasonal_base: {
+    title: "At its seasonal level",
+    explain: "This far-out date is already priced within the band around its seasonal base, so it is left alone.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  no_seasonal_base: {
+    title: "No seasonal base yet",
+    explain: "There is not yet a seasonal base price for this far-out date, so it is left alone rather than guessed at.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  base_floor: {
+    title: "At the lowest price before the cancellation deadline",
+    explain: "Before the free-cancellation deadline a date is never cut far below its seasonal base, because early deep cuts invite guests to cancel and rebook cheaper.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  price_floor: {
+    title: "At the floor",
+    explain: "The cheapest price of this date already banks the lowest rate the hotel accepts after OTA discounts.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  outside_selling_hours: {
+    title: "Outside selling hours",
+    explain: "Automatic cuts only run during the day, when guests are booking. Nothing is lowered overnight.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  peak_review_hold: {
+    title: "Peak date — cuts left to the manager",
+    explain: "On a Peak-demand date the rules raise the price on bookings but never lower it on their own before the last three days.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
+  floor_pinned: {
+    title: "Held by a sold-out room type at the floor",
+    explain: "A room type with nothing left to sell is priced at the floor on this date. All prices of a date move together, so the date cannot be lowered until that room type's price is raised by hand.",
+    settings: [],
+    note: "Raise that room type's price for this date in the rate calendar to free the date.",
+  },
+  run_throttle: {
+    title: "Next in line",
+    explain: "Many dates were due a small cut at once. The nearest dates went first; this one follows in the next run a few minutes later.",
+    settings: [],
+    note: "Nothing to change — this only spreads the price updates out.",
+  },
+  pace_policy_unavailable: {
+    title: "Pricing rules could not be read",
+    explain: "The pricing rules could not be evaluated for this date in this run, so no price was changed. The next run tries again.",
+    settings: [],
+    note: "Change this by typing in the chat box at the top of the Automation panel.",
+  },
 };
 
 
