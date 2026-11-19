@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
@@ -26,6 +26,8 @@ interface Gesture {
   origin: Point;
   /** Latest dragged button position. */
   last: Point;
+  /** Area the button may use, measured when the drag started. */
+  bounds: DockBounds;
   moved: boolean;
   samples: PointerSample[];
 }
@@ -33,6 +35,8 @@ interface Gesture {
 /** A short spring with a slight overshoot, like AssistiveTouch settling against the edge. */
 const SETTLE_TRANSITION = "transform 380ms cubic-bezier(0.3, 1.25, 0.55, 1)";
 const MAX_SAMPLES = 12;
+/** Scrolling can pin another sticky bar under the header; measure again once it stops. */
+const SCROLL_SETTLE_MS = 120;
 
 function loadDock(storageKey: string, bounds: DockBounds): LauncherDock {
   try {
@@ -65,25 +69,41 @@ export default function MiraFloatingButton({ storageKey, unread, onOpen }: MiraF
   const suppressClickRef = useRef(false);
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
+  /** Measures the usable area again, below whatever header the current page has. */
+  const remeasure = useCallback(() => {
+    const next = measureDockBounds();
+    setBounds((previous) => (sameBounds(previous, next) ? previous : next));
+    return next;
+  }, []);
+
   useEffect(() => {
-    const remeasure = () => setBounds((previous) => {
-      const next = measureDockBounds();
-      return sameBounds(previous, next) ? previous : next;
-    });
+    let scrollTimer = 0;
+    const onScroll = () => {
+      window.clearTimeout(scrollTimer);
+      scrollTimer = window.setTimeout(remeasure, SCROLL_SETTLE_MS);
+    };
+    remeasure(); // The page header can finish rendering after the button.
     window.addEventListener("resize", remeasure);
     window.addEventListener("orientationchange", remeasure);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    // Page changes and late-loading content resize the body.
+    const layout = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => remeasure());
+    layout?.observe(document.body);
     return () => {
+      window.clearTimeout(scrollTimer);
       window.removeEventListener("resize", remeasure);
       window.removeEventListener("orientationchange", remeasure);
+      window.removeEventListener("scroll", onScroll);
+      layout?.disconnect();
     };
-  }, []);
+  }, [remeasure]);
 
   const resting = dockToPoint(dock, bounds);
   const point = dragPoint ?? resting;
   const dragging = dragPoint !== null;
 
-  const settle = (release: Point, velocity?: Point) => {
-    const next = snapToEdge(release, bounds, velocity);
+  const settle = (release: Point, area: DockBounds, velocity?: Point) => {
+    const next = snapToEdge(release, area, velocity);
     setDock(next);
     setDragPoint(null);
     try { localStorage.setItem(storageKey, serializeDock(next)); } catch { /* Storage is optional. */ }
@@ -93,14 +113,17 @@ export default function MiraFloatingButton({ storageKey, unread, onOpen }: MiraF
     // A drag whose click never arrived must not swallow this tap.
     suppressClickRef.current = false;
     if (event.pointerType === "mouse" && event.button !== 0) return;
+    // Measured fresh, so a drag can never slide under the header of this page.
+    const area = remeasure();
     const box = event.currentTarget.getBoundingClientRect();
     // Pick the button up where it is on screen, even halfway through settling.
-    const origin = box.width > 0 ? { x: box.left, y: box.top } : resting;
+    const origin = box.width > 0 ? { x: box.left, y: box.top } : dockToPoint(dock, area);
     gestureRef.current = {
       pointerId: event.pointerId,
       start: { x: event.clientX, y: event.clientY },
       origin,
       last: origin,
+      bounds: area,
       moved: false,
       samples: [{ x: event.clientX, y: event.clientY, t: performance.now() }],
     };
@@ -115,7 +138,7 @@ export default function MiraFloatingButton({ storageKey, unread, onOpen }: MiraF
     if (!gesture.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
     gesture.moved = true;
     gesture.samples = [...gesture.samples.slice(-(MAX_SAMPLES - 1)), { x: event.clientX, y: event.clientY, t: performance.now() }];
-    gesture.last = clampPoint({ x: gesture.origin.x + dx, y: gesture.origin.y + dy }, bounds);
+    gesture.last = clampPoint({ x: gesture.origin.x + dx, y: gesture.origin.y + dy }, gesture.bounds);
     setDragPoint(gesture.last);
   };
 
@@ -130,14 +153,14 @@ export default function MiraFloatingButton({ storageKey, unread, onOpen }: MiraF
     suppressClickRef.current = true;
     if (cancelled) {
       // The browser took the gesture over; still never leave the button mid-screen.
-      settle(gesture.last);
+      settle(gesture.last, gesture.bounds);
       return;
     }
     const release = clampPoint({
       x: gesture.origin.x + event.clientX - gesture.start.x,
       y: gesture.origin.y + event.clientY - gesture.start.y,
-    }, bounds);
-    settle(release, releaseVelocity([...gesture.samples, { x: event.clientX, y: event.clientY, t: performance.now() }]));
+    }, gesture.bounds);
+    settle(release, gesture.bounds, releaseVelocity([...gesture.samples, { x: event.clientX, y: event.clientY, t: performance.now() }]));
   };
 
   return (

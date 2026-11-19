@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_DOCK,
   dockBounds,
   dockToPoint,
+  measureTopBars,
   readDock,
   releaseVelocity,
   serializeDock,
@@ -124,5 +125,64 @@ describe("Mira launcher saved position", () => {
     expect(dockToPoint(migrated!, phone).y).toBeCloseTo(640);
 
     expect(readDock(JSON.stringify({ x: 20, y: 200 }), phone)?.side).toBe("left");
+  });
+});
+
+describe("Mira launcher below the app header", () => {
+  it("never rests inside the sticky header", () => {
+    const withHeader = dockBounds({ width: 393, height: 852 }, { top: 59, right: 0, bottom: 34, left: 0 }, 140);
+    expect(withHeader.minY).toBe(140 + 12);
+    expect(withHeader.maxY).toBe(phone.maxY);
+    expect(dockToPoint(snapToEdge({ x: 300, y: 0 }, withHeader), withHeader).y).toBe(152);
+  });
+
+  it("still clears the notch when it reaches lower than the header", () => {
+    expect(dockBounds({ width: 393, height: 852 }, { top: 59, right: 0, bottom: 34, left: 0 }, 30).minY).toBe(59 + 12);
+  });
+});
+
+describe("Mira launcher top bar detection", () => {
+  const viewport = { width: 393, height: 852 };
+  const columns = [36, 357];
+  const added: HTMLElement[] = [];
+
+  function bar(position: string, zIndex: string, top: number, bottom: number, width = viewport.width) {
+    const element = document.createElement("div");
+    element.style.position = position;
+    element.style.zIndex = zIndex;
+    element.getBoundingClientRect = () => ({ top, bottom, left: 0, right: width, width, height: bottom - top, x: 0, y: top, toJSON: () => ({}) });
+    document.body.appendChild(element);
+    added.push(element);
+    return { element, top, bottom };
+  }
+
+  function hitTest(bars: Array<{ element: HTMLElement; top: number; bottom: number }>) {
+    (document as unknown as { elementsFromPoint: (x: number, y: number) => Element[] }).elementsFromPoint = (_x, y) =>
+      bars.filter((item) => item.top <= y && y < item.bottom).map((item) => item.element);
+  }
+
+  afterEach(() => {
+    delete (document as unknown as { elementsFromPoint?: unknown }).elementsFromPoint;
+    added.splice(0).forEach((element) => element.remove());
+  });
+
+  it("finds the header and a sticky navigation strip stacked under it", () => {
+    hitTest([
+      bar("sticky", "50", 0, 120), // app header
+      bar("sticky", "40", 120, 164), // sticky module navigation
+      bar("sticky", "10", 164, 200), // a table's own sticky header: the button may sit over it
+      bar("fixed", "40", 100, 156, 56), // the button itself
+      bar("fixed", "50", 0, 852), // an open dialog's backdrop
+    ]);
+    expect(measureTopBars(window, viewport, columns)).toBe(164);
+  });
+
+  it("ignores bars that scroll with the page", () => {
+    hitTest([bar("static", "50", 0, 120), bar("relative", "50", 0, 120)]);
+    expect(measureTopBars(window, viewport, columns)).toBe(0);
+  });
+
+  it("is 0 where the browser can't tell what is on screen", () => {
+    expect(measureTopBars(window, viewport, columns)).toBe(0);
   });
 });
