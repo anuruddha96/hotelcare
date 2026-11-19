@@ -488,6 +488,23 @@ test('a sold-out room type under the floor never lifts a date, but still stops i
   assert.equal(atFloor.reason, 'price_floor');
 });
 
+test('holds are named for what actually holds the price', () => {
+  // 27 Jan 2027 in the shadow run: €114 against a band that ends at €113 — that is the band, not a floor.
+  const edge = decide({ daysOut: 69, currentPrice: 114, occupancyPct: 0, roomsSold: 0, roomsRemaining: 21, hoursSinceLastPickup: null },
+    { basePrice: 98, lowestCellPrice: 101, highestCellPrice: 204 });
+  assert.equal(edge.direction, 'hold'); assert.equal(edge.reason, 'at_seasonal_base');
+  assert.match(edge.reasonDetail, /top of its seasonal band \(base €98\)/);
+  // A sold-out room type UNDER the floor is described as under it, not at it.
+  const under = decide({ ...BEHIND, daysOut: 3, currentPrice: 136 }, { lowestCellPrice: 75, lowestSellableCellPrice: 121, highestCellPrice: 209 });
+  assert.equal(under.reason, 'floor_pinned');
+  assert.match(under.reasonDetail, /priced at €75 on this date, under the €87 list floor/);
+  const at = decide({ ...BEHIND, daysOut: 3, currentPrice: 136 }, { lowestCellPrice: 87, lowestSellableCellPrice: 121, highestCellPrice: 209 });
+  assert.match(at.reasonDetail, /priced at €87 on this date, at the €87 list floor/);
+  // The real floor before the cancellation deadline keeps its own name.
+  const floor = decide({ ...BEHIND, daysOut: 15, currentPrice: 105 }, { basePrice: 130, lowestCellPrice: 95, highestCellPrice: 195 });
+  assert.equal(floor.reason, 'base_floor');
+});
+
 test('a sold-out date says sold out even when it has no price left on sale', () => {
   const d = decide({ currentPrice: null, occupancyPct: 100, roomsSold: 21, roomsRemaining: 0 });
   assert.equal(d.reason, 'sold_out');

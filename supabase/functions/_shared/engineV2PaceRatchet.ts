@@ -661,7 +661,7 @@ export function decidePaceRatchet(
   let reason = "hold";
   let detail = "";
   let softFloor = floorRef;
-  let softFloorWhy: "price_floor" | "base_floor" | "converting_price_guard" = "price_floor";
+  let softFloorWhy: "price_floor" | "base_floor" | "converting_price_guard" | "seasonal_band" = "price_floor";
 
   if (lowestSellable < gridFloor) {
     // The owner's floor is a guardrail, not a demand signal: a date with a
@@ -773,7 +773,7 @@ export function decidePaceRatchet(
         const largest = Math.max(s.min_step_eur, whole(current * s.decay_pct_far / 100));
         const step = clamp(Math.ceil(perMove), s.min_step_eur, largest);
         softFloor = Math.max(softFloor, bandHigh);
-        softFloorWhy = softFloor === bandHigh ? "base_floor" : softFloorWhy;
+        softFloorWhy = softFloor === bandHigh ? "seasonal_band" : softFloorWhy;
         pct = (step / current) * 100;
         reason = "far_out_glide";
         detail = `€${current} is above the seasonal band (base €${basePrice}, up to €${bandHigh}) with ${paceText} ${input.daysOut} days out and no booking for ${hoursQuiet == null ? "a week or more" : `${round1(hoursQuiet)}h`}: gliding down so the date enters the booking window at a price that can sell.`;
@@ -803,8 +803,12 @@ export function decidePaceRatchet(
         // between room types.
         return hold(
           "floor_pinned",
-          `Held: a room type with nothing left to sell is priced at €${lowest} on this date, at the €${gridFloor} list floor. All prices of a date move together, so the date cannot go lower until that room type's price is raised by hand (the cheapest bookable price is €${lowestSellable}).`,
+          `Held: a room type with nothing left to sell is priced at €${lowest} on this date, ${lowest < gridFloor ? "under" : "at"} the €${gridFloor} list floor. All prices of a date move together, so the date cannot go lower until that room type's price is raised by hand (the cheapest bookable price is €${lowestSellable}).`,
         );
+      }
+      if (softFloorWhy === "seasonal_band") {
+        // A euro above the band is the band: say so instead of naming a floor.
+        return hold("at_seasonal_base", `€${current} is at the top of its seasonal band (base €${basePrice}) ${input.daysOut} days out; the price holds.`);
       }
       const why = softFloorWhy === "converting_price_guard"
         ? `Held near the last price that converted (€${facts.convertingPrice}); cuts stay within ${s.conv_guard_pct}% of it for ${memory}h.`
