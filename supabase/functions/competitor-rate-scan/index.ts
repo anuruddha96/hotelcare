@@ -16,7 +16,7 @@ import { fetchGeminiFirstResponse } from "../_shared/geminiFirstResponses.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { aiFeatureEnabled, checkAiBudget, logAiUsage } from "../_shared/aiBudget.ts";
 import { CRON_HORIZON_DAYS, CRON_SAMPLE_DATES, isoAdd, prioritySampleDates } from "./sampling.ts";
-import { ignoreRpcFailure } from "./cleanup.ts";
+import { ignoreRpcFailure, staleScanCutoffIso } from "./cleanup.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -243,7 +243,20 @@ Deno.serve(async (req) => {
     // HTTP call only starts the work; results land in the tables the panel
     // reads. Nothing is awaited by the browser.
     const scanAll = async () => {
-    for (const hotelId of hotelIds) {
+      // Ottofiori-only repair: a worker is bounded to 90 seconds, so an old
+      // `running` row is abandoned state, not evidence that paid work is still
+      // active. Close it before recording the next result. This deliberately
+      // does not touch any other property's scan history.
+      await admin.from("competitor_scan_runs").update({
+        status: "failed",
+        error: "Stale scan exceeded the deployed 90-second worker timeout; no prices were stored.",
+        finished_at: new Date().toISOString(),
+      }).eq("hotel_id", "ottofiori")
+        .eq("organization_slug", "rdhotels")
+        .eq("status", "running")
+        .is("finished_at", null)
+        .lt("started_at", staleScanCutoffIso(new Date()));
+      for (const hotelId of hotelIds) {
 
       const { data: competitorRows } = await admin
         .from("competitor_properties")

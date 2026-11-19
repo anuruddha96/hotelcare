@@ -1,5 +1,12 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { ignoreRpcFailure } from "./cleanup.ts";
+import { ignoreRpcFailure, staleScanCutoffIso } from "./cleanup.ts";
+
+Deno.test("stale scan cutoff keeps a grace period beyond the worker timeout", () => {
+  assertEquals(
+    staleScanCutoffIso(new Date("2026-11-19T16:34:00.000Z"), 15),
+    "2026-11-19T16:19:00.000Z",
+  );
+});
 
 Deno.test("best-effort RPC invokes the requested cleanup exactly once", async () => {
   const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
