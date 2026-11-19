@@ -27,7 +27,7 @@ export default function ReceptionHome() {
       <Header />
       <main className="container mx-auto px-4 py-6">
         <OperationalPageHeading section="Reception" />
-        <div className="mt-4 mb-6">
+        <div className="sticky z-40 mt-4 mb-6 bg-background/95 py-1 backdrop-blur" style={{ top: 'var(--hc-header-height, 0px)' }}>
           <OperationsNavigation current="reception" />
         </div>
         <div className="mb-3 flex items-center gap-1.5 overflow-x-auto scrollbar-hide" aria-label="Reception tools">

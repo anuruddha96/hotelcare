@@ -87,8 +87,8 @@ describe('what each role may do', () => {
     expect(miraScopesFor({ role: 'manager' })).not.toContain('revenue');
   });
 
-  it('gives controlling and HR top-management access', () => {
-    for (const accessRole of ['controlling', 'hr', 'top_management']) {
+  it('gives controlling and top management executive capabilities but restricts HR', () => {
+    for (const accessRole of ['controlling', 'top_management']) {
       const caps = capabilitiesFor({ role: 'top_management_manager', access_role: accessRole });
       expect(caps.revenueWrite).toBe(true);
       expect(caps.revenueRead).toBe(true);
@@ -96,6 +96,13 @@ describe('what each role may do', () => {
       expect(caps.scheduleGoLive).toBe(true);
       expect(caps.reviews).toBe(true);
     }
+    const hr = capabilitiesFor({ role: 'top_management_manager', access_role: 'hr' });
+    expect(hr.scheduleScope).toBe('org');
+    expect(hr.scheduleGoLive).toBe(true);
+    expect(hr.finance).toBe(false);
+    expect(hr.reviews).toBe(false);
+    expect(hr.revenueWrite).toBe(false);
+    expect(hr.revenueRead).toBe(false);
   });
 
   it("shows Today's Sales & ADR Goal to top management, admins and Controlling only", () => {
@@ -120,10 +127,11 @@ describe('first screen', () => {
     expect(defaultDashboardTabFor({ role: 'hr' })).toBe('attendance');
   });
 
-  it('keeps reception on housekeeping while the hotel runs on Previo', () => {
+  it('keeps front-office managers on housekeeping and receptionists on maintenance', () => {
     expect(landingPathFor({ role: 'manager', access_role: 'reception' }, ctx)).toBeNull();
     expect(defaultDashboardTabFor({ role: 'manager', access_role: 'reception' })).toBe('housekeeping');
-    expect(landingPathFor({ role: 'manager', access_role: 'reception' }, { ...ctx, nativePms: true })).toBe('/rdhotels/reception');
+    expect(landingPathFor({ role: 'manager', access_role: 'reception' }, { ...ctx, nativePms: true })).toBeNull();
+    expect(landingPathFor({ role: 'reception' }, ctx)).toBe('/rdhotels?tab=tickets');
   });
 
   it('leaves top management and everyone else on their existing start screen', () => {

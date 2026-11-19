@@ -1038,8 +1038,10 @@ function PrevioRevenueHotelDetail() {
         </div>
       )}
 
-      <div className="container mx-auto px-3 sm:px-4 pt-3">
-        <MainTabsBar current="revenue" />
+      <div className="sticky z-40 bg-background/95 py-2 backdrop-blur-md" style={{ top: 'var(--hc-header-height, 0px)' }}>
+        <div className="container mx-auto px-3 sm:px-4">
+          <MainTabsBar current="revenue" />
+        </div>
       </div>
       <div className="container mx-auto p-3 sm:p-4 space-y-3">
           <TrialEndedNotice organizationSlug={revenueOrgSlug} />

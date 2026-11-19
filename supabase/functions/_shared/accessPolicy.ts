@@ -58,11 +58,11 @@ export const ACCESS_ROLE_DESCRIPTION: Record<AccessRole, string> = {
   admin: "Everything, in every hotel.",
   top_management: "Everything; lands on Revenue.",
   controlling: "Top-management access; lands on Purchase invoices.",
-  hr: "Top-management access; lands on HR.",
+  hr: "HR, housekeeping, maintenance and staff schedules; no finance, revenue, reputation or channels.",
   manager: "All hotels and operational modules, Mira and review replies. Price list instead of Revenue: no revenue figures.",
   housekeeping_manager: "Housekeeping and maintenance; work schedule of their own hotel only; no review replies.",
   housekeeping_supervisor: "Like a housekeeping manager: own hotel only, no review replies.",
-  reception: "Everything except Revenue management; lands on Housekeeping while the hotel runs on Previo.",
+  reception: "Reception staff start on Maintenance; front-office managers start on Housekeeping.",
   housekeeping: "Own rooms and shift. No Mira. Schedule hidden until it goes live.",
   maintenance: "Own tickets and shift. No Mira. Schedule hidden until it goes live.",
   breakfast: "Breakfast lookup only.",
@@ -183,7 +183,7 @@ export type AccessCapabilities = {
   mail: boolean;
 };
 
-const EXECUTIVE: AccessRole[] = ["admin", "top_management", "controlling", "hr"];
+const EXECUTIVE: AccessRole[] = ["admin", "top_management", "controlling"];
 /** Sensitive sales targets: top management and above, plus Controlling (not HR). */
 const SALES_GOAL: AccessRole[] = ["admin", "top_management", "controlling"];
 
@@ -210,6 +210,11 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
     scheduleGoLive: false,
     mail: false,
   };
+  // HR can be backed by an executive database permission level, but the
+  // effective access role must not inherit executive finance/revenue rights.
+  if (accessRole === "hr" && !superAdmin) {
+    return { ...base, mira: true, scheduleScope: "org", scheduleBuilder: true, scheduleGoLive: true, mail: true };
+  }
   if (executive) {
     return {
       ...base,
@@ -238,7 +243,7 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
         mira: true,
         priceList: named,
         reviews: true,
-        finance: true,
+        finance: false,
         scheduleScope: named ? "org" : "property",
         scheduleBuilder: true,
         mail: true,
@@ -311,8 +316,9 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
     case "hr":
       return `${base}?tab=attendance`;
     case "reception":
-      // While the hotel runs on Previo, reception keeps today's start screen.
-      return context.nativePms ? `${base}/reception` : null;
+      // The reception permission role starts on Maintenance. A front-office
+      // manager holding the manager permission level starts on Housekeeping.
+      return subject?.role === "manager" || subject?.role === "reception_manager" ? null : `${base}?tab=tickets`;
     default:
       return null;
   }
@@ -322,6 +328,6 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
 export function defaultDashboardTabFor(subject: AccessSubject): string | null {
   const accessRole = effectiveAccessRole(subject);
   if (accessRole === "hr") return "attendance";
-  if (accessRole === "reception" && subject?.role === "manager") return "housekeeping";
+  if (accessRole === "reception" && ["manager", "reception_manager"].includes(subject?.role ?? "")) return "housekeeping";
   return null;
 }
