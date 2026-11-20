@@ -53,7 +53,7 @@ function usePriorities(enabled: boolean, hotelId: string | null) {
       try {
         const { data, error } = await supabase.functions.invoke("assistant-priorities", { body: { hotelId } });
         if (cancelled) return;
-        if (error || !Array.isArray((data as any)?.cards)) return;
+        if (error || !Array.isArray((data as any)?.cards)) { setCards((current) => current ?? []); return; }
         const next = (data as any).cards as PriorityCard[];
         const name = (data as any)?.hotel?.name ?? null;
         const time = (data as any)?.generatedAt ?? new Date().toISOString();
@@ -95,10 +95,10 @@ export default function AssistantWelcome({
   const windowSize = Math.min(3, count);
   useEffect(() => { setRotation(0); setExpanded(false); setShowPriorities(false); }, [page.hotelId, profile?.assigned_hotel]);
   useEffect(() => {
-    if (count <= windowSize || expanded || paused) return;
+    if (!showPriorities || count <= windowSize || expanded || paused) return;
     const timer = window.setInterval(() => setRotation((index) => (index + 1) % count), 6500);
     return () => window.clearInterval(timer);
-  }, [count, windowSize, expanded, paused]);
+  }, [count, windowSize, expanded, paused, showPriorities]);
 
   const visibleCards = useMemo(() => {
     if (!cards) return [];
