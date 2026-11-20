@@ -934,18 +934,23 @@ export default function Reputation() {
             </div>
             <p className="text-sm text-muted-foreground mt-1">Manage Google reviews, reply to guests and let Mira help. Reviews update automatically while this page is open.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={load} disabled={busy}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${busy ? "animate-spin" : ""}`} />Refresh
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => { setFocusedReviewId(null); setStatusFilter("unreplied"); setRatingFilter("all"); setActiveTab("inbox"); }}>
+              <MessageSquareText className="mr-2 h-4 w-4" />Reply to reviews
             </Button>
-            {mapped.length > 0 && (
-              <Button variant="outline" onClick={syncReviews} disabled={busy || googleSetup.blocked}>
-                <Download className="h-4 w-4 mr-2" />Sync reviews
-              </Button>
-            )}
-            <Button variant={data?.connections?.length ? "outline" : "default"} onClick={connect} disabled={busy || !data?.google_configured}>
-              <Link2 className="h-4 w-4 mr-2" />{data?.connections?.length ? "Reconnect account" : "Connect Google Business"}
+            <Button variant="outline" onClick={() => askMira("Check our recent Google reviews. Identify which need attention and prepare up to five editable reply cards. Do not publish anything without my explicit approval.")}>
+              <Bot className="mr-2 h-4 w-4" />Ask Mira
             </Button>
+            <details className="relative">
+              <summary className="cursor-pointer list-none rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <Settings2 className="mr-2 inline h-4 w-4" />Google connection
+              </summary>
+              <div className="absolute right-0 top-full z-30 mt-2 flex min-w-[220px] flex-col gap-2 rounded-lg border bg-background p-3 shadow-lg">
+                <Button variant="outline" onClick={load} disabled={busy}><RefreshCw className={`mr-2 h-4 w-4 ${busy ? "animate-spin" : ""}`} />Refresh data</Button>
+                {mapped.length > 0 && <Button variant="outline" onClick={syncReviews} disabled={busy || googleSetup.blocked}><Download className="mr-2 h-4 w-4" />Get latest reviews</Button>}
+                <Button variant="outline" onClick={connect} disabled={busy || !data?.google_configured}><Link2 className="mr-2 h-4 w-4" />{data?.connections?.length ? "Reconnect Google" : "Connect Google"}</Button>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -1061,11 +1066,11 @@ export default function Reputation() {
               <div className="flex flex-wrap justify-between items-center gap-3">
                 <div className="flex gap-2 items-start">
                   <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
-                  <div><div className="font-semibold">{data?.open_alert_count} new 1–3-star Google review alert(s)</div>
+                  <div><div className="font-semibold">{data?.open_alert_count} new low-rating alert(s)</div>
                     <p className="text-sm text-muted-foreground">A manager should check these reviews. Mira can draft replies, but will not publish them without your approval.</p>
                   </div>
                 </div>
-                <Button variant="outline" onClick={() => { setActiveTab("inbox"); setRatingFilter("attention"); setStatusFilter("all"); }}>Review low ratings</Button>
+                <Button variant="outline" onClick={() => { setActiveTab("inbox"); setRatingFilter("attention"); setStatusFilter("all"); }}>See low ratings</Button>
               </div>
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {(data?.alerts || []).slice(0, 6).map((alert) => <div key={alert.id} className="rounded-md border p-3 space-y-2">
@@ -1092,14 +1097,24 @@ export default function Reputation() {
           if (value === "automation") void loadRecent(0, recentVenue);
           if (value === "published") { void loadPublished(0, publishedSource, historyVenue); }
          }} className="space-y-4">
-          <TabsList className="h-auto flex-wrap justify-start">
-            <TabsTrigger value="overview" className="gap-2"><BarChart3 className="h-4 w-4" />Overview</TabsTrigger>
-            <TabsTrigger value="inbox" className="gap-2"><MessageSquareText className="h-4 w-4" />Review inbox{awaiting > 0 ? <Badge variant="secondary" className="ml-1">{awaiting}</Badge> : null}</TabsTrigger>
-            <TabsTrigger value="automation" className="gap-2"><Zap className="h-4 w-4" />Automation center <Badge variant="secondary">{data?.stats?.recentUnreplied ?? 0}</Badge></TabsTrigger>
-            <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Venues & rules</TabsTrigger>
-            <TabsTrigger value="published" className="gap-2"><Send className="h-4 w-4" />Published replies <Badge variant="secondary">{published}</Badge></TabsTrigger>
-            <TabsTrigger value="audit" className="gap-2"><History className="h-4 w-4" />Audit trail</TabsTrigger>
-          </TabsList>
+          <div className="grid gap-3 xl:grid-cols-2">
+            <div className="space-y-1">
+              <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Daily review work</p>
+              <TabsList className="flex h-auto flex-wrap justify-start gap-1 p-1">
+                <TabsTrigger value="overview" className="gap-2"><BarChart3 className="h-4 w-4" />Home</TabsTrigger>
+                <TabsTrigger value="inbox" className="gap-2"><MessageSquareText className="h-4 w-4" />Reply to reviews{awaiting > 0 && <Badge variant="secondary">{awaiting}</Badge>}</TabsTrigger>
+                <TabsTrigger value="published" className="gap-2"><Send className="h-4 w-4" />Sent replies</TabsTrigger>
+              </TabsList>
+            </div>
+            <div className="space-y-1">
+              <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI & management</p>
+              <TabsList className="flex h-auto flex-wrap justify-start gap-1 p-1">
+                <TabsTrigger value="automation" className="gap-2"><Zap className="h-4 w-4" />AI replies & batches</TabsTrigger>
+                <TabsTrigger value="locations" className="gap-2"><Settings2 className="h-4 w-4" />Business settings</TabsTrigger>
+                <TabsTrigger value="audit" className="gap-2"><History className="h-4 w-4" />Activity history</TabsTrigger>
+              </TabsList>
+            </div>
+          </div>
 
           <TabsContent value="overview" className="space-y-4">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -1311,7 +1326,7 @@ export default function Reputation() {
 
           <TabsContent value="published" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="h-5 w-5" />Published Google review replies</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Send className="h-5 w-5" />Replies sent to Google</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">See when each reply appeared and whether it was published automatically by HotelCare, by a manager in HotelCare, or was already present on Google. This history includes older replies outside the recent review inbox.</p>
                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1406,7 +1421,7 @@ export default function Reputation() {
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg"><Bot className="h-5 w-5" />AI auto-reply monitoring</CardTitle>
+                    <CardTitle className="flex items-center gap-2 text-lg"><Bot className="h-5 w-5" />Automatic reply activity</CardTitle>
                     <p className="text-sm text-muted-foreground">Live publishing activity — not just AI-generated drafts. Counts are confirmed Google replies attributed to HotelCare automation.</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1664,7 +1679,7 @@ export default function Reputation() {
                         <Button size="sm" variant="outline" disabled={itemBusy === location.id} onClick={() => void cancelBackfill(location.id)}>Stop catch-up</Button>
                       </div>
                     )}
-                    <Button onClick={() => saveLocation(location.id)} disabled={itemBusy === location.id}><Save className="h-4 w-4 mr-2" />Save location rules</Button>
+                    <Button onClick={() => saveLocation(location.id)} disabled={itemBusy === location.id}><Save className="h-4 w-4 mr-2" />Save business settings</Button>
                   </CardContent>
                 </Card>
               );
@@ -1673,7 +1688,7 @@ export default function Reputation() {
 
           <TabsContent value="audit" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><History className="h-5 w-5" />Reply audit trail</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-lg flex items-center gap-2"><History className="h-5 w-5" />Review activity history</CardTitle></CardHeader>
               <CardContent>
                 {events.length === 0 ? <div className="py-10 text-center text-sm text-muted-foreground">Draft, edit, approval and publish events will appear here.</div> : (
                   <div className="divide-y">
