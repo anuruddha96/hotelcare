@@ -23,7 +23,7 @@ interface Reservation {
   booked_at?: string | null;
   first_seen_at?: string | null;
   source_project?: string | null;
-  raw_payload?: { booking_mode?: string } | null;
+  booking_mode?: string | null;
   party_size: number;
   starts_at: string;
   ends_at: string | null;
@@ -346,7 +346,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                     </a>
                   )}
                   <div className="text-[10px] text-muted-foreground mt-1">{tt(r.booked_at ? "resBookedAt" : "resReceivedAt")} {bookedLabel(r.booked_at || r.created_at, language)}{r.source_project === "manual" ? " · " + tt("resManual") : ""}</div>
-                  {r.raw_payload?.booking_mode && (
+                  {r.booking_mode && (
                     <div className="text-[10px] text-muted-foreground mt-0.5">
                       {tt("resBookingMode")}: {({
                         phone: tt("resModePhone"), walk_in: tt("resModeWalkIn"),
