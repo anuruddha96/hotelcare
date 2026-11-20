@@ -41,7 +41,7 @@ const ChannelManager = () => {
   const { hotelId, orgSlug, ready, isPortfolio, role } = useOperationalHotel();
   // The website booking engine (embed code, test link) is for top management only.
   const showBookingEngine = isTopManagement(role, profile?.is_super_admin);
-  const permitted = canAccessChannelManager(profile?.role, profile?.nickname);
+  const permitted = canAccessChannelManager(profile?.role, profile?.nickname, profile?.organization_slug);
   const scopedOrg = organizationSlug || orgSlug;
   const [channels, setChannels] = useState<Channel[]>([]);
   const [syncEntries, setSyncEntries] = useState<SyncEntry[]>([]);
