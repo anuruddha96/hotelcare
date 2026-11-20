@@ -4,7 +4,6 @@ import {
   BarChart3,
   Brain,
   ChevronRight,
-  ChevronDown,
   CheckCircle2,
   CircleDot,
   Flag,
