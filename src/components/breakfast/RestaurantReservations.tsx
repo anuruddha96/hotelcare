@@ -23,6 +23,7 @@ interface Reservation {
   booked_at?: string | null;
   first_seen_at?: string | null;
   source_project?: string | null;
+  raw_payload?: { booking_mode?: string } | null;
   party_size: number;
   starts_at: string;
   ends_at: string | null;
@@ -85,6 +86,24 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
     setHighlighted(null);
     try { setAlertsEnabled(localStorage.getItem(alertKey(hotelId)) === "on"); } catch { setAlertsEnabled(false); }
   }, [hotelId, date]);
+
+  // Persisted alert preferences survive a reload, but mobile Safari requires
+  // audio to be unlocked again by a fresh interaction on that page.
+  useEffect(() => {
+    const unlock = () => {
+      if (!alertsRef.current) return;
+      try {
+        if (!audioRef.current && window.AudioContext) audioRef.current = new AudioContext();
+        if (audioRef.current?.state === "suspended") void audioRef.current.resume();
+      } catch {}
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
 
   const notifyNew = useCallback((r: Reservation) => {
     if (!alertsRef.current || notifiedRef.current.has(r.id)) return;
@@ -327,6 +346,14 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                     </a>
                   )}
                   <div className="text-[10px] text-muted-foreground mt-1">{tt(r.booked_at ? "resBookedAt" : "resReceivedAt")} {bookedLabel(r.booked_at || r.created_at, language)}{r.source_project === "manual" ? " · " + tt("resManual") : ""}</div>
+                  {r.raw_payload?.booking_mode && (
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {tt("resBookingMode")}: {({
+                        phone: tt("resModePhone"), walk_in: tt("resModeWalkIn"),
+                        hotel_guest: tt("resModeHotelGuest"), other: tt("resModeOther"),
+                      } as Record<string, string>)[r.raw_payload.booking_mode] || tt("resModeOther")}
+                    </div>
+                  )}
                 </div>
                 <div className="shrink-0 flex flex-col items-end gap-1">
                   <div className="flex items-center gap-1 rounded-md bg-primary/10 text-primary px-2.5 py-1.5">
