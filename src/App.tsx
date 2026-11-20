@@ -15,7 +15,7 @@ import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
 import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 import { getSessionSuspension, observeSessionSuspension } from "@/lib/clientSessionGuard";
-import { canAccessLegacyModules } from "@/lib/roleAccess";
+import { canAccessChannelManager, canAccessLegacyModules } from "@/lib/roleAccess";
 import { usePurchaseInvoiceAccess } from "@/hooks/usePurchaseInvoiceAccess";
 import { effectiveAccessRole } from "@/lib/accessPolicy";
 
@@ -177,7 +177,7 @@ const TenantRouter = () => {
           <Route path="/guests" element={<Guests />} />
           <Route path="/guests/:guestId" element={<GuestDetail />} />
           <Route path="/guests/k/:hotelId/:profileKey" element={<GuestDetail />} />
-          <Route path="/channel-manager" element={<ChannelManager />} />
+          <Route path="/channel-manager" element={user && canAccessChannelManager(profile?.role, profile?.nickname) ? <ChannelManager /> : <Navigate to={legacyFallback} replace />} />
           <Route path="/booking-engine" element={<BookingEngineSettings />} />
           <Route path="/rates-availability" element={<RatesAvailability />} />
           <Route path="/revenue" element={<Revenue />} />
