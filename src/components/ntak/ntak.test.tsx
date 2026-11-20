@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 vi.mock('./ntakApi', async (importOriginal) => ({ ...(await importOriginal<typeof import('./ntakApi')>()), callNtak: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
+import '@/lib/ntak-translations';
 import { TranslationProvider } from '@/hooks/useTranslation';
 import { callNtak } from './ntakApi';
 import { NtakClosureDialog } from './NtakClosureDialog';
