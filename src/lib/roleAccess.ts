@@ -81,6 +81,6 @@ export function canAccessLegacyModules(nickname: string | null | undefined): boo
 }
 
 /** Channel Manager is restricted to admin accounts and the named Anu_000 account. */
-export function canAccessChannelManager(role: string | null | undefined, nickname: string | null | undefined): boolean {
-  return role === 'admin' || canAccessLegacyModules(nickname);
+export function canAccessChannelManager(role: string | null | undefined, nickname: string | null | undefined, organizationSlug: string | null | undefined): boolean {
+  return role === 'admin' || (organizationSlug === 'rdhotels' && canAccessLegacyModules(nickname));
 }
