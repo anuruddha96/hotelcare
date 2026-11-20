@@ -29,7 +29,7 @@ interface VizaStatus {
     last_status_code: string | null; last_status_at: string | null;
     unsent_count: number; failed_count: number; last_error: string | null;
   } | null;
-  events: Array<{ id: string; arrival_state: string; departure_state: string | null; last_error: string | null; attempts: number }>;
+  events: Array<{ id: string; updated_at: string; arrival_state: string; departure_state: string | null; last_error: string | null; attempts: number }>;
 }
 
 async function callViza(body: Record<string, unknown>) {
@@ -46,14 +46,16 @@ async function callViza(body: Record<string, unknown>) {
   return data as Record<string, unknown>;
 }
 
-export function VizaStatusCard({ hotelId }: { hotelId: string }) {
+export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; report?: boolean }) {
   const { t } = useTranslation();
+  const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<VizaStatus | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ enabled: false, adatszolgaltatasi_azonosito: '', szallas_nev: '', szolgaltato_adoszam: '', szolgaltato_nev: '' });
 
   const refresh = useCallback(async () => {
+    setFailed(false);
     try {
       const data = await callViza({ action: 'status', hotel_id: hotelId }) as unknown as VizaStatus;
       setStatus(data);
@@ -68,20 +70,28 @@ export function VizaStatusCard({ hotelId }: { hotelId: string }) {
         });
       }
     } catch {
+      setFailed(true);
       setStatus(null); // no access or function unavailable: show nothing
     }
   }, [hotelId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  if (!status || (!status.settings && !status.can_manage)) return null;
+  if (!status || (!status.settings && !status.can_manage)) {
+    if (!report) return null;
+    return <section className="rounded-lg border bg-card p-4 space-y-2">
+      <h2 className="font-semibold">{t('pms.viza.title')}</h2>
+      {failed ? <div role="alert" className="flex items-center gap-3 text-sm">{t('pms.rep.loadFailed')} <Button variant="outline" size="sm" onClick={refresh}>{t('pms.viza.retry')}</Button></div>
+        : status ? <p className="text-sm text-muted-foreground">{t('pms.viza.notConfigured')}</p> : <Loader2 aria-label={t('pms.viza.title')} className="h-5 w-5 animate-spin" />}
+    </section>;
+  }
   const s = status.settings;
   const failures = status.events.filter((e) => e.arrival_state === 'failed' || e.departure_state === 'failed');
 
   const save = async () => {
     setSaving(true);
     try {
-      await callViza({ action: 'save_settings', hotel_id: hotelId, settings: form });
+      await callViza({ action: 'save_settings', hotel_id: hotelId, settings: { ...form, environment: s?.environment, thf_url: s?.thf_url } });
       toast.success(t('pms.viza.saved'));
       setSettingsOpen(false);
       await refresh();
@@ -116,8 +126,8 @@ export function VizaStatusCard({ hotelId }: { hotelId: string }) {
             <Badge variant={statusTone as never} className="text-[10px]">{!s.enabled ? 'OFF' : s.last_status_code ?? '—'}</Badge>
             {!status.configured && s.enabled && <span className="text-amber-700 dark:text-amber-400">{t('pms.viza.waitingCerts')}</span>}
             <span>{t('pms.viza.queued')}: <strong>{status.queued}</strong></span>
-            <span>{t('pms.viza.unsent')}: <strong>{s.unsent_count}</strong></span>
-            <span className={s.failed_count > 0 ? 'text-destructive font-semibold' : ''}>{t('pms.viza.rejected')}: <strong>{s.failed_count}</strong></span>
+            <span>{t('pms.viza.unsent')}: <strong>{s.last_status_at ? s.unsent_count : '—'}</strong></span>
+            <span className={s.failed_count > 0 ? 'text-destructive font-semibold' : ''}>{t('pms.viza.rejected')}: <strong>{s.last_status_at ? s.failed_count : '—'}</strong></span>
             {s.last_status_at && <span className="text-muted-foreground">{t('pms.viza.lastCheck')}: {new Date(s.last_status_at).toLocaleTimeString()}</span>}
           </>
         )}
@@ -128,7 +138,7 @@ export function VizaStatusCard({ hotelId }: { hotelId: string }) {
         )}
       </div>
       {s?.last_error && <p className="mt-1 text-[11px] text-destructive truncate" title={s.last_error}>{s.last_error}</p>}
-      {failures.length > 0 && status.can_manage && (
+      {!report && failures.length > 0 && status.can_manage && (
         <div className="mt-1.5 space-y-1">
           {failures.slice(0, 3).map((e) => (
             <div key={e.id} className="flex items-center gap-2 text-[11px]">
@@ -139,6 +149,18 @@ export function VizaStatusCard({ hotelId }: { hotelId: string }) {
         </div>
       )}
 
+      {report && <div className="mt-3 border-t pt-3 text-sm">
+        <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{t('ntak.recentActivity')}</h3>
+          <Button size="sm" variant="ghost" onClick={refresh}>{t('ntak.refreshReports')}</Button></div>
+        {status.events.length === 0 ? <p className="py-2 text-muted-foreground">{t('ntak.noActivity')}</p> :
+          <ul className="divide-y text-xs">{status.events.map(event => <li key={event.id} className="flex flex-wrap items-baseline gap-x-3 py-2">
+                <span>{t('pms.rep.arrivals')} · {t(`ntak.vizaState.${event.arrival_state}`)}</span>
+                {event.departure_state && <span>{t('pms.rep.departures')} · {t(`ntak.vizaState.${event.departure_state}`)}</span>}
+                <time className="ml-auto text-muted-foreground">{new Date(event.updated_at).toLocaleString(undefined, {timeZone: 'Europe/Budapest'})}</time>
+                {event.last_error && <span className="basis-full break-words text-destructive">{event.last_error}</span>}
+                {status.can_manage && (event.arrival_state === 'failed' || event.departure_state === 'failed') && <Button size="sm" variant="outline" onClick={() => retry(event.id)}>{t('pms.viza.retry')}</Button>}
+              </li>)}</ul>}
+      </div>}
       <Dialog open={settingsOpen} onOpenChange={(o) => { if (!saving) setSettingsOpen(o); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>{t('pms.viza.settings')}</DialogTitle></DialogHeader>
