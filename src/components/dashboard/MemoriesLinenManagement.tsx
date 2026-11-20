@@ -101,6 +101,7 @@ export function MemoriesLinenManagement() {
     const channel = supabase.channel(`memories-linen-${profile.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_counts' }, () => { void load(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_public_area_counts' }, () => { void load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dirty_linen_items' }, () => { void load(); })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [hotel, profile?.id, load]);
@@ -158,7 +159,8 @@ export function MemoriesLinenManagement() {
     () => new Map(items.map((item, index) => [item.name, totals[index] || 0])),
     [items, totals],
   );
-  const vendorTemplateRows = useMemo(() => [
+  const vendorTemplateRows = useMemo(() => {
+    const standardRows = [
     { label: 'Hotel - paplanhuzat mosása', sent: vendorItemTotalsByName.get('duvet_covers') || 0 },
     { label: 'Hotel - párnahuzat nagy mosása', sent: vendorItemTotalsByName.get('big_pillow') || 0 },
     { label: 'Hotel - párnahuzat kicsi mosása', sent: vendorItemTotalsByName.get('small_pillow') || 0 },
@@ -171,7 +173,11 @@ export function MemoriesLinenManagement() {
     { label: 'Hotel - ágysál mosása', sent: 0 },
     { label: 'Hotel - ágytakaró mosása', sent: 0 },
     { label: 'Hotel - díszpárnahuzat mosása', sent: 0 },
-  ], [vendorItemTotalsByName]);
+    ];
+    const customRows = items.filter(item => item.name.startsWith('memories_custom_'))
+      .map(item => ({ label: `Hotel - ${item.display_name}`, sent: vendorItemTotalsByName.get(item.name) || 0 }));
+    return [...standardRows, ...customRows];
+  }, [vendorItemTotalsByName, items]);
   const vendorDate = workDate ? `${workDate.split('-').join('.')}.` : '';
   const blankCount = Math.max(0, 7 - vendorRows.length);
   const sheetRows = useMemo(() => [
@@ -466,7 +472,7 @@ export function MemoriesLinenManagement() {
                 <td></td>
               </tr>
             ))}
-            {Array.from({ length: 7 }, (_, index) => (
+            {Array.from({ length: Math.max(0, 19 - vendorTemplateRows.length) }, (_, index) => (
               <tr key={`vendor-empty-${index}`}><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>
             ))}
           </tbody>
