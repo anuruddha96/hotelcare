@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Plus, Loader2, CalendarClock, UserRound, Phone, Mail, Users, NotebookPen } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -46,7 +46,7 @@ export default function CreateBrunchReservation({ hotelId, date, language, onCre
     return () => { active = false; };
   }, [open]);
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (!signedIn || saving) return;
     setSaving(true);
