@@ -5,15 +5,13 @@
  * Every action re-validates the JWT, the caller's access to THIS hotel and the caller's role.
  * The Channex API key never leaves the server; the browser never sees provider property lists.
  *
- * Roles
- *   view   (status)                                  admin, top management, manager, reception (manager)
- *   manage (setup, mapping, dry run, kill switch)    admin, top management, manager
- *   owner  (live mode, compliance, production)       admin, top management
+ * Access: admin accounts and the dedicated anu_000 account only.
+ * All other roles, including managers and top management, are denied.
  *   super admin only: link an existing Channex property UUID, record Channex certification,
  *                     force a second full sync inside 24 h.
  */
 import {
-  addDays, authorizeHotelCaller, budapestToday, json, corsHeaders, hasRole, serviceDb,
+  addDays, authorizeHotelCaller, budapestToday, json, corsHeaders, hasRole, canAccessChannelManager, serviceDb,
   MANAGE_ROLES, OWNER_ROLES, VIEW_ROLES, type Caller,
 } from "../_shared/channex/http.ts";
 import { ChannexClient, ChannexError, channexKeyConfigured, type ChannexEnvironment } from "../_shared/channex/client.ts";
@@ -659,6 +657,7 @@ Deno.serve(async (req) => {
   const db = serviceDb();
   const caller = await authorizeHotelCaller(req, db, hotelId);
   if (caller instanceof Response) return caller;
+  if (!canAccessChannelManager(caller)) return json({ ok: false, error: 'Forbidden' }, 403);
   try {
     const result = await handler({ db, caller, hotelId, body });
     return json({ ok: true, ...(result as Record<string, unknown>) });
