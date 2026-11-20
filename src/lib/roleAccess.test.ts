@@ -18,15 +18,17 @@ describe('canAccessLegacyModules', () => {
 
 describe('canAccessChannelManager', () => {
   it('allows all admin accounts and the anu_000 account', () => {
-    expect(canAccessChannelManager('admin', null)).toBe(true);
-    expect(canAccessChannelManager('manager', 'Anu_000')).toBe(true);
-    expect(canAccessChannelManager('housekeeping', ' anu_000 ')).toBe(true);
+    expect(canAccessChannelManager('admin', null, 'other-org')).toBe(true);
+    expect(canAccessChannelManager('manager', 'Anu_000', 'rdhotels')).toBe(true);
+    expect(canAccessChannelManager('housekeeping', ' anu_000 ', 'rdhotels')).toBe(true);
   });
 
   it('hides the module from regular managers, top managers and all other roles', () => {
     for (const role of ['manager', 'top_management', 'top_management_manager', 'housekeeping_manager', 'reception_manager', 'reception', 'hr', 'supervisor']) {
-      expect(canAccessChannelManager(role, 'other_user')).toBe(false);
+      expect(canAccessChannelManager(role, 'other_user', 'rdhotels')).toBe(false);
     }
-    expect(canAccessChannelManager(undefined, undefined)).toBe(false);
+    expect(canAccessChannelManager(undefined, undefined, undefined)).toBe(false);
+    // The nickname is unique per organization, not globally: a namesake in another tenant is not Anu.
+    expect(canAccessChannelManager('manager', 'Anu_000', 'other-org')).toBe(false);
   });
 });
