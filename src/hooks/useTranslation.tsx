@@ -3,6 +3,7 @@ import { expandedTranslations } from '@/lib/expanded-translations';
 import { additionalTranslations } from '@/lib/comprehensive-translations';
 import { notificationTranslations, dashboardTranslations } from '@/lib/notification-translations';
 import { notificationSetupTranslations } from '@/lib/notification-setup-translations';
+import { ntakTranslations } from '@/lib/ntak-translations';
 import { pmsTranslations } from '@/lib/pms-translations';
 import { highlightedTranslations } from '@/lib/highlighted-translations';
 import { screenTranslations } from '@/lib/screen-translations';
@@ -4172,6 +4173,7 @@ const getStaticTranslationBundle = (lang: Language): Record<string, string> => (
   ...flattenBundle(notificationSetupTranslations[lang]),
   ...flattenBundle(dashboardTranslations[lang as keyof typeof dashboardTranslations] as Record<string, unknown> | undefined),
   ...flattenBundle(pmsTranslations[lang] as Record<string, unknown> | undefined),
+  ...flattenBundle(ntakTranslations[lang]),
   ...flattenBundle(highlightedTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(screenTranslations[lang] as Record<string, unknown> | undefined),
   ...flattenBundle(roomOverviewTranslations[lang as keyof typeof roomOverviewTranslations] as Record<string, unknown> | undefined),
