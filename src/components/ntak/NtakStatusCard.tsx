@@ -5,7 +5,7 @@ import { Loader2, Building2, ClipboardCheck, Settings2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { NtakClosureDialog } from './NtakClosureDialog';
 import { NtakPanel } from './NtakPanel';
-import { callNtak, type NtakStatus } from './ntakApi';
+import { callNtak, type NtakMessage, type NtakStatus } from './ntakApi';
 
 /**
  * NTAK reporting health in Reception: yesterday's closure, missing days,
@@ -14,6 +14,7 @@ import { callNtak, type NtakStatus } from './ntakApi';
  */
 export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; report?: boolean }) {
   const { t } = useTranslation();
+  const [kind, setKind] = useState<NtakMessage['kind'] | 'all'>('all');
   const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<NtakStatus | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -44,6 +45,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
   const yc = status.closures.find((c) => c.closed_day === yesterday);
   const recentProblems = status.messages.filter((m) => m.errors.length > 0 && ['rejected', 'failed'].includes(m.state)).length;
   const recentWarnings = status.messages.filter((m) => m.warnings.length > 0 && m.state === 'verified').length;
+  const messages = kind === 'all' ? status.messages : status.messages.filter(m => m.kind === kind);
   const corrections = status.closures.filter((c) => c.needs_correction).length;
 
   return (
@@ -80,11 +82,20 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
       {report && <div className="mt-3 border-t pt-3 text-sm">
         <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{t('ntak.recentActivity')}</h3>
           <Button size="sm" variant="ghost" onClick={refresh}>{t('ntak.refreshReports')}</Button></div>
-        {status.messages.length === 0 ? <p className="py-2 text-muted-foreground">{t('ntak.noActivity')}</p> :
-          <ul className="divide-y text-xs">{status.messages.slice(0, 20).map(m => <li key={m.id} className="flex flex-wrap items-baseline gap-x-3 py-2">
+        <div className="my-2 flex flex-wrap gap-1">
+          {(['all', 'closure', 'booking', 'event', 'start_date'] as const).map(key =>
+            <Button key={key} size="sm" variant={key === kind ? 'secondary' : 'ghost'} aria-pressed={key === kind} onClick={() => setKind(key)}>
+              {key === 'all' ? t('ntak.allReports') : t(`ntak.kind.${key}`)}
+            </Button>)}
+        </div>
+        {messages.length === 0 ? <p className="py-2 text-muted-foreground">{t('ntak.noActivity')}</p> :
+          <ul className="divide-y text-xs">{messages.slice(0, 20).map(m => <li key={m.id} className="flex flex-wrap items-baseline gap-x-3 py-2">
                 <span className="font-medium">{t(`ntak.kind.${m.kind}`)}</span>
                 <span>{t(m.state === 'accepted' ? 'ntak.state.sent' : m.state === 'verified' && m.warnings.length ? 'ntak.state.warnings' : `ntak.state.${m.state}`)}</span>
                 <time className="ml-auto text-muted-foreground">{new Date(m.verified_at ?? m.sent_at ?? m.created_at).toLocaleString(undefined, {timeZone: 'Europe/Budapest'})}</time>
+                {(m.ntak_status || m.errors.length > 0 || m.warnings.length > 0) && <span className="basis-full break-words">
+                  {[m.ntak_status, ...m.errors.map(issue => issue.message || issue.key), ...m.warnings.map(issue => issue.message || issue.key)].filter(Boolean).join(' · ')}
+                </span>}
                 {m.processing_id && <span className="basis-full break-all text-muted-foreground">{m.processing_id}</span>}
               </li>)}</ul>}
       </div>}
