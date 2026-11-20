@@ -190,6 +190,7 @@ Deno.serve(async (req) => {
     source_reservation_id: sourceReservationId,
     outlet_slug: outletSlug,
     guest_name: String(payload.guest_name ?? "Guest"),
+    booked_at: (() => { const time = payload.booked_at ?? payload.created_at ?? payload.booking_created_at; return time && Number.isFinite(Date.parse(String(time))) ? new Date(String(time)).toISOString() : null; })(),
     guest_email: payload.guest_email ? String(payload.guest_email).toLowerCase() : null,
     guest_phone: payload.guest_phone ? String(payload.guest_phone) : null,
     party_size: Number(payload.party_size ?? 2) || 2,
