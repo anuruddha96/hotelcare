@@ -1070,7 +1070,7 @@ export default function Reputation() {
                     <p className="text-sm text-muted-foreground">A manager should check these reviews. Mira can draft replies, but will not publish them without your approval.</p>
                   </div>
                 </div>
-                <Button variant="outline" onClick={() => { setActiveTab("inbox"); setRatingFilter("attention"); setStatusFilter("all"); }}>See low ratings</Button>
+                <Button variant="outline" onClick={() => { setFocusedReviewId(null); setSearch(""); setRiskFilter("all"); setOriginFilter("all"); setActiveTab("inbox"); setRatingFilter("attention"); setStatusFilter("unreplied"); }}>See low ratings</Button>
               </div>
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {(data?.alerts || []).slice(0, 6).map((alert) => <div key={alert.id} className="rounded-md border p-3 space-y-2">
@@ -1302,7 +1302,7 @@ export default function Reputation() {
 
                         {(review.ai_categories?.length || review.ai_summary) ? (
                           <div className="space-y-2">
-                            {review.ai_summary && <div className="text-sm"><span className="font-medium">AI signal:</span> <span className="text-muted-foreground">{review.ai_summary}</span></div>}
+                            {review.ai_summary && <div className="text-sm"><span className="font-medium">AI review summary:</span> <span className="text-muted-foreground">{review.ai_summary}</span></div>}
                             <div className="flex flex-wrap gap-1.5">{(review.ai_categories || []).map((category) => <Badge key={category} variant="outline" className="capitalize">{category}</Badge>)}</div>
                           </div>
                         ) : null}
@@ -1318,16 +1318,16 @@ export default function Reputation() {
                             <div className="flex items-center gap-2 text-sm font-medium"><Bot className="h-4 w-4" />AI-assisted reply draft</div>
                             <Textarea value={currentDraft} onChange={(e) => setDraftText((current) => ({ ...current, [review.id]: e.target.value }))} rows={5} />
                             <div className="flex flex-wrap gap-2">
-                              <Button variant="outline" onClick={() => saveDraft(review.id)} disabled={itemBusy === review.id}><Save className="h-4 w-4 mr-2" />Save draft</Button>
-                              <Button variant="outline" onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Customize reply</Button>
-                              <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Quick regenerate</Button>
+                              <Button variant="outline" onClick={() => saveDraft(review.id)} disabled={itemBusy === review.id}><Save className="h-4 w-4 mr-2" />Save for later</Button>
+                              <Button variant="outline" onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Improve this reply</Button>
+                              <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Try another draft</Button>
                               <Button onClick={() => publish(review.id)} disabled={itemBusy === review.id || googleSetup.blocked}><Send className="h-4 w-4 mr-2" />{approvalRequired ? "Approve & publish" : "Publish to Google"}</Button>
                             </div>
                           </div>
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            <Button onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Customize & draft reply</Button>
-                            <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Quick draft</Button>
+                            <Button onClick={() => setCustomizingReviewId(review.id)} disabled={itemBusy === review.id}><Sparkles className="h-4 w-4 mr-2" />Write a reply with AI</Button>
+                            <Button variant="outline" onClick={() => draft(review.id)} disabled={itemBusy === review.id}>Suggest a reply</Button>
                           </div>
                         )}
                       </CardContent>
