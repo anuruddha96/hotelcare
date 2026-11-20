@@ -1245,39 +1245,33 @@ export default function Reputation() {
 
           <TabsContent value="inbox" className="space-y-4">
             <Card>
-              <CardContent className="pt-5">
-                <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-3">
-                  <div className="relative xl:col-span-2"><Search className="h-4 w-4 absolute left-3 top-3 text-muted-foreground" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search guest, review or topic…" className="pl-9" /></div>
-                  <Select value={ratingFilter} onValueChange={setRatingFilter}><SelectTrigger><SelectValue placeholder="Rating" /></SelectTrigger><SelectContent><SelectItem value="all">All ratings</SelectItem><SelectItem value="positive">4–5 stars · positive</SelectItem><SelectItem value="attention">1–3 stars · attention</SelectItem>{[5,4,3,2,1].map((value) => <SelectItem key={value} value={String(value)}>{value} stars</SelectItem>)}</SelectContent></Select>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="unreplied">Awaiting reply</SelectItem><SelectItem value="draft">Draft ready</SelectItem><SelectItem value="published">Published</SelectItem></SelectContent></Select>
-                  <Select value={riskFilter} onValueChange={setRiskFilter}><SelectTrigger><SelectValue placeholder="Risk" /></SelectTrigger><SelectContent><SelectItem value="all">All risk levels</SelectItem><SelectItem value="low">Low risk</SelectItem><SelectItem value="medium">Review carefully</SelectItem><SelectItem value="high">High risk</SelectItem></SelectContent></Select>
-                  <Select value={originFilter} onValueChange={setOriginFilter}><SelectTrigger><SelectValue placeholder="Reply source" /></SelectTrigger><SelectContent><SelectItem value="all">All reply sources</SelectItem><SelectItem value="automatic">Auto-published</SelectItem><SelectItem value="manager">Manager published</SelectItem><SelectItem value="bulk">Manager-approved batch</SelectItem><SelectItem value="google">Existing Google replies</SelectItem></SelectContent></Select>
+              <CardContent className="space-y-3 pt-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div><h2 className="font-semibold">Find a review and reply</h2><p className="text-sm text-muted-foreground">Read the guest's review, check your reply and send it to Google. Low ratings need a manager's approval.</p></div>
+                  <Button size="sm" variant="outline" onClick={() => askMira("Find up to five unanswered Google reviews that need a reply and prepare editable reply cards for me to approve. Do not publish without my approval.")}><Bot className="mr-2 h-4 w-4" />Ask Mira to draft</Button>
                 </div>
-                <div className="mt-3 space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    {([
-                      { id: "all", label: "All ratings" },
-                      { id: "positive", label: "4–5★ positive" },
-                      { id: "attention", label: "1–3★ attention" },
-                      { id: "5", label: "5★" }, { id: "4", label: "4★" },
-                      { id: "3", label: "3★" }, { id: "2", label: "2★" }, { id: "1", label: "1★" },
-                    ]).map((item) => <Button key={item.id} size="sm" variant={ratingFilter === item.id ? "default" : "outline"}
-                      onClick={() => setRatingFilter(item.id)}>{item.label}</Button>)}
-                  </div>
-                  <Select value={locationFilter} onValueChange={setLocationFilter}>
-                    <SelectTrigger className="max-w-md"><SelectValue placeholder="Google business" /></SelectTrigger>
-                    <SelectContent><SelectItem value="all">All connected businesses</SelectItem>
-                      {locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <div className="flex flex-wrap gap-2">
-                    {locations.map((location) => <Button key={location.id} size="sm"
-                      variant={locationFilter === location.id ? "default" : "outline"} onClick={() => setLocationFilter(location.id)}>
-                      {location.reply_brand_name || location.google_location_title}</Button>)}
-                    {locationFilter !== "all" && <Button size="sm" variant="ghost" onClick={() => setLocationFilter("all")}>Clear venue filter</Button>}
-                  </div>
-                  <p className="text-xs text-muted-foreground">{filteredReviews.length} matching recent inbox entries (last 250 imported) · venue and rating filters</p>
+                {focusedReviewId && <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-sm"><span>Showing the review from your alert</span><Button size="sm" variant="ghost" onClick={() => setFocusedReviewId(null)}>Show all</Button></div>}
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant={ratingFilter === "all" && statusFilter === "all" ? "default" : "outline"} onClick={() => { setFocusedReviewId(null); setRiskFilter("all"); setOriginFilter("all"); setRatingFilter("all"); setStatusFilter("all"); }}>All reviews</Button>
+                  <Button size="sm" variant={ratingFilter === "all" && statusFilter === "unreplied" ? "default" : "outline"} onClick={() => { setFocusedReviewId(null); setRiskFilter("all"); setOriginFilter("all"); setRatingFilter("all"); setStatusFilter("unreplied"); }}>Needs a reply</Button>
+                  <Button size="sm" variant={ratingFilter === "attention" ? "default" : "outline"} onClick={() => { setFocusedReviewId(null); setRiskFilter("all"); setOriginFilter("all"); setRatingFilter("attention"); setStatusFilter("all"); }}>Low ratings (1–3★)</Button>
+                  <Button size="sm" variant={ratingFilter === "positive" ? "default" : "outline"} onClick={() => { setFocusedReviewId(null); setRiskFilter("all"); setOriginFilter("all"); setRatingFilter("positive"); setStatusFilter("all"); }}>Positive (4–5★)</Button>
                 </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="relative xl:col-span-2"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input value={search} onChange={(e) => { setFocusedReviewId(null); setSearch(e.target.value); }} placeholder="Search reviews or guest names..." className="pl-9" aria-label="Search reviews" /></div>
+                  <Select value={locationFilter} onValueChange={(value) => { setFocusedReviewId(null); setLocationFilter(value); }}><SelectTrigger aria-label="Business"><SelectValue placeholder="Choose a business" /></SelectTrigger><SelectContent><SelectItem value="all">All businesses</SelectItem>{locations.map((location) => <SelectItem key={location.id} value={location.id}>{location.reply_brand_name || location.google_location_title}</SelectItem>)}</SelectContent></Select>
+                  <Select value={statusFilter} onValueChange={(value) => { setFocusedReviewId(null); setStatusFilter(value); }}><SelectTrigger aria-label="Reply status"><SelectValue placeholder="Reply status" /></SelectTrigger><SelectContent><SelectItem value="all">Any reply status</SelectItem><SelectItem value="unreplied">Needs a reply</SelectItem><SelectItem value="draft">Draft ready</SelectItem><SelectItem value="published">Already replied</SelectItem></SelectContent></Select>
+                </div>
+                <div>
+                  <Button size="sm" variant="ghost" onClick={() => setShowAdvancedReviewFilters((current) => !current)} aria-expanded={showAdvancedReviewFilters}><ListFilter className="mr-2 h-4 w-4" />{showAdvancedReviewFilters ? "Hide extra filters" : "More filters"}</Button>
+                  {showAdvancedReviewFilters && <div className="mt-2 grid gap-3 rounded-lg border p-3 sm:grid-cols-3">
+                    <Select value={ratingFilter} onValueChange={(value) => { setFocusedReviewId(null); setRatingFilter(value); }}><SelectTrigger aria-label="Star rating"><SelectValue placeholder="Star rating" /></SelectTrigger><SelectContent><SelectItem value="all">All stars</SelectItem><SelectItem value="positive">4–5 stars</SelectItem><SelectItem value="attention">1–3 stars</SelectItem>{[5,4,3,2,1].map((rating) => <SelectItem key={rating} value={String(rating)}>{rating} stars</SelectItem>)}</SelectContent></Select>
+                    <Select value={riskFilter} onValueChange={setRiskFilter}><SelectTrigger aria-label="Risk"><SelectValue placeholder="Risk" /></SelectTrigger><SelectContent><SelectItem value="all">Any risk</SelectItem><SelectItem value="low">Low risk</SelectItem><SelectItem value="medium">Check carefully</SelectItem><SelectItem value="high">Needs extra care</SelectItem></SelectContent></Select>
+                    <Select value={originFilter} onValueChange={setOriginFilter}><SelectTrigger aria-label="Who replied"><SelectValue placeholder="Who replied" /></SelectTrigger><SelectContent><SelectItem value="all">Anyone</SelectItem><SelectItem value="automatic">AI replied</SelectItem><SelectItem value="manager">Manager replied</SelectItem><SelectItem value="bulk">Manager-approved batch</SelectItem><SelectItem value="google">Previously replied on Google</SelectItem></SelectContent></Select>
+                    <Button variant="outline" size="sm" onClick={() => { setRatingFilter("all"); setStatusFilter("all"); setRiskFilter("all"); setOriginFilter("all"); setLocationFilter("all"); setSearch(""); setFocusedReviewId(null); }}>Clear all filters</Button>
+                  </div>}
+                </div>
+                <p className="text-xs text-muted-foreground">{filteredReviews.length} matching reviews in the latest {reviews.length} loaded into your inbox.</p>
               </CardContent>
             </Card>
 
