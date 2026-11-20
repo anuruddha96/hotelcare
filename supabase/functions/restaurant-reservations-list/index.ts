@@ -144,7 +144,14 @@ Deno.serve(async (req) => {
     });
     const lastWebhookAt = lastRealWebhook?.created_at ?? null;
 
-    const rows = data ?? [];
+    // Never expose the raw upstream payload through the public BB list.
+    // Only surface the small manual booking source label used in the UI.
+    const rows = (data ?? []).map(({ raw_payload, ...r }: any) => ({
+      ...r,
+      booking_mode: r.source_project === "manual" &&
+        ["phone", "walk_in", "hotel_guest", "other"].includes(raw_payload?.booking_mode)
+        ? raw_payload.booking_mode : null,
+    }));
     const active = rows.filter((r) => r.status !== "cancelled");
     const feedStatus = !source
       ? "unconfigured"
