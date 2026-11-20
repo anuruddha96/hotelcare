@@ -63,6 +63,7 @@ import {
   decidePaceRatchet,
   localMinutesAt,
   paceGridFloor,
+  paceCellCeiling,
   paceQuietHours,
   paceZoneFor,
   expectedOccupancyPct,
@@ -1139,7 +1140,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           });
           paceCellBounds = {
             min: paceGridFloor(pace),
-            max: Math.round(tier.ceilingEur ?? (tier.tier === "peak" ? pace.peak_ceiling_eur : pace.ceiling_eur)),
+            max: paceCellCeiling(pace, tier.tier, Math.max(0, ...cellValues), tier.ceilingEur),
           };
           if (tier.review && !paceTiers.has(stayDate) && !paceReviews.has(stayDate)) {
             paceReviews.set(stayDate, { kind: tier.review.kind, title: tier.review.title, detail: tier.detail });

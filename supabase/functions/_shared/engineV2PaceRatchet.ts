@@ -58,6 +58,7 @@ export const PACE_POLICY_FIELDS = {
   // The floor always limits the system's own cuts. Raising a price that a
   // person set BELOW the floor is a separate choice, off unless switched on.
   floor_lift: { label: "Raise prices found under the floor back up to it (0 = no, 1 = yes)", group: "guardrails", min: 0, max: 1, def: 0, integer: true },
+  uncapped_prices: { label: "Allow booking-led raises without a fixed tier ceiling", group: "guardrails", min: 0, max: 1, def: 0, integer: true },
   ceiling_eur: { label: "Highest list price on ordinary dates", group: "guardrails", min: 150, max: 2000, def: 500, unit: "EUR" },
   peak_ceiling_eur: { label: "Highest list price on Peak dates", group: "guardrails", min: 150, max: 3000, def: 900, unit: "EUR" },
   unsold_ok_rooms: { label: "Rooms that may stay unsold at arrival", group: "guardrails", min: 0, max: 5, def: 2, integer: true, unit: "rooms" },
@@ -95,7 +96,7 @@ export const PACE_POLICY_FIELDS = {
   scarce_rooms: { label: "Rooms left at or below which a raise is larger", group: "raises", min: 1, max: 6, def: 3, integer: true, unit: "rooms" },
 
   // --- Decay ------------------------------------------------------------------
-  quiet_hours_far: { label: "Quiet hours before a cut, beyond the booking window", group: "decay", min: 2, max: 72, def: 12, unit: "hours" },
+  quiet_hours_far: { label: "Quiet hours before a cut, beyond the booking window", group: "decay", min: 1, max: 72, def: 12, unit: "hours" },
   quiet_hours_window: { label: "Quiet hours before a cut, in the booking window", group: "decay", min: 1, max: 48, def: 6, unit: "hours" },
   quiet_hours_close: { label: "Quiet hours before a cut, inside the cancellation deadline", group: "decay", min: 1, max: 24, def: 4, unit: "hours" },
   quiet_hours_selldown: { label: "Quiet hours before a cut, final sell-down", group: "decay", min: 1, max: 12, def: 3, unit: "hours" },
@@ -203,6 +204,13 @@ export function resolvePaceSettings(raw: unknown): PaceSettings {
 /** The cheapest grid cell that still banks the owner's floor after discounts. */
 export function paceGridFloor(s: PaceSettings): number {
   return Math.ceil(s.floor_net_eur / clamp(s.net_rate_factor, 0.5, 1) - 1e-9);
+}
+
+export function paceCellCeiling(s: PaceSettings, tier: PaceTier, highestCell: number, dateCeiling?: number | null): number {
+  if (dateCeiling != null && dateCeiling > 0) return Math.round(dateCeiling);
+  // Use a finite bound for this move so the publisher can validate each cell.
+  if (s.uncapped_prices === 1) return Math.round(highestCell) + s.max_step_eur;
+  return tier === "peak" ? s.peak_ceiling_eur : s.ceiling_eur;
 }
 
 export function paceZoneFor(daysOut: number, s: PaceSettings): PaceZone {
@@ -630,11 +638,9 @@ export function decidePaceRatchet(
   // Every cell of the date moves by the same amount, so the date can fall only
   // until its CHEAPEST cell reaches the floor and rise only until its DEAREST
   // cell reaches the ceiling.
-  const cellCeiling = whole(Number(facts.dateCeilingEur) > 0
-    ? Number(facts.dateCeilingEur)
-    : tier === "peak" ? s.peak_ceiling_eur : s.ceiling_eur);
   const lowest = whole(Number(facts.lowestCellPrice) > 0 ? Number(facts.lowestCellPrice) : current);
   const highest = whole(Number(facts.highestCellPrice) > 0 ? Number(facts.highestCellPrice) : current);
+  const cellCeiling = paceCellCeiling(s, tier, highest, facts.dateCeilingEur);
   const lowestSellable = Math.max(lowest, whole(Number(facts.lowestSellableCellPrice) > 0
     ? Number(facts.lowestSellableCellPrice)
     : lowest));

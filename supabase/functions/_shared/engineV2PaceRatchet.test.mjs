@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PACE_POLICY_FIELDS, PACE_POLICY_DEFAULTS, resolvePaceSettings, coercePaceField, paceGridFloor,
+  PACE_POLICY_FIELDS, PACE_POLICY_DEFAULTS, resolvePaceSettings, coercePaceField, paceGridFloor, paceCellCeiling,
   paceZoneFor, paceQuietHours, expectedOccupancyPct, resolvePaceTier, decidePaceRatchet,
   paceRaiseStep, localMinutesAt, pacePeakEvent, paceCurateEvents, paceEventKey,
 } from './engineV2PaceRatchet.ts';
@@ -753,4 +753,14 @@ test('invariants hold for 6,000 random dates, settings and times', () => {
     }
   }
   assert.ok(moves > 500, `only ${moves} moves — the fuzz is not exercising the planner`);
+});
+
+test('uncapped pricing follows the highest cell and honors a manager date ceiling', () => {
+  const settings = resolvePaceSettings({ uncapped_prices: 1, quiet_hours_far: 1 });
+  assert.equal(settings.quiet_hours_far, 1);
+  for (const highest of [500, 900, 1200, 5000]) {
+    assert.equal(paceCellCeiling(settings, 'normal', highest), highest + settings.max_step_eur);
+  }
+  assert.equal(paceCellCeiling(settings, 'peak', 1200, 1250), 1250);
+  assert.equal(paceCellCeiling(resolvePaceSettings({}), 'normal', 510), 500);
 });
