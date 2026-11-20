@@ -99,4 +99,29 @@ DO $$ BEGIN
 END $$;
 RESET ROLE;
 
+
+-- Re-downloading a pending request must preserve the original key.
+do $
+declare registration text; result text;
+begin
+  select registration_number into strict registration from public.ntak_settings where hotel_id = 'h1';
+  perform public.ntak_save_pending_csr('h1',registration,'csr-a','key-a','hash-a');
+  result := public.ntak_save_pending_csr('h1',registration,'csr-b','key-b','hash-b');
+  if result is distinct from 'csr-a' or public.ntak_get_secret('h1','pending_key') is distinct from 'key-a' then
+    raise exception 'Repeat request replaced its key';
+  end if;
+  begin
+    perform public.ntak_install_certificate('h1',registration,'cert-b','key-b',true,'{}','01',now()+interval '1 day');
+    raise exception 'Stale key was accepted';
+  exception when raise_exception then
+    if sqlerrm <> 'Registration or pending key changed' then raise; end if;
+  end;
+  perform public.ntak_install_certificate('h1',registration,'cert-a','key-a',true,'{}','01',now()+interval '1 day');
+  if public.ntak_get_secret('h1','key') is distinct from 'key-a' or public.ntak_get_secret('h1','cert') is distinct from 'cert-a'
+    or public.ntak_get_secret('h1','pending_key') is not null or
+    (select pending_csr_pem from public.ntak_settings where hotel_id='h1') is not null then
+    raise exception 'Certificate promotion failed';
+  end if;
+end $;
+
 SELECT 'ntak migration checks passed' AS result;
