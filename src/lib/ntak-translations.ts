@@ -4,6 +4,19 @@ import { pmsTranslations } from '@/lib/pms-translations';
 const LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk', 'ru'] as const;
 
 const rows: Record<string, readonly [string, string]> = {
+  'ntak.recentActivity': ['Recent reporting activity', 'Legutóbbi adatszolgáltatások'],
+  'ntak.refreshReports': ['Refresh', 'Frissítés'],
+  'ntak.allReports': ['All reports', 'Összes jelentés'],
+  'ntak.noActivity': ['No recent reports for this property.', 'Ehhez a szálláshelyhez nincs friss jelentés.'],
+  'ntak.vizaState.queued': ['Waiting to send', 'Küldésre vár'],
+  'ntak.vizaState.failed': ['Failed', 'Sikertelen'],
+  'ntak.vizaState.sent': ['Sent', 'Elküldve'],
+  'ntak.vizaState.blocked': ['Blocked', 'Leállítva'],
+  'ntak.state.sending': ['Sending', 'Küldés folyamatban'],
+  'ntak.state.retry': ['Waiting to retry', 'Újrapróbálásra vár'],
+  'ntak.state.rejected': ['Rejected', 'Elutasítva'],
+  'ntak.state.verified': ['Verified', 'Ellenőrizve'],
+  'ntak.state.superseded': ['Replaced', 'Felülírva'],
   'ntak.title': ['NTAK reporting', 'NTAK adatszolgáltatás'],
   'ntak.tip': ['The daily closure, advance bookings and check-in/check-out events are reported to NTAK (szállás modul). Warnings and errors returned by NTAK are listed here.', 'A napi zárást, az előfoglalásokat és az érkezés/távozás eseményeket az NTAK szállás moduljába jelentjük. Az NTAK figyelmeztetései és hibái itt láthatók.'],
   'ntak.notConfigured': ['Not set up yet.', 'Még nincs beállítva.'],

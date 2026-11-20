@@ -4,6 +4,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 vi.mock('./ntakApi', async (importOriginal) => ({ ...(await importOriginal<typeof import('./ntakApi')>()), callNtak: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
+import '@/lib/ntak-translations';
+import { TranslationProvider } from '@/hooks/useTranslation';
 import { callNtak } from './ntakApi';
 import { NtakClosureDialog } from './NtakClosureDialog';
 import { NtakStatusCard } from './NtakStatusCard';
@@ -76,4 +78,19 @@ describe('NTAK status card', () => {
     await waitFor(() => expect(call).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
   });
+});
+
+it('lets reception retry an unavailable report and shows the processing reference', async () => {
+  call.mockReset();
+  call.mockRejectedValueOnce(new Error('Unavailable')).mockResolvedValueOnce({
+    can_manage: false, today: '2026-11-20', settings: { enabled: true, environment: 'test' },
+    closures: [], missing_closures: [], messages: [{
+      id: 'm', kind: 'booking', state: 'accepted', warnings: [], errors: [],
+      created_at: '2026-11-20T09:00:00Z', processing_id: 'receipt-123',
+    }],
+  } as never);
+  render(<TranslationProvider><NtakStatusCard hotelId="test-property" report /></TranslationProvider>);
+  fireEvent.click((await screen.findByRole('alert')).querySelector('button')!);
+  expect(await screen.findByText('receipt-123')).toBeInTheDocument();
+  expect(screen.getByText(/Sent, awaiting result/)).toBeInTheDocument();
 });
