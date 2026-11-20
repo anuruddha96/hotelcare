@@ -227,6 +227,16 @@ verify_jwt = false
 [functions.restaurant-reservation-status]
 verify_jwt = false
 
+# BB list cards can be acknowledged from shared service devices. The endpoint
+# validates reservation UUID and hotel scope, then rate-limits requests.
+[functions.restaurant-reservation-seen]
+verify_jwt = false
+
+# Manual booking creation verifies the signed-in user's token and assigned
+# hotel/role inside the function rather than trusting a client-supplied role.
+[functions.restaurant-reservation-create]
+verify_jwt = false
+
 [functions.demand-events-auto]
 verify_jwt = false
 

@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await supabase
       .from("restaurant_reservations")
-      .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, status, occasion, special_requests, notes, outlet_slug, status_marked_at, status_marked_by, dashboard_sync_state, dashboard_synced_at")
+      .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, created_at, booked_at, first_seen_at, status, occasion, special_requests, notes, outlet_slug, source_project, raw_payload, status_marked_at, status_marked_by, dashboard_sync_state, dashboard_synced_at")
       .eq("hotel_id", reservationHotelId)
       .eq("service_date", serviceDate)
       .order("starts_at", { ascending: true });
@@ -144,7 +144,14 @@ Deno.serve(async (req) => {
     });
     const lastWebhookAt = lastRealWebhook?.created_at ?? null;
 
-    const rows = data ?? [];
+    // Never expose the raw upstream payload through the public BB list.
+    // Only surface the small manual booking source label used in the UI.
+    const rows = (data ?? []).map(({ raw_payload, ...r }: any) => ({
+      ...r,
+      booking_mode: r.source_project === "manual" &&
+        ["phone", "walk_in", "hotel_guest", "other"].includes(raw_payload?.booking_mode)
+        ? raw_payload.booking_mode : null,
+    }));
     const active = rows.filter((r) => r.status !== "cancelled");
     const feedStatus = !source
       ? "unconfigured"

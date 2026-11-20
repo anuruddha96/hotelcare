@@ -96,6 +96,18 @@ export default function Breakfast() {
   const [tab, setTab] = useState<"rooms" | "reservations" | "recipes">("rooms");
   const resultRef = useRef<HTMLDivElement | null>(null);
 
+  // Notifications can open /bb?bbTab=reservations&bbDate=...&bbReservation=...
+  // Restore the reservation tab and selected day before its list mounts.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("bbTab") === "reservations" || params.has("bbReservation")) {
+      setTab("reservations");
+    }
+    const targetDate = params.get("bbDate");
+    if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) setDate(targetDate);
+  }, []);
+
+
 
   // Load this org's hotels (skipped on hotel-code direct lookup)
   useEffect(() => {
@@ -136,6 +148,26 @@ export default function Breakfast() {
     })();
     return () => { cancelled = true; };
   }, [hotelCode, orgSlug]);
+
+  // A staff member may tap a notification on a different phone or after
+  // switching hotels. The URL identifies the hotel that owns the booking.
+  useEffect(() => {
+    if (hotelCode || !hotels.length) return;
+    const targetHotel = new URLSearchParams(window.location.search).get("bbHotel");
+    if (!targetHotel || selection?.hotel_id === targetHotel) return;
+    const hotel = hotels.find(h => h.hotel_id === targetHotel);
+    if (!hotel || !hotel.restaurants.length) return;
+    const restaurant = hotel.restaurants[0];
+    const target: Selection = {
+      hotel_id: hotel.hotel_id,
+      hotel_label: hotel.label,
+      location_key: restaurant.key,
+      location_label: restaurant.label || restaurant.labelKey || restaurant.key,
+      org_slug: orgSlug,
+    };
+    persistSelection(orgSlug, target);
+    setSelection(target);
+  }, [hotels, hotelCode, selection?.hotel_id, orgSlug]);
 
   // Reset selection if it no longer belongs to this org's hotels
   useEffect(() => {
@@ -473,7 +505,7 @@ export default function Breakfast() {
                 <Label>{tt("date")}</Label>
                 <Input className="h-11 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
-              <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} />
+              <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} onDateChange={setDate} />
             </>
           )}
 

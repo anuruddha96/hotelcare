@@ -86,6 +86,18 @@ Deno.serve(async (req) => {
       .eq("id", reservationId);
     if (updateError) throw updateError;
 
+    // Manually entered BB bookings are local records, not Sales Dashboard rows.
+    // Do not leave them forever marked "Sync pending" or send an unsigned
+    // writeback with an invented remote reservation ID.
+    if (reservation.source_project === "manual") {
+      const { error: localError } = await supabase
+        .from("restaurant_reservations")
+        .update({ dashboard_sync_state: "local", dashboard_sync_error: null })
+        .eq("id", reservationId);
+      if (localError) throw localError;
+      return json({ ok: true, status, dashboard_sync_state: "local", dashboard_sync_error: null });
+    }
+
     // 2a. Preferred path — write the status straight onto the Sales Dashboard
     // reservation row (works for every property mirrored from the dashboard).
     let syncState = "pending";
