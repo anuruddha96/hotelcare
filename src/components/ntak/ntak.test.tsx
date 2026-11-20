@@ -77,3 +77,18 @@ describe('NTAK status card', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+it('lets reception retry an unavailable report and shows the processing reference', async () => {
+  call.mockReset();
+  call.mockRejectedValueOnce(new Error('Unavailable')).mockResolvedValueOnce({
+    can_manage: false, today: '2026-11-20', settings: { enabled: true, environment: 'test' },
+    closures: [], missing_closures: [], messages: [{
+      id: 'm', kind: 'booking', state: 'accepted', warnings: [], errors: [],
+      created_at: '2026-11-20T09:00:00Z', processing_id: 'receipt-123',
+    }],
+  } as never);
+  render(<NtakStatusCard hotelId="test-property" report />);
+  fireEvent.click((await screen.findByRole('alert')).querySelector('button')!);
+  expect(await screen.findByText('receipt-123')).toBeInTheDocument();
+  expect(screen.getByText(/Sent, awaiting result/)).toBeInTheDocument();
+});
