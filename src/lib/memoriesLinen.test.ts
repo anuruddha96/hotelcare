@@ -15,7 +15,8 @@ const rows = MEMORIES_LINEN.map((item, index) => ({
 
 function stub(result: unknown) {
   const chain: Record<string, any> = {};
-  ['select', 'is', 'eq', 'or'].forEach(method => { chain[method] = vi.fn(() => chain); });
+  ['select', 'is', 'eq'].forEach(method => { chain[method] = vi.fn(() => chain); });
+  chain.or = vi.fn(async () => ({ data: result, error: null }));
   chain.in = vi.fn(async () => ({ data: result, error: null }));
   query.mockReturnValue(chain);
   return chain;
@@ -47,10 +48,22 @@ describe('Hotel Memories provider linen catalogue', () => {
     expect(query).toHaveBeenCalledWith('dirty_linen_items');
     expect(chain.or).toHaveBeenCalledWith('hotel_scope.is.null,hotel_scope.eq.memories-budapest');
     expect(chain.eq).toHaveBeenCalledWith('is_active', true);
-    expect(chain.in).toHaveBeenCalledWith('name', MEMORIES_LINEN.map(item => item.name));
+    expect(chain.in).not.toHaveBeenCalled();
     expect(result.map(item => item.name)).toEqual(MEMORIES_LINEN.map(item => item.name));
     expect(result.map(item => item.id)).toEqual(rows.map(row => row.id));
     expect(result.map(item => item.sort_order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('appends manager-created Memories types after the fixed eight without exposing other hotel items', async () => {
+    const extra = { id: 'custom-1', name: 'memories_custom_bed_runner',
+      display_name: 'Bed runner / Ágysál', sort_order: 9, hotel_scope: 'memories-budapest' };
+    const foreign = { ...extra, id: 'other-hotel', name: 'gozsdu_custom_runner', hotel_scope: 'gozsdu-court' };
+    stub([extra, foreign, ...rows]);
+    const result = await loadMemoriesLinenCatalogue();
+    expect(result).toHaveLength(9);
+    expect(result[8]).toEqual({ id: 'custom-1', name: 'memories_custom_bed_runner',
+      display_name: 'Bed runner / Ágysál', sort_order: 9 });
+    expect(memoriesLinenLabel(result[8], true)).toBe('Bed runner / Ágysál');
   });
 
   it('rejects a bathrobe row from the shared catalogue or a different property', async () => {

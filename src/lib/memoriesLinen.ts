@@ -35,25 +35,32 @@ export function memoriesLinenLabel(item: Pick<MemoriesLinenItem, 'name' | 'displ
   return bilingual ? `${definition.en} / ${definition.hu}` : definition.en;
 }
 
-/** Reuse the seven existing active shared IDs plus one Memories-scoped bathrobe ID.
- * Fixed ordering and labels are ONLY exposed for Hotel Memories. An incomplete catalogue
- * fails closed so staff never see unrelated options or lose an item silently. */
+/** Keep the eight approved Memories items in paper-sheet order while also loading
+ * manager-created, Memories-only types. Custom types remain isolated from other
+ * properties and are visible to room entry, summary, corrections and exports. */
 export async function loadMemoriesLinenCatalogue(): Promise<MemoriesLinenItem[]> {
   const { data, error } = await (supabase as any).from('dirty_linen_items')
     .select('id,name,display_name,sort_order,hotel_scope')
     .eq('is_active', true)
-    .or('hotel_scope.is.null,hotel_scope.eq.memories-budapest')
-    .in('name', MEMORIES_LINEN.map(item => item.name));
+    .or('hotel_scope.is.null,hotel_scope.eq.memories-budapest');
   if (error) throw error;
-  // An explicit scope check prevents a same-named item from another catalogue
-  // ever replacing the seven shared categories or the dedicated bathrobe.
-  const rows = ((data || []) as Array<MemoriesLinenItem & { hotel_scope: string | null }>).filter(item =>
-    item.hotel_scope === (item.name === 'memories_bathrobe' ? 'memories-budapest' : null));
-  if (rows.length !== MEMORIES_LINEN.length || new Set(rows.map(row => row.name)).size !== MEMORIES_LINEN.length) {
-    throw new Error('Hotel Memories linen catalogue is incomplete. Please contact a manager.');
-  }
-  return rows.sort((a, b) => (order.get(a.name) ?? 99) - (order.get(b.name) ?? 99))
-    .map((item, index) => ({ ...item, display_name: MEMORIES_LINEN[index].en, sort_order: index + 1 }));
+
+  const rows = (data || []) as Array<MemoriesLinenItem & { hotel_scope: string | null }>;
+  const standard = MEMORIES_LINEN.map((definition, index) => {
+    const expectedScope = definition.name === 'memories_bathrobe' ? 'memories-budapest' : null;
+    const matches = rows.filter(row => row.name === definition.name && row.hotel_scope === expectedScope);
+    if (matches.length !== 1) {
+      throw new Error('Hotel Memories linen catalogue is incomplete. Please contact a manager.');
+    }
+    return { id: matches[0].id, name: definition.name, display_name: definition.en, sort_order: index + 1 };
+  });
+
+  const custom = rows.filter(item => item.hotel_scope === 'memories-budapest'
+    && item.name.startsWith('memories_custom_'))
+    .sort((a, b) => a.sort_order - b.sort_order || a.display_name.localeCompare(b.display_name))
+    .map((item, index) => ({ id: item.id, name: item.name, display_name: item.display_name, sort_order: standard.length + index + 1 }));
+
+  return [...standard, ...custom];
 }
 
 /** Resolve legacy item IDs, including inactive catalogue entries, to the seven ACTIVE
