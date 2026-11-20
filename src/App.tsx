@@ -177,7 +177,7 @@ const TenantRouter = () => {
           <Route path="/guests" element={<Guests />} />
           <Route path="/guests/:guestId" element={<GuestDetail />} />
           <Route path="/guests/k/:hotelId/:profileKey" element={<GuestDetail />} />
-          <Route path="/channel-manager" element={user && canAccessChannelManager(profile?.role, profile?.nickname) ? <ChannelManager /> : <Navigate to={legacyFallback} replace />} />
+          <Route path="/channel-manager" element={user && canAccessChannelManager(profile?.role, profile?.nickname, profile?.organization_slug) ? <ChannelManager /> : <Navigate to={legacyFallback} replace />} />
           <Route path="/booking-engine" element={<BookingEngineSettings />} />
           <Route path="/rates-availability" element={<RatesAvailability />} />
           <Route path="/revenue" element={<Revenue />} />
