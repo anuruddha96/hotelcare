@@ -4,6 +4,7 @@ import {
   BarChart3,
   Brain,
   ChevronRight,
+  ChevronDown,
   CheckCircle2,
   CircleDot,
   Flag,
@@ -34,6 +35,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import type { AssistantThread } from "@/hooks/useAssistant";
 import { hasUnreadAssistantReply, isOpenFollowUp } from "@/lib/assistant/threadState";
 import type { AssistantProject } from "@/hooks/useAssistantProjects";
@@ -92,6 +95,14 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
   const { threads, projects, activeThreadId } = props;
   const activeProject = threads.find((t) => t.id === activeThreadId)?.project_id ?? null;
   const [openProjects, setOpenProjects] = useState<Record<string, boolean>>({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showPreviews, setShowPreviews] = useState(() => {
+    try { return localStorage.getItem("hc-mira-show-history-previews") === "true"; } catch { return false; }
+  });
+  const changePreviews = (value: boolean) => {
+    setShowPreviews(value);
+    try { localStorage.setItem("hc-mira-show-history-previews", String(value)); } catch { /* optional preference */ }
+  };
 
   const knownProjects = useMemo(() => new Set(projects.map((p) => p.id)), [projects]);
   const inProject = (thread: AssistantThread) => Boolean(thread.project_id && knownProjects.has(thread.project_id));
@@ -128,7 +139,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
           {thread.follow_up_status === "done" && <CheckCircle2 aria-label="Marked done" className="h-3.5 w-3.5 shrink-0 text-emerald-600" />}
           {hasUnreadAssistantReply(thread) && <span className="h-2 w-2 shrink-0 rounded-full bg-sky-500" aria-label="Unread reply" />}
         </span>
-        {thread.preview && <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{thread.preview}</span>}
+        {showPreviews && thread.preview && <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{thread.preview}</span>}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -213,7 +224,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
       </div>
 
       <div className="space-y-1 px-2">
-        <Button variant="outline" className="h-9 w-full justify-start gap-2 bg-background" onClick={() => props.onNewChat()}>
+        <Button variant="outline" className="h-11 w-full justify-start gap-2 rounded-xl bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow-md" onClick={() => props.onNewChat()}>
           <Plus className="h-4 w-4" /> New chat
         </Button>
         <Button variant="ghost" className="h-9 w-full justify-start gap-2 font-normal text-muted-foreground" onClick={props.onSearch}>
@@ -235,11 +246,6 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>,
-            )}
-            {projects.length === 0 && (
-              <p className="px-2.5 pb-1 text-xs text-muted-foreground">
-                Group chats by topic and give the assistant standing instructions.
-              </p>
             )}
             {projects.map((project) => {
               const items = threads.filter((t) => t.project_id === project.id);
@@ -332,43 +338,71 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
         )}
       </div>
 
-      <div className="border-t px-2 py-2">
-        {props.canUseMail && (
-          <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onOpenMailboxes}>
-            <Mail className="h-3.5 w-3.5" /> Mailboxes
-          </Button>
-        )}
-        {props.canSeeInsights && (
-          <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onOpenInsights}>
-            <BarChart3 className="h-3.5 w-3.5" /> Usage and audit trail
-          </Button>
-        )}
-        {props.onOpenMemory && (
-          <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onOpenMemory}>
-            <Brain className="h-3.5 w-3.5" /> Mira's memory
-          </Button>
-        )}
-        <Button variant="ghost" className="h-8 w-full justify-start gap-2 text-xs font-normal" onClick={props.onReport}>
-          <Flag className="h-3.5 w-3.5" /> Report a problem
-        </Button>
-        <Button
-          variant="secondary"
-          className="mt-1 h-9 w-full justify-start gap-2 border border-primary/30 bg-primary/10 text-xs font-semibold text-primary hover:bg-primary/15"
-          onClick={props.onBack}
-          title="Return to the Hotel Care screen you came from. Your conversation and anything you typed are kept; the Ask Mira button brings you straight back."
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to Hotel Care
-        </Button>
-        <div className="mt-1 flex items-center gap-2 rounded-lg px-2 py-1.5">
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-            {(props.userName.trim()[0] ?? "?").toUpperCase()}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-xs font-medium">{props.userName}</p>
-            <p className="truncate text-[11px] capitalize text-muted-foreground">{props.userRole.replaceAll("_", " ")}</p>
-          </div>
-        </div>
+      <div className="border-t border-sidebar-border p-2.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" aria-label="Open profile, Mira settings and tools"
+              className="group flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-semibold text-primary ring-1 ring-primary/20">
+                {(props.userName.trim()[0] ?? "?").toUpperCase()}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-semibold">{props.userName}</span>
+                <span className="block truncate text-[11px] capitalize text-muted-foreground">{props.userRole.replaceAll("_", " ")}</span>
+              </span>
+              <Settings2 className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-64 rounded-xl p-1.5 shadow-lg">
+            <div className="px-2.5 py-2">
+              <p className="text-sm font-semibold">Mira settings & tools</p>
+              <p className="text-xs text-muted-foreground">Your workspace, all in one place</p>
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 rounded-lg py-2.5" onSelect={() => setSettingsOpen(true)}>
+              <Settings2 className="h-4 w-4" /> Settings
+            </DropdownMenuItem>
+            {props.canUseMail && (
+              <DropdownMenuItem className="gap-2 rounded-lg py-2.5" onSelect={props.onOpenMailboxes}>
+                <Mail className="h-4 w-4" /> Mailboxes
+              </DropdownMenuItem>
+            )}
+            {props.canSeeInsights && (
+              <DropdownMenuItem className="gap-2 rounded-lg py-2.5" onSelect={props.onOpenInsights}>
+                <BarChart3 className="h-4 w-4" /> Usage & audit trail
+              </DropdownMenuItem>
+            )}
+            {props.onOpenMemory && (
+              <DropdownMenuItem className="gap-2 rounded-lg py-2.5" onSelect={props.onOpenMemory}>
+                <Brain className="h-4 w-4" /> Mira's memory
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem className="gap-2 rounded-lg py-2.5" onSelect={props.onReport}>
+              <Flag className="h-4 w-4" /> Report a problem
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 rounded-lg py-2.5 text-primary focus:text-primary" onSelect={props.onBack}>
+              <ArrowLeft className="h-4 w-4" /> Back to HotelCare
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Mira settings</DialogTitle>
+            <DialogDescription>Make your chat workspace easier to navigate.</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between gap-4 rounded-xl border px-3.5 py-3">
+            <div className="min-w-0">
+              <label htmlFor="mira-history-preview" className="text-sm font-medium">Chat previews</label>
+              <p className="mt-0.5 text-xs text-muted-foreground">Show the latest message below chat titles.</p>
+            </div>
+            <Switch id="mira-history-preview" checked={showPreviews} onCheckedChange={changePreviews} aria-label="Show chat previews" />
+          </div>
+          <p className="text-xs text-muted-foreground">Chats and projects stay saved. This setting only changes how your history looks on this device.</p>
+        </DialogContent>
+      </Dialog>
     </nav>
   );
 }
