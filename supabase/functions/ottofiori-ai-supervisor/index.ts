@@ -257,8 +257,16 @@ Deno.serve(async req=>{
       openai_fallback_configured:Boolean(key)});
   }
   if(body.action==='readback') {
-    const review=await admin.from('ottofiori_ai_review_runs').select('id,status,outcomes').eq('id',body.review_id).single();
-    if(review.error || review.data.status!=='completed') return json({error:'Completed Ottofiori review required'},400);
+    // Scheduled readbacks intentionally omit a review_id. Select the latest
+    // completed review in that case; an explicit review_id remains supported
+    // for targeted diagnostics and never starts a paid model call.
+    const review=body.review_id
+      ? await admin.from('ottofiori_ai_review_runs').select('id,status,outcomes')
+          .eq('id',body.review_id).single()
+      : await admin.from('ottofiori_ai_review_runs').select('id,status,outcomes')
+          .eq('status','completed').not('outcomes','is',null)
+          .order('started_at',{ascending:false}).limit(1).maybeSingle();
+    if(review.error || !review.data || review.data.status!=='completed') return json({error:'Completed Ottofiori review required'},400);
     const response=await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/previo-revenue-sync`,{
       method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`},
       body:JSON.stringify({hotelId:HOTEL,horizonDays:120,mode:'automation_full'}),signal:AbortSignal.timeout(90_000),
