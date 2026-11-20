@@ -1117,7 +1117,25 @@ export default function Reputation() {
           </div>
 
           <TabsContent value="overview" className="space-y-4">
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <Card><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Average Google rating</p><div className="mt-2 flex items-center gap-2 text-3xl font-bold">{googleTotal ? allAvg.toFixed(1) : "—"} <Star className="h-5 w-5 text-amber-500" /></div><p className="mt-1 text-xs text-muted-foreground">Across connected businesses</p></CardContent></Card>
+              <Card className={awaiting ? "border-amber-300" : ""}><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Waiting for a reply</p><div className="mt-2 text-3xl font-bold">{awaiting.toLocaleString()}</div><p className="mt-1 text-xs text-muted-foreground">From {totalTracked.toLocaleString()} imported reviews</p><Button variant="link" size="sm" className="mt-1 h-auto p-0" onClick={() => { setFocusedReviewId(null); setRatingFilter("all"); setStatusFilter("unreplied"); setActiveTab("inbox"); }}>Reply now</Button></CardContent></Card>
+              <Card><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Replies sent</p><div className="mt-2 text-3xl font-bold">{published.toLocaleString()}</div><Button variant="link" size="sm" className="mt-1 h-auto p-0" onClick={() => { setActiveTab("published"); void loadPublished(0, publishedSource, historyVenue); }}>See replies</Button></CardContent></Card>
+              <Card><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Total Google reviews</p><div className="mt-2 text-3xl font-bold">{googleTotal.toLocaleString()}</div><p className="mt-1 text-xs text-muted-foreground">Across Google business listings</p></CardContent></Card>
+            </div>
+            <Card className="border-primary/20">
+              <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <div><h2 className="font-semibold">Mira can help with your reviews</h2><p className="text-sm text-muted-foreground">Ask for a summary or editable reply drafts. You approve each reply before it goes live.</p></div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => askMira("Summarize themes in our latest Google reviews, show which properties need attention and recommend the next actions. Do not publish any replies.")}>Summarize reviews</Button>
+                  <Button onClick={() => askMira("Find up to five unanswered Google reviews needing attention and prepare editable reply cards. Do not publish without my approval.")}><Bot className="mr-2 h-4 w-4" />Draft replies with Mira</Button>
+                </div>
+              </CardContent>
+            </Card>
+            <details className="rounded-xl border bg-card p-4">
+              <summary className="cursor-pointer text-sm font-medium">More statistics, safety details & Google account</summary>
+              <div className="mt-4 space-y-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reviews on Google</div><div className="text-3xl font-bold mt-2">{googleTotal.toLocaleString()}</div><div className="text-xs text-muted-foreground mt-1">{totalTracked.toLocaleString()} imported for management</div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Overall average rating</div><div className="flex items-center gap-2 mt-2"><span className="text-3xl font-bold">{googleTotal ? allAvg.toFixed(1) : "—"}</span><Star className="h-5 w-5" /></div></CardContent></Card>
               <Card><CardContent className="pt-5"><div className="text-xs text-muted-foreground">Reply rate · imported reviews</div><div className="text-3xl font-bold mt-2">{totalTracked ? `${responseRate}%` : "—"}</div></CardContent></Card>
@@ -1221,6 +1239,8 @@ export default function Reputation() {
                 </div>
               </CardContent>
             </Card>
+            </div>
+            </details>
           </TabsContent>
 
           <TabsContent value="inbox" className="space-y-4">
