@@ -71,9 +71,9 @@ export async function authorizeHotelCaller(req: Request, db: any, hotelId: strin
 
 /** Admin role or the dedicated anu_000 account, never a generic managerial role. */
 export const canAccessChannelManager = (c: Caller): boolean =>
-  c.role === 'admin' || c.nickname?.trim().toLowerCase() === 'anu_000';
+  c.role === 'admin' || (c.organizationSlug === 'rdhotels' && c.nickname?.trim().toLowerCase() === 'anu_000');
 
-export const hasRole = (c: Caller, roles: string[]) => c.isSuperAdmin || c.nickname?.trim().toLowerCase() === 'anu_000' || roles.includes(c.role);
+export const hasRole = (c: Caller, roles: string[]) => c.isSuperAdmin || (c.organizationSlug === 'rdhotels' && c.nickname?.trim().toLowerCase() === 'anu_000') || roles.includes(c.role);
 
 /** Today in Budapest as YYYY-MM-DD. */
 export function budapestToday(now = new Date()): string {
