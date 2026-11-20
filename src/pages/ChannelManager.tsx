@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
 import { isTopManagement } from '@/lib/bookingEngine/access';
+import { canAccessChannelManager } from '@/lib/roleAccess';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
@@ -40,6 +41,7 @@ const ChannelManager = () => {
   const { hotelId, orgSlug, ready, isPortfolio, role } = useOperationalHotel();
   // The website booking engine (embed code, test link) is for top management only.
   const showBookingEngine = isTopManagement(role, profile?.is_super_admin);
+  const permitted = canAccessChannelManager(profile?.role, profile?.nickname);
   const scopedOrg = organizationSlug || orgSlug;
   const [channels, setChannels] = useState<Channel[]>([]);
   const [syncEntries, setSyncEntries] = useState<SyncEntry[]>([]);
@@ -80,10 +82,10 @@ const ChannelManager = () => {
     }
   }, [hotelId, scopedOrg]);
 
-  useEffect(() => { if (user && ready) void fetchChannels(); }, [user, ready, fetchChannels]);
+  useEffect(() => { if (user && ready && permitted) void fetchChannels(); }, [user, ready, permitted, fetchChannels]);
 
   const addDraft = async (entry: typeof CHANNEL_CATALOGUE[number]) => {
-    if (!hotelId || !scopedOrg || adding) return;
+    if (!permitted || !hotelId || !scopedOrg || adding) return;
     setAdding(entry.name);
     try {
       const { error } = await supabase.from('channels').insert({
@@ -106,6 +108,7 @@ const ChannelManager = () => {
 
   if (loading || !ready) return <div className="min-h-screen flex items-center justify-center"><RefreshCw className="h-6 w-6 animate-spin" aria-label="Loading channel manager" /></div>;
   if (!user) return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
+  if (!permitted) return <Navigate to={`/${scopedOrg || 'rdhotels'}`} replace />;
   if (!hotelId || isPortfolio) return <div className="min-h-screen bg-background"><Header /><PMSNavigation /><main className="container mx-auto px-4 py-8"><Card><CardContent className="py-10 text-center">Select one hotel to manage its channel connections. Other properties will not be shown here.</CardContent></Card></main></div>;
 
   const available = CHANNEL_CATALOGUE.filter((entry) => !channels.some((channel) => channel.channel_name === entry.name));
