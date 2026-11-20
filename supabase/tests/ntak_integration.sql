@@ -101,7 +101,7 @@ RESET ROLE;
 
 
 -- Re-downloading a pending request must preserve the original key.
-do $
+do $$
 declare registration text; result text;
 begin
   select registration_number into strict registration from public.ntak_settings where hotel_id = 'h1';
@@ -122,6 +122,6 @@ begin
     (select pending_csr_pem from public.ntak_settings where hotel_id='h1') is not null then
     raise exception 'Certificate promotion failed';
   end if;
-end $;
+end $$;
 
 SELECT 'ntak migration checks passed' AS result;
