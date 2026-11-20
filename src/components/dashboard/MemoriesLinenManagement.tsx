@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, FileText, Printer, RefreshCw, Shirt } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -268,15 +269,27 @@ export function MemoriesLinenManagement() {
       #memories-vendor-print { display: none; }
       @media print {
         @page { size: A4 portrait; margin: 8mm; }
-        html, body { width: 210mm; min-height: 297mm; background: white !important; }
-        body * { visibility: hidden !important; }
-        #memories-vendor-print, #memories-vendor-print * { visibility: visible !important; }
+        html, body {
+          width: auto !important;
+          min-height: 0 !important;
+          height: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          overflow: visible !important;
+          background: white !important;
+        }
+        /* The worksheet is a direct child of body (via a React portal).
+           Hiding the app with display:none removes its layout from pagination;
+           visibility:hidden would still create invisible blank pages. */
+        body > :not(#memories-vendor-print) { display: none !important; }
         #memories-vendor-print {
           display: block !important;
-          position: absolute !important;
-          left: 0;
-          top: 0;
-          width: 194mm;
+          position: static !important;
+          width: 100% !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          break-inside: avoid;
+          page-break-inside: avoid;
           background: white !important;
           color: black !important;
           font-family: "Times New Roman", Times, serif;
@@ -413,7 +426,7 @@ export function MemoriesLinenManagement() {
       <p className="mt-3 text-sm font-semibold">Total pieces / Összes darab: {grandTotal}</p>
       {!!unclassifiedTotal && <p className="text-xs mt-1">Attention: {unclassifiedTotal} unclassified historical items excluded. Review before dispatch.</p>}
     </Card>
-    <div id="memories-vendor-print" aria-hidden="true">
+    {createPortal(<div id="memories-vendor-print" aria-hidden="true">
       <div className="vendor-sheet">
         <div className="vendor-title">
           <div className="vendor-logo"><img src="/deluxe-mosoda-logo.svg" alt="Deluxe Mosoda" /></div>
@@ -465,7 +478,7 @@ export function MemoriesLinenManagement() {
           </tbody>
         </table>
       </div>
-    </div>
+    </div>, document.body)}
     <Card className="p-4 space-y-3">
       <h3 className="font-bold flex items-center gap-2"><FileText className="h-4 w-4" />Room-level collection and manager corrections</h3>
       <p className="text-sm text-muted-foreground">Choose a room to correct active-category quantities. Approved historical sheets and pillow covers are included in totals but retained separately in the database.</p>
