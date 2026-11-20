@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 vi.mock('./ntakApi', async (importOriginal) => ({ ...(await importOriginal<typeof import('./ntakApi')>()), callNtak: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
+import { TranslationProvider } from '@/hooks/useTranslation';
 import { callNtak } from './ntakApi';
 import { NtakClosureDialog } from './NtakClosureDialog';
 import { NtakStatusCard } from './NtakStatusCard';
@@ -87,7 +88,7 @@ it('lets reception retry an unavailable report and shows the processing referenc
       created_at: '2026-11-20T09:00:00Z', processing_id: 'receipt-123',
     }],
   } as never);
-  render(<NtakStatusCard hotelId="test-property" report />);
+  render(<TranslationProvider><NtakStatusCard hotelId="test-property" report /></TranslationProvider>);
   fireEvent.click((await screen.findByRole('alert')).querySelector('button')!);
   expect(await screen.findByText('receipt-123')).toBeInTheDocument();
   expect(screen.getByText(/Sent, awaiting result/)).toBeInTheDocument();
