@@ -96,6 +96,18 @@ export default function Breakfast() {
   const [tab, setTab] = useState<"rooms" | "reservations" | "recipes">("rooms");
   const resultRef = useRef<HTMLDivElement | null>(null);
 
+  // Notifications can open /bb?bbTab=reservations&bbDate=...&bbReservation=...
+  // Restore the reservation tab and selected day before its list mounts.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("bbTab") === "reservations" || params.has("bbReservation")) {
+      setTab("reservations");
+    }
+    const targetDate = params.get("bbDate");
+    if (targetDate && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)) setDate(targetDate);
+  }, []);
+
+
 
   // Load this org's hotels (skipped on hotel-code direct lookup)
   useEffect(() => {
@@ -473,7 +485,7 @@ export default function Breakfast() {
                 <Label>{tt("date")}</Label>
                 <Input className="h-11 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
-              <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} />
+              <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} onDateChange={setDate} />
             </>
           )}
 
