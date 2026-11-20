@@ -19,6 +19,7 @@ interface DashboardReservation {
   source_project: string | null;
   source_reservation_id: string | null;
   updated_at: string | null;
+  created_at: string | null;
   outlets: { slug: string | null } | null;
 }
 
@@ -63,7 +64,7 @@ async function readDirectDashboard(
   const { start, end } = budapestDayRange(serviceDate);
   const params = new URLSearchParams({
     select:
-      "id,guest_name,guest_email,guest_phone,party_size,starts_at,ends_at,status,occasion,special_requests,notes,source_project,source_reservation_id,updated_at,outlets(slug),properties!inner(slug)",
+      "id,guest_name,guest_email,guest_phone,party_size,starts_at,ends_at,status,occasion,special_requests,notes,source_project,source_reservation_id,created_at,updated_at,outlets(slug),properties!inner(slug)",
     "properties.slug": `eq.${propertySlug}`,
     starts_at: `gte.${start.toISOString()}`,
     order: "starts_at.asc",
@@ -209,6 +210,7 @@ export async function syncHotelReservations(
       source_reservation_id: ref,
       outlet_slug: r.outlets?.slug || "brunch",
       guest_name: r.guest_name,
+      booked_at: r.created_at || null,
       guest_email: r.guest_email,
       guest_phone: r.guest_phone,
       party_size: r.party_size ?? 2,
