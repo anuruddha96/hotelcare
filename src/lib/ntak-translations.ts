@@ -6,6 +6,7 @@ const LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk', 'ru'] as const;
 const rows: Record<string, readonly [string, string]> = {
   'ntak.recentActivity': ['Recent reporting activity', 'Legutóbbi adatszolgáltatások'],
   'ntak.refreshReports': ['Refresh', 'Frissítés'],
+  'ntak.allReports': ['All reports', 'Összes jelentés'],
   'ntak.noActivity': ['No recent reports for this property.', 'Ehhez a szálláshelyhez nincs friss jelentés.'],
   'ntak.vizaState.queued': ['Waiting to send', 'Küldésre vár'],
   'ntak.vizaState.failed': ['Failed', 'Sikertelen'],
