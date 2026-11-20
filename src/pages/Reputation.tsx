@@ -287,6 +287,8 @@ export default function Reputation() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [originFilter, setOriginFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("overview");
+  const [showAdvancedReviewFilters, setShowAdvancedReviewFilters] = useState(false);
+  const [focusedReviewId, setFocusedReviewId] = useState<string | null>(null);
   const [publishedReviews, setPublishedReviews] = useState<Review[]>([]);
   const [publishedPage, setPublishedPage] = useState(0);
   const [publishedTotal, setPublishedTotal] = useState(0);
@@ -619,13 +621,18 @@ export default function Reputation() {
     setAlertBusy(id);
     try {
       await invoke("acknowledge_low_rating_alert", { alert_id: id });
-      toast.success("Low-rating alert acknowledged");
+      toast.success("Alert marked as seen. The review still needs a reply.");
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not acknowledge alert");
+      toast.error(error instanceof Error ? error.message : "Could not mark the alert as seen");
     } finally {
       setAlertBusy(null);
     }
+  };
+
+  // Use Mira's existing review tools and explicit publish-confirmation cards.
+  const askMira = (prompt: string) => {
+    window.dispatchEvent(new CustomEvent("hotelcare:ask-ai", { detail: { prompt } }));
   };
 
   const authorizeBackfill = async () => {
@@ -890,6 +897,7 @@ export default function Reputation() {
   const filteredReviews = useMemo(() => {
     const q = search.trim().toLowerCase();
     return reviews.filter((review) => {
+      if (focusedReviewId && review.id !== focusedReviewId) return false;
       if (ratingFilter === "positive" && review.star_rating < 4) return false;
       if (ratingFilter === "attention" && review.star_rating > 3) return false;
       if (!["all", "positive", "attention"].includes(ratingFilter) && Number(ratingFilter) !== review.star_rating) return false;
@@ -902,7 +910,7 @@ export default function Reputation() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(q));
     });
-  }, [reviews, search, ratingFilter, statusFilter, originFilter, locationFilter, riskFilter, locationNameById]);
+  }, [reviews, search, ratingFilter, statusFilter, originFilter, locationFilter, riskFilter, focusedReviewId, locationNameById]);
 
   const e2eTone =
     e2e.status === "passed"
@@ -924,7 +932,7 @@ export default function Reputation() {
               {data?.connections?.length ? <Badge variant="outline" className="border-emerald-300 text-emerald-700">Google connected</Badge> : null}
               {googleSetup.quotaPending ? <Badge variant="outline" className="border-amber-300 text-amber-700">Google approval pending</Badge> : null}
             </div>
-            <p className="text-sm text-muted-foreground mt-1">Google reviews, AI-assisted responses, automation rules and reputation intelligence. New reviews refresh automatically while this page is open.</p>
+            <p className="text-sm text-muted-foreground mt-1">Manage Google reviews, reply to guests and let Mira help. Reviews update automatically while this page is open.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={load} disabled={busy}>
@@ -1054,7 +1062,7 @@ export default function Reputation() {
                 <div className="flex gap-2 items-start">
                   <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
                   <div><div className="font-semibold">{data?.open_alert_count} new 1–3-star Google review alert(s)</div>
-                    <p className="text-sm text-muted-foreground">These require a manager response. Low-rated or sensitive reviews are never auto-published.</p>
+                    <p className="text-sm text-muted-foreground">A manager should check these reviews. Mira can draft replies, but will not publish them without your approval.</p>
                   </div>
                 </div>
                 <Button variant="outline" onClick={() => { setActiveTab("inbox"); setRatingFilter("attention"); setStatusFilter("all"); }}>Review low ratings</Button>
@@ -1064,10 +1072,14 @@ export default function Reputation() {
                   <div className="text-sm font-medium">{alert.star_rating}★ · {locations.find((venue) => venue.id === alert.google_location_id)?.reply_brand_name || "Google business"}</div>
                   <p className="text-xs text-muted-foreground line-clamp-2">{alert.review_excerpt || "Rating only — no written comment."}</p>
                   <div className="flex gap-2 flex-wrap">
-                    <Button size="sm" variant="outline" onClick={() => {
-                      setLocationFilter(alert.google_location_id); setRatingFilter("attention"); setActiveTab("inbox");
-                    }}>Open</Button>
-                    <Button size="sm" variant="ghost" disabled={alertBusy === alert.id} onClick={() => void acknowledgeAlert(alert.id)}>Acknowledge</Button>
+                    <Button size="sm" onClick={() => {
+                      setSearch(""); setOriginFilter("all"); setRiskFilter("all");
+                      setLocationFilter(alert.google_location_id); setRatingFilter("attention"); setStatusFilter("all");
+                      setFocusedReviewId(alert.review_id && reviews.some((review) => review.id === alert.review_id) ? alert.review_id : null);
+                      setActiveTab("inbox");
+                    }}>Reply</Button>
+                    <Button size="sm" variant="outline" onClick={() => askMira(`Find the ${alert.star_rating}-star Google review for ${locations.find((location) => location.id === alert.google_location_id)?.google_location_title || "this business"} (review ID ${alert.review_id || "unknown"}), and prepare an editable reply card. Do not publish without my approval.`)}><Bot className="h-3.5 w-3.5 mr-1" />Ask Mira</Button>
+                    <Button size="sm" variant="ghost" title="Clear this alert only — the guest still needs a reply" disabled={alertBusy === alert.id} onClick={() => void acknowledgeAlert(alert.id)}>Mark as seen</Button>
                   </div>
                 </div>)}
               </div>
