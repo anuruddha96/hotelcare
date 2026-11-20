@@ -2547,14 +2547,38 @@ Deno.serve(async (req) => {
     };
 
 
-    const { error: userInsertError } = await service.from("assistant_messages").insert({
+    // Keep private attachments available as thumbnails when a thread is reopened.
+    // Do not write base64 images to Postgres or expose public storage URLs.
+    const savedUserFiles: { kind: "user_file"; path: string; filename: string; mediaType: string }[] = [];
+    for (const file of incomingFiles) {
+      // assistant-media is image-only and its SELECT policy requires the user's UID as path prefix.
+      if (!file.mediaType.startsWith("image/")) continue;
+      const path = `${userData.user.id}/evidence/${threadId}/${crypto.randomUUID()}.${file.extension}`;
+      const { error: uploadError } = await service.storage.from("assistant-media").upload(path, file.bytes, {
+        contentType: file.mediaType,
+        upsert: false,
+      });
+      if (uploadError) {
+        console.error("Could not persist Mira evidence preview", uploadError.message);
+      } else {
+        savedUserFiles.push({ kind: "user_file", path, filename: file.filename, mediaType: file.mediaType });
+      }
+    }
+
+    const { error: userInsertError } = await insertTolerant(service, "assistant_messages", {
       thread_id: threadId,
       user_id: userData.user.id,
       role: "user",
       content: question,
       refused: false,
-    });
-    if (userInsertError) return json({ error: `Could not save your message: ${userInsertError.message}` }, 500);
+      ...(savedUserFiles.length > 0 ? { attachments: savedUserFiles } : {}),
+    }, ["attachments"]);
+    if (userInsertError) {
+      if (savedUserFiles.length > 0) {
+        await service.storage.from("assistant-media").remove(savedUserFiles.map((file) => file.path));
+      }
+      return json({ error: `Could not save your message: ${userInsertError.message}` }, 500);
+    }
 
     // Interim title so the history list is never a bare "New chat"; it is
     // replaced by a short AI topic title once the answer is finished.

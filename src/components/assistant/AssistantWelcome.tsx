@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, BellRing, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Lightbulb, Mic, Pause, Play, Sparkles } from "lucide-react";
+import { ArrowUpRight, BellRing, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Lightbulb, Mic, Pause, Play } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistantContext } from "@/hooks/useAssistantContext";
@@ -53,7 +53,7 @@ function usePriorities(enabled: boolean, hotelId: string | null) {
       try {
         const { data, error } = await supabase.functions.invoke("assistant-priorities", { body: { hotelId } });
         if (cancelled) return;
-        if (error || !Array.isArray((data as any)?.cards)) return;
+        if (error || !Array.isArray((data as any)?.cards)) { setCards((current) => current ?? []); return; }
         const next = (data as any).cards as PriorityCard[];
         const name = (data as any)?.hotel?.name ?? null;
         const time = (data as any)?.generatedAt ?? new Date().toISOString();
@@ -89,15 +89,16 @@ export default function AssistantWelcome({
   const { cards, hotelName, updatedAt } = usePriorities(workspace, page.hotelId ?? profile?.assigned_hotel ?? null);
   const [rotation, setRotation] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [showPriorities, setShowPriorities] = useState(false);
   const [paused, setPaused] = useState(false);
   const count = cards?.length ?? 0;
   const windowSize = Math.min(3, count);
-  useEffect(() => { setRotation(0); setExpanded(false); }, [page.hotelId, profile?.assigned_hotel]);
+  useEffect(() => { setRotation(0); setExpanded(false); setShowPriorities(false); }, [page.hotelId, profile?.assigned_hotel]);
   useEffect(() => {
-    if (count <= windowSize || expanded || paused) return;
+    if (!showPriorities || count <= windowSize || expanded || paused) return;
     const timer = window.setInterval(() => setRotation((index) => (index + 1) % count), 6500);
     return () => window.clearInterval(timer);
-  }, [count, windowSize, expanded, paused]);
+  }, [count, windowSize, expanded, paused, showPriorities]);
 
   const visibleCards = useMemo(() => {
     if (!cards) return [];
@@ -132,80 +133,87 @@ export default function AssistantWelcome({
 
   const loading = cards === null;
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 px-3 pb-8 pt-6 sm:px-6 sm:pt-10">
-      <section aria-label="Meet Mira" className="space-y-3">
-        <div className="flex items-center gap-3">
-          <img src={hotelCareMark} alt="" className="h-10 w-10 rounded-xl" />
-          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">{greeting(profile?.full_name)}</h2>
-        </div>
-        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Mira is your AI operator. Ask about {hotelName || "your authorized hotels"}, review live priorities, and prepare actions within your role.
+    <div className="mx-auto w-full max-w-2xl space-y-7 px-4 pb-8 pt-9 sm:px-6 sm:pt-14">
+      <section aria-label="Meet Mira" className="flex flex-col items-center gap-3 text-center">
+        <span className="grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+          <img src={hotelCareMark} alt="" className="h-10 w-10 object-contain" />
+        </span>
+        <p className="text-xs font-semibold tracking-wide text-primary">Mira by HotelCare</p>
+        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">What can I help you with?</h2>
+        <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
+          Your AI operator for <span className="font-medium text-foreground">{hotelName || "your hotel"}</span>.
+          Ask questions, check priorities, or prepare an action within your access.
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          {onVoice && (
-            <button type="button" onClick={onVoice} disabled={disabled || !voiceSupported}
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50">
-              <Mic className="h-4 w-4" /> Try Mira with your voice
-            </button>
-          )}
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Sparkles className="h-3.5 w-3.5" /> Ask, check, and prepare real hotel tasks</span>
-        </div>
+        {onVoice && (
+          <button type="button" onClick={onVoice} disabled={disabled || !voiceSupported}
+            className="mt-1 inline-flex min-h-10 items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50">
+            <Mic className="h-4 w-4" /> Talk to Mira
+          </button>
+        )}
       </section>
 
-      {(loading || count > 0) && (
-        <section aria-label="Live hotel priorities" className="space-y-2">
-          <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Live priorities</h3>
-              {count > 0 && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] tabular-nums">{count}</span>}
-            </div>
-            {count > windowSize && (
-              <div className="flex items-center gap-1">
-                <button type="button" aria-label="Previous priorities" className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setRotation((n) => (n + count - 1) % count)}><ChevronLeft className="h-4 w-4" /></button>
-                <button type="button" aria-label="Next priorities" className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setRotation((n) => (n + 1) % count)}><ChevronRight className="h-4 w-4" /></button>
-                <button type="button" aria-label={paused ? "Resume priority rotation" : "Pause priority rotation"} className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setPaused((value) => !value)}>{paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}</button>
-                <button type="button" className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium hover:bg-muted" onClick={() => setExpanded((value) => !value)}>
-                  {expanded ? "Show fewer" : "View all"} {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="grid gap-2" aria-live="off">
-            {loading ? [0, 1, 2].map((row) => <Skeleton key={row} className="h-[86px] w-full rounded-xl" />) :
-              visibleCards.map((card) => {
-                const tone = TONE[card.tone] ?? TONE.opportunity;
-                const Icon = tone.icon;
-                const cta = card.area === "maintenance" ? "Review tickets" : card.area === "revenue" ? "Review rates" : card.area === "reputation" ? "Review replies" : card.area === "housekeeping" ? "Check progress" : "View details";
-                return (
-                  <button key={card.id} type="button" disabled={disabled} onClick={() => onAsk(card.prompt)}
-                    className={cn("group flex w-full items-start gap-3 rounded-xl border bg-card px-3 py-3 text-left transition-colors disabled:opacity-60 sm:px-4", tone.ring)}>
-                    <span className={cn("mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg", tone.chip)}><Icon className="h-4 w-4" /></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{tone.label}</span>
-                      <span className="block text-sm font-semibold leading-snug break-words">{card.title}</span>
-                      <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{card.detail}</span>
-                    </span>
-                    <span className="mt-1 hidden shrink-0 items-center gap-1 text-xs font-medium text-primary group-hover:underline sm:inline-flex">{cta}<ArrowUpRight className="h-3.5 w-3.5" /></span>
-                    <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-primary sm:hidden" />
-                  </button>
-                );
-              })}
-          </div>
-          <p className="text-[11px] text-muted-foreground">{updatedAt ? `Checked ${new Date(updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. ` : ""}Cards open a review in Mira; changes still require permission and confirmation.</p>
-        </section>
-      )}
-
-      <section aria-label="Suggested questions" className="space-y-2 pb-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Try asking Mira</h3>
-        <div className="flex flex-wrap gap-2">
-          {starters.map((starter) => (
+      <section aria-label="Suggested questions" className="space-y-3">
+        <h3 className="text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Or try asking</h3>
+        <div className="flex flex-wrap justify-center gap-2">
+          {starters.slice(0, 3).map((starter) => (
             <button key={starter.prompt} type="button" disabled={disabled} title={starter.prompt} onClick={() => onAsk(starter.prompt)}
-              className="rounded-full border bg-card px-3 py-2 text-left text-xs font-medium leading-snug transition-colors hover:border-primary/40 hover:bg-accent disabled:opacity-60 sm:text-sm">
+              className="rounded-full border bg-card px-3.5 py-2.5 text-left text-xs font-medium leading-snug transition-colors hover:border-primary/40 hover:bg-accent disabled:opacity-60 sm:text-sm">
               {starter.label}
             </button>
           ))}
         </div>
       </section>
+
+      {(loading || count > 0) && (
+        <section aria-label="Live hotel priorities" className="mx-auto max-w-xl">
+          <button type="button" aria-expanded={showPriorities} onClick={() => setShowPriorities((open) => !open)}
+            className="flex w-full items-center gap-2.5 rounded-xl border bg-card px-4 py-3 text-left text-sm transition-colors hover:border-primary/30 hover:bg-accent/50">
+            <BellRing className="h-4 w-4 shrink-0 text-primary" />
+            <span className="flex-1 font-medium">Live hotel priorities</span>
+            {count > 0 && <span className="rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums">{count}</span>}
+            {showPriorities ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </button>
+          {showPriorities && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Latest operational items</p>
+                {count > windowSize && (
+                  <div className="flex items-center gap-1">
+                    <button type="button" aria-label="Previous priorities" className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setRotation((n) => (n + count - 1) % count)}><ChevronLeft className="h-4 w-4" /></button>
+                    <button type="button" aria-label="Next priorities" className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setRotation((n) => (n + 1) % count)}><ChevronRight className="h-4 w-4" /></button>
+                    <button type="button" aria-label={paused ? "Resume priority rotation" : "Pause priority rotation"} className="rounded-lg p-1.5 hover:bg-muted" onClick={() => setPaused((value) => !value)}>{paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}</button>
+                    <button type="button" className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium hover:bg-muted" onClick={() => setExpanded((value) => !value)}>
+                      {expanded ? "Show less" : "View all"} {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="grid gap-2" aria-live="off">
+                {loading ? [0, 1].map((item) => <Skeleton key={item} className="h-[72px] w-full rounded-xl" />) :
+                  visibleCards.map((card) => {
+                    const tone = TONE[card.tone] ?? TONE.opportunity;
+                    const Icon = tone.icon;
+                    return (
+                      <button key={card.id} type="button" disabled={disabled} onClick={() => onAsk(card.prompt)}
+                        className={cn("group flex w-full items-start gap-3 rounded-xl border bg-card px-3 py-3 text-left transition-colors disabled:opacity-60", tone.ring)}>
+                        <span className={cn("mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg", tone.chip)}><Icon className="h-4 w-4" /></span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold leading-snug">{card.title}</span>
+                          <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{card.detail}</span>
+                        </span>
+                        <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-primary" />
+                      </button>
+                    );
+                  })}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {updatedAt ? `Checked ${new Date(updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}. ` : ""}
+                Mira prepares actions; permissions and approvals still apply.
+              </p>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

@@ -25,6 +25,7 @@ import {
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -307,18 +308,93 @@ function useMiraTypewriter(examples: string[], enabled: boolean) {
 const MIRA_FILE_ACCEPT = "image/png,image/jpeg,image/webp,application/pdf,.pdf";
 const MIRA_FILE_MAX_BYTES = 4 * 1024 * 1024;
 
-/** Keep previews inside PromptInput's attachment context; private files are not public links. */
+/** Preview supported image attachments before sending and in Mira's chat transcript. */
+function MiraFileTile({ file, inMessage = false, onRemove }: {
+  file: FileUIPart;
+  inMessage?: boolean;
+  onRemove?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  const filename = file.filename || "Attachment";
+  const isImage = /^image\/(jpeg|png|webp)$/i.test(file.mediaType || "") &&
+    /^(blob:|data:image\/|https:\/\/)/i.test(file.url || "");
+  const showThumbnail = isImage && !imageFailed;
+
+  return (
+    <>
+      <div className={cn(
+        "group/file relative inline-flex max-w-full overflow-hidden rounded-xl border text-xs transition-colors",
+        inMessage ? "border-primary-foreground/20 bg-primary-foreground/10 text-primary-foreground" : "border-border bg-muted/40 text-foreground",
+      )}>
+        {showThumbnail ? (
+          <button type="button" onClick={() => setExpanded(true)} className="flex max-w-52 flex-col items-start text-left"
+            title={`Preview ${filename}`} aria-label={`Preview ${filename}`}>
+            <img src={file.url} alt={filename} loading="lazy" onError={() => setImageFailed(true)}
+              className="h-28 w-44 max-w-full bg-muted/30 object-cover sm:h-32 sm:w-48" />
+            <span className="block w-full truncate px-2 py-1.5 text-[11px]">{filename}</span>
+          </button>
+        ) : (
+          <span className="flex min-h-10 max-w-56 items-center gap-2 px-3 py-2">
+            {file.mediaType === "application/pdf" ? <FileText className="h-4 w-4 shrink-0" /> : <FileImage className="h-4 w-4 shrink-0" />}
+            <span className="truncate">{filename}</span>
+          </span>
+        )}
+        {onRemove && (
+          <button type="button" aria-label={`Remove ${filename}`} onClick={onRemove}
+            className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-background/95 text-foreground shadow-sm hover:bg-destructive/10 hover:text-destructive">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {showThumbnail && (
+        <Dialog open={expanded} onOpenChange={setExpanded}>
+          <DialogContent className="max-w-4xl border-0 bg-background p-2 shadow-xl sm:p-4">
+            <DialogTitle className="pr-8 text-sm font-medium">{filename}</DialogTitle>
+            <img src={file.url} alt={filename} className="max-h-[80dvh] w-full rounded-lg object-contain" />
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+type StoredMiraFile = { kind: "user_file"; path: string; filename: string; mediaType: string };
+function isStoredMiraFile(value: unknown): value is StoredMiraFile {
+  if (!value || typeof value !== "object") return false;
+  const file = value as Record<string, unknown>;
+  return file.kind === "user_file" && typeof file.path === "string" &&
+    typeof file.filename === "string" && typeof file.mediaType === "string";
+}
+
+/** Signed URLs are requested on view, so private evidence does not become public. */
+function StoredMiraFileTile({ spec }: { spec: StoredMiraFile }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setUrl(null);
+    supabase.storage.from("assistant-media").createSignedUrl(spec.path, 3600).then(({ data, error }) => {
+      if (cancelled) return;
+      if (!error && data?.signedUrl) setUrl(data.signedUrl);
+    });
+    return () => { cancelled = true; };
+  }, [spec.path]);
+  return url
+    ? <MiraFileTile file={{ type: "file", filename: spec.filename, mediaType: spec.mediaType, url }} inMessage />
+    : <span className="inline-flex items-center gap-2 rounded-lg border border-primary-foreground/20 bg-primary-foreground/10 px-3 py-2 text-xs">
+        {spec.mediaType === "application/pdf" ? <FileText className="h-4 w-4" /> : <FileImage className="h-4 w-4" />}
+        <span className="max-w-44 truncate">{spec.filename}</span>
+      </span>;
+}
+
+/** The composer uses the same visual previews as messages sent to Mira. */
 function MiraFilePreview() {
   const { files, remove } = usePromptInputAttachments();
   if (!files.length) return null;
   return (
-    <div className="flex flex-wrap gap-2 border-b px-3 pb-2 pt-2" aria-label="Files ready to attach">
+    <div className="flex flex-wrap gap-2 border-b px-3 pb-3 pt-2" aria-label="Files ready to attach">
       {files.map((file) => (
-        <span key={file.id} className="inline-flex max-w-full items-center gap-2 rounded-lg border bg-muted/50 px-2 py-1 text-xs">
-          {file.mediaType === "application/pdf" ? <FileText className="h-4 w-4 shrink-0" /> : <FileImage className="h-4 w-4 shrink-0" />}
-          <span className="max-w-40 truncate">{file.filename || "Attachment"}</span>
-          <button type="button" aria-label={`Remove ${file.filename || "attachment"}`} onClick={() => remove(file.id)} className="rounded p-1 hover:bg-accent"><X className="h-3.5 w-3.5" /></button>
-        </span>
+        <MiraFileTile key={file.id} file={file} onRemove={() => remove(file.id)} />
       ))}
     </div>
   );
@@ -731,12 +807,15 @@ function ChatSession({
                   ) : (
                     <div className="group/user space-y-2">
                       <p className="whitespace-pre-wrap">{text}</p>
-                      {message.parts.filter((part) => part.type === "file").map((part, partIndex) => (
-                        <span key={partIndex} className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-primary-foreground/10 px-2 py-1 text-xs">
-                          {part.mediaType === "application/pdf" ? <FileText className="h-3.5 w-3.5" /> : <FileImage className="h-3.5 w-3.5" />}
-                          <span className="max-w-52 truncate">{part.filename || "Attached evidence"}</span>
-                        </span>
-                      ))}
+                      <div className="flex flex-wrap gap-2">
+                        {message.parts.filter((part) => part.type === "file").map((part, partIndex) => (
+                          <MiraFileTile key={partIndex} file={part} inMessage />
+                        ))}
+                        {!message.parts.some((part) => part.type === "file") &&
+                          (message.metadata?.attachments ?? []).filter(isStoredMiraFile).map((spec, partIndex) => (
+                            <StoredMiraFileTile key={`${spec.path}-${partIndex}`} spec={spec} />
+                          ))}
+                      </div>
                     </div>
                   )}
                   {message.role === "assistant" &&
