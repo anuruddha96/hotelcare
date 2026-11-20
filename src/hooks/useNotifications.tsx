@@ -271,7 +271,7 @@ export function useNotifications() {
 
     toast[type](message, {
       duration: 4000,
-      position: 'top-center',
+      // Use shared Sonner placement; top-center hides the dashboard navigation.
       style: {
         background: type === 'warning' ? '#FED7AA' : type === 'success' ? '#D1FAE5' : '#DBEAFE',
         color: type === 'warning' ? '#9A3412' : type === 'success' ? '#065F46' : '#1E40AF',

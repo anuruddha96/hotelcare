@@ -100,13 +100,11 @@ export function RevenueAutomationNotifications() {
       observer?.disconnect();
       const changes = unread.reduce((sum, notification) =>
         sum + (notification.actions_count || notification.changes.length), 0);
-      toast.message(
-        `${changes} revenue automation update${changes === 1 ? '' : 's'} completed while you were away`,
-        {
-          action: { label: 'View', onClick: () => setOpen(true) },
-          duration: 8_000,
-        },
-      );
+      toast.message('Revenue automation activity', {
+        description: `${changes} update${changes === 1 ? '' : 's'} since your last visit`,
+        action: { label: 'View updates', onClick: () => setOpen(true) },
+        duration: 8_000,
+      });
     };
 
     const watchForModalClose = () => {
