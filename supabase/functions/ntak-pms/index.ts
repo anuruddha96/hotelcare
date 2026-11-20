@@ -38,12 +38,40 @@ const SETTINGS_FIELDS = [
 
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
+
+async function prepareCsr(db: Db, hotelId: string, settings: Settings | null) {
+  if (!settings?.registration_number) return json({ ok: false, error: "Save the NTAK registration number first" }, 400);
+  let pem = (settings as Settings & { pending_csr_pem?: string }).pending_csr_pem;
+  if (!pem) {
+    const candidate = await generateCsr(settings.registration_number);
+    const { data, error } = await db.rpc("ntak_save_pending_csr", {
+      _hotel_id: hotelId, _registration: settings.registration_number, _csr: candidate.csrPem,
+      _key: candidate.privateKeyPem, _fingerprint: candidate.spkiSha256,
+    });
+    if (error) return json({ ok: false, error: "Unable to save certificate request" }, 500);
+    pem = data;
+  }
+  return json({ ok: true, csr_pem: pem, file_name: `${settings.registration_number}_ntak.csr` });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
   let body: any;
   try { body = await req.json(); } catch { return json({ ok: false, error: "Invalid JSON" }, 400); }
   const db = serviceDb();
+
+  // Certification operators can retrieve the CSR only for the isolated test registration.
+  // Room data and reporting operations are inaccessible through this action.
+  if (body.action === "prepare_validation_csr") {
+    if (!await workerAuthorized(req, db)) return json({ ok: false, error: "Unauthorized" }, 401);
+    const hotelId = "ntak-v9-validation";
+    const settings = await loadSettings(db, hotelId);
+    if (settings?.environment !== "test" || settings.enabled || settings.cert_not_after) {
+      return json({ ok: false, error: "An inactive test registration awaiting its certificate is required" }, 409);
+    }
+    return await prepareCsr(db, hotelId, settings);
+  }
 
   if (body.action === "worker") {
     if (!await workerAuthorized(req, db)) return json({ ok: false, error: "Unauthorized" }, 401);
@@ -75,6 +103,9 @@ Deno.serve(async (req) => {
         if (!canManage) return forbidden();
         const patch: Record<string, unknown> = {};
         for (const k of SETTINGS_FIELDS) if (k in (body.settings ?? {})) patch[k] = body.settings[k] === "" ? null : body.settings[k];
+        if (typeof patch.provider_tax_number === "string") {
+          patch.provider_tax_number = patch.provider_tax_number.trim().replace(/^(\d{8})(\d)(\d{2})$/, "$1-$2-$3");
+        }
         if (patch.accommodation_class && !ACCOMMODATION_CLASSES.includes(patch.accommodation_class as any)) return json({ ok: false, error: "Unknown accommodation class" }, 400);
         if (patch.ledger_config !== undefined && (typeof patch.ledger_config !== "object" || Array.isArray(patch.ledger_config))) return json({ ok: false, error: "ledger_config must be an object" }, 400);
         const organization_slug = settings?.organization_slug ?? caller.organizationSlug ?? await orgSlug(db, hotelId);
@@ -152,12 +183,7 @@ Deno.serve(async (req) => {
 
       case "generate_csr": {
         if (!canManage) return forbidden();
-        if (!settings?.registration_number) return json({ ok: false, error: "Save the NTAK registration number first" }, 400);
-        const csr = await generateCsr(settings.registration_number);
-        const { error } = await db.rpc("ntak_put_secret", { _hotel_id: hotelId, _kind: "pending_key", _value: csr.privateKeyPem });
-        if (error) return json({ ok: false, error: `Vault: ${error.message}` }, 500);
-        await db.from("ntak_settings").update({ pending_csr_pem: csr.csrPem, pending_csr_created_at: new Date().toISOString(), pending_spki_sha256: csr.spkiSha256 }).eq("hotel_id", hotelId);
-        return json({ ok: true, csr_pem: csr.csrPem, file_name: `${settings.registration_number}_ntak.csr` });
+        return await prepareCsr(db, hotelId, settings);
       }
 
       case "upload_certificate": {
@@ -179,16 +205,11 @@ Deno.serve(async (req) => {
         if (!keyPem) return json({ ok: false, error: "No private key: generate the CSR in HotelCare first, or upload the key with the certificate" }, 400);
         if (!await keyMatchesCertificate(keyPem, certPem)) return json({ ok: false, error: "The private key does not belong to this certificate" }, 400);
         if (effectiveExpiry(info.notAfter).getTime() < Date.now()) return json({ ok: false, error: `The certificate expired on ${info.notAfter.slice(0, 10)}` }, 400);
-        for (const [kind, value] of [["cert", certPem], ["key", keyPem], ["pending_key", ""]] as const) {
-          const { error } = await db.rpc("ntak_put_secret", { _hotel_id: hotelId, _kind: kind, _value: value });
-          if (error) return json({ ok: false, error: `Vault: ${error.message}` }, 500);
-        }
-        const wasCertBlock = /certificate|tanúsítvány|tanusitvany/i.test(settings.sending_blocked_reason ?? "");
-        await db.from("ntak_settings").update({
-          cert_subject: info.subject, cert_serial: info.serialHex, cert_not_after: info.notAfter, cert_uploaded_at: new Date().toISOString(),
-          pending_csr_pem: null, pending_csr_created_at: null, pending_spki_sha256: null,
-          ...(wasCertBlock ? { sending_blocked_reason: null } : {}),
-        }).eq("hotel_id", hotelId);
+        const { error: installError } = await db.rpc("ntak_install_certificate", {
+          _hotel_id: hotelId, _registration: settings.registration_number, _cert: certPem, _key: keyPem,
+          _use_pending: !body.private_key_pem, _subject: info.subject, _serial: info.serialHex, _expires: info.notAfter,
+        });
+        if (installError) return json({ ok: false, error: "Certificate could not be installed. Refresh the settings and retry." }, 409);
         const warnings: string[] = [];
         if (info.subject.CN && settings.registration_number && !info.subject.CN.includes(settings.registration_number)) warnings.push(`Certificate CN "${info.subject.CN}" does not contain the registration number ${settings.registration_number}`);
         return json({ ok: true, subject: info.subject, issuer: info.issuer, not_after: info.notAfter, modulus_bits: rsaModulusFromSpki(info.spki).length * 4, warnings });
