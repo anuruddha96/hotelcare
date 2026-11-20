@@ -2551,7 +2551,9 @@ Deno.serve(async (req) => {
     // Do not write base64 images to Postgres or expose public storage URLs.
     const savedUserFiles: { kind: "user_file"; path: string; filename: string; mediaType: string }[] = [];
     for (const file of incomingFiles) {
-      const path = `evidence/${userData.user.id}/${threadId}/${crypto.randomUUID()}.${file.extension}`;
+      // assistant-media is image-only and its SELECT policy requires the user's UID as path prefix.
+      if (!file.mediaType.startsWith("image/")) continue;
+      const path = `${userData.user.id}/evidence/${threadId}/${crypto.randomUUID()}.${file.extension}`;
       const { error: uploadError } = await service.storage.from("assistant-media").upload(path, file.bytes, {
         contentType: file.mediaType,
         upsert: false,
