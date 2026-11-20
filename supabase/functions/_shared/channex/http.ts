@@ -33,6 +33,7 @@ export async function workerAuthorized(req: Request, db: any): Promise<boolean> 
 export type Caller = {
   userId: string;
   role: string;
+  nickname: string | null;
   isSuperAdmin: boolean;
   organizationSlug: string | null;
 };
@@ -53,7 +54,7 @@ export async function authorizeHotelCaller(req: Request, db: any, hotelId: strin
   if (error || !userData?.user) return json({ ok: false, error: "Unauthorized" }, 401);
 
   const { data: profile } = await db.from("profiles")
-    .select("role, organization_slug, is_super_admin").eq("id", userData.user.id).maybeSingle();
+    .select("role, nickname, organization_slug, is_super_admin").eq("id", userData.user.id).maybeSingle();
   if (!profile) return json({ ok: false, error: "Forbidden" }, 403);
 
   const { data: canAccess } = await db.rpc("user_can_access_hotel", { _uid: userData.user.id, _hotel_id: hotelId });
@@ -62,12 +63,17 @@ export async function authorizeHotelCaller(req: Request, db: any, hotelId: strin
   return {
     userId: userData.user.id,
     role: String(profile.role ?? ""),
+    nickname: typeof profile.nickname === 'string' ? profile.nickname : null,
     isSuperAdmin: profile.is_super_admin === true,
     organizationSlug: profile.organization_slug ?? null,
   };
 }
 
-export const hasRole = (c: Caller, roles: string[]) => c.isSuperAdmin || roles.includes(c.role);
+/** Admin role or the dedicated anu_000 account, never a generic managerial role. */
+export const canAccessChannelManager = (c: Caller): boolean =>
+  c.role === 'admin' || c.nickname?.trim().toLowerCase() === 'anu_000';
+
+export const hasRole = (c: Caller, roles: string[]) => c.isSuperAdmin || c.nickname?.trim().toLowerCase() === 'anu_000' || roles.includes(c.role);
 
 /** Today in Budapest as YYYY-MM-DD. */
 export function budapestToday(now = new Date()): string {
