@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound, Eye } from "lucide-react";
+import { Loader2, CalendarRange, Check, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X, UserRound, UsersRound, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -2400,6 +2400,19 @@ export default function RateStrategyGrid({
     return true;
   }), [allDates, historyMonth, monthFilter, historyRevealed, today, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
 
+  // Selection applies to entire date columns, not only the day header.
+  // Share the same state with all grid rows and the fixed action bar.
+  const isDateSelected = (date: string): boolean =>
+    multiMode ? pickedDates.has(date) : selecting && selDates.has(date);
+  const visibleSelectedDates = dates.filter(isDateSelected);
+  const selectedDateLabel = (date: string) =>
+    new Intl.DateTimeFormat(hu ? "hu-HU" : "en-GB", {
+      day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
+    }).format(new Date(date + "T00:00:00Z"));
+  const selectedRangeLabel = visibleSelectedDates.length === 0 ? "" :
+    visibleSelectedDates.length === 1 ? selectedDateLabel(visibleSelectedDates[0]) :
+    selectedDateLabel(visibleSelectedDates[0]) + " – " + selectedDateLabel(visibleSelectedDates[visibleSelectedDates.length - 1]);
+
 
   /**
    * One continuous visual bar per real event. The source repeats multi-day
@@ -3098,7 +3111,7 @@ export default function RateStrategyGrid({
                 onClick={() => { setMultiMode((v) => !v); setPickedDates(new Set()); }}
               >
                 <CalendarRange className="h-3.5 w-3.5" />
-                {multiMode ? "Done selecting" : "Select days"}
+                {multiMode ? "Exit selection" : "Select days"}
               </Button>
             )}
 
@@ -3475,7 +3488,7 @@ export default function RateStrategyGrid({
                   </div>
 
                   {dates.map((d, i) => {
-                    const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
+                    const picked = isDateSelected(d);
                     const trail = auditByDate.get(d);
                     const windowChanges = dayChangesByDate.get(d) ?? [];
                     const dayChanges = windowChanges.length > 0 ? windowChanges : (markerChangesByDate.get(d) ?? []);
@@ -3486,7 +3499,7 @@ export default function RateStrategyGrid({
                     const dayOrigins = headerOriginsByDate.get(d) ?? [];
 
                     if (d < today) return (
-                      <div key={d} aria-label={d + " · historical, read-only"}
+                      <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} aria-label={d + " · historical, read-only"}
                         title={d + " · Historical prices (read-only)"}
                         className="flex shrink-0 flex-col items-center justify-center border-r border-border/70 bg-muted/65 text-muted-foreground"
                         style={{ width: CELL_W, height: DAY_H }}>
@@ -3497,9 +3510,11 @@ export default function RateStrategyGrid({
                     );
                     const dayButton = (
                       <button
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         type="button"
                         data-date={d}
+                        aria-pressed={multiMode ? picked : undefined}
+                        aria-label={multiMode ? `${d}, ${picked ? "selected" : "not selected"}. Tap to ${picked ? "remove" : "add"} this date.` : undefined}
                         disabled={!canEditCalendarDate(d, today, canEditRates)}
                         onPointerDown={(e) => {
                           if (e.pointerType === "touch") return;
@@ -3529,12 +3544,17 @@ export default function RateStrategyGrid({
                           if (!canEditRates || multiMode) return;
                           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDayTool([d]); }
                         }}
-                        title={d === today ? `TODAY · ${d} · ${canEditRates ? "Tap to edit today's prices" : "Current Budapest date"}` : canEditRates ? (multiMode ? `Tap to add ${d} to the selection` : `Change every price on ${d}`) : d}
+                        title={d === today ? `TODAY · ${d} · ${canEditRates ? "Tap to edit today's prices" : "Current Budapest date"}` : canEditRates ? (multiMode ? `Tap to ${picked ? "remove" : "add"} ${d} ${picked ? "from" : "to"} the selection` : `Change every price on ${d}`) : d}
                         aria-current={d === today ? "date" : undefined}
-                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/25" : d === today ? "bg-sky-100 text-sky-950 dark:bg-sky-900/70 dark:text-sky-50" : dayBg(d, i)} ${dateColumnEdge(d, today)} ${d === today ? "ring-2 ring-inset ring-sky-600" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/35 text-foreground font-semibold ring-2 ring-inset ring-primary" : d === today ? "bg-sky-100 text-sky-950 dark:bg-sky-900/70 dark:text-sky-50" : dayBg(d, i)} ${dateColumnEdge(d, today)} ${d === today && !picked ? "ring-2 ring-inset ring-sky-600" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                         style={{ width: CELL_W, height: DAY_H , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${DAY_H}px` }}
                       >
 
+                        {picked && (
+                          <span aria-hidden="true" className="pointer-events-none absolute right-0.5 top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                            <Check className="h-2.5 w-2.5" />
+                          </span>
+                        )}
                         <span className={d === today ? "font-bold text-sky-800 dark:text-sky-100" : weekendLabelTone(d)} style={{ fontSize: fz(10) }}>
                           {formatWeekday(d)}
                         </span>
@@ -3668,7 +3688,7 @@ export default function RateStrategyGrid({
                     const lost = m?.roomsLost ?? 0;
                     return (
                       <div
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         title={pickup === null
                           ? `${d} · pickup not available yet`
                           : `${d} · net ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} in, ${lost} out, counted over ${pickupWindowLabel(pickupWindowDays).toLowerCase()}${latestLabel ? ` · last movement ${latestLabel}` : ""}${isAutomationWindow ? "" : " · the automation reacts to the last 48 hours, so this window can disagree with the purple dots"}`}
@@ -3707,7 +3727,7 @@ export default function RateStrategyGrid({
                     const recorded = d < today ? historical.kpisByDate.get(d) : null;
                     return (
                       <div
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         title={m
                           ? `${m.roomsSold} / ${m.roomsAvailable} rooms · ${tone?.label ?? "occupancy unavailable"}${recorded ? ` · recorded ${new Date(recorded.captured_at).toLocaleString()}` : ""}`
                           : `${d} · no recorded occupancy data`}
@@ -3745,7 +3765,7 @@ export default function RateStrategyGrid({
                       .join(" · ");
                     return (
                       <div
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         title={m && left !== null
                           ? `${left} of ${units} rooms available for booking on ${d}. ${m.roomsSold} booked; ${d < today ? "based on saved same-day occupancy snapshot" : closedNotFull ? "some physical rooms are closed/not priced rather than occupied" : "physical occupancy is counted separately"}${manualDetailLabel ? ` · Previo inventory adjustment: ${manualDetailLabel}` : ""}`
                           : `${d} · no recorded inventory data`}
@@ -3810,7 +3830,7 @@ export default function RateStrategyGrid({
                     const inDrag = !!minDrag && i >= Math.min(minDrag.a, minDrag.b) && i <= Math.max(minDrag.a, minDrag.b);
                     if (editing) {
                       return (
-                        <div key={d} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dateColumnEdge(d, today)}`} style={{ width: CELL_W }}>
+                        <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dateColumnEdge(d, today)}`} style={{ width: CELL_W }}>
                           <input
                             autoFocus
                             type="number"
@@ -3832,7 +3852,7 @@ export default function RateStrategyGrid({
                     }
                     return (
                       <button
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         type="button"
                         disabled={!canEditCalendarDate(d, today, canEditRates) || busy}
                         onPointerDown={(e) => {
@@ -3884,7 +3904,7 @@ export default function RateStrategyGrid({
                       : `${d} · demand not available yet`;
                     return (
                       <button
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         type="button"
                         onClick={() => setDemandDay(d)}
                         title={evs.length
@@ -3941,7 +3961,7 @@ export default function RateStrategyGrid({
             <div className="absolute inset-0 flex">
               {dates.map((d, i) => (
                 <button
-                  key={d}
+                  key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                   type="button"
                   onClick={() => setDemandDay(d)}
                   aria-label={`Open events for ${d}`}
@@ -4149,7 +4169,7 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     if (row.kind === "group") {
                       if (d < today) return (
-                        <div key={d} title={`${d} · room-type inventory was not recorded separately`}
+                        <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} title={`${d} · room-type inventory was not recorded separately`}
                           className="flex shrink-0 items-center justify-center bg-muted/45 text-muted-foreground border-r"
                           style={{ width: CELL_W, fontSize: fz(11) }}>—</div>
                       );
@@ -4179,7 +4199,7 @@ export default function RateStrategyGrid({
                         : null;
                       return (
                         <button
-                          key={d}
+                          key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                           type="button"
                           disabled={!canEditCalendarDate(d, today, canEditRates) || busy || left === undefined || unpricedKind}
                           onClick={() => {
@@ -4241,7 +4261,7 @@ export default function RateStrategyGrid({
                         : metricByDate.get(d)?.revparEur ?? null;
                       return (
                         <div
-                          key={d}
+                          key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                           title={value === null ? `${d} · no data` : `${d} · ${eur(value)}`}
                           className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${dayBg(d, i)} ${dateColumnEdge(d, today)}`}
                           style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
@@ -4257,7 +4277,7 @@ export default function RateStrategyGrid({
                         ? `Last recorded Previo price for ${d} · captured ${new Date(saved.captured_at).toLocaleString()}`
                         : historical.loading ? `Loading historical price for ${d}` : `No saved historical Previo rate for ${d}`;
                       return (
-                        <div key={d} role="cell"
+                        <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} role="cell"
                           aria-label={`${row.roomTypeName} · ${d} · ${historicalPrice === null ? "No recorded price" : eur(historicalPrice)} · read-only`}
                           title={detail}
                           className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground"
@@ -4345,7 +4365,7 @@ export default function RateStrategyGrid({
                     const picked = inRange(rowIdx, i);
                     const cellButton = (
                       <button
-                        key={d}
+                        key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined}
                         type="button"
                         ref={(el) => {
                           const key = `${rowIdx}:${i}`;
@@ -4953,8 +4973,14 @@ export default function RateStrategyGrid({
           style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}
         >
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold">
-              {pickedDates.size} day{pickedDates.size === 1 ? "" : "s"} selected
+            <span aria-live="polite" className="flex min-w-0 flex-col gap-0.5">
+              <span className="flex items-center gap-1 text-sm font-semibold text-foreground">
+                <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                {visibleSelectedDates.length} day{visibleSelectedDates.length === 1 ? "" : "s"} selected
+              </span>
+              <span className="truncate text-[11px] text-muted-foreground" title={selectedRangeLabel}>
+                {selectedRangeLabel}
+              </span>
             </span>
             <div className="flex items-center gap-2">
               <Button
