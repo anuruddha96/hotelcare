@@ -53,6 +53,7 @@ const fullMonth = (hotelId: string, index: number): ReconciliationDay[] =>
       previo_dashboard_occupied: sold, best_source: i < 4 ? "housekeeping_verified" : "bookings_on_the_books",
       best_physical_occupied: sold, best_commercial_sold: sold,
       room_revenue_gross: sold * rate, unpriced_nights: 0, flags: [],
+      bookings_captured_at: "2026-09-30T12:00:00Z",
     } as ReconciliationDay;
   });
 const queries = () => hotels.map((hotel, index) => ({
