@@ -93,10 +93,24 @@ describe("Hotel comparison reconciliation", () => {
     expect(verify(rows, inventory(15)).bookingsVerified).toBe(false);
   });
 
-  it("rejects overbooked or impossible room counts", () => {
+  it("keeps monthly numbers for a single overbooked date and surfaces a discreet warning", () => {
     const rows = monthRows(15);
-    rows[27] = { ...rows[27], commercial_sold: 24 };
+    rows[27] = { ...rows[27], commercial_sold: 24, flags: ["overbooked_or_duplicate"] };
+    const result = verify(rows, inventory(15));
+    expect(result.bookingsVerified).toBe(true);
+    expect(result.issue).toMatch(/configured capacity/);
+  });
+
+  it("rejects impossible negative sales even with a complete calendar spine", () => {
+    const rows = monthRows(15);
+    rows[27] = { ...rows[27], commercial_sold: -1 };
     expect(verify(rows, inventory(15)).bookingsVerified).toBe(false);
+  });
+
+  it("tolerates Previo reporting extra availability but keeps a small data warning", () => {
+    const result = verify(monthRows(15), inventory(11));
+    expect(result.bookingsVerified).toBe(true);
+    expect(result.issue).toMatch(/higher PMS availability/);
   });
 
   it("rejects expired inventory instead of displaying it as current", () => {
