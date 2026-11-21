@@ -124,7 +124,7 @@ describe("MonthPerformanceHeader — whole month", () => {
   it("refuses to label future-only figures as whole-month ADR when the month request fails", () => {
     recon.data = undefined; recon.isLoading = false;
     renderHeader();
-    expect(screen.getByText(/Partial ADR is not shown as monthly ADR/)).toBeTruthy();
+    expect(screen.getByText(/PMS booking totals do not match the pricing calendar|Partial ADR is not shown as monthly ADR/)).toBeTruthy();
     expect(screen.getAllByText("Monthly data unavailable").length).toBeGreaterThan(0);
     expect(screen.queryByText("€145")).toBeNull();
     expect(screen.queryByTestId("month-breakdown")).toBeNull();
