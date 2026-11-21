@@ -4,7 +4,8 @@ import { buildMonthBreakdown, wholeMonthOf } from "@/lib/kpiReconciliation";
 import { fetchMonthReconciliationDays, monthReconciliationKey } from "@/hooks/useMonthReconciliationDays";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Trophy } from "lucide-react";
+import { AlertCircle, Info, RefreshCw, Sparkles, Trophy } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { rankHotelsByPerformance } from "@/lib/hotelPerformanceRanking";
 import { budapestDayOf } from "@/lib/revenueAnalytics";
 import { validateHotelComparisonData, type ComparisonAvailabilityRow, type ComparisonSyncState } from "@/lib/revenue/hotelComparisonIntegrity";
@@ -123,8 +124,10 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
       const query = monthlyQueries[index];
       const syncQuery = syncQueries[index];
       const rows = query?.data ?? [];
-      const checking = Boolean(query?.isFetching)
-        || (hasFutureNights && (Boolean(syncQuery?.isFetching) || availabilityQuery.isFetching));
+      // Keep already reconciled numbers visible during background refreshes.
+      // A fetch spinner is only appropriate before we have any data.
+      const checking = !query?.data && (Boolean(query?.isFetching)
+        || (hasFutureNights && (Boolean(syncQuery?.isFetching) || availabilityQuery.isFetching)));
       const integrity = validateHotelComparisonData({
         rows, month: selectedMonth, today,
         availability: (availabilityQuery.data ?? []).filter((row) => row.hotel_id === hotel.hotel_id),
@@ -139,10 +142,12 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
       const month = verified ? wholeMonthOf(buildMonthBreakdown(rows)) : null;
       const fx = eurRateByHotel.get(hotel.hotel_id);
       const occ = month?.occupancyPct == null ? null : Math.round(month.occupancyPct);
-      // Do not rank on partially priced sales: ADR and RevPAR are unverified.
-      const adr = !integrity.pricesVerified || month?.adrGross == null || !fx
+      // These are the actual reported priced-night ADR and recorded gross
+      // RevPAR. Missing price allocations are disclosed via a tap-to-open icon,
+      // not by hiding the values that the source provides.
+      const adr = month?.adrGross == null || !fx
         ? null : Math.round(month.adrGross / fx);
-      const revpar = !integrity.pricesVerified || month?.revparGross == null || !fx
+      const revpar = month?.revparGross == null || !fx
         ? null : Math.round(month.revparGross / fx);
       const sourceError = Boolean(query?.isError)
         || (hasFutureNights && (Boolean(syncQuery?.isError) || availabilityQuery.isError));
@@ -153,13 +158,17 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
       return {
         ...hotel, nights: verified ? daysInMonth : 0,
         occ, adr, revpar, unavailable,
+        priceNote: verified ? integrity.priceIssue : null,
+        inventoryNote: verified ? integrity.issue : null,
+        bookedNights: month?.sold ?? null,
+        availableNights: month?.capacity ?? null,
+        grossRevenue: month?.revenueGross ?? null,
+        priceNights: month?.priced ?? null,
         verifiedAt: hasFutureNights ? syncQuery?.data?.last_success_at ?? null : null,
       };
     });
-    // An incomplete portfolio must not claim any hotel is #1 of four.
-    if (snapshots.some((hotel) => hotel.occ == null || hotel.adr == null || hotel.revpar == null)) {
-      return snapshots.map((hotel) => ({ ...hotel, rank: null, rankPoints: null }));
-    }
+    // Rank hotels that have real available numbers. Incomplete PMS sources
+    // remain unranked, but never suppress valid numbers from other hotels.
     return rankHotelsByPerformance(snapshots);
   }, [hotels, monthlyQueries, syncQueries, availabilityQuery.data, availabilityQuery.dataUpdatedAt,
     availabilityQuery.isFetching, availabilityQuery.isError, selectedMonth, today, hasFutureNights,
@@ -167,7 +176,7 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
 
   const comparisonBenchmark = useMemo(() => {
     const valid = comparison.filter((x) => x.occ != null && x.adr != null);
-    if (valid.length !== comparison.length || valid.length < 2) return { occ: null as number | null, adr: null as number | null };
+    if (valid.length < 2) return { occ: null as number | null, adr: null as number | null };
     return {
       occ: Math.round(valid.reduce((sum, hotel) => sum + (hotel.occ ?? 0), 0) / valid.length),
       adr: Math.round(valid.reduce((sum, hotel) => sum + (hotel.adr ?? 0), 0) / valid.length),
