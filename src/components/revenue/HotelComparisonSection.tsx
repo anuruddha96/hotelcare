@@ -119,30 +119,55 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
   const comparisonError = monthlyQueries.some((q) => q.isError)
     || (hasFutureNights && (syncQueries.some((q) => q.isError) || availabilityQuery.isError));
   const comparison = useMemo(() => {
-    const daysInMonth = new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).getUTCDate();
     const snapshots = hotels.map((hotel, index) => {
       const query = monthlyQueries[index];
+      const syncQuery = syncQueries[index];
       const rows = query?.data ?? [];
-      const complete = new Set(rows.filter((d) => d.stay_date.startsWith(selectedMonth + "-")).map((d) => d.stay_date)).size === daysInMonth;
-      const month = complete ? wholeMonthOf(buildMonthBreakdown(rows)) : null;
+      const checking = Boolean(query?.isFetching)
+        || (hasFutureNights && (Boolean(syncQuery?.isFetching) || availabilityQuery.isFetching));
+      const integrity = validateHotelComparisonData({
+        rows, month: selectedMonth, today,
+        availability: (availabilityQuery.data ?? []).filter((row) => row.hotel_id === hotel.hotel_id),
+        sync: syncQuery?.data,
+        reconciliationFetchedAt: query?.dataUpdatedAt ?? 0,
+        availabilityFetchedAt: availabilityQuery.dataUpdatedAt,
+        syncFetchedAt: syncQuery?.dataUpdatedAt ?? 0,
+      });
+      const verified = !checking && !query?.isError
+        && (!hasFutureNights || (!syncQuery?.isError && !availabilityQuery.isError))
+        && integrity.bookingsVerified;
+      const month = verified ? wholeMonthOf(buildMonthBreakdown(rows)) : null;
       const fx = eurRateByHotel.get(hotel.hotel_id);
       const occ = month?.occupancyPct == null ? null : Math.round(month.occupancyPct);
-      // Use gross booking ADR consistently, converting actual property currency
-      // to EUR only when a valid exchange rate exists.
-      const adr = month?.adrGross == null || !fx ? null : Math.round(month.adrGross / fx);
-      const revpar = month?.revparGross == null || !fx ? null : Math.round(month.revparGross / fx);
-      return { ...hotel, nights: month ? daysInMonth : 0, occ, adr, revpar,
-        unavailable: query?.isError ? "Could not load month" : !month ? "Full-month data unavailable" : !fx ? "EUR conversion unavailable" : null };
+      // Do not rank on partially priced sales: ADR and RevPAR are unverified.
+      const adr = !integrity.pricesVerified || month?.adrGross == null || !fx
+        ? null : Math.round(month.adrGross / fx);
+      const revpar = !integrity.pricesVerified || month?.revparGross == null || !fx
+        ? null : Math.round(month.revparGross / fx);
+      const sourceError = Boolean(query?.isError)
+        || (hasFutureNights && (Boolean(syncQuery?.isError) || availabilityQuery.isError));
+      const unavailable = checking ? "Checking latest PMS records…"
+        : sourceError ? "PMS verification unavailable — retry"
+        : integrity.issue ?? integrity.priceIssue
+          ?? (!fx ? "EUR conversion unavailable" : null);
+      return {
+        ...hotel, nights: verified ? daysInMonth : 0,
+        occ, adr, revpar, unavailable,
+        verifiedAt: hasFutureNights ? syncQuery?.data?.last_success_at ?? null : null,
+      };
     });
-    // The hotel leading both ADR and RevPAR is #1; other complete hotels
-    // compete equally on the three monthly KPIs.
-    // The selected hotel is highlighted in the UI, never pinned above better performers.
+    // An incomplete portfolio must not claim any hotel is #1 of four.
+    if (snapshots.some((hotel) => hotel.occ == null || hotel.adr == null || hotel.revpar == null)) {
+      return snapshots.map((hotel) => ({ ...hotel, rank: null, rankPoints: null }));
+    }
     return rankHotelsByPerformance(snapshots);
-  }, [hotels, monthlyQueries, selectedMonth, eurRateByHotel]);
+  }, [hotels, monthlyQueries, syncQueries, availabilityQuery.data, availabilityQuery.dataUpdatedAt,
+    availabilityQuery.isFetching, availabilityQuery.isError, selectedMonth, today, hasFutureNights,
+    daysInMonth, eurRateByHotel]);
 
   const comparisonBenchmark = useMemo(() => {
     const valid = comparison.filter((x) => x.occ != null && x.adr != null);
-    if (valid.length < 2) return { occ: null as number | null, adr: null as number | null };
+    if (valid.length !== comparison.length || valid.length < 2) return { occ: null as number | null, adr: null as number | null };
     return {
       occ: Math.round(valid.reduce((sum, hotel) => sum + (hotel.occ ?? 0), 0) / valid.length),
       adr: Math.round(valid.reduce((sum, hotel) => sum + (hotel.adr ?? 0), 0) / valid.length),
