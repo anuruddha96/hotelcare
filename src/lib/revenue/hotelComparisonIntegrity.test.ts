@@ -53,7 +53,7 @@ describe("Hotel comparison reconciliation", () => {
     // reconciliation has lost every future room-night.
     const result = verify(partialRows, inventory(15));
     expect(result.bookingsVerified).toBe(false);
-    expect(result.issue).toMatch(/availability and booked room-nights/);
+    expect(result.issue).toMatch(/availability indicates missing future bookings/);
   });
 
   it("accepts an intact stayed + booked month", () => {
@@ -70,12 +70,12 @@ describe("Hotel comparison reconciliation", () => {
     expect(result.bookingsVerified).toBe(false);
   });
 
-  it("does not show data while the property's PMS import is running", () => {
+  it("keeps consistent existing numbers on screen while the next PMS sync runs", () => {
     const result = verify(monthRows(15), inventory(15), {
       sync: { scope: "this_property", last_success_at: lastSuccess },
     });
-    expect(result.bookingsVerified).toBe(false);
-    expect(result.issue).toMatch(/in progress/);
+    expect(result.bookingsVerified).toBe(true);
+    expect(result.issue).toMatch(/running/);
   });
 
   it("blocks a false monthly ADR when one sold night has no price", () => {
