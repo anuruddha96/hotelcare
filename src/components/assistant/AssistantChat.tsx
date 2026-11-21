@@ -31,6 +31,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { loadAssistantDraft, saveAssistantDraft } from "@/lib/assistant/activeThread";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useMiraDictation, type MiraVoiceState } from "@/hooks/useMiraDictation";
 import { useAssistantContext } from "@/hooks/useAssistantContext";
 import {
   assistantRowsToUiMessages,
@@ -90,193 +91,6 @@ function messageText(message: AssistantUiMessage) {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("");
-}
-
-type DictationState = "idle" | "recording" | "transcribing";
-
-type BrowserSpeechRecognition = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: any) => void) | null;
-  onerror: ((event: any) => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-};
-
-function speechRecognitionCtor(): (new () => BrowserSpeechRecognition) | null {
-  if (typeof window === "undefined") return null;
-  const w = window as any;
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-}
-
-/**
- * Speak-to-type. iOS Safari's SpeechRecognition is unreliable, so the audio is
- * recorded in the browser and transcribed server-side for the final text.
- * Where the browser offers SpeechRecognition (Chrome, Edge, Android), it runs
- * alongside the recording so the words appear in the box while the person is
- * still speaking; the server transcript then replaces that live preview.
- */
-function useDictation(onText: (text: string) => void, language: string, onInterim?: (text: string | null) => void) {
-  const [state, setState] = useState<DictationState>("idle");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  const cancelledRef = useRef(false);
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
-  const liveTextRef = useRef<string>("");
-  const supported =
-    typeof window !== "undefined" &&
-    typeof navigator !== "undefined" &&
-    Boolean(navigator.mediaDevices?.getUserMedia) &&
-    typeof MediaRecorder !== "undefined";
-
-  const stopRecognition = useCallback(() => {
-    const recognition = recognitionRef.current;
-    recognitionRef.current = null;
-    if (!recognition) return;
-    recognition.onresult = null;
-    recognition.onerror = null;
-    recognition.onend = null;
-    try { recognition.stop(); } catch { /* already stopped */ }
-  }, []);
-
-  const cleanup = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    recorderRef.current = null;
-    chunksRef.current = [];
-    stopRecognition();
-  }, [stopRecognition]);
-
-  useEffect(() => () => cleanup(), [cleanup]);
-
-  const transcribe = useCallback(
-    async (blob: Blob, mimeType: string) => {
-      setState("transcribing");
-      try {
-        const { supabase } = await import("@/integrations/supabase/client");
-        const extension = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
-        const form = new FormData();
-        form.append("file", new File([blob], `speech.${extension}`, { type: mimeType }));
-        if (language) form.append("language", language);
-        const { data, error } = await supabase.functions.invoke("assistant-transcribe", { body: form });
-        if (error) throw error;
-        const text = String((data as any)?.text ?? "").trim();
-        if (text) onText(text);
-        else if (liveTextRef.current.trim()) onText(liveTextRef.current.trim());
-        else toast.error("I didn’t catch that. Try again a little closer to the microphone.");
-      } catch (error) {
-        console.error("dictation failed", error);
-        // The browser's own live transcript is better than losing the words.
-        if (liveTextRef.current.trim()) onText(liveTextRef.current.trim());
-        else toast.error("Could not turn that recording into text.");
-      } finally {
-        liveTextRef.current = "";
-        onInterim?.(null);
-        setState("idle");
-      }
-    },
-    [language, onText, onInterim],
-  );
-
-  // Live preview while recording (best effort; the server transcript is final).
-  const startRecognition = useCallback(() => {
-    const Ctor = speechRecognitionCtor();
-    if (!Ctor) return;
-    try {
-      const recognition = new Ctor();
-      recognition.lang = language || (typeof navigator !== "undefined" ? navigator.language : "en");
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      let committed = "";
-      recognition.onresult = (event: any) => {
-        let interim = "";
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const result = event.results[i];
-          const transcript = String(result[0]?.transcript ?? "");
-          if (result.isFinal) committed = `${committed} ${transcript}`.trim();
-          else interim += transcript;
-        }
-        liveTextRef.current = `${committed} ${interim}`.trim();
-        onInterim?.(liveTextRef.current);
-      };
-      recognition.onerror = () => { /* preview only; the recording still transcribes */ };
-      recognition.onend = () => {
-        // Chrome ends recognition after silence; keep listening while recording.
-        if (recognitionRef.current === recognition && recorderRef.current?.state === "recording") {
-          try { recognition.start(); } catch { /* ignore */ }
-        }
-      };
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch (error) {
-      console.warn("live transcript unavailable", error);
-    }
-  }, [language, onInterim]);
-
-  const start = useCallback(async () => {
-    if (!supported) {
-      toast.error("Voice input is not available in this browser");
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const mimeType = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/mp4",
-        "audio/ogg;codecs=opus",
-      ].find((type) => MediaRecorder.isTypeSupported?.(type));
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      chunksRef.current = [];
-      cancelledRef.current = false;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-      recorder.onstop = () => {
-        const type = recorder.mimeType || mimeType || "audio/webm";
-        const blob = new Blob(chunksRef.current, { type });
-        cleanup();
-        if (cancelledRef.current || blob.size < 1200) {
-          // Too short to transcribe: keep whatever the live preview heard.
-          const live = liveTextRef.current.trim();
-          liveTextRef.current = "";
-          if (live && !cancelledRef.current) onText(live);
-          onInterim?.(null);
-          setState("idle");
-          return;
-        }
-        void transcribe(blob, type);
-      };
-      recorder.start();
-      recorderRef.current = recorder;
-      liveTextRef.current = "";
-      setState("recording");
-      startRecognition();
-    } catch (error) {
-      console.error("microphone unavailable", error);
-      cleanup();
-      setState("idle");
-      toast.error("Microphone access is needed for voice input.");
-    }
-  }, [cleanup, supported, transcribe, startRecognition, onText, onInterim]);
-
-  const stop = useCallback(() => {
-    stopRecognition();
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
-    else setState("idle");
-  }, [stopRecognition]);
-
-  const toggle = useCallback(() => {
-    if (state === "recording") stop();
-    else if (state === "idle") void start();
-  }, [start, state, stop]);
-
-  return { state, supported, toggle };
 }
 
 /** A visual suggestion only: this never sends a message by itself. */
@@ -401,11 +215,12 @@ function MiraFilePreview() {
 }
 
 /** File-only asks are valid; disable Submit only when neither text nor files exist. */
-function MiraSubmit({ draft, status, busy = false, quotaReached = false, onStop }: {
+function MiraSubmit({ draft, status, busy = false, quotaReached = false, voicePending = false, onStop }: {
   draft: string;
   status?: ChatStatus;
   busy?: boolean;
   quotaReached?: boolean;
+  voicePending?: boolean;
   onStop?: () => void;
 }) {
   const { files } = usePromptInputAttachments();
@@ -415,8 +230,73 @@ function MiraSubmit({ draft, status, busy = false, quotaReached = false, onStop 
       className="h-10 w-10 rounded-full"
       status={status}
       onStop={onStop}
-      disabled={!generating && (busy || quotaReached || (!draft.trim() && files.length === 0))}
+      disabled={!generating && (busy || quotaReached || voicePending || (!draft.trim() && files.length === 0))}
     />
+  );
+}
+
+
+/** Transcribed speech remains a muted, editable preview until explicitly accepted. */
+function MiraDictationPanel({
+  state, preview, liveHint, onEdit, onStop, onCancel, onConfirm,
+}: {
+  state: MiraVoiceState;
+  preview: string;
+  liveHint: string;
+  onEdit: (value: string) => void;
+  onStop: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (state === "idle") return null;
+  const recording = state === "recording";
+  const transcribing = state === "transcribing";
+  const reviewing = state === "review";
+  const label = state === "starting" ? "Opening microphone…" :
+    recording ? "Listening to you" :
+    transcribing ? "Finishing transcription…" : "Review what Mira heard";
+
+  return (
+    <section aria-label="Mira voice input" className="mb-2 rounded-2xl border border-sky-200/75 bg-sky-50/50 p-3 shadow-sm dark:border-sky-900 dark:bg-sky-950/20">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
+          {transcribing || state === "starting" ?
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-sky-600" /> :
+            recording ? <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-rose-500" /> :
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-600" />}
+          <span>{label}</span>
+        </div>
+        <Button type="button" size="sm" variant="ghost" className="h-9 shrink-0 rounded-full px-2.5 text-xs" onClick={onCancel}>
+          <X className="mr-1 h-3.5 w-3.5" /> Cancel
+        </Button>
+      </div>
+      <textarea
+        aria-label={reviewing ? "Edit speech transcript before accepting" : "Live speech transcription preview"}
+        aria-live={reviewing ? "off" : "polite"}
+        value={preview}
+        onChange={(event) => { if (reviewing) onEdit(event.target.value); }}
+        readOnly={!reviewing}
+        placeholder={recording ? liveHint : transcribing ? "Processing your recording…" : "Your spoken words appear here"}
+        rows={Math.max(2, Math.min(5, preview.split("\n").length + Math.ceil(preview.length / 50)))}
+        className="mt-2 min-h-[76px] w-full resize-y rounded-xl border border-border/70 bg-background/60 px-3 py-2.5 text-sm leading-relaxed text-muted-foreground/80 placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+      />
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] text-muted-foreground">Preview only — not added to your message yet.</span>
+        {recording ? (
+          <Button type="button" size="sm" className="h-9 rounded-full px-4" onClick={onStop}>
+            <MicOff className="mr-1.5 h-4 w-4" /> Stop talking
+          </Button>
+        ) : reviewing ? (
+          <Button type="button" size="sm" className="h-9 rounded-full px-4" disabled={!preview.trim()} onClick={onConfirm}>
+            <Check className="mr-1.5 h-4 w-4" /> Use text
+          </Button>
+        ) : transcribing ? (
+          <span className="text-xs text-muted-foreground">You can cancel at any time.</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">You can cancel while allowing the microphone.</span>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -644,27 +524,18 @@ function ChatSession({
     onExternalPromptConsumed?.();
   }, [externalPrompt, sendMessage, onExternalPromptConsumed]);
 
-  // The draft as it was when recording started; live words are appended to it
-  // and the final transcript replaces them, so nothing typed before is lost.
-  const dictationBaseRef = useRef<string | null>(null);
-  const { state: dictation, supported, toggle } = useDictation(
-    useCallback((text: string) => {
-      setDraft((value) => {
-        const base = dictationBaseRef.current ?? value;
-        dictationBaseRef.current = null;
-        return base ? `${base} ${text}` : text;
-      });
+  // Voice words remain separate from the typed draft until the user reviews
+  // and accepts them. Cancel never changes what the user already typed.
+  const {
+    state: dictation, preview: voicePreview, liveHint: voiceHint, supported,
+    toggle, stop: stopVoice, cancel: cancelVoice, confirm: confirmVoice,
+    setPreview: editVoicePreview,
+  } = useMiraDictation(
+    useCallback((spoken: string) => {
+      setDraft((value) => value.trim() ? value.trimEnd() + " " + spoken : spoken);
       window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
     }, []),
     language,
-    useCallback((live: string | null) => {
-      if (live === null) { dictationBaseRef.current = null; return; }
-      setDraft((value) => {
-        if (dictationBaseRef.current === null) dictationBaseRef.current = value;
-        const base = dictationBaseRef.current;
-        return base ? `${base} ${live}` : live;
-      });
-    }, []),
   );
 
   const askForAccess = async (scope: string, question: string) => {
@@ -682,7 +553,7 @@ function ChatSession({
 
   const submit = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
     const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
-    if (!value || blocked || status === "submitted" || status === "streaming") return;
+    if (!value || dictation !== "idle" || blocked || status === "submitted" || status === "streaming") return;
     setDraft("");
     setShowResume(false);
     setFailed(null);
@@ -1124,6 +995,8 @@ function ChatSession({
             {notice}
           </p>
         )}
+        <MiraDictationPanel state={dictation} preview={voicePreview} liveHint={voiceHint}
+          onEdit={editVoicePreview} onStop={stopVoice} onCancel={cancelVoice} onConfirm={confirmVoice} />
         <PromptInput onSubmit={submit} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className="bg-background [&>[data-slot=input-group]]:rounded-2xl">
           <MiraFilePreview />
           <PromptInputTextarea
@@ -1141,38 +1014,28 @@ function ChatSession({
             <PromptInputTools>
               <MiraAddFileMenu />
               <PromptInputButton
-                tooltip={
-                  !supported ? "Microphone input requires browser permission and a secure connection"
-                  : dictation === "recording" ? "Stop recording and transcribe"
-                  : dictation === "transcribing" ? "Transcribing your recording…"
-                  : "Record a message and convert speech to text"
-                }
+                tooltip={!supported ? "Voice input requires microphone access" :
+                  dictation === "recording" ? "Stop talking" :
+                  dictation === "transcribing" || dictation === "starting" ? "Cancel voice capture" :
+                  dictation === "review" ? "Use or cancel the preview above" : "Talk to Mira"}
                 variant={dictation === "recording" ? "default" : "outline"}
                 onClick={toggle}
-                disabled={dictation === "transcribing"}
-                aria-label={dictation === "recording" ? "Stop and transcribe voice input" : "Start voice-to-text"}
+                disabled={!supported || dictation === "review"}
+                aria-label={dictation === "recording" ? "Stop talking" :
+                  dictation !== "idle" ? "Cancel voice input" : "Start voice input"}
                 className="h-9 rounded-full border px-3 text-xs font-medium gap-2"
               >
-                {dictation === "transcribing" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : dictation === "recording" ? (
-                  <MicOff className="h-4 w-4" />
-                ) : (
-                  <Mic className="h-4 w-4" />
-                )}
-                <span className={dictation === "idle" ? "hidden sm:inline" : undefined}>{dictation === "recording" ? "Stop & transcribe" : dictation === "transcribing" ? "Transcribing…" : "Voice"}</span>
-              </PromptInputButton>
-              {dictation === "recording" && (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> {speechRecognitionCtor() ? "Listening — your words appear as you speak" : "Listening…"}
+                {dictation === "recording" ? <MicOff className="h-4 w-4" /> :
+                  dictation === "transcribing" || dictation === "starting" ? <X className="h-4 w-4" /> :
+                  <Mic className="h-4 w-4" />}
+                <span className={dictation === "idle" ? "hidden sm:inline" : undefined}>
+                  {dictation === "recording" ? "Stop" :
+                    dictation === "starting" || dictation === "transcribing" ? "Cancel" : "Voice"}
                 </span>
-              )}
-              {dictation === "transcribing" && (
-                <span className="text-xs text-muted-foreground">Writing your words…</span>
-              )}
+              </PromptInputButton>
             </PromptInputTools>
 
-            <MiraSubmit draft={draft} status={status as ChatStatus} onStop={() => void stop()} quotaReached={blocked} />
+            <MiraSubmit draft={draft} status={status as ChatStatus} onStop={() => void stop()} quotaReached={blocked} voicePending={dictation !== "idle"} />
           </PromptInputFooter>
         </PromptInput>
         <div className="mt-1.5 flex items-center justify-center gap-1.5 px-2 text-center text-[11px] text-muted-foreground">
@@ -1218,25 +1081,17 @@ export default function AssistantChat({
   const { profile } = useAuth();
   const [welcomeDraft, setWelcomeDraft] = useState("");
   const welcomeTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const dictationBaseRef = useRef<string | null>(null);
-  const { state: welcomeDictation, supported: welcomeVoiceSupported, toggle: toggleWelcomeVoice } = useDictation(
+  const {
+    state: welcomeDictation, preview: welcomeVoicePreview, liveHint: welcomeVoiceHint,
+    supported: welcomeVoiceSupported, toggle: toggleWelcomeVoice,
+    stop: stopWelcomeVoice, cancel: cancelWelcomeVoice, confirm: confirmWelcomeVoice,
+    setPreview: editWelcomeVoicePreview,
+  } = useMiraDictation(
     useCallback((spoken: string) => {
-      setWelcomeDraft((existing) => {
-        const base = dictationBaseRef.current ?? existing;
-        dictationBaseRef.current = null;
-        return base ? `${base} ${spoken}` : spoken;
-      });
+      setWelcomeDraft((value) => value.trim() ? value.trimEnd() + " " + spoken : spoken);
       window.requestAnimationFrame(() => welcomeTextareaRef.current?.focus({ preventScroll: true }));
     }, []),
     language,
-    useCallback((live: string | null) => {
-      if (live === null) { dictationBaseRef.current = null; return; }
-      setWelcomeDraft((existing) => {
-        if (dictationBaseRef.current === null) dictationBaseRef.current = existing;
-        const base = dictationBaseRef.current;
-        return base ? `${base} ${live}` : live;
-      });
-    }, []),
   );
   const welcomeExamples = useMemo(() => rolePlaceholderExamples(profile?.role), [profile?.role]);
   const welcomePlaceholder = useMiraTypewriter(welcomeExamples, !welcomeDraft.trim());
@@ -1264,7 +1119,7 @@ export default function AssistantChat({
 
   const createAndSend = async ({ text, files = [] }: { text: string; files?: FileUIPart[] }) => {
     const value = text.trim() || (files.length ? "Examine these attachments and identify the issue. Do not create or change a ticket unless I explicitly requested it." : "");
-    if (!value || starting) return;
+    if (!value || starting || welcomeDictation !== "idle") return;
     setWelcomeDraft("");
     setStarting(true);
     try {
@@ -1293,6 +1148,8 @@ export default function AssistantChat({
         </div>
         <div className="z-10 w-full shrink-0 bg-background px-3 pb-3 pt-2 sm:px-6">
           <div className="mx-auto w-full max-w-3xl">
+            <MiraDictationPanel state={welcomeDictation} preview={welcomeVoicePreview} liveHint={welcomeVoiceHint}
+              onEdit={editWelcomeVoicePreview} onStop={stopWelcomeVoice} onCancel={cancelWelcomeVoice} onConfirm={confirmWelcomeVoice} />
             <PromptInput onSubmit={async ({ text, files }) => createAndSend({ text: text || welcomeDraft, files })} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className={cn("bg-background [&>[data-slot=input-group]]:rounded-xl", workspace && "[&>[data-slot=input-group]]:rounded-2xl")}>
               <MiraFilePreview />
               <PromptInputTextarea
@@ -1310,19 +1167,24 @@ export default function AssistantChat({
                 <PromptInputTools>
                   <MiraAddFileMenu />
                   <PromptInputButton
-                    tooltip={welcomeVoiceSupported ? "Speak instead of typing" : "Voice input requires microphone permission and a secure browser"}
+                    tooltip={welcomeVoiceSupported ? (welcomeDictation === "recording" ? "Stop talking" :
+                      welcomeDictation === "review" ? "Use or cancel the preview above" : "Talk to Mira") :
+                      "Voice input requires microphone permission and a secure browser"}
                     variant={welcomeDictation === "recording" ? "default" : "outline"}
                     onClick={toggleWelcomeVoice}
-                    disabled={!welcomeVoiceSupported || welcomeDictation === "transcribing" || starting}
-                    aria-label={welcomeDictation === "recording" ? "Stop and transcribe voice input" : "Start voice-to-text"}
+                    disabled={!welcomeVoiceSupported || welcomeDictation === "review" || starting}
+                    aria-label={welcomeDictation === "recording" ? "Stop talking" : welcomeDictation !== "idle" ? "Cancel voice input" : "Start voice input"}
                     className="h-9 gap-2 rounded-full border px-2.5 text-xs font-medium sm:px-3"
                   >
-                    {welcomeDictation === "transcribing" ? <Loader2 className="h-4 w-4 animate-spin" /> : welcomeDictation === "recording" ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    <span className={welcomeDictation === "idle" ? "hidden sm:inline" : undefined}>{welcomeDictation === "recording" ? "Stop & transcribe" : welcomeDictation === "transcribing" ? "Transcribing…" : "Voice"}</span>
+                    {welcomeDictation === "recording" ? <MicOff className="h-4 w-4" /> :
+                      welcomeDictation === "starting" || welcomeDictation === "transcribing" ? <X className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    <span className={welcomeDictation === "idle" ? "hidden sm:inline" : undefined}>
+                      {welcomeDictation === "recording" ? "Stop" :
+                        welcomeDictation === "starting" || welcomeDictation === "transcribing" ? "Cancel" : "Voice"}
+                    </span>
                   </PromptInputButton>
-                  {welcomeDictation === "recording" && <span className="flex items-center gap-1 text-xs text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Listening…</span>}
                 </PromptInputTools>
-                <MiraSubmit draft={welcomeDraft} status={starting ? "submitted" : undefined} busy={starting} />
+                <MiraSubmit draft={welcomeDraft} status={starting ? "submitted" : undefined} busy={starting} voicePending={welcomeDictation !== "idle"} />
               </PromptInputFooter>
             </PromptInput>
           </div>
