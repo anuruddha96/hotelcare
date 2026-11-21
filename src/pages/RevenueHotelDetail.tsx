@@ -1267,6 +1267,8 @@ function PrevioRevenueHotelDetail() {
             rates={live.rates}
             metrics={live.metrics}
             nights={live.nights}
+            cancellations={live.cancellations}
+            lastSyncAt={live.lastSyncAt}
             thresholds={live.thresholds}
             canEditRates={revAdmin}
             pickupWindowDays={pickupWindow}
