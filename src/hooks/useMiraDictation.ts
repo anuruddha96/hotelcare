@@ -213,6 +213,7 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
       // of the uninterrupted main recording used for accurate final text.
       const startSnippet = () => {
         if (sessionRef.current !== session || stateRef.current !== "recording" || nativeWordsRef.current) return;
+        if (snippetRecorderRef.current?.state === "recording") return;
         try {
           const sample = new MediaRecorder(stream, options);
           const parts: Blob[] = [];
@@ -270,6 +271,7 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
           recognition.continuous = true;
           recognition.interimResults = true;
           let committed = "";
+          let recognitionFailed = false;
           recognition.onresult = (event: any) => {
             let interim = "";
             for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -286,12 +288,18 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
             setLiveHint("Live transcript · preview only");
           };
           recognition.onerror = () => {
+            recognitionFailed = true;
             if (sessionRef.current === session && stateRef.current === "recording" && !nativeWordsRef.current) {
               startSnippet();
             }
           };
           recognition.onend = () => {
             if (sessionRef.current !== session || stateRef.current !== "recording") return;
+            // If the browser denied native recognition, do not retry forever.
+            if (recognitionFailed) {
+              if (!nativeWordsRef.current) startSnippet();
+              return;
+            }
             try { recognition.start(); } catch {
               if (!nativeWordsRef.current) startSnippet();
             }
