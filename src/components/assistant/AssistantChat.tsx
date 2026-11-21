@@ -564,7 +564,7 @@ function ChatSession({
   // A tapped answer to Mira's question. Unlike submit, a half-typed draft stays.
   const sendQuickAnswer = (text: string): boolean => {
     const value = text.trim();
-    if (!value || blocked || status === "submitted" || status === "streaming") return false;
+    if (!value || dictation !== "idle" || blocked || status === "submitted" || status === "streaming") return false;
     setShowResume(false);
     setFailed(null);
     lastQuestionRef.current = value;
@@ -646,7 +646,7 @@ function ChatSession({
             </div>
           )}
           {messages.length === 0 && (
-            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} onVoice={toggle} voiceSupported={supported} />
+            <AssistantWelcome workspace={workspace} onAsk={(text) => void submit({ text })} onVoice={toggle} voiceSupported={supported} voiceState={dictation} />
           )}
 
           {messages.map((message, index) => {
@@ -1144,7 +1144,7 @@ export default function AssistantChat({
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
-          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} onVoice={toggleWelcomeVoice} voiceSupported={welcomeVoiceSupported} />
+          <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} onVoice={toggleWelcomeVoice} voiceSupported={welcomeVoiceSupported} voiceState={welcomeDictation} />
         </div>
         <div className="z-10 w-full shrink-0 bg-background px-3 pb-3 pt-2 sm:px-6">
           <div className="mx-auto w-full max-w-3xl">
