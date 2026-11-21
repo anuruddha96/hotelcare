@@ -329,7 +329,26 @@ export default function MonthPerformanceHeader({
   const breakdown = useMemo(() => buildMonthBreakdown(recon.data ?? []), [recon.data]);
   const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
   const monthComplete = new Set((recon.data ?? []).filter((d) => d.stay_date.startsWith(month + "-")).map((d) => d.stay_date)).size === daysInMonth;
-  const whole = monthComplete ? wholeMonthOf(breakdown) : null;
+  // The month RPC generates a calendar spine before every future reservation
+  // has arrived. Compare its on-the-books nights to the forward PMS calendar
+  // rather than mistaking all 30 calendar dates for a completed booking sync.
+  const forwardMetrics = metrics.filter((m) => m.stay_date.startsWith(month + "-") && m.stay_date >= today);
+  const futureDates = Array.from({ length: daysInMonth }, (_, i) => month + "-" + String(i + 1).padStart(2, "0"))
+    .filter((date) => date >= today);
+  const forwardMetricsReady = futureDates.length > 0 && futureDates.every((date) =>
+    forwardMetrics.some((row) => row.stay_date === date && row.hasData));
+  const forwardSold = forwardMetrics.reduce((sum, row) => sum + row.roomsSold, 0);
+  const reconciledForwardSold = (recon.data ?? []).filter((row) =>
+    row.stay_date.startsWith(month + "-") && row.stay_date >= today)
+    .reduce((sum, row) => sum + row.commercial_sold, 0);
+  const forwardSourceMismatch = forwardMetricsReady && Math.abs(forwardSold - reconciledForwardSold) > 2;
+  const lastSyncMs = lastSyncAt ? Date.parse(lastSyncAt) : NaN;
+  const monthBookingDataStale = Number.isFinite(lastSyncMs)
+    && typeof recon.dataUpdatedAt === "number" && recon.dataUpdatedAt + 2_000 < lastSyncMs;
+  const hasUnpricedMonthNights = (recon.data ?? []).some((day) =>
+    day.stay_date.startsWith(month + "-") && day.unpriced_nights > 0);
+  const whole = monthComplete && !forwardSourceMismatch && !monthBookingDataStale
+    ? wholeMonthOf(breakdown) : null;
   const breakfastPrice = useMemo(() => breakfastPriceOf(recon.data ?? []), [recon.data]);
   const currentMonthKey = monthKey(today);
   const reconNow = useMonthReconciliationDays(hotelId, currentMonthKey);
@@ -338,7 +357,7 @@ export default function MonthPerformanceHeader({
     return new Set((reconNow.data ?? []).filter((d) => d.stay_date.startsWith(currentMonthKey + "-")).map((d) => d.stay_date)).size === n
       ? wholeMonthOf(buildMonthBreakdown(reconNow.data ?? [])) : null;
   }, [reconNow.data, currentMonthKey]);
-  const reconPending = Boolean(hotelId) && recon.isLoading;
+  const reconPending = Boolean(hotelId) && (recon.isLoading || recon.isFetching);
   const tilesLoading = loading || monthPending || reconPending;
   const adrOf = (w: MonthBreakdownRow) => w.adrGross;
   const revparOf = (w: MonthBreakdownRow) => w.revparGross;
@@ -505,7 +524,7 @@ export default function MonthPerformanceHeader({
           <Tile
             loading={tilesLoading}
             label="ADR"
-            value={whole && adrOf(whole) !== null ? money(adrOf(whole)) : "—"}
+            value={whole && !hasUnpricedMonthNights && adrOf(whole) !== null ? money(adrOf(whole)) : "—"}
             sub={whole ? (hu ? "Teljes hónap · reggelivel" : "whole month · incl. breakfast & extras") : (hu ? "Havi adat nem érhető el" : "Monthly data unavailable")}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-violet-500 bg-violet-500/5"
@@ -519,7 +538,7 @@ export default function MonthPerformanceHeader({
           <Tile
             loading={tilesLoading}
             label="RevPAR"
-            value={whole && revparOf(whole) !== null ? money(revparOf(whole)) : "—"}
+            value={whole && !hasUnpricedMonthNights && revparOf(whole) !== null ? money(revparOf(whole)) : "—"}
             sub={whole ? (hu ? "Teljes hónap · reggelivel" : "whole month · incl. breakfast & extras") : (hu ? "Havi adat nem érhető el" : "Monthly data unavailable")}
             icon={<Gauge className="h-3.5 w-3.5" />}
             surface="border-l-cyan-500 bg-cyan-500/5"
@@ -558,7 +577,7 @@ export default function MonthPerformanceHeader({
           <Tile
             loading={tilesLoading}
             label={hu?"Bevétel":"Revenue"}
-            value={whole ? money(whole.revenueGross) : "—"}
+            value={whole && !hasUnpricedMonthNights ? money(whole.revenueGross) : "—"}
             sub={whole ? (hu ? "Foglalási érték · teljes hónap" : "Gross booking value · whole month") : (hu ? "Havi adat nem érhető el" : "Monthly data unavailable")}
             icon={<Coins className="h-3.5 w-3.5" />}
             surface="border-l-emerald-500 bg-emerald-500/5"
@@ -577,7 +596,14 @@ export default function MonthPerformanceHeader({
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
           />
         </div>
-        {!whole && !tilesLoading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{hu ? "A teljes hónap adatai nem ellenőrizhetők; nem jelenítünk meg részleges havi ADR-t." : "Full-month figures are unavailable or incomplete. Partial ADR is not shown as monthly ADR."}</p>}
+        {!tilesLoading && (forwardSourceMismatch || monthBookingDataStale || !whole || hasUnpricedMonthNights) && (
+          <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
+            {forwardSourceMismatch ? "PMS booking totals do not match the pricing calendar; whole-month metrics are withheld until the sync finishes."
+              : monthBookingDataStale ? "Monthly figures have not caught up with the latest Previo sync."
+              : hasUnpricedMonthNights ? "Some sold nights have no price. ADR, RevPAR and revenue are withheld pending verification."
+              : (hu ? "A teljes hónap adatai nem ellenőrizhetők; nem jelenítünk meg részleges havi ADR-t." : "Full-month figures are unavailable or incomplete. Partial ADR is not shown as monthly ADR.")}
+          </p>
+        )}
 
         {/* Show the same reconciled full-month portfolio comparison directly
             after the monthly KPIs, before the optional ADR calculation. */}
