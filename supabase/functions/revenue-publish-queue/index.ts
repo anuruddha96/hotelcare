@@ -23,6 +23,10 @@ function json(data: unknown, status = 200) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "POST required" }, 405);
+  if (!authorizeRevenueWorkerRequest(req, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))) {
+    return json({ error: "Internal worker authentication required" }, 401);
+  }
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
