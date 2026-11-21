@@ -7,7 +7,8 @@ const { portfolio, benchmark, monthQueries, refetch } = vi.hoisted(() => ({
   portfolio: vi.fn(), benchmark: vi.fn(), monthQueries: vi.fn(), refetch: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", async (original) => ({
-  ...await original<object>(), useQueries: (...args: unknown[]) => monthQueries(...args),\n  useQuery: () => ({ data: [], dataUpdatedAt: 0, isFetching: false, isError: false, refetch }),
+  ...await original<object>(), useQueries: (...args: unknown[]) => monthQueries(...args),
+  useQuery: () => ({ data: [], dataUpdatedAt: 0, isFetching: false, isError: false, refetch }),
 }));
 vi.mock("@/hooks/usePortfolioSnapshots", () => ({ usePortfolioSnapshots: portfolio }));
 vi.mock("@/hooks/usePortfolioRateBenchmark", () => ({ usePortfolioRateBenchmark: benchmark }));
