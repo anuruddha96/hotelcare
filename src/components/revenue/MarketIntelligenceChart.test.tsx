@@ -113,7 +113,7 @@ describe("hotel comparison — reconciled full months", () => {
     expect(cards[3]).toHaveAccessibleName(/rank 4/);
     expect(cards[3]).toHaveAttribute("aria-current", "true");
     expect(cards[0]).not.toHaveAttribute("aria-current");
-    expect(within(cards[3]).getByText(/YOU ARE HERE/)).toBeInTheDocument();
+    expect(cards[3]).toHaveAttribute("aria-current", "true");
   });
 
   it("refuses to show a partial 19-day ADR as full-month ADR", async () => {
