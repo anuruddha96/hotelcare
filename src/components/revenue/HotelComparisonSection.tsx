@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { buildMonthBreakdown, wholeMonthOf } from "@/lib/kpiReconciliation";
 import { fetchMonthReconciliationDays, monthReconciliationKey } from "@/hooks/useMonthReconciliationDays";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Trophy } from "lucide-react";
 import { rankHotelsByPerformance } from "@/lib/hotelPerformanceRanking";
+import { budapestDayOf } from "@/lib/revenueAnalytics";
+import { validateHotelComparisonData, type ComparisonAvailabilityRow, type ComparisonSyncState } from "@/lib/revenue/hotelComparisonIntegrity";
 
 type ComparisonHotel = { hotel_id: string; hotel_name: string };
 type Props = { hotels: ComparisonHotel[]; hotelId: string | null; selectedMonth: string };
@@ -28,6 +30,58 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
   const [eurRateByHotel, setEurRateByHotel] = useState<Map<string, number | null>>(new Map());
   const hotelIds = useMemo(() => hotels.map((h) => h.hotel_id), [hotels]);
   const idsKey = hotelIds.join(",");
+  const today = budapestDayOf(new Date().toISOString());
+  const daysInMonth = new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).getUTCDate();
+  const monthEnd = selectedMonth + "-" + String(daysInMonth).padStart(2, "0");
+  const hasFutureNights = monthEnd >= today;
+  const firstFutureDate = selectedMonth + "-01" > today ? selectedMonth + "-01" : today;
+
+  // A calendar RPC row does NOT prove PMS bookings were imported for that day.
+  // Cross-check a completed sync and independent Previo availability before
+  // publishing stayed + booked monthly performance.
+  const syncQueries = useQueries({
+    queries: hotels.map((hotel) => ({
+      queryKey: ["hotel-comparison-sync", hotel.hotel_id],
+      enabled: hasFutureNights,
+      staleTime: 0,
+      retry: false,
+      refetchInterval: 30_000,
+      refetchOnMount: "always" as const,
+      refetchOnWindowFocus: "always" as const,
+      queryFn: async (): Promise<ComparisonSyncState | null> => {
+        const { data, error } = await supabase.rpc("revenue_sync_wait_state", { _hotel_id: hotel.hotel_id });
+        if (error) throw error;
+        return (data?.[0] ?? null) as ComparisonSyncState | null;
+      },
+    })),
+  });
+
+  const availabilityQuery = useQuery({
+    queryKey: ["hotel-comparison-future-inventory", hotelIds, selectedMonth, today],
+    enabled: hasFutureNights && hotelIds.length > 0,
+    staleTime: 0,
+    retry: false,
+    refetchInterval: 30_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    queryFn: async (): Promise<ComparisonAvailabilityRow[]> => {
+      const all: ComparisonAvailabilityRow[] = [];
+      // Page explicitly: partial API results must not be mistaken for stock.
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await supabase.from("revenue_room_type_availability")
+          .select("hotel_id,stay_date,availability,captured_at")
+          .in("hotel_id", hotelIds)
+          .gte("stay_date", firstFutureDate)
+          .lte("stay_date", monthEnd)
+          .order("hotel_id").order("stay_date")
+          .range(offset, offset + 499);
+        if (error) throw error;
+        const page = (data ?? []) as ComparisonAvailabilityRow[];
+        all.push(...page);
+        if (page.length < 500) return all;
+      }
+    },
+  });
   useEffect(() => {
     if (hotelIds.length === 0) { setEurRateByHotel(new Map()); return; }
     let cancelled = false;
@@ -52,13 +106,18 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
     queries: hotels.map((hotel) => ({
       queryKey: monthReconciliationKey(hotel.hotel_id, selectedMonth),
       enabled: hotels.length > 0 && /^\d{4}-\d{2}$/.test(selectedMonth),
-      staleTime: 60_000,
+      staleTime: 0,
       retry: false,
+      refetchInterval: 30_000,
+      refetchOnMount: "always" as const,
+      refetchOnWindowFocus: "always" as const,
       queryFn: () => fetchMonthReconciliationDays(hotel.hotel_id, selectedMonth),
     })),
   });
-  const comparisonLoading = monthlyQueries.some((q) => q.isFetching);
-  const comparisonError = monthlyQueries.some((q) => q.isError);
+  const comparisonLoading = monthlyQueries.some((q) => q.isFetching)
+    || (hasFutureNights && (syncQueries.some((q) => q.isFetching) || availabilityQuery.isFetching));
+  const comparisonError = monthlyQueries.some((q) => q.isError)
+    || (hasFutureNights && (syncQueries.some((q) => q.isError) || availabilityQuery.isError));
   const comparison = useMemo(() => {
     const daysInMonth = new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).getUTCDate();
     const snapshots = hotels.map((hotel, index) => {
