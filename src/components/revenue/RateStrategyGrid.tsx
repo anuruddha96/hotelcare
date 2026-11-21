@@ -21,7 +21,7 @@ import { activePricingRoomTypes, isTechnicalRoomKind } from "@/lib/revenue/roomT
 import InitializeRoomRatesDialog from "@/components/revenue/InitializeRoomRatesDialog";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
-  type BookingNight, type DayMetrics, type RoomTypeRate,
+  type BookingNight, type CancelledNight, type DayMetrics, type RoomTypeRate,
   PICKUP_WINDOW_48H,
   DEFAULT_PICKUP_WINDOW_DAYS,
   pickupWindowLabel,
@@ -41,6 +41,7 @@ import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePi
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
+import PriceDemandJourney from "@/components/revenue/PriceDemandJourney";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
 import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
@@ -83,6 +84,8 @@ interface Props {
   rates: RoomTypeRate[];
   metrics: DayMetrics[];
   nights?: BookingNight[];
+  cancellations?: CancelledNight[];
+  lastSyncAt?: string | null;
   pickupWindowDays: number;
   onPickupWindowChange: (days: number) => void;
   thresholds?: RevenueThresholds;
@@ -341,7 +344,7 @@ interface PendingDraft {
  * visible, and scrolling to the right end automatically extends the horizon.
  */
 export default function RateStrategyGrid({
-  loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [],
+  loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [], cancellations = [], lastSyncAt,
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
   demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onAvailabilityUpdated, onHorizonDaysChange,
 }: Props) {
@@ -996,7 +999,7 @@ export default function RateStrategyGrid({
 
   /** Price-cell history on touch: tap a cell to read who changed it and when. */
   const [cellInfo, setCellInfo] = useState<{
-    date: string; roomTypeName: string; occ: number; published: number | null; draft: number | null;
+    date: string; roomTypeName: string; displayName?: string; occ: number; published: number | null; draft: number | null;
     obk?: string | null;
   } | null>(null);
 
@@ -4377,7 +4380,6 @@ export default function RateStrategyGrid({
                         }}
                         data-cell-row={rowIdx}
                         data-cell-date={i}
-                        disabled={!canEditRates}
                         onPointerEnter={(e) => {
                           if (cellPointerEnter(rowIdx, i)) return;
                           if (e.pointerType === "touch") return;
@@ -4397,34 +4399,20 @@ export default function RateStrategyGrid({
                           cellPointerDown(rowIdx, i, e);
                         }}
                         onClick={() => {
-                          if (!canEditRates) return;
-                          // A drag just finished — the pricing tool is opening.
+                          // A drag selection still opens its existing bulk tool.
                           if (suppressClick.current || cellDragging) return;
-
-                          // On a phone there is no hover, so a tap tells the
-                          // cell's story first and offers editing from there.
-                          if (isMobile) {
-                            void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
-                            void loadAutomationDate(d);
-                            setCellInfo({
-
-                              date: d,
-                              roomTypeName: row.roomTypeName,
-                              occ: row.occ,
-                              published: published ?? null,
-                              draft: draft ?? null,
-                              obk: row.obk,
-                            });
-                            return;
-                          }
-                          setApplyDays(1); setApplyWeekdays("all"); setApplyAllOcc(false); setEditMode("set");
-                          setEdit({
-                            stay_date: d,
-                            obk_id: row.obk,
-                            room_type_name: row.roomTypeName,
-                            occupancy: row.occ,
-                            old_price: published ?? null,
-                            value: String(shown ?? ""),
+                          // Price cells open the same evidence journey on mobile and
+                          // desktop. Editing remains an explicit action in the sheet.
+                          void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
+                          void loadAutomationDate(d);
+                          setCellInfo({
+                            date: d,
+                            roomTypeName: row.roomTypeName,
+                            displayName: row.displayName,
+                            occ: row.occ,
+                            published: published ?? null,
+                            draft: draft ?? null,
+                            obk: row.obk,
                           });
                         }}
 
@@ -5009,14 +4997,14 @@ export default function RateStrategyGrid({
       <Sheet open={!!cellInfo} onOpenChange={(o) => !o && setCellInfo(null)}>
         <SheetContent
           side="bottom"
-          className="flex h-[min(78dvh,640px)] max-h-[calc(100dvh-0.5rem)] min-h-0 flex-col gap-0 overflow-hidden rounded-t-2xl border-t bg-background p-0 shadow-2xl"
+          className="flex h-[min(92dvh,850px)] max-h-[calc(100dvh-0.5rem)] min-h-0 flex-col gap-0 overflow-hidden rounded-t-2xl border-t bg-background p-0 shadow-2xl"
         >
           {cellInfo && (
             <>
               <div className="shrink-0 space-y-3 border-b px-4 pb-3 pt-4">
                 <SheetHeader className="pr-10 text-left">
                   <SheetTitle className="text-sm leading-snug">
-                    {cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
+                    {cellInfo.displayName || cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
                   </SheetTitle>
                 </SheetHeader>
                 <div className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-2 text-sm">
@@ -5026,8 +5014,25 @@ export default function RateStrategyGrid({
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
-                <p className="mb-2 text-xs font-semibold text-foreground">Recent price changes</p>
-                <RateCellHistory
+                <PriceDemandJourney
+                  key={cellInfo.date + "|" + cellInfo.roomTypeName + "|" + cellInfo.occ}
+                  hotelId={hotelId ?? null}
+                  date={cellInfo.date}
+                  roomTypeName={cellInfo.roomTypeName}
+                  obkId={cellInfo.obk ?? null}
+                  occupancy={cellInfo.occ}
+                  ratePlanId={rates.find((rate) =>
+                    rate.stay_date === cellInfo.date
+                    && rate.obk_id === cellInfo.obk
+                    && rate.occupancy === cellInfo.occ
+                  )?.rate_plan_id ?? null}
+                  roomsLeft={leftByTypeDate?.get(cellInfo.roomTypeName + "|" + cellInfo.date) ?? null}
+                  roomCapacity={roomTypes.find((room) => room.name === cellInfo.roomTypeName)?.num_rooms ?? null}
+                  nights={nights}
+                  cancellations={cancellations}
+                  metric={metrics.find((day) => day.stay_date === cellInfo.date) ?? null}
+                  demand={demandByDate?.get(cellInfo.date) ?? null}
+                  events={eventsByDate?.get(cellInfo.date) ?? []}
                   history={cellHistoryByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
                     ?? auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
                     ?? []}
@@ -5035,7 +5040,9 @@ export default function RateStrategyGrid({
                   hold={automationHolds.get(cellInfo.date) ?? null}
                   names={actorNames}
                   draftPrice={cellInfo.draft}
-                  sendingPrice={inFlight.get(`${cellInfo.date}|${cellInfo.roomTypeName}|${cellInfo.occ}`) ?? null}
+                  sendingPrice={inFlight.get(cellInfo.date + "|" + cellInfo.roomTypeName + "|" + cellInfo.occ) ?? null}
+                  lastSyncAt={lastSyncAt}
+                  revenueLoading={loading}
                 />
               </div>
 
