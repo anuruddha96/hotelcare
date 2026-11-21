@@ -2,11 +2,12 @@
 // The database, not a device's local storage, owns lifetime seen-history.
 // Quote retrieval/refill NEVER blocks entering the workspace.
 import { useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { readLegacyQuoteHistory } from "@/lib/welcomeQuoteHistory";
+import { isPremiumQuoteViewer } from "@/lib/quotePremiumViewer";
 
 const GREETINGS = [
   "Welcome back", "Good to see you", "Good to have you back",
@@ -119,6 +120,8 @@ export function WelcomeBackOverlay({
 }) {
   const { user, profile } = useAuth();
   const viewerId = user?.id && profile?.id === user.id ? user.id : null;
+  // Cosmetic personalization only; server-side quote selection uses the authenticated profile.
+  const premiumViewer = Boolean(viewerId && isPremiumQuoteViewer(profile?.nickname));
   const [line, setLine] = useState<ClaimedQuote | null>(null);
   useEffect(() => {
     let active = true;
@@ -163,12 +166,40 @@ export function WelcomeBackOverlay({
             {onSignOut && <Button className="flex-1" variant="outline" onClick={onSignOut}>Sign out</Button>}
           </div>
         )}
-        {line && (
+        {line && (premiumViewer ? (
+          <figure className="relative mt-5 overflow-hidden rounded-xl border border-amber-400/30 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-5 text-slate-50 shadow-lg">
+            <div aria-hidden="true" className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-amber-300/10 blur-3xl" />
+            <div className="relative">
+              <div className="flex items-center gap-2 text-amber-300">
+                <Sparkles aria-hidden="true" className="h-4 w-4 shrink-0" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.16em]">
+                  {line.author === "Steve Jobs" ? "The Steve Jobs Collection" : "The Leadership Edit"}
+                </span>
+              </div>
+              <blockquote className="mt-4 font-serif text-[17px] font-medium leading-relaxed tracking-tight text-slate-50 sm:text-lg">
+                “{line.quote_text}”
+              </blockquote>
+              <figcaption className="mt-3 text-xs font-semibold tracking-wide text-amber-200">
+                — {line.author}
+              </figcaption>
+              <div aria-hidden="true" className="mt-4 h-px bg-gradient-to-r from-amber-300/40 to-transparent" />
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-300">
+                <span>A thought for your next big idea</span>
+                {line.author === "Steve Jobs" && (
+                  <a href="https://book.stevejobsarchive.com/" target="_blank" rel="noopener noreferrer"
+                    className="font-semibold text-amber-200 underline-offset-2 hover:underline focus-visible:underline">
+                    Explore Steve Jobs Archive
+                  </a>
+                )}
+              </div>
+            </div>
+          </figure>
+        ) : (
           <figure className="mt-5 border-t pt-4">
             <blockquote className="text-sm italic">“{line.quote_text}”</blockquote>
             <figcaption className="mt-1 text-xs text-muted-foreground">— {line.author}</figcaption>
           </figure>
-        )}
+        ))}
       </div>
     </div>
   );
