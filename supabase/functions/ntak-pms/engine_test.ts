@@ -186,12 +186,12 @@ async function xmllint(xml: string): Promise<string | null> {
   return out.code === 0 ? null : new TextDecoder().decode(out.stderr);
 }
 
-function startFakeNtak(): FakeNtak {
+function startFakeNtak(cert: string, key: string): FakeNtak {
   const kinds = new Map<string, string>();
   const state: FakeNtak = { url: "", requests: [], rejectNext: null, close: async () => {} };
   const env = (inner: string) => `<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Header/><SOAP-ENV:Body>${inner}</SOAP-ENV:Body></SOAP-ENV:Envelope>`;
   const fault = (key: string, msg: string) => env(`<SOAP-ENV:Fault><faultcode>SOAP-ENV:Server</faultcode><faultstring xml:lang="en">Validation Error</faultstring><detail><error hibaKulcs="${key}" hibaUzenet="${msg}" mezoNeve="GLOBAL"/></detail></SOAP-ENV:Fault>`);
-  const server = Deno.serve({ port: 0, hostname: "127.0.0.1", onListen: () => {} }, async (req) => {
+  const server = Deno.serve({ cert, key, port: 0, hostname: "127.0.0.1", onListen: () => {} }, async (req) => {
     const body = await req.text();
     if (req.headers.get("content-type")?.startsWith("text/xml") !== true) return new Response(fault("Formatum", "content type"), { status: 500 });
     const sig = await verifyEnvelope(body);
@@ -217,14 +217,14 @@ function startFakeNtak(): FakeNtak {
     kinds.set(id, root);
     return new Response(env(`<ns2:${root.replace("Request", "Response")} xmlns:ns2="http://mtu.gov.hu/ntak/v9"><ns2:feldolgozasAzonosito>${id}</ns2:feldolgozasAzonosito></ns2:${root.replace("Request", "Response")}>`));
   });
-  state.url = `http://127.0.0.1:${(server.addr as Deno.NetAddr).port}/ntak/v9`;
+  state.url = `https://127.0.0.1:${(server.addr as Deno.NetAddr).port}/ntak/v9`;
   state.close = () => server.shutdown();
   return state;
 }
 
 async function testCert(): Promise<{ certPem: string; keyPem: string }> {
   const dir = await Deno.makeTempDir();
-  const out = await new Deno.Command("openssl", { args: ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", `${dir}/k.pem`, "-out", `${dir}/c.pem`, "-days", "30", "-subj", "/CN=SZ25003491"], stderr: "piped" }).output();
+  const out = await new Deno.Command("openssl", { args: ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", `${dir}/k.pem`, "-out", `${dir}/c.pem`, "-days", "30", "-subj", "/CN=SZ25003491", "-addext", "subjectAltName=IP:127.0.0.1", "-addext", "basicConstraints=critical,CA:FALSE"], stderr: "piped" }).output();
   assert.equal(out.code, 0, new TextDecoder().decode(out.stderr));
   return { certPem: await Deno.readTextFile(`${dir}/c.pem`), keyPem: await Deno.readTextFile(`${dir}/k.pem`) };
 }
@@ -232,12 +232,14 @@ async function testCert(): Promise<{ certPem: string; keyPem: string }> {
 // ---------------------------------------------------------------------------
 
 Deno.test("engine: closure, booking, events and start date go through signing, sending and verification", async () => {
-  const ntak = startFakeNtak();
+  const { certPem, keyPem } = await testCert();
+  const ntak = startFakeNtak(certPem, keyPem);
+  const originalClient = Deno.createHttpClient;
+  Deno.createHttpClient = (options) => originalClient({ ...options, caCerts: [certPem] });
   try {
     const db = new FakeDb(schemaColumns());
     const T = today();
     const Y = addDays(T, -1);
-    const { certPem, keyPem } = await testCert();
     db.secrets.set("h1|cert", certPem);
     db.secrets.set("h1|key", keyPem);
 
@@ -344,6 +346,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     assert.equal(await detectDrift(db, s), 1);
     assert.equal(db.rows("ntak_daily_closures")[0].needs_correction, true);
   } finally {
+    Deno.createHttpClient = originalClient;
     await ntak.close();
   }
 });

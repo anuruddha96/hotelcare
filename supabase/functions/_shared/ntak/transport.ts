@@ -31,6 +31,9 @@ const CERT_HINTS = /certificate (expired|revoked|unknown)|bad certificate|unknow
 
 export async function postSoap(envelope: string, opts: TransportOptions): Promise<TransportResult> {
   const started = Date.now();
+  if (!URL.canParse(opts.url) || new URL(opts.url).protocol !== 'https:') {
+    return { status: 0, body: '', error: 'Reporting endpoint requires HTTPS', certificateProblem: false, elapsedMs: 0 };
+  }
   // deno-lint-ignore no-explicit-any
   const DenoAny = (globalThis as any).Deno;
   if (!DenoAny?.createHttpClient) {
@@ -48,6 +51,7 @@ export async function postSoap(envelope: string, opts: TransportOptions): Promis
       method: 'POST',
       headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: '""' },
       body: envelope,
+      redirect: 'error',
       signal: ctrl.signal,
       // deno-lint-ignore no-explicit-any
       ...({ client } as any),

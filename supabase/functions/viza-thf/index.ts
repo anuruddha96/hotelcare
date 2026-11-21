@@ -19,6 +19,7 @@
  */
 import { authorizeHotelCaller, hasRole, json, MANAGE_ROLES, serviceDb, VIEW_ROLES, workerAuthorized, type Caller } from "../_shared/channex/http.ts";
 import { buildArrivalBody, buildDepartureBody, buildStatusBody, readXmlTag, readXmlTags, vizaTimestamp, type VizaArrivalGuest } from "../_shared/viza/messages.ts";
+import { postSoap } from "../_shared/ntak/transport.ts";
 import { guestToVizaGroups } from "../_shared/viza/mapGuest.ts";
 import { b64encode, buildSignedEnvelope, importRsaKey, pemToDer, signEllenorzoString } from "../_shared/viza/wssec.ts";
 
@@ -40,24 +41,15 @@ function secrets() {
   };
 }
 
-/** THF requires TLS client authentication with the NTAK certificate. */
-function thfHttpClient(certPem: string, keyPem: string): Deno.HttpClient | null {
-  try {
-    // deno-lint-ignore no-explicit-any
-    return (Deno as any).createHttpClient({ cert: certPem, key: keyPem });
-  } catch (_) {
-    return null;
-  }
-}
-
-async function callThf(url: string, envelope: string, client: Deno.HttpClient | null): Promise<{ status: number; body: string }> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: '""' },
-    body: envelope,
-    ...(client ? { client } : {}),
+async function callThf(url: string, envelope: string, credentials: ReturnType<typeof secrets>) {
+  const result = await postSoap(envelope, {
+    url, certPem: credentials.clientCert, keyPem: credentials.clientKey,
+    proxyUrl: Deno.env.get("VIZA_EGRESS_PROXY_URL"),
+    proxyUser: Deno.env.get("VIZA_EGRESS_PROXY_USER"),
+    proxyPassword: Deno.env.get("VIZA_EGRESS_PROXY_PASSWORD"),
   });
-  return { status: res.status, body: await res.text() };
+  if (result.error) throw new Error(result.error);
+  return result;
 }
 
 type Settings = {
@@ -113,8 +105,6 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
   const clientKey = await importRsaKey(sec.clientKey, "SHA-384");
   const signKey = await importRsaKey(sec.signKey, "SHA-256");
   const signCertB64 = b64encode(pemToDer(sec.signCert));
-  const httpClient = thfHttpClient(sec.clientCert, sec.clientKey);
-  report.mtls = httpClient ? "client-cert" : "UNAVAILABLE (Deno.createHttpClient refused) — THF may reject the TLS handshake";
 
   const { data: hotels } = await db.from("viza_settings").select("*").eq("enabled", true)
     .not("adatszolgaltatasi_azonosito", "is", null);
@@ -124,7 +114,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
     try {
       // 1. Status poll (spec 4.1) — counters must reach the UI.
       const statusEnv = await buildSignedEnvelope({ bodyXml: buildStatusBody(), clientCertPem: sec.clientCert, clientKey });
-      const statusRes = await callThf(cfg.thf_url, statusEnv, httpClient);
+      const statusRes = await callThf(cfg.thf_url, statusEnv, sec);
       const code = readXmlTag(statusRes.body, "allapotKod");
       line.status = code ?? `HTTP ${statusRes.status}`;
       await db.from("viza_settings").update({
@@ -164,7 +154,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
         const alairas = await signEllenorzoString(draft.ellenorzoString, signKey);
         const { xml } = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signCertB64 }, vizaGuests);
         const envelope = await buildSignedEnvelope({ bodyXml: xml, clientCertPem: sec.clientCert, clientKey });
-        const res = await callThf(cfg.thf_url, envelope, httpClient);
+        const res = await callThf(cfg.thf_url, envelope, sec);
         line.arrivals = { sent: arrivals.length, http: res.status };
         await markResult(db, arrivals.map((a: { id: string }) => a.id), "arrival", res.status < 500 ? res.body : null, res.status >= 500 ? `HTTP ${res.status}` : null);
       }
@@ -184,7 +174,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
         const alairas = await signEllenorzoString(draft.ellenorzoString, signKey);
         const { xml } = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signCertB64 }, guests);
         const envelope = await buildSignedEnvelope({ bodyXml: xml, clientCertPem: sec.clientCert, clientKey });
-        const res = await callThf(cfg.thf_url, envelope, httpClient);
+        const res = await callThf(cfg.thf_url, envelope, sec);
         line.departures = { sent: departures.length, http: res.status };
         await markResult(db, departures.map((d: { id: string }) => d.id), "departure", res.status < 500 ? res.body : null, res.status >= 500 ? `HTTP ${res.status}` : null);
       }
