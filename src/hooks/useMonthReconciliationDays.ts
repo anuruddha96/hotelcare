@@ -28,7 +28,12 @@ export function useMonthReconciliationDays(hotelId: string | null | undefined, m
   return useQuery({
     queryKey: monthReconciliationKey(hotelId, month),
     enabled: Boolean(hotelId) && /^\d{4}-\d{2}$/.test(month),
-    staleTime: 60_000,
+    // Revenue imports can add hundreds of room-nights after an earlier
+    // partial read. Revalidate rather than displaying an old month as current.
+    staleTime: 0,
+    refetchInterval: 30_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
     retry: false,
     queryFn: () => fetchMonthReconciliationDays(hotelId as string, month),
   });
