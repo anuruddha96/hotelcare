@@ -7,6 +7,7 @@
 // system (manual change → pickup increase → reconciliation → markdown) and
 // hands it to `revenue-push-drafts`. No browser tab is involved.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { authorizeRevenueWorkerRequest } from "../_shared/revenueWorkerAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
