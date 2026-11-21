@@ -109,6 +109,18 @@ describe("MonthPerformanceHeader — whole month", () => {
     expect(screen.getByText("ADR calculation & breakfast settings").closest("details")?.open).toBe(false);
   });
 
+  it("hides a partial stayed-only month when future Previo nights are missing", () => {
+    // The calendar contains all 30 dates, but the booking import has not
+    // loaded the nights from today onward. The pricing calendar has.
+    recon.data = DAYS.map((day) => day.stay_date < "2026-11-12"
+      ? day : { ...day, commercial_sold: 0, best_commercial_sold: 0, room_revenue_gross: 0 });
+    recon.isLoading = false;
+    renderHeader();
+    expect(screen.getByText(/PMS booking totals do not match the pricing calendar/)).toBeTruthy();
+    expect(screen.queryByText("110 of 300 room-nights · whole month")).toBeNull();
+    expect(screen.queryByText("€125")).toBeNull();
+  });
+
   it("refuses to label future-only figures as whole-month ADR when the month request fails", () => {
     recon.data = undefined; recon.isLoading = false;
     renderHeader();
