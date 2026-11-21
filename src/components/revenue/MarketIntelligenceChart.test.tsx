@@ -84,9 +84,22 @@ describe("hotel comparison — reconciled full months", () => {
       expect(within(card).getByText(`${Math.round(sold / 20 * 100)}%`)).toBeInTheDocument();
       expect(within(card).getByText(`€${adr}`)).toBeInTheDocument();
       expect(within(card).getByText(`€${Math.round(sold * adr / 20)}`)).toBeInTheDocument();
-      expect(within(card).getByText("30 calendar nights · PMS verified")).toBeInTheDocument();
+      expect(within(card).getByRole("button", { name: "Data details for " + hotel.hotel_name })).toBeInTheDocument();
     }
-    expect(within(comparison).getByText(/stayed \+ booked · ADR and RevPAR include breakfast/)).toBeInTheDocument();
+    expect(within(comparison).getByText(/Hotel comparison/)).toBeInTheDocument();
+  });
+
+  it("shows recorded financial KPIs despite unpriced nights, with details available on tap", async () => {
+    monthQueries.mockImplementation(() => queries().map((query, i) => i === 0
+      ? { ...query, data: query.data.map((day, n) => n === 9 ? { ...day, unpriced_nights: 2 } : day) }
+      : query));
+    const comparison = await openComparison();
+    const card = within(comparison).getByText("Hotel Ottofiori").closest("article")!;
+    expect(within(card).getByText("€151")).toBeInTheDocument();
+    expect(within(card).getByText("€75")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Data details for Hotel Ottofiori" })).toBeInTheDocument();
+    expect(within(comparison).queryByText(/Rankings are paused/)).toBeNull();
+    expect(within(comparison).queryByText(/sold room-nights have no price/)).toBeNull();
   });
 
   it("sorts all venues by performance and distinctly highlights the currently viewed hotel", async () => {
@@ -97,24 +110,25 @@ describe("hotel comparison — reconciled full months", () => {
       "hotel-rank-memories-budapest", "hotel-rank-mika-downtown",
       "hotel-rank-gozsdu-court", "hotel-rank-ottofiori",
     ]);
-    expect(within(comparison).getByText(/Viewing: Hotel Ottofiori · #4 of 4/)).toBeInTheDocument();
+    expect(cards[3]).toHaveAccessibleName(/rank 4/);
     expect(cards[3]).toHaveAttribute("aria-current", "true");
     expect(cards[0]).not.toHaveAttribute("aria-current");
-    expect(within(cards[3]).getByText(/YOU ARE HERE/)).toBeInTheDocument();
+    expect(cards[3]).toHaveAttribute("aria-current", "true");
   });
 
   it("refuses to show a partial 19-day ADR as full-month ADR", async () => {
     monthQueries.mockImplementation(() => queries().map((query, i) => i === 0 ? { ...query, data: query.data.slice(11) } : query));
     const comparison = await openComparison();
     const card = within(comparison).getByText("Hotel Ottofiori").closest("article")!;
-    expect(within(card).getByText("Complete monthly reservation data is unavailable")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Data details for Hotel Ottofiori" })).toBeInTheDocument();
     expect(within(card).queryByText("€150")).toBeNull();
+    expect(within(card).getAllByText("—").length).toBeGreaterThan(0);
   });
 
   it("shows reconciliation errors without inventing values and permits retry", async () => {
     monthQueries.mockImplementation(() => queries().map((query) => ({ ...query, data: undefined, isError: true })));
     const comparison = await openComparison();
-    expect(within(comparison).getByRole("alert")).toHaveTextContent("Some PMS checks failed");
+    expect(within(comparison).queryByRole("alert")).toBeNull();
     fireEvent.click(within(comparison).getByRole("button", { name: "Retry comparison" }));
     expect(refetch).toHaveBeenCalledTimes(hotels.length);
   });
@@ -122,8 +136,8 @@ describe("hotel comparison — reconciled full months", () => {
   it("clearly marks unavailable month data while loading", async () => {
     monthQueries.mockImplementation(() => queries().map((query) => ({ ...query, data: undefined, isFetching: true })));
     const comparison = await openComparison();
-    expect(within(comparison).getByRole("button", { name: "Loading comparison…" })).toBeDisabled();
-    expect(within(comparison).getAllByText("Checking latest PMS records…")).toHaveLength(hotels.length);
+    expect(within(comparison).getByRole("button", { name: "Refresh comparison" })).toBeDisabled();
+    expect(within(comparison).getAllByRole("article")).toHaveLength(hotels.length);
   });
 });
 

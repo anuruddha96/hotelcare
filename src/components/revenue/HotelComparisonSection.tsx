@@ -4,7 +4,8 @@ import { buildMonthBreakdown, wholeMonthOf } from "@/lib/kpiReconciliation";
 import { fetchMonthReconciliationDays, monthReconciliationKey } from "@/hooks/useMonthReconciliationDays";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Trophy } from "lucide-react";
+import { AlertCircle, Info, RefreshCw, Sparkles, Trophy } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { rankHotelsByPerformance } from "@/lib/hotelPerformanceRanking";
 import { budapestDayOf } from "@/lib/revenueAnalytics";
 import { validateHotelComparisonData, type ComparisonAvailabilityRow, type ComparisonSyncState } from "@/lib/revenue/hotelComparisonIntegrity";
@@ -123,8 +124,10 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
       const query = monthlyQueries[index];
       const syncQuery = syncQueries[index];
       const rows = query?.data ?? [];
-      const checking = Boolean(query?.isFetching)
-        || (hasFutureNights && (Boolean(syncQuery?.isFetching) || availabilityQuery.isFetching));
+      // Keep already reconciled numbers visible during background refreshes.
+      // A fetch spinner is only appropriate before we have any data.
+      const checking = !query?.data && (Boolean(query?.isFetching)
+        || (hasFutureNights && (Boolean(syncQuery?.isFetching) || availabilityQuery.isFetching)));
       const integrity = validateHotelComparisonData({
         rows, month: selectedMonth, today,
         availability: (availabilityQuery.data ?? []).filter((row) => row.hotel_id === hotel.hotel_id),
@@ -139,10 +142,12 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
       const month = verified ? wholeMonthOf(buildMonthBreakdown(rows)) : null;
       const fx = eurRateByHotel.get(hotel.hotel_id);
       const occ = month?.occupancyPct == null ? null : Math.round(month.occupancyPct);
-      // Do not rank on partially priced sales: ADR and RevPAR are unverified.
-      const adr = !integrity.pricesVerified || month?.adrGross == null || !fx
+      // These are the actual reported priced-night ADR and recorded gross
+      // RevPAR. Missing price allocations are disclosed via a tap-to-open icon,
+      // not by hiding the values that the source provides.
+      const adr = month?.adrGross == null || !fx
         ? null : Math.round(month.adrGross / fx);
-      const revpar = !integrity.pricesVerified || month?.revparGross == null || !fx
+      const revpar = month?.revparGross == null || !fx
         ? null : Math.round(month.revparGross / fx);
       const sourceError = Boolean(query?.isError)
         || (hasFutureNights && (Boolean(syncQuery?.isError) || availabilityQuery.isError));
@@ -153,134 +158,121 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
       return {
         ...hotel, nights: verified ? daysInMonth : 0,
         occ, adr, revpar, unavailable,
+        priceNote: verified ? integrity.priceIssue : null,
+        inventoryNote: verified ? integrity.issue : null,
+        bookedNights: month?.sold ?? null,
+        availableNights: month?.capacity ?? null,
+        grossRevenue: month?.revenueGross ?? null,
+        priceNights: month?.priced ?? null,
         verifiedAt: hasFutureNights ? syncQuery?.data?.last_success_at ?? null : null,
       };
     });
-    // An incomplete portfolio must not claim any hotel is #1 of four.
-    if (snapshots.some((hotel) => hotel.occ == null || hotel.adr == null || hotel.revpar == null)) {
-      return snapshots.map((hotel) => ({ ...hotel, rank: null, rankPoints: null }));
-    }
+    // Rank hotels that have real available numbers. Incomplete PMS sources
+    // remain unranked, but never suppress valid numbers from other hotels.
     return rankHotelsByPerformance(snapshots);
   }, [hotels, monthlyQueries, syncQueries, availabilityQuery.data, availabilityQuery.dataUpdatedAt,
     availabilityQuery.isFetching, availabilityQuery.isError, selectedMonth, today, hasFutureNights,
     daysInMonth, eurRateByHotel]);
 
-  const comparisonBenchmark = useMemo(() => {
-    const valid = comparison.filter((x) => x.occ != null && x.adr != null);
-    if (valid.length !== comparison.length || valid.length < 2) return { occ: null as number | null, adr: null as number | null };
-    return {
-      occ: Math.round(valid.reduce((sum, hotel) => sum + (hotel.occ ?? 0), 0) / valid.length),
-      adr: Math.round(valid.reduce((sum, hotel) => sum + (hotel.adr ?? 0), 0) / valid.length),
-    };
-  }, [comparison]);
 
-
-  if (!hotels.length || !/^\d{4}-\d{2}$/.test(selectedMonth)) return null;
+  if (!hotels.length || !/^[0-9]{4}-[0-9]{2}$/.test(selectedMonth)) return null;
   return (
-    <section aria-label="Hotel comparison" aria-busy={comparisonLoading} className="rounded-xl border bg-muted/10 p-3 sm:p-4">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-semibold">Hotel comparison</p>
-                    <p className="text-[10px] text-muted-foreground">Whole month {selectedMonth} · stayed + booked · ADR and RevPAR include breakfast & extras · EUR converted.</p>
-                  </div>
-                  <Button size="sm" variant="ghost" className="h-8 text-xs"
-                    onClick={() => window.dispatchEvent(new CustomEvent("hotelcare:ask-ai", { detail: { prompt:
-                      `Review the hotel portfolio comparison for ${selectedMonth}. Use full-month stayed plus booked, gross booking ADR including breakfast and extras, and show meaningful differences in occupancy and RevPAR. Identify missing reconciliation dates, missing FX data, or actionable revenue opportunities. Never compare a future-only ADR to a whole-month ADR.` } }))}>
-                    Ask AI
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-8 text-xs" disabled={comparisonLoading} onClick={() => void (async () => {
-                      if (hasFutureNights) await Promise.all(syncQueries.map((q) => q.refetch()));
-                      await Promise.all([
-                        ...monthlyQueries.map((q) => q.refetch()),
-                        ...(hasFutureNights ? [availabilityQuery.refetch()] : []),
-                      ]);
-                    })()}>
-                    {comparisonLoading ? "Loading comparison…" : comparisonError ? "Retry comparison" : "Refresh comparison"}
-                  </Button>
-                </div>
-                <p className="mb-3 text-[10px] leading-relaxed text-muted-foreground sm:text-xs"
-                  title="ADR and RevPAR leader ranks first; otherwise occupancy, ADR and RevPAR are equally weighted, with RevPAR breaking ties.">
-                  Ranked by occupancy, ADR and RevPAR
-                </p>
-                {comparison.find((s) => s.hotel_id === hotelId) && (
-                  <p className="mb-3 text-xs font-medium text-sky-700 dark:text-sky-300" aria-live="polite">
-                    Viewing: {comparison.find((s) => s.hotel_id === hotelId)?.hotel_name}
-                    {comparison.every((s) => s.rank != null)
-                      ? " · #" + comparison.find((s) => s.hotel_id === hotelId)?.rank + " of " + comparison.length
-                      : " · ranking withheld until PMS figures are verified"}
+    <section aria-label="Hotel comparison" aria-busy={comparisonLoading}
+      className="rounded-xl border bg-muted/10 p-3 sm:p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
+          Hotel comparison <span className="ml-1 font-normal text-muted-foreground">{selectedMonth}</span>
+        </h3>
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"
+          aria-label="Ask AI about hotel comparison" title="Ask AI"
+          onClick={() => window.dispatchEvent(new CustomEvent("hotelcare:ask-ai", { detail: { prompt:
+            "Review the recorded whole-month stayed and booked occupancy, gross ADR and RevPAR for " + selectedMonth +
+            ". Check data-quality flags and price coverage before recommending actions." } }))}>
+          <Sparkles className="h-4 w-4" />
+        </Button>
+        <Button variant="outline" size="icon" className="h-8 w-8 shrink-0"
+          aria-label={comparisonError ? "Retry comparison" : "Refresh comparison"}
+          title={comparisonError ? "Retry comparison" : "Refresh comparison"}
+          disabled={comparisonLoading}
+          onClick={() => void (async () => {
+            if (hasFutureNights) await Promise.all(syncQueries.map((q) => q.refetch()));
+            await Promise.all([
+              ...monthlyQueries.map((q) => q.refetch()),
+              ...(hasFutureNights ? [availabilityQuery.refetch()] : []),
+            ]);
+          })()}>
+          <RefreshCw className={"h-4 w-4" + (comparisonLoading ? " animate-spin" : "")} />
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+        {comparison.map((hotel, index) => {
+          const isCurrent = hotel.hotel_id === hotelId;
+          const hasCaution = Boolean(hotel.unavailable || hotel.priceNote || hotel.inventoryNote);
+          return (
+            <article key={hotel.hotel_id} data-testid={"hotel-rank-" + hotel.hotel_id}
+              aria-current={isCurrent ? "true" : undefined}
+              aria-label={hotel.hotel_name + ", " + (hotel.rank != null ? "rank " + hotel.rank : "unranked") +
+                (isCurrent ? ", currently viewing" : "")}
+              className={"min-w-0 rounded-xl border p-2.5 sm:p-3 " +
+                (isCurrent ? "border-sky-400/70 bg-sky-500/[0.045] dark:bg-sky-400/[0.06]"
+                  : "border-border/70 bg-card")}>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className={"flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold tabular-nums " +
+                  (hotel.rank === 1 ? "bg-amber-100 text-amber-900 dark:bg-amber-400/20 dark:text-amber-200"
+                    : isCurrent ? "bg-sky-500/10 text-sky-800 dark:text-sky-300" : "bg-muted")}>
+                  {hotel.rank ?? "–"}
+                </span>
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorFor(hotel.hotel_id, index) }} />
+                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold" title={hotel.hotel_name}>
+                  {hotel.hotel_name}
+                </span>
+                {hotel.rank === 1 && <Trophy className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="Top performer" />}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" aria-label={"Data details for " + hotel.hotel_name}
+                      title="Data details"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      {hasCaution
+                        ? <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                        : <Info className="h-3.5 w-3.5" />}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" side="bottom" className="w-64 max-w-[calc(100vw-2rem)] space-y-2 text-xs leading-relaxed">
+                    <p className="font-semibold">{hotel.hotel_name} · {selectedMonth}</p>
+                    <p className="text-muted-foreground">Full month: stayed + booked nights. Gross rates include breakfast and extras. Converted to EUR.</p>
+                    {hotel.bookedNights != null && hotel.availableNights != null &&
+                      <p>{hotel.bookedNights} sold / {hotel.availableNights} available room-nights.</p>}
+                    {hotel.grossRevenue != null && <p>Recorded gross booking value: {eurMoney(hotel.grossRevenue)}.</p>}
+                    {hotel.priceNote && <p className="text-amber-700 dark:text-amber-300">{hotel.priceNote}.</p>}
+                    {hotel.inventoryNote && <p className="text-amber-700 dark:text-amber-300">{hotel.inventoryNote}.</p>}
+                    {hotel.unavailable && !hotel.bookedNights &&
+                      <p className="text-amber-700 dark:text-amber-300">{hotel.unavailable}.</p>}
+                    {hotel.verifiedAt &&
+                      <p className="text-muted-foreground">Last successful PMS sync: {new Date(hotel.verifiedAt).toLocaleString()}.</p>}
+                    {hotel.priceNote && <p className="text-muted-foreground">The ranking uses recorded KPIs and may change once missing prices are reconciled.</p>}
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-1">
+                <div className="min-w-0">
+                  <p className="text-[9px] uppercase text-muted-foreground">Occ</p>
+                  <p className="truncate text-base font-bold tabular-nums sm:text-lg">
+                    {hotel.occ == null ? "—" : hotel.occ + "%"}
                   </p>
-                )}
-                {comparisonError && <p role="alert" className="mb-2 text-xs text-destructive">Some PMS checks failed. Unverified figures are hidden, not estimated.</p>}
-                {!comparisonLoading && comparison.some((s) => s.unavailable) && (
-                  <p role="status" className="mb-2 rounded-md border border-amber-300/60 px-2 py-1.5 text-[10px] text-amber-800 dark:text-amber-300">
-                    Rankings are paused until reservations, inventory and prices are verified for every property.
-                    Missing PMS bookings are never treated as zero.
-                  </p>
-                )}
-                <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-                  {comparison.map((s, i) => {
-                    const isCurrent = s.hotel_id === hotelId;
-                    const occDelta = s.occ != null && comparisonBenchmark.occ != null ? s.occ - comparisonBenchmark.occ : null;
-                    const adrDelta = s.adr != null && comparisonBenchmark.adr != null ? s.adr - comparisonBenchmark.adr : null;
-                    return (
-                      <article key={s.hotel_id} data-testid={`hotel-rank-${s.hotel_id}`} aria-current={isCurrent ? "true" : undefined}
-                        aria-label={`${s.hotel_name}, ${s.rank != null ? `rank ${s.rank}` : "unranked"}${isCurrent ? ", currently viewing" : ""}`}
-                        className={`relative min-w-0 rounded-xl border p-2.5 transition-colors duration-300 sm:p-3 ${isCurrent
-                          ? "border-sky-500/45 bg-sky-500/[0.025] dark:border-sky-400/40 dark:bg-sky-400/[0.04]"
-                          : "border-border/70 bg-card hover:bg-muted/30"}`}>
-                        <div className="flex min-w-0 items-start gap-2 sm:gap-2.5">
-                          <span title={s.rank != null ? `Portfolio rank #${s.rank}` : "Not ranked — missing monthly data"}
-                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold tabular-nums sm:h-8 sm:w-8 sm:text-base ${s.rank === 1
-                              ? "bg-amber-100 text-amber-900 ring-1 ring-amber-300/70 dark:bg-amber-400/20 dark:text-amber-200"
-                              : isCurrent ? "bg-sky-500/10 text-sky-800 dark:bg-sky-400/15 dark:text-sky-300" : "bg-muted text-foreground"}`}>
-                            {s.rank ?? "—"}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex min-w-0 items-center gap-1.5">
-                              <span className="h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5" style={{ background: colorFor(s.hotel_id, i) }} />
-                              <p className="min-w-0 truncate text-[10px] font-semibold sm:text-xs" title={s.hotel_name}>{s.hotel_name}</p>
-                            </div>
-                            <div className="mt-1 h-4">
-                              {isCurrent ? (
-                                <span className="inline-flex items-center rounded bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-medium leading-none text-sky-700 dark:text-sky-300">
-                                  YOU ARE HERE
-                                </span>
-                              ) : s.rank === 1 ? (
-                                <span className="inline-flex items-center gap-1 text-[9px] font-medium leading-4 text-amber-700 dark:text-amber-300">
-                                  <Trophy className="h-3 w-3" aria-hidden="true" /> Top performer
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-2 grid grid-cols-3 gap-1 sm:mt-3 sm:gap-2">
-                          <div className="min-w-0">
-                            <p className="text-[8px] uppercase text-muted-foreground sm:text-[9px]">Occ</p>
-                            <p className="truncate text-sm font-semibold tabular-nums sm:text-lg">{s.occ == null ? "—" : `${s.occ}%`}</p>
-                            {occDelta != null && <p className="hidden text-[9px] text-muted-foreground sm:block">{occDelta >= 0 ? "+" : ""}{occDelta} pts vs portfolio</p>}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[8px] uppercase text-muted-foreground sm:text-[9px]">ADR</p>
-                            <p className="truncate text-sm font-semibold tabular-nums sm:text-lg">{eurMoney(s.adr)}</p>
-                            {adrDelta != null && <p className="hidden text-[9px] text-muted-foreground sm:block">{adrDelta >= 0 ? "+" : "−"}€{Math.abs(adrDelta)} vs portfolio</p>}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[8px] uppercase text-muted-foreground sm:text-[9px]">RevPAR</p>
-                            <p className="truncate text-sm font-semibold tabular-nums sm:text-lg">{eurMoney(s.revpar)}</p>
-                          </div>
-                        </div>
-                        {(occDelta != null || adrDelta != null) && (
-                          <p className="mt-1.5 truncate text-[8px] text-muted-foreground sm:hidden">
-                            vs portfolio:{occDelta != null ? ` OCC ${occDelta >= 0 ? "+" : ""}${occDelta}pt` : ""}{adrDelta != null ? ` · ADR ${adrDelta >= 0 ? "+" : "−"}€${Math.abs(adrDelta)}` : ""}
-                          </p>
-                        )}
-                        <p className="mt-2 text-[9px] text-muted-foreground sm:text-[10px]">
-                          {s.unavailable ?? (s.nights ? s.nights + " calendar nights · PMS verified" + (s.verifiedAt ? " · " + new Date(s.verifiedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "") : "Full-month data not verified")}
-                        </p>
-                      </article>
-                    );
-                  })}
                 </div>
-              </section>
+                <div className="min-w-0">
+                  <p className="text-[9px] uppercase text-muted-foreground">ADR</p>
+                  <p className="truncate text-base font-bold tabular-nums sm:text-lg">{eurMoney(hotel.adr)}</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] uppercase text-muted-foreground">RevPAR</p>
+                  <p className="truncate text-base font-bold tabular-nums sm:text-lg">{eurMoney(hotel.revpar)}</p>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
