@@ -609,7 +609,7 @@ export default function MonthPerformanceHeader({
             after the monthly KPIs, before the optional ADR calculation. */}
         <HotelComparisonSection hotels={comparisonHotels} hotelId={hotelId ?? null} selectedMonth={month} />
 
-        {monthComplete && breakdown.length > 0 && !tilesLoading && (
+        {whole && !hasUnpricedMonthNights && breakdown.length > 0 && !tilesLoading && (
           <details className="rounded-lg border px-3 py-2 text-xs">
             <summary className="cursor-pointer font-medium">{hu ? "ADR számítás és reggeli beállítások" : "ADR calculation & breakfast settings"}</summary>
             <div className="mt-2">
