@@ -66,17 +66,24 @@ export function validateHotelComparisonData({
 
   let missingPrices = 0;
   let anyBookingEvidence = false;
+  let overCapacityDays = 0;
+  let extraAvailabilityDays = 0;
   for (const day of rows) {
     const capacity = numeric(day.commercial_capacity);
     const sold = numeric(day.commercial_sold);
     const unpriced = numeric(day.unpriced_nights);
     const gross = numeric(day.room_revenue_gross);
     if (!Number.isInteger(capacity) || capacity <= 0
-        || !Number.isInteger(sold) || sold < 0 || sold > capacity
+        || !Number.isInteger(sold) || sold < 0
         || !Number.isInteger(unpriced) || unpriced < 0 || unpriced > sold
-        || !Number.isFinite(gross) || gross < 0
-        || (day.flags ?? []).includes("overbooked_or_duplicate")) {
+        || !Number.isFinite(gross) || gross < 0) {
       return invalid("PMS room counts or booking revenue failed validation");
+    }
+    // A real PMS can record overbooking on individual nights. Do not erase
+    // the entire monthly hotel's KPIs because of one such flagged date.
+    // Keep the original sold nights; surface the anomaly in card details.
+    if (sold > capacity || (day.flags ?? []).includes("overbooked_or_duplicate")) {
+      overCapacityDays++;
     }
     if (sold > 0 && !day.bookings_captured_at) {
       return invalid("Reservation capture date is missing");
@@ -93,7 +100,9 @@ export function validateHotelComparisonData({
 
   if (monthEnd >= today) {
     const successAt = Date.parse(sync?.last_success_at ?? "");
-    if (sync?.scope === "this_property") return invalid("PMS sync in progress");
+    // Keep displaying the last consistent snapshot while a new sync runs.
+    // The independent forward availability cross-check below still guards
+    // against a partially imported reservation horizon.
     if (!Number.isFinite(successAt) || successAt > nowMs + CAPTURE_GRACE_MS
         || nowMs - successAt > MAX_SYNC_AGE_MS) {
       return invalid("A recent successful PMS sync could not be verified");
@@ -130,8 +139,16 @@ export function validateHotelComparisonData({
       // of overbooking/room moves; material missing bookings never pass.
       const tolerance = Math.max(2, Math.ceil(day.commercial_capacity * 0.05));
       const unaccounted = day.commercial_capacity - day.commercial_sold - remaining;
-      if (Math.abs(unaccounted) > tolerance) {
-        return invalid("PMS availability and booked room-nights do not reconcile");
+      if (unaccounted > tolerance) {
+        // This is the dangerous direction: Previo has sold capacity missing
+        // from the imported booking ledger. It reproduced 66% vs 90%.
+        return invalid("PMS availability indicates missing future bookings");
+      }
+      if (unaccounted < -tolerance) {
+        // PMS availability can include separate blocks/unsynced inventory
+        // definitions. That difference is a caution, not proof that
+        // reservations or their monetary totals are missing.
+        extraAvailabilityDays++;
       }
       if (day.commercial_sold > 0) {
         const capturedAt = Date.parse(day.bookings_captured_at ?? "");
@@ -143,10 +160,16 @@ export function validateHotelComparisonData({
     }
   }
 
+  const details: string[] = [];
+  if (overCapacityDays) details.push(`${overCapacityDays} date(s) exceed configured capacity or are flagged as overbooked`);
+  if (extraAvailabilityDays) details.push(`${extraAvailabilityDays} future date(s) have higher PMS availability than reconciled inventory`);
+  if (sync?.scope === "this_property") details.push("PMS synchronization is running");
   return {
     bookingsVerified: true,
     pricesVerified: missingPrices === 0,
-    issue: null,
-    priceIssue: missingPrices ? `${missingPrices} sold room-nights have no verified price` : null,
+    issue: details.join("; ") || null,
+    priceIssue: missingPrices
+      ? `${missingPrices} sold room-nights have no price; ADR uses priced nights and RevPAR is based on recorded revenue`
+      : null,
   };
 }
