@@ -17,6 +17,14 @@ function tierIncrease(tiers: Tier[], n: number): number {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return new Response(JSON.stringify({ error: "POST required" }), {
+    status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+  if (!authorizeRevenueWorkerRequest(req, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))) {
+    return new Response(JSON.stringify({ error: "Internal worker authentication required" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
