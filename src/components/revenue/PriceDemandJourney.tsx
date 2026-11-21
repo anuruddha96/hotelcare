@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Activity, ArrowDownRight, ArrowUpRight, CalendarDays, CalendarX,
-  CheckCircle2, Clock3, ExternalLink, History, Hotel, Info, Loader2,
-  Minus, RefreshCw, ShieldAlert, TicketCheck,
+  Activity, CalendarDays, CalendarX, CheckCircle2, Clock3,
+  ExternalLink, History, Hotel, Info, Loader2, RefreshCw, TicketCheck,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { moneyBase } from "@/lib/revenueCurrency";
-import { formatWhen, type RateAuditRow } from "@/lib/rateAudit";
+import type { RateAuditRow } from "@/lib/rateAudit";
 import { groupCellChanges } from "@/lib/rateChangeGroups";
 import type { AutomationAction } from "@/hooks/usePickupAutomationActions";
 import type { BookingNight, CancelledNight, DayMetrics } from "@/lib/revenueAnalytics";
@@ -180,7 +179,8 @@ export default function PriceDemandJourney({
   );
 
   const displayRows = showAllTimeline ? timeline : timeline.slice(0, 10);
-  const available = roomsLeft == null ? "—" : String(roomsLeft);
+  const snapshotReady = !revenueLoading && !!lastSyncAt;
+  const available = !snapshotReady || roomsLeft == null ? "—" : String(roomsLeft);
   const formattedSync = lastSyncAt ? formatMoment(lastSyncAt) : "Last completed sync not available";
 
   return (
@@ -211,18 +211,20 @@ export default function PriceDemandJourney({
         </div>
         {revenueLoading && <p className="text-[11px] text-amber-700">Revenue data is still loading; counts may be incomplete.</p>}
         <div className="grid grid-cols-2 gap-2">
-          <SignalCard title="Active reservations" value={String(room.active.length)}
+          <SignalCard title="Active reservations" value={snapshotReady ? String(room.active.length) : "—"}
             note="Booking references covering this night" />
-          <SignalCard title="Recorded cancellations" value={String(room.cancelled.length)}
+          <SignalCard title="Recorded cancellations" value={snapshotReady ? String(room.cancelled.length) : "—"}
             note="Cancelled bookings that covered this night" />
           <SignalCard title="Rooms available" value={available}
             note={roomCapacity == null ? "This room type · Previo inventory" : "Of " + roomCapacity + " configured rooms"} />
-          <SignalCard title="7-day net bookings" value={(last7d.net > 0 ? "+" : "") + last7d.net}
-            note={String(last7d.bookings) + " booked · " + String(last7d.cancellations) + " cancelled"} />
+          <SignalCard title="7-day net bookings" value={snapshotReady ? (last7d.net > 0 ? "+" : "") + last7d.net : "—"}
+            note={snapshotReady ? String(last7d.bookings) + " booked · " + String(last7d.cancellations) + " cancelled" : "PMS snapshot not confirmed"} />
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Last 24h for this room type: {countText(last24h.bookings, "new booking", "new bookings")}
-          {" · "}{countText(last24h.cancellations, "cancellation", "cancellations")}.
+          {snapshotReady ? (
+            <>Last 24h for this room type: {countText(last24h.bookings, "new booking", "new bookings")}
+            {" · "}{countText(last24h.cancellations, "cancellation", "cancellations")}.</>
+          ) : "Reservation totals will appear after the published PMS snapshot has completed."}
           Counts use recorded PMS timestamps, not inferred reservations.
         </p>
       </section>
