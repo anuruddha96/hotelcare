@@ -57,6 +57,14 @@ function daysBetween(from: string, to: string): number {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") return new Response(JSON.stringify({ error: "POST required" }), {
+    status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+  if (!authorizeRevenueWorkerRequest(req, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))) {
+    return new Response(JSON.stringify({ error: "Internal worker authentication required" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
