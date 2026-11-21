@@ -10,6 +10,10 @@ on:
       - 'supabase/functions/assistant-apply-automation-change/**'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
+      - 'supabase/functions/_shared/revenueWorkerAuth*'
+      - 'supabase/functions/revenue-engine-tick/**'
+      - 'supabase/functions/revenue-autopilot-tick/**'
+      - 'supabase/functions/revenue-publish-queue/**'
       - 'supabase/functions/_shared/ottofioriAiSupervisor*'
       - 'supabase/functions/_shared/ottofioriMarketDates*'
       - 'supabase/functions/ottofiori-ai-supervisor/**'
@@ -23,6 +27,10 @@ on:
       - 'supabase/functions/assistant-apply-automation-change/**'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
+      - 'supabase/functions/_shared/revenueWorkerAuth*'
+      - 'supabase/functions/revenue-engine-tick/**'
+      - 'supabase/functions/revenue-autopilot-tick/**'
+      - 'supabase/functions/revenue-publish-queue/**'
       - 'supabase/functions/_shared/ottofioriAiSupervisor*'
       - 'supabase/functions/_shared/ottofioriMarketDates*'
       - 'supabase/functions/ottofiori-ai-supervisor/**'
@@ -42,6 +50,8 @@ jobs:
           deno-version: v2.x
       - name: Run Revenue Engine V2 regression tests
         run: deno test supabase/functions/_shared/engineV2*_test.ts
+      - name: Test internal revenue worker authentication
+        run: deno test supabase/functions/_shared/revenueWorkerAuth_test.ts
       - name: Type-check Ottofiori AI supervisor
         run: deno check --node-modules-dir=none supabase/functions/ottofiori-ai-supervisor/index.ts
       - name: Type-check the pricing engine and the chat rule-change writer
