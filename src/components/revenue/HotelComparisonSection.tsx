@@ -175,7 +175,7 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
     daysInMonth, eurRateByHotel]);
 
 
-  if (!hotels.length || !/^\\d{4}-\\d{2}$/.test(selectedMonth)) return null;
+  if (!hotels.length || !/^[0-9]{4}-[0-9]{2}$/.test(selectedMonth)) return null;
   return (
     <section aria-label="Hotel comparison" aria-busy={comparisonLoading}
       className="rounded-xl border bg-muted/10 p-3 sm:p-4">
