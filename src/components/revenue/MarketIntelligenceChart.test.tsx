@@ -7,7 +7,7 @@ const { portfolio, benchmark, monthQueries, refetch } = vi.hoisted(() => ({
   portfolio: vi.fn(), benchmark: vi.fn(), monthQueries: vi.fn(), refetch: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", async (original) => ({
-  ...await original<object>(), useQueries: (...args: unknown[]) => monthQueries(...args),
+  ...await original<object>(), useQueries: (...args: unknown[]) => monthQueries(...args),\n  useQuery: () => ({ data: [], dataUpdatedAt: 0, isFetching: false, isError: false, refetch }),
 }));
 vi.mock("@/hooks/usePortfolioSnapshots", () => ({ usePortfolioSnapshots: portfolio }));
 vi.mock("@/hooks/usePortfolioRateBenchmark", () => ({ usePortfolioRateBenchmark: benchmark }));
@@ -82,7 +82,7 @@ describe("hotel comparison — reconciled full months", () => {
       expect(within(card).getByText(`${Math.round(sold / 20 * 100)}%`)).toBeInTheDocument();
       expect(within(card).getByText(`€${adr}`)).toBeInTheDocument();
       expect(within(card).getByText(`€${Math.round(sold * adr / 20)}`)).toBeInTheDocument();
-      expect(within(card).getByText("30 full-month dates checked")).toBeInTheDocument();
+      expect(within(card).getByText("30 calendar nights · PMS verified")).toBeInTheDocument();
     }
     expect(within(comparison).getByText(/stayed \+ booked · ADR and RevPAR include breakfast/)).toBeInTheDocument();
   });
@@ -105,14 +105,14 @@ describe("hotel comparison — reconciled full months", () => {
     monthQueries.mockImplementation(() => queries().map((query, i) => i === 0 ? { ...query, data: query.data.slice(11) } : query));
     const comparison = await openComparison();
     const card = within(comparison).getByText("Hotel Ottofiori").closest("article")!;
-    expect(within(card).getByText("Full-month data unavailable")).toBeInTheDocument();
+    expect(within(card).getByText("Complete monthly reservation data is unavailable")).toBeInTheDocument();
     expect(within(card).queryByText("€150")).toBeNull();
   });
 
   it("shows reconciliation errors without inventing values and permits retry", async () => {
     monthQueries.mockImplementation(() => queries().map((query) => ({ ...query, data: undefined, isError: true })));
     const comparison = await openComparison();
-    expect(within(comparison).getByRole("alert")).toHaveTextContent("Some hotels could not be reconciled");
+    expect(within(comparison).getByRole("alert")).toHaveTextContent("Some PMS checks failed");
     fireEvent.click(within(comparison).getByRole("button", { name: "Retry comparison" }));
     expect(refetch).toHaveBeenCalledTimes(hotels.length);
   });
@@ -121,7 +121,7 @@ describe("hotel comparison — reconciled full months", () => {
     monthQueries.mockImplementation(() => queries().map((query) => ({ ...query, data: undefined, isFetching: true })));
     const comparison = await openComparison();
     expect(within(comparison).getByRole("button", { name: "Loading comparison…" })).toBeDisabled();
-    expect(within(comparison).getAllByText("Full-month data unavailable")).toHaveLength(hotels.length);
+    expect(within(comparison).getAllByText("Checking latest PMS records…")).toHaveLength(hotels.length);
   });
 });
 
