@@ -188,7 +188,13 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
                       `Review the hotel portfolio comparison for ${selectedMonth}. Use full-month stayed plus booked, gross booking ADR including breakfast and extras, and show meaningful differences in occupancy and RevPAR. Identify missing reconciliation dates, missing FX data, or actionable revenue opportunities. Never compare a future-only ADR to a whole-month ADR.` } }))}>
                     Ask AI
                   </Button>
-                  <Button size="sm" variant="outline" className="h-8 text-xs" disabled={comparisonLoading} onClick={() => void Promise.all(monthlyQueries.map((q) => q.refetch()))}>
+                  <Button size="sm" variant="outline" className="h-8 text-xs" disabled={comparisonLoading} onClick={() => void (async () => {
+                      if (hasFutureNights) await Promise.all(syncQueries.map((q) => q.refetch()));
+                      await Promise.all([
+                        ...monthlyQueries.map((q) => q.refetch()),
+                        ...(hasFutureNights ? [availabilityQuery.refetch()] : []),
+                      ]);
+                    })()}>
                     {comparisonLoading ? "Loading comparison…" : comparisonError ? "Retry comparison" : "Refresh comparison"}
                   </Button>
                 </div>
@@ -198,10 +204,19 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
                 </p>
                 {comparison.find((s) => s.hotel_id === hotelId) && (
                   <p className="mb-3 text-xs font-medium text-sky-700 dark:text-sky-300" aria-live="polite">
-                    Viewing: {comparison.find((s) => s.hotel_id === hotelId)?.hotel_name} · #{comparison.find((s) => s.hotel_id === hotelId)?.rank ?? "—"} of {comparison.length}
+                    Viewing: {comparison.find((s) => s.hotel_id === hotelId)?.hotel_name}
+                    {comparison.every((s) => s.rank != null)
+                      ? " · #" + comparison.find((s) => s.hotel_id === hotelId)?.rank + " of " + comparison.length
+                      : " · ranking withheld until PMS figures are verified"}
                   </p>
                 )}
-                {comparisonError && <p role="alert" className="mb-2 text-xs text-destructive">Some hotels could not be reconciled. Unavailable figures are not estimated.</p>}
+                {comparisonError && <p role="alert" className="mb-2 text-xs text-destructive">Some PMS checks failed. Unverified figures are hidden, not estimated.</p>}
+                {!comparisonLoading && comparison.some((s) => s.unavailable) && (
+                  <p role="status" className="mb-2 rounded-md border border-amber-300/60 px-2 py-1.5 text-[10px] text-amber-800 dark:text-amber-300">
+                    Rankings are paused until reservations, inventory and prices are verified for every property.
+                    Missing PMS bookings are never treated as zero.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
                   {comparison.map((s, i) => {
                     const isCurrent = s.hotel_id === hotelId;
@@ -260,7 +275,7 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
                           </p>
                         )}
                         <p className="mt-2 text-[9px] text-muted-foreground sm:text-[10px]">
-                          {s.unavailable ?? (s.nights ? `${s.nights} full-month dates checked` : "Full-month data unavailable")}
+                          {s.unavailable ?? (s.nights ? s.nights + " calendar nights · PMS verified" + (s.verifiedAt ? " · " + new Date(s.verifiedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "") : "Full-month data not verified")}
                         </p>
                       </article>
                     );
