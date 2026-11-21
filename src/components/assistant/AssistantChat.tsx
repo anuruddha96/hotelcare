@@ -1104,7 +1104,7 @@ function ChatSession({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className={cn("shrink-0 bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]", workspace ? "mx-auto w-full max-w-3xl px-2 sm:px-6" : "border-t")}>
+      <div className={cn("shrink-0 bg-background px-1 pb-3 pt-2", workspace ? "mx-auto w-full max-w-3xl px-2 sm:px-6" : "border-t")}>
         {profile?.role === "admin" && (
           <div className="mb-2 flex items-center gap-2 px-2">
             <span className="text-xs text-muted-foreground">AI model</span>
@@ -1124,7 +1124,7 @@ function ChatSession({
             {notice}
           </p>
         )}
-        <PromptInput onSubmit={submit} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className="rounded-2xl bg-background shadow-sm">
+        <PromptInput onSubmit={submit} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className="bg-background [&>[data-slot=input-group]]:rounded-2xl">
           <MiraFilePreview />
           <PromptInputTextarea
             ref={textareaRef}
@@ -1291,9 +1291,9 @@ export default function AssistantChat({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4">
           <AssistantWelcome workspace={workspace} disabled={starting} onAsk={(text) => void createAndSend({ text })} onVoice={toggleWelcomeVoice} voiceSupported={welcomeVoiceSupported} />
         </div>
-        <div className="z-10 w-full shrink-0 border-t bg-background px-3 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_22px_-18px_rgba(0,0,0,0.35)] sm:px-6">
+        <div className="z-10 w-full shrink-0 bg-background px-3 pb-3 pt-2 sm:px-6">
           <div className="mx-auto w-full max-w-3xl">
-            <PromptInput onSubmit={async ({ text, files }) => createAndSend({ text: text || welcomeDraft, files })} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className={cn("border bg-background shadow-sm", workspace ? "rounded-2xl" : "rounded-xl")}>
+            <PromptInput onSubmit={async ({ text, files }) => createAndSend({ text: text || welcomeDraft, files })} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className={cn("bg-background [&>[data-slot=input-group]]:rounded-xl", workspace && "[&>[data-slot=input-group]]:rounded-2xl")}>
               <MiraFilePreview />
               <PromptInputTextarea
                 ref={welcomeTextareaRef}
