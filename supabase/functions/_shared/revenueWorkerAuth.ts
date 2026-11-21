@@ -29,7 +29,7 @@ export function authorizeRevenueWorkerRequest(
 ): RevenueWorkerCaller | null {
   // Fail closed on missing or misconfigured credentials, rather than allowing
   // an empty/malformed engine header to match an empty secret.
-  if (!serviceRoleKey || serviceRoleKey.length > MAX_CREDENTIAL_LENGTH) return null;
+  if (!serviceRoleKey || serviceRoleKey.length > MAX_CREDENTIAL_LENGTH || !serviceRoleKey.trim() || serviceRoleKey.trim() !== serviceRoleKey) return null;
 
   if (matchesSecret(request.headers.get("x-engine-key"), serviceRoleKey)) {
     return "engine-key";
