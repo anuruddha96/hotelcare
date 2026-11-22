@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BookingNight, CancelledNight } from "@/lib/revenueAnalytics";
 import {
-  isFreshIndicativeQuote, matchesRoomNight, movementInWindow,
+  isFreshIndicativeQuote, matchesRoomNight, movementInWindow, priceDifference,
   reservationJourneyEvents, safeEvidenceUrl, selectRoomStayMovements,
   sortedJourneyEvents,
 } from "@/lib/revenue/priceDemandJourney";
@@ -32,6 +32,15 @@ function cancellation(fields: Partial<CancelledNight> = {}): CancelledNight {
 }
 
 describe("price and demand journey evidence", () => {
+  it("calculates signed price changes and never invents a missing previous price", () => {
+    expect(priceDifference(133, 128)).toBe(-5);
+    expect(priceDifference(138, 133)).toBe(-5);
+    expect(priceDifference(100, 110)).toBe(10);
+    expect(priceDifference(100, 100)).toBe(0);
+    expect(priceDifference(null, 110)).toBe(null);
+    expect(priceDifference(100, Number.NaN)).toBe(null);
+  });
+
   it("matches the selected STAY night and PMS room type, not guest count or rate plan", () => {
     expect(matchesRoomNight(booking(), stay, room, obk)).toBe(true);
     expect(matchesRoomNight(booking({ room_type_name: "Czech translated label" }), stay, room, obk)).toBe(true);
