@@ -69,6 +69,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
   const [count, setCount] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("unknown");
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [alertsEnabled, setAlertsEnabled] = useState(() => {
     try { return localStorage.getItem(alertKey(hotelId)) === "on"; } catch { return false; }
@@ -183,6 +184,12 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
     setLoading(false);
 
     if (error || !data || data?.error) {
+      const status = (error as any)?.context?.status;
+      setAccessError(status === 401
+        ? "Your staff sign-in has expired. Sign out and sign in again."
+        : status === 403
+          ? "You are not assigned to this hotel's restaurant reservations."
+          : null);
       setRows([]);
       setCovers(0);
       setCount(0);
@@ -190,6 +197,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
       return { ok: false, feedStatus: "unavailable" };
     }
 
+    setAccessError(null);
     const nextFeedStatus = (["dashboard", "webhook", "unavailable", "unconfigured"] as const)
       .includes(data.feed_status)
       ? data.feed_status as FeedStatus
@@ -235,18 +243,28 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
   const mark = async (reservation: Reservation, next: "seated" | "no_show") => {
     // Tapping the active status again clears it back to booked.
     const target = reservation.status === next ? "booked" : next;
+    const correction = reservation.status !== "booked";
+    if (correction || target === "no_show") {
+      const message = language === "hu"
+        ? `Megerősíti a foglalás állapotának módosítását? (${reservation.guest_name}: ${reservation.status} → ${target})`
+        : `Confirm reservation status change for ${reservation.guest_name}: ${reservation.status} → ${target}?`;
+      if (!window.confirm(message)) return;
+    }
     const previous = rows;
     setSaving(reservation.id);
     setRows((rs) => rs.map((r) => (r.id === reservation.id ? { ...r, status: target, dashboard_sync_state: "pending" } : r)));
 
     const { data, error } = await supabase.functions.invoke("restaurant-reservation-status", {
-      body: { reservation_id: reservation.id, status: target },
+      body: { reservation_id: reservation.id, status: target, confirm_correction: correction },
     });
     setSaving(null);
 
     if (error || data?.error) {
       setRows(previous);
       toast.error(tt("resStatusFailed"));
+      // A concurrent staff edit may have won. Never leave the optimistic
+      // status visible as if it were confirmed by the server.
+      void load(true);
       return;
     }
     setRows((rs) => rs.map((r) => (r.id === reservation.id
@@ -303,7 +321,13 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
         </Button></div>
       </div>
 
-      {feedUnavailable && !loading && (
+      {accessError && !loading && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+          <AlertTriangle className="mr-2 inline h-4 w-4" />{accessError}
+        </div>
+      )}
+
+      {feedUnavailable && !loading && !accessError && (
         <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-amber-950">
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -315,7 +339,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
         </div>
       )}
 
-      {active.length === 0 && !loading && !feedUnavailable && (
+      {active.length === 0 && !loading && !feedUnavailable && !accessError && (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           {tt("resEmpty")}
         </div>
@@ -351,7 +375,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                       {tt("resBookingMode")}: {({
                         phone: tt("resModePhone"), walk_in: tt("resModeWalkIn"),
                         hotel_guest: tt("resModeHotelGuest"), other: tt("resModeOther"),
-                      } as Record<string, string>)[r.raw_payload.booking_mode] || tt("resModeOther")}
+                      } as Record<string, string>)[r.booking_mode] || tt("resModeOther")}
                     </div>
                   )}
                 </div>
