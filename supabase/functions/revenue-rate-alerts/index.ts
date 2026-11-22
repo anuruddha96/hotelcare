@@ -261,7 +261,14 @@ Deno.serve(async (req) => {
 
     const today = new Date().toISOString().slice(0, 10);
     const horizon = addDays(today, HORIZON_DAYS);
-    const summary: Array<{ hotel_id: string; found: number; emailed: number }> = [];
+    const summary: Array<{
+      hotel_id: string;
+      found: number;
+      emailed: number;
+      skipped_sold_out?: number;
+      skipped_closed_plan?: number;
+      skipped_unverified?: number;
+    }> = [];
 
     for (const h of targets as any[]) {
       const t: Thresholds = {
