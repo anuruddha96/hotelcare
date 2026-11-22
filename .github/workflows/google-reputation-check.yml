@@ -7,6 +7,9 @@ on:
       - "src/lib/googleBusinessSetup.ts"
       - "src/lib/googleBusinessSetup.test.ts"
       - "supabase/functions/google-reputation/**"
+      - "supabase/functions/google-reputation-worker/**"
+      - "supabase/migrations/*google_reputation_three_hour_poll.sql"
+      - "src/test/googleReputationPolling.test.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/google-reputation-check.yml"
@@ -33,7 +36,7 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Test Google setup diagnostics
-        run: npm test -- src/lib/googleBusinessSetup.test.ts
+        run: npm test -- src/lib/googleBusinessSetup.test.ts src/test/googleReputationPolling.test.ts
 
       - name: Build application
         run: npm run build

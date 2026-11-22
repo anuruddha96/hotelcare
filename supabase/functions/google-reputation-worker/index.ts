@@ -1,6 +1,7 @@
 import { generateLowCostText } from "../_shared/lowCostAi.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.78.0";
 import { buildCuratedReply, classifyReview, requiresCarefulReview } from "../_shared/reputation-replies.ts";
+import { autoEligible, MAX_REVIEW_PAGES, shouldFetchNextReviewPage } from "./reviewPolicy.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -94,30 +95,6 @@ function friendlyGoogleError(status: number, rawMessage: string) {
 }
 
 /**
- * Auto-reply policy: 4–5★ low-risk reviews no older than AUTO_REPLY_WINDOW_DAYS
- * are answered automatically for venues that have auto-reply on. Anything
- * older stays a draft for managers to reply manually (the explicitly
- * authorized historical backfill path is separate and unchanged).
- */
-const AUTO_REPLY_WINDOW_DAYS = 7;
-
-function autoEligible(location: any, stars: number, risk: string, reviewTime: string | null) {
-  if (!location?.auto_reply_enabled || !location?.auto_reply_enabled_at) return false;
-  if (risk !== "low" || location.reply_mode === "draft_only") return false;
-  const minimum = Math.max(1, Math.min(5, Number(location.min_auto_rating || 4)));
-  const approvalFloor = Math.max(1, Math.min(5, Number(location.require_approval_below_rating || 4)));
-  if (stars < approvalFloor) return false;
-  if (location.reply_mode === "auto_positive" && stars < Math.max(4, minimum)) return false;
-  if (location.reply_mode === "auto_all" && stars < minimum) return false;
-  const reviewMs = new Date(reviewTime || "").getTime();
-  if (!Number.isFinite(reviewMs)) return false;
-  // Fresh reviews only: within the rolling window, never older.
-  if (Date.now() - reviewMs > AUTO_REPLY_WINDOW_DAYS * 86_400_000) return false;
-  const delayMs = Math.max(0, Math.min(1440, Number(location.auto_reply_delay_minutes || 0))) * 60_000;
-  return Date.now() - reviewMs >= delayMs;
-}
-
-/**
  * Listings added to (or shared with) the connected Google account after the
  * initial setup used to stay invisible until a manager re-ran discovery by
  * hand, so their reviews were never synced or answered. The scheduled worker
@@ -144,8 +121,8 @@ Deno.serve(async (req) => {
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const admin = createClient(supabaseUrl, serviceRole);
 
-  // Scheduled runs use a single-location round-robin to spread Google API calls.
-  // Manual/admin invocations without this flag retain the existing full sync behavior.
+  // Scheduled 3-hour runs check every active connected listing. The older
+  // round-robin mode remains supported for manual maintenance calls.
   const requestBody = await req.json().catch(() => ({}));
   const roundRobin = requestBody?.mode === "round_robin";
   // On-demand listing discovery only (no review sync), e.g. right after a
@@ -434,9 +411,16 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       return json({ ok: true, status, connections_checked: connectionsChecked, discovery, errors });
     }
 
-    // All organizations share one rotating slot: one active Google listing
-    // per two-minute cron tick, regardless of how many OAuth connections exist.
+    // Legacy round-robin calls still process one listing. Scheduled 3-hour
+    // jobs use mode=all to process every active listing on each run.
     let selectedLocation: { id: string; connection_id: string } | null = null;
+    if (!roundRobin && requestBody?.trigger === "cron") {
+      // Discover newly shared listings in the same scheduled run so they are
+      // picked up immediately (with auto-reply disabled until consented).
+      for (const connection of connections || []) {
+        if (!shouldBackoff(connection)) await runLocationDiscovery(connection);
+      }
+    }
     if (roundRobin) {
       const { data: activeLocations, error: activeLocationsError } = await admin
         .from("google_business_locations")
@@ -476,22 +460,34 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 .eq("id", location.id);
               location.auto_backfill_active = false;
             }
-            const query = new URLSearchParams({ pageSize: "50", orderBy: "updateTime desc" });
-            const response = await googleFetch(
-              connection,
-              accessToken,
-              `https://mybusiness.googleapis.com/v4/${location.google_account_name}/${location.google_location_name}/reviews?${query.toString()}`,
-            );
+            // Google sorts by updateTime, so a single page can be filled by
+            // edited older reviews and hide newly created ones. Follow pages
+            // until we pass the recent review window, with a quota guard.
+            let nextPageToken = "";
+            let pagesFetched = 0;
+            do {
+              const query = new URLSearchParams({ pageSize: "50", orderBy: "updateTime desc" });
+              if (nextPageToken) query.set("pageToken", nextPageToken);
+              const response = await googleFetch(
+                connection,
+                accessToken,
+                `https://mybusiness.googleapis.com/v4/${location.google_account_name}/${location.google_location_name}/reviews?${query.toString()}`,
+              );
+              pagesFetched++;
 
-            await admin.from("google_business_locations")
-              .update({
-                google_total_review_count: Number.isFinite(Number(response.totalReviewCount))
-                  ? Number(response.totalReviewCount) : location.google_total_review_count,
-                google_average_rating: Number.isFinite(Number(response.averageRating))
-                  ? Number(response.averageRating) : location.google_average_rating,
-                google_review_stats_updated_at: new Date().toISOString(),
-              }).eq("id", location.id);
-            for (const googleReview of response.reviews || []) {
+              if (pagesFetched === 1) {
+                await admin.from("google_business_locations")
+                  .update({
+                    google_total_review_count: Number.isFinite(Number(response.totalReviewCount))
+                      ? Number(response.totalReviewCount) : location.google_total_review_count,
+                    google_average_rating: Number.isFinite(Number(response.averageRating))
+                      ? Number(response.averageRating) : location.google_average_rating,
+                    google_review_stats_updated_at: new Date().toISOString(),
+                  }).eq("id", location.id);
+              }
+
+              const pageReviews = response.reviews || [];
+              for (const googleReview of pageReviews) {
               const stars = rating(googleReview.starRating);
               const comment = googleReview.comment || null;
               const analysis = classifyReview(stars, comment || "");
@@ -521,8 +517,8 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
               const origin = hasGoogleReply
                 ? (["automatic", "manager", "bulk"].includes(existing?.reply_origin) ? existing.reply_origin : "google")
                 : "unknown";
-              const eligible = autoEligible(location, stars, analysis.risk, googleReview.createTime || updateTime) &&
-                !requiresCarefulReview(comment || "");
+              const eligible = autoEligible(location, stars, analysis.risk, googleReview.createTime || null) &&
+                !existing?.draft_edited_at && !requiresCarefulReview(comment || "");
               const reviewMs = new Date(googleReview.createTime || "").getTime();
               const historicalEligible = Boolean(location.auto_backfill_active) &&
                 historicalPublished < 5 &&
@@ -664,6 +660,15 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 repliesPublished++;
                 if (isHistorical) historicalPublished++;
               }
+              }
+              nextPageToken = response.nextPageToken || "";
+              if (!shouldFetchNextReviewPage(pageReviews, nextPageToken, pagesFetched)) break;
+            } while (true);
+            if (nextPageToken && pagesFetched >= MAX_REVIEW_PAGES) {
+              errors.push({
+                location_id: location.id,
+                error: `Google review polling reached ${MAX_REVIEW_PAGES} pages; recent reviews may require another sync`,
+              });
             }
 
             await admin
