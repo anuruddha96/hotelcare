@@ -660,6 +660,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
                 repliesPublished++;
                 if (isHistorical) historicalPublished++;
               }
+              }
               nextPageToken = response.nextPageToken || "";
               if (!shouldFetchNextReviewPage(pageReviews, nextPageToken, pagesFetched)) break;
             } while (true);
