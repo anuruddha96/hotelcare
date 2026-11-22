@@ -32,6 +32,8 @@ interface Reservation {
   special_requests: string | null;
   notes: string | null;
   dashboard_sync_state?: string | null;
+  status_marked_at?: string | null;
+  status_marked_by?: string | null;
 }
 
 type FeedStatus = "dashboard" | "webhook" | "unavailable" | "unconfigured" | "unknown";
@@ -268,7 +270,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
       return;
     }
     setRows((rs) => rs.map((r) => (r.id === reservation.id
-      ? { ...r, status: data.status, dashboard_sync_state: data.dashboard_sync_state }
+      ? { ...r, status: data.status, status_marked_by: data.status_marked_by ?? r.status_marked_by, dashboard_sync_state: data.dashboard_sync_state }
       : r)));
     void markSeen(reservation);
     toast.success(tt("resStatusSaved"));
@@ -316,7 +318,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
         <div className="flex items-center gap-1.5"><Button type="button" variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void enableAlerts()} title={tt(alertsEnabled ? "resAlertsOn" : "resEnableAlerts")}>
           {alertsEnabled ? <BellRing className="h-4 w-4 text-emerald-600" /> : <BellOff className="h-4 w-4" />}
           <span className="hidden sm:inline">{tt(alertsEnabled ? "resAlertsEnabled" : "resEnableAlerts")}</span>
-        </Button><CreateBrunchReservation hotelId={hotelId} date={date} language={language} onCreated={created} /><Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => void refresh()} disabled={loading} aria-label={tt("syncNow")}>
+        </Button>{!accessError && <CreateBrunchReservation hotelId={hotelId} date={date} language={language} onCreated={created} />}<Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => void refresh()} disabled={loading} aria-label={tt("syncNow")}>
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
         </Button></div>
       </div>
@@ -387,6 +389,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                   <span className="text-[10px] text-muted-foreground">{tt("resGuests")}</span>
                   {r.status === "seated" && <Badge className="bg-emerald-600 text-[10px]">{tt("resSeated")}</Badge>}
                   {r.status === "no_show" && <Badge variant="secondary" className="text-[10px]">{tt("resNoShow")}</Badge>}
+                  {r.status_marked_by && r.status !== "booked" && <span className="max-w-[140px] truncate text-[10px] text-muted-foreground" title={r.status_marked_by}>{r.status_marked_by}</span>}
                 </div>
               </div>
               {(r.occasion || r.special_requests || r.notes) && (
@@ -409,7 +412,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                   size="sm"
                   variant={r.status === "seated" ? "default" : "outline"}
                   className={`h-9 flex-1 gap-1.5 ${r.status === "seated" ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
-                  disabled={saving === r.id}
+                  disabled={saving === r.id || !["booked", "seated", "no_show"].includes(r.status)}
                   onClick={() => void mark(r, "seated")}
                 >
                   <Check className="h-4 w-4" />
