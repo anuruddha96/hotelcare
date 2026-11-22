@@ -422,7 +422,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                   size="sm"
                   variant={r.status === "no_show" ? "destructive" : "outline"}
                   className="h-9 flex-1 gap-1.5"
-                  disabled={saving === r.id}
+                  disabled={saving === r.id || !["booked", "seated", "no_show"].includes(r.status)}
                   onClick={() => void mark(r, "no_show")}
                 >
                   <UserX className="h-4 w-4" />
