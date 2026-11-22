@@ -32,6 +32,8 @@ interface Reservation {
   special_requests: string | null;
   notes: string | null;
   dashboard_sync_state?: string | null;
+  status_marked_at?: string | null;
+  status_marked_by?: string | null;
 }
 
 type FeedStatus = "dashboard" | "webhook" | "unavailable" | "unconfigured" | "unknown";
@@ -69,6 +71,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
   const [count, setCount] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
   const [feedStatus, setFeedStatus] = useState<FeedStatus>("unknown");
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [alertsEnabled, setAlertsEnabled] = useState(() => {
     try { return localStorage.getItem(alertKey(hotelId)) === "on"; } catch { return false; }
@@ -126,15 +129,16 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
     } catch { /* Some devices block audio. */ }
     const url = bookingLink(hotelId, date, r.id);
     const title = bbT(language, "resNewAlert");
-    const body = r.guest_name + " · " + r.party_size + " " + bbT(language, "resGuests") + " · " + timeLabel(r.starts_at);
+    // Keep guest names inside the signed-in app, not on shared-device lock screens.
+    const publicBody = r.party_size + " " + bbT(language, "resGuests") + " · " + timeLabel(r.starts_at);
     toast.info(title, {
-      description: body, duration: 12000,
+      description: r.guest_name + " · " + publicBody, duration: 12000,
       action: { label: bbT(language, "resView"), onClick: () => window.location.assign(url) },
     });
     if (typeof Notification !== "undefined" && Notification.permission === "granted") {
       void serviceWorkerManager.register().then(reg => {
-        if (reg) return reg.showNotification(title, { body, tag: "bb-" + r.id, icon: "/favicon.ico", data: { url } });
-        const n = new Notification(title, { body, tag: "bb-" + r.id });
+        if (reg) return reg.showNotification(title, { body: publicBody, tag: "bb-" + r.id, icon: "/favicon.ico", data: { url } });
+        const n = new Notification(title, { body: publicBody, tag: "bb-" + r.id });
         n.onclick = () => { window.focus(); window.location.assign(url); };
       }).catch(error => console.warn("BB browser alert unavailable", error));
     }
@@ -183,6 +187,12 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
     setLoading(false);
 
     if (error || !data || data?.error) {
+      const status = (error as any)?.context?.status;
+      setAccessError(status === 401
+        ? "Your staff sign-in has expired. Sign out and sign in again."
+        : status === 403
+          ? "You are not assigned to this hotel's restaurant reservations."
+          : null);
       setRows([]);
       setCovers(0);
       setCount(0);
@@ -190,6 +200,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
       return { ok: false, feedStatus: "unavailable" };
     }
 
+    setAccessError(null);
     const nextFeedStatus = (["dashboard", "webhook", "unavailable", "unconfigured"] as const)
       .includes(data.feed_status)
       ? data.feed_status as FeedStatus
@@ -235,22 +246,32 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
   const mark = async (reservation: Reservation, next: "seated" | "no_show") => {
     // Tapping the active status again clears it back to booked.
     const target = reservation.status === next ? "booked" : next;
+    const correction = reservation.status !== "booked";
+    if (correction || target === "no_show") {
+      const message = language === "hu"
+        ? `Megerősíti a foglalás állapotának módosítását? (${reservation.guest_name}: ${reservation.status} → ${target})`
+        : `Confirm reservation status change for ${reservation.guest_name}: ${reservation.status} → ${target}?`;
+      if (!window.confirm(message)) return;
+    }
     const previous = rows;
     setSaving(reservation.id);
     setRows((rs) => rs.map((r) => (r.id === reservation.id ? { ...r, status: target, dashboard_sync_state: "pending" } : r)));
 
     const { data, error } = await supabase.functions.invoke("restaurant-reservation-status", {
-      body: { reservation_id: reservation.id, status: target },
+      body: { reservation_id: reservation.id, status: target, confirm_correction: correction },
     });
     setSaving(null);
 
     if (error || data?.error) {
       setRows(previous);
       toast.error(tt("resStatusFailed"));
+      // A concurrent staff edit may have won. Never leave the optimistic
+      // status visible as if it were confirmed by the server.
+      void load(true);
       return;
     }
     setRows((rs) => rs.map((r) => (r.id === reservation.id
-      ? { ...r, status: data.status, dashboard_sync_state: data.dashboard_sync_state }
+      ? { ...r, status: data.status, status_marked_by: data.status_marked_by ?? r.status_marked_by, dashboard_sync_state: data.dashboard_sync_state }
       : r)));
     void markSeen(reservation);
     toast.success(tt("resStatusSaved"));
@@ -298,12 +319,18 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
         <div className="flex items-center gap-1.5"><Button type="button" variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void enableAlerts()} title={tt(alertsEnabled ? "resAlertsOn" : "resEnableAlerts")}>
           {alertsEnabled ? <BellRing className="h-4 w-4 text-emerald-600" /> : <BellOff className="h-4 w-4" />}
           <span className="hidden sm:inline">{tt(alertsEnabled ? "resAlertsEnabled" : "resEnableAlerts")}</span>
-        </Button><CreateBrunchReservation hotelId={hotelId} date={date} language={language} onCreated={created} /><Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => void refresh()} disabled={loading} aria-label={tt("syncNow")}>
+        </Button>{!accessError && <CreateBrunchReservation hotelId={hotelId} date={date} language={language} onCreated={created} />}<Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={() => void refresh()} disabled={loading} aria-label={tt("syncNow")}>
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
         </Button></div>
       </div>
 
-      {feedUnavailable && !loading && (
+      {accessError && !loading && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+          <AlertTriangle className="mr-2 inline h-4 w-4" />{accessError}
+        </div>
+      )}
+
+      {feedUnavailable && !loading && !accessError && (
         <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-amber-950">
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -315,7 +342,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
         </div>
       )}
 
-      {active.length === 0 && !loading && !feedUnavailable && (
+      {active.length === 0 && !loading && !feedUnavailable && !accessError && (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           {tt("resEmpty")}
         </div>
@@ -351,7 +378,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                       {tt("resBookingMode")}: {({
                         phone: tt("resModePhone"), walk_in: tt("resModeWalkIn"),
                         hotel_guest: tt("resModeHotelGuest"), other: tt("resModeOther"),
-                      } as Record<string, string>)[r.raw_payload.booking_mode] || tt("resModeOther")}
+                      } as Record<string, string>)[r.booking_mode] || tt("resModeOther")}
                     </div>
                   )}
                 </div>
@@ -363,6 +390,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                   <span className="text-[10px] text-muted-foreground">{tt("resGuests")}</span>
                   {r.status === "seated" && <Badge className="bg-emerald-600 text-[10px]">{tt("resSeated")}</Badge>}
                   {r.status === "no_show" && <Badge variant="secondary" className="text-[10px]">{tt("resNoShow")}</Badge>}
+                  {r.status_marked_by && r.status !== "booked" && <span className="max-w-[140px] truncate text-[10px] text-muted-foreground" title={r.status_marked_by}>{r.status_marked_by}</span>}
                 </div>
               </div>
               {(r.occasion || r.special_requests || r.notes) && (
@@ -385,7 +413,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                   size="sm"
                   variant={r.status === "seated" ? "default" : "outline"}
                   className={`h-9 flex-1 gap-1.5 ${r.status === "seated" ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
-                  disabled={saving === r.id}
+                  disabled={saving === r.id || !["booked", "seated", "no_show"].includes(r.status)}
                   onClick={() => void mark(r, "seated")}
                 >
                   <Check className="h-4 w-4" />
@@ -395,7 +423,7 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
                   size="sm"
                   variant={r.status === "no_show" ? "destructive" : "outline"}
                   className="h-9 flex-1 gap-1.5"
-                  disabled={saving === r.id}
+                  disabled={saving === r.id || !["booked", "seated", "no_show"].includes(r.status)}
                   onClick={() => void mark(r, "no_show")}
                 >
                   <UserX className="h-4 w-4" />

@@ -1,8 +1,8 @@
-// Public, idempotent acknowledgement for /bb's shared staff devices.
-// This is intentionally limited to setting a first-seen timestamp; no guest
-// fields or reservation statuses can be changed through this function.
+// Idempotent reservation acknowledgement from authenticated restaurant staff.
+// Record the actual first viewer; anonymous access is never accepted.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { authenticateRestaurantStaff, authorizeRestaurantHotel, RESTAURANT_UUID } from "../_shared/restaurantStaffAuth.ts";
 
 const hits = new Map<string, { count: number; until: number }>();
 function limited(ip: string): boolean {
@@ -23,22 +23,27 @@ Deno.serve(async req => {
   try {
     const body = await req.json();
     const id = String(body?.reservation_id || "");
-    if (!/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(id) || id.length !== 36)
+    if (!RESTAURANT_UUID.test(id))
       return response({ error: "Invalid reservation ID" }, 400);
 
     const url = Deno.env.get("SUPABASE_URL");
     const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!url || !key) return response({ error: "Server not configured" }, 500);
     const db = createClient(url, key);
+    const session = await authenticateRestaurantStaff(req, db);
+    if (!session.ok) return response({ error: session.error }, session.status);
     const { data: existing, error: readError } = await db.from("restaurant_reservations")
-      .select("id, first_seen_at, status").eq("id", id).maybeSingle();
+      .select("id, hotel_id, first_seen_at, status").eq("id", id).maybeSingle();
     if (readError) throw readError;
-    if (!existing || existing.status === "cancelled") return response({ error: "Not found" }, 404);
+    if (!existing) return response({ error: "Not found" }, 404);
+    const access = await authorizeRestaurantHotel(db, session.actor, existing.hotel_id);
+    if (!access.ok) return response({ error: access.error }, access.status);
+    if (existing.status === "cancelled") return response({ error: "Not found" }, 404);
     if (existing.first_seen_at) return response({ ok: true, first_seen_at: existing.first_seen_at });
 
     const now = new Date().toISOString();
     const { error } = await db.from("restaurant_reservations")
-      .update({ first_seen_at: now })
+      .update({ first_seen_at: now, first_seen_by: session.actor.userId })
       .eq("id", id).is("first_seen_at", null);
     if (error) throw error;
 

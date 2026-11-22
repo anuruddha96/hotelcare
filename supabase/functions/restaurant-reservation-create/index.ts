@@ -1,12 +1,12 @@
 // Authenticated staff-only booking creation from /bb.
-// Guests and anonymous visitors may view the legacy shared board but cannot
-// create bookings or choose a hotel outside their assigned organization.
+// Guests and anonymous visitors cannot access the reservations board or create
+// bookings. Verified staff may act only within their assigned organization/hotel.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { authenticateRestaurantStaff, authorizeRestaurantHotel } from "../_shared/restaurantStaffAuth.ts";
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-const allowedRoles = new Set(["admin", "top_management", "top_management_manager", "manager", "reception", "breakfast_staff"]);
 const modes = new Set(["phone", "walk_in", "hotel_guest", "other"]);
 
 function budapestTime(date: string, time: string): Date {
@@ -40,13 +40,8 @@ Deno.serve(async req => {
     const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!url || !key) return json({ error: "Server not configured" }, 500);
     const db = createClient(url, key);
-    const { data: auth, error: authError } = await db.auth.getUser(jwt);
-    if (authError || !auth.user) return json({ error: "Staff sign-in has expired" }, 401);
-    const { data: profile } = await db.from("profiles")
-      .select("role,assigned_hotel,hotel_id,organization_slug,is_super_admin,deleted_at")
-      .eq("id", auth.user.id).maybeSingle();
-    if (!profile || profile.deleted_at || !allowedRoles.has(profile.role))
-      return json({ error: "This staff account cannot create restaurant reservations" }, 403);
+    const session = await authenticateRestaurantStaff(req, db);
+    if (!session.ok) return json({ error: session.error }, session.status);
 
     const body = await req.json().catch(() => null);
     const hotelCode = String(body?.hotel_id ?? "").trim();
@@ -71,31 +66,15 @@ Deno.serve(async req => {
     const start = budapestTime(date, time);
     if (Math.abs(start.getTime() - Date.now()) > 370 * 24 * 3600_000)
       return json({ error: "Select a date within one year" }, 400);
-    const { data: config } = await db.from("hotel_configurations")
-      .select("hotel_id,hotel_name,organization_id").eq("hotel_id", hotelCode).eq("is_active", true).maybeSingle();
-    if (!config) return json({ error: "Unknown hotel" }, 404);
-    const { data: org } = await db.from("organizations").select("slug")
-      .eq("id", config.organization_id).maybeSingle();
-    if (!org || (!profile.is_super_admin && profile.organization_slug !== org.slug))
-      return json({ error: "No access to this organization" }, 403);
-
-    const executive = profile.is_super_admin || ["admin", "top_management", "top_management_manager"].includes(profile.role);
-    const hotelNames = [config.hotel_id, config.hotel_name].map(x => String(x).toLowerCase());
-    const assignment = [profile.assigned_hotel, profile.hotel_id].filter(Boolean).map(x => String(x).toLowerCase());
-    if (!executive && !assignment.some(x => hotelNames.includes(x)))
-      return json({ error: "This hotel is not assigned to your staff account" }, 403);
-
-    const { data: hotel } = await db.from("hotels").select("id")
-      .ilike("name", config.hotel_name).maybeSingle();
-    if (!hotel) return json({ error: "Hotel does not have a restaurant reservation feed" }, 404);
-    const { data: source } = await db.from("restaurant_webhook_sources")
-      .select("hotel_id").eq("hotel_id", hotel.id).eq("is_active", true).maybeSingle();
-    if (!source) return json({ error: "Restaurant reservation feed is not configured" }, 409);
+    const access = await authorizeRestaurantHotel(db, session.actor, hotelCode);
+    if (!access.ok) return json({ error: access.error }, access.status);
+    if (!access.hotel.propertySlug) return json({ error: "Restaurant reservation feed is not configured" }, 409);
+    const canonicalHotelId = access.hotel.reservationHotelId;
 
     const reservationId = crypto.randomUUID();
     const payload = {
       id: reservationId,
-      hotel_id: hotel.id,
+      hotel_id: canonicalHotelId,
       source_project: "manual",
       source_reservation_id: "manual:" + reservationId,
       outlet_slug: "brunch",
@@ -107,7 +86,7 @@ Deno.serve(async req => {
       service_date: date,
       status: "booked",
       notes: note || null,
-      raw_payload: { manual: true, booking_mode: mode },
+      raw_payload: { manual: true, booking_mode: mode, created_by: session.actor.userId },
       booked_at: new Date().toISOString(),
       dashboard_sync_state: "local",
     };
