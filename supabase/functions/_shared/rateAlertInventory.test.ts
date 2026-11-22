@@ -68,17 +68,17 @@ describe("unusual-rate email: active inventory only", () => {
     expect(result.sellable).toEqual([]);
   });
 
-  it("suppresses an explicitly inactive rate plan and a closed-to-arrival plan", () => {
-    const closed = { ...rate("11"), closed_to_arrival: true };
+  it("suppresses an explicitly inactive plan without hiding sellable stay-through nights", () => {
+    const stayThrough = { ...rate("11"), closed_to_arrival: true };
     const inactive = rate("12", "disabled");
     const result = filterRatesBySellableInventory(
-      [closed, inactive],
+      [stayThrough, inactive],
       [availability("11", 1), availability("12", 1)],
       NOW,
       new Set([makeRateAlertPlanKey("12", "disabled")]),
     );
-    expect(result.closedPlan).toBe(2);
-    expect(result.sellable).toEqual([]);
+    expect(result.closedPlan).toBe(1);
+    expect(result.sellable).toEqual([stayThrough]);
   });
 
   it("keeps a different active rate plan for the same room eligible", () => {
