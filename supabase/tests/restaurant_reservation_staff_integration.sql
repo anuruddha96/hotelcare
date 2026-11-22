@@ -10,7 +10,7 @@ begin
     status_marked_by='Breakfast colleague',
     status_marked_user_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid
   where id='11111111-1111-4111-8111-111111111111';
-  select count(*), max(actor_user_id) into event_count,status_actor
+  select count(*), (array_agg(actor_user_id))[1] into event_count,status_actor
   from public.restaurant_reservation_staff_events
   where action='status_changed' and previous_status='booked' and new_status='seated';
   if event_count<>1 or status_actor <> 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid then
