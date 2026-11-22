@@ -71,6 +71,12 @@ export function movementInWindow(movements: RoomStayMovements, days: number, now
   return { bookings, cancellations, net: bookings - cancellations };
 }
 
+/** Signed movement for a recorded price change; missing old/target rates are not assumed to be zero. */
+export function priceDifference(oldPrice: number | null | undefined, nextPrice: number | null | undefined): number | null {
+  if (oldPrice == null || nextPrice == null || !Number.isFinite(oldPrice) || !Number.isFinite(nextPrice)) return null;
+  return Math.round((nextPrice - oldPrice) * 100) / 100;
+}
+
 export type JourneyEventType = "booking" | "cancellation" | "price";
 export interface JourneyEvent {
   id: string;
@@ -79,6 +85,8 @@ export interface JourneyEvent {
   title: string;
   detail: string | null;
   price: number | null;
+  /** Signed change on price entries only; null when the earlier rate is unknown. */
+  delta?: number | null;
   source: string | null;
 }
 
