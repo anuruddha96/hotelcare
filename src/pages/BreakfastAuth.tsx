@@ -20,8 +20,9 @@ export default function BreakfastAuth() {
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
+  const allowedRoles = new Set(["breakfast_staff", "reception", "reception_manager", "front_office", "manager", "admin", "top_management", "top_management_manager"]);
 
-  // If already signed in as breakfast_staff, return to the requested BV view.
+  // Already-signed-in restaurant staff, reception and managers may return to /bb.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -30,10 +31,10 @@ export default function BreakfastAuth() {
       const { data: profile } = await (supabase as any)
         .from("profiles")
         .select("role")
-        .eq("user_id", session.user.id)
+        .eq("id", session.user.id)
         .maybeSingle();
       if (cancelled) return;
-      if ((profile as any)?.role === "breakfast_staff") {
+      if (allowedRoles.has((profile as any)?.role)) {
         window.location.replace(returnPath);
       }
     })();
@@ -60,13 +61,13 @@ export default function BreakfastAuth() {
     const { data: profile } = await (supabase as any)
       .from("profiles")
       .select("role")
-      .eq("user_id", data.user.id)
+      .eq("id", data.user.id)
       .maybeSingle();
 
-    if ((profile as any)?.role !== "breakfast_staff") {
+    if (!allowedRoles.has((profile as any)?.role)) {
       await supabase.auth.signOut({ scope: "local" });
       setBusy(false);
-      toast.error("This sign-in is only for breakfast staff. Please use the main app.");
+      toast.error("This account does not have permission to use the restaurant staff board.");
       return;
     }
 
@@ -80,7 +81,7 @@ export default function BreakfastAuth() {
           <CardTitle className="flex items-center justify-center gap-2 text-xl">
             <Coffee className="h-6 w-6" /> {tt("title")}
           </CardTitle>
-          <p className="text-sm text-muted-foreground pt-1">Breakfast Staff Sign-In</p>
+          <p className="text-sm text-muted-foreground pt-1">Restaurant and Breakfast Staff Sign-In</p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-3">
