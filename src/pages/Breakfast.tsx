@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
 import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
-import RestaurantReservations from "@/components/breakfast/RestaurantReservations";
+import RestaurantReservationsGate from "@/components/breakfast/RestaurantReservationsGate";
 import BreakfastRecipes from "@/components/breakfast/BreakfastRecipes";
 import BreakfastAuthControl from "@/components/breakfast/BreakfastAuthControl";
 
@@ -505,7 +505,7 @@ export default function Breakfast() {
                 <Label>{tt("date")}</Label>
                 <Input className="h-11 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
-              <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} onDateChange={setDate} />
+              <RestaurantReservationsGate hotelId={selection.hotel_id} date={date} language={language} onDateChange={setDate} />
             </>
           )}
 
