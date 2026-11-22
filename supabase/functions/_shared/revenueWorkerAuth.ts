@@ -6,7 +6,7 @@
  * A public anon key, browser JWT, or an unverified "scheduled" flag is NOT
  * sufficient. Never include a credential in application logs or responses.
  */
-export type RevenueWorkerCaller = "engine-key" | "service-bearer" | "service-apikey";
+export type RevenueWorkerCaller = "engine-key" | "service-bearer" | "service-apikey" | "vault-cron";
 
 const MAX_CREDENTIAL_LENGTH = 1024;
 
@@ -46,4 +46,27 @@ export function authorizeRevenueWorkerRequest(
   }
 
   return null;
+}
+
+/**
+ * Authenticate pg_cron without trusting the public anon key.
+ * The database scheduler supplies a dedicated 256-bit Vault token. Verification
+ * happens server-to-server through a service-role-only database RPC; the token
+ * never belongs in frontend code or committed SQL.
+ */
+export async function authorizeRevenueWorkerWithVault(
+  request: Request,
+  serviceRoleKey: string | null | undefined,
+  verifyVaultToken: (token: string) => Promise<boolean>,
+): Promise<RevenueWorkerCaller | null> {
+  const direct = authorizeRevenueWorkerRequest(request, serviceRoleKey);
+  if (direct) return direct;
+  // Do not perform DB lookups for arbitrary, malformed requests.
+  const token = request.headers.get("x-hotelcare-worker");
+  if (!token || !/^[0-9a-f]{64}$/.test(token) || !serviceRoleKey) return null;
+  try {
+    return await verifyVaultToken(token) ? "vault-cron" : null;
+  } catch {
+    return null; // Fail closed on database outages, missing migration or errors.
+  }
 }
