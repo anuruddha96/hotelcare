@@ -35,7 +35,9 @@ Deno.serve(async (req) => {
     // Internal schedulers may use the service-role bearer, but not the public
     // anon/publishable key. Staff callers must be assigned to this property.
     const bearer = /^Bearer\s+([^\s]+)$/i.exec(req.headers.get("Authorization")?.trim() ?? "")?.[1] ?? "";
-    const isInternalWorker = bearer.length > 0 && bearer === serviceRoleKey;
+    const apiKey = req.headers.get("apikey") ?? "";
+    const isInternalWorker = (bearer.length > 0 && bearer === serviceRoleKey)
+      || (apiKey.length > 0 && apiKey === serviceRoleKey);
     if (!isInternalWorker) {
       const session = await authenticateRestaurantStaff(req, supabase);
       if (!session.ok) return json({ error: session.error }, session.status);
