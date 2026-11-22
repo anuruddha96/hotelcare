@@ -7,6 +7,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { mailClient } from "../_shared/emailSender.ts";
+import { filterRatesBySellableInventory, makeRateAlertPlanKey } from "../_shared/rateAlertInventory.ts";
 
 const ALERT_ROLES = ["top_management", "top_management_manager"];
 const EXCLUDED_ALERT_EMAILS = new Set(["control@rdhotels.hu"]);
@@ -85,7 +86,7 @@ async function fetchPublishedRates(
   for (let from = 0; ; from += RATE_PAGE_SIZE) {
     const { data, error } = await admin
       .from("revenue_room_type_rates")
-      .select("id, stay_date, room_type_name, occupancy, price")
+      .select("id, stay_date, obk_id, rate_plan_id, closed_to_arrival, room_type_name, occupancy, price")
       .eq("hotel_id", hotelId)
       .gte("stay_date", today)
       .lte("stay_date", horizon)
@@ -102,6 +103,75 @@ async function fetchPublishedRates(
   }
 
   return all;
+}
+
+/**
+ * Read the authoritative per-room-type Previo availability snapshot, not
+ * hotel-wide occupancy. Paginate because one room type x 120 dates can exceed
+ * the PostgREST 1,000-row response ceiling.
+ */
+async function fetchRoomTypeInventory(
+  admin: any,
+  hotelId: string,
+  today: string,
+  horizon: string,
+): Promise<any[]> {
+  const all: any[] = [];
+  for (let from = 0; ; from += RATE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("revenue_room_type_availability")
+      .select("stay_date, obk_id, availability, captured_at")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", today)
+      .lte("stay_date", horizon)
+      .order("stay_date", { ascending: true })
+      .order("obk_id", { ascending: true })
+      .range(from, from + RATE_PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < RATE_PAGE_SIZE) break;
+  }
+  return all;
+}
+
+/**
+ * Some native PMS rate-plan mappings explicitly disable a plan. Only apply
+ * that decision when both the plan ID and exact Previo room type match. HMB
+ * and other Previo hotels may have no native mappings: a missing mapping is
+ * not evidence that a published Previo plan is inactive.
+ */
+async function fetchInactiveRatePlanKeys(admin: any, hotelId: string): Promise<Set<string>> {
+  const [plansResult, roomsResult] = await Promise.all([
+    admin.from("pms_rate_plan_mappings")
+      .select("room_type_id, pms_rate_plan_id, is_active")
+      .eq("hotel_id", hotelId)
+      .eq("is_active", false),
+    admin.from("previo_rate_plan_mapping")
+      .select("room_type_id, previo_room_type_id")
+      .eq("hotel_id", hotelId),
+  ]);
+  if (plansResult.error) throw plansResult.error;
+  if (roomsResult.error) throw roomsResult.error;
+
+  const obkIdsByRoom = new Map<string, string[]>();
+  for (const mapping of roomsResult.data ?? []) {
+    if (!mapping.room_type_id || !mapping.previo_room_type_id) continue;
+    const room = String(mapping.room_type_id);
+    const ids = obkIdsByRoom.get(room) ?? [];
+    ids.push(String(mapping.previo_room_type_id));
+    obkIdsByRoom.set(room, ids);
+  }
+
+  const inactive = new Set<string>();
+  for (const plan of plansResult.data ?? []) {
+    if (!plan.room_type_id || !plan.pms_rate_plan_id) continue;
+    for (const obkId of obkIdsByRoom.get(String(plan.room_type_id)) ?? []) {
+      inactive.add(makeRateAlertPlanKey(obkId, String(plan.pms_rate_plan_id)));
+    }
+  }
+  return inactive;
 }
 
 /**
@@ -191,7 +261,14 @@ Deno.serve(async (req) => {
 
     const today = new Date().toISOString().slice(0, 10);
     const horizon = addDays(today, HORIZON_DAYS);
-    const summary: Array<{ hotel_id: string; found: number; emailed: number }> = [];
+    const summary: Array<{
+      hotel_id: string;
+      found: number;
+      emailed: number;
+      skipped_sold_out?: number;
+      skipped_closed_plan?: number;
+      skipped_unverified?: number;
+    }> = [];
 
     for (const h of targets as any[]) {
       const t: Thresholds = {
@@ -269,6 +346,33 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // This is an email safety net, not an inventory or price writer.
+      // Never send a sold-out price alert: filter by the exact date, Previo
+      // room-type ID, and active rate plan before dedupe or alert insertion.
+      const [inventory, inactivePlans] = await Promise.all([
+        fetchRoomTypeInventory(admin, h.hotel_id, today, horizon),
+        fetchInactiveRatePlanKeys(admin, h.hotel_id),
+      ]);
+      const eligible = filterRatesBySellableInventory(
+        offenders, inventory, Date.now(), inactivePlans,
+      );
+      if (eligible.soldOut > 0 || eligible.closedPlan > 0 || eligible.unverified > 0) {
+        console.info(`Rate safety for ${h.hotel_id}: suppressed ${eligible.soldOut} sold-out, ${eligible.closedPlan} closed-plan, ${eligible.unverified} unverified-inventory rate(s)`);
+      }
+      // Unknown or stale inventory must not be silently mistaken for a sale.
+      if (eligible.unverified > 0) {
+        console.warn(`Rate safety for ${h.hotel_id}: ${eligible.unverified} unusually priced row(s) require a fresh, matched inventory sync before they can trigger email`);
+      }
+      if (eligible.sellable.length === 0) {
+        summary.push({
+          hotel_id: h.hotel_id, found: 0, emailed: 0,
+          skipped_sold_out: eligible.soldOut,
+          skipped_closed_plan: eligible.closedPlan,
+          skipped_unverified: eligible.unverified,
+        });
+        continue;
+      }
+
       // Skip anything already reported with the same price.
       const { data: existing } = await admin
         .from("revenue_rate_alerts")
@@ -279,11 +383,16 @@ Deno.serve(async (req) => {
         (existing ?? []).map((e: any) => `${e.stay_date}|${e.room_type_name}|${e.occupancy}|${Number(e.price)}`),
       );
 
-      const fresh = offenders.filter(
+      const fresh = eligible.sellable.filter(
         (r: any) => !seen.has(`${r.stay_date}|${r.room_type_name}|${r.occupancy}|${Number(r.price)}`),
       );
       if (fresh.length === 0) {
-        summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 });
+        summary.push({
+          hotel_id: h.hotel_id, found: 0, emailed: 0,
+          skipped_sold_out: eligible.soldOut,
+          skipped_closed_plan: eligible.closedPlan,
+          skipped_unverified: eligible.unverified,
+        });
         continue;
       }
 
@@ -378,7 +487,12 @@ Deno.serve(async (req) => {
         }
       }
 
-      summary.push({ hotel_id: h.hotel_id, found: fresh.length, emailed });
+      summary.push({
+        hotel_id: h.hotel_id, found: fresh.length, emailed,
+        skipped_sold_out: eligible.soldOut,
+        skipped_closed_plan: eligible.closedPlan,
+        skipped_unverified: eligible.unverified,
+      });
     }
 
     return json({ ok: true, summary });
