@@ -1,12 +1,12 @@
 // Authenticated staff-only booking creation from /bb.
-// Guests and anonymous visitors may view the legacy shared board but cannot
-// create bookings or choose a hotel outside their assigned organization.
+// Guests and anonymous visitors cannot access the reservations board or create
+// bookings. Verified staff may act only within their assigned organization/hotel.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-const allowedRoles = new Set(["admin", "top_management", "top_management_manager", "manager", "reception", "breakfast_staff"]);
+const allowedRoles = new Set(["admin", "top_management", "top_management_manager", "manager", "reception", "reception_manager", "front_office", "breakfast_staff"]);
 const modes = new Set(["phone", "walk_in", "hotel_guest", "other"]);
 
 function budapestTime(date: string, time: string): Date {
