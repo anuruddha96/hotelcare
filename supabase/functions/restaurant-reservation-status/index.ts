@@ -1,7 +1,6 @@
-// Public write endpoint for the /bb Reservations tab: restaurant staff mark a
-// guest as arrived (seated) or no-show. Same access model as
-// restaurant-reservations-list — shared devices, no login — so the input is
-// tightly validated and IP rate limited.
+// Signed-in, property-scoped /bb staff record arrival/no-show status.
+// All status updates are attributed to a verified user and checked against
+// the current status to avoid overwriting simultaneous changes.
 //
 // After the local status is stored we forward the reservation, signed, to the
 // Sales Dashboard webhook so its analytics (covers, funnel, no-show rate) stay
@@ -10,6 +9,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { pushStatusToDashboard } from "../_shared/syncReservations.ts";
+import { authenticateRestaurantStaff, authorizeRestaurantHotel, restaurantStatusTransition } from "../_shared/restaurantStaffAuth.ts";
 
 
 const ALLOWED = new Set(["booked", "seated", "no_show"]);
@@ -53,7 +53,6 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => null);
     const reservationId = typeof body?.reservation_id === "string" ? body.reservation_id.trim() : "";
     const status = typeof body?.status === "string" ? body.status.trim() : "";
-    const markedBy = typeof body?.marked_by === "string" ? body.marked_by.trim().slice(0, 120) : null;
     if (!/^[0-9a-f-]{36}$/i.test(reservationId)) return json({ error: "Invalid reservation_id" }, 400);
     if (!ALLOWED.has(status)) return json({ error: "Invalid status" }, 400);
 
@@ -61,6 +60,8 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !serviceRoleKey) return json({ error: "Server configuration unavailable" }, 500);
     const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const session = await authenticateRestaurantStaff(req, supabase);
+    if (!session.ok) return json({ error: session.error }, session.status);
 
     const { data: reservation, error: loadError } = await supabase
       .from("restaurant_reservations")
@@ -69,22 +70,34 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (loadError) throw loadError;
     if (!reservation) return json({ error: "Reservation not found" }, 404);
+    const access = await authorizeRestaurantHotel(supabase, session.actor, reservation.hotel_id);
+    if (!access.ok) return json({ error: access.error }, access.status);
     if (reservation.status === "cancelled") return json({ error: "Reservation is cancelled" }, 409);
+    if (!restaurantStatusTransition(reservation.status, status, body?.confirm_correction === true)) {
+      return json({ error: "This status change needs confirmation or the reservation has already been completed." }, 409);
+    }
+    if (reservation.status === status) {
+      return json({ ok: true, status, dashboard_sync_state: "unchanged" });
+    }
 
     const nowIso = new Date().toISOString();
 
     // 1. Local status first — staff must never lose the mark to a network hiccup.
-    const { error: updateError } = await supabase
+    const { data: changed, error: updateError } = await supabase
       .from("restaurant_reservations")
       .update({
         status,
         status_marked_at: nowIso,
-        status_marked_by: status === "booked" ? null : markedBy,
+        status_marked_by: session.actor.displayName,
+        status_marked_user_id: session.actor.userId,
         dashboard_sync_state: "pending",
         dashboard_sync_error: null,
       })
-      .eq("id", reservationId);
+      .eq("id", reservationId)
+      .eq("status", reservation.status)
+      .select("id").maybeSingle();
     if (updateError) throw updateError;
+    if (!changed) return json({ error: "Reservation was updated on another device. Refresh and try again." }, 409);
 
     // Manually entered BB bookings are local records, not Sales Dashboard rows.
     // Do not leave them forever marked "Sync pending" or send an unsigned
@@ -95,7 +108,7 @@ Deno.serve(async (req) => {
         .update({ dashboard_sync_state: "local", dashboard_sync_error: null })
         .eq("id", reservationId);
       if (localError) throw localError;
-      return json({ ok: true, status, dashboard_sync_state: "local", dashboard_sync_error: null });
+      return json({ ok: true, status, status_marked_by: session.actor.displayName, dashboard_sync_state: "local", dashboard_sync_error: null });
     }
 
     // 2a. Preferred path — write the status straight onto the Sales Dashboard
@@ -182,6 +195,7 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       status,
+      status_marked_by: session.actor.displayName,
       dashboard_sync_state: syncState,
       dashboard_sync_error: syncError,
     });
