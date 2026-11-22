@@ -1,0 +1,46 @@
+name: Restaurant reservation staff security CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/_shared/restaurantStaffAuth*'
+      - 'supabase/functions/restaurant-reservations-list/**'
+      - 'supabase/functions/restaurant-reservation-status/**'
+      - 'supabase/functions/restaurant-reservation-seen/**'
+      - 'supabase/functions/restaurant-reservations-sync/**'
+      - 'supabase/functions/restaurant-reservation-create/**'
+      - 'supabase/migrations/*restaurant_reservation_staff_security.sql'
+      - '.github/workflows/restaurant-reservation-security-ci.yml'
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/restaurantStaffAuth*'
+      - 'supabase/functions/restaurant-reservations-list/**'
+      - 'supabase/functions/restaurant-reservation-status/**'
+      - 'supabase/functions/restaurant-reservation-seen/**'
+      - 'supabase/functions/restaurant-reservations-sync/**'
+      - 'supabase/functions/restaurant-reservation-create/**'
+      - 'supabase/migrations/*restaurant_reservation_staff_security.sql'
+      - '.github/workflows/restaurant-reservation-security-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  restaurant-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test verified staff and hotel scope
+        run: deno test supabase/functions/_shared/restaurantStaffAuth_test.ts
+      - name: Type-check restaurant reservation endpoints
+        run: |
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservations-list/index.ts
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservation-status/index.ts
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservation-seen/index.ts
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservations-sync/index.ts
+          deno check --node-modules-dir=none supabase/functions/restaurant-reservation-create/index.ts
