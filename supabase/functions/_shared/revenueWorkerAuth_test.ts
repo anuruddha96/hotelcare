@@ -1,4 +1,4 @@
-import { authorizeRevenueWorkerRequest } from "./revenueWorkerAuth.ts";
+import { authorizeRevenueWorkerRequest, authorizeRevenueWorkerWithVault } from "./revenueWorkerAuth.ts";
 
 const SERVICE_KEY = "test-only-internal-service-secret";
 const request = (headers: HeadersInit = {}) =>
@@ -49,4 +49,58 @@ Deno.test("revenue workers refuse forged scheduler flags without worker credenti
     body: JSON.stringify({ scheduled: true, trigger: "cron", hotel_id: "a-hotel" }),
   });
   expectValue(authorizeRevenueWorkerRequest(req, SERVICE_KEY), null);
+});
+
+const CRON_TOKEN = "a".repeat(64);
+
+Deno.test("Vault authenticated cron jobs work with the existing public gateway apikey", async () => {
+  let calls = 0;
+  const caller = await authorizeRevenueWorkerWithVault(
+    request({ apikey: "public-anon-key", "x-hotelcare-worker": CRON_TOKEN }),
+    SERVICE_KEY, async token => { calls++; return token === CRON_TOKEN; },
+  );
+  expectValue(caller, "vault-cron");
+  expectValue(calls, 1);
+});
+
+Deno.test("public anon key and forged cron bodies cannot bypass Vault verification", async () => {
+  let calls = 0;
+  const denied = await authorizeRevenueWorkerWithVault(
+    new Request("https://example.invalid", {
+      method: "POST", headers: { apikey: "public-anon-key" },
+      body: JSON.stringify({ scheduled: true, trigger: "cron" }),
+    }),
+    SERVICE_KEY, async () => { calls++; return true; },
+  );
+  expectValue(denied, null);
+  expectValue(calls, 0);
+});
+
+Deno.test("invalid, missing and rejected Vault credentials always fail closed", async () => {
+  const verify = async (candidate: string) => candidate === CRON_TOKEN;
+  for (const token of ["", "b".repeat(64), "A".repeat(64), "a".repeat(63), "a".repeat(65), "not-a-secret"]) {
+    const req = request({ apikey: "public-anon-key", "x-hotelcare-worker": token });
+    expectValue(await authorizeRevenueWorkerWithVault(req, SERVICE_KEY, verify), null);
+  }
+  expectValue(await authorizeRevenueWorkerWithVault(
+    request({ "x-hotelcare-worker": CRON_TOKEN }), null, verify,
+  ), null);
+});
+
+Deno.test("database verification failures never authorize a cron caller", async () => {
+  const denied = await authorizeRevenueWorkerWithVault(
+    request({ "x-hotelcare-worker": CRON_TOKEN }),
+    SERVICE_KEY, async () => { throw new Error("database offline"); },
+  );
+  expectValue(denied, null);
+});
+
+Deno.test("service-role callers remain compatible without a Vault lookup", async () => {
+  let calls = 0;
+  const result = await authorizeRevenueWorkerWithVault(
+    request({ "x-engine-key": SERVICE_KEY }), SERVICE_KEY,
+    async () => { calls++; return false; },
+  );
+  expectValue(result, "engine-key");
+  expectValue(calls, 0);
 });
