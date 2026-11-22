@@ -201,6 +201,6 @@ Deno.serve(async (req) => {
     });
   } catch (e: any) {
     console.error("restaurant-reservation-status error", e);
-    return json({ error: e?.message ?? String(e) }, 400);
+    return json({ error: "Could not update restaurant reservation status" }, 500);
   }
 });
