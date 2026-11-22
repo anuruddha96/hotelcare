@@ -825,7 +825,7 @@ Deno.serve(async (req) => {
     // tenant rules the rest of the app uses: you can only run automation for a
     // property inside your own organization, and only revenue roles may do it.
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\\s+/i, "");
+    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
     // A public apikey or an unverified {scheduled:true} body can never
     // authorize a pricing run. pg_cron uses its dedicated Vault worker token.
     const isEngine = Boolean(await authorizeRevenueWorkerWithVault(req, serviceKey,
