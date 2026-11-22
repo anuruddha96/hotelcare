@@ -113,6 +113,11 @@ Deno.test("maps property code to canonical hotel only after organization/assignm
           return query;
         },
         limit(_count: number) { return query; },
+        // Supabase's query builder is awaitable, including for array reads.
+        then(resolve: (result: { data: Record<string, unknown>[]; error: null }) => unknown) {
+          const found = (tables[table] ?? []).filter(row => filters.every(predicate => predicate(row)));
+          return Promise.resolve({ data: found, error: null }).then(resolve);
+        },
         async maybeSingle() {
           const found = (tables[table] ?? []).filter(row => filters.every(predicate => predicate(row)));
           return { data: found.length === 1 ? found[0] : null, error: found.length > 1 ? { message: "ambiguous" } : null };
