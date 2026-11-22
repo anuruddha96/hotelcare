@@ -69,3 +69,27 @@ create trigger trg_audit_restaurant_reservation_staff_changes
 
 comment on table public.restaurant_reservation_staff_events
   is 'Append-only record of verified restaurant staff status changes and first-seen events. Access only through server-authorized tools.';
+
+-- The existing guest-data SELECT policy grants every assigned hotel user
+-- (including non-restaurant roles) access through the PostgREST Data API.
+-- Narrow direct reads to active restaurant/reception/management accounts.
+-- Edge Functions still separately verify the exact organization and property.
+drop policy if exists "Staff can view restaurant reservations of their hotel"
+  on public.restaurant_reservations;
+drop policy if exists "Active restaurant staff can view their assigned hotel reservations"
+  on public.restaurant_reservations;
+create policy "Active restaurant staff can view their assigned hotel reservations"
+  on public.restaurant_reservations
+  for select to authenticated
+  using (
+    public.user_can_access_hotel((select auth.uid()), hotel_id::text)
+    and exists (
+      select 1 from public.profiles p
+      where p.id = (select auth.uid())
+        and p.deleted_at is null
+        and p.role::text = any(array[
+          'admin', 'top_management', 'top_management_manager', 'manager',
+          'reception', 'reception_manager', 'front_office', 'breakfast_staff'
+        ]::text[])
+    )
+  );
