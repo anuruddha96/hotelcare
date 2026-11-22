@@ -48,3 +48,13 @@ export function shouldFetchNextReviewPage(
   const modified = Date.parse(oldest.updateTime || oldest.createTime || "");
   return !Number.isFinite(modified) || now - modified <= REVIEW_SYNC_LOOKBACK_DAYS * 86_400_000;
 }
+
+/** Spread one authenticated listing poll per minute slot across three hours. */
+export const QUEUE_WINDOW_MINUTES = 180;
+export function queuedLocationForMinute(minute: number, activeCount: number): number | null {
+  if (!Number.isInteger(minute) || minute < 0 || minute >= QUEUE_WINDOW_MINUTES) return null;
+  if (!Number.isInteger(activeCount) || activeCount < 1 || activeCount > QUEUE_WINDOW_MINUTES) return null;
+  const index = Math.floor(minute * activeCount / QUEUE_WINDOW_MINUTES);
+  const previous = minute === 0 ? -1 : Math.floor((minute - 1) * activeCount / QUEUE_WINDOW_MINUTES);
+  return index !== previous ? index : null;
+}

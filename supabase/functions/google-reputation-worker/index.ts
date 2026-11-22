@@ -121,10 +121,12 @@ Deno.serve(async (req) => {
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const admin = createClient(supabaseUrl, serviceRole);
 
-  // Scheduled 3-hour runs check every active connected listing. The older
-  // round-robin mode remains supported for manual maintenance calls.
+  // Scheduled queued_location calls check one business per dispatch; explicit
+  // full/manual scans and the legacy round-robin mode remain available.
   const requestBody = await req.json().catch(() => ({}));
   const roundRobin = requestBody?.mode === "round_robin";
+  const queued = requestBody?.mode === "queued_location";
+  const queuedLocationId = String(requestBody?.location_id || "");
   // On-demand listing discovery only (no review sync), e.g. right after a
   // listing was shared with the connected Google account.
   const discoverOnly = requestBody?.mode === "discover_locations";
@@ -133,6 +135,9 @@ Deno.serve(async (req) => {
   const { data: expectedSecret, error: secretError } = await admin.rpc("get_google_reputation_worker_secret");
   if (secretError || !safeEqual(providedSecret, String(expectedSecret || ""))) {
     return json({ error: "Unauthorized" }, 401);
+  }
+  if (queued && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(queuedLocationId)) {
+    return json({ error: "Queued review checking requires a valid location UUID" }, 400);
   }
 
   const { data: run, error: runError } = await admin
@@ -411,32 +416,36 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       return json({ ok: true, status, connections_checked: connectionsChecked, discovery, errors });
     }
 
-    // Legacy round-robin calls still process one listing. Scheduled 3-hour
-    // jobs use mode=all to process every active listing on each run.
+    // The queued 3-hour schedule targets exactly one active business each call.
     let selectedLocation: { id: string; connection_id: string } | null = null;
-    if (!roundRobin && requestBody?.trigger === "cron") {
+    if (!roundRobin && !queued && requestBody?.trigger === "cron") {
       // Discover newly shared listings in the same scheduled run so they are
       // picked up immediately (with auto-reply disabled until consented).
       for (const connection of connections || []) {
         if (!shouldBackoff(connection)) await runLocationDiscovery(connection);
       }
     }
-    if (roundRobin) {
-      const { data: activeLocations, error: activeLocationsError } = await admin
+    if (roundRobin || queued) {
+      let locationQuery = admin
         .from("google_business_locations")
         .select("id,connection_id")
-        .eq("is_active", true)
-        .order("id");
+        .eq("is_active", true);
+      if (queued) locationQuery = locationQuery.eq("id", queuedLocationId);
+      const { data: activeLocations, error: activeLocationsError } = await locationQuery.order("id");
       if (activeLocationsError) throw activeLocationsError;
       const activeConnectionIds = new Set((connections || []).map((connection: any) => connection.id));
       const candidates = (activeLocations || []).filter((location: any) => activeConnectionIds.has(location.connection_id));
-      if (candidates.length > 0) {
-        selectedLocation = candidates[Math.floor(Date.now() / 120_000) % candidates.length];
+      if (candidates.length) {
+        selectedLocation = queued
+          ? candidates[0]
+          : candidates[Math.floor(Date.now() / 120_000) % candidates.length];
+      } else if (queued) {
+        errors.push({ location_id: queuedLocationId, error: "Queued location is no longer active or connected" });
       }
     }
 
     for (const connection of connections || []) {
-      if (roundRobin && connection.id !== selectedLocation?.connection_id) continue;
+      if ((roundRobin || queued) && connection.id !== selectedLocation?.connection_id) continue;
       connectionsChecked++;
       if (shouldBackoff(connection)) continue;
       try {
@@ -446,7 +455,7 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
           .select("*")
           .eq("connection_id", connection.id)
           .eq("is_active", true);
-        if (roundRobin && selectedLocation) locationsQuery = locationsQuery.eq("id", selectedLocation.id);
+        if ((roundRobin || queued) && selectedLocation) locationsQuery = locationsQuery.eq("id", selectedLocation.id);
         const { data: locations, error: locationsError } = await locationsQuery;
         if (locationsError) throw locationsError;
 
@@ -702,17 +711,21 @@ HotelCare risk level: ${review.ai_risk_level || "medium"}.`;
       }
     }
 
-    // Look for newly accessible Google listings after the review work. This
-    // also covers a connection with no imported listings yet, which the
-    // location round-robin above never selects.
-    if (roundRobin) {
+    // Discover new business listings only on the first slot of each 3-hour
+    // cycle. This prevents discovery calls for every property poll. Newly
+    // discovered venues default to auto-replies OFF until manager consent.
+    if (queued && Number(requestBody?.queue_index) === 0) {
+      for (const connection of connections || []) {
+        if (!shouldBackoff(connection)) await runLocationDiscovery(connection);
+      }
+    } else if (roundRobin) {
       for (const connection of connectionsDueForDiscovery(connections || [])) {
         if (!shouldBackoff(connection)) await runLocationDiscovery(connection);
       }
     }
 
     // A cron tick without any discovered listings is not a completed review sync.
-    const awaitingMapping = roundRobin ? !selectedLocation : connectionsChecked > 0 && locationsChecked === 0;
+    const awaitingMapping = roundRobin || queued ? !selectedLocation : connectionsChecked > 0 && locationsChecked === 0;
     const finalStatus = errors.length || awaitingMapping ? "partial" : "completed";
     await admin
       .from("google_reputation_worker_runs")

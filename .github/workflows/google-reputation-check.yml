@@ -9,6 +9,7 @@ on:
       - "supabase/functions/google-reputation/**"
       - "supabase/functions/google-reputation-worker/**"
       - "supabase/migrations/*google_reputation_three_hour_poll.sql"
+      - "supabase/migrations/*google_reputation_staggered_queue.sql"
       - "src/test/googleReputationPolling.test.ts"
       - "package.json"
       - "package-lock.json"
