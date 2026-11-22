@@ -132,8 +132,25 @@ export async function authorizeRestaurantHotel(db: any, actor: RestaurantActor, 
   const { data: organization, error: orgError } = await db.from("organizations")
     .select("slug").eq("id", config.organization_id).maybeSingle();
   if (orgError || !organization?.slug) return failure(409, "Hotel organization mapping is incomplete.");
-  if (!restaurantHotelAllowed(actor.profile, organization.slug, config.hotel_id, config.hotel_name, canonicalHotel.id))
-    return failure(403, "This restaurant does not belong to your assigned hotel.");
+  // In addition to the home-hotel assignment, HotelCare already supports
+  // explicit cross-venue duties through user_property_scopes. Reuse those
+  // restricted grants, but NEVER infer permission from a mere hotel picker.
+  let allowed = restaurantHotelAllowed(
+    actor.profile, organization.slug, config.hotel_id, config.hotel_name, canonicalHotel.id,
+  );
+  if (!allowed && !actor.profile.deleted_at && RESTAURANT_STAFF_ROLES.has(actor.profile.role)
+    && actor.profile.organization_slug === organization.slug) {
+    const { data: venues, error: venueError } = await db.from("venues")
+      .select("id").eq("hotel_id", config.hotel_id).eq("organization_slug", organization.slug);
+    if (!venueError && venues?.length) {
+      const venueIds = venues.map((v: { id: string }) => v.id);
+      const { data: scoped, error: scopeError } = await db.from("user_property_scopes")
+        .select("id").eq("user_id", actor.userId).eq("organization_slug", organization.slug)
+        .in("venue_id", venueIds).limit(1);
+      allowed = !scopeError && Boolean(scoped?.length);
+    }
+  }
+  if (!allowed) return failure(403, "This restaurant does not belong to your assigned hotel.");
 
   const { data: source, error: sourceError } = await db.from("restaurant_webhook_sources")
     .select("property_slug").eq("hotel_id", canonicalHotel.id).eq("is_active", true).maybeSingle();
