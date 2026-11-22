@@ -5,7 +5,8 @@ on:
     paths:
       - 'supabase/functions/_shared/ntak/**'
       - 'supabase/functions/ntak-pms/**'
-      - 'supabase/migrations/20261119100000_ntak_pms_v9.sql'
+      - 'supabase/migrations/*_ntak_*.sql'
+      - 'supabase/functions/viza-thf/**'
       - 'supabase/tests/ntak_*.sql'
       - 'src/components/ntak/**'
       - 'src/lib/ntak-translations.ts'
@@ -48,6 +49,7 @@ jobs:
           set -euo pipefail
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261119100000_ntak_pms_v9.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261120144500_ntak_certificate_enrollment.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_integration.sql
 
   edge:

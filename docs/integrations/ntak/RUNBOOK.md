@@ -1,7 +1,6 @@
 # HotelCare × NTAK PMS interface v9 — runbook
 
-Status (19 November 2026): code complete for the **NTAK test environment**. Not deployed, no NTAK test credentials
-yet, not certified. Built against *NTAK PMS Interface v9.07* (Visit Hungary, 28-11-2025) and the five v9 WSDLs
+NTAK has assigned a v9 validation registration. Certificate issuance and authority validation are outstanding. Built against *NTAK PMS Interface v9.07* (Visit Hungary, 28-11-2025) and the five v9 WSDLs
 published on <https://info.ntak.hu/segedletek> (files dated 2026-04).
 
 ## What it does
@@ -65,11 +64,14 @@ warnings/errors of the verification step are stored per message and shown to use
    last day Previo closed (`software_change_date`).
 2. **Units**: *Create profiles from rooms*, then check building, NTAK unit type and permanent single/double beds for
    every room; the active count must equal the NTAK registration. Map room types for unassigned future bookings.
-3. **Certificate**: *Generate CSR* (RSA 4096, SHA-256, clientAuth, fresh key each time) → download → upload on the
-   NTAK portal → when NTAK emails, download the certificate and paste it in *Upload certificate*. A CSR made
+3. **Certificate**: *Generate CSR* (RSA 4096, SHA-256, clientAuth, one key per pending request) → download → for developer validation attach the public `.csr` in the support ticket and confirm the fixed egress IP. For a registered live property follow its portal procedure. When the issuer responds, download the certificate and paste it in *Upload certificate*. A CSR made
    outside HotelCare works too: paste the private key with the certificate (PKCS#1 or PKCS#8, unencrypted).
 4. **Self-test** (nothing is sent): identifiers, Vault, key/certificate match, signature, mTLS support, proxy, units.
 5. **Ask NTAK for the reporting start date**, **enable**, then **Send all future bookings**.
+
+## Developer certificate enrollment
+
+The reserved hotel ID `ntak-v9-validation` holds the authority's synthetic test registration. Save the exact software version from support. A compact 11-digit tax number is normalized to the schema's 8-1-2 format. Keep reporting disabled during enrollment. The authenticated worker action `prepare_validation_csr` returns the same public request on retry. Its private key stays in Vault. Download the CSR again if necessary. Submit only the public CSR. After support returns the endpoint list and certificate, verify the route through the allowlisted IP and use synthetic reservations for the checks below. Retain the authority's processing IDs and results with the validation report. Submit the VIZA validation certificate alongside the NTAK report as requested in ticket 150439.
 
 ## Integration test plan (NTAK test environment)
 Use a test hotel with the NTAK test registration number and test certificate. Each step must end `TELJESEN_SIKERES`
