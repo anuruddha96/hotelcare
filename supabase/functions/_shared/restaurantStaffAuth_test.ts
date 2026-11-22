@@ -51,3 +51,75 @@ Deno.test("reservation status transitions require explicit confirmation for corr
       restaurantStatusTransition("completed", "seated", true) ||
       restaurantStatusTransition("booked", "cancelled", true)) throw Error("Forbidden transition allowed");
 });
+
+Deno.test("authenticates only verified users with an active permitted profile", async () => {
+  const { authenticateRestaurantStaff } = await import("./restaurantStaffAuth.ts");
+  function dbFor(user: unknown, profile: unknown) {
+    return {
+      auth: { getUser: async () => ({ data: { user }, error: null }) },
+      from: (_table: string) => ({
+        select: (_fields: string) => ({
+          eq: (_field: string, _value: string) => ({
+            maybeSingle: async () => ({ data: profile, error: null }),
+          }),
+        }),
+      }),
+    };
+  }
+  const request = (authorization?: string) =>
+    new Request("https://example.invalid", {
+      method: "POST", headers: authorization ? { Authorization: authorization } : {},
+    });
+  const validUser = { id: UUID, email: "staff@example.invalid" };
+  const anon = await authenticateRestaurantStaff(request(), dbFor(validUser, basic));
+  if (anon.ok || anon.status !== 401) throw Error("Anonymous caller was accepted");
+  const missing = await authenticateRestaurantStaff(request("Bearer a-staff-token"), dbFor(null, basic));
+  if (missing.ok || missing.status !== 401) throw Error("Invalid token was accepted");
+  const denied = await authenticateRestaurantStaff(request("Bearer a-staff-token"),
+    dbFor(validUser, { ...basic, deleted_at: new Date().toISOString() }));
+  if (denied.ok || denied.status !== 403) throw Error("Deleted staff profile was accepted");
+  const granted = await authenticateRestaurantStaff(request("Bearer a-staff-token"), dbFor(validUser, basic));
+  if (!granted.ok || granted.actor.userId !== UUID || granted.actor.displayName !== "Breakfast staff")
+    throw Error("Verified staff identity was not used");
+});
+
+Deno.test("maps property code to canonical hotel only after organization/assignment checks", async () => {
+  const { authorizeRestaurantHotel } = await import("./restaurantStaffAuth.ts");
+  const tables: Record<string, Array<Record<string, unknown>>> = {
+    hotel_configurations: [
+      { hotel_id: "memories-budapest", hotel_name: "Hotel Memories Budapest", organization_id: "org-1", is_active: true },
+    ],
+    hotels: [{ id: UUID, name: "Hotel Memories Budapest" }],
+    organizations: [{ id: "org-1", slug: "rdhotels" }],
+    restaurant_webhook_sources: [{ hotel_id: UUID, property_slug: "memories", is_active: true }],
+  };
+  const fakeDb = {
+    from(table: string) {
+      const filters: Array<(row: Record<string, unknown>) => boolean> = [];
+      const query = {
+        select(_columns: string) { return query; },
+        eq(column: string, value: unknown) {
+          filters.push(row => row[column] === value);
+          return query;
+        },
+        ilike(column: string, value: string) {
+          filters.push(row => String(row[column] ?? "").toLowerCase() === value.toLowerCase());
+          return query;
+        },
+        async maybeSingle() {
+          const found = (tables[table] ?? []).filter(row => filters.every(predicate => predicate(row)));
+          return { data: found.length === 1 ? found[0] : null, error: found.length > 1 ? { message: "ambiguous" } : null };
+        },
+      };
+      return query;
+    },
+  };
+  const actor = { userId: UUID, displayName: "Breakfast staff", profile: basic };
+  const valid = await authorizeRestaurantHotel(fakeDb, actor, "memories-budapest");
+  if (!valid.ok || valid.hotel.reservationHotelId !== UUID || valid.hotel.propertySlug !== "memories")
+    throw Error("Verified property mapping failed");
+  const denied = await authorizeRestaurantHotel(fakeDb, {
+    ...actor, profile: { ...basic, organization_slug: "another-tenant" },
+  }, UUID);
+  if (denied.ok || denied.status !== 403) throw Error("Cross-tenant canonical UUID was accepted");
+});
