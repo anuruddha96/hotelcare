@@ -92,6 +92,8 @@ Deno.test("maps property code to canonical hotel only after organization/assignm
     hotels: [{ id: UUID, name: "Hotel Memories Budapest" }],
     organizations: [{ id: "org-1", slug: "rdhotels" }],
     restaurant_webhook_sources: [{ hotel_id: UUID, property_slug: "memories", is_active: true }],
+    venues: [{ id: "venue-one", hotel_id: "memories-budapest", organization_slug: "rdhotels" }],
+    user_property_scopes: [{ id: "scope-one", user_id: UUID, organization_slug: "rdhotels", venue_id: "venue-one" }],
   };
   const fakeDb = {
     from(table: string) {
@@ -106,6 +108,11 @@ Deno.test("maps property code to canonical hotel only after organization/assignm
           filters.push(row => String(row[column] ?? "").toLowerCase() === value.toLowerCase());
           return query;
         },
+        in(column: string, values: unknown[]) {
+          filters.push(row => values.includes(row[column]));
+          return query;
+        },
+        limit(_count: number) { return query; },
         async maybeSingle() {
           const found = (tables[table] ?? []).filter(row => filters.every(predicate => predicate(row)));
           return { data: found.length === 1 ? found[0] : null, error: found.length > 1 ? { message: "ambiguous" } : null };
@@ -122,4 +129,8 @@ Deno.test("maps property code to canonical hotel only after organization/assignm
     ...actor, profile: { ...basic, organization_slug: "another-tenant" },
   }, UUID);
   if (denied.ok || denied.status !== 403) throw Error("Cross-tenant canonical UUID was accepted");
+  const scoped = await authorizeRestaurantHotel(fakeDb, {
+    ...actor, profile: { ...basic, assigned_hotel: "different-hotel" },
+  }, "memories-budapest");
+  if (!scoped.ok) throw Error("Valid explicit cross-property staff duty was rejected");
 });
