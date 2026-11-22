@@ -10,7 +10,7 @@ import { groupCellChanges } from "@/lib/rateChangeGroups";
 import type { AutomationAction } from "@/hooks/usePickupAutomationActions";
 import type { BookingNight, CancelledNight, DayMetrics } from "@/lib/revenueAnalytics";
 import {
-  isFreshIndicativeQuote, movementInWindow, reservationJourneyEvents,
+  isFreshIndicativeQuote, movementInWindow, priceDifference, reservationJourneyEvents,
   safeEvidenceUrl, selectRoomStayMovements, sortedJourneyEvents,
   type JourneyEvent, type MarketObservation,
 } from "@/lib/revenue/priceDemandJourney";
@@ -147,6 +147,7 @@ export default function PriceDemandJourney({
       title: "Price " + (entry.phase === "confirmed" ? "changed" : entry.phase === "failed" ? "not applied" : "proposed"),
       detail: [entry.who, entry.statusLabel, entry.detail].filter(Boolean).join(" · "),
       price: entry.next,
+      delta: priceDifference(entry.old, entry.next),
       source: entry.old == null ? "Previous rate unknown" : "From " + moneyBase(entry.old),
     }));
     return sortedJourneyEvents([...reservationEvents, ...priceEvents]);
@@ -185,6 +186,68 @@ export default function PriceDemandJourney({
 
   return (
     <div className="space-y-5 pb-3" data-testid="price-demand-journey">
+      <section className="space-y-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold"><History className="h-4 w-4 text-primary" />Reservation & price journey</h3>
+        <p className="text-[11px] text-muted-foreground">
+          Newest first · reservations created or cancelled at these moments for the selected stay night;
+          price changes are for this exact {occupancy}-guest rate cell.
+        </p>
+        {timeline.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+            No timestamped reservation or price events found in the published data for this cell.
+          </p>
+        ) : (
+          <div className="space-y-0">
+            {displayRows.map((entry) => {
+              const Icon = entry.kind === "booking" ? TicketCheck :
+                entry.kind === "cancellation" ? CalendarX :
+                  entry.title === "Price changed" ? CheckCircle2 : Clock3;
+              const color = entry.kind === "booking" ? "text-emerald-600" :
+                entry.kind === "cancellation" ? "text-rose-600" : "text-sky-600";
+              return (
+                <div key={entry.id} className="relative border-l-2 border-border pb-4 pl-4 last:pb-1">
+                  <Icon className={"absolute -left-[10px] top-0 h-[18px] w-[18px] rounded-full bg-background p-0.5 " + color} aria-hidden />
+                  <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                    <p className="text-xs font-semibold">{entry.title}</p>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">{formatMoment(entry.at)}</span>
+                  </div>
+                  {entry.detail && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{entry.detail}</p>}
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {entry.source && <span>{entry.source}</span>}
+                    {entry.price != null && <span className="font-medium text-foreground">
+                      {entry.source ? " · " : ""}{entry.kind === "price" ? "New price " : "Nightly price "}{moneyBase(entry.price)}
+                    </span>}
+                  </p>
+                  {entry.kind === "price" && entry.delta != null && (
+                    <span className={
+                      "mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium " +
+                      (entry.delta < 0
+                        ? "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+                        : entry.delta > 0
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+                          : "border-border bg-muted text-muted-foreground")
+                    }>
+                      {entry.title === "Price changed" ? "Change" : "Proposed change"}
+                      <strong className="tabular-nums">
+                        {entry.delta > 0 ? "+" : entry.delta < 0 ? "−" : ""}{moneyBase(Math.abs(entry.delta))}
+                      </strong>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!showAllTimeline && timeline.length > 10 && (
+          <button type="button" className="text-xs font-medium text-primary underline underline-offset-2" onClick={() => setShowAllTimeline(true)}>
+            Show {timeline.length - 10} more timeline events
+          </button>
+        )}
+        {showAllTimeline && timeline.length > 10 && (
+          <button type="button" className="text-xs font-medium text-primary underline underline-offset-2" onClick={() => setShowAllTimeline(false)}>Show less</button>
+        )}
+      </section>
+
       <section className="space-y-2">
         <div className="flex items-center gap-2">
           <Hotel className="h-4 w-4 text-primary" aria-hidden />
@@ -337,53 +400,6 @@ export default function PriceDemandJourney({
               </p>
             </div>
           )}
-      </section>
-
-      <section className="space-y-2">
-        <h3 className="flex items-center gap-2 text-sm font-semibold"><History className="h-4 w-4 text-primary" />Reservation & price journey</h3>
-        <p className="text-[11px] text-muted-foreground">
-          Newest first · reservations created or cancelled at these moments for the selected stay night;
-          price changes are for this exact {occupancy}-guest rate cell.
-        </p>
-        {timeline.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-            No timestamped reservation or price events found in the published data for this cell.
-          </p>
-        ) : (
-          <div className="space-y-0">
-            {displayRows.map((entry) => {
-              const Icon = entry.kind === "booking" ? TicketCheck :
-                entry.kind === "cancellation" ? CalendarX :
-                  entry.title === "Price changed" ? CheckCircle2 : Clock3;
-              const color = entry.kind === "booking" ? "text-emerald-600" :
-                entry.kind === "cancellation" ? "text-rose-600" : "text-sky-600";
-              return (
-                <div key={entry.id} className="relative border-l-2 border-border pb-4 pl-4 last:pb-1">
-                  <Icon className={"absolute -left-[10px] top-0 h-[18px] w-[18px] rounded-full bg-background p-0.5 " + color} aria-hidden />
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-xs font-semibold">{entry.title}</p>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">{formatMoment(entry.at)}</span>
-                  </div>
-                  {entry.detail && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{entry.detail}</p>}
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {entry.source && <span>{entry.source}</span>}
-                    {entry.price != null && <span className="font-medium text-foreground">
-                      {entry.source ? " · " : ""}{entry.kind === "price" ? "New price " : "Nightly price "}{moneyBase(entry.price)}
-                    </span>}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {!showAllTimeline && timeline.length > 10 && (
-          <button type="button" className="text-xs font-medium text-primary underline underline-offset-2" onClick={() => setShowAllTimeline(true)}>
-            Show {timeline.length - 10} more timeline events
-          </button>
-        )}
-        {showAllTimeline && timeline.length > 10 && (
-          <button type="button" className="text-xs font-medium text-primary underline underline-offset-2" onClick={() => setShowAllTimeline(false)}>Show less</button>
-        )}
       </section>
 
       <section className="space-y-2 border-t pt-4">
