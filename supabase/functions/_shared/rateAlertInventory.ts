@@ -73,7 +73,10 @@ export function filterRatesBySellableInventory<T extends RateAlertCandidate>(
       result.unverified++;
       continue;
     }
-    if (inactivePlans.has(planKey(room, plan)) || rate.closed_to_arrival === true) {
+    // Closed-to-arrival does not mean unsellable: this date may still be
+    // booked as a stay-through night. Only an explicitly inactive plan can
+    // suppress an alert while matched inventory remains positive.
+    if (inactivePlans.has(planKey(room, plan))) {
       result.closedPlan++;
       continue;
     }
