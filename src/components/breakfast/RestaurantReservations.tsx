@@ -129,15 +129,16 @@ export default function RestaurantReservations({ hotelId, date, language, onDate
     } catch { /* Some devices block audio. */ }
     const url = bookingLink(hotelId, date, r.id);
     const title = bbT(language, "resNewAlert");
-    const body = r.guest_name + " · " + r.party_size + " " + bbT(language, "resGuests") + " · " + timeLabel(r.starts_at);
+    // Keep guest names inside the signed-in app, not on shared-device lock screens.
+    const publicBody = r.party_size + " " + bbT(language, "resGuests") + " · " + timeLabel(r.starts_at);
     toast.info(title, {
-      description: body, duration: 12000,
+      description: r.guest_name + " · " + publicBody, duration: 12000,
       action: { label: bbT(language, "resView"), onClick: () => window.location.assign(url) },
     });
     if (typeof Notification !== "undefined" && Notification.permission === "granted") {
       void serviceWorkerManager.register().then(reg => {
-        if (reg) return reg.showNotification(title, { body, tag: "bb-" + r.id, icon: "/favicon.ico", data: { url } });
-        const n = new Notification(title, { body, tag: "bb-" + r.id });
+        if (reg) return reg.showNotification(title, { body: publicBody, tag: "bb-" + r.id, icon: "/favicon.ico", data: { url } });
+        const n = new Notification(title, { body: publicBody, tag: "bb-" + r.id });
         n.onclick = () => { window.focus(); window.location.assign(url); };
       }).catch(error => console.warn("BB browser alert unavailable", error));
     }
