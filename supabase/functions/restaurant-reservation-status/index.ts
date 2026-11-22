@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
 
     const { data: reservation, error: loadError } = await supabase
       .from("restaurant_reservations")
-      .select("id, hotel_id, source_project, source_reservation_id, outlet_slug, guest_name, guest_email, guest_phone, party_size, starts_at, ends_at, occasion, special_requests, notes, status, raw_payload")
+      .select("id, hotel_id, source_project, source_reservation_id, outlet_slug, guest_name, guest_email, guest_phone, party_size, starts_at, ends_at, occasion, special_requests, notes, status, dashboard_sync_state, raw_payload")
       .eq("id", reservationId)
       .maybeSingle();
     if (loadError) throw loadError;
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
       return json({ error: "This status change needs confirmation or the reservation has already been completed." }, 409);
     }
     if (reservation.status === status) {
-      return json({ ok: true, status, dashboard_sync_state: "unchanged" });
+      return json({ ok: true, status, dashboard_sync_state: reservation.dashboard_sync_state });
     }
 
     const nowIso = new Date().toISOString();
@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
       const { error: localError } = await supabase
         .from("restaurant_reservations")
         .update({ dashboard_sync_state: "local", dashboard_sync_error: null })
-        .eq("id", reservationId);
+        .eq("id", reservationId).eq("status", status).eq("status_marked_at", nowIso);
       if (localError) throw localError;
       return json({ ok: true, status, status_marked_by: session.actor.displayName, dashboard_sync_state: "local", dashboard_sync_error: null });
     }
@@ -190,7 +190,7 @@ Deno.serve(async (req) => {
         dashboard_synced_at: syncState === "synced" ? new Date().toISOString() : null,
         dashboard_sync_error: syncError,
       })
-      .eq("id", reservationId);
+      .eq("id", reservationId).eq("status", status).eq("status_marked_at", nowIso);
 
     return json({
       ok: true,
