@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_REPLY_WINDOW_DAYS, MAX_REVIEW_PAGES, autoEligible, shouldFetchNextReviewPage } from "../../supabase/functions/google-reputation-worker/reviewPolicy";
+import { AUTO_REPLY_WINDOW_DAYS, MAX_REVIEW_PAGES, QUEUE_WINDOW_MINUTES, autoEligible, queuedLocationForMinute, shouldFetchNextReviewPage } from "../../supabase/functions/google-reputation-worker/reviewPolicy";
 
 const now = Date.parse("2026-11-22T09:00:00.000Z");
 const hoursAgo = (hours: number) => new Date(now - hours * 60 * 60 * 1000).toISOString();
@@ -46,4 +46,23 @@ describe("three-hour Google review polling safety", () => {
     expect(shouldFetchNextReviewPage([{ updateTime: hoursAgo(25 * 24) }], "next-token", 1, now)).toBe(false);
     expect(shouldFetchNextReviewPage([], "next-token", 1, now)).toBe(false);
   });
+  it("queues each Google business exactly once across each 180-minute cycle", () => {
+    for (const count of [1, 2, 3, 10, 11, 60, 180]) {
+      const scheduled = Array.from({ length: QUEUE_WINDOW_MINUTES }, (_, m) => queuedLocationForMinute(m, count))
+        .filter((id): id is number => id !== null);
+      expect(scheduled).toEqual(Array.from({ length: count }, (_, i) => i));
+    }
+  });
+  it("stagger-checks 10 listings by 18 minutes", () => {
+    const due = Array.from({ length: QUEUE_WINDOW_MINUTES }, (_, minute) => minute)
+      .filter((minute) => queuedLocationForMinute(minute, 10) !== null);
+    expect(due).toEqual([0, 18, 36, 54, 72, 90, 108, 126, 144, 162]);
+  });
+  it("rejects out-of-window and unsupported queue sizes", () => {
+    expect(queuedLocationForMinute(-1, 10)).toBeNull();
+    expect(queuedLocationForMinute(180, 10)).toBeNull();
+    expect(queuedLocationForMinute(10, 0)).toBeNull();
+    expect(queuedLocationForMinute(10, 181)).toBeNull();
+  });
+
 });
