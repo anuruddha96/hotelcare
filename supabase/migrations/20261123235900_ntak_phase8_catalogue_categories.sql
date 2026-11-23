@@ -1,0 +1,28 @@
+-- Phase 8 only. Apply after financial-core schema. No production seed.
+ALTER TABLE public.service_catalog_items
+  ADD COLUMN IF NOT EXISTS ntak_main text,
+  ADD COLUMN IF NOT EXISTS ntak_sub text,
+  ADD COLUMN IF NOT EXISTS in_package boolean NOT NULL DEFAULT false;
+
+-- Category pairs correspond exactly to _shared/ntak/codes.ts (annex 12.3).
+ALTER TABLE public.service_catalog_items ADD CONSTRAINT service_catalog_ntak_category_check CHECK (
+  (ntak_main IS NULL AND ntak_sub IS NULL AND NOT in_package)
+  OR (ntak_main IS NOT NULL AND (
+    (ntak_main = 'SZALLASDIJ' AND ntak_sub IS NULL)
+    OR (ntak_main = 'IFA' AND ntak_sub IS NULL)
+    OR (ntak_main = 'KOZFURDO' AND ntak_sub IS NOT NULL AND ntak_sub IN ('FURDO_PROGRAM', 'STRAND_PROGRAM', 'USZODAI_PROGRAM', 'WELLNESS_PROGRAM', 'EGESZSEGUGYI_SZOLGALTATAS'))
+    OR (ntak_main = 'TERMESZETES_FURDO' AND ntak_sub IS NOT NULL AND ntak_sub IN ('SZABADVIZI_STRAND_PROGRAM'))
+    OR (ntak_main = 'MUZEUM_VAR_KASTELY' AND ntak_sub IS NOT NULL AND ntak_sub IN ('KIALLITAS', 'MUZEUMPEDAGOGIA', 'TARLATVEZETES', 'EGYHAZI_LETESITMENY_LATOGATASA', 'KASTELYLATOGATAS', 'VARLATOGATAS', 'EGYEB_MUEMLEK_LATOGATASA', 'OKTATASI_PROGRAM'))
+    OR (ntak_main = 'TURISZTIKAI_KOZLEKEDES' AND ntak_sub IS NOT NULL AND ntak_sub IN ('TAVI_HAJOZAS', 'FOLYAMI_HAJOZAS', 'HOP_ON_HOP_OFF'))
+    OR (ntak_main = 'KALANDPARK' AND ntak_sub IS NOT NULL AND ntak_sub IN ('KALANDPARKI_PROGRAM', 'ELMENYKOZPONTI_PROGRAM'))
+    OR (ntak_main = 'ALLATKERT' AND ntak_sub IS NOT NULL AND ntak_sub IN ('ALLATKERTI_PROGRAM', 'VADASPARKI_PROGRAM'))
+    OR (ntak_main = 'VIDAMPARK' AND ntak_sub IS NOT NULL AND ntak_sub IN ('VIDAMPARKI_PROGRAM'))
+    OR (ntak_main = 'VEDETT_TERMESZETI_TERULET' AND ntak_sub IS NOT NULL AND ntak_sub IN ('NEMZETI_PARK_LATOGATAS', 'BARLANGLATOGATAS', 'TARLATVEZETES', 'OKTATASI_PROGRAM', 'PARKLATOGATAS', 'TEMATIKUS_BEMUTATOHELY_LATOGATAS', 'TURAK_KIRANDULASOK'))
+    OR (ntak_main = 'ZENES_TANCOS_RENDEZVENY' AND ntak_sub IS NOT NULL AND ntak_sub IN ('KULTURALIS_RENDEZVENY', 'KONCERT', 'FESZTIVAL'))
+    OR (ntak_main = 'ETEL' AND ntak_sub IS NOT NULL AND ntak_sub IN ('REGGELI', 'SZENDVICS', 'ELOETEL', 'LEVES', 'FOETEL', 'KORET', 'SAVANYUSAG_SALATA', 'KOSTOLO', 'PEKSUTEMENY', 'DESSZERT', 'SNACK', 'FOETEL_KORETTEL', 'ETELCSOMAG', 'EGYEB'))
+    OR (ntak_main = 'ALKMENTESITAL_HELYBEN' AND ntak_sub IS NOT NULL AND ntak_sub IN ('VIZ', 'LIMONADE_SZORP_FACSART', 'ALKOHOLMENTES_KOKTEL', 'TEA_FORROCSOKOLADE', 'ITALCSOMAG', 'KAVE'))
+    OR (ntak_main = 'ALKMENTESITAL_NEM_HELYBEN' AND ntak_sub IS NOT NULL AND ntak_sub IN ('VIZ', 'ROSTOS_UDITO', 'SZENSAVAS_UDITO', 'SZENSAVMENTES_UDITO', 'ITALCSOMAG'))
+    OR (ntak_main = 'ALKOHOLOSITAL' AND ntak_sub IS NOT NULL AND ntak_sub IN ('KOKTEL', 'LIKOR', 'PARLAT', 'SOR', 'BOR', 'PEZSGO', 'ITALCSOMAG'))
+    OR (ntak_main = 'EGYEB' AND ntak_sub IS NOT NULL AND ntak_sub IN ('EGYEB', 'SZERVIZDIJ', 'BORRAVALO', 'EGYEB_VENDEGLATAS'))
+  ) AND (ntak_main <> 'SZALLASDIJ' OR in_package) AND (ntak_main <> 'IFA' OR NOT in_package))
+);
