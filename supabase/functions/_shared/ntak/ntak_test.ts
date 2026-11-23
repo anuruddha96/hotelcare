@@ -534,3 +534,26 @@ Deno.test('Phase 8 NZ_03 explicit category coverage and seven payment methods', 
   assert.equal(assembled.totals.payments, 28467);
   await assertValid(buildNapiZarasRequest(common(), assembled.closure));
 });
+
+Deno.test('Phase 8 NZ_05 day-use in 103/104 and FOGL_01 post-departure postings', async () => {
+  const day = '2026-11-22';
+  const bookings = [res({ id: 'past', status: 'checked_out', check_in_date: '2026-11-19', check_out_date: '2026-11-21', ntak_booking_no: 'FOGL_01' }),
+    res({ id: 'a', status: 'checked_out', check_in_date: day, check_out_date: day, room_id: 'r103', ntak_booking_no:'FOGL_03', adults:1, rate_per_night:28000 }),
+    res({ id: 'b', status: 'checked_out', check_in_date: day, check_out_date: day, room_id: 'r104', ntak_booking_no:'FOGL_03', adults:1, rate_per_night:34500 })];
+  const lines = [{ reservation_id:'past',service_date:day, gross_total:10000,vat_rate:27,currency:'HUF',status:'open',category:'other',source_type:'manual',ntak_main:'EGYEB',ntak_sub:'EGYEB',in_package:false }];
+  const payments = [['past',10000,'card'],['a',28000,'cash'],['b',34500,'card']].map(([id,amount,method])=>({reservation_id:String(id),amount:Number(amount),currency:'HUF',method:String(method),status:'recorded',received_at:day+'T12:00:00Z'}));
+  const source = buildDaySources({day,reservations:bookings,lines,payments,assignments:[],guestsFor:r=>r.id==='a'?[guest(1)]:r.id==='b'?[guest(2)]:[],isCompany:()=>false,roomsInBooking:()=>1,label:r=>r.id}, DEFAULT_LEDGER_CONFIG);
+  const room104 = {...units()[0],roomId:'r104',roomNumber:'104'};
+  const assembled = assembleClosure({...closureSource(),day,units:[...units(),room104],...source}, {...settings, registeredRooms:4, accommodationVat:5,ifa:{type:'TETELES',rate:400}});
+  assert.equal(hasBlockingErrors(assembled.checklist),false,JSON.stringify(assembled.checklist));
+  assert.equal(assembled.totals.roomNights,0);
+  assert.equal(assembled.totals.ifa,0);
+  assert.equal(assembled.closure.nights.length,2);
+  assert.ok(assembled.closure.nights.every(n=>n.dayUse));
+  assert.deepEqual(assembled.closure.nights.map(n=>n.sold.inPackage[0].amount),[28000,34500]);
+  assert.equal(assembled.totals.charges,72500);
+  assert.equal(assembled.totals.payments,72500);
+  assert.deepEqual(assembled.closure.postStayCharges,[{bookingNo:'FOGL_01',date:'2026-11-21',charge:{amount:10000,main:'EGYEB',sub:'EGYEB',vat:27}}]);
+  assert.deepEqual(assembled.closure.postStayPayments,[{bookingNo:'FOGL_01',date:day,payment:{amount:10000,type:'BANKKARTYA'}}]);
+  await assertValid(buildNapiZarasRequest(common(),assembled.closure));
+});
