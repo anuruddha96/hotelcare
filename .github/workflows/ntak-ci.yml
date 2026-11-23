@@ -121,6 +121,8 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261119100000_ntak_pms_v9.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261120144500_ntak_certificate_enrollment.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_integration.sql
+      - name: Phase 9 message recovery migration and push trigger (PostgreSQL)
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase9_message_recovery.sql
 
   edge:
     name: Edge function type check and Deno tests

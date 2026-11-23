@@ -390,6 +390,17 @@ export async function classificationFor(db: Db, s: Settings, day: string): Promi
   return data?.accepted_once ? "MODOSITO" : "UJ";
 }
 
+// Merging may deploy code before the separately coordinated SQL migration.
+export async function phase9SchemaReady(db: Db): Promise<boolean> {
+  try {
+    const [m,c] = await Promise.all([
+      db.from("ntak_messages").select("resend_of,override_reason").limit(1),
+      db.from("ntak_daily_closures").select("override_by,override_reason").limit(1),
+    ]);
+    return !m.error && !c.error;
+  } catch { return false; }
+}
+
 // Only bypass checks for values actually represented in the outgoing XML.
 export function closureOverride(checklist: AssembledClosure["checklist"], environment: Settings["environment"], actor: string | null | undefined, requested: boolean | undefined, reason: string | undefined) {
   const errors = checklist.filter(c => c.level === "error");
@@ -403,7 +414,12 @@ export async function queueClosure(db: Db, s: Settings, day: string, opts: {
 }): Promise<{ ok: boolean; build: ClosureBuild; messageId?: string }> {
   const classification = await classificationFor(db, s, day);
   const build = await buildClosure(db, s, day, { classification, protocolId: opts.protocolId, reason: opts.reason, closed: opts.closed });
+  const ready = await phase9SchemaReady(db);
   const override = closureOverride(build.checklist, s.environment, opts.actor, opts.override, opts.overrideReason);
+  if (opts.override && !ready) {
+    build.checklist.push({level:"error",code:"migration",message:"The Phase 9 audit migration must be applied before overriding."});
+    return {ok:false,build};
+  }
   if ((opts.override && !override.allowed) || (hasBlockingErrors(build.checklist) && !override.allowed)) return { ok: false, build };
 
   const { data: active, error: activeError } = await db.from("ntak_messages").select("id").eq("hotel_id", s.hotel_id).eq("environment", s.environment).eq("kind", "closure").eq("ref", day).in("state", ["sending", "accepted"]).limit(1);
@@ -415,14 +431,14 @@ export async function queueClosure(db: Db, s: Settings, day: string, opts: {
   await supersedeOpen(db, s.hotel_id, "closure", day);
   const { data: msg, error } = await db.from("ntak_messages").insert({
     hotel_id: s.hotel_id, organization_slug: s.organization_slug, environment: s.environment, kind: "closure", ref: day,
-    request_xml: build.xml, created_by: opts.actor ?? null, override_reason: override.allowed ? override.reason : null,
+    request_xml: build.xml, created_by: opts.actor ?? null, ...(ready ? {override_reason: override.allowed ? override.reason : null} : {}),
   }).select("id").single();
   if (error) throw new Error(error.message);
   const { error: closureError } = await db.from("ntak_daily_closures").upsert({
     hotel_id: s.hotel_id, closed_day: day, organization_slug: s.organization_slug, state: "queued", classification,
     protocol_id: opts.protocolId ?? null, reason: opts.reason ?? null, closed_by: opts.actor ?? null, closed_at: new Date().toISOString(),
     snapshot: { closure: build.closure, checklist: build.checklist, totals: build.totals }, snapshot_hash: build.snapshotHash,
-    override_by: override.allowed ? opts.actor : null, override_reason: override.allowed ? override.reason : null,
+    ...(ready ? {override_by: override.allowed ? opts.actor : null, override_reason: override.allowed ? override.reason : null} : {}),
     message_id: msg.id, needs_correction: false, correction_detected_at: null, updated_at: new Date().toISOString(),
   }, { onConflict: "hotel_id,closed_day" });
   if (closureError) {

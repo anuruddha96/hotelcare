@@ -15,7 +15,7 @@ BEGIN
     PERFORM public.hotelcare_dispatch_push(
       public.hotelcare_push_recipients(NEW.organization_slug, NEW.hotel_id, ARRAY['admin','top_management','top_management_manager']),
       'NTAK reporting needs attention', 'Open Reception reports to review an NTAK message.',
-      '/reception', 'ntak-action-' || NEW.id::text, 'ntak-reporting-action',
+      '/reception/reports', 'ntak-action-' || NEW.id::text, 'ntak-reporting-action',
       jsonb_build_object('hotelId', NEW.hotel_id, 'messageId', NEW.id)
     );
   END IF;

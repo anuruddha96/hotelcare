@@ -25,7 +25,7 @@ import { buildAdatszolgaltatasKezdoDatumRequest } from "../_shared/ntak/messages
 import { importSigningKey, signEnvelope, verifyEnvelope } from "../_shared/ntak/wssec.ts";
 import { firstCertificatePem, generateCsr, keyMatchesCertificate, normalizePrivateKeyPem, parseCertificate, rsaModulusFromSpki, spkiSha256, effectiveExpiry } from "../_shared/ntak/x509.ts";
 import {
-  buildClosure, classificationFor, common, configurationProblems, loadSettings, markAllFutureBookings, queueClosure,
+  buildClosure, classificationFor, common, configurationProblems, loadSettings, markAllFutureBookings, phase9SchemaReady, queueClosure,
   queueStartDateQuery, runWorker, today, verifyDue, type Db, type Settings,
 } from "./engine.ts";
 
@@ -169,7 +169,7 @@ Deno.serve(async (req) => {
         const day = isDay(body.day) ? body.day : addDays(today(), -1);
         const classification = await classificationFor(db, settings, day);
         const build = await buildClosure(db, settings, day, { classification, protocolId: body.protocol_id, reason: body.reason, closed: body.closed === true });
-        return json({ ok: true, day, classification, can_manage: canManage, environment: settings.environment, closure: build.closure, checklist: build.checklist, totals: build.totals, xml: build.xml });
+        return json({ ok: true, day, classification, can_manage: canManage && await phase9SchemaReady(db), environment: settings.environment, closure: build.closure, checklist: build.checklist, totals: build.totals, xml: build.xml });
       }
 
       case "close_day": {
@@ -313,10 +313,11 @@ Deno.serve(async (req) => {
 
 async function status(db: Db, hotelId: string, settings: Settings | null) {
   const since = addDays(today(), -45);
+  const phase9 = await phase9SchemaReady(db);
   const [messages, closures, units, roomTypes, rooms, bookingQueue, events] = await Promise.all([
-    db.from("ntak_messages").select("id,kind,ref,state,ntak_status,processing_id,warnings,errors,attempts,last_http_status,last_error,created_at,sent_at,verified_at,next_attempt_at,expected_start_date,resend_of,override_reason")
+    db.from("ntak_messages").select("id,kind,ref,state,ntak_status,processing_id,warnings,errors,attempts,last_http_status,last_error,created_at,sent_at,verified_at,next_attempt_at,expected_start_date" + (phase9 ? ",resend_of,override_reason" : ""))
       .eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(80),
-    db.from("ntak_daily_closures").select("closed_day,state,classification,protocol_id,reason,closed_at,accepted_once,needs_correction,correction_detected_at,message_id,override_by,override_reason,snapshot->totals,snapshot->checklist")
+    db.from("ntak_daily_closures").select("closed_day,state,classification,protocol_id,reason,closed_at,accepted_once,needs_correction,correction_detected_at,message_id,snapshot->totals,snapshot->checklist" + (phase9 ? ",override_by,override_reason" : ""))
       .eq("hotel_id", hotelId).gte("closed_day", since).order("closed_day", { ascending: false }),
     db.from("ntak_unit_profiles").select("room_id,building,room_number,unit_type,single_beds,double_beds,extra_beds,active").eq("hotel_id", hotelId).order("room_number"),
     db.from("ntak_room_type_units").select("room_type_id,unit_type,capacity,active").eq("hotel_id", hotelId),
