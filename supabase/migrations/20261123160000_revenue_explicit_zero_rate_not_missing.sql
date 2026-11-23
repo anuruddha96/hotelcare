@@ -239,5 +239,4 @@ select
   (select st.breakfast_price_per_guest from settings st)
 from best b
 order by b.stay_date;
-$function$
-
+$function$;
