@@ -198,17 +198,26 @@ SELECT public.pms_finance_add_charge(
 SELECT public.pms_finance_record_payment(
   '00000000-0000-4000-8000-000000000002',40,'EUR','cash',NULL,now()
 );
+-- Native reception continues to mirror guest_folios into finance-core.
+SELECT public.pms_record_business_folio_item(
+  '00000000-0000-4000-8000-000000000002',
+  'Native reception service',5,'other',NULL,NULL
+);
 RESET ROLE;
 
 DO $$
 DECLARE native uuid:='00000000-0000-4000-8000-000000000002'::uuid;
 BEGIN
-  IF (SELECT balance_due FROM public.reservations WHERE id=native) IS DISTINCT FROM 170
+  IF (SELECT balance_due FROM public.reservations WHERE id=native) IS DISTINCT FROM 175
     OR (SELECT payment_status FROM public.reservations WHERE id=native) IS DISTINCT FROM 'partial' THEN
     RAISE EXCEPTION 'Native PMS finance flow regressed';
   END IF;
   IF (SELECT service_date FROM public.folio_lines WHERE description='Native service')
      IS DISTINCT FROM (now() AT TIME ZONE 'Europe/Budapest')::date THEN
     RAISE EXCEPTION 'NULL service_date did not default to Budapest today';
+  END IF;
+  IF (SELECT count(*) FROM public.guest_folios WHERE reservation_id=native) IS DISTINCT FROM 1
+    OR (SELECT count(*) FROM public.folio_lines WHERE description='Native reception service') IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'Native reception no longer mirrors guest_folios to finance-core';
   END IF;
 END $$;
