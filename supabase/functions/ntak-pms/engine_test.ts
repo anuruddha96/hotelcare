@@ -291,6 +291,8 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     });
 
     // EU_01A/B: force a schema-valid, excessive breakfast amount through the test override.
+    // A hotel_2 has a 500,000 HUF secondary ETEL limit (hotel_4 is 5M).
+    s.accommodation_class = "hotel_2";
     db.rows("service_catalog_items")[0].category = "breakfast";
     db.rows("folio_lines")[0].gross_total = 3000000;
     assert.equal((await queueClosure(db,s,Y,{actor:"u1"})).ok,false);
@@ -303,6 +305,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     assert.equal((await verifyDue(db,s,true)).checked,1);
     assert.equal(db.rows("ntak_daily_closures")[0].state,"errors");
     assert.equal(await classificationFor(db,s,Y),"UJ");
+    s.accommodation_class = "hotel_4";
     db.rows("service_catalog_items")[0].category = "minibar";
     db.rows("folio_lines")[0].gross_total = 2500;
     ntak.closureResult = "VIZSGALANDO";
