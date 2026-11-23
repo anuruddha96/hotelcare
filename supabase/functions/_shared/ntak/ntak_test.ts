@@ -519,7 +519,9 @@ Deno.test('Phase 8 NZ_03 explicit category coverage and seven payment methods', 
   const lines = Object.entries(CATEGORIES).flatMap(([main, subs]) => subs.filter(sub => !(main === 'EGYEB' && sub === 'EGYEB_VENDEGLATAS')).map(sub => ({ ...base, gross_total: 1, ntak_main: main, ntak_sub: sub, in_package: false })));
   assert.equal(lines.length, 67);
   const problems: string[] = [];
-  assert.equal(mapExtras(lines, DEFAULT_LEDGER_CONFIG, problems).length, 67);
+  assert.deepEqual(mapExtras(lines, DEFAULT_LEDGER_CONFIG, problems).map(c => [c.main,c.sub]), lines.map(l=>[l.ntak_main,l.ntak_sub]));
+  assert.equal(mapExtras([{...base,gross_total:5,ntak_main:'ETEL',ntak_sub:'SOR'}], DEFAULT_LEDGER_CONFIG, problems).length,0);
+  assert.match(problems.pop() ?? '', /Invalid catalogue NTAK category/);
   assert.deepEqual(problems, []);
   const payments = ['cash','card_terminal','bank_transfer','coupon','szep_otp','on_account','other'].map((method, i) => ({ reservation_id: 'r', amount: i < 5 ? 4067 : 4066, currency: 'HUF', method, status: 'recorded', received_at: day + 'T12:00:00Z' }));
   const mapped = mapPayments(payments, DEFAULT_LEDGER_CONFIG, problems);
@@ -528,11 +530,16 @@ Deno.test('Phase 8 NZ_03 explicit category coverage and seven payment methods', 
   assert.deepEqual(mapped.map(p => p.type), ['KESZPENZ','BANKKARTYA','ATUTALAS','UTALVANY','SZEP_KARTYA','UTOLAGOS','EGYEB']);
   assert.equal(mapped.find(p => p.type === 'SZEP_KARTYA')?.szepAccommodation, true);
   const input = buildDaySources({ day, reservations: [res({ id: 'r', adults: 1, rate_per_night: 28000 })], lines, payments, assignments: [], guestsFor: () => [guest(1)], isCompany: () => false, roomsInBooking: () => 1, label: r => r.id }, DEFAULT_LEDGER_CONFIG);
-  const assembled = assembleClosure({ ...closureSource(), ...input }, { ...settings, accommodationVat: 5, ifa: { type: 'TETELES', rate: 400 } });
+  const assembled = assembleClosure({ ...closureSource(), ...input, otherCharges: [], otherPayments: [] }, { ...settings, accommodationVat: 5, ifa: { type: 'TETELES', rate: 400 } });
   assert.equal(hasBlockingErrors(assembled.checklist), false, JSON.stringify(assembled.checklist));
   assert.equal(assembled.totals.charges, 28467);
   assert.equal(assembled.totals.payments, 28467);
   await assertValid(buildNapiZarasRequest(common(), assembled.closure));
+  const withPackage = buildDaySources({ day, reservations: [res({ id: 'r', adults: 1, rate_per_night: 28000 })], lines: [{...base,gross_total:5,ntak_main:'ETEL',ntak_sub:'REGGELI',in_package:true}], payments: [], assignments: [], guestsFor: () => [guest(1)], isCompany: () => false, roomsInBooking: () => 1, label: r => r.id }, DEFAULT_LEDGER_CONFIG);
+  const pkg = assembleClosure({...closureSource(),...withPackage}, {...settings, accommodationVat:5, ifa:{type:'TETELES',rate:400}});
+  assert.equal(pkg.closure.nights[0].sold.inPackage.find(c=>c.sub==='REGGELI')?.amount,5);
+  assert.equal(pkg.closure.nights[0].sold.inPackage.find(c=>c.main==='SZALLASDIJ')?.amount,28000);
+  assert.ok(!pkg.closure.nights[0].sold.outPackage.some(c=>c.sub==='REGGELI'));
 });
 
 Deno.test('Phase 8 NZ_05 day-use in 103/104 and FOGL_01 post-departure postings', async () => {
@@ -544,7 +551,7 @@ Deno.test('Phase 8 NZ_05 day-use in 103/104 and FOGL_01 post-departure postings'
   const payments = [['past',10000,'card'],['a',28000,'cash'],['b',34500,'card']].map(([id,amount,method])=>({reservation_id:String(id),amount:Number(amount),currency:'HUF',method:String(method),status:'recorded',received_at:day+'T12:00:00Z'}));
   const source = buildDaySources({day,reservations:bookings,lines,payments,assignments:[],guestsFor:r=>r.id==='a'?[guest(1)]:r.id==='b'?[guest(2)]:[],isCompany:()=>false,roomsInBooking:()=>1,label:r=>r.id}, DEFAULT_LEDGER_CONFIG);
   const room104 = {...units()[0],roomId:'r104',roomNumber:'104'};
-  const assembled = assembleClosure({...closureSource(),day,units:[...units(),room104],...source}, {...settings, registeredRooms:4, accommodationVat:5,ifa:{type:'TETELES',rate:400}});
+  const assembled = assembleClosure({...closureSource(),day,closedAt:day+'T23:00:00Z',units:[...units(),room104],...source,otherCharges:[],otherPayments:[]}, {...settings, registeredRooms:4, accommodationVat:5,ifa:{type:'TETELES',rate:400}});
   assert.equal(hasBlockingErrors(assembled.checklist),false,JSON.stringify(assembled.checklist));
   assert.equal(assembled.totals.roomNights,0);
   assert.equal(assembled.totals.ifa,0);
