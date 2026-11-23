@@ -118,6 +118,13 @@ jobs:
           PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_fixture.sql
           PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123220000_ntak_phase4_room_state_periods.sql
           PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_integration.sql
+          # Fresh database keeps the review test independent of fixed historical fixture dates.
+          createdb hotelcare_room_review_ci
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_fixture.sql
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261119100000_ntak_pms_v9.sql
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123220000_ntak_phase4_room_state_periods.sql
+          PGDATABASE=hotelcare_room_review_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_review.sql
       - name: Phase 5 walk-in sales atomicity, VAT and RLS integration (PostgreSQL)
         run: |
           set -euo pipefail
