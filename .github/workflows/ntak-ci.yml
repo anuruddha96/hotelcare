@@ -7,6 +7,7 @@ on:
       - 'supabase/functions/ntak-pms/**'
       - 'supabase/migrations/*_ntak_*.sql'
       - 'supabase/functions/viza-thf/**'
+      - 'supabase/functions/_shared/viza/**'
       - 'supabase/tests/ntak_*.sql'
       - 'src/components/ntak/**'
       - 'src/lib/ntak-translations.ts'
@@ -67,6 +68,8 @@ jobs:
           python3 -m pip install --quiet lxml cryptography
       - name: Type-check ntak-pms
         run: deno check --node-modules-dir=auto supabase/functions/ntak-pms/index.ts
+      - name: Type-check viza-thf
+        run: deno check --node-modules-dir=auto supabase/functions/viza-thf/index.ts
       - name: NTAK library tests (schema, signature, CSR, closure rules)
         run: deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env supabase/functions/_shared/ntak/ntak_test.ts
       - name: Engine end-to-end test (fake NTAK endpoint)

@@ -5,6 +5,8 @@ import {
   buildDepartureBody,
   buildEllenorzoString,
   buildStatusBody,
+  buildUnsentListBody,
+  parseUnsentList,
   escapeXml,
   readXmlTag,
   readXmlTags,
@@ -170,5 +172,44 @@ describe('guestToVizaGroups', () => {
     expect(splitMotherName('Nagy  Ilona Maria')).toEqual({ csalad: 'Nagy', uto: 'Ilona Maria' });
     expect(splitMotherName('Nagy')).toEqual({ csalad: 'Nagy', uto: null });
     expect(splitMotherName('')).toEqual({ csalad: null, uto: null });
+  });
+});
+
+describe('VIZA validation readiness', () => {
+  it('names the unsent-list filter as the WSDL does', () => {
+    expect(buildUnsentListBody('NEMBEKULDOTT')).toBe(
+      '<v1:bekuldetlenAdatListaRequest xmlns:v1="http://vizainfo.hu/thf/v1"><v1:bekuldetlenAdatTipus>NEMBEKULDOTT</v1:bekuldetlenAdatTipus></v1:bekuldetlenAdatListaRequest>',
+    );
+  });
+
+  it('reads an empty and a filled unsent list', () => {
+    expect(parseUnsentList('<ns2:bekuldetlenAdatListaResponse xmlns:ns2="http://vizainfo.hu/thf/v1"><ns2:eredmenyKod>OK</ns2:eredmenyKod></ns2:bekuldetlenAdatListaResponse>'))
+      .toEqual({ eredmenyKod: 'OK', fault: null, items: [] });
+    const filled = parseUnsentList('<ns2:bekuldetlenAdatListaResponse xmlns:ns2="http://vizainfo.hu/thf/v1"><ns2:eredmenyKod>OK</ns2:eredmenyKod>'
+      + '<ns2:bekuldetlenAdat><ns2:uzenetAzonosito>0b28c5f0-fc3b-4275-9fee-cd4819e21d6d</ns2:uzenetAzonosito><ns2:adatszolgaltatasiAzonosito>LVZ239QN</ns2:adatszolgaltatasiAzonosito><ns2:hibaUzenet>VIZA-OFFLINE</ns2:hibaUzenet></ns2:bekuldetlenAdat>'
+      + '</ns2:bekuldetlenAdatListaResponse>');
+    expect(filled.items).toEqual([{ uzenetAzonosito: '0b28c5f0-fc3b-4275-9fee-cd4819e21d6d', adatszolgaltatasiAzonosito: 'LVZ239QN', hibaUzenet: 'VIZA-OFFLINE' }]);
+  });
+
+  it('sends the birth name pair as manual data when the document reader did not supply it', () => {
+    const groups = guestToVizaGroups({
+      first_name: 'ROZALIA', last_name: 'SZEPENE KISS', birth_last_name: 'Kiss', birth_first_name: 'Rozália',
+      mother_name: 'Kalcsó Irma', birth_place: 'Debrecen', date_of_birth: '1979-06-30', gender: 'female',
+      nationality: 'HUN', id_document_type: 'id_card', id_document_number: '000000XX',
+      document_scan: { fields: { csaladnev: 'SZEPENE KISS', utonev: 'ROZALIA', szuletesiDatum: '1979-06-30', allampolgarsagKod: 'HU', nem: 'NO', okmanyTipus: 'SZEM_IG', okmanyAzonositoSzam: '000000XX' } },
+    });
+    expect(groups.scanned?.okmanyAzonositoSzam).toBe('000000XX');
+    expect(groups.manual).toEqual({
+      szuletesiCsaladnev: 'Kiss', szuletesiUtonev: 'Rozália', szuletesiHely: 'Debrecen',
+      anyjaCsaladnev: 'Kalcsó', anyjaUtonev: 'Irma',
+    });
+  });
+
+  it('puts visa number, entry date and entry place after the personal data', () => {
+    const { xml } = buildArrivalBody(COMMON, [{
+      erkezesAzonosito: '22222222-2222-4222-8222-222222222222', erkezesIdeje: '2026-11-23T14:00:00.000+01:00', tavozasVarhatoDatuma: '2026-11-25',
+      manual: { csaladnev: 'SPECIMEN', utonev: 'A' }, vizumEngedelySzam: '0123456789', beutazasDatuma: '2026-11-22', beutazasHelye: 'Budapest',
+    }]);
+    expect(xml).toContain('</v1:manualisanRogzitettAdat><v1:vizumEngedelySzam>0123456789</v1:vizumEngedelySzam><v1:beutazasDatuma>2026-11-22</v1:beutazasDatuma><v1:beutazasHelye>Budapest</v1:beutazasHelye></v1:erkezoVendeg>');
   });
 });
