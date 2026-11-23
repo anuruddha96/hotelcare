@@ -41,6 +41,9 @@ const PAY_METHODS: Array<{ value: string; key: string }> = [
   { value: 'cash', key: 'pms.pay.cash' },
   { value: 'transfer', key: 'pms.pay.transfer' },
   { value: 'szep_card', key: 'pms.pay.szep' },
+  { value: 'voucher', key: 'Voucher' },
+  { value: 'on_account', key: 'On account / later' },
+  { value: 'other', key: 'Other' },
 ];
 
 export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps) {
@@ -79,7 +82,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
     setPayBusy(true);
     try {
       const method = PAY_METHODS.find((m) => m.value === payMethod);
-      await addFolioItem(reservation.id, `${t('pms.pay.recordPayment')} · ${method ? t(method.key) : payMethod}`, amount, 'payment', paymentDay, payMethod);
+      await addFolioItem(reservation.id, `${t('pms.pay.recordPayment')} · ${method ? (method.key.startsWith('pms.') ? t(method.key) : method.key) : payMethod}`, amount, 'payment', paymentDay, payMethod);
       setPayAmount('');
       toast.success(t('pms.pay.recorded'));
       await refresh();
@@ -146,7 +149,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
             <Input className="h-8" type="number" min={0} step="any" placeholder={String(balance)} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
             <Select value={payMethod} onValueChange={setPayMethod}>
               <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>{PAY_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{t(m.key)}</SelectItem>)}</SelectContent>
+              <SelectContent>{PAY_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.key.startsWith('pms.') ? t(m.key) : m.key}</SelectItem>)}</SelectContent>
             </Select>
             <Button type="button" size="sm" variant="outline" className="h-8 shrink-0 gap-1" disabled={payBusy || !(Number(payAmount) > 0)} onClick={recordPayment}>
               {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wallet className="h-3.5 w-3.5" />} {t('pms.pay.recordPayment')}
