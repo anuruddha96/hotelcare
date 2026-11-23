@@ -7,6 +7,7 @@ CREATE TABLE public.pos_sales (
   business_day date NOT NULL,
   note text NOT NULL DEFAULT '' CHECK (length(note)<=500),
   created_by uuid NOT NULL,
+  request_payload jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX pos_sales_property_day_idx ON public.pos_sales(hotel_id,organization_slug,business_day,id);
@@ -137,6 +138,7 @@ DECLARE
   gross_sum numeric := 0;
   paid_sum numeric := 0;
   existing public.pos_sales%ROWTYPE;
+  payload jsonb := jsonb_build_object('lines',_lines,'payments',_payments,'note',btrim(COALESCE(_note,'')));
 BEGIN
   IF actor IS NULL THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
   SELECT p.organization_slug,p.role::text,
@@ -144,7 +146,7 @@ BEGIN
     INTO org,actor_role,can_manage FROM public.profiles p WHERE p.id=actor;
   IF org IS NULL OR NOT COALESCE(public.has_pms_access(actor),false)
     OR NOT COALESCE(public.can_access_pms_hotel(actor,_hotel_id,org),false)
-    OR actor_role NOT IN ('admin','manager','top_management','top_management_manager','reception','front_office')
+    OR actor_role IS NULL OR actor_role NOT IN ('admin','manager','top_management','top_management_manager','reception','front_office')
   THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
   IF d>today THEN RAISE EXCEPTION 'BUSINESS_DAY_CANNOT_BE_FUTURE'; END IF;
   IF d<>today THEN
@@ -162,17 +164,18 @@ BEGIN
     IF existing.hotel_id IS DISTINCT FROM _hotel_id OR existing.organization_slug IS DISTINCT FROM org
       OR existing.created_by IS DISTINCT FROM actor OR existing.business_day IS DISTINCT FROM d
     THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
+    IF existing.request_payload IS DISTINCT FROM payload THEN RAISE EXCEPTION 'SALE_ID_REUSED_WITH_DIFFERENT_DATA'; END IF;
     RETURN existing.id;
   END IF;
   SELECT ledger_config INTO config FROM public.ntak_settings WHERE hotel_id=_hotel_id AND organization_slug=org;
-  INSERT INTO public.pos_sales(id,hotel_id,organization_slug,business_day,note,created_by)
-  VALUES(_sale_id,_hotel_id,org,d,btrim(COALESCE(_note,'')),actor);
+  INSERT INTO public.pos_sales(id,hotel_id,organization_slug,business_day,note,created_by,request_payload)
+  VALUES(_sale_id,_hotel_id,org,d,btrim(COALESCE(_note,'')),actor,payload);
   FOR row_data IN SELECT value FROM jsonb_array_elements(_lines) LOOP
     SELECT * INTO item FROM public.service_catalog_items
       WHERE id=(row_data->>'service_catalog_item_id')::uuid AND organization_slug=org
       AND is_active AND (cardinality(allowed_hotel_ids)=0 OR _hotel_id=ANY(allowed_hotel_ids))
       FOR SHARE;
-    IF NOT FOUND OR item.currency<>'HUF' THEN RAISE EXCEPTION 'INVALID_CATALOG_ITEM'; END IF;
+    IF NOT FOUND OR item.currency IS DISTINCT FROM 'HUF' THEN RAISE EXCEPTION 'INVALID_CATALOG_ITEM'; END IF;
     IF item.requires_manager_approval AND NOT COALESCE(can_manage,false) THEN RAISE EXCEPTION 'MANAGER_APPROVAL_REQUIRED'; END IF;
     IF item.vat_rate IS NULL OR item.vat_rate NOT IN (0,5,18,27) THEN RAISE EXCEPTION 'INVALID_CATALOG_VAT'; END IF;
     amount_value := (row_data->>'gross_total')::numeric;
