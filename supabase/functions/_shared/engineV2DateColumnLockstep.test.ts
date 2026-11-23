@@ -1,4 +1,5 @@
 import {
+  clampPaceBoundsToHotelSafety,
   effectiveDateColumnBounds,
   hotelDateSafetyBounds,
 } from "./engineV2DateColumnLockstep.ts";
@@ -58,5 +59,15 @@ Deno.test("a stricter saved Ottofiori floor wins for future dates", () => {
       ruleMinimumAdr: 90,
     }),
     { min: 90, max: 90, source: "hotel_safety_lockstep" },
+  );
+});
+
+Deno.test("a Peak pace tier cannot widen the publisher ceiling", () => {
+  assertEquals(
+    clampPaceBoundsToHotelSafety(
+      { min: 80, max: 500, source: "hotel_safety_lockstep" },
+      { min: 80, max: 900 },
+    ),
+    { min: 80, max: 500, source: "hotel_safety_lockstep" },
   );
 });
