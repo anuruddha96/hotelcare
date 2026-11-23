@@ -572,7 +572,7 @@ BEGIN
     SELECT 1 FROM public.ntak_room_type_units t
     WHERE t.hotel_id=r.hotel_id AND t.room_type_id=r.room_type_id AND t.active);
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.pms_ntak_guest_scope(uuid,uuid) FROM PUBLIC,anon,authenticated;
 
 -- Read-only decision for the frontend. Unlike a table SELECT, it matches
@@ -590,7 +590,7 @@ BEGIN
   END IF;
   RETURN public.pms_ntak_guest_scope(r.id,_room_id);
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.pms_guest_lifecycle_available(uuid,uuid) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.pms_guest_lifecycle_available(uuid,uuid) TO authenticated;
 
@@ -728,7 +728,7 @@ BEGIN
   ) THEN RAISE EXCEPTION 'MANAGER_REQUIRED'; END IF;
   RETURN NEW;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.pms_guard_ntak_booking_no() FROM PUBLIC,anon,authenticated;
 DROP TRIGGER IF EXISTS pms_guard_ntak_booking_no ON public.reservations;
 CREATE TRIGGER pms_guard_ntak_booking_no
