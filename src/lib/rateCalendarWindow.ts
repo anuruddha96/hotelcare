@@ -28,7 +28,9 @@ export function calendarWindow(today: string, month: string | null, revealHistor
   // of the thirty future nights and never expands the published-rate horizon.
   const historicalStart = revealHistory ? addDays(today, -RATE_HISTORY_DAYS) : today;
   if (!month || month < today.slice(0, 7)) return dateRange(historicalStart, addDays(today, RATE_CALENDAR_DAYS - 1));
-  const start = month === today.slice(0, 7) ? historicalStart : `${month}-01`;
+  // Selecting the current month must show its *whole* month, including past
+  // read-only dates retrieved from the archive, not only the remaining days.
+  const start = `${month}-01`;
   return dateRange(start, monthEnd(month));
 }
 
