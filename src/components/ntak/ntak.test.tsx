@@ -43,15 +43,13 @@ describe('NTAK closure dialog', () => {
     expect(call).toHaveBeenCalledWith(expect.objectContaining({ action: 'close_day', day: '2026-11-18', closed: false }));
   });
 
-  it('requires a record id and reason for a correction (MODOSITO)', async () => {
+  it('requires a reason, but permits no record id for a correction (MODOSITO)', async () => {
     call.mockResolvedValue(preview({ classification: 'MODOSITO' }));
     render(<NtakClosureDialog hotelId="h1" day="2026-11-18" open onOpenChange={() => {}} />);
     const send = await screen.findByRole('button', { name: /Send/ });
     await screen.findByText('MODOSITO');
     expect(send).toBeDisabled();
-    const inputs = screen.getAllByRole('textbox');
-    fireEvent.change(inputs[inputs.length - 2], { target: { value: 'JK-1' } });
-    fireEvent.change(inputs[inputs.length - 1], { target: { value: 'Fee corrected' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'VENDEG_VAGY_IFA_JAVITAS' } });
     await waitFor(() => expect(send).not.toBeDisabled());
   });
 });
