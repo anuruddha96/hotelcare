@@ -46,6 +46,7 @@ async function testCertificate(): Promise<{ keyPem: string; certPem: string; dir
 const common = (): NtakCommon => ({
   uzenetId: crypto.randomUUID(), sentAt: '2026-11-19T05:10:00Z', softwareVersion: 'v1.0.0', softwareId: 'HOTELCARE01',
   registrationNumber: 'SZ25003491', taxNumber: '69861195-2-44',
+  accommodationName: 'Ceylon Business Services Kft', providerName: 'Interface_csatlakozás_szolgáltató_v9',
 });
 
 const vid = (n: number) => (`guest${n}`.padEnd(31, 'x')).slice(0, 31);
@@ -129,8 +130,30 @@ Deno.test('daily closure assembles counts, IFA and passes the v9 schema', async 
   assert.ok(!hasBlockingErrors(checklist), JSON.stringify(checklist));
   const xml = buildNapiZarasRequest(common(), closure);
   await assertValid(xml);
+  assert.match(xml, /<v9:szallasRegisztraciosSzam>SZ25003491<\/v9:szallasRegisztraciosSzam><v9:szallashelySzolgaltatoAdoszam>69861195-2-44<\/v9:szallashelySzolgaltatoAdoszam><v9:szallasNev>Ceylon Business Services Kft<\/v9:szallasNev><v9:szallashelySzolgaltatoNev>Interface_csatlakozás_szolgáltató_v9<\/v9:szallashelySzolgaltatoNev>/);
   assert.ok(xml.includes('<v9:koltesAlTipus>SZALLASHELY</v9:koltesAlTipus>'));
   assert.ok(!/\/>/.test(xml), 'no self-closing tags (c14n form)');
+});
+
+Deno.test('NTAK scope count uses four profiles and excludes extra beds; registered bed override is explicit', async () => {
+  const four: UnitInfo[] = [
+    { roomId: '101', building: '1', roomNumber: '101', unitType: 'STANDARD', singleBeds: 1, doubleBeds: 1, extraBeds: 0, state: 'available' },
+    { roomId: '102', building: '1', roomNumber: '102', unitType: 'SUPERIOR', singleBeds: 0, doubleBeds: 1, extraBeds: 0, state: 'available' },
+    { roomId: '103', building: '1', roomNumber: '103', unitType: 'ECONOMY', singleBeds: 1, doubleBeds: 1, extraBeds: 0, state: 'available' },
+    { roomId: '104', building: '1', roomNumber: '104', unitType: 'APARTMAN', singleBeds: 0, doubleBeds: 1, extraBeds: 1, state: 'available' },
+  ];
+  const source: ClosureSource = {
+    ...closureSource(), units: four, stays: [], checkouts: [],
+    postStayCharges: [], postStayPayments: [], otherPayments: [], otherCharges: [],
+  };
+  const standard = assembleClosure(source, { ...settings, registeredRooms: 4, registeredBeds: null });
+  assert.equal(standard.closure.rooms.total, 4);
+  assert.equal(standard.closure.capacity.total, 10);
+  await assertValid(buildNapiZarasRequest(common(), standard.closure));
+  const override = assembleClosure(source, { ...settings, registeredRooms: 5, registeredBeds: 12 });
+  assert.equal(override.closure.capacity.total, 12);
+  assert.ok(override.checklist.some((c) => c.code === 'registration'));
+  await assertValid(buildNapiZarasRequest(common(), override.closure));
 });
 
 Deno.test('closure checklist blocks what NTAK would reject', () => {
