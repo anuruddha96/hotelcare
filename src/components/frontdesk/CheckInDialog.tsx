@@ -20,6 +20,7 @@ import { balanceOf, formatMoney, reservationGuestLabel } from '@/lib/reservation
 import { summarizeReservationNote } from '@/lib/previoReservationNote';
 import { GuestDetailsSection } from '@/components/frontdesk/GuestDetailsSection';
 import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/BusinessMomentField';
+import { StayGuestRoster, useStayGuestRoster } from '@/components/frontdesk/StayGuestRoster';
 import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
 import { useParams } from 'react-router-dom';
 
@@ -40,6 +41,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [submitting, setSubmitting] = useState(false);
   const [vizaMissing, setVizaMissing] = useState<string[]>([]);
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
+  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive');
 
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
@@ -65,13 +67,14 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   }, [open, reservation.id]);
 
   const visibleRooms = useMemo(() => {
-    const base = rooms.filter((r) => r.room_status !== 'occupied');
+    const base = rooms.filter((r) => r.room_status !== 'occupied' || r.room_id === reservation.room_id);
     return showAll ? base : base.filter((r) => r.room_status === 'clean');
   }, [rooms, showAll]);
 
   const selected = rooms.find((r) => r.room_id === selectedRoom);
   const capacityWarn = !!selected && selected.capacity > 0 && pax > selected.capacity;
-  const notCleanWarn = !!selected && selected.room_status !== 'clean';
+  const notCleanWarn = !!selected && selected.room_status !== 'clean'
+    && !(reservation.status === 'checked_in' && selected.room_id === reservation.room_id);
   const vizaWarn = !!reservation.guest_id && vizaMissing.length > 0;
   const needsOverride = capacityWarn || notCleanWarn || vizaWarn;
 
@@ -82,7 +85,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
     }
     setSubmitting(true);
     try {
-      const result = await checkInReservation(reservation.id, selectedRoom, override, businessMoment.occurredAt);
+      const result = await checkInReservation(reservation.id, selectedRoom, override, businessMoment.occurredAt,
+        roster.enabled ? roster.selectedIds : null);
       toast.success(`${reservationGuestLabel(reservation)} ${t('pms.checkIn.checkedIn')} · ${t('pms.res.room')} ${result.room_number ?? ''}`);
       onSuccess();
     } catch (err) {
@@ -115,7 +119,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <GuestWelcomeCard reservationId={reservation.id} hotelId={reservation.hotel_id}
             basePath={organizationSlug ? `/${organizationSlug}` : undefined} />
 
-          {reservation.guest_id && (
+          {!roster.enabled && reservation.guest_id && (
             <GuestDetailsSection guestId={reservation.guest_id} onCompletenessChange={setVizaMissing} />
           )}
 
@@ -173,6 +177,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             </button>
           </div>
 
+          <StayGuestRoster control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
+            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} />
           <BusinessMomentField control={businessMoment} />
 
           {(needsOverride || reservation.check_in_date !== today) && (
@@ -191,7 +197,9 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
-            disabled={submitting || businessMoment.invalid || !selectedRoom || (vizaWarn && !override)}
+            disabled={submitting || businessMoment.invalid || !selectedRoom
+              || (roster.enabled && (roster.loading || roster.selectedIds.length === 0))
+              || (vizaWarn && !override)}
             className="gap-1"
             data-training="fd-checkin-confirm"
           >

@@ -56,13 +56,14 @@ export async function checkInReservation(
   roomId: string,
   override = false,
   occurredAt: string | null = null,
+  guestIds: string[] | null = null,
 ): Promise<{ ok: boolean; room_number?: string }> {
   return rpc("pms_check_in", {
     _reservation_id: reservationId,
     _room_id: roomId,
     _override: override,
     _moment: occurredAt,
-    _guest_ids: null,
+    _guest_ids: guestIds,
   });
 }
 
@@ -70,13 +71,34 @@ export async function checkOutReservation(
   reservationId: string,
   acknowledgeBalance = false,
   occurredAt: string | null = null,
+  guestIds: string[] | null = null,
 ): Promise<{ ok: boolean; balance_at_checkout?: number }> {
   return rpc("pms_check_out", {
     _reservation_id: reservationId,
     _acknowledge_balance: acknowledgeBalance,
     _moment: occurredAt,
-    _guest_ids: null,
+    _guest_ids: guestIds,
   });
+}
+
+export type GuestAction = 'arrive' | 'depart' | 'undo_arrival' | 'undo_departure';
+
+export async function guestTransitionReservation(
+  reservationId: string, action: GuestAction, guestIds: string[] | null,
+  occurredAt: string | null = null,
+) {
+  return rpc('pms_guest_transition', {
+    _reservation_id:reservationId,_action:action,_guest_ids:guestIds,
+    _moment:occurredAt,_room_id:null,_acknowledge_balance:false,_override:false,
+  });
+}
+
+export async function addStayGuest(reservationId: string, guestId: string) {
+  return rpc('pms_add_stay_guest', {_reservation_id:reservationId,_guest_id:guestId});
+}
+
+export async function setNtakBookingNumber(reservationId: string, bookingNo: string) {
+  return rpc('pms_set_ntak_booking_no', {_reservation_id:reservationId,_booking_no:bookingNo});
 }
 
 export async function changeRoomReservation(
