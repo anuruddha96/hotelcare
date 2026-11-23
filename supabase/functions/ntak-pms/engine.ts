@@ -451,7 +451,9 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
   const resIds = [...new Set(pending.map((e: any) => e.reservation_id))];
   const { data: resRows } = await db.from("reservations").select(RES_COLS).in("id", resIds);
   const reservations = new Map<string, RawReservation>((resRows ?? []).map((r: any) => [r.id, r]));
-  const guests = await loadStayGuests(db, s.hotel_id, [...reservations.values()]);
+  // Never compute/stash NTAK guest IDs for unrelated Channex reservations.
+  const eligibleReservations = [...reservations.values()].filter((r) => isInNtakScope(scope, r));
+  const guests = await loadStayGuests(db, s.hotel_id, eligibleReservations);
   const units = new Map((await loadUnits(db, s.hotel_id, false)).map((u) => [u.roomId, u]));
 
   const events: NtakStayEvent[] = [];
