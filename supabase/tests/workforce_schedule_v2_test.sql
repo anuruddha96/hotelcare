@@ -5,7 +5,7 @@
 BEGIN;
 
 INSERT INTO public.organizations (slug) VALUES ('wf2-test') ON CONFLICT DO NOTHING;
-INSERT INTO public.profiles (id, organization_slug, role, access_role, assigned_hotel, full_name, app_language) VALUES
+INSERT INTO public.profiles (id, organization_slug, role, access_role, assigned_hotel, full_name, preferred_language) VALUES
   ('00000000-0000-4000-8000-000000000001', 'wf2-test', 'top_management', NULL, NULL, 'Top Manager', 'en'),
   ('00000000-0000-4000-8000-000000000002', 'wf2-test', 'housekeeping_manager', NULL, 'gozsdu-court', 'Gozsdu HK Manager', 'hu'),
   ('00000000-0000-4000-8000-000000000003', 'wf2-test', 'manager', 'housekeeping_supervisor', 'memories-budapest', 'Memo Supervisor', 'en'),

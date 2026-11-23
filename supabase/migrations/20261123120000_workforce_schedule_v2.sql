@@ -322,7 +322,7 @@ BEGIN
   IF actor IS NULL OR actor.access_level NOT IN ('org', 'property') THEN RETURN 0; END IF;
 
   FOR target IN
-    SELECT s.profile_id, p.app_language, array_agg(n.id) AS ids
+    SELECT s.profile_id, p.preferred_language, array_agg(n.id) AS ids
       FROM public.workforce_change_notices n
       JOIN public.workforce_staff s ON s.id = n.staff_id
       JOIN public.profiles p ON p.id = s.profile_id AND p.deleted_at IS NULL
@@ -332,7 +332,7 @@ BEGIN
        -- Housekeepers and maintenance are told only once their schedule is live.
        AND (public.effective_access_role(p.access_role, p.role::text) NOT IN ('housekeeping', 'maintenance')
             OR public.workforce_staff_schedule_live(n.organization_slug))
-     GROUP BY s.profile_id, p.app_language
+     GROUP BY s.profile_id, p.preferred_language
   LOOP
     SELECT t.title, t.body INTO title, body FROM (VALUES
       ('en', 'Your work schedule changed', 'Open HotelCare to see what changed and confirm.'),
@@ -345,7 +345,7 @@ BEGIN
       ('uk', 'Ваш графік змінено', 'Відкрийте HotelCare, щоб переглянути зміну та підтвердити.'),
       ('ru', 'Ваш график изменён', 'Откройте HotelCare, чтобы посмотреть изменение и подтвердить.')
     ) AS t(lang, title, body)
-    ORDER BY (t.lang = COALESCE(target.app_language, 'en')) DESC, (t.lang = 'en') DESC LIMIT 1;
+    ORDER BY (t.lang = COALESCE(target.preferred_language, 'en')) DESC, (t.lang = 'en') DESC LIMIT 1;
 
     PERFORM public.hotelcare_dispatch_push(
       ARRAY[target.profile_id], title, body, '/' || actor.organization_slug || '?schedule=changes',
@@ -424,7 +424,12 @@ BEGIN
                       WHERE pm.staff_id = e.staff_id AND pm.month = date_trunc('month', e.work_date)::date)
   ON CONFLICT DO NOTHING;
 
-  PERFORM public.workforce_push_change_notices();
+  -- A notification problem must never block publishing the schedule.
+  BEGIN
+    PERFORM public.workforce_push_change_notices();
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'Work schedule change notifications were not sent: %', SQLERRM;
+  END;
   RETURN changed;
 END;
 $$;

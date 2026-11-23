@@ -15,7 +15,7 @@ CREATE SCHEMA auth;
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULLIF(current_setting('test.uid', true), '')::uuid $$;
 GRANT USAGE ON SCHEMA auth TO authenticated, anon; GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon;
 CREATE TABLE public.profiles (id uuid PRIMARY KEY, organization_slug text, role text, access_role text, is_super_admin boolean DEFAULT false,
-  assigned_hotel text, deleted_at timestamptz, nickname text, full_name text, app_language text, email text);
+  assigned_hotel text, deleted_at timestamptz, nickname text, full_name text, preferred_language text, email text);
 CREATE TABLE public.hotel_configurations (id uuid DEFAULT gen_random_uuid(), hotel_id text, hotel_name text, organization_id uuid);
 CREATE TABLE public.organizations (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), slug text UNIQUE);
 CREATE FUNCTION public.get_user_organization_slug(_id uuid) RETURNS text LANGUAGE sql STABLE SECURITY DEFINER AS $$ SELECT organization_slug FROM public.profiles WHERE id=_id $$;
