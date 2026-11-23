@@ -304,7 +304,7 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     // arrival / late departure). Do not lose those historical records.
     db.from("reservations").select(resCols).eq("hotel_id", s.hotel_id)
       .lte("actual_check_in", win.to).gte("actual_check_out", win.from).eq("status", "checked_out"),
-    db.from("folio_lines").select("service_date,room_id,gross_total,vat_rate,currency,status,source_type,reservation_folios!inner(reservation_id,hotel_id),service_catalog_items(category)")
+    db.from("folio_lines").select("service_date,room_id,gross_total,vat_rate,currency,status,source_type,reservation_folios!inner(reservation_id,hotel_id),service_catalog_items(category,ntak_main,ntak_sub,in_package)")
       .eq("reservation_folios.hotel_id", s.hotel_id).eq("service_date", day),
     db.from("payments").select("reservation_id,amount,currency,method,status,received_at").eq("hotel_id", s.hotel_id).gte("received_at", win.from).lt("received_at", win.to),
   ]);
@@ -316,6 +316,8 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     reservation_id: l.reservation_folios.reservation_id, service_date: l.service_date, room_id: l.room_id, gross_total: Number(l.gross_total),
     vat_rate: l.vat_rate === null ? null : Number(l.vat_rate), currency: l.currency, status: l.status,
     category: l.service_catalog_items?.category ?? null, source_type: l.source_type,
+    ntak_main: l.service_catalog_items?.ntak_main ?? null, ntak_sub: l.service_catalog_items?.ntak_sub ?? null,
+    in_package: l.service_catalog_items?.in_package ?? false,
   }));
   let payments: RawPayment[] = dayPayments ?? [];
 
