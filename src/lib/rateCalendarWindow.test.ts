@@ -19,8 +19,9 @@ describe("bounded rate-calendar navigation", () => {
     expect(requiredCalendarHorizon("2026-09-22", "2026-10")).toBe(40);
   });
 
-  it("shows only remaining dates for the current month and handles leap years", () => {
-    expect(calendarWindow("2026-09-22", "2026-09")).toHaveLength(9);
+  it("shows the full selected month, including past read-only dates, and handles leap years", () => {
+    expect(calendarWindow("2026-09-22", "2026-09")).toHaveLength(30);
+    expect(calendarWindow("2026-09-22", "2026-09")[0]).toBe("2026-09-01");
     expect(calendarWindow("2028-01-25", "2028-02")).toHaveLength(29);
     expect(calendarWindow("2027-01-25", "2027-02")).toHaveLength(28);
   });
@@ -47,13 +48,15 @@ describe("bounded rate-calendar navigation", () => {
     expect(requiredCalendarHorizon("2026-10-20", null)).toBe(30);
   });
 
-  it("supports three historical dates within and across current month boundaries", () => {
+  it("keeps selected months complete without pulling dates from the prior month", () => {
     const current = calendarWindow("2026-10-20", "2026-10", true);
-    expect(current.slice(0, 4)).toEqual(["2026-10-17", "2026-10-18", "2026-10-19", "2026-10-20"]);
+    expect(current).toHaveLength(31);
+    expect(current.slice(0, 4)).toEqual(["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]);
     expect(current.at(-1)).toBe("2026-10-31");
 
     const crossover = calendarWindow("2027-01-02", "2027-01", true);
-    expect(crossover.slice(0, 4)).toEqual(["2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"]);
+    expect(crossover).toHaveLength(31);
+    expect(crossover.slice(0, 2)).toEqual(["2027-01-01", "2027-01-02"]);
     expect(calendarWindow("2027-01-02", "2027-02", true)[0]).toBe("2027-02-01");
   });
 
