@@ -1,5 +1,6 @@
 import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
 import { budapestToday, budapestWallToIso } from '@/lib/businessMoment';
+import { AddChargeDialog } from '@/components/frontdesk/AddChargeDialog';
 import { GuestFolioPanel } from '@/components/reservations/GuestFolioPanel';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Banknote, BookOpen, CreditCard, Plus, Receipt, Settings2, Trash2 } from 'lucide-react';
@@ -33,6 +34,7 @@ type ReservationFinancialSource = {
   currency?: string | null;
   total_amount?: number | string | null;
   balance_due?: number | string | null;
+  status?: string | null;
 };
 
 type Folio = {
@@ -78,6 +80,9 @@ type ServiceItem = {
   price_editable: boolean;
   requires_manager_approval: boolean;
   is_active: boolean;
+  ntak_main?: string | null;
+  ntak_sub?: string | null;
+  in_package?: boolean;
 };
 
 interface Props {
@@ -87,7 +92,7 @@ interface Props {
 
 const MANUAL_ITEM = '__manual__';
 
-const paymentLabel = (method: string) => method.replaceAll('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+const paymentLabel = (method: string) => method === 'on_account' ? 'On account / later' : method === 'coupon' ? 'Voucher' : method.startsWith('szep_') ? `SZÉP card (${method.slice(5).toUpperCase()}, accommodation)` : method.replaceAll('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 export function ReservationAccountPanel({ reservation, onFinancialChanged }: Props) {
   const { profile } = useAuth();
@@ -101,6 +106,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [chargeOpen, setChargeOpen] = useState(false);
+  const [manyOpen, setManyOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [catalogueOpen, setCatalogueOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -137,6 +143,8 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   const [correctionReason, setCorrectionReason] = useState('');
 
   const canManageCatalogue = isNativePms && canManagePmsServiceCatalogue(profile?.role);
+  const departed = reservation.status === 'checked_out';
+  const postingAllowed = isNativePms && !['cancelled','no_show'].includes(String(reservation.status)) && (!departed || canManageCatalogue);
   const currency = folio?.currency || reservation.currency || 'HUF';
 
   const loadAccount = useCallback(async () => {
@@ -237,7 +245,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   };
 
   const submitCharge = async () => {
-    if (!isNativePms) { toast.error(t('pms.account.externalReadOnly')); return; }
+    if (!postingAllowed) return;
     const quantity = Number(charge.quantity);
     const grossUnitPrice = Number(charge.grossUnitPrice);
     if (!charge.description.trim() || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(grossUnitPrice) || grossUnitPrice < 0) {
@@ -275,7 +283,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   };
 
   const submitPayment = async () => {
-    if (!isNativePms) { toast.error(t('pms.account.externalReadOnly')); return; }
+    if (!postingAllowed) return;
     const amount = Number(payment.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error('Enter a valid payment amount.');
@@ -424,6 +432,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
             <div>
               <CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4" /> Account</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">Charges, payments and guest balance for this reservation.</p>
+              {departed && <p className="text-xs font-medium text-amber-700">After departure · manager only</p>}
             </div>
             <div className="flex flex-wrap gap-2">
               {canManageCatalogue && (
@@ -431,11 +440,13 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                   <Settings2 className="h-3.5 w-3.5" /> Services
                 </Button>
               )}
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setChargeOpen(true)}>
+              <Button size="sm" variant="outline" className="gap-1.5" disabled={!postingAllowed} onClick={() => setChargeOpen(true)}>
                 <Plus className="h-3.5 w-3.5" /> Add charge
               </Button>
+              <Button size="sm" variant="outline" disabled={!postingAllowed} onClick={() => setManyOpen(true)}>Post many charges</Button>
               <Button
                 size="sm"
+                disabled={!postingAllowed}
                 className="gap-1.5"
                 onClick={() => {
                   setPayment((p) => ({ ...p, amount: summary.balance > 0 ? String(summary.balance) : '' }));
@@ -550,7 +561,8 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
         </CardContent>
       </Card>
 
-      <Dialog open={chargeOpen} onOpenChange={setChargeOpen}>
+      <AddChargeDialog reservation={{...reservation,currency}} open={manyOpen && postingAllowed} onOpenChange={setManyOpen} catalogueOnly onAdded={() => { void notifyChanged(); }}/>
+      <Dialog open={chargeOpen && postingAllowed} onOpenChange={setChargeOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Add charge</DialogTitle>
@@ -563,7 +575,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value={MANUAL_ITEM}>One-off / manual charge</SelectItem>
-                  {availableCatalogue.map((item) => (
+                  {availableCatalogue.filter(item => item.ntak_main !== 'SZALLASDIJ' && (!item.requires_manager_approval || canManageCatalogue)).map((item) => (
                     <SelectItem key={item.id} value={item.id}>
                       {item.name} · {formatMoney(item.default_gross_price, item.currency)}
                     </SelectItem>
@@ -614,7 +626,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
         </DialogContent>
       </Dialog>
 
-      <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
+      <Dialog open={paymentOpen && postingAllowed} onOpenChange={setPaymentOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Record payment</DialogTitle>
