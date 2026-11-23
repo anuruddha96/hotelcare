@@ -1,3 +1,4 @@
+import { NtakBookingFieldsGroup, useNtakBookingFields } from '@/components/ntak/NtakBookingFieldsGroup';
 import { useEffect, useState } from 'react';
 import { plainNote } from '@/lib/plainNote';
 import {
@@ -29,6 +30,7 @@ export function EditReservationDialog({ reservation, open, onOpenChange, onSucce
   const { t } = useTranslation();
   const pmsManaged = isPmsManaged(reservation);
   const checkedIn = reservation.status === 'checked_in';
+  const ntak = useNtakBookingFields(open, reservation.hotel_id, reservation.organization_slug, reservation.id);
   const [submitting, setSubmitting] = useState(false);
   const [rooms, setRooms] = useState<AvailableRoom[]>([]);
   const [form, setForm] = useState({
@@ -84,6 +86,7 @@ export function EditReservationDialog({ reservation, open, onOpenChange, onSucce
     try {
       await updateReservation({
         reservationId: reservation.id,
+        ntakFields: ntak.initial ? ntak.patch : undefined,
         checkIn: pmsManaged ? null : form.check_in_date,
         checkOut: pmsManaged ? null : form.check_out_date,
         adults: pmsManaged ? null : Number(form.adults),
@@ -188,6 +191,7 @@ export function EditReservationDialog({ reservation, open, onOpenChange, onSucce
             </>
           )}
 
+          {ntak.initial && <NtakBookingFieldsGroup initial={ntak.initial} patch={ntak.patch} setPatch={ntak.setPatch} source={form.source} guestCount={Number(form.adults)+Number(form.children)} />}
           <div>
             <Label>{t('pms.res.specialRequests')}</Label>
             <Textarea value={form.special_requests} onChange={(e) => setForm({ ...form, special_requests: e.target.value })} />
