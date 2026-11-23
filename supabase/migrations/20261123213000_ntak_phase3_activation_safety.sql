@@ -48,27 +48,27 @@ BEGIN
 
   UPDATE public.reservation_guests rg SET
     stay_state=CASE WHEN r.status='checked_out' THEN 'departed' ELSE 'in_house' END,
-    arrived_at=COALESCE(v.erkezes_ideje,r.actual_check_in,
+    arrived_at=COALESCE((SELECT ev.erkezes_ideje FROM public.viza_guest_events ev
+      WHERE ev.reservation_id=r.id AND ev.guest_id=rg.guest_id
+        AND ev.arrival_state IN ('queued','sent') LIMIT 1),r.actual_check_in,
       r.check_in_date::timestamp AT TIME ZONE 'Europe/Budapest'),
     departed_at=CASE WHEN r.status='checked_out'
-      THEN COALESCE(v.tavozas_ideje,r.actual_check_out,
+      THEN COALESCE((SELECT ev.tavozas_ideje FROM public.viza_guest_events ev
+        WHERE ev.reservation_id=r.id AND ev.guest_id=rg.guest_id
+          AND ev.arrival_state IN ('queued','sent') LIMIT 1),r.actual_check_out,
         r.check_out_date::timestamp AT TIME ZONE 'Europe/Budapest')
       ELSE NULL END,
     room_id=COALESCE(rg.room_id,r.room_id)
   FROM public.reservations r
   JOIN public.ntak_settings cfg ON cfg.hotel_id=r.hotel_id AND cfg.enabled
-  LEFT JOIN LATERAL (
-    SELECT ev.guest_id,ev.erkezes_ideje,ev.tavozas_ideje,ev.arrival_state
-    FROM public.viza_guest_events ev
-    WHERE ev.reservation_id=r.id AND ev.guest_id=rg.guest_id
-      AND ev.arrival_state IN ('queued','sent')
-    LIMIT 1
-  ) v ON true
   WHERE rg.reservation_id=r.id
     AND r.hotel_id=_hotel_id
     AND r.status IN ('checked_in','checked_out')
     AND rg.stay_state='expected' AND rg.arrived_at IS NULL
-    AND (rg.is_primary OR rg.guest_id=r.guest_id OR v.guest_id IS NOT NULL)
+    AND (rg.is_primary OR rg.guest_id=r.guest_id OR EXISTS(
+      SELECT 1 FROM public.viza_guest_events ev
+      WHERE ev.reservation_id=r.id AND ev.guest_id=rg.guest_id
+        AND ev.arrival_state IN ('queued','sent')))
     AND (
       cfg.unit_scope IS DISTINCT FROM 'profiled_only'
       OR (r.room_id IS NOT NULL AND EXISTS(
@@ -173,9 +173,9 @@ DECLARE
   failure_state text;
   failure_message text;
 BEGIN
-  IF current_setting('hotelcare.guest_lifecycle',true)='1' THEN RETURN NEW; END IF;
-  moment_at:=COALESCE(NULLIF(current_setting('hotelcare.business_moment',true),'')::timestamptz,clock_timestamp());
   BEGIN
+    IF current_setting('hotelcare.guest_lifecycle',true)='1' THEN RETURN NEW; END IF;
+    moment_at:=COALESCE(NULLIF(current_setting('hotelcare.business_moment',true),'')::timestamptz,clock_timestamp());
     PERFORM public.pms_viza_apply_status_transition(NEW.id,OLD.status::text,
       NEW.status::text,moment_at);
   EXCEPTION WHEN OTHERS THEN
