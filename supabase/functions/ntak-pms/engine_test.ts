@@ -351,7 +351,9 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     db.rows("ntak_daily_closures")[0].state = "accepted";
     db.rows("ntak_daily_closures")[0].updated_at = new Date(Date.now() - 2 * 3600000).toISOString(); // drift checks run hourly
     db.rows("ntak_daily_closures")[0].snapshot = closure.build && { closure: closure.build.closure, checklist: [], totals: closure.build.totals };
-    db.rows("folio_lines")[0].gross_total = 3000;
+    // A historical room-status correction must now flag MODOSITO by itself,
+    // even when no financial/guest data changed.
+    db.rows("room_state_periods").find((p) => p.room_id === "r102")!.state = "out_of_service";
     assert.equal(await detectDrift(db, s), 1);
     assert.equal(db.rows("ntak_daily_closures")[0].needs_correction, true);
   } finally {
