@@ -20,6 +20,7 @@ on:
       - 'src/lib/reservations.ts'
       - 'src/lib/pms-translations.ts'
       - 'src/components/frontdesk/VizaStatusCard.tsx'
+      - 'src/components/frontdesk/VizaStatusCard.test.tsx'
   pull_request:
     paths:
       - 'supabase/functions/_shared/ntak/**'
@@ -36,6 +37,7 @@ on:
       - 'src/lib/reservations.ts'
       - 'src/lib/pms-translations.ts'
       - 'src/components/frontdesk/VizaStatusCard.tsx'
+      - 'src/components/frontdesk/VizaStatusCard.test.tsx'
       - 'src/components/ntak/**'
       - 'src/lib/ntak-translations.ts'
       - '.github/workflows/ntak-ci.yml'
