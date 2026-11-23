@@ -210,15 +210,10 @@ export function decideRevenueDirector(input: DecisionInput, settings: DecisionSe
       else if (input.daysOut <= 7) step = occ < 70 ? 6 : 4;
       else if (input.daysOut <= 30) step = behind >= 20 ? 5 : behind >= 5 || occ < 60 ? 3 : 0;
       else step = behind >= 15 ? 4 : behind >= 8 ? 3 : 0;
-      // Beyond a month an empty date is normal for this market; the rules
-      // engine never tests below the seasonal anchor. Anything lower is a
-      // judgement for the AI layer or a manager.
-      const atAnchor = input.daysOut > 30 && input.anchorPrice != null
-        && Number.isFinite(input.anchorPrice) && current <= Number(input.anchorPrice);
-      if (step > 0 && atAnchor) {
-        reason = "at_anchor";
-        detail = `€${current} is at or below the €${Math.round(Number(input.anchorPrice))} seasonal anchor ${input.daysOut} days out; the rules engine does not test lower.`;
-      } else if (step === 0) {
+      // A seasonal anchor is context, not proof of demand. Quiet, unsold dates
+      // that are behind pace may test lower through the ordinary guarded path;
+      // floors, budgets, cooldowns, events and manager edits still apply.
+      if (step === 0) {
         reason = "on_pace";
         detail = `${occ}% sold versus ${pace ?? "unknown"}% pace ${input.daysOut} days out: on pace, the price holds.`;
       } else {
