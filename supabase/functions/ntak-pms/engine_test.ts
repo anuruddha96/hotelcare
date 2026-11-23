@@ -323,7 +323,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
       assert.equal(row.request_xml, ntak.requests.find(r => r.uzenetId === row.uzenet_id)?.envelope, "signed request must equal exact wire payload");
       assert.ok(row.response_xml.includes(row.processing_id));
       assert.equal(row.status, "BEFOGADVA");
-      assert.ok(!row.request_xml.includes("PRIVATE KEY"));
+      assert.ok(typeof row.request_xml === "string" && !row.request_xml.includes("PRIVATE KEY"));
     }
 
     // 6. Verification results land on messages, the closure register and settings.
