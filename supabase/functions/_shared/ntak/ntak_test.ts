@@ -281,9 +281,14 @@ Deno.test('event, verification and start-date requests pass the schema', async (
   await assertValid(buildAdatszolgaltatasKezdoDatumRequest(common()));
 });
 
-Deno.test('the published spec example validates against the consolidated schema', async () => {
+Deno.test('published spec example needs live-endpoint name fields to validate', async () => {
   const xml = `<v9:foglalasEsemenyRequest xmlns:v9="http://mtu.gov.hu/ntak/v9"><v9:uzenetAdatok><v9:uzenetId>686d1d95-a4b6-45d8-a260-94befe406035</v9:uzenetId><v9:uzenetKuldesIdeje>2025-11-27T12:46:00Z</v9:uzenetKuldesIdeje></v9:uzenetAdatok><v9:szoftverAdatok><v9:szoftverVerzio>v1</v9:szoftverVerzio><v9:szoftverAzonosito>MINTA525252</v9:szoftverAzonosito></v9:szoftverAdatok><v9:szallashely><v9:szallasRegisztraciosSzam>SZ25003491</v9:szallasRegisztraciosSzam><v9:szallashelySzolgaltatoAdoszam>69861195-2-44</v9:szallashelySzolgaltatoAdoszam></v9:szallashely><v9:foglalasEsemeny><v9:foglalasiSzam>11111114</v9:foglalasiSzam><v9:esemenyLetrejotte>2025-11-27T10:58:00Z</v9:esemenyLetrejotte><v9:garantaltFoglalas>false</v9:garantaltFoglalas><v9:lemondva>false</v9:lemondva><v9:vendegKuldoOrszaga>HU</v9:vendegKuldoOrszaga><v9:erkezes>2025-12-05</v9:erkezes><v9:tavozas>2025-12-10</v9:tavozas><v9:foglalasIdopont>2025-11-03T02:36:00Z</v9:foglalasIdopont><v9:ertekesitesiCsatorna>DIREKT_HAGYOMANYOS</v9:ertekesitesiCsatorna><v9:foglalasBruttoOsszege>100000</v9:foglalasBruttoOsszege><v9:foglaltLakoegysegek><v9:foglaltLakoegyseg><v9:tipus>ECONOMY</v9:tipus><v9:ferohelyKapacitas>1</v9:ferohelyKapacitas></v9:foglaltLakoegyseg></v9:foglaltLakoegysegek><v9:piaciSzegmens>UZLETI_EGYENI</v9:piaciSzegmens><v9:vendegszam>1</v9:vendegszam></v9:foglalasEsemeny></v9:foglalasEsemenyRequest>`;
-  await assertValid(xml);
+  // The published example omits names; the November 2026 test endpoint requires both.
+  const adapted = xml.replace('</v9:szallashely>',
+    '<v9:szallasNev>Ceylon Business Services Kft</v9:szallasNev>'
+    + '<v9:szallashelySzolgaltatoNev>Interface_csatlakozás_szolgáltató_v9</v9:szallashelySzolgaltatoNev>'
+    + '</v9:szallashely>');
+  await assertValid(adapted);
 });
 
 Deno.test('responses: acceptance, faults and verification statuses (10.6, 11.x)', () => {
