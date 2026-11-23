@@ -743,19 +743,21 @@ export async function verifyDue(db: Db, s: Settings, force = false): Promise<{ c
   if (!force) q = q.lte("next_verify_at", now());
   const { data: due } = await q.order("next_verify_at").limit(VERIFY_BATCH);
   if (!due?.length) return { checked: 0 };
-  const query = common(s);
-  const verificationAt = query.sentAt;
+  const verificationAt = new Date();
+  const query = common(s, verificationAt);
   const { result, parsed } = await exchange(s, ctx, buildEllenorzesRequest(query, due.map((m: any) => m.processing_id)), async (envelope) => {
     // Keep a separate row for each poll, including batched and pending results.
     // Older sends may have no signed evidence; record metadata, never reconstruct XML.
     for (const m of due) {
       if (!m.uzenet_id || !m.sent_at) throw new Error("Accepted NTAK message has no original message ID or send time");
       const day = today(new Date(m.sent_at));
-      await evidenceWrite(db.from("ntak_message_evidence").upsert({
+      const { data: existing, error } = await db.from("ntak_message_evidence").select("id").eq("uzenet_id", m.uzenet_id).eq("phase", "send").maybeSingle();
+      if (error) throw new Error("NTAK evidence lookup failed: " + error.message);
+      if (!existing) await evidenceWrite(db.from("ntak_message_evidence").insert({
         message_id: m.id, hotel_id: s.hotel_id, environment: m.environment, kind: m.kind, ref: m.ref,
         phase: "send", uzenet_id: m.uzenet_id, sent_at: m.sent_at, evidence_day: day,
         processing_id: m.processing_id, status: "legacy_missing_request",
-      }, { onConflict: "uzenet_id,phase", ignoreDuplicates: true }));
+      }));
     }
     await evidenceWrite(db.from("ntak_message_evidence").insert(due.map((m: any) => ({
       message_id: m.id, hotel_id: s.hotel_id, environment: m.environment, kind: m.kind, ref: m.ref,
