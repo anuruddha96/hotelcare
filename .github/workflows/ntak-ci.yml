@@ -15,6 +15,11 @@ on:
       - 'scripts/tests/**'
       - 'supabase/tests/ntak_finance_business_day.sql'
       - 'supabase/tests/ntak_finance_guard_integration.sql'
+      - 'supabase/tests/ntak_phase3_activation_*.sql'
+      - 'scripts/render_ntak_phase3_function_fixture.py'
+      - 'src/lib/reservations.ts'
+      - 'src/lib/pms-translations.ts'
+      - 'src/components/frontdesk/VizaStatusCard.tsx'
   pull_request:
     paths:
       - 'supabase/functions/_shared/ntak/**'
@@ -27,6 +32,10 @@ on:
       - 'supabase/functions/viza-thf/**'
       - 'supabase/functions/_shared/viza/**'
       - 'supabase/tests/ntak_*.sql'
+      - 'scripts/render_ntak_phase3_function_fixture.py'
+      - 'src/lib/reservations.ts'
+      - 'src/lib/pms-translations.ts'
+      - 'src/components/frontdesk/VizaStatusCard.tsx'
       - 'src/components/ntak/**'
       - 'src/lib/ntak-translations.ts'
       - '.github/workflows/ntak-ci.yml'
@@ -84,6 +93,16 @@ jobs:
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
           python3 scripts/render_finance_core_fixture.py > /tmp/ntak_finance_core_ddl.sql
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_guard_integration.sql
+      - name: Phase-3 activation, undo and VIZA resilience acceptance (PostgreSQL)
+        run: |
+          set -euo pipefail
+          createdb hotelcare_phase3_ci
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_fixture.sql
+          python3 scripts/render_ntak_phase3_function_fixture.py > /tmp/ntak_phase3_legacy_queuer.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f /tmp/ntak_phase3_legacy_queuer.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123213000_ntak_phase3_activation_safety.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_acceptance.sql
       - name: Run NTAK SQL checks
         run: |
           set -euo pipefail
