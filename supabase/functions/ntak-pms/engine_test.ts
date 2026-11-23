@@ -339,7 +339,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     const evidence = db.rows("ntak_message_evidence");
     assert.equal(evidence.length, 6);
     for (const row of evidence) {
-      assert.equal(row.request_xml, ntak.requests.find(r => r.uzenetId === row.uzenet_id)?.envelope, "signed request must equal exact wire payload");
+      assert.equal(row.request_xml, ntak.requests.find(r => r.uzenetId === (row.phase === "verify" ? row.query_id : row.uzenet_id))?.envelope, "signed request must equal exact wire payload");
       if (row.status === "BEFOGADVA") assert.ok(row.response_xml.includes(row.processing_id));
       assert.ok(typeof row.request_xml === "string" && !row.request_xml.includes("PRIVATE KEY"));
     }
@@ -347,7 +347,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     // 6. Verification results land on messages, the closure register and settings.
     assert.equal((await verifyDue(db, s, true)).checked, 4);
     const polls = evidence.filter(e => e.phase === "verify");
-    assert.equal(polls.length, 4);
+    assert.equal(polls.length, 5);
     for (const poll of polls) {
       assert.equal(poll.request_xml, ntak.requests.find(r => r.uzenetId === poll.query_id)?.envelope);
       assert.ok(poll.response_xml.includes(poll.processing_id));
