@@ -5,6 +5,9 @@ DO $$
 DECLARE
   v_hotel constant text := 'channex-test-property';
   v_org constant text := 'channex';
+  -- rooms.hotel holds the hotel's display name for this property (the existing
+  -- T101-T110 / D201-D205 rooms use it), not the hotel id.
+  v_room_hotel text;
   v_room record;
   v_type_id uuid;
   v_room_id uuid;
@@ -14,9 +17,13 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Refusing NTAK validation seed: expected test hotel does not exist';
   END IF;
+  SELECT hotel_name INTO v_room_hotel FROM public.hotel_configurations WHERE hotel_id = v_hotel;
+  IF NOT EXISTS (SELECT 1 FROM public.rooms WHERE hotel = v_room_hotel) THEN
+    RAISE EXCEPTION 'Refusing seed: no existing rooms found under hotel name %', v_room_hotel;
+  END IF;
   IF EXISTS (
     SELECT 1 FROM public.rooms
-    WHERE hotel = v_hotel AND room_number IN ('101','102','103','104')
+    WHERE hotel IN (v_hotel, v_room_hotel) AND room_number IN ('101','102','103','104')
       AND COALESCE(pms_metadata->>'ntak_validation', '') <> 'true'
   ) THEN
     RAISE EXCEPTION 'Refusing seed: one of rooms 101-104 already exists outside the NTAK fixture';
@@ -63,7 +70,7 @@ BEGIN
       active = true, updated_at = now();
 
     SELECT id INTO v_room_id FROM public.rooms
-      WHERE hotel = v_hotel AND room_number = v_room.room_no
+      WHERE hotel = v_room_hotel AND room_number = v_room.room_no
         AND pms_metadata->>'ntak_validation' = 'true'
       LIMIT 1;
     IF v_room_id IS NULL THEN
@@ -71,7 +78,7 @@ BEGIN
         hotel, organization_slug, room_number, room_name, room_capacity,
         room_type, pms_metadata
       ) VALUES (
-        v_hotel, v_org, v_room.room_no, 'NTAK ' || v_room.room_no,
+        v_room_hotel, v_org, v_room.room_no, 'NTAK ' || v_room.room_no,
         v_room.single_beds + 2 * v_room.double_beds,
         v_room.type_name,
         jsonb_build_object('ntak_validation',true,'nightly_rate_huf',v_room.nightly_huf)
