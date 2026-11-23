@@ -38,7 +38,7 @@ import {
 
 const RES_SELECT = `
   *,
-  guests(id, first_name, last_name, email, phone, nationality, vip_status, company_name, id_document_type, id_document_number),
+  guests!reservations_guest_id_fkey(id, first_name, last_name, email, phone, nationality, vip_status, company_name, id_document_type, id_document_number),
   rooms:room_id(id, room_number, room_type, status, room_capacity)
 `;
 
