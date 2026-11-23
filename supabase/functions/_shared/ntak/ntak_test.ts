@@ -135,6 +135,19 @@ Deno.test('daily closure assembles counts, IFA and passes the v9 schema', async 
   assert.ok(!/\/>/.test(xml), 'no self-closing tags (c14n form)');
 });
 
+Deno.test('NTAK test tax number stays hyphenated and has the required provider header', async () => {
+  const c = {
+    ...common(), registrationNumber: 'MA26004524',
+    taxNumber: '11223355-1-22',
+    softwareId: 'HOTELCARE', softwareVersion: '1.0',
+  };
+  const xml = buildAdatszolgaltatasKezdoDatumRequest(c);
+  assert.match(xml, /<v9:szallasRegisztraciosSzam>MA26004524<\/v9:szallasRegisztraciosSzam>/);
+  assert.match(xml, /<v9:szallashelySzolgaltatoAdoszam>11223355-1-22<\/v9:szallashelySzolgaltatoAdoszam>/);
+  assert.match(xml, /<v9:szallasNev>Ceylon Business Services Kft<\/v9:szallasNev>/);
+  await assertValid(xml);
+});
+
 Deno.test('NTAK scope count uses four profiles and excludes extra beds; registered bed override is explicit', async () => {
   const four: UnitInfo[] = [
     { roomId: '101', building: '1', roomNumber: '101', unitType: 'STANDARD', singleBeds: 1, doubleBeds: 1, extraBeds: 0, state: 'available' },
