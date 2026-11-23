@@ -43,6 +43,7 @@ SELECT public.pms_add_room_state_period('channex-test-property',
   (now() AT TIME ZONE 'Europe/Budapest')::date - 1,
   (now() AT TIME ZONE 'Europe/Budapest')::date + 2,
   'Plumbing repair until resolved');
+RESET ROLE;
 DO $$
 BEGIN
   IF (SELECT status FROM public.rooms
@@ -51,6 +52,7 @@ BEGIN
       WHERE room_id='00000000-0000-4000-8000-000000000102') <> 'dirty'
   THEN RAISE EXCEPTION 'Active room period did not synchronize or preserve status'; END IF;
 END $$;
+SET ROLE authenticated;
 UPDATE public.rooms SET status='clean'
   WHERE id='00000000-0000-4000-8000-000000000102';
 DO $$
@@ -65,6 +67,7 @@ SELECT public.pms_end_room_state_period(p.id,
   (now() AT TIME ZONE 'Europe/Budapest')::date - 1)
 FROM public.room_state_periods p
 WHERE p.room_id='00000000-0000-4000-8000-000000000102';
+RESET ROLE;
 DO $$
 BEGIN
   IF (SELECT status FROM public.rooms
@@ -77,6 +80,7 @@ BEGIN
       AND to_date=(now() AT TIME ZONE 'Europe/Budapest')::date - 1)
   THEN RAISE EXCEPTION 'Ending period destroyed its history'; END IF;
 END $$;
+SET ROLE authenticated;
 
 -- Future period must NOT change today's housekeeping status.
 SELECT public.pms_add_room_state_period('channex-test-property',

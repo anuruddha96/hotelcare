@@ -284,11 +284,17 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
       { hotel_id: "h1", booking_no: "CHX-1", dirty_at: new Date().toISOString(), last_sent_at: null, cancelled_sent: false });
     db.rows("ntak_event_queue").push({ id: "e1", hotel_id: "h1", reservation_id: "R1", kind: "erkezett", occurred_at: Y + "T14:00:00Z", room_id: "r101", from_room_id: null, state: "queued", is_correction: false });
 
+    // Historical state must be evidenced by its own dated room period.
+    db.rows("room_state_periods").push({
+      room_id: "r102", hotel_id: "h1", organization_slug: "rd",
+      state: "out_of_order", from_date: Y, to_date: Y,
+    });
+
     // 1. Daily closure for yesterday.
     const closure = await queueClosure(db, s, Y, { actor: "u1" });
     assert.ok(closure.ok, JSON.stringify(closure.build.checklist));
     assert.equal(closure.build.classification, "UJ");
-    assert.deepEqual(closure.build.closure.rooms, { total: 2, ooo: 1, oos: 0, rented: 1, available: 1 });
+    assert.deepEqual(closure.build.closure.rooms, { total: 2, ooo: 1, oos: 0, rented: 1, available: 0 });
     const night = closure.build.closure.nights[0];
     assert.equal(night.guests.length, 2);
     assert.equal(night.guests[0].nationality, "HU", "alpha-3 nationality mapped to ISO-2");
