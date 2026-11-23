@@ -26,15 +26,42 @@ END $$;
 CREATE INDEX IF NOT EXISTS reservations_ntak_booking_no_hotel
   ON public.reservations(hotel_id,ntak_booking_no) WHERE ntak_booking_no IS NOT NULL;
 
--- Existing NTAK-managed in-house guests retain their current stay state.
--- Never rewrite a historical guest timestamp once explicitly recorded.
+-- Preserve event recipients queued before migration: the old processor used
+-- all linked guests even for departures. Once stay_state exists, an old NULL
+-- guest_ids departure would otherwise have zero "currently in-house" guests.
+UPDATE public.ntak_event_queue e SET guest_ids=links.ids
+FROM (
+  SELECT reservation_id,array_agg(guest_id ORDER BY guest_id) AS ids
+  FROM public.reservation_guests GROUP BY reservation_id
+) links
+WHERE e.reservation_id=links.reservation_id AND e.guest_ids IS NULL
+  AND e.state IN ('queued','waiting_data');
+
+-- Preserve known arrivals for NTAK-scoped reservations only, leaving all
+-- 15 unrelated Channex certification rooms and bookings untouched.
+-- Do not invent an arrival for a companion lacking independent evidence:
+-- keep that companion expected until reception verifies their presence.
 UPDATE public.reservation_guests rg
 SET stay_state=CASE WHEN r.status='checked_out' THEN 'departed' ELSE 'in_house' END,
     arrived_at=COALESCE(rg.arrived_at,r.actual_check_in,r.check_in_date::timestamp AT TIME ZONE 'Europe/Budapest'),
     departed_at=CASE WHEN r.status='checked_out' THEN COALESCE(rg.departed_at,r.actual_check_out,r.check_out_date::timestamp AT TIME ZONE 'Europe/Budapest') ELSE rg.departed_at END,
     room_id=COALESCE(rg.room_id,r.room_id)
 FROM public.reservations r JOIN public.ntak_settings cfg ON cfg.hotel_id=r.hotel_id AND cfg.enabled
-WHERE rg.reservation_id=r.id AND rg.stay_state='expected' AND r.status IN ('checked_in','checked_out');
+WHERE rg.reservation_id=r.id AND rg.stay_state='expected'
+  AND r.status IN ('checked_in','checked_out')
+  AND (rg.is_primary OR EXISTS(
+    SELECT 1 FROM public.viza_guest_events v
+    WHERE v.reservation_id=r.id AND v.guest_id=rg.guest_id
+      AND v.arrival_state IN ('queued','sent')))
+  AND (
+    cfg.unit_scope <> 'profiled_only'
+    OR (r.room_id IS NOT NULL AND EXISTS(
+      SELECT 1 FROM public.ntak_unit_profiles p
+      WHERE p.hotel_id=r.hotel_id AND p.room_id=r.room_id AND p.active))
+    OR (r.room_id IS NULL AND r.room_type_id IS NOT NULL AND EXISTS(
+      SELECT 1 FROM public.ntak_room_type_units t
+      WHERE t.hotel_id=r.hotel_id AND t.room_type_id=r.room_type_id AND t.active))
+  );
 
 -- Preserve the existing four-argument ntak_booking_no function as a legacy
 -- entrypoint; five arguments route the explicit override ahead of OTA IDs.
@@ -65,26 +92,58 @@ ON public.reservation_guests FOR INSERT TO authenticated WITH CHECK (
   public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
   AND NOT EXISTS(
     SELECT 1 FROM public.ntak_settings cfg JOIN public.reservations r ON r.id=reservation_id
-    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled)
+    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled AND (
+      cfg.unit_scope <> 'profiled_only'
+      OR (r.room_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM public.ntak_unit_profiles p
+        WHERE p.hotel_id=r.hotel_id AND p.room_id=r.room_id AND p.active))
+      OR (r.room_id IS NULL AND r.room_type_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM public.ntak_room_type_units t
+        WHERE t.hotel_id=r.hotel_id AND t.room_type_id=r.room_type_id AND t.active))
+    ))
 );
 CREATE POLICY "Legacy PMS staff update stay guests"
 ON public.reservation_guests FOR UPDATE TO authenticated USING (
   public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
   AND NOT EXISTS(
     SELECT 1 FROM public.ntak_settings cfg JOIN public.reservations r ON r.id=reservation_id
-    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled)
+    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled AND (
+      cfg.unit_scope <> 'profiled_only'
+      OR (r.room_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM public.ntak_unit_profiles p
+        WHERE p.hotel_id=r.hotel_id AND p.room_id=r.room_id AND p.active))
+      OR (r.room_id IS NULL AND r.room_type_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM public.ntak_room_type_units t
+        WHERE t.hotel_id=r.hotel_id AND t.room_type_id=r.room_type_id AND t.active))
+    ))
 ) WITH CHECK (
   public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
   AND NOT EXISTS(
     SELECT 1 FROM public.ntak_settings cfg JOIN public.reservations r ON r.id=reservation_id
-    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled)
+    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled AND (
+      cfg.unit_scope <> 'profiled_only'
+      OR (r.room_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM public.ntak_unit_profiles p
+        WHERE p.hotel_id=r.hotel_id AND p.room_id=r.room_id AND p.active))
+      OR (r.room_id IS NULL AND r.room_type_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM public.ntak_room_type_units t
+        WHERE t.hotel_id=r.hotel_id AND t.room_type_id=r.room_type_id AND t.active))
+    ))
 );
 CREATE POLICY "Legacy PMS staff delete stay guests"
 ON public.reservation_guests FOR DELETE TO authenticated USING (
   public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
   AND NOT EXISTS(
     SELECT 1 FROM public.ntak_settings cfg JOIN public.reservations r ON r.id=reservation_id
-    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled)
+    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled AND (
+      cfg.unit_scope <> 'profiled_only'
+      OR (r.room_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM public.ntak_unit_profiles p
+        WHERE p.hotel_id=r.hotel_id AND p.room_id=r.room_id AND p.active))
+      OR (r.room_id IS NULL AND r.room_type_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM public.ntak_room_type_units t
+        WHERE t.hotel_id=r.hotel_id AND t.room_type_id=r.room_type_id AND t.active))
+    ))
 );
 GRANT SELECT,INSERT,UPDATE,DELETE ON public.reservation_guests TO authenticated;
 
