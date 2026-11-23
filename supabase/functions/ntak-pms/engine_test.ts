@@ -460,6 +460,41 @@ Deno.test('profiled_only excludes 15 unrelated rooms, their bookings, events, ch
   assert.equal(intentionalMismatch.closure.capacity.total, 12);
   assert.equal(intentionalMismatch.closure.rooms.total, 4);
   assert.ok(intentionalMismatch.checklist.some((x) => x.code === "registration"));
+
+  // Phase 5 NZ_02: walk-in charges are independent of booking/unit scope.
+  db.rows("pos_sales").push(
+    { id: "walk-in", hotel_id: s.hotel_id, organization_slug: s.organization_slug, business_day: day },
+    { id: "other-day", hotel_id: s.hotel_id, organization_slug: s.organization_slug, business_day: addDays(day, -1) },
+    { id: "other-tenant", hotel_id: s.hotel_id, organization_slug: "unrelated", business_day: day },
+    { id: "other-hotel", hotel_id: "elsewhere", organization_slug: s.organization_slug, business_day: day },
+  );
+  const expected = [
+    { amount: 5800, main: "KOZFURDO", sub: "WELLNESS_PROGRAM", vat: 18 },
+    { amount: 4600, main: "ETEL", sub: "FOETEL", vat: 5 },
+    { amount: 1000, main: "EGYEB", sub: "EGYEB_VENDEGLATAS", vat: 27 },
+    { amount: 10000, main: "ALKOHOLOSITAL", sub: "ITALCSOMAG", vat: 27 },
+  ];
+  for (const c of expected) db.rows("pos_sale_lines").push({
+    sale_id: "walk-in", gross_total: c.amount, ntak_main: c.main, ntak_sub: c.sub, vat_rate: c.vat,
+  });
+  for (const sale_id of ["other-day","other-hotel","other-tenant"]) {
+    db.rows("pos_sale_lines").push({ sale_id, gross_total: 9000, ntak_main: "ETEL", ntak_sub: "FOETEL", vat_rate: 5 });
+    db.rows("pos_sale_payments").push({ sale_id, amount: 9000, method: "cash" });
+  }
+  db.rows("pos_sale_payments").push({ sale_id: "walk-in", amount: 21400, method: "card_terminal" });
+  const nz02 = await buildClosure(db, s, day, {});
+  assert.equal(nz02.closure.otherCharges.length, 4);
+  assert.deepEqual([...nz02.closure.otherCharges].sort((a,b)=>a.amount-b.amount), [...expected].sort((a,b)=>a.amount-b.amount));
+  assert.deepEqual(nz02.closure.otherPayments, [{ amount: 21400, type: "BANKKARTYA" }]);
+  assert.equal(nz02.totals.charges, 21400);
+  assert.equal(nz02.totals.payments, 21400);
+  assert.ok(nz02.xml.includes("egyebTerhelesek") && nz02.xml.includes("egyebKoltesek"));
+  assert.equal(await xmllint(nz02.xml), null);
+  assert.ok(!nz02.checklist.some(x=>x.code==="walk_in_ledger"));
+  // An unbalanced sale must block reporting, not be hidden as zero revenue.
+  db.rows("pos_sale_payments").find(p=>p.sale_id==="walk-in")!.amount=21399;
+  const invalid = await buildClosure(db, s, day, {});
+  assert.ok(invalid.checklist.some(x=>x.code==="walk_in_ledger" && x.level==="error"));
 });
 
 
