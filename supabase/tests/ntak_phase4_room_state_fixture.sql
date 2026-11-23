@@ -24,6 +24,7 @@ CREATE OR REPLACE FUNCTION cron.schedule(_name text, _pattern text, _sql text)
 RETURNS bigint LANGUAGE sql AS $$ SELECT 1::bigint $$;
 
 GRANT SELECT ON public.profiles TO authenticated;
+GRANT UPDATE ON public.rooms TO authenticated;
 
 INSERT INTO public.profiles(id,role,organization_slug) VALUES
   ('00000000-0000-4000-8000-000000000071','manager','channex'),
