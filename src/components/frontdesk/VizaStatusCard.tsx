@@ -9,7 +9,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Landmark, Loader2, Settings2 } from 'lucide-react';
+import { Landmark, Loader2, Settings2, TriangleAlert, WifiOff } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 
 /**
@@ -29,7 +29,10 @@ interface VizaStatus {
     last_status_code: string | null; last_status_at: string | null;
     unsent_count: number; failed_count: number; last_error: string | null;
   } | null;
-  events: Array<{ id: string; updated_at: string; arrival_state: string; departure_state: string | null; last_error: string | null; attempts: number }>;
+  events: Array<{
+    id: string; updated_at: string; arrival_state: string; departure_state: string | null; last_error: string | null; attempts: number;
+    guest_name?: string | null; needs_correction?: boolean; next_attempt_at?: string | null;
+  }>;
 }
 
 async function callViza(body: Record<string, unknown>) {
@@ -105,6 +108,7 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
   const retry = async (eventId: string) => {
     try {
       await callViza({ action: 'retry', hotel_id: hotelId, event_id: eventId });
+      toast.success(t('pms.viza.queuedAgain'));
       await refresh();
     } catch (err) {
       toast.error((err as Error).message);
@@ -137,13 +141,31 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
           </Button>
         )}
       </div>
-      {s?.last_error && <p className="mt-1 text-[11px] text-destructive truncate" title={s.last_error}>{s.last_error}</p>}
-      {!report && failures.length > 0 && status.can_manage && (
-        <div className="mt-1.5 space-y-1">
-          {failures.slice(0, 3).map((e) => (
-            <div key={e.id} className="flex items-center gap-2 text-[11px]">
-              <span className="text-destructive truncate flex-1">{e.last_error ?? 'failed'} · ×{e.attempts}</span>
-              <Button type="button" size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => retry(e.id)}>{t('pms.viza.retry')}</Button>
+      {/* The THF cannot be reached: say so in plain words, and that nothing is lost (validation case 2.6). */}
+      {s?.enabled && s.last_error && (
+        <div role="alert" className="mt-1.5 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200" data-training="fd-viza-unreachable">
+          <WifiOff className="mt-px h-4 w-4 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium">{t('pms.viza.unreachable')}</p>
+            <p className="truncate opacity-80" title={s.last_error}>{s.last_error}</p>
+          </div>
+        </div>
+      )}
+      {/* Guests whose report failed: shown to everyone at the desk, with what to do next. */}
+      {!report && failures.length > 0 && (
+        <div className="mt-1.5 space-y-1" data-training="fd-viza-failures">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold text-destructive"><TriangleAlert className="h-3.5 w-3.5" /> {t('pms.viza.guestProblems')}</p>
+          {failures.slice(0, 5).map((e) => (
+            <div key={e.id} className="flex items-center gap-2 rounded-md border border-destructive/30 px-2 py-1 text-[11px]">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{e.guest_name || '—'}</p>
+                <p className="truncate text-destructive" title={e.last_error ?? ''}>{e.last_error ?? t('ntak.vizaState.failed')}</p>
+                <p className="text-muted-foreground">
+                  {e.needs_correction ? t('pms.viza.needsFix')
+                    : e.next_attempt_at ? `${t('pms.viza.nextTry')}: ${new Date(e.next_attempt_at).toLocaleString(undefined, { timeZone: 'Europe/Budapest', dateStyle: 'short', timeStyle: 'short' })}` : ''}
+                </p>
+              </div>
+              <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 text-[11px]" onClick={() => retry(e.id)}>{t('pms.viza.sendAgain')}</Button>
             </div>
           ))}
         </div>
@@ -157,8 +179,10 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
                 <span>{t('pms.rep.arrivals')} · {t(`ntak.vizaState.${event.arrival_state}`)}</span>
                 {event.departure_state && <span>{t('pms.rep.departures')} · {t(`ntak.vizaState.${event.departure_state}`)}</span>}
                 <time className="ml-auto text-muted-foreground">{new Date(event.updated_at).toLocaleString(undefined, {timeZone: 'Europe/Budapest'})}</time>
+                {event.guest_name && <span className="basis-full font-medium">{event.guest_name}</span>}
                 {event.last_error && <span className="basis-full break-words text-destructive">{event.last_error}</span>}
-                {status.can_manage && (event.arrival_state === 'failed' || event.departure_state === 'failed') && <Button size="sm" variant="outline" onClick={() => retry(event.id)}>{t('pms.viza.retry')}</Button>}
+                {event.needs_correction && <span className="basis-full text-muted-foreground">{t('pms.viza.needsFix')}</span>}
+                {(event.arrival_state === 'failed' || event.departure_state === 'failed') && <Button size="sm" variant="outline" onClick={() => retry(event.id)}>{t('pms.viza.sendAgain')}</Button>}
               </li>)}</ul>}
       </div>}
       <Dialog open={settingsOpen} onOpenChange={(o) => { if (!saving) setSettingsOpen(o); }}>
