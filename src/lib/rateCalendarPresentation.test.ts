@@ -23,6 +23,19 @@ describe("rate calendar history and layout", () => {
     expect(rateCalendarColumnWidth(390, 124, 84)).toBe(84); // user zoom respected
   });
 
+  it("fits every rolling or month date on a desktop without forced overflow", () => {
+    const viewport = 1720;
+    const left = 200;
+    const rolling = rateCalendarColumnWidth(viewport, left, 60, 30, true);
+    const december = rateCalendarColumnWidth(viewport, left, 60, 31, true);
+    expect(rolling).toBe(50);
+    expect(december).toBe(48);
+    expect(left + rolling * 30).toBeLessThanOrEqual(viewport);
+    expect(left + december * 31).toBeLessThanOrEqual(viewport);
+    expect(rateCalendarColumnWidth(viewport, left, 84, 31, false)).toBe(84);
+    expect(rateCalendarColumnWidth(390, 124, 60, 31, false)).toBe(60);
+  });
+
   it("separates hotel price keys by guest count, room and date", () => {
     expect(historicalRateKey("OTTO_4", 2, "2026-10-19"))
       .not.toBe(historicalRateKey("OTTO_4", 1, "2026-10-19"));
