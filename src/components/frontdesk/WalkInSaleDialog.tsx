@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useTranslation } from '@/hooks/useTranslation';
 import { BusinessDayField } from './BusinessDayField';
 import { budapestToday } from '@/lib/businessMoment';
-import { PMS_PAYMENT_METHODS } from '@/lib/pmsFinance';
+import { WALK_IN_PAYMENT_METHODS } from '@/lib/pmsFinance';
 import { CATEGORIES, categoryProblem, VAT_RATES, type VatRate } from '../../../supabase/functions/_shared/ntak/codes';
 
 type Item = {
@@ -74,7 +74,7 @@ export function WalkInSaleDialog({ open,onOpenChange,hotelId,organizationSlug }:
   const total=lines.reduce((sum,l)=>sum+minor(l.amount),0);
   const paid=payments.reduce((sum,p)=>sum+minor(p.amount),0);
   const valid=lines.length>0 && lines.every(l=>items.some(i=>i.id===l.itemId)&&validAmount(l.amount))
-    && payments.length>0 && payments.every(p=>validAmount(p.amount))
+    && payments.length>0 && payments.every(p=>validAmount(p.amount) && WALK_IN_PAYMENT_METHODS.some(method => method === p.method))
     && total>0 && total===paid && !!day && day<=budapestToday();
   const editLine=(index:number,patch:Partial<Line>)=>setLines(rows=>rows.map((l,i)=>i===index?{...l,...patch}:l));
   const editPayment=(index:number,patch:Partial<Payment>)=>setPayments(rows=>rows.map((p,i)=>i===index?{...p,...patch}:p));
@@ -153,7 +153,7 @@ export function WalkInSaleDialog({ open,onOpenChange,hotelId,organizationSlug }:
             <div className="flex items-center justify-between gap-2"><Label>{t('ntak.phase5.payments')}</Label><Button type="button" size="sm" variant="ghost" onClick={()=>setPayments([{method:payments[0]?.method??'card_terminal',amount:String(total/100)}])}>{t('ntak.phase5.payTotal')}</Button></div>
             {payments.map((p,index)=><div key={index} className="flex gap-2 items-center">
               <select aria-label={t('ntak.phase5.method')} value={p.method} onChange={e=>editPayment(index,{method:e.target.value})} className="min-w-0 flex-1 h-10 rounded-md border bg-background px-2 text-sm">
-                {PMS_PAYMENT_METHODS.map(method=><option key={method} value={method}>{paymentLabels[method]??method}</option>)}
+                {WALK_IN_PAYMENT_METHODS.map(method=><option key={method} value={method}>{paymentLabels[method]??method}</option>)}
               </select>
               <Input aria-label={t('ntak.phase5.paymentAmount')} type="number" inputMode="decimal" min="0.01" step="0.01" className="w-28" value={p.amount} onChange={e=>editPayment(index,{amount:e.target.value})}/>
               <Button type="button" size="icon" variant="ghost" disabled={payments.length===1} aria-label={t('ntak.phase5.remove')} onClick={()=>setPayments(rows=>rows.filter((_,i)=>i!==index))}><Trash2 className="h-4 w-4"/></Button>
