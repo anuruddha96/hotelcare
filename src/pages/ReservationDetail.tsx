@@ -78,9 +78,12 @@ const ReservationDetail = () => {
     }
     setEvents(eventResult.data ?? []);
     if (resResult.data?.hotel_id) {
-      const { data: setting } = await (supabase as any).from('ntak_settings')
-        .select('enabled').eq('hotel_id',resResult.data.hotel_id).maybeSingle();
-      setNtakActive(setting?.enabled===true);
+      const { data: enabled, error: availabilityError } = await (supabase.rpc as CallableFunction)(
+        'pms_guest_lifecycle_available',
+        { _reservation_id: resResult.data.id, _room_id: resResult.data.room_id ?? null },
+      );
+      // Availability is not guessed if the new schema has not been applied.
+      setNtakActive(!availabilityError && enabled === true);
     } else setNtakActive(false);
     setLoadingData(false);
   }, [id]);

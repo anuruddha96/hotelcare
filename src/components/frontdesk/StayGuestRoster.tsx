@@ -37,7 +37,7 @@ export interface GuestRosterControl {
 
 export function useStayGuestRoster(
   reservationId: string, hotelId: string | null, open: boolean,
-  mode: 'arrive' | 'depart', roomId?: string | null, roomTypeId?: string | null,
+  mode: 'arrive' | 'depart', roomId?: string | null,
 ): GuestRosterControl {
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -47,25 +47,12 @@ export function useStayGuestRoster(
     if (!open || !hotelId) { setLoading(false); setEnabled(false); return; }
     setLoading(true);
     try {
-      const { data: setting, error: settingError } = await (supabase as any).from('ntak_settings')
-        .select('enabled,unit_scope').eq('hotel_id', hotelId).maybeSingle();
-      if (settingError) throw settingError;
-      let active = setting?.enabled === true;
-      if (active && setting.unit_scope === 'profiled_only') {
-        if (roomId) {
-          const { data: unit, error: unitError } = await (supabase as any)
-            .from('ntak_unit_profiles').select('room_id')
-            .eq('hotel_id',hotelId).eq('room_id',roomId).eq('active',true).maybeSingle();
-          if (unitError) throw unitError;
-          active = !!unit;
-        } else if (roomTypeId) {
-          const { data: unitType, error: typeError } = await (supabase as any)
-            .from('ntak_room_type_units').select('room_type_id')
-            .eq('hotel_id',hotelId).eq('room_type_id',roomTypeId).eq('active',true).maybeSingle();
-          if (typeError) throw typeError;
-          active = !!unitType;
-        } else active = false;
-      }
+      const { data: allowed, error: permissionError } = await (supabase.rpc as CallableFunction)(
+        'pms_guest_lifecycle_available',
+        { _reservation_id:reservationId, _room_id:roomId || null },
+      );
+      if (permissionError) throw permissionError;
+      const active = allowed === true;
       setEnabled(active);
       if (!active) { setGuests([]); setSelectedIds([]); return; }
       const { data, error } = await (supabase as any).from('reservation_guests')
@@ -84,7 +71,7 @@ export function useStayGuestRoster(
       setSelectedIds([]);
       toast.error(error instanceof Error ? error.message : String(error));
     } finally { setLoading(false); }
-  }, [hotelId,mode,open,reservationId,roomId,roomTypeId]);
+  }, [hotelId,mode,open,reservationId,roomId]);
   useEffect(() => { void refresh(); }, [refresh]);
   const eligible = useMemo(() => guests.filter((g) => g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house')), [guests,mode]);
   const incompleteSelected = useMemo(() => guests.filter((g) => selectedIds.includes(g.guest_id))

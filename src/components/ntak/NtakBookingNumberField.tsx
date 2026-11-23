@@ -29,11 +29,12 @@ export function NtakBookingNumberField({ reservation, onSaved }: {
     let alive = true;
     setEnabled(false);
     if (!reservation.hotel_id) return;
-    (supabase as any).from('ntak_settings').select('enabled').eq('hotel_id',reservation.hotel_id).maybeSingle()
-      .then(({ data }: {data: {enabled?: boolean} | null}) => { if(alive) setEnabled(data?.enabled===true); })
+    (supabase.rpc as CallableFunction)('pms_guest_lifecycle_available', {
+      _reservation_id:reservation.id, _room_id:null,
+    }).then(({data,error}: {data:boolean;error:unknown}) => { if(alive) setEnabled(!error && data===true); })
       .catch(() => { if(alive) setEnabled(false); });
     return () => { alive=false; };
-  },[reservation.hotel_id]);
+  },[reservation.hotel_id,reservation.id]);
   if (!enabled) return null;
   const save = async () => {
     setSaving(true);
