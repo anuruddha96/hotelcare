@@ -79,6 +79,60 @@ $$;
 REVOKE ALL ON FUNCTION public.pms_set_business_moment(timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.pms_set_business_moment(timestamptz) TO authenticated;
 
+
+-- Day-use (arrival = departure) occupies the room for that one business day.
+-- Expand a same-day query to [day, day+1) AND recognize existing day-use
+-- reservations/assignments; otherwise ordinary [arrival,departure) behavior
+-- would miss conflicts with same-day arrivals and FOGL_03.
+CREATE OR REPLACE FUNCTION public.pms_room_has_conflict(
+  _room_id uuid, _from date, _to date, _exclude_reservation uuid DEFAULT NULL
+) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $
+  SELECT EXISTS (
+    SELECT 1 FROM public.reservations r
+    WHERE r.room_id = _room_id
+      AND r.status IN ('pending','confirmed','checked_in')
+      AND (_exclude_reservation IS NULL OR r.id <> _exclude_reservation)
+      AND r.check_in_date < CASE WHEN _to = _from THEN _from + 1 ELSE _to END
+      AND (r.check_out_date > _from
+        OR (r.check_in_date = r.check_out_date AND r.check_in_date >= _from))
+  ) OR EXISTS (
+    SELECT 1 FROM public.reservation_room_assignments rra
+    JOIN public.reservations r2 ON r2.id = rra.reservation_id
+    WHERE rra.room_id = _room_id
+      AND rra.status IN ('assigned','active')
+      AND (_exclude_reservation IS NULL OR rra.reservation_id <> _exclude_reservation)
+      AND r2.status IN ('pending','confirmed','checked_in')
+      AND rra.check_in_date < CASE WHEN _to = _from THEN _from + 1 ELSE _to END
+      AND (rra.check_out_date > _from
+        OR (rra.check_in_date = rra.check_out_date AND rra.check_in_date >= _from))
+  );
+$;
+
+-- The reception room picker must also accept a same-day range. Reject only
+-- reversed ranges, never a legitimate day-use stay.
+CREATE OR REPLACE FUNCTION public.pms_available_rooms(
+  _hotel_id text, _from date, _to date, _exclude_reservation uuid DEFAULT NULL
+) RETURNS TABLE(
+  room_id uuid, room_number text, room_type text, room_status text,
+  capacity integer, has_conflict boolean
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $
+BEGIN
+  IF NOT public.can_access_pms_hotel(auth.uid(), _hotel_id, NULL) THEN
+    RAISE EXCEPTION 'ACCESS_DENIED';
+  END IF;
+  IF _from IS NULL OR _to IS NULL OR _to < _from THEN
+    RAISE EXCEPTION 'INVALID_DATES';
+  END IF;
+  RETURN QUERY
+  SELECT rm.id, rm.room_number, rm.room_type, rm.status,
+    COALESCE(rm.room_capacity,2),
+    public.pms_room_has_conflict(rm.id,_from,_to,_exclude_reservation)
+  FROM public.rooms rm
+  WHERE rm.hotel IN (SELECT public.pms_hotel_room_keys(_hotel_id))
+  ORDER BY rm.room_number;
+END;
+$;
+
 -- The old entrypoints remain unchanged; the new entrypoints delegate to
 -- them for ordinary, non-backdated check-ins and check-outs.
 CREATE OR REPLACE FUNCTION public.pms_check_in(
@@ -90,6 +144,7 @@ DECLARE
   rm public.rooms%ROWTYPE;
   actor uuid := auth.uid();
   day date;
+  day_use boolean;
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id = _reservation_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
@@ -103,12 +158,16 @@ BEGIN
   ) THEN RAISE EXCEPTION 'GUEST_NOT_ON_RESERVATION'; END IF;
   PERFORM public.pms_assert_business_moment(r.hotel_id,r.organization_slug,_moment);
   PERFORM public.pms_set_business_moment(_moment);
-  IF _moment IS NULL THEN
+  day_use := r.check_in_date = r.check_out_date;
+  IF _moment IS NULL AND NOT day_use THEN
     RETURN public.pms_check_in_reservation(r.id,COALESCE(_room_id,r.room_id),_override);
   END IF;
-  day := (_moment AT TIME ZONE 'Europe/Budapest')::date;
+  day := (COALESCE(_moment,clock_timestamp()) AT TIME ZONE 'Europe/Budapest')::date;
   IF r.status NOT IN ('pending','confirmed') THEN RAISE EXCEPTION 'INVALID_STATUS'; END IF;
-  IF day < r.check_in_date - 1 OR day >= r.check_out_date THEN RAISE EXCEPTION 'BUSINESS_DAY_OUTSIDE_STAY'; END IF;
+  IF (day_use AND day <> r.check_in_date)
+     OR (NOT day_use AND (day < r.check_in_date - 1 OR day >= r.check_out_date)) THEN
+    RAISE EXCEPTION 'BUSINESS_DAY_OUTSIDE_STAY';
+  END IF;
   SELECT * INTO rm FROM public.rooms WHERE id = COALESCE(_room_id,r.room_id) FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'ROOM_NOT_FOUND'; END IF;
   IF rm.hotel NOT IN (SELECT public.pms_hotel_room_keys(r.hotel_id)) THEN RAISE EXCEPTION 'ROOM_WRONG_HOTEL'; END IF;
@@ -124,29 +183,31 @@ BEGIN
   IF day = (now() AT TIME ZONE 'Europe/Budapest')::date AND lower(COALESCE(rm.status,'')) <> 'clean' AND NOT _override THEN
     RAISE EXCEPTION 'ROOM_NOT_CLEAN';
   END IF;
-  IF public.pms_room_has_conflict(rm.id,GREATEST(r.check_in_date,day),r.check_out_date,r.id) THEN
+  IF public.pms_room_has_conflict(rm.id,GREATEST(r.check_in_date,day),
+    CASE WHEN day_use THEN day + 1 ELSE r.check_out_date END,r.id) THEN
     RAISE EXCEPTION 'ROOM_CONFLICT';
   END IF;
   IF COALESCE(rm.room_capacity,0) > 0 AND COALESCE(r.adults,0)+COALESCE(r.children,0)>rm.room_capacity AND NOT _override THEN
     RAISE EXCEPTION 'CAPACITY_EXCEEDED';
   END IF;
-  UPDATE public.reservations SET status='checked_in',room_id=rm.id,actual_check_in=_moment WHERE id=r.id;
+  UPDATE public.reservations SET status='checked_in',room_id=rm.id,actual_check_in=COALESCE(_moment,clock_timestamp()) WHERE id=r.id;
   UPDATE public.reservation_room_assignments SET status='cancelled'
     WHERE reservation_id=r.id AND room_id<>rm.id AND status IN ('assigned','active');
   IF EXISTS(SELECT 1 FROM public.reservation_room_assignments WHERE reservation_id=r.id AND room_id=rm.id) THEN
     UPDATE public.reservation_room_assignments SET status='active',
-      check_in_date=GREATEST(r.check_in_date,day),check_out_date=r.check_out_date
+      check_in_date=GREATEST(r.check_in_date,day),
+      check_out_date=CASE WHEN day_use THEN day + 1 ELSE r.check_out_date END
       WHERE reservation_id=r.id AND room_id=rm.id;
   ELSE
     INSERT INTO public.reservation_room_assignments(reservation_id,room_id,check_in_date,check_out_date,status)
-    VALUES(r.id,rm.id,GREATEST(r.check_in_date,day),r.check_out_date,'active');
+    VALUES(r.id,rm.id,GREATEST(r.check_in_date,day),CASE WHEN day_use THEN day + 1 ELSE r.check_out_date END,'active');
   END IF;
   IF day=(now() AT TIME ZONE 'Europe/Budapest')::date THEN
     UPDATE public.rooms SET guest_count=r.adults+r.children,is_checkout_room=false,checkout_time=NULL,updated_at=now() WHERE id=rm.id;
   END IF;
   INSERT INTO public.reservation_events(reservation_id,hotel_id,organization_slug,event_type,metadata,created_by)
   VALUES(r.id,r.hotel_id,r.organization_slug,'check_in',
-    jsonb_build_object('room_id',rm.id,'business_moment',_moment,'historical',true),actor);
+    jsonb_build_object('room_id',rm.id,'business_moment',COALESCE(_moment,clock_timestamp()),'historical',_moment IS NOT NULL),actor);
   RETURN jsonb_build_object('ok',true,'reservation_id',r.id,'room_number',rm.room_number,'occurred_at',_moment);
 END;
 $$;
@@ -196,11 +257,12 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.pms_change_room(
   _reservation_id uuid, _to_room uuid, _moment timestamptz DEFAULT NULL
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
 DECLARE
   r public.reservations%ROWTYPE;
   rm public.rooms%ROWTYPE;
   actor uuid := auth.uid();
+  day_use boolean;
   day date;
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id FOR UPDATE;
@@ -211,7 +273,11 @@ BEGIN
   day := (COALESCE(_moment,clock_timestamp()) AT TIME ZONE 'Europe/Budapest')::date;
   IF r.status <> 'checked_in' THEN RAISE EXCEPTION 'INVALID_STATUS'; END IF;
   IF r.room_id IS NULL OR r.room_id = _to_room THEN RAISE EXCEPTION 'ROOM_CHANGE_INVALID'; END IF;
-  IF day < r.check_in_date OR day >= r.check_out_date THEN RAISE EXCEPTION 'BUSINESS_DAY_OUTSIDE_STAY'; END IF;
+  day_use := r.check_in_date = r.check_out_date;
+  IF (day_use AND day <> r.check_in_date)
+     OR (NOT day_use AND (day < r.check_in_date OR day >= r.check_out_date)) THEN
+    RAISE EXCEPTION 'BUSINESS_DAY_OUTSIDE_STAY';
+  END IF;
   IF r.actual_check_in IS NOT NULL AND COALESCE(_moment,clock_timestamp()) < r.actual_check_in THEN
     RAISE EXCEPTION 'ROOM_CHANGE_BEFORE_CHECK_IN';
   END IF;
@@ -227,7 +293,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'ROOM_NOT_IN_NTAK_VALIDATION_SCOPE';
   END IF;
-  IF public.pms_room_has_conflict(_to_room,day,r.check_out_date,r.id) THEN RAISE EXCEPTION 'ROOM_CONFLICT'; END IF;
+  IF public.pms_room_has_conflict(_to_room,day,CASE WHEN day_use THEN day + 1 ELSE r.check_out_date END,r.id) THEN RAISE EXCEPTION 'ROOM_CONFLICT'; END IF;
   -- Do not overwrite historic stay segments. Closed assignments remain usable
   -- by NTAK roomOnDay; the new assignment begins on the change date.
   UPDATE public.reservation_room_assignments
@@ -242,7 +308,7 @@ BEGIN
     WHERE reservation_id=r.id AND room_id=_to_room
       AND status IN ('assigned','active') AND check_out_date>day;
   INSERT INTO public.reservation_room_assignments(reservation_id,room_id,check_in_date,check_out_date,status)
-  VALUES(r.id,_to_room,day,r.check_out_date,'active');
+  VALUES(r.id,_to_room,day,CASE WHEN day_use THEN day + 1 ELSE r.check_out_date END,'active');
   UPDATE public.reservations SET room_id=_to_room WHERE id=r.id;
   IF day=(now() AT TIME ZONE 'Europe/Budapest')::date THEN
     UPDATE public.rooms SET guest_count=0,updated_at=now() WHERE id=r.room_id;
@@ -312,6 +378,7 @@ DECLARE
   legacy_id uuid;
   ledger_id uuid;
   balance numeric;
+  adjustment_folio_id uuid;
   day date := COALESCE(_business_day,(now() AT TIME ZONE 'Europe/Budapest')::date);
   paid_at timestamptz;
 BEGIN
@@ -320,9 +387,14 @@ BEGIN
   IF actor IS NULL OR NOT public.can_access_pms_hotel(actor,r.hotel_id,r.organization_slug) THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
   IF r.status IN ('cancelled','no_show') THEN RAISE EXCEPTION 'INVALID_STATUS'; END IF;
   IF COALESCE(btrim(_description),'')='' OR length(_description)>300 THEN RAISE EXCEPTION 'INVALID_DESCRIPTION'; END IF;
-  IF _amount IS NULL OR _amount<=0 OR _amount>100000000 THEN RAISE EXCEPTION 'INVALID_AMOUNT'; END IF;
+  IF _amount IS NULL OR _amount=0 OR ABS(_amount)>100000000 THEN RAISE EXCEPTION 'INVALID_AMOUNT'; END IF;
   IF _charge_type NOT IN ('room','minibar','restaurant','bar','spa','city_tax','service','payment','adjustment','other') THEN
     RAISE EXCEPTION 'INVALID_CHARGE_TYPE';
+  END IF;
+  -- Refund-like negative lines are permitted only as auditable adjustments;
+  -- payments and normal service charges must remain positive.
+  IF _amount < 0 AND _charge_type <> 'adjustment' THEN
+    RAISE EXCEPTION 'NEGATIVE_AMOUNT_REQUIRES_ADJUSTMENT';
   END IF;
   IF _business_day IS NOT NULL AND day<>(now() AT TIME ZONE 'Europe/Budapest')::date THEN
     PERFORM public.pms_assert_business_moment(r.hotel_id,r.organization_slug,
@@ -340,6 +412,29 @@ BEGIN
     IF _charge_type='payment' THEN
       ledger_id := public.pms_finance_record_payment(r.id,_amount,r.currency,COALESCE(NULLIF(btrim(_method),''),'other'),NULL,paid_at);
       UPDATE public.payments SET legacy_guest_folio_id=legacy_id WHERE id=ledger_id;
+    ELSIF _charge_type='adjustment' AND _amount < 0 THEN
+      -- pms_finance_add_charge rejects negative gross prices. Store a signed
+      -- adjustment line directly; both ledgers then reduce the balance by the
+      -- same amount and preserve the original business day.
+      adjustment_folio_id := public.pms_finance_ensure_master_folio(r.id);
+      INSERT INTO public.folio_lines (
+        folio_id,source_type,description,service_date,quantity,unit,currency,
+        gross_unit_price,net_total,vat_code,vat_rate,vat_total,gross_total,
+        legacy_guest_folio_id,created_by
+      ) VALUES (
+        adjustment_folio_id,'adjustment',btrim(_description),day,1,'item',
+        COALESCE(r.currency,'HUF'),_amount,_amount,'REVIEW_REQUIRED',NULL,0,
+        _amount,legacy_id,actor
+      ) RETURNING id INTO ledger_id;
+      INSERT INTO public.pms_financial_events (
+        organization_slug,hotel_id,reservation_id,folio_id,event_type,entity_type,
+        entity_id,amount,currency,actor_user_id,metadata
+      ) VALUES (
+        r.organization_slug,r.hotel_id,r.id,adjustment_folio_id,'charge_added','folio_line',
+        ledger_id,_amount,COALESCE(r.currency,'HUF'),actor,
+        jsonb_build_object('description',btrim(_description),'charge_type','adjustment','business_day',day)
+      );
+      PERFORM public.pms_finance_recalculate_reservation(r.id);
     ELSE
       ledger_id := public.pms_finance_add_charge(r.id,btrim(_description),1,'item',_amount,r.currency,'REVIEW_REQUIRED',NULL,NULL,day);
       UPDATE public.folio_lines SET legacy_guest_folio_id=legacy_id,source_type=_charge_type WHERE id=ledger_id;
