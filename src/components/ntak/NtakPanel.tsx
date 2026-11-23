@@ -262,7 +262,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
               <table className="w-full text-xs">
                 <tbody>
                   {types.map((rt, i) => {
-                    const ntak = rt.ntak ?? { unit_type: 'STANDARD', capacity: 2, active: false };
+                    const ntak = rt.ntak ?? { unit_type: 'STANDARD', capacity: 2, active: form.unit_scope !== 'profiled_only' };
                     const set = (patch: Partial<typeof ntak>) => setTypes(types.map((x, j) => (j === i ? { ...x, ntak: { ...ntak, ...patch } } : x)));
                     return (
                       <tr key={rt.id} className="border-t">
@@ -280,7 +280,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
                 </tbody>
               </table>
               <Button size="sm" variant="outline" disabled={!!busy || !types.length} onClick={() => run('types', {
-                action: 'save_room_types', room_types: types.map((rt) => ({ room_type_id: rt.id, unit_type: rt.ntak?.unit_type ?? 'STANDARD', capacity: rt.ntak?.capacity ?? 2, active: rt.ntak?.active ?? false })),
+                action: 'save_room_types', room_types: types.map((rt) => ({ room_type_id: rt.id, unit_type: rt.ntak?.unit_type ?? 'STANDARD', capacity: rt.ntak?.capacity ?? 2, active: rt.ntak?.active ?? (form.unit_scope !== 'profiled_only') })),
               }, () => toast.success(t('ntak.saved')))}>{t('common.save')}</Button>
             </TabsContent>
 
