@@ -125,7 +125,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded, cata
       if (!selected.length || selected.length > 100) return;
       setSaving(true);
       try {
-        const {data,error} = await (supabase.rpc as CallableFunction)('pms_finance_post_catalogue', {_reservation_id:reservation.id,_item_ids:selected,_service_date:businessDay});
+        const {data,error} = await (supabase as any).rpc('pms_finance_post_catalogue', {_reservation_id:reservation.id,_item_ids:selected,_service_date:businessDay});
         if (error) throw new Error(error.message);
         toast.success(`${data.posted} charges posted · ${formatMoney(manyTotal,reservation.currency)}`);
         onAdded?.(Number(data.balance_due ?? 0)); reset(); onOpenChange(false);
