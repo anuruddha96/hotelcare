@@ -10,7 +10,8 @@
 //   • a booking RAISES the price by a percentage of the price (the ratchet);
 //   • quiet hours DECAY it a little, but only while the date is behind its
 //     booking curve, never far below the last price that converted, and never
-//     under the seasonal base before the free-cancellation deadline;
+//     under the configured guarded share of the seasonal base before the
+//     free-cancellation deadline;
 //   • far-out dates priced well above their seasonal base GLIDE down early so
 //     they enter the booking window at a price that can sell;
 //   • the last days SELL DOWN in proportion to rooms left versus the pickup
@@ -777,24 +778,37 @@ export function decidePaceRatchet(
         if (basePrice == null) {
           return hold("no_seasonal_base", "No seasonal base price for this date yet; far-out prices are left alone.");
         }
+        if (gap == null) {
+          return hold("no_pace_data", "No pace target for this lead time.");
+        }
         if (gap != null && gap > s.pace_tolerance_points) {
           return hold("ahead_of_pace", `${paceText} ${input.daysOut} days out: ahead of pace, the price is working.`);
         }
         // A High date (arena concert, sister hotels priced up) may keep a bigger premium.
         const bandPct = tier === "high" ? Math.max(s.glide_band_pct, s.glide_band_pct_high) : s.glide_band_pct;
         const bandHigh = whole(basePrice * (1 + bandPct / 100));
-        if (current <= bandHigh) {
-          return hold("at_seasonal_base", `€${current} is within the seasonal band (base €${basePrice}, up to €${bandHigh}) ${input.daysOut} days out.`);
+        if (current <= bandHigh + s.min_step_eur) {
+          if (gap >= -s.pace_tolerance_points) {
+            return hold("on_pace", `${paceText} ${input.daysOut} days out: on pace, the price holds.`);
+          }
+          // The seasonal band is context, not demand evidence. When the date
+          // is genuinely quiet and behind pace, keep testing by the smallest
+          // configured step. The guarded base share, absolute price floor,
+          // budgets, cooldowns and manager protections still apply below.
+          pct = (s.min_step_eur / current) * 100;
+          reason = "far_out_pace_decay";
+          detail = `€${current} is within the seasonal band (base €${basePrice}, up to €${bandHigh}) but ${paceText} ${input.daysOut} days out with no booking for ${hoursQuiet == null ? "a week or more" : `${round1(hoursQuiet)}h`}: testing €${s.min_step_eur} lower.`;
+        } else {
+          const daysToTarget = Math.max(1, input.daysOut - s.glide_target_days_out);
+          const perMove = (current - bandHigh) / daysToTarget / Math.max(1, s.markdowns_per_day_far);
+          const largest = Math.max(s.min_step_eur, whole(current * s.decay_pct_far / 100));
+          const step = clamp(Math.ceil(perMove), s.min_step_eur, largest);
+          softFloor = Math.max(softFloor, bandHigh);
+          softFloorWhy = softFloor === bandHigh ? "seasonal_band" : softFloorWhy;
+          pct = (step / current) * 100;
+          reason = "far_out_glide";
+          detail = `€${current} is above the seasonal band (base €${basePrice}, up to €${bandHigh}) with ${paceText} ${input.daysOut} days out and no booking for ${hoursQuiet == null ? "a week or more" : `${round1(hoursQuiet)}h`}: gliding down so the date enters the booking window at a price that can sell.`;
         }
-        const daysToTarget = Math.max(1, input.daysOut - s.glide_target_days_out);
-        const perMove = (current - bandHigh) / daysToTarget / Math.max(1, s.markdowns_per_day_far);
-        const largest = Math.max(s.min_step_eur, whole(current * s.decay_pct_far / 100));
-        const step = clamp(Math.ceil(perMove), s.min_step_eur, largest);
-        softFloor = Math.max(softFloor, bandHigh);
-        softFloorWhy = softFloor === bandHigh ? "seasonal_band" : softFloorWhy;
-        pct = (step / current) * 100;
-        reason = "far_out_glide";
-        detail = `€${current} is above the seasonal band (base €${basePrice}, up to €${bandHigh}) with ${paceText} ${input.daysOut} days out and no booking for ${hoursQuiet == null ? "a week or more" : `${round1(hoursQuiet)}h`}: gliding down so the date enters the booking window at a price that can sell.`;
         break;
       }
     }
