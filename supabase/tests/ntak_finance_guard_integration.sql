@@ -114,6 +114,16 @@ END $$;
 
 -- Simulate a receptionist from the external PMS org. Each mutating finance
 -- RPC must fail BEFORE the financial-core tables or imported balance change.
+DO $
+BEGIN
+  IF public.pms_finance_is_native_pms('00000000-0000-4000-8000-000000000001') THEN
+    RAISE EXCEPTION 'External reservation classified as native';
+  END IF;
+  IF NOT public.pms_finance_is_native_pms('00000000-0000-4000-8000-000000000002') THEN
+    RAISE EXCEPTION 'Channex reservation classified as external';
+  END IF;
+END $;
+
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000099',false);
 SET ROLE authenticated;
 
@@ -123,9 +133,6 @@ DECLARE
   line uuid:='00000000-0000-4000-8000-000000000004'::uuid;
   pay uuid:='00000000-0000-4000-8000-000000000005'::uuid;
 BEGIN
-  IF public.pms_finance_is_native_pms(ext) THEN
-    RAISE EXCEPTION 'External reservation classified as native';
-  END IF;
   BEGIN
     PERFORM public.pms_finance_add_charge(ext,'Must fail',1,'item',10,'EUR','REVIEW_REQUIRED',NULL,NULL,NULL);
     RAISE EXCEPTION 'Charge incorrectly accepted for external PMS';

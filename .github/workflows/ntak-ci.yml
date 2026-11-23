@@ -71,10 +71,10 @@ jobs:
           python -m unittest discover -s scripts/tests -p 'test_changed_migrations.py' -v
           git fetch --no-tags origin main
           python scripts/check_changed_migrations.py --base origin/main
-      - name: Validate 00:30 Budapest in real PostgreSQL
-        run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_business_day.sql
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Validate 00:30 Budapest in real PostgreSQL
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_business_day.sql
       - name: Native/external finance guard integration (disposable PostgreSQL)
         run: |
           # Runs after the NTAK fixture/SQL checks below; this step uses an
