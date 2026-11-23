@@ -39,7 +39,7 @@ CREATE OR REPLACE FUNCTION public.pms_ntak_booking_fields(_hotel_id text, _organ
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
 DECLARE r public.reservations%ROWTYPE; p public.profiles%ROWTYPE; actor uuid:=auth.uid();
 BEGIN
-  IF actor IS NULL OR NOT public.can_access_pms_hotel(actor,_hotel_id,_organization_slug) THEN RETURN NULL; END IF;
+  IF actor IS NULL OR public.can_access_pms_hotel(actor,_hotel_id,_organization_slug) IS NOT TRUE THEN RETURN NULL; END IF;
   IF NOT EXISTS(SELECT 1 FROM public.ntak_settings s WHERE s.hotel_id=_hotel_id AND s.organization_slug=_organization_slug AND s.enabled) THEN RETURN NULL; END IF;
   IF _reservation_id IS NOT NULL THEN
     SELECT * INTO r FROM public.reservations WHERE id=_reservation_id AND hotel_id=_hotel_id AND organization_slug=_organization_slug;
@@ -59,7 +59,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE r public.reservations%ROWTYPE;
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id FOR UPDATE;
-  IF NOT FOUND OR auth.uid() IS NULL OR NOT public.can_access_pms_hotel(auth.uid(),r.hotel_id,r.organization_slug) THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
+  IF NOT FOUND OR auth.uid() IS NULL OR public.can_access_pms_hotel(auth.uid(),r.hotel_id,r.organization_slug) IS NOT TRUE THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
   IF public.pms_ntak_booking_fields(r.hotel_id,r.organization_slug,r.id) IS NULL THEN RAISE EXCEPTION 'NTAK_NOT_ENABLED'; END IF;
   IF jsonb_typeof(_fields) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'INVALID_NTAK_FIELDS'; END IF;
   IF _fields ? 'ntak_booking_no' THEN
