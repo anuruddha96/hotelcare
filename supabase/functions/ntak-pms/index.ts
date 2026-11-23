@@ -18,7 +18,7 @@
  * NTAK must never block the front desk: everything is queued, nothing here is
  * called from a check-in/check-out path.
  */
-import { authorizeHotelCaller, hasRole, json, MANAGE_ROLES, serviceDb, VIEW_ROLES, workerAuthorized, corsHeaders } from "../_shared/channex/http.ts";
+import { authorizeHotelCaller, json, serviceDb, workerAuthorized, corsHeaders } from "../_shared/channex/http.ts";
 import { ACCOMMODATION_CLASSES, UNIT_TYPES } from "../_shared/ntak/codes.ts";
 import { addDays } from "../_shared/ntak/ledger.ts";
 import { buildAdatszolgaltatasKezdoDatumRequest } from "../_shared/ntak/messages.ts";
@@ -89,9 +89,8 @@ Deno.serve(async (req) => {
   if (!hotelId) return json({ ok: false, error: "hotel_id is required" }, 400);
   const caller = await authorizeHotelCaller(req, db, hotelId);
   if (caller instanceof Response) return caller;
-  const canView = hasRole(caller, VIEW_ROLES);
-  const canManage = hasRole(caller, MANAGE_ROLES);
-  if (!canView) return json({ ok: false, error: "Forbidden" }, 403);
+  const canManage = caller.isSuperAdmin || ["admin", "top_management", "top_management_manager"].includes(caller.role);
+  if (!canManage) return json({ ok: false, error: "Forbidden" }, 403);
   const forbidden = () => json({ ok: false, error: "Only managers can change NTAK settings" }, 403);
 
   try {

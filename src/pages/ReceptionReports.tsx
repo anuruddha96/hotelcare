@@ -23,7 +23,7 @@ import { NtakStatusCard } from '@/components/ntak/NtakStatusCard';
 import { VizaStatusCard } from '@/components/frontdesk/VizaStatusCard';
 
 type Tab = 'daily' | 'performance' | 'channels' | 'authority';
-const SELECT = 'id,reservation_number,status,check_in_date,check_out_date,room_id,total_amount,balance_due,currency,adults,children,source,pms_channel,ota_name,pms_missing_since,pms_payment_status,pms_guest_name,special_requests,source_reservation_id,guests(first_name,last_name),rooms:room_id(room_number,room_type)';
+const SELECT = 'id,reservation_number,status,check_in_date,check_out_date,room_id,total_amount,balance_due,currency,adults,children,source,pms_channel,ota_name,pms_missing_since,pms_payment_status,pms_guest_name,special_requests,source_reservation_id,guests!reservations_guest_id_fkey(first_name,last_name),rooms:room_id(room_number,room_type)';
 
 function download(name: string, csv: string) {
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -33,14 +33,19 @@ function download(name: string, csv: string) {
 }
 
 export default function ReceptionReports() {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const { t } = useTranslation();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
   const { hotelId, hotelKeys, isPortfolio, ready } = useOperationalHotel();
   const today = todayBudapest();
   const [tab, setTab] = useState<Tab>('daily');
-  const authority = tab === 'authority';
+  const canViewAuthority = !!profile && (profile.is_super_admin || ['admin', 'top_management', 'top_management_manager'].includes(profile.role));
+  const authority = canViewAuthority && tab === 'authority';
+  // A role downgrade during a session must not leave the user on a hidden tab.
+  useEffect(() => {
+    if (!canViewAuthority && tab === 'authority') setTab('daily');
+  }, [canViewAuthority, tab]);
   const [day, setDay] = useState(today);
   const [from, setFrom] = useState(`${today.slice(0, 8)}01`);
   const [to, setTo] = useState(today);
@@ -156,7 +161,7 @@ export default function ReceptionReports() {
 
         <div className="flex flex-wrap items-center gap-2 mb-3 print:hidden">
           <div className="flex flex-wrap border border-border rounded-md overflow-hidden" role="tablist">
-            {(['daily', 'performance', 'channels', 'authority'] as Tab[]).map((key) => (
+            {(['daily', 'performance', 'channels', 'authority'] as Tab[]).filter(key => key !== 'authority' || canViewAuthority).map((key) => (
               <Button key={key} data-training={key === "daily" ? "reception-report-daily" : undefined} type="button" size="sm" role="tab" aria-selected={tab === key} variant={tab === key ? 'default' : 'ghost'} className="rounded-none h-9" onClick={() => setTab(key)}>{key === 'authority' ? 'NTAK / VIZA' : t(`pms.rep.tab_${key}`)}</Button>
             ))}
           </div>

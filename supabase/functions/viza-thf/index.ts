@@ -19,7 +19,7 @@
  * The THF being unreachable must never block the front desk (spec 4): events
  * stay queued and the worker keeps retrying; counters surface in Reception.
  */
-import { authorizeHotelCaller, hasRole, json, MANAGE_ROLES, serviceDb, VIEW_ROLES, workerAuthorized, type Caller } from "../_shared/channex/http.ts";
+import { authorizeHotelCaller, json, serviceDb, workerAuthorized, type Caller } from "../_shared/channex/http.ts";
 import { buildArrivalBody, buildDepartureBody, buildStatusBody, buildUnsentListBody, parseUnsentList, readXmlTag, readXmlTags, vizaTimestamp, type VizaArrivalGuest } from "../_shared/viza/messages.ts";
 import { postSoap } from "../_shared/ntak/transport.ts";
 import { importSigningKey, signEnvelope } from "../_shared/ntak/wssec.ts";
@@ -274,7 +274,8 @@ Deno.serve(async (req) => {
   const callerOr = await authorizeHotelCaller(req, db, hotelId);
   if (callerOr instanceof Response) return callerOr;
   const caller = callerOr as Caller;
-  if (!hasRole(caller, VIEW_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
+  const canManage = caller.isSuperAdmin || ["admin", "top_management", "top_management_manager"].includes(caller.role);
+  if (!canManage) return json({ ok: false, error: "Forbidden" }, 403);
 
   switch (action) {
     case "status": {
@@ -301,10 +302,9 @@ Deno.serve(async (req) => {
       const { count: queued } = await db.from("viza_guest_events")
         .select("id", { count: "exact", head: true })
         .eq("hotel_id", hotelId).or("arrival_state.in.(queued,failed),departure_state.in.(queued,failed)");
-      return json({ ok: true, configured: !!(await hotelCredentials(db, hotelId)), settings: settings ?? null, queued: queued ?? 0, events, can_manage: hasRole(caller, MANAGE_ROLES) });
+      return json({ ok: true, configured: !!(await hotelCredentials(db, hotelId)), settings: settings ?? null, queued: queued ?? 0, events, can_manage: canManage });
     }
     case "save_settings": {
-      if (!hasRole(caller, MANAGE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
       const s = (payload.settings ?? {}) as Record<string, unknown>;
       const row = {
         hotel_id: hotelId,
@@ -323,7 +323,6 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
     case "retry": {
-      // Reception corrects the guest's data and sends again: open to everyone who works the front desk.
       const eventId = String(payload.event_id ?? "");
       const { data: event } = await db.from("viza_guest_events").select("id, arrival_state, departure_state")
         .eq("hotel_id", hotelId).eq("id", eventId).maybeSingle();
@@ -337,7 +336,6 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
     case "unsent_list": {
-      if (!hasRole(caller, MANAGE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
       const { data: cfg } = await db.from("viza_settings").select("*").eq("hotel_id", hotelId).maybeSingle();
       if (!cfg) return json({ ok: false, error: "VIZA is not set up for this hotel" }, 400);
       const creds = await hotelCredentials(db, hotelId);

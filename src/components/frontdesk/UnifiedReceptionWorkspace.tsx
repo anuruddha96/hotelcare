@@ -11,8 +11,6 @@ import {
   Hourglass, ListOrdered, Sparkles, Waves,
 } from 'lucide-react';
 import { ReservationCalendar, type RoomStatus } from '@/components/reservations/ReservationCalendar';
-import { VizaStatusCard } from '@/components/frontdesk/VizaStatusCard';
-import { NtakStatusCard } from '@/components/ntak/NtakStatusCard';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
@@ -29,7 +27,7 @@ import { useGuestSignals } from '@/hooks/useGuestSignals';
 import { GuestSignalBadge } from '@/components/guests/GuestSignalBadge';
 import type { GuestSignal } from '@/lib/guestJourney';
 
-const RES_SELECT = '*, guests(first_name, last_name, email, phone, vip_status, id_document_number), rooms:room_id(id, room_number, room_type, status)';
+const RES_SELECT = '*, guests!reservations_guest_id_fkey(first_name, last_name, email, phone, vip_status, id_document_number), rooms:room_id(id, room_number, room_type, status)';
 type ViewMode = 'planner' | 'list';
 
 type SnapshotRow = ReceptionSnapshot & {
@@ -359,8 +357,6 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       </div>
     </div>
 
-    {hotelId && <VizaStatusCard hotelId={hotelId} />}
-    {hotelId && <NtakStatusCard hotelId={hotelId} />}
 
     <div className="relative" data-training="fd-quick-search">
       <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
@@ -396,7 +392,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       )}
     </div>
 
-    {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Reception data could not be verified. Previous property data has been cleared. Retry refresh.</div>}
+    {loadError && <div role="alert" className="rounded-md border border-destructive/50 p-3 text-xs text-destructive flex items-center gap-2"><AlertTriangle className="h-4 w-4" />Unable to load the room plan. <Button variant="outline" size="sm" onClick={fetchAll}>Retry</Button></div>}
     {!loadingData && !loadError && !nativeHotel && (importStale || snapshotReservations.length > 0 || (snapshotAudit?.ambiguousRooms ?? 0) > 0) &&
       <details role="status" className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
         <summary className="cursor-pointer select-none flex items-center gap-2 font-medium">
@@ -465,7 +461,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       </div>;
     })()}
 
-    <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
+    {!loadError && <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
       {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} onRoomStatusChange={changeRoomStatus} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-card z-10 border-b border-border"><tr className="text-left text-xs text-muted-foreground">
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
@@ -488,7 +484,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         {isOttofiori && <SideSection signals={guestSignals} title={`Tomorrow check-ins · ${tomorrow}${importStale ? ' · unverified' : ''}`} icon={LogIn} items={importStale ? [] : tomorrowCheckIns} onOpen={openReservation} />}
         <SideSection signals={guestSignals} title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
-    </div>
+    </div>}
     <CreateReservationDialog open={createOpen} onOpenChange={setCreateOpen} onSuccess={() => { setCreateOpen(false); void fetchAll(); }} />
     {actioned?.dialog === 'checkin' && (
       <CheckInDialog reservation={actioned.row} open onOpenChange={(next) => { if (!next) setActioned(null); }}
