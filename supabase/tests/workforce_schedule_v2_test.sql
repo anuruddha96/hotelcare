@@ -7,7 +7,7 @@ BEGIN;
 INSERT INTO public.organizations (slug) VALUES ('wf2-test') ON CONFLICT DO NOTHING;
 INSERT INTO public.profiles (id, organization_slug, role, access_role, assigned_hotel, full_name, app_language) VALUES
   ('00000000-0000-4000-8000-000000000001', 'wf2-test', 'top_management', NULL, NULL, 'Top Manager', 'en'),
-  ('00000000-0000-4000-8000-000000000002', 'wf2-test', 'housekeeping_manager', NULL, 'gozsdu-court', 'Maria HK Manager', 'hu'),
+  ('00000000-0000-4000-8000-000000000002', 'wf2-test', 'housekeeping_manager', NULL, 'gozsdu-court', 'Gozsdu HK Manager', 'hu'),
   ('00000000-0000-4000-8000-000000000003', 'wf2-test', 'manager', 'housekeeping_supervisor', 'memories-budapest', 'Memo Supervisor', 'en'),
   ('00000000-0000-4000-8000-000000000004', 'wf2-test', 'housekeeping', NULL, 'gozsdu-court', 'Gozsdu Housekeeper', 'tl'),
   ('00000000-0000-4000-8000-000000000005', 'wf2-test', 'housekeeping', NULL, 'memories-budapest', 'Memo Housekeeper', 'mn');
@@ -15,7 +15,7 @@ INSERT INTO public.profiles (id, organization_slug, role, access_role, assigned_
 SET LOCAL test.uid = '00000000-0000-4000-8000-000000000001';
 SET LOCAL ROLE authenticated;
 INSERT INTO public.workforce_staff (id, organization_slug, full_name, hotel_id, profile_id) VALUES
-  ('10000000-0000-4000-8000-000000000002', 'wf2-test', 'Maria HK Manager', 'gozsdu-court', '00000000-0000-4000-8000-000000000002'),
+  ('10000000-0000-4000-8000-000000000002', 'wf2-test', 'Gozsdu HK Manager', 'gozsdu-court', '00000000-0000-4000-8000-000000000002'),
   ('10000000-0000-4000-8000-000000000003', 'wf2-test', 'Memo Supervisor', 'memories-budapest', '00000000-0000-4000-8000-000000000003'),
   ('10000000-0000-4000-8000-000000000004', 'wf2-test', 'Gozsdu Housekeeper', 'gozsdu-court', '00000000-0000-4000-8000-000000000004'),
   ('10000000-0000-4000-8000-000000000005', 'wf2-test', 'Memo Housekeeper', 'memories-budapest', '00000000-0000-4000-8000-000000000005');
