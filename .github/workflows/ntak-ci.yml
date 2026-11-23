@@ -1,11 +1,27 @@
 name: NTAK PMS v9 CI
 
 on:
+  push:
+    branches:
+      - 'ntak/**'
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/functions/_shared/ntak/**'
+      - 'supabase/functions/ntak-pms/**'
+      - 'src/components/reservations/ReservationAccountPanel.tsx'
+      - '.github/workflows/ntak-ci.yml'
+      - 'scripts/check_changed_migrations.py'
+      - 'scripts/tests/**'
+      - 'supabase/tests/ntak_finance_business_day.sql'
   pull_request:
     paths:
       - 'supabase/functions/_shared/ntak/**'
       - 'supabase/functions/ntak-pms/**'
-      - 'supabase/migrations/*_ntak_*.sql'
+      - 'supabase/migrations/**'
+      - 'scripts/check_changed_migrations.py'
+      - 'scripts/tests/**'
+      - 'supabase/tests/ntak_finance_business_day.sql'
+      - 'src/components/reservations/ReservationAccountPanel.tsx'
       - 'supabase/functions/viza-thf/**'
       - 'supabase/functions/_shared/viza/**'
       - 'supabase/tests/ntak_*.sql'
@@ -43,6 +59,19 @@ jobs:
       PGDATABASE: hotelcare_ci
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Parse all changed SQL migrations and PL/pgSQL functions
+        run: |
+          python -m pip install --disable-pip-version-check pglast==8.9
+          python -m unittest discover -s scripts/tests -p 'test_changed_migrations.py' -v
+          git fetch --no-tags origin main
+          python scripts/check_changed_migrations.py --base origin/main
+      - name: Validate 00:30 Budapest in real PostgreSQL
+        run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_business_day.sql
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
       - name: Run NTAK SQL checks
@@ -71,7 +100,7 @@ jobs:
       - name: Type-check viza-thf
         run: deno check --node-modules-dir=auto supabase/functions/viza-thf/index.ts
       - name: NTAK library tests (schema, signature, CSR, closure rules)
-        run: deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env supabase/functions/_shared/ntak/ntak_test.ts
+        run: deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env supabase/functions/_shared/ntak
       - name: Engine end-to-end test (fake NTAK endpoint)
         run: deno test --node-modules-dir=auto --allow-read --allow-write --allow-run --allow-env --allow-net supabase/functions/ntak-pms/engine_test.ts
 
