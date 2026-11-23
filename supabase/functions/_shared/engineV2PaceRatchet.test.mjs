@@ -361,15 +361,17 @@ test('an empty date far above its seasonal base glides down in time for the book
   assert.equal(late.movement, -10);
 });
 
-test('far-out dates inside their band, ahead of pace, without a base, or Peak are left alone', () => {
+test('far-out dates inside their band still test lower when quiet and behind pace', () => {
   const far = { daysOut: 57, occupancyPct: 14.3, roomsRemaining: 18, hoursSinceLastPickup: null };
-  assert.equal(decide({ ...far, currentPrice: 130 }, { basePrice: 115 }).reason, 'at_seasonal_base');
+  const inside = decide({ ...far, currentPrice: 130 }, { basePrice: 115 });
+  assert.equal(inside.direction, 'decrease');
+  assert.equal(inside.trace.policyReason, 'far_out_pace_decay');
   assert.equal(decide({ ...far, currentPrice: 340, occupancyPct: 61.9, roomsRemaining: 8 }, { basePrice: 115, lowestCellPrice: 325 }).reason, 'ahead_of_pace');
   assert.equal(decide({ ...far, currentPrice: 340 }, { basePrice: null, lowestCellPrice: 325 }).reason, 'no_seasonal_base');
   assert.equal(decide({ ...far, currentPrice: 640 }, { basePrice: 115, tier: 'peak', lowestCellPrice: 620, highestCellPrice: 730 }).reason, 'peak_review_hold');
 });
 
-test('the glide never undershoots the band and never moves more than 5% in a day', () => {
+test('the glide and pace decay never undershoot the guarded base share or daily cap', () => {
   // Walk one date from 60 days out to 35, two evaluations a day.
   let price = 250; const base = 110; const bandHigh = Math.round(base * 1.15);
   for (let daysOut = 60; daysOut >= 35; daysOut--) {
@@ -386,10 +388,11 @@ test('the glide never undershoots the band and never moves more than 5% in a day
       }
       assert.notEqual(d.direction, 'increase');
     }
-    assert.ok(price >= bandHigh, `undershot at ${daysOut}: ${price}`);
+    assert.ok(price >= Math.round(base * S.base_floor_pct / 100), `undershot guarded base share at ${daysOut}: ${price}`);
     assert.ok(dayStart - price <= Math.round(dayStart * 0.05) + 1, `fell too fast at ${daysOut}`);
   }
-  assert.equal(price, bandHigh);
+  assert.ok(price >= Math.round(base * S.base_floor_pct / 100));
+  assert.ok(price < bandHigh);
 });
 
 // ---------------------------------------------------------------------------
@@ -508,11 +511,10 @@ test('a sold-out room type under the floor never lifts a date, but still stops i
 });
 
 test('holds are named for what actually holds the price', () => {
-  // 27 Jan 2027 in the shadow run: €114 against a band that ends at €113 — that is the band, not a floor.
+  // An empty date at its seasonal band is still eligible for a guarded test.
   const edge = decide({ daysOut: 69, currentPrice: 114, occupancyPct: 0, roomsSold: 0, roomsRemaining: 21, hoursSinceLastPickup: null },
     { basePrice: 98, lowestCellPrice: 101, highestCellPrice: 204 });
-  assert.equal(edge.direction, 'hold'); assert.equal(edge.reason, 'at_seasonal_base');
-  assert.match(edge.reasonDetail, /top of its seasonal band \(base €98\)/);
+  assert.equal(edge.direction, 'decrease'); assert.equal(edge.trace.policyReason, 'far_out_pace_decay');
   // A sold-out room type UNDER the floor is described as under it, not at it.
   const under = decide({ ...BEHIND, daysOut: 3, currentPrice: 136 }, { lowestCellPrice: 75, lowestSellableCellPrice: 121, highestCellPrice: 209 });
   assert.equal(under.reason, 'floor_pinned');
@@ -530,19 +532,19 @@ test('a sold-out date says sold out even when it has no price left on sale', () 
   assert.equal(decide({ currentPrice: null }).reason, 'no_price');
 });
 
-test('a far-out High date may keep a bigger premium over its seasonal base than a Normal one', () => {
+test('a far-out High date keeps a bigger band but still decays when empty and behind pace', () => {
   // Base €100: a Normal date glides above €115, a High date only above €130.
   const far = { daysOut: 67, currentPrice: 125, occupancyPct: 0, roomsSold: 0, roomsRemaining: 21, hoursSinceLastPickup: null };
   const f = { basePrice: 100, lowestCellPrice: 112, highestCellPrice: 215 };
   assert.equal(decide(far, { ...f, tier: 'normal' }).trace.policyReason, 'far_out_glide');
   const high = decide(far, { ...f, tier: 'high', tierSource: 'event' });
-  assert.equal(high.direction, 'hold'); assert.equal(high.reason, 'at_seasonal_base');
+  assert.equal(high.direction, 'decrease'); assert.equal(high.trace.policyReason, 'far_out_pace_decay');
   const above = decide({ ...far, currentPrice: 177 }, { ...f, lowestCellPrice: 164, highestCellPrice: 267, tier: 'high', tierSource: 'event' });
   assert.equal(above.trace.policyReason, 'far_out_glide');
   assert.match(above.reasonDetail, /up to €130/);
   // The High band is never tighter than the ordinary one.
   const tight = settings({ glide_band_pct: 40, glide_band_pct_high: 10 });
-  assert.equal(decide({ ...far, currentPrice: 135 }, { ...f, lowestCellPrice: 122, tier: 'high' }, tight).reason, 'at_seasonal_base');
+  assert.equal(decide({ ...far, currentPrice: 135 }, { ...f, lowestCellPrice: 122, tier: 'high' }, tight).trace.policyReason, 'far_out_pace_decay');
 });
 
 test('a price a person set under the floor is left alone: never cut further, never raised without a booking', () => {
