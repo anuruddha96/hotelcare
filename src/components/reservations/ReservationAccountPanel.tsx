@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Banknote, BookOpen, CreditCard, Plus, Receipt, Settings2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
+import { isNativePmsOrganization } from '@/hooks/useAccessPolicy';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,6 +32,7 @@ type ReservationFinancialSource = {
   hotel_id?: string | null;
   currency?: string | null;
   total_amount?: number | string | null;
+  balance_due?: number | string | null;
 };
 
 type Folio = {
@@ -88,6 +91,8 @@ const paymentLabel = (method: string) => method.replaceAll('_', ' ').replace(/\b
 
 export function ReservationAccountPanel({ reservation, onFinancialChanged }: Props) {
   const { profile } = useAuth();
+  const { t } = useTranslation();
+  const isNativePms = isNativePmsOrganization(reservation.organization_slug);
   const [folio, setFolio] = useState<Folio | null>(null);
   const [lines, setLines] = useState<FolioLine[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -131,10 +136,21 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   >(null);
   const [correctionReason, setCorrectionReason] = useState('');
 
-  const canManageCatalogue = canManagePmsServiceCatalogue(profile?.role);
+  const canManageCatalogue = isNativePms && canManagePmsServiceCatalogue(profile?.role);
   const currency = folio?.currency || reservation.currency || 'HUF';
 
   const loadAccount = useCallback(async () => {
+    // Never create or recalculate a HotelCare financial-core folio just by
+    // opening a Previo-managed booking. Its imported figures are authoritative.
+    if (!isNativePms) {
+      setFolio(null);
+      setLines([]);
+      setPayments([]);
+      setCatalogue([]);
+      setLoadError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setLoadError(null);
     try {
@@ -170,7 +186,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     } finally {
       setLoading(false);
     }
-  }, [reservation.id, reservation.organization_slug]);
+  }, [isNativePms, reservation.id, reservation.organization_slug]);
 
   useEffect(() => {
     void loadAccount();
@@ -221,6 +237,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   };
 
   const submitCharge = async () => {
+    if (!isNativePms) { toast.error(t('pms.account.externalReadOnly')); return; }
     const quantity = Number(charge.quantity);
     const grossUnitPrice = Number(charge.grossUnitPrice);
     if (!charge.description.trim() || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(grossUnitPrice) || grossUnitPrice < 0) {
@@ -258,6 +275,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   };
 
   const submitPayment = async () => {
+    if (!isNativePms) { toast.error(t('pms.account.externalReadOnly')); return; }
     const amount = Number(payment.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error('Enter a valid payment amount.');
@@ -284,6 +302,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   };
 
   const createCatalogueItem = async () => {
+    if (!isNativePms) { toast.error(t('pms.account.externalReadOnly')); return; }
     if (!canManageCatalogue) return;
     const gross = Number(catalogueForm.grossPrice);
     const vatRate = catalogueForm.vatRate.trim() === '' ? null : Number(catalogueForm.vatRate);
@@ -320,6 +339,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   };
 
   const deactivateCatalogueItem = async (id: string) => {
+    if (!isNativePms) { toast.error(t('pms.account.externalReadOnly')); return; }
     if (!canManageCatalogue) return;
     const { error } = await (supabase as any).from('service_catalog_items').update({ is_active: false }).eq('id', id);
     if (error) {
@@ -331,6 +351,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   };
 
   const confirmCorrection = async () => {
+    if (!isNativePms) { toast.error(t('pms.account.externalReadOnly')); return; }
     if (!correction || !correctionReason.trim()) {
       toast.error('A reason is required.');
       return;
@@ -351,6 +372,34 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     setCorrectionReason('');
     await notifyChanged();
   };
+
+  if (!isNativePms) {
+    // This is deliberately independent of the finance-core folio, which may be
+    // empty on Previo hotels. Show only externally imported, trusted figures.
+    return (
+      <Card data-training="reservation-account" data-finance-mode="external-readonly">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Receipt className="h-4 w-4" /> {t('pms.account.title')}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p role="status" className="text-sm text-muted-foreground" data-testid="external-ledger-readonly">
+            {t('pms.account.externalReadOnly')}
+          </p>
+          <div className="rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">{t('pms.account.importedBalance')}</p>
+            <p className="text-lg font-semibold">
+              {reservation.balance_due == null ? '—' : formatMoney(reservation.balance_due, reservation.currency || 'HUF')}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('pms.account.stayAmount')}: {reservation.total_amount == null ? '—' : formatMoney(reservation.total_amount, reservation.currency || 'HUF')}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (loading) {
     return (
