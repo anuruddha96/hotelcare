@@ -112,6 +112,15 @@ BEGIN
   SELECT * INTO rm FROM public.rooms WHERE id = COALESCE(_room_id,r.room_id) FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'ROOM_NOT_FOUND'; END IF;
   IF rm.hotel NOT IN (SELECT public.pms_hotel_room_keys(r.hotel_id)) THEN RAISE EXCEPTION 'ROOM_WRONG_HOTEL'; END IF;
+  IF _moment IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.ntak_settings
+    WHERE hotel_id=r.hotel_id AND enabled AND unit_scope='profiled_only'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM public.ntak_unit_profiles
+    WHERE hotel_id=r.hotel_id AND room_id=rm.id AND active
+  ) THEN
+    RAISE EXCEPTION 'ROOM_NOT_IN_NTAK_VALIDATION_SCOPE';
+  END IF;
   IF day = (now() AT TIME ZONE 'Europe/Budapest')::date AND lower(COALESCE(rm.status,'')) <> 'clean' AND NOT _override THEN
     RAISE EXCEPTION 'ROOM_NOT_CLEAN';
   END IF;
@@ -209,6 +218,15 @@ BEGIN
   SELECT * INTO rm FROM public.rooms WHERE id=_to_room FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'ROOM_NOT_FOUND'; END IF;
   IF rm.hotel NOT IN (SELECT public.pms_hotel_room_keys(r.hotel_id)) THEN RAISE EXCEPTION 'ROOM_WRONG_HOTEL'; END IF;
+  IF _moment IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.ntak_settings
+    WHERE hotel_id=r.hotel_id AND enabled AND unit_scope='profiled_only'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM public.ntak_unit_profiles
+    WHERE hotel_id=r.hotel_id AND room_id=rm.id AND active
+  ) THEN
+    RAISE EXCEPTION 'ROOM_NOT_IN_NTAK_VALIDATION_SCOPE';
+  END IF;
   IF public.pms_room_has_conflict(_to_room,day,r.check_out_date,r.id) THEN RAISE EXCEPTION 'ROOM_CONFLICT'; END IF;
   -- Do not overwrite historic stay segments. Closed assignments remain usable
   -- by NTAK roomOnDay; the new assignment begins on the change date.
