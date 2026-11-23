@@ -1,5 +1,9 @@
 export const pmsTranslations: Record<string, Record<string, string>> = {
   en: {
+    'pms.account.title': 'Account',
+    'pms.account.externalReadOnly': 'This reservation is managed in an external PMS. Its imported balance is read-only here. Record charges, payments and corrections in that PMS.',
+    'pms.account.importedBalance': 'Balance from external PMS',
+    'pms.account.stayAmount': 'Reservation amount',
     // Auth
     'auth.emailOrUsername': 'Email or Username',
     'auth.password': 'Password',
@@ -323,6 +327,10 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
   },
 
   hu: {
+    'pms.account.title': 'Foglalási egyenleg',
+    'pms.account.externalReadOnly': 'Ezt a foglalást külső szállodai rendszer kezeli. Az onnan átvett egyenleg itt csak megtekinthető. A terheléseket, fizetéseket és helyesbítéseket a külső rendszerben rögzítse.',
+    'pms.account.importedBalance': 'Külső rendszerből átvett egyenleg',
+    'pms.account.stayAmount': 'Foglalás összege',
     // Auth
     'auth.emailOrUsername': 'Email vagy Felhasználónév',
     'auth.password': 'Jelszó',

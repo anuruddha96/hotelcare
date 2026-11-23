@@ -554,7 +554,7 @@ $$;
 -- the original PMS flow even when the hotel has NTAK enabled.
 CREATE OR REPLACE FUNCTION public.pms_ntak_guest_scope(
   _reservation_id uuid,_assigned_room uuid DEFAULT NULL
-) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $
+) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
 DECLARE r public.reservations%ROWTYPE; cfg public.ntak_settings%ROWTYPE;
   room_to_check uuid;
 BEGIN
@@ -572,7 +572,7 @@ BEGIN
     SELECT 1 FROM public.ntak_room_type_units t
     WHERE t.hotel_id=r.hotel_id AND t.room_type_id=r.room_type_id AND t.active);
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.pms_ntak_guest_scope(uuid,uuid) FROM PUBLIC,anon,authenticated;
 
 -- Read-only decision for the frontend. Unlike a table SELECT, it matches
@@ -580,7 +580,7 @@ REVOKE ALL ON FUNCTION public.pms_ntak_guest_scope(uuid,uuid) FROM PUBLIC,anon,a
 -- cannot inspect private NTAK settings directly.
 CREATE OR REPLACE FUNCTION public.pms_guest_lifecycle_available(
   _reservation_id uuid,_room_id uuid DEFAULT NULL
-) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $
+) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
 DECLARE r public.reservations%ROWTYPE; actor uuid:=auth.uid();
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id;
@@ -590,7 +590,7 @@ BEGIN
   END IF;
   RETURN public.pms_ntak_guest_scope(r.id,_room_id);
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.pms_guest_lifecycle_available(uuid,uuid) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.pms_guest_lifecycle_available(uuid,uuid) TO authenticated;
 
@@ -712,7 +712,7 @@ $$;
 -- Prevent bypassing manager-only booking-ID edits through direct
 -- reservations.update() in the Data API. This runs even outside our RPC.
 CREATE OR REPLACE FUNCTION public.pms_guard_ntak_booking_no()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE actor uuid:=auth.uid(); p public.profiles%ROWTYPE;
 BEGIN
   IF NEW.ntak_booking_no IS NOT DISTINCT FROM OLD.ntak_booking_no THEN RETURN NEW; END IF;
@@ -728,7 +728,7 @@ BEGIN
   ) THEN RAISE EXCEPTION 'MANAGER_REQUIRED'; END IF;
   RETURN NEW;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.pms_guard_ntak_booking_no() FROM PUBLIC,anon,authenticated;
 DROP TRIGGER IF EXISTS pms_guard_ntak_booking_no ON public.reservations;
 CREATE TRIGGER pms_guard_ntak_booking_no
