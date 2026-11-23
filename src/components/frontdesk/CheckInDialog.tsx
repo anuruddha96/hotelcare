@@ -41,7 +41,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [submitting, setSubmitting] = useState(false);
   const [vizaMissing, setVizaMissing] = useState<string[]>([]);
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
-  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive');
+  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive', selectedRoom || reservation.room_id, reservation.room_type_id);
 
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
@@ -197,8 +197,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
-            disabled={submitting || businessMoment.invalid || !selectedRoom
-              || (roster.enabled && (roster.loading || roster.selectedIds.length === 0))
+            disabled={submitting || businessMoment.invalid || !selectedRoom || roster.loading
+              || (roster.enabled && roster.selectedIds.length === 0)
               || (vizaWarn && !override)}
             className="gap-1"
             data-training="fd-checkin-confirm"
