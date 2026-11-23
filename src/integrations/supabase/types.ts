@@ -3927,6 +3927,129 @@ export type Database = {
           },
         ]
       }
+      folio_lines: {
+        Row: {
+          adjustment_reason: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          description: string
+          folio_id: string
+          gross_total: number
+          gross_unit_price: number
+          guest_id: string | null
+          id: string
+          legacy_guest_folio_id: string | null
+          net_total: number
+          origin_line_id: string | null
+          quantity: number
+          room_id: string | null
+          service_catalog_item_id: string | null
+          service_date: string
+          service_period_from: string | null
+          service_period_to: string | null
+          source_type: string
+          status: string
+          unit: string
+          updated_at: string
+          vat_code: string
+          vat_rate: number | null
+          vat_total: number
+        }
+        Insert: {
+          adjustment_reason?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          description: string
+          folio_id: string
+          gross_total?: number
+          gross_unit_price?: number
+          guest_id?: string | null
+          id?: string
+          legacy_guest_folio_id?: string | null
+          net_total?: number
+          origin_line_id?: string | null
+          quantity?: number
+          room_id?: string | null
+          service_catalog_item_id?: string | null
+          service_date?: string
+          service_period_from?: string | null
+          service_period_to?: string | null
+          source_type?: string
+          status?: string
+          unit?: string
+          updated_at?: string
+          vat_code?: string
+          vat_rate?: number | null
+          vat_total?: number
+        }
+        Update: {
+          adjustment_reason?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string
+          folio_id?: string
+          gross_total?: number
+          gross_unit_price?: number
+          guest_id?: string | null
+          id?: string
+          legacy_guest_folio_id?: string | null
+          net_total?: number
+          origin_line_id?: string | null
+          quantity?: number
+          room_id?: string | null
+          service_catalog_item_id?: string | null
+          service_date?: string
+          service_period_from?: string | null
+          service_period_to?: string | null
+          source_type?: string
+          status?: string
+          unit?: string
+          updated_at?: string
+          vat_code?: string
+          vat_rate?: number | null
+          vat_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "folio_lines_folio_id_fkey"
+            columns: ["folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folio_lines_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folio_lines_origin_line_id_fkey"
+            columns: ["origin_line_id"]
+            isOneToOne: false
+            referencedRelation: "folio_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folio_lines_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folio_lines_service_catalog_item_id_fkey"
+            columns: ["service_catalog_item_id"]
+            isOneToOne: false
+            referencedRelation: "service_catalog_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       general_tasks: {
         Row: {
           assigned_by: string
@@ -9755,6 +9878,7 @@ export type Database = {
         Row: {
           created_at: string
           from_room_id: string | null
+          guest_ids: string[] | null
           hotel_id: string
           id: string
           is_correction: boolean
@@ -9771,6 +9895,7 @@ export type Database = {
         Insert: {
           created_at?: string
           from_room_id?: string | null
+          guest_ids?: string[] | null
           hotel_id: string
           id?: string
           is_correction?: boolean
@@ -9787,6 +9912,7 @@ export type Database = {
         Update: {
           created_at?: string
           from_room_id?: string | null
+          guest_ids?: string[] | null
           hotel_id?: string
           id?: string
           is_correction?: boolean
@@ -9932,6 +10058,7 @@ export type Database = {
       }
       ntak_room_type_units: {
         Row: {
+          active: boolean
           capacity: number
           hotel_id: string
           room_type_id: string
@@ -9939,6 +10066,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          active?: boolean
           capacity?: number
           hotel_id: string
           room_type_id: string
@@ -9946,6 +10074,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          active?: boolean
           capacity?: number
           hotel_id?: string
           room_type_id?: string
@@ -9965,8 +10094,11 @@ export type Database = {
       ntak_settings: {
         Row: {
           accommodation_class: string
+          accommodation_name: string | null
           accommodation_vat: number
+          allow_backdating: boolean
           auto_close_time: string
+          backdating_min_date: string | null
           cert_not_after: string | null
           cert_serial: string | null
           cert_subject: Json | null
@@ -9994,6 +10126,7 @@ export type Database = {
           pending_csr_created_at: string | null
           pending_csr_pem: string | null
           pending_spki_sha256: string | null
+          provider_name: string | null
           provider_tax_number: string | null
           region: string
           registered_bed_count: number | null
@@ -10004,13 +10137,17 @@ export type Database = {
           software_change_date: string | null
           software_id: string | null
           software_version: string
+          unit_scope: string
           unknown_country_code: string
           updated_at: string
         }
         Insert: {
           accommodation_class?: string
+          accommodation_name?: string | null
           accommodation_vat?: number
+          allow_backdating?: boolean
           auto_close_time?: string
+          backdating_min_date?: string | null
           cert_not_after?: string | null
           cert_serial?: string | null
           cert_subject?: Json | null
@@ -10038,6 +10175,7 @@ export type Database = {
           pending_csr_created_at?: string | null
           pending_csr_pem?: string | null
           pending_spki_sha256?: string | null
+          provider_name?: string | null
           provider_tax_number?: string | null
           region?: string
           registered_bed_count?: number | null
@@ -10048,13 +10186,17 @@ export type Database = {
           software_change_date?: string | null
           software_id?: string | null
           software_version?: string
+          unit_scope?: string
           unknown_country_code?: string
           updated_at?: string
         }
         Update: {
           accommodation_class?: string
+          accommodation_name?: string | null
           accommodation_vat?: number
+          allow_backdating?: boolean
           auto_close_time?: string
+          backdating_min_date?: string | null
           cert_not_after?: string | null
           cert_serial?: string | null
           cert_subject?: Json | null
@@ -10082,6 +10224,7 @@ export type Database = {
           pending_csr_created_at?: string | null
           pending_csr_pem?: string | null
           pending_spki_sha256?: string | null
+          provider_name?: string | null
           provider_tax_number?: string | null
           region?: string
           registered_bed_count?: number | null
@@ -10092,6 +10235,7 @@ export type Database = {
           software_change_date?: string | null
           software_id?: string | null
           software_version?: string
+          unit_scope?: string
           unknown_country_code?: string
           updated_at?: string
         }
@@ -10993,6 +11137,123 @@ export type Database = {
           verified?: boolean | null
         }
         Relationships: []
+      }
+      payment_allocations: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          folio_id: string
+          id: string
+          payment_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          folio_id: string
+          id?: string
+          payment_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          folio_id?: string
+          id?: string
+          payment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_allocations_folio_id_fkey"
+            columns: ["folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_allocations_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          currency: string
+          folio_id: string
+          hotel_id: string
+          id: string
+          legacy_guest_folio_id: string | null
+          method: string
+          organization_slug: string
+          provider: string | null
+          provider_transaction_id: string | null
+          received_at: string
+          reference: string | null
+          reservation_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          folio_id: string
+          hotel_id: string
+          id?: string
+          legacy_guest_folio_id?: string | null
+          method: string
+          organization_slug: string
+          provider?: string | null
+          provider_transaction_id?: string | null
+          received_at?: string
+          reference?: string | null
+          reservation_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          folio_id?: string
+          hotel_id?: string
+          id?: string
+          legacy_guest_folio_id?: string | null
+          method?: string
+          organization_slug?: string
+          provider?: string | null
+          provider_transaction_id?: string | null
+          received_at?: string
+          reference?: string | null
+          reservation_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_folio_id_fkey"
+            columns: ["folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pci_card_tokens: {
         Row: {
@@ -12576,6 +12837,69 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "hotel_configurations"
             referencedColumns: ["hotel_id"]
+          },
+        ]
+      }
+      pms_financial_events: {
+        Row: {
+          actor_user_id: string | null
+          amount: number | null
+          created_at: string
+          currency: string | null
+          entity_id: string | null
+          entity_type: string | null
+          event_type: string
+          folio_id: string | null
+          hotel_id: string
+          id: string
+          metadata: Json
+          organization_slug: string
+          reservation_id: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          amount?: number | null
+          created_at?: string
+          currency?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          event_type: string
+          folio_id?: string | null
+          hotel_id: string
+          id?: string
+          metadata?: Json
+          organization_slug: string
+          reservation_id: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          amount?: number | null
+          created_at?: string
+          currency?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          event_type?: string
+          folio_id?: string | null
+          hotel_id?: string
+          id?: string
+          metadata?: Json
+          organization_slug?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pms_financial_events_folio_id_fkey"
+            columns: ["folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pms_financial_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -14378,30 +14702,114 @@ export type Database = {
           },
         ]
       }
-      reservation_guests: {
+      reservation_folios: {
         Row: {
+          base_reservation_amount: number
+          closed_at: string | null
           created_at: string
           created_by: string | null
+          currency: string
+          display_name: string
+          folio_type: string
+          group_key: string | null
+          hotel_id: string
+          id: string
+          opened_at: string
+          organization_slug: string
+          parent_folio_id: string | null
+          reservation_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          base_reservation_amount?: number
+          closed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          display_name?: string
+          folio_type?: string
+          group_key?: string | null
+          hotel_id: string
+          id?: string
+          opened_at?: string
+          organization_slug: string
+          parent_folio_id?: string | null
+          reservation_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          base_reservation_amount?: number
+          closed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          display_name?: string
+          folio_type?: string
+          group_key?: string | null
+          hotel_id?: string
+          id?: string
+          opened_at?: string
+          organization_slug?: string
+          parent_folio_id?: string | null
+          reservation_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservation_folios_parent_folio_id_fkey"
+            columns: ["parent_folio_id"]
+            isOneToOne: false
+            referencedRelation: "reservation_folios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reservation_folios_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reservation_guests: {
+        Row: {
+          arrived_at: string | null
+          created_at: string
+          created_by: string | null
+          departed_at: string | null
           guest_id: string
           ifa_status: string | null
           is_primary: boolean
           reservation_id: string
+          room_id: string | null
+          stay_state: string
         }
         Insert: {
+          arrived_at?: string | null
           created_at?: string
           created_by?: string | null
+          departed_at?: string | null
           guest_id: string
           ifa_status?: string | null
           is_primary?: boolean
           reservation_id: string
+          room_id?: string | null
+          stay_state?: string
         }
         Update: {
+          arrived_at?: string | null
           created_at?: string
           created_by?: string | null
+          departed_at?: string | null
           guest_id?: string
           ifa_status?: string | null
           is_primary?: boolean
           reservation_id?: string
+          room_id?: string | null
+          stay_state?: string
         }
         Relationships: [
           {
@@ -14416,6 +14824,13 @@ export type Database = {
             columns: ["reservation_id"]
             isOneToOne: false
             referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reservation_guests_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
         ]
@@ -14485,6 +14900,7 @@ export type Database = {
           hotel_id: string | null
           id: string
           internal_notes: string | null
+          ntak_booking_no: string | null
           organization_slug: string | null
           ota_name: string | null
           ota_reservation_code: string | null
@@ -14540,6 +14956,7 @@ export type Database = {
           hotel_id?: string | null
           id?: string
           internal_notes?: string | null
+          ntak_booking_no?: string | null
           organization_slug?: string | null
           ota_name?: string | null
           ota_reservation_code?: string | null
@@ -14595,6 +15012,7 @@ export type Database = {
           hotel_id?: string | null
           id?: string
           internal_notes?: string | null
+          ntak_booking_no?: string | null
           organization_slug?: string | null
           ota_name?: string | null
           ota_reservation_code?: string | null
@@ -18801,6 +19219,66 @@ export type Database = {
           },
         ]
       }
+      service_catalog_items: {
+        Row: {
+          allowed_hotel_ids: string[]
+          category: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          default_gross_price: number
+          id: string
+          is_active: boolean
+          name: string
+          organization_slug: string
+          price_editable: boolean
+          requires_manager_approval: boolean
+          sort_order: number
+          unit: string
+          updated_at: string
+          vat_code: string
+          vat_rate: number | null
+        }
+        Insert: {
+          allowed_hotel_ids?: string[]
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          default_gross_price?: number
+          id?: string
+          is_active?: boolean
+          name: string
+          organization_slug: string
+          price_editable?: boolean
+          requires_manager_approval?: boolean
+          sort_order?: number
+          unit?: string
+          updated_at?: string
+          vat_code?: string
+          vat_rate?: number | null
+        }
+        Update: {
+          allowed_hotel_ids?: string[]
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          default_gross_price?: number
+          id?: string
+          is_active?: boolean
+          name?: string
+          organization_slug?: string
+          price_editable?: boolean
+          requires_manager_approval?: boolean
+          sort_order?: number
+          unit?: string
+          updated_at?: string
+          vat_code?: string
+          vat_rate?: number | null
+        }
+        Relationships: []
+      }
       slnt_housekeeping_rollout: {
         Row: {
           enabled: boolean
@@ -19894,18 +20372,6 @@ export type Database = {
           },
         ]
       }
-      training_prompt_receipts: {
-        Row: { user_id: string; prompt_key: string; shown_at: string }
-        Insert: { user_id?: string; prompt_key: string; shown_at?: string }
-        Update: { user_id?: string; prompt_key?: string; shown_at?: string }
-        Relationships: []
-      }
-      training_release_approvals: {
-        Row: { organization_slug: string; release_id: string; approved_by: string; approved_at: string }
-        Insert: { organization_slug: string; release_id: string; approved_by?: string; approved_at?: string }
-        Update: { organization_slug?: string; release_id?: string; approved_by?: string; approved_at?: string }
-        Relationships: []
-      }
       user_tour_progress: {
         Row: {
           completed_at: string
@@ -20161,6 +20627,7 @@ export type Database = {
           szallas_nev: string | null
           szolgaltato_adoszam: string | null
           szolgaltato_nev: string | null
+          thf_ca_pem: string | null
           thf_url: string
           unsent_count: number
           updated_at: string
@@ -20179,6 +20646,7 @@ export type Database = {
           szallas_nev?: string | null
           szolgaltato_adoszam?: string | null
           szolgaltato_nev?: string | null
+          thf_ca_pem?: string | null
           thf_url?: string
           unsent_count?: number
           updated_at?: string
@@ -20197,11 +20665,68 @@ export type Database = {
           szallas_nev?: string | null
           szolgaltato_adoszam?: string | null
           szolgaltato_nev?: string | null
+          thf_ca_pem?: string | null
           thf_url?: string
           unsent_count?: number
           updated_at?: string
         }
         Relationships: []
+      }
+      viza_trigger_failures: {
+        Row: {
+          attempts: number
+          created_at: string
+          from_status: string
+          hotel_id: string
+          id: string
+          last_error: string
+          occurred_at: string
+          organization_slug: string
+          reservation_id: string
+          resolved_at: string | null
+          sqlstate: string
+          to_status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          from_status: string
+          hotel_id: string
+          id?: string
+          last_error: string
+          occurred_at: string
+          organization_slug: string
+          reservation_id: string
+          resolved_at?: string | null
+          sqlstate: string
+          to_status: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          from_status?: string
+          hotel_id?: string
+          id?: string
+          last_error?: string
+          occurred_at?: string
+          organization_slug?: string
+          reservation_id?: string
+          resolved_at?: string | null
+          sqlstate?: string
+          to_status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "viza_trigger_failures_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       website_chat_rate_limits: {
         Row: {
@@ -20790,6 +21315,7 @@ export type Database = {
           created_by: string | null
           daily_hours: number
           department_id: string | null
+          email: string | null
           employment_type: string
           end_date: string | null
           full_name: string
@@ -20801,6 +21327,7 @@ export type Database = {
           nickname: string | null
           notes: string | null
           organization_slug: string
+          phone: string | null
           profile_id: string | null
           sort_order: number
           source_label: string | null
@@ -20814,6 +21341,7 @@ export type Database = {
           created_by?: string | null
           daily_hours?: number
           department_id?: string | null
+          email?: string | null
           employment_type?: string
           end_date?: string | null
           full_name: string
@@ -20825,6 +21353,7 @@ export type Database = {
           nickname?: string | null
           notes?: string | null
           organization_slug: string
+          phone?: string | null
           profile_id?: string | null
           sort_order?: number
           source_label?: string | null
@@ -20838,6 +21367,7 @@ export type Database = {
           created_by?: string | null
           daily_hours?: number
           department_id?: string | null
+          email?: string | null
           employment_type?: string
           end_date?: string | null
           full_name?: string
@@ -20849,6 +21379,7 @@ export type Database = {
           nickname?: string | null
           notes?: string | null
           organization_slug?: string
+          phone?: string | null
           profile_id?: string | null
           sort_order?: number
           source_label?: string | null
@@ -22792,15 +23323,26 @@ export type Database = {
         Args: { p_hotel_id: string; p_res_id: string }
         Returns: undefined
       }
-      ntak_booking_no: {
-        Args: {
-          _channex_booking_id: string
-          _id: string
-          _pms_reservation_id: string
-          _reservation_number: string
-        }
-        Returns: string
-      }
+      ntak_booking_no:
+        | {
+            Args: {
+              _channex_booking_id: string
+              _id: string
+              _pms_reservation_id: string
+              _reservation_number: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              _channex_booking_id: string
+              _id: string
+              _override: string
+              _pms_reservation_id: string
+              _reservation_number: string
+            }
+            Returns: string
+          }
       ntak_get_secret: {
         Args: { _hotel_id: string; _kind: string }
         Returns: string
@@ -23787,6 +24329,10 @@ export type Database = {
         }
         Returns: Json
       }
+      pms_add_stay_guest: {
+        Args: { _guest_id: string; _reservation_id: string }
+        Returns: Json
+      }
       pms_apply_change: {
         Args: {
           p_after: Json
@@ -23811,6 +24357,10 @@ export type Database = {
         Args: { _changes: Json; _hotel_id: string }
         Returns: Json
       }
+      pms_assert_business_moment: {
+        Args: { _hotel_id: string; _moment: string; _org_slug: string }
+        Returns: undefined
+      }
       pms_available_rooms: {
         Args: {
           _exclude_reservation?: string
@@ -23827,8 +24377,54 @@ export type Database = {
           room_type: string
         }[]
       }
+      pms_change_room: {
+        Args: { _moment?: string; _reservation_id: string; _to_room: string }
+        Returns: Json
+      }
+      pms_change_room_phase2: {
+        Args: { _moment?: string; _reservation_id: string; _to_room: string }
+        Returns: Json
+      }
+      pms_check_in: {
+        Args: {
+          _guest_ids?: string[]
+          _moment?: string
+          _override?: boolean
+          _reservation_id: string
+          _room_id?: string
+        }
+        Returns: Json
+      }
+      pms_check_in_phase2: {
+        Args: {
+          _guest_ids?: string[]
+          _moment?: string
+          _override?: boolean
+          _reservation_id: string
+          _room_id?: string
+        }
+        Returns: Json
+      }
       pms_check_in_reservation: {
         Args: { _override?: boolean; _reservation_id: string; _room_id: string }
+        Returns: Json
+      }
+      pms_check_out: {
+        Args: {
+          _acknowledge_balance?: boolean
+          _guest_ids?: string[]
+          _moment?: string
+          _reservation_id: string
+        }
+        Returns: Json
+      }
+      pms_check_out_phase2: {
+        Args: {
+          _acknowledge_balance?: boolean
+          _guest_ids?: string[]
+          _moment?: string
+          _reservation_id: string
+        }
         Returns: Json
       }
       pms_check_out_reservation: {
@@ -23854,6 +24450,64 @@ export type Database = {
         }
         Returns: Json
       }
+      pms_enqueue_guest_ntak: {
+        Args: {
+          _correction: boolean
+          _from_room: string
+          _ids: string[]
+          _kind: string
+          _moment: string
+          _reservation_id: string
+          _room_id: string
+        }
+        Returns: undefined
+      }
+      pms_finance_add_charge: {
+        Args: {
+          _currency: string
+          _description: string
+          _gross_unit_price: number
+          _quantity: number
+          _reservation_id: string
+          _service_catalog_item_id?: string
+          _service_date?: string
+          _unit: string
+          _vat_code: string
+          _vat_rate?: number
+        }
+        Returns: string
+      }
+      pms_finance_ensure_master_folio: {
+        Args: { _reservation_id: string }
+        Returns: string
+      }
+      pms_finance_is_native_pms: {
+        Args: { _reservation_id: string }
+        Returns: boolean
+      }
+      pms_finance_recalculate_reservation: {
+        Args: { _reservation_id: string }
+        Returns: undefined
+      }
+      pms_finance_record_payment: {
+        Args: {
+          _amount: number
+          _currency: string
+          _method: string
+          _received_at?: string
+          _reference?: string
+          _reservation_id: string
+        }
+        Returns: string
+      }
+      pms_finance_reverse_payment: {
+        Args: { _payment_id: string; _reason: string }
+        Returns: undefined
+      }
+      pms_finance_void_charge: {
+        Args: { _line_id: string; _reason: string }
+        Returns: undefined
+      }
       pms_fold_text: { Args: { _text: string }; Returns: string }
       pms_guest_directory: {
         Args: {
@@ -23868,6 +24522,10 @@ export type Database = {
       pms_guest_identity: {
         Args: { _hotel_id: string; _key: string }
         Returns: Record<string, unknown>
+      }
+      pms_guest_lifecycle_available: {
+        Args: { _reservation_id: string; _room_id?: string }
+        Returns: boolean
       }
       pms_guest_name_key: { Args: { _name: string }; Returns: string }
       pms_guest_profile: {
@@ -23893,10 +24551,50 @@ export type Database = {
           vip: boolean
         }[]
       }
+      pms_guest_transition: {
+        Args: {
+          _acknowledge_balance?: boolean
+          _action: string
+          _guest_ids?: string[]
+          _moment?: string
+          _override?: boolean
+          _reservation_id: string
+          _room_id?: string
+        }
+        Returns: Json
+      }
       pms_hotel_room_keys: { Args: { _hotel_id: string }; Returns: string[] }
+      pms_ntak_guest_scope: {
+        Args: { _assigned_room?: string; _reservation_id: string }
+        Returns: boolean
+      }
+      pms_queue_guest_viza: {
+        Args: {
+          _action: string
+          _guest_id: string
+          _moment: string
+          _reservation_id: string
+        }
+        Returns: undefined
+      }
+      pms_rebuild_ntak_guest_states: {
+        Args: { _hotel_id: string }
+        Returns: number
+      }
       pms_recalc_reservation_financials: {
         Args: { _reservation_id: string }
         Returns: undefined
+      }
+      pms_record_business_folio_item: {
+        Args: {
+          _amount: number
+          _business_day?: string
+          _charge_type: string
+          _description: string
+          _method?: string
+          _reservation_id: string
+        }
+        Returns: Json
       }
       pms_reservation_guest_key: {
         Args: { _contact_name: string; _guest_name: string }
@@ -23905,6 +24603,10 @@ export type Database = {
       pms_reservation_search: {
         Args: { _hotel_ids: string[]; _term: string }
         Returns: Json[]
+      }
+      pms_retry_viza_trigger_failure: {
+        Args: { _failure_id: string }
+        Returns: Json
       }
       pms_room_has_conflict: {
         Args: {
@@ -23915,8 +24617,29 @@ export type Database = {
         }
         Returns: boolean
       }
+      pms_set_business_moment: { Args: { _moment: string }; Returns: undefined }
+      pms_set_ntak_booking_no: {
+        Args: { _booking_no: string; _reservation_id: string }
+        Returns: Json
+      }
       pms_set_reservation_status: {
         Args: { _new_status: string; _reason?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_undo_check_in: {
+        Args: { _moment?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_undo_check_in_phase2: {
+        Args: { _moment?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_undo_check_out: {
+        Args: { _moment?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_undo_check_out_phase2: {
+        Args: { _moment?: string; _reservation_id: string }
         Returns: Json
       }
       pms_update_reservation: {
@@ -23935,6 +24658,15 @@ export type Database = {
           _special_requests?: string
         }
         Returns: Json
+      }
+      pms_viza_apply_status_transition: {
+        Args: {
+          _from_status: string
+          _moment: string
+          _reservation_id: string
+          _to_status: string
+        }
+        Returns: undefined
       }
       prepare_due_housekeeping_activity_alerts: { Args: never; Returns: number }
       prepare_slnt_team_b_day_plan: {
@@ -24837,6 +25569,7 @@ export type Database = {
         Args: { _row: Database["public"]["Tables"]["workforce_entries"]["Row"] }
         Returns: Json
       }
+      workforce_first_editable_date: { Args: never; Returns: string }
       workforce_hotel_key: {
         Args: { _org: string; _value: string }
         Returns: string
