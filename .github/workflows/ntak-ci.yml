@@ -128,4 +128,4 @@ jobs:
       - name: NTAK UI tests
         run: bunx vitest run src/components/ntak
       - name: Production UI build
-        run: bun run build
+        run: npm run build
