@@ -8,7 +8,8 @@
  * years to SWAPS when the decree appears.
  */
 export type CalendarDayKind = 'holiday' | 'rest_day' | 'working_saturday';
-export interface CalendarDay { date: string; kind: CalendarDayKind; name: string; nameHu: string }
+/** `id` names the day for translations (wf.h.<id>); swaps use their kind. */
+export interface CalendarDay { date: string; kind: CalendarDayKind; name: string; nameHu: string; id?: string }
 
 /** 10/2025. (IV. 30.) NGM rendelet, as amended for December 24. */
 const SWAPS: Record<number, Array<Omit<CalendarDay, 'date'> & { date: string }>> = {
@@ -48,23 +49,23 @@ export function hungarianCalendar(year: number): Map<string, CalendarDay> {
   if (hit) return hit;
   const easter = easterSunday(year);
   const list: CalendarDay[] = [
-    { date: iso(year, 1, 1), kind: 'holiday', name: "New Year's Day", nameHu: 'Újév' },
-    { date: iso(year, 3, 15), kind: 'holiday', name: 'National Day (1848)', nameHu: 'Nemzeti ünnep' },
-    { date: addDays(easter, -2), kind: 'holiday', name: 'Good Friday', nameHu: 'Nagypéntek' },
-    { date: easter, kind: 'holiday', name: 'Easter Sunday', nameHu: 'Húsvétvasárnap' },
-    { date: addDays(easter, 1), kind: 'holiday', name: 'Easter Monday', nameHu: 'Húsvéthétfő' },
-    { date: iso(year, 5, 1), kind: 'holiday', name: 'Labour Day', nameHu: 'A munka ünnepe' },
-    { date: addDays(easter, 49), kind: 'holiday', name: 'Whit Sunday', nameHu: 'Pünkösdvasárnap' },
-    { date: addDays(easter, 50), kind: 'holiday', name: 'Whit Monday', nameHu: 'Pünkösdhétfő' },
-    { date: iso(year, 8, 20), kind: 'holiday', name: 'State Foundation Day', nameHu: 'Államalapítás ünnepe' },
-    { date: iso(year, 10, 23), kind: 'holiday', name: 'National Day (1956)', nameHu: 'Nemzeti ünnep' },
-    { date: iso(year, 11, 1), kind: 'holiday', name: "All Saints' Day", nameHu: 'Mindenszentek' },
-    ...(year >= 2026 ? [{ date: iso(year, 12, 24), kind: 'holiday' as const, name: 'Christmas Eve', nameHu: 'Szenteste' }] : []),
-    { date: iso(year, 12, 25), kind: 'holiday', name: 'Christmas Day', nameHu: 'Karácsony' },
-    { date: iso(year, 12, 26), kind: 'holiday', name: 'Boxing Day', nameHu: 'Karácsony másnapja' },
+    { date: iso(year, 1, 1), kind: 'holiday', id: 'new_year', name: "New Year's Day", nameHu: 'Újév' },
+    { date: iso(year, 3, 15), kind: 'holiday', id: 'march_15', name: 'National Day (1848)', nameHu: 'Nemzeti ünnep' },
+    { date: addDays(easter, -2), kind: 'holiday', id: 'good_friday', name: 'Good Friday', nameHu: 'Nagypéntek' },
+    { date: easter, kind: 'holiday', id: 'easter_sunday', name: 'Easter Sunday', nameHu: 'Húsvétvasárnap' },
+    { date: addDays(easter, 1), kind: 'holiday', id: 'easter_monday', name: 'Easter Monday', nameHu: 'Húsvéthétfő' },
+    { date: iso(year, 5, 1), kind: 'holiday', id: 'labour_day', name: 'Labour Day', nameHu: 'A munka ünnepe' },
+    { date: addDays(easter, 49), kind: 'holiday', id: 'whit_sunday', name: 'Whit Sunday', nameHu: 'Pünkösdvasárnap' },
+    { date: addDays(easter, 50), kind: 'holiday', id: 'whit_monday', name: 'Whit Monday', nameHu: 'Pünkösdhétfő' },
+    { date: iso(year, 8, 20), kind: 'holiday', id: 'august_20', name: 'State Foundation Day', nameHu: 'Államalapítás ünnepe' },
+    { date: iso(year, 10, 23), kind: 'holiday', id: 'october_23', name: 'National Day (1956)', nameHu: 'Nemzeti ünnep' },
+    { date: iso(year, 11, 1), kind: 'holiday', id: 'all_saints', name: "All Saints' Day", nameHu: 'Mindenszentek' },
+    ...(year >= 2026 ? [{ date: iso(year, 12, 24), kind: 'holiday' as const, id: 'christmas_eve', name: 'Christmas Eve', nameHu: 'Szenteste' }] : []),
+    { date: iso(year, 12, 25), kind: 'holiday', id: 'christmas_day', name: 'Christmas Day', nameHu: 'Karácsony' },
+    { date: iso(year, 12, 26), kind: 'holiday', id: 'boxing_day', name: 'Boxing Day', nameHu: 'Karácsony másnapja' },
   ];
   const map = new Map<string, CalendarDay>();
-  for (const d of SWAPS[year] ?? []) map.set(d.date, d);
+  for (const d of SWAPS[year] ?? []) map.set(d.date, { ...d, id: d.kind });
   for (const d of list) map.set(d.date, d); // a statutory holiday wins over a swap
   cache.set(year, map);
   return map;
@@ -83,3 +84,11 @@ export function isNonWorkingDay(date: string): boolean {
 export const workingDays = (dates: string[]) => dates.filter((d) => !isNonWorkingDay(d)).length;
 /** Whether the swaps for a year are known (decree published). */
 export const swapsKnown = (year: number) => year in SWAPS || year < 2025;
+
+/** The day's name in the reader's language; `t` returns the key itself when a text is missing. */
+export function calendarDayName(day: CalendarDay, t: (key: string) => string, language?: string | null): string {
+  const key = `wf.h.${day.id ?? day.kind}`;
+  const text = t(key);
+  if (text && text !== key) return text;
+  return language === 'hu' ? day.nameHu : day.name;
+}

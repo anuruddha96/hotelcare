@@ -4,11 +4,12 @@
  * Order: en, hu, es, vi, mn, az, tl, uk, ru
  */
 import { pmsTranslations } from '@/lib/pms-translations';
+import { rowsV2 } from './translationsV2';
 
 const LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk', 'ru'] as const;
 type Row = readonly [string, string, string, string, string, string, string, string, string];
 
-const rows: Record<string, Row> = {
+const rowsV1: Record<string, Row> = {
   // ---- My schedule (every employee)
   'wf.my.title': ['My schedule', 'Beosztásom', 'Mi horario', 'Lịch làm việc của tôi', 'Миний хуваарь', 'Mənim qrafikim', 'Aking iskedyul', 'Мій графік', 'Мой график'],
   'wf.my.today': ['Today', 'Ma', 'Hoy', 'Hôm nay', 'Өнөөдөр', 'Bu gün', 'Ngayon', 'Сьогодні', 'Сегодня'],
@@ -98,6 +99,8 @@ const rows: Record<string, Row> = {
   'wf.t.leaveLeft': ['Leave left', 'Szabi maradt', 'Vacaciones restantes', 'Phép còn lại', 'Үлдсэн чөлөө', 'Qalan məzuniyyət', 'Natitirang leave', 'Залишок відпустки', 'Остаток отпуска'],
   'wf.t.balanceHint': ['Hours worked plus paid leave and sick days, compared with this month\'s working days × daily hours. Plus = overtime, minus = hours still owed.', 'Ledolgozott órák plusz fizetett szabadság és betegnapok, a havi munkanapok × napi óraszámhoz képest. Plusz = túlóra, mínusz = hiányzó óra.', 'Horas trabajadas más vacaciones y bajas pagadas, frente a los días laborables del mes × horas diarias. Más = horas extra, menos = horas pendientes.', 'Giờ làm cộng nghỉ phép và nghỉ ốm có lương, so với số ngày làm việc trong tháng × giờ mỗi ngày.', 'Ажилласан цаг дээр цалинтай чөлөө, өвчний өдрийг нэмж, сарын ажлын өдөр × өдрийн цагтай харьцуулна.', 'İşlənmiş saatlar üstəgəl ödənişli məzuniyyət və xəstəlik günləri, ayın iş günləri × gündəlik saatla müqayisədə.', 'Oras na natrabaho plus bayad na leave at sick days, kumpara sa working days ng buwan × oras kada araw.', 'Відпрацьовані години плюс оплачувана відпустка й лікарняні, порівняно з робочими днями місяця × денна норма.', 'Отработанные часы плюс оплачиваемый отпуск и больничные, по сравнению с рабочими днями месяца × дневная норма.'],
 };
+
+const rows: Record<string, Row> = { ...rowsV1, ...rowsV2 };
 
 export const workforceTranslations: Record<string, Record<string, string>> = Object.fromEntries(
   LANGS.map((lang, index) => [lang, Object.fromEntries(Object.entries(rows).map(([key, values]) => [key, values[index] ?? values[0]]))]),

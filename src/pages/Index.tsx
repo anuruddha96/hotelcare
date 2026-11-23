@@ -165,7 +165,8 @@ const Index = () => {
 
 
       {showingMasterSchedule ? (
-        <main className="container mx-auto px-4 py-6">
+        // The work schedule is a wide spreadsheet: it uses the whole window, not the centred page column.
+        <main className={isRdHotels ? 'w-full px-3 py-4 sm:px-4 lg:px-6' : 'container mx-auto px-4 py-6'}>
           <OperationalPageHeading section={isRdHotels ? 'Work schedule' : 'Master staff schedule'} />
           <div className="mt-4 mb-6">
             <OperationsNavigation current="staff-schedule" />
