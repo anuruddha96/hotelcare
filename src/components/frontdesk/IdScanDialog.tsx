@@ -10,6 +10,8 @@ import { useTranslation } from '@/hooks/useTranslation';
 import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
 import { snapshotFrame } from '@/lib/idScan/frameCapture';
+import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   fetchBridgeScan, isLoopbackUrl, loadScannerSettings, saveScannerSettings, wedgeInputLooksComplete, wedgeInputToMrzText,
   type ScannerSettings, type ScannerSource,
@@ -37,6 +39,7 @@ interface IdScanDialogProps {
 }
 
 type Phase = 'camera' | 'reading' | 'review' | 'failed';
+type DocumentSide = 'mrz' | 'front';
 
 /** Grayscale + contrast stretch + upscale: OCR reads MRZ much better this way. */
 function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'lower' | 'full'): HTMLCanvasElement {
@@ -98,6 +101,15 @@ async function createOcrWorker(): Promise<TesseractWorker> {
   return worker;
 }
 
+/** General text OCR is used ONLY for the front of an ID card.
+ * The MRZ-only character whitelist would drop spaces and accented names here.
+ * The front text is used as a local comparison; VIZA data comes from the back.
+ */
+async function createFrontOcrWorker(): Promise<TesseractWorker> {
+  const { createWorker } = await import('tesseract.js');
+  return createWorker('eng');
+}
+
 export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps) {
   const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -105,6 +117,11 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const scanRunRef = useRef(0);
   const cameraSessionRef = useRef(0);
   const [phase, setPhase] = useState<Phase>('camera');
+  const [side, setSide] = useState<DocumentSide>('mrz');
+  const [frontText, setFrontText] = useState(''); // Temporary local OCR, never saved.
+  const [frontAssessment, setFrontAssessment] = useState<IdFrontAssessment | null>(null);
+  const [frontCaptureAttempted, setFrontCaptureAttempted] = useState(false);
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
   const [cameraOk, setCameraOk] = useState<boolean | null>(null);
   const [result, setResult] = useState<MrzReadResult | null>(null);
   const [settings, setSettings] = useState<ScannerSettings>(loadScannerSettings);
@@ -157,14 +174,27 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   }, [stopCamera]);
 
   useEffect(() => {
-    if (!open) { scanRunRef.current += 1; stopCamera(); return; }
+    if (!open) {
+      scanRunRef.current += 1;
+      stopCamera();
+      setResult(null);
+      setFrontText('');
+      setFrontAssessment(null);
+      setFrontCaptureAttempted(false);
+      setReviewAcknowledged(false);
+      return;
+    }
     setPhase('camera');
+    setSide('mrz');
     setResult(null);
+    setFrontText('');
+    setFrontAssessment(null);
+    setFrontCaptureAttempted(false);
+    setReviewAcknowledged(false);
     setTyped('');
     setFailReason(null);
-    if (source !== 'camera') stopCamera();
     return stopCamera;
-  }, [open, source, stopCamera]);
+  }, [open, stopCamera]);
 
   // Wait for the camera-phase video element to be in the DOM before asking
   // Safari for a stream. A previously failed dialog may reopen without a
@@ -181,13 +211,38 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     return () => clearTimeout(timer);
   }, [open, source, phase]);
 
+  // Document type is determined from the code lines, not selected by staff.
+  // Passports need only their biographical page; IDs require a front-side check.
+  const completeMrz = (parsed: MrzReadResult) => {
+    setResult(parsed);
+    setFailReason(null);
+    setReviewAcknowledged(false);
+    if (parsed.fields.documentType === 'passport') {
+      setFrontText('');
+      setFrontAssessment(null);
+      setSide('mrz');
+      setPhase('review');
+      return;
+    }
+    if (frontText) {
+      setFrontAssessment(assessIdFront(frontText, parsed.fields));
+      setPhase('review');
+      return;
+    }
+    setFrontAssessment(null);
+    setFrontCaptureAttempted(false);
+    setSide('front');
+    setSource('camera'); // Front-side text cannot be read by an MRZ-only USB keyboard reader.
+    setPhase('camera');
+  };
+
   // A reader types the whole code zone within a fraction of a second: read it
   // as soon as it is complete, without the receptionist pressing anything.
   useEffect(() => {
     if (source !== 'wedge' || phase !== 'camera' || !wedgeInputLooksComplete(typed)) return;
     const timer = setTimeout(() => {
       const parsed = readMrz(wedgeInputToMrzText(typed));
-      if (parsed) { setResult(parsed); setPhase('review'); } else { setFailReason(null); setPhase('failed'); }
+      if (parsed) completeMrz(parsed); else { setFailReason(null); setPhase('failed'); }
       setTyped('');
     }, 350);
     return () => clearTimeout(timer);
@@ -208,7 +263,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     const scan = await fetchBridgeScan(settings.bridgeUrl);
     if (scan.kind === 'mrz') {
       const parsed = readMrz(scan.text);
-      if (parsed) { setResult(parsed); setPhase('review'); } else setPhase('failed');
+      if (parsed) completeMrz(parsed); else setPhase('failed');
       return;
     }
     if (scan.kind === 'image') {
@@ -224,24 +279,45 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
   const readFrom = async (source: CanvasImageSource, width: number, height: number) => {
     const run = ++scanRunRef.current;
+    const scanningSide = side;
     let frame: HTMLCanvasElement;
-    // Capture synchronously while the live video/image is still available.
-    // In particular, do not await the OCR worker before copying the video.
     try {
+      // Copy synchronously BEFORE stopping iOS video / unmounting the preview.
       frame = snapshotFrame(source, width, height);
     } catch {
       setFailReason('ocr_unavailable');
       setPhase('failed');
       return;
     }
+    if (scanningSide === 'front') setFrontCaptureAttempted(true);
     setPhase('reading');
     setFailReason(null);
     stopCamera();
     let worker: TesseractWorker | null = null;
-    let unverified: MrzReadResult | null = null;
-    let readAttempted = false;
     try {
+      if (scanningSide === 'front') {
+        // Read the printed front, not a second MRZ. Never substitute this OCR
+        // for the legally significant immutable code-line read.
+        worker = await createFrontOcrWorker();
+        const { data } = await worker.recognize(frame);
+        if (scanRunRef.current !== run) return;
+        if (!result) { setFailReason('front_unreadable'); setPhase('failed'); return; }
+        const assessment = assessIdFront(data.text ?? '', result.fields);
+        if (assessment.status === 'unreadable') {
+          setFailReason('front_unreadable');
+          setPhase('failed');
+        } else {
+          setFrontAssessment(assessment);
+          setReviewAcknowledged(false);
+          setPhase('review');
+        }
+        return;
+      }
+
+      // The first readable MRZ classifies passport (TD3) or ID (TD1/TD2).
       worker = await createOcrWorker();
+      let unverified: MrzReadResult | null = null;
+      let readAttempted = false;
       for (const band of ['bottom', 'lower', 'full'] as const) {
         if (scanRunRef.current !== run) return;
         const canvas = prepareBand(frame, frame.width, frame.height, band);
@@ -250,29 +326,55 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           readAttempted = true;
           const parsed = readMrz(data.text ?? '');
           if (parsed?.valid && !parsed.unknownCountry) {
-            if (scanRunRef.current === run) { setResult(parsed); setPhase('review'); }
+            if (scanRunRef.current === run) completeMrz(parsed);
             return;
           }
           unverified = unverified ?? parsed;
         } catch {
-          // A damaged band must not prevent the next crop from being tried.
+          // Try the next image band before reporting a failure.
         } finally {
           wipe(canvas);
         }
       }
+      if (scanRunRef.current !== run) return;
+      if (unverified) {
+        completeMrz(unverified);
+        return;
+      }
+
+      // ID front presented first? Classify it conservatively, then request
+      // the back. This is NOT a fallback identity read, only a side detector.
+      await worker.terminate().catch(() => undefined);
+      worker = null;
+      try {
+        worker = await createFrontOcrWorker();
+        const { data } = await worker.recognize(frame);
+        if (scanRunRef.current !== run) return;
+        if (looksLikeIdFront(data.text ?? '')) {
+          setFrontText(data.text ?? '');
+          setFrontCaptureAttempted(true);
+          setSide('mrz');
+          setSource('camera');
+          setFailReason(null);
+          setPhase('camera');
+        } else {
+          setFailReason(readAttempted ? 'no_mrz' : 'ocr_unavailable');
+          setPhase('failed');
+        }
+      } catch {
+        if (scanRunRef.current === run) {
+          setFailReason('no_mrz');
+          setPhase('failed');
+        }
+      }
     } catch {
-      // Show a distinct OCR/runtime error, not misleading "No lines found".
+      if (scanRunRef.current === run) {
+        setFailReason('ocr_unavailable');
+        setPhase('failed');
+      }
     } finally {
       wipe(frame);
       await worker?.terminate().catch(() => undefined);
-    }
-    if (scanRunRef.current !== run) return;
-    if (unverified) {
-      setResult(unverified);
-      setPhase('review');
-    } else {
-      setFailReason(readAttempted ? 'no_mrz' : 'ocr_unavailable');
-      setPhase('failed');
     }
   };
 
@@ -299,14 +401,35 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
   const retry = () => {
     scanRunRef.current += 1;
-    setResult(null); setTyped(''); setFailReason(null); setPhase('camera');
-    // The camera and reader effects restart only after their DOM exists.
+    setTyped(''); setFailReason(null);
+    // A failed front read must retain the already captured MRZ.
+    if (side !== 'front') { setResult(null); setFrontAssessment(null); }
+    setReviewAcknowledged(false);
+    setPhase('camera');
   };
+
+  const restart = () => {
+    scanRunRef.current += 1;
+    setResult(null); setFrontText(''); setFrontAssessment(null);
+    setFrontCaptureAttempted(false); setReviewAcknowledged(false);
+    setSide('mrz'); setTyped(''); setFailReason(null);
+    setPhase('camera');
+  };
+  const manuallyCheckedFront = () => {
+    if (!result || side !== 'front' || !frontCaptureAttempted) return;
+    setFrontAssessment({ status: 'needs_review', matchedFields: [] });
+    setReviewAcknowledged(false);
+    setPhase('review');
+  };
+  const needsReviewAcknowledgement = !!result && (
+    !result.valid || result.unknownCountry ||
+    (result.fields.documentType === 'id_card' && frontAssessment?.status !== 'matched')
+  );
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) { scanRunRef.current += 1; stopCamera(); } onOpenChange(next); }}>
-      <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-id-scan">
+      <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] !h-auto overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-id-scan">
         <DialogHeader className="shrink-0 pr-6 text-left">
           <DialogTitle className="flex items-center gap-2"><ScanLine className="h-5 w-5 text-primary" /> {t('pms.scan.title')}</DialogTitle>
         </DialogHeader>
@@ -316,7 +439,19 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         </p>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-0.5" data-training="fd-id-scan-scroll">
-        {phase === 'camera' && (
+        {phase !== 'failed' && phase !== 'review' && (
+          <div className="rounded-md bg-primary/5 px-3 py-2 text-xs font-semibold" role="status">
+            {side === 'front'
+              ? t('pms.scan.idFrontStep')
+              : frontText ? t('pms.scan.idBackStep') : t('pms.scan.firstStep')}
+          </div>
+        )}
+        {phase === 'review' && result && (
+          <p className="text-xs font-semibold text-primary">
+            {result.fields.documentType === 'passport' ? t('pms.scan.passportDetected') : t('pms.scan.idDetected')}
+          </p>
+        )}
+        {phase === 'camera' && side === 'mrz' && !frontText && (
           <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label={t('pms.scan.source')}>
             {([
               ['camera', Camera, 'pms.scan.srcCamera'], ['wedge', Keyboard, 'pms.scan.srcReader'], ['bridge', PlugZap, 'pms.scan.srcService'],
@@ -329,7 +464,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           </div>
         )}
 
-        {phase === 'camera' && source === 'wedge' && (
+        {phase === 'camera' && side === 'mrz' && source === 'wedge' && (
           <div className="space-y-2" data-training="fd-id-scan-reader">
             <p className="text-xs">{t('pms.scan.readerHint')}</p>
             <textarea
@@ -347,7 +482,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           </div>
         )}
 
-        {phase === 'camera' && source === 'bridge' && (
+        {phase === 'camera' && side === 'mrz' && source === 'bridge' && (
           <div className="space-y-2" data-training="fd-id-scan-service">
             <p className="text-xs">{t('pms.scan.serviceHint')}</p>
             <div className="flex gap-2">
@@ -361,13 +496,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
         {phase === 'camera' && source === 'camera' && (
           <div className="space-y-2">
-            <p className="text-xs">{t('pms.scan.hint')}</p>
+            <p className="text-xs">{side === 'front' ? t('pms.scan.frontHint') : frontText ? t('pms.scan.idBackHint') : t('pms.scan.hint')}</p>
             {cameraOk !== false ? (
               <div className="relative mx-auto w-full max-h-[34dvh] overflow-hidden rounded-lg bg-black aspect-[1.58/1]">
                 <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
                 {/* Guide frame: the MRZ band sits in the lower part of the document. */}
                 <div className="pointer-events-none absolute inset-[7%] rounded-md border-2 border-dashed border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)]" />
-                <div className="pointer-events-none absolute inset-x-[7%] bottom-[7%] h-[24%] border-t border-dashed border-white/80 bg-primary/15" />
+                {side === 'mrz' && <div className="pointer-events-none absolute inset-x-[7%] bottom-[7%] h-[24%] border-t border-dashed border-white/80 bg-primary/15" />}
                 {cameraOk === null && <Loader2 className="absolute inset-0 m-auto h-6 w-6 animate-spin text-white" />}
               </div>
             ) : (
@@ -384,12 +519,20 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
         {phase === 'failed' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200">
-            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason === 'ocr_unavailable' ? t('pms.scan.ocrUnavailable') : failReason === 'unsupported_image' ? t('pms.scan.invalidPhoto') : failReason === 'no_mrz' ? t('pms.scan.noMrzGuide') : failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
+            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason === 'front_unreadable' ? t('pms.scan.frontUnreadable') : failReason === 'ocr_unavailable' ? t('pms.scan.ocrUnavailable') : failReason === 'unsupported_image' ? t('pms.scan.invalidPhoto') : failReason === 'no_mrz' ? t('pms.scan.noMrzGuide') : failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
           </div>
         )}
 
         {phase === 'review' && result && (
           <div className="space-y-2">
+            {result.fields.documentType === 'id_card' && frontAssessment && (
+              <div className={frontAssessment.status === 'matched'
+                ? 'flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900'
+                : 'flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900'}>
+                {frontAssessment.status === 'matched' ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <TriangleAlert className="h-4 w-4 shrink-0" />}
+                <span>{frontAssessment.status === 'matched' ? t('pms.scan.bothSidesMatch') : t('pms.scan.frontCheckRequired')}</span>
+              </div>
+            )}
             <div className="flex flex-wrap gap-1.5">
               {result.valid && !result.unknownCountry
                 ? <Badge className="bg-emerald-600 text-white gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> {t('pms.scan.valid')}</Badge>
@@ -408,17 +551,23 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             </dl>
             <pre aria-label={t('pms.scan.codeLines')} className="overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] leading-tight text-muted-foreground">{result.lines.join('\n')}</pre>
             <p className="text-[11px] text-muted-foreground">{t('pms.scan.reviewHint')}</p>
+            {needsReviewAcknowledgement && (
+              <label className="flex cursor-pointer items-start gap-2 rounded-md border border-amber-200 p-2.5 text-xs">
+                <Checkbox checked={reviewAcknowledged} onCheckedChange={(value) => setReviewAcknowledged(value === true)} className="mt-0.5 shrink-0" />
+                <span>{t('pms.scan.manualReviewConfirm')}</span>
+              </label>
+            )}
           </div>
         )}
 
         </div>
         <DialogFooter className="shrink-0 !flex-col gap-2 border-t border-border pt-3 pb-[env(safe-area-inset-bottom)]">
-          {phase === 'camera' && source === 'bridge' && (
+          {phase === 'camera' && side === 'mrz' && source === 'bridge' && (
             <Button type="button" className="gap-1.5" disabled={!settings.bridgeUrl} onClick={() => void readFromBridge()}><ScanLine className="h-4 w-4" /> {t('pms.scan.readDocument')}</Button>
           )}
           {phase === 'camera' && source === 'camera' && (
             <>
-              {cameraOk && <Button type="button" className="w-full gap-1.5" onClick={captureFrame}><ScanLine className="h-4 w-4" /> {t('pms.scan.capture')}</Button>}
+              {cameraOk && <Button type="button" className="w-full gap-1.5" onClick={captureFrame}><ScanLine className="h-4 w-4" /> {side === 'front' ? t('pms.scan.captureFront') : t('pms.scan.capture')}</Button>}
               <div className="grid w-full grid-cols-2 gap-2">
                 <Button variant="outline" asChild>
                   <label className="relative cursor-pointer gap-1.5">
@@ -435,9 +584,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               </div>
             </>
           )}
-          {(phase === 'failed' || phase === 'review') && <Button type="button" variant="outline" className="w-full" onClick={retry}>{t('pms.scan.retry')}</Button>}
+          {phase === 'failed' && <Button type="button" variant="outline" className="w-full" onClick={retry}>{t('pms.scan.retry')}</Button>}
+          {phase === 'failed' && side === 'front' && result && frontCaptureAttempted && (
+            <Button type="button" variant="outline" className="w-full" onClick={manuallyCheckedFront}>{t('pms.scan.checkedManually')}</Button>
+          )}
+          {phase === 'review' && <Button type="button" variant="outline" className="w-full" onClick={restart}>{t('pms.scan.retry')}</Button>}
           {phase === 'review' && result && (
-            <Button type="button" className="w-full" onClick={() => { onApply(result); onOpenChange(false); }}>{t('pms.scan.use')}</Button>
+            <Button type="button" className="w-full" disabled={result.fields.documentType === 'id_card' && !frontAssessment || (needsReviewAcknowledgement && !reviewAcknowledged)} onClick={() => { onApply(result); onOpenChange(false); }}>{t('pms.scan.use')}</Button>
           )}
         </DialogFooter>
       </DialogContent>
