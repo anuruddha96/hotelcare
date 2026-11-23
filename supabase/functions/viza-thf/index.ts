@@ -63,7 +63,8 @@ async function signerFor(creds: Credentials): Promise<Signer> {
 
 const env = (name: string) => Deno.env.get(name) || null;
 
-async function callThf(url: string, bodyXml: string, signer: Signer) {
+async function callThf(cfg: Pick<Settings, "thf_url" | "thf_ca_pem">, bodyXml: string, signer: Signer) {
+  const url = cfg.thf_url;
   const envelope = await signEnvelope({ requestXml: bodyXml, certPem: signer.creds.certPem, key: signer.envelopeKey, profile: "rsa-sha384" });
   const ownProxy = env("VIZA_EGRESS_PROXY_URL");
   const result = await postSoap(envelope, {
@@ -71,6 +72,7 @@ async function callThf(url: string, bodyXml: string, signer: Signer) {
     proxyUrl: ownProxy ?? env("NTAK_EGRESS_PROXY_URL"),
     proxyUser: ownProxy ? env("VIZA_EGRESS_PROXY_USER") : env("NTAK_EGRESS_PROXY_USER"),
     proxyPassword: ownProxy ? env("VIZA_EGRESS_PROXY_PASSWORD") : env("NTAK_EGRESS_PROXY_PASSWORD"),
+    caCertsPem: cfg.thf_ca_pem,
   });
   if (result.error && !result.body) throw new Error(result.error);
   return result;
@@ -80,6 +82,8 @@ type Settings = {
   hotel_id: string; organization_slug: string; enabled: boolean; thf_url: string;
   adatszolgaltatasi_azonosito: string | null; szallas_nev: string | null;
   szolgaltato_adoszam: string | null; szolgaltato_nev: string | null;
+  /** CA certificate(s) of a self-hosted THF, PEM; null for a THF with a publicly trusted certificate. */
+  thf_ca_pem?: string | null;
 };
 
 type GuestExtras = { visa_number?: string | null; entry_date?: string | null; entry_place?: string | null };
@@ -142,7 +146,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
       const signer = await signerFor(creds);
 
       // 1. Status poll (spec 4.1) — counters must reach the UI.
-      const statusRes = await callThf(cfg.thf_url, buildStatusBody(), signer);
+      const statusRes = await callThf(cfg, buildStatusBody(), signer);
       const code = readXmlTag(statusRes.body, "allapotKod");
       const statusProblem = code ? null : `Status call failed: HTTP ${statusRes.status} ${readXmlTag(statusRes.body, "faultstring") ?? ""}`.trim().slice(0, 300);
       line.status = code ?? statusProblem;
@@ -185,7 +189,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
         const draft = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, vizaGuests);
         const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
         const { xml } = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, vizaGuests);
-        const res = await callThf(cfg.thf_url, xml, signer);
+        const res = await callThf(cfg, xml, signer);
         line.arrivals = { sent: arrivals.length, http: res.status };
         await markResult(db, arrivals.map((a: { id: string }) => a.id), "arrival", res.status < 500 ? res.body : null, res.status >= 500 ? `HTTP ${res.status}` : null);
       }
@@ -204,7 +208,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
         const draft = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, guests);
         const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
         const { xml } = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, guests);
-        const res = await callThf(cfg.thf_url, xml, signer);
+        const res = await callThf(cfg, xml, signer);
         line.departures = { sent: departures.length, http: res.status };
         await markResult(db, departures.map((d: { id: string }) => d.id), "departure", res.status < 500 ? res.body : null, res.status >= 500 ? `HTTP ${res.status}` : null);
       }
@@ -282,7 +286,7 @@ Deno.serve(async (req) => {
         const signer = await signerFor(creds);
         const lists: Record<string, unknown> = {};
         for (const kind of ["NEMBEKULDOTT", "HIBAS"] as const) {
-          const res = await callThf((cfg as Settings).thf_url, buildUnsentListBody(kind), signer);
+          const res = await callThf(cfg as Settings, buildUnsentListBody(kind), signer);
           lists[kind] = parseUnsentList(res.body);
         }
         return json({ ok: true, lists });

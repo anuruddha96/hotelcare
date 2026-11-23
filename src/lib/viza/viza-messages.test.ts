@@ -14,6 +14,7 @@ import {
   type EnvelopeCommon,
 } from '../../../supabase/functions/_shared/viza/messages.ts';
 import { guestToVizaGroups, splitMotherName } from '../../../supabase/functions/_shared/viza/mapGuest.ts';
+import { splitPemCertificates } from '../../../supabase/functions/_shared/ntak/transport.ts';
 import { iso3ToIso2 } from '../../../supabase/functions/_shared/viza/country.ts';
 
 const HOTEL = {
@@ -211,5 +212,15 @@ describe('VIZA validation readiness', () => {
       manual: { csaladnev: 'SPECIMEN', utonev: 'A' }, vizumEngedelySzam: '0123456789', beutazasDatuma: '2026-11-22', beutazasHelye: 'Budapest',
     }]);
     expect(xml).toContain('</v1:manualisanRogzitettAdat><v1:vizumEngedelySzam>0123456789</v1:vizumEngedelySzam><v1:beutazasDatuma>2026-11-22</v1:beutazasDatuma><v1:beutazasHelye>Budapest</v1:beutazasHelye></v1:erkezoVendeg>');
+  });
+});
+
+describe('THF certificate authority bundle', () => {
+  it('splits a PEM bundle into single certificates and ignores other text', () => {
+    const a = '-----BEGIN CERTIFICATE-----\nAAA=\n-----END CERTIFICATE-----';
+    const b = '-----BEGIN CERTIFICATE-----\nBBB=\n-----END CERTIFICATE-----';
+    expect(splitPemCertificates(`subject=CN = test\n${a}\n\n${b}\n`)).toEqual([a, b]);
+    expect(splitPemCertificates(null)).toEqual([]);
+    expect(splitPemCertificates('not a certificate')).toEqual([]);
   });
 });
