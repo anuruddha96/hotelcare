@@ -272,7 +272,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     );
     db.rows("reservation_guests").push({ reservation_id: "R1", guest_id: "g1", is_primary: true, ifa_status: null }, { reservation_id: "R1", guest_id: "g2", is_primary: false, ifa_status: null });
     db.rows("room_types").push({ id: "rt1", hotel_id: "h1", name: "Double" });
-    db.rows("ntak_room_type_units").push({ room_type_id: "rt1", hotel_id: "h1", unit_type: "STANDARD", capacity: 2 });
+    db.rows("ntak_room_type_units").push({ room_type_id: "rt1", hotel_id: "h1", unit_type: "STANDARD", capacity: 2, active: true });
     db.rows("reservation_folios").push({ id: "f1", reservation_id: "R1", hotel_id: "h1" });
     db.rows("service_catalog_items").push({ id: "sc1", category: "minibar" });
     db.rows("folio_lines").push({ id: "l1", folio_id: "f1", service_catalog_item_id: "sc1", service_date: Y, room_id: "r101", gross_total: 2500, vat_rate: 27, currency: "HUF", status: "open", source_type: "manual" });
