@@ -15,6 +15,8 @@ export interface TransportOptions {
   proxyUrl?: string | null;
   proxyUser?: string | null;
   proxyPassword?: string | null;
+  /** Extra trusted CA certificates (PEM), e.g. the private CA of a self-hosted THF (VIZA guide 3.4). Added to the default roots. */
+  caCertsPem?: string | null;
   timeoutMs?: number;
 }
 
@@ -46,7 +48,8 @@ export async function postSoap(envelope: string, opts: TransportOptions): Promis
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30000);
   try {
-    client = DenoAny.createHttpClient({ cert: opts.certPem, key: opts.keyPem, ...(proxy ? { proxy } : {}) });
+    const caCerts = splitPemCertificates(opts.caCertsPem);
+    client = DenoAny.createHttpClient({ cert: opts.certPem, key: opts.keyPem, ...(proxy ? { proxy } : {}), ...(caCerts.length ? { caCerts } : {}) });
     const res = await fetch(opts.url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: '""' },
@@ -66,6 +69,11 @@ export async function postSoap(envelope: string, opts: TransportOptions): Promis
     clearTimeout(timer);
     try { client?.close(); } catch { /* ignore */ }
   }
+}
+
+/** Every certificate block of a PEM bundle, each as its own PEM string. */
+export function splitPemCertificates(pem: string | null | undefined): string[] {
+  return String(pem ?? '').match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
 }
 
 /** Retry schedule after server/network errors: 1, 10 and 60 minutes, then stop (7.5). */
