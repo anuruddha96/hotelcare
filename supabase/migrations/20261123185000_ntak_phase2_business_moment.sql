@@ -308,9 +308,9 @@ BEGIN
   END IF;
   IF _business_day IS NOT NULL AND day<>(now() AT TIME ZONE 'Europe/Budapest')::date THEN
     PERFORM public.pms_assert_business_moment(r.hotel_id,r.organization_slug,
-      (day::timestamp + time '12:00') AT TIME ZONE 'Europe/Budapest');
+      (day + time '12:00') AT TIME ZONE 'Europe/Budapest');
   END IF;
-  paid_at := (day::timestamp + time '12:00') AT TIME ZONE 'Europe/Budapest';
+  paid_at := (day + time '12:00') AT TIME ZONE 'Europe/Budapest';
   INSERT INTO public.guest_folios(reservation_id,guest_id,description,amount,charge_type,created_by)
   VALUES(r.id,r.guest_id,btrim(_description),_amount,_charge_type,actor) RETURNING id INTO legacy_id;
   IF _charge_type='payment' THEN
