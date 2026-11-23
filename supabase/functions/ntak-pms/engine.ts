@@ -420,13 +420,18 @@ async function supersedeOpen(db: Db, hotelId: string, kind: string, ref: string)
 // ---------------------------------------------------------------------------
 // Advance bookings
 
-const BOOKING_COLS = RES_COLS + ",created_at";
+const PHASE6_COLS = "ntak_guaranteed,ntak_market_segment,ntak_sales_channel,booker_country,expected_guests";
+async function phase6SchemaReady(db: Db): Promise<boolean> {
+  try { const { error } = await db.from("reservations").select(PHASE6_COLS).limit(1); return !error; }
+  catch { return false; }
+}
 
 export async function processBookings(db: Db, s: Settings, limit: number): Promise<{ queued: number; clean: number; problems: number }> {
   const cfg = ledgerConfig(s);
   const scope = await loadNtakScope(db, s);
   const phase3Ready = await phase3SchemaReady(db);
-  const bookingCols = phase3Ready ? BOOKING_COLS : LEGACY_RES_COLS;
+  const phase6Ready = phase3Ready && await phase6SchemaReady(db);
+  const bookingCols = (phase3Ready ? RES_COLS : LEGACY_RES_COLS) + (phase6Ready ? "," + PHASE6_COLS : "");
   const stats = { queued: 0, clean: 0, problems: 0 };
   const { data: dirty } = await db.from("ntak_booking_queue").select("*").eq("hotel_id", s.hotel_id).order("dirty_at").limit(limit * 3);
   const due = (dirty ?? []).filter((q: any) => !q.last_sent_at || q.dirty_at > q.last_sent_at).slice(0, limit);
@@ -442,11 +447,12 @@ export async function processBookings(db: Db, s: Settings, limit: number): Promi
       db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("reservation_number", q.booking_no),
       /^[0-9a-f-]{36}$/.test(q.booking_no) ? db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("id", q.booking_no) : { data: [] },
     ]);
+    if (lookups.some((l: any) => l.error)) { stats.problems++; continue; }
     const seen = new Set<string>();
     const group: RawReservation[] = lookups.flatMap((l: any) => l.data ?? [])
       .filter((r: any) => bookingNumber(r) === q.booking_no && !seen.has(r.id) && seen.add(r.id))
       .filter((r: RawReservation) => isInNtakScope(scope, r));
-    const mark = (patch: Record<string, unknown>) => db.from("ntak_booking_queue").update({ last_sent_at: new Date().toISOString(), ...patch })
+    const mark = (patch: Record<string, unknown>) => db.from("ntak_booking_queue").update({ last_sent_at: q.dirty_at, ...patch })
       .eq("hotel_id", s.hotel_id).eq("booking_no", q.booking_no);
     if (!group.length) { await mark({ last_problem: null }); stats.clean++; continue; }
 
@@ -466,11 +472,12 @@ export async function processBookings(db: Db, s: Settings, limit: number): Promi
     if (built.booking.cancelled && q.cancelled_sent) { await mark({ last_problem: null, last_payload_hash: hash }); stats.clean++; continue; }
 
     await supersedeOpen(db, s.hotel_id, "booking", q.booking_no);
-    const { data: msg } = await db.from("ntak_messages").insert({
+    const { data: msg, error: queueError } = await db.from("ntak_messages").insert({
       hotel_id: s.hotel_id, organization_slug: s.organization_slug, environment: s.environment, kind: "booking", ref: q.booking_no,
       request_xml: buildFoglalasEsemenyRequest(common(s), built.booking),
     }).select("id").single();
-    await mark({ last_problem: null, last_payload_hash: hash, last_message_id: msg?.id ?? null, cancelled_sent: built.booking.cancelled });
+    if (queueError || !msg?.id) { stats.problems++; continue; }
+    await mark({ last_problem: null, last_payload_hash: hash, last_message_id: msg.id, cancelled_sent: built.booking.cancelled });
     stats.queued++;
   }
   return stats;

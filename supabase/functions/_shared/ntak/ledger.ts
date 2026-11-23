@@ -101,6 +101,11 @@ export interface RawReservation {
   channex_booking_id: string | null;
   pms_reservation_id: string | null;
   ntak_booking_no?: string | null;
+  ntak_guaranteed?: boolean | null;
+  ntak_market_segment?: MarketSegment | null;
+  ntak_sales_channel?: SalesChannel | null;
+  booker_country?: string | null;
+  expected_guests?: number | null;
   reservation_number: string | null;
   pms_group_note?: string | null;
   pms_rate_plan_id?: string | null;
@@ -379,24 +384,32 @@ export function buildBooking(rows: RawReservation[], opts: {
     if ('problem' in huf) problems.push(huf.problem); else gross += huf.value;
   }
   if (gross >= 1_000_000_000) problems.push('booking amount is above the secondary limit (1 billion HUF)');
-  const guestCount = scope.reduce((a, r) => a + Number(r.adults ?? 0) + Number(r.children ?? 0), 0);
+  const guestCount = scope.reduce((a, r) => a + (r.expected_guests ?? (Number(r.adults ?? 0) + Number(r.children ?? 0))), 0);
   const capacity = units.reduce((a, u) => a + u.capacity, 0);
   if (guestCount < 1 || guestCount > 99) problems.push(`guest count ${guestCount} must be 1–99`);
   else if (units.length && guestCount > capacity + 2 * units.length) problems.push(`guest count ${guestCount} exceeds capacity + 2 extra beds per unit`);
 
-  const first = [...scope].sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+  const ordered = [...scope].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  const first = ordered[0];
+  // Explicit booking-level values take precedence, including false. Reject conflicting
+  // overrides across rooms rather than reporting an arbitrary value.
+  function override<K extends keyof RawReservation>(key: K): RawReservation[K] | undefined {
+    const values = ordered.map(r => r[key]).filter(v => v !== null && v !== undefined);
+    if (new Set(values).size > 1) problems.push(`conflicting booking field ${key}`);
+    return values[0];
+  }
   const booking: NtakBooking = {
     bookingNo: bookingNumber(first),
     eventCreatedAt: opts.eventCreatedAt,
-    guaranteed: null,
+    guaranteed: override('ntak_guaranteed') ?? null,
     cancelled,
-    originCountry: opts.originCountry ?? opts.unknownCountryCode ?? UNKNOWN_FOREIGN_COUNTRY,
+    originCountry: override('booker_country') ?? opts.originCountry ?? opts.unknownCountryCode ?? UNKNOWN_FOREIGN_COUNTRY,
     arrival, departure,
     bookedAt: first.created_at,
-    channel: salesChannel(first, cfg),
+    channel: override('ntak_sales_channel') ?? salesChannel(first, cfg),
     grossAmount: Math.round(gross),
     units,
-    segment: marketSegment(first, cfg, scope.length, opts.isCompany),
+    segment: override('ntak_market_segment') ?? marketSegment(first, cfg, scope.length, opts.isCompany),
     guestCount: Math.min(99, Math.max(1, guestCount)),
   };
   return { booking: problems.length ? null : booking, problems };
