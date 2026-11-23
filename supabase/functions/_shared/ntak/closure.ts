@@ -163,7 +163,7 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
     if (!st.dayUse) {
       if (soldUnitIds.has(unit.roomId)) err('double', `${ref}: unit ${unit.roomNumber} is already sold for this night (NappaliHasznalatHiba)`, st.reservationId);
       soldUnitIds.add(unit.roomId);
-      if (unit.state !== 'available') warn('state', `${ref}: unit ${unit.roomNumber} is marked ${unit.state.toUpperCase()} but has guests`, st.reservationId);
+      if (unit.state !== 'available') err('state_conflict', `${ref}: room ${unit.roomNumber} is ${unit.state.toUpperCase()} but occupied on ${src.day}; correct the room period or reservation before reporting`, st.reservationId);
     }
 
     const guests: NtakGuest[] = [];
@@ -251,8 +251,11 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
   }
 
   const rented = src.closed ? 0 : soldUnitIds.size;
-  const available = total - ooo - oos;
-  if (rented > available) warn('rooms', `Rooms rented (${rented}) exceed rooms available (${available}) (TobbKiadott)`);
+  // "Available" means sellable and NOT already rented. OOO/OOS and occupied
+  // units are disjoint except where a blocking state_conflict was recorded.
+  const sellable = total - ooo - oos;
+  if (rented > sellable) err('rooms', `Rooms rented (${rented}) exceed sellable rooms (${sellable}) (TobbKiadott)`);
+  const available = Math.max(0, sellable - rented);
   const soldCap = src.units.filter((u) => soldUnitIds.has(u.roomId)).reduce((a, u) => a + capacityOf(u), 0);
   const oooCap = src.closed ? capTotal : cap((u) => u.state === 'ooo');
   const oosCap = src.closed ? 0 : cap((u) => u.state === 'oos');
@@ -265,7 +268,7 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
     closedAt: src.closedAt,
     closed: src.closed,
     rooms: { total, ooo, oos, rented, available: src.closed ? 0 : available },
-    capacity: { total: capTotal, ooo: oooCap, oos: oosCap, rented: src.closed ? 0 : soldCap, available: src.closed ? 0 : capTotal - oooCap - oosCap },
+    capacity: { total: capTotal, ooo: oooCap, oos: oosCap, rented: src.closed ? 0 : soldCap, available: src.closed ? 0 : Math.max(0, capTotal - oooCap - oosCap - soldCap) },
     ifa: s.ifa ? { type: s.ifa.type, rate: s.ifa.type === 'NINCS' ? 0 : s.ifa.rate } : null,
     nights,
     outOfService: src.units.filter((u) => src.closed || u.state !== 'available').map(stripUnit),

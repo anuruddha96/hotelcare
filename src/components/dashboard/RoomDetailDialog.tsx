@@ -30,6 +30,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { DNDPhotosViewer } from './DNDPhotosViewer';
 import { isNoMinibarRoom } from '@/lib/gozsduNoMinibar';
+import { RoomStatePeriodManager } from './RoomStatePeriodManager';
 
 interface Room {
   id: string;
@@ -84,6 +85,7 @@ interface RoomNoteHistoryEntry {
 
 interface RoomDetailDialogProps {
   room: Room | null;
+  hotelId?: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRoomUpdated?: () => void;
@@ -103,7 +105,7 @@ interface RoomDetailDialogProps {
   alreadyApproved?: boolean;
 }
 
-export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, minibarOnly = false, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
+export function RoomDetailDialog({ room, hotelId, open, onOpenChange, onRoomUpdated, minibarOnly = false, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
   const noMinibar = isNoMinibarRoom(profile?.organization_slug, profile?.assigned_hotel, room?.hotel);
@@ -307,6 +309,10 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, mini
 
   const handleStatusChange = async (newStatus: string) => {
     if (!room) return;
+    if (newStatus === 'out_of_order' || newStatus === 'out_of_service') {
+      toast({ title: t('ntak.phase4.title'), description: t('ntak.phase4.usePeriod') });
+      return;
+    }
 
     setLoading(true);
     try {
@@ -325,12 +331,17 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, mini
         .from('rooms')
         .update(updateData)
         .eq('id', room.id)
-        .select('id')
+        .select('id,status')
         .maybeSingle();
 
       if (error) throw error;
       if (!updatedRoom) {
         throw new Error('Room update was not applied. Please refresh and verify your hotel access.');
+      }
+      if (updatedRoom.status !== newStatus) {
+        toast({ title: t('ntak.phase4.title'), description: t('ntak.phase4.activeOverride'), variant: 'destructive' });
+        onRoomUpdated?.();
+        return;
       }
 
       toast({
@@ -537,6 +548,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, mini
       case 'dirty': return 'bg-orange-100 text-orange-800';
       case 'maintenance': return 'bg-blue-100 text-blue-800';
       case 'out_of_order': return 'bg-red-100 text-red-800';
+      case 'out_of_service': return 'bg-purple-100 text-purple-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -547,6 +559,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, mini
       case 'dirty': return <AlertTriangle className="h-4 w-4" />;
       case 'maintenance': return <Wrench className="h-4 w-4" />;
       case 'out_of_order': return <XCircle className="h-4 w-4" />;
+      case 'out_of_service': return <XCircle className="h-4 w-4" />;
       default: return <CheckCircle2 className="h-4 w-4" />;
     }
   };
@@ -638,6 +651,12 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, mini
         </DialogHeader>
 
         <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y pr-1 sm:space-y-6 sm:pr-2">
+          {!minibarOnly && room && (
+            <Card><CardContent className="pt-4">
+              <RoomStatePeriodManager hotelId={hotelId} roomId={room.id} roomNumber={room.room_number}
+                active={open} onChanged={onRoomUpdated} />
+            </CardContent></Card>
+          )}
           {/* Room Status Section - Hidden for housekeepers */}
           {!minibarOnly && profile?.role !== 'housekeeping' && (
             <Card>
@@ -662,6 +681,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, mini
                       <SelectItem value="dirty">{t('room.status.dirty')}</SelectItem>
                       <SelectItem value="maintenance">{t('room.status.maintenance')}</SelectItem>
                       <SelectItem value="out_of_order">{t('room.status.out_of_order')}</SelectItem>
+                      <SelectItem value="out_of_service">{t('ntak.phase4.oos')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

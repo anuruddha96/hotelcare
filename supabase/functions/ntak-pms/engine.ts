@@ -226,14 +226,29 @@ const toNtakGuest = (g: StayGuest, day: string, autoStatus: (b: string | null, d
 
 const ROOM_STATE: Record<string, UnitInfo["state"]> = { out_of_order: "ooo", out_of_service: "oos", maintenance: "oos", blocked: "oos" };
 
-export async function loadUnits(db: Db, hotelId: string, useCurrentStatus: boolean): Promise<UnitInfo[]> {
-  const { data } = await db.from("ntak_unit_profiles")
-    .select("room_id,building,room_number,unit_type,single_beds,double_beds,extra_beds,rooms(status)")
-    .eq("hotel_id", hotelId).eq("active", true).order("room_number");
+export async function loadUnits(db: Db, hotelId: string, day: string): Promise<UnitInfo[]> {
+  // Historical closures MUST use the dated, audited source. A live rooms.status
+  // is only a fallback for TODAY when no dated state has been recorded.
+  const [{ data, error: unitError }, { data: periods, error: periodError }] = await Promise.all([
+    db.from("ntak_unit_profiles")
+      .select("room_id,building,room_number,unit_type,single_beds,double_beds,extra_beds,rooms(status)")
+      .eq("hotel_id", hotelId).eq("active", true).order("room_number"),
+    db.from("room_state_periods")
+      .select("room_id,state").eq("hotel_id", hotelId)
+      .lte("from_date", day).gte("to_date", day),
+  ]);
+  // Incomplete room histories must never silently produce an accepted closure.
+  if (unitError || periodError) {
+    throw new Error("NTAK_ROOM_STATE_HISTORY_UNAVAILABLE: " + (unitError?.message ?? periodError?.message ?? "unknown"));
+  }
+  const states = new Map((periods ?? []).map((p: any) =>
+    [String(p.room_id), ROOM_STATE[String(p.state)] ?? "available"] as const));
   return (data ?? []).map((u: any) => ({
     roomId: u.room_id, building: u.building, roomNumber: u.room_number, unitType: u.unit_type,
     singleBeds: u.single_beds, doubleBeds: u.double_beds, extraBeds: u.extra_beds,
-    state: useCurrentStatus ? ROOM_STATE[String(u.rooms?.status ?? "").toLowerCase()] ?? "available" : "available",
+    state: states.get(String(u.room_id))
+      ?? (day === today() ? ROOM_STATE[String(u.rooms?.status ?? "").toLowerCase()] : undefined)
+      ?? "available",
     label: `Room ${u.room_number}`,
   }));
 }
@@ -278,7 +293,6 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
   const scope = await loadNtakScope(db, s);
   const resCols = await phase3SchemaReady(db) ? RES_COLS : LEGACY_RES_COLS;
   const win = dayWindow(day);
-  const current = day >= addDays(today(), -1);
 
   const [
     { data: staying, error: stayError }, { data: historical, error: historicalError },
@@ -329,7 +343,7 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
       const departure = r.actual_check_out ? localDate(r.actual_check_out, TZ) : r.check_out_date;
       return arrival <= day && day <= departure;
     })),
-    loadUnits(db, s.hotel_id, current),
+    loadUnits(db, s.hotel_id, day),
   ]);
   const { data: companies } = await db.from("guests").select("id,company_name,tax_id").in("id", reservations.map((r) => r.guest_id).filter(Boolean));
   const companyGuests = new Set((companies ?? []).filter((g: any) => g.company_name || g.tax_id).map((g: any) => g.id));
@@ -355,7 +369,6 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     const source = [stayError && "stays", historicalError && "actual stays", linesError && "folio lines", paymentsError && "payments"].filter(Boolean).join(", ");
     assembled.checklist.push({ level: "error", code: "missing_ledger", message: `Unable to load complete historical data (${source}). Deploy PMS financial core before NTAK closure.` });
   }
-  if (!current) assembled.checklist.push({ level: "warning", code: "history", message: "Room out-of-order states are only known for today and yesterday: older days are reported with every unit available." });
   if (s.first_closure_date && day < s.first_closure_date) assembled.checklist.push({ level: "error", code: "period", message: `HotelCare reports from ${s.first_closure_date}; earlier days belong to the previous PMS.` });
   if (s.data_start_date && day < s.data_start_date) assembled.checklist.push({ level: "warning", code: "period", message: `NTAK expects data from ${s.data_start_date}.` });
   for (const p of configurationProblems(s)) assembled.checklist.push({ level: "error", code: "settings", message: p });
@@ -512,7 +525,7 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
   // Never compute/stash NTAK guest IDs for unrelated Channex reservations.
   const eligibleReservations = [...reservations.values()].filter((r) => isInNtakScope(scope, r));
   const guests = await loadStayGuests(db, s.hotel_id, eligibleReservations);
-  const units = new Map((await loadUnits(db, s.hotel_id, false)).map((u) => [u.roomId, u]));
+  const units = new Map((await loadUnits(db, s.hotel_id, today())).map((u) => [u.roomId, u]));
 
   const events: NtakStayEvent[] = [];
   const used: string[] = [];
@@ -794,10 +807,8 @@ export async function detectDrift(db: Db, s: Settings, maxDays = 2): Promise<num
   for (const c of data ?? []) {
     const closed = c.snapshot?.closure?.closed ?? false;
     const fresh = await buildClosure(db, s, c.closed_day, { classification: c.snapshot?.closure?.classification, protocolId: c.snapshot?.closure?.protocolId, reason: c.snapshot?.closure?.reason, closed });
-    // Room states for older days are not historical: compare with the stored room data instead.
-    fresh.closure.rooms = c.snapshot.closure.rooms;
-    fresh.closure.capacity = c.snapshot.closure.capacity;
-    fresh.closure.outOfService = c.snapshot.closure.outOfService;
+    // Phase 4 dated periods make historical OOO/OOS deterministic. Changes to
+    // past room periods MUST now flag a MODOSITO correction, not be masked.
     const hash = await hashJson({ closure: { ...fresh.closure, closedAt: null } });
     const stored = await hashJson({ closure: { ...c.snapshot.closure, closedAt: null } });
     if (hash !== stored) {
