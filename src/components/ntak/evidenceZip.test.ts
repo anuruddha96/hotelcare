@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { crc32, evidenceZip, safeEvidenceName } from './evidenceZip';
 
@@ -6,7 +5,14 @@ describe('NTAK evidence ZIP', () => {
   it('preserves the original UTF-8 XML and creates a valid STORE central directory', async () => {
     const xml = '<?xml version="1.0"?>\n<xml>Árvíztűrő tükörfúrógép</xml>';
     const files = [{ name: 'ELO_FOGL_04_request.xml', text: xml }, { name: 'AD_01_verify_response.xml', text: '<result/>' }];
-    const bytes = new Uint8Array(await evidenceZip(files).arrayBuffer());
+    const blob = evidenceZip(files);
+    const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(blob);
+    });
+    const bytes = new Uint8Array(buffer);
     const dv = new DataView(bytes.buffer);
     const decoder = new TextDecoder();
     let pos = 0;
