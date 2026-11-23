@@ -214,11 +214,12 @@ export function mapPayments(payments: RawPayment[], cfg: LedgerConfig, problems:
   return [...byType.entries()].map(([type, amount]) => ({ amount, type }));
 }
 
-/** Effective departure: early check-out shortens the stay. */
+/** A recorded actual departure, whether early or late, governs historical closings. */
 export function effectiveDeparture(r: RawReservation, tz: string): string {
   if (r.status === 'checked_out' && r.actual_check_out) {
     const actual = localDate(r.actual_check_out, tz);
-    if (actual < r.check_out_date && actual >= r.check_in_date) return actual;
+    const arrival = r.actual_check_in ? localDate(r.actual_check_in, tz) : r.check_in_date;
+    if (actual >= arrival) return actual;
   }
   return r.check_out_date;
 }
