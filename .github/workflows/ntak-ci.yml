@@ -16,6 +16,7 @@ on:
       - 'supabase/tests/ntak_finance_business_day.sql'
       - 'supabase/tests/ntak_finance_guard_integration.sql'
       - 'supabase/tests/ntak_phase3_activation_*.sql'
+      - 'supabase/tests/ntak_phase4_room_state_*.sql'
       - 'scripts/render_ntak_phase3_function_fixture.py'
       - 'src/lib/reservations.ts'
       - 'src/lib/pms-translations.ts'
@@ -105,6 +106,14 @@ jobs:
           PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f /tmp/ntak_phase3_legacy_queuer.sql
           PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123213000_ntak_phase3_activation_safety.sql
           PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_acceptance.sql
+      - name: Phase 4 dated room state, overlap and RLS integration (PostgreSQL)
+        run: |
+          set -euo pipefail
+          createdb hotelcare_phase4_ci
+          PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_fixture.sql
+          PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123220000_ntak_phase4_room_state_periods.sql
+          PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_integration.sql
       - name: Run NTAK SQL checks
         run: |
           set -euo pipefail
