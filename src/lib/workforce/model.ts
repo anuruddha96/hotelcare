@@ -26,6 +26,8 @@ export interface WorkforceEntry {
   start_time: string | null; end_time: string | null; day_fraction: number; extra_minutes: number;
   hotel_id: string | null; raw_text: string | null; note: string | null; worked_minutes?: number;
   status: 'draft' | 'published';
+  /** Who last changed the day. */
+  updated_by?: string | null;
   /** What the employee still sees while a change to a published day waits to be published. */
   published_version?: ShiftSnapshot | null;
 }

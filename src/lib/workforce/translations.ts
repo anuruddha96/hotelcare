@@ -73,7 +73,6 @@ const rowsV1: Record<string, Row> = {
   'wf.m.copy4': ['Copy last 4 weeks', 'Előző 4 hét másolása', 'Copiar últimas 4 semanas', 'Sao chép 4 tuần trước', 'Сүүлийн 4 долоо хоногийг хуулах', 'Son 4 həftəni kopyala', 'Kopyahin ang huling 4 na linggo', 'Копіювати останні 4 тижні', 'Копировать последние 4 недели'],
   'wf.m.shortcuts': ['How to edit', 'Szerkesztési súgó', 'Cómo editar', 'Cách chỉnh sửa', 'Хэрхэн засах', 'Necə redaktə etmək', 'Paano mag-edit', 'Як редагувати', 'Как редактировать'],
   'wf.m.publish': ['Publish', 'Közzététel', 'Publicar', 'Công bố', 'Нийтлэх', 'Dərc et', 'I-publish', 'Опублікувати', 'Опубликовать'],
-  'wf.m.drafts': ['drafts', 'vázlat', 'borradores', 'bản nháp', 'ноорог', 'qaralama', 'draft', 'чернеток', 'черновиков'],
   'wf.m.clear': ['Clear', 'Törlés', 'Borrar', 'Xóa', 'Арилгах', 'Təmizlə', 'Burahin', 'Очистити', 'Очистить'],
   'wf.m.employees': ['employees', 'dolgozó', 'empleados', 'nhân viên', 'ажилтан', 'işçi', 'empleyado', 'працівників', 'сотрудников'],
   'wf.m.selected': ['cells selected', 'cella kijelölve', 'celdas seleccionadas', 'ô đã chọn', 'нүд сонгосон', 'xana seçilib', 'cell ang napili', 'клітинок вибрано', 'ячеек выбрано'],
