@@ -409,7 +409,20 @@ BEGIN
   SELECT * INTO cfg FROM public.viza_settings WHERE hotel_id=NEW.hotel_id AND enabled AND adatszolgaltatasi_azonosito IS NOT NULL;
   IF NOT FOUND THEN RETURN NEW; END IF;
   moment_at := COALESCE(NULLIF(current_setting('hotelcare.business_moment',true),'')::timestamptz,clock_timestamp());
-  IF NEW.status='checked_in' AND OLD.status IS DISTINCT FROM 'checked_in' THEN
+  IF OLD.status='checked_out' AND NEW.status='checked_in' THEN
+    -- Reopen unsent departures. Never silently retract a departure already
+    -- transmitted to VIZA; flag it for a supervised correction.
+    UPDATE public.viza_guest_events SET tavozas_ideje=NULL,departure_state=NULL,updated_at=now()
+      WHERE reservation_id=NEW.id AND departure_state IS DISTINCT FROM 'sent';
+    UPDATE public.viza_guest_events SET last_error='Departure already sent to VIZA; manual correction required after undo',
+      updated_at=now()
+      WHERE reservation_id=NEW.id AND departure_state='sent';
+  ELSIF OLD.status='checked_in' AND NEW.status IN ('confirmed','pending') THEN
+    DELETE FROM public.viza_guest_events WHERE reservation_id=NEW.id AND arrival_state='queued';
+    UPDATE public.viza_guest_events SET
+      last_error='Arrival already sent to VIZA; manual correction required after undo',updated_at=now()
+      WHERE reservation_id=NEW.id AND arrival_state='sent';
+  ELSIF NEW.status='checked_in' AND OLD.status IS DISTINCT FROM 'checked_in' THEN
     INSERT INTO public.viza_guest_events(hotel_id,organization_slug,reservation_id,guest_id,erkezes_ideje,tavozas_varhato_datuma)
     VALUES(NEW.hotel_id,cfg.organization_slug,NEW.id,NEW.guest_id,COALESCE(NEW.actual_check_in,moment_at),NEW.check_out_date)
     ON CONFLICT (reservation_id,COALESCE(guest_id,'00000000-0000-0000-0000-000000000000'::uuid)) DO NOTHING;
