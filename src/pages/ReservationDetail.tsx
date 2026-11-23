@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
+import { RoomChangeDialog } from '@/components/frontdesk/RoomChangeDialog';
 import { EditReservationDialog } from '@/components/reservations/EditReservationDialog';
 import { ReservationNotesPanel } from '@/components/reservations/ReservationNotesPanel';
 import { PrevioWritebackStatus } from '@/components/reservations/PrevioWritebackStatus';
@@ -53,6 +54,7 @@ const ReservationDetail = () => {
   const [editOpen, setEditOpen] = useState(false);
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [checkOutOpen, setCheckOutOpen] = useState(false);
+  const [roomChangeOpen, setRoomChangeOpen] = useState(false);
   const [statusAction, setStatusAction] = useState<StatusAction>(null);
   const [statusReason, setStatusReason] = useState('');
   const [statusBusy, setStatusBusy] = useState(false);
@@ -234,6 +236,11 @@ const ReservationDetail = () => {
                 {t('pms.checkIn')}
               </Button>
             )}
+            {reservation.status === 'checked_in' && reservation.room_id && (
+              <Button size="sm" variant="outline" onClick={() => setRoomChangeOpen(true)} data-training="fd-room-change-button">
+                {t('pms.businessMoment.changeRoom')}
+              </Button>
+            )}
             {reservation.status === 'checked_in' && (
               <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
                 {t('pms.checkOut')}
@@ -360,6 +367,12 @@ const ReservationDetail = () => {
         onOpenChange={setCheckInOpen}
         onSuccess={() => { setCheckInOpen(false); fetchData(); }}
       />
+      {reservation.room_id && <RoomChangeDialog
+        reservation={reservation}
+        open={roomChangeOpen}
+        onOpenChange={setRoomChangeOpen}
+        onSuccess={() => { setRoomChangeOpen(false); void fetchData(); }}
+      />}
       <CheckOutDialog
         reservation={reservation}
         open={checkOutOpen}
