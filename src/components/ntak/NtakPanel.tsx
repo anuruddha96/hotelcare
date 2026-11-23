@@ -36,7 +36,7 @@ function toForm(s: NtakSettings | null): Form {
   };
 }
 
-export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId: string; open: boolean; onOpenChange: (o: boolean) => void; onChanged?: () => void }) {
+export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab = 'overview' }: { hotelId: string; open: boolean; onOpenChange: (o: boolean) => void; onChanged?: () => void; initialTab?: 'overview' | 'messages' }) {
   const { t } = useTranslation();
   const [status, setStatus] = useState<NtakStatus | null>(null);
   const [form, setForm] = useState<Form>(toForm(null));
@@ -119,7 +119,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
       <DialogContent className="sm:max-w-4xl max-h-[92vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{t('ntak.manage')}</DialogTitle></DialogHeader>
         {!status ? <Loader2 className="h-5 w-5 animate-spin" /> : (
-          <Tabs defaultValue="overview">
+          <Tabs defaultValue={initialTab}>
             <TabsList className="flex-wrap h-auto">
               {['overview', 'settings', 'units', 'closures', 'messages'].map((k) => <TabsTrigger key={k} value={k}>{t(`ntak.tab.${k}`)}</TabsTrigger>)}
             </TabsList>
@@ -317,7 +317,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
               {status.messages.length === 0 && <p className="text-muted-foreground">{t('ntak.noMessages')}</p>}
               {status.messages.map((m) => <MessageRow key={m.id} m={m} expanded={expanded === m.id} onToggle={() => setExpanded(expanded === m.id ? null : m.id)}
                 onFix={status.can_manage && m.kind === 'closure' && ntakNeedsAction(m) && status.closures.some(c => c.message_id === m.id) ? () => setClosureDay(m.ref) : undefined}
-                onResend={status.can_manage && m.kind !== 'closure' && ['rejected', 'failed'].includes(m.state) && !m.ntak_status ? () => run('resend', { action: 'resend_message', message_id: m.id }) : undefined} />)}
+                onResend={status.can_manage && m.kind !== 'closure' && ntakNeedsAction(m) && ['rejected', 'failed', 'verified'].includes(m.state) ? () => run('resend', { action: 'resend_message', message_id: m.id }) : undefined} />)}
             </TabsContent>
           </Tabs>
         )}
@@ -361,7 +361,7 @@ function MessageRow({ m, expanded, onToggle, onResend, onFix }: { m: NtakMessage
               <span className="font-mono">{i.key}</span> · {i.field}{i.value ? ` = ${i.value}` : ''}: {i.message}{i.hint ? ` — ${i.hint}` : ''}
             </div>
           ))}
-          {onResend && <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={onResend}>{t('ntak.resend')}</Button>}
+          {onResend && <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={onResend}>{t(m.ntak_status === 'VIZSGALANDO' ? 'ntak.sendCorrection' : 'ntak.fixSend')}</Button>}
         </div>
       )}
     </div>

@@ -406,6 +406,12 @@ export async function queueClosure(db: Db, s: Settings, day: string, opts: {
   const override = closureOverride(build.checklist, s.environment, opts.actor, opts.override, opts.overrideReason);
   if ((opts.override && !override.allowed) || (hasBlockingErrors(build.checklist) && !override.allowed)) return { ok: false, build };
 
+  const { data: active, error: activeError } = await db.from("ntak_messages").select("id").eq("hotel_id", s.hotel_id).eq("environment", s.environment).eq("kind", "closure").eq("ref", day).in("state", ["sending", "accepted"]).limit(1);
+  if (activeError) throw new Error(activeError.message);
+  if (active?.length) {
+    build.checklist.push({level:"error",code:"pending_result",message:"Wait for the result of the previous submission before correcting this day."});
+    return {ok:false,build};
+  }
   await supersedeOpen(db, s.hotel_id, "closure", day);
   const { data: msg, error } = await db.from("ntak_messages").insert({
     hotel_id: s.hotel_id, organization_slug: s.organization_slug, environment: s.environment, kind: "closure", ref: day,
@@ -754,17 +760,19 @@ export async function verifyDue(db: Db, s: Settings, force = false): Promise<{ c
     // Queue the identical original before finalizing the result; failures leave
     // the original eligible for the next verification poll.
     if (r.status === "UJRA_KULDENDO") await resendSameContent(db, s, m.id, m.kind, m.ref);
-    await db.from("ntak_messages").update({
-      state: r.status === "TELJESEN_HIBAS" ? "rejected" : "verified", ntak_status: r.status, warnings: issuesJson(r.warnings), errors: issuesJson(r.errors),
-      verified_at: now(), verify_attempts: m.verify_attempts + 1, expected_start_date: r.expectedStartDate, updated_at: now(),
-    }).eq("id", m.id);
     if (m.kind === "closure" && r.status !== "UJRA_KULDENDO") {
-      await db.from("ntak_daily_closures").update({
+      const {error: registerError} = await db.from("ntak_daily_closures").update({
         state: CLOSURE_STATE[r.status] ?? "sent", updated_at: now(),
         ...(["TELJESEN_SIKERES", "VIZSGALANDO"].includes(r.status) ? { accepted_once: true } : {}),
         needs_correction: r.status === "VIZSGALANDO" || r.status === "TELJESEN_HIBAS",
       }).eq("hotel_id", s.hotel_id).eq("message_id", m.id);
+      if (registerError) throw new Error(registerError.message);
     }
+    const {error: resultError} = await db.from("ntak_messages").update({
+      state: r.status === "TELJESEN_HIBAS" ? "rejected" : "verified", ntak_status: r.status, warnings: issuesJson(r.warnings), errors: issuesJson(r.errors),
+      verified_at: now(), verify_attempts: m.verify_attempts + 1, expected_start_date: r.expectedStartDate, updated_at: now(),
+    }).eq("id", m.id);
+    if (resultError) throw new Error(resultError.message);
     if (m.kind === "start_date" && r.expectedStartDate) {
       await db.from("ntak_settings").update({ data_start_date: r.expectedStartDate, data_start_checked_at: now() }).eq("hotel_id", s.hotel_id);
     }

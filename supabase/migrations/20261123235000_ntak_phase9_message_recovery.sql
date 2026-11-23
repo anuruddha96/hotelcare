@@ -11,7 +11,7 @@ CREATE OR REPLACE FUNCTION public.ntak_notify_message_action()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   IF (NEW.ntak_status IN ('VIZSGALANDO','TELJESEN_HIBAS') AND NEW.ntak_status IS DISTINCT FROM OLD.ntak_status)
-     OR (NEW.state IN ('rejected','failed','blocked') AND NEW.state IS DISTINCT FROM OLD.state AND NEW.ntak_status IS NULL) THEN
+     OR (NEW.state IN ('rejected','failed','blocked') AND NEW.state IS DISTINCT FROM OLD.state AND (NEW.ntak_status IS NULL OR NEW.ntak_status = 'BEFOGADVA')) THEN
     PERFORM public.hotelcare_dispatch_push(
       public.hotelcare_push_recipients(NEW.organization_slug, NEW.hotel_id, ARRAY['admin','top_management','top_management_manager']),
       'NTAK reporting needs attention', 'Open Reception reports to review an NTAK message.',

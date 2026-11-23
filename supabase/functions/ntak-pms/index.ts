@@ -258,7 +258,23 @@ Deno.serve(async (req) => {
         const { data: m } = await db.from("ntak_messages").select("*").eq("id", body.message_id).eq("hotel_id", hotelId).maybeSingle();
         if (!m) return json({ ok: false, error: "Message not found" }, 404);
         if (m.kind === "closure") return json({ ok: false, error: "Send a closure again from the closure list (it becomes a MODOSITO version when needed)" }, 400);
-        if (["queued", "retry", "sending"].includes(m.state)) return json({ ok: false, error: "The message is still waiting to be sent" }, 400);
+        if (m.environment !== settings?.environment || !settings?.enabled) return json({ok:false,error:"Message belongs to another or inactive NTAK environment"},409);
+        if (!["rejected", "failed", "verified"].includes(m.state) || m.ntak_status === "TELJESEN_SIKERES" || m.ntak_status === "UJRA_KULDENDO") return json({ ok: false, error: "This message does not require a manual retry" }, 400);
+        if (m.kind === "booking") {
+          const {data: queue, error: readError} = await db.from("ntak_booking_queue").select("last_message_id").eq("hotel_id",hotelId).eq("booking_no",m.ref).maybeSingle();
+          if (readError || queue?.last_message_id !== m.id) return json({ok:false,error:"A newer booking message exists or the booking queue is missing"},409);
+          const {error} = await db.from("ntak_booking_queue").update({dirty_at:new Date().toISOString(),last_sent_at:null,last_payload_hash:null,cancelled_sent:false}).eq("hotel_id",hotelId).eq("booking_no",m.ref).eq("last_message_id",m.id);
+          if (error) throw new Error(error.message);
+          return json({ok:true});
+        }
+        if (m.kind === "event") {
+          const {data: events,error: readError} = await db.from("ntak_event_queue").select("id,guest_ids").eq("hotel_id",hotelId).eq("message_id",m.id);
+          // Legacy NULL recipients are not frozen; reusing current guests could change history.
+          if (readError || !events?.length || events.some((e:any)=>!Array.isArray(e.guest_ids)||!e.guest_ids.length)) return json({ok:false,error:"Original guest recipients are unavailable; review this event manually"},409);
+          const {error} = await db.from("ntak_event_queue").update({state:"queued",last_error:null,updated_at:new Date().toISOString()}).eq("hotel_id",hotelId).eq("message_id",m.id);
+          if (error) throw new Error(error.message);
+          return json({ok:true});
+        }
         const { data, error } = await db.from("ntak_messages").insert({
           hotel_id: hotelId, organization_slug: m.organization_slug, environment: m.environment, kind: m.kind, ref: m.ref,
           request_xml: m.request_xml, created_by: caller.userId,

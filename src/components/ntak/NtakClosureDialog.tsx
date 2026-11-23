@@ -59,7 +59,7 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
     }
   };
 
-  const errors = preview?.checklist.filter((c) => c.level === 'error') ?? [];
+  const errors = preview?.checklist.filter((c) => c.level === 'error' && !(c.code === 'correction' && protocolId.trim() && reason.trim())) ?? [];
   const warnings = preview?.checklist.filter((c) => c.level === 'warning') ?? [];
   const correction = preview?.classification === 'MODOSITO';
   const needsReason = correction && (!protocolId.trim() || !reason.trim());

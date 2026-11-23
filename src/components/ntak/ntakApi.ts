@@ -117,5 +117,5 @@ export const ACCOMMODATION_CLASSES = [
 
 export const fmtHuf = (n: number) => `${Math.round(n).toLocaleString('hu-HU')} Ft`;
 
-export const ntakResultLabel = (m: NtakMessage) => m.ntak_status ? 'ntak.result.' + m.ntak_status : 'ntak.state.' + m.state;
-export const ntakNeedsAction = (m: NtakMessage) => m.ntak_status === 'VIZSGALANDO' || m.ntak_status === 'TELJESEN_HIBAS' || (!m.ntak_status && ['rejected','failed','blocked'].includes(m.state));
+export const ntakResultLabel = (m: NtakMessage) => m.ntak_status && !(m.ntak_status === 'BEFOGADVA' && m.state === 'failed') ? 'ntak.result.' + m.ntak_status : 'ntak.state.' + m.state;
+export const ntakNeedsAction = (m: NtakMessage) => m.ntak_status === 'VIZSGALANDO' || m.ntak_status === 'TELJESEN_HIBAS' || ((!m.ntak_status || m.ntak_status === 'BEFOGADVA') && ['rejected','failed','blocked'].includes(m.state));

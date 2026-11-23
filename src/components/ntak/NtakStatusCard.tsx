@@ -18,6 +18,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
   const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<NtakStatus | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [initialTab, setInitialTab] = useState<'overview'|'messages'>('overview');
   const [closureOpen, setClosureOpen] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -72,7 +73,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
             </Button>
           )}
           {(canManage || s) && (
-            <Button type="button" size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => setPanelOpen(true)}>
+            <Button type="button" size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => {setInitialTab("overview");setPanelOpen(true);}}>
               <Settings2 className="h-3.5 w-3.5" /> {canManage ? t('ntak.manage') : t('ntak.tab.messages')}
             </Button>
           )}
@@ -82,7 +83,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
       {!s?.sending_blocked_reason && s?.last_error && <p className="mt-1 text-[11px] text-destructive truncate" title={s.last_error}>{s.last_error}</p>}
       {canManage && actionMessages.length > 0 && <div role="status" className="mt-2 flex items-center gap-2 text-xs text-destructive">
         <span>{t('ntak.actionRequired')}: {actionMessages.length}</span>
-        <Button size="sm" variant="outline" onClick={() => setPanelOpen(true)}>{t('ntak.tab.messages')}</Button>
+        <Button size="sm" variant="outline" onClick={() => {setInitialTab('messages');setPanelOpen(true);}}>{t('ntak.tab.messages')}</Button>
       </div>}
       {report && <div className="mt-3 border-t pt-3 text-sm">
         <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{t('ntak.recentActivity')}</h3>
@@ -105,7 +106,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
               </li>)}</ul>}
       </div>}
       {closureOpen && <NtakClosureDialog hotelId={hotelId} day={yesterday} open={closureOpen} onOpenChange={setClosureOpen} onQueued={refresh} />}
-      {panelOpen && <NtakPanel hotelId={hotelId} open={panelOpen} onOpenChange={(o) => { setPanelOpen(o); if (!o) void refresh(); }} onChanged={refresh} />}
+      {panelOpen && <NtakPanel hotelId={hotelId} initialTab={initialTab} open={panelOpen} onOpenChange={(o) => { setPanelOpen(o); if (!o) void refresh(); }} onChanged={refresh} />}
     </div>
   );
 }
