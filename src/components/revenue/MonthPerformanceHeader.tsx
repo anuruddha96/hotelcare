@@ -361,7 +361,7 @@ export default function MonthPerformanceHeader({
   const reconPending = Boolean(hotelId) && recon.isLoading && !recon.data;
   const reconError = Boolean(hotelId) && recon.isError && !recon.data;
   // The reconciled month may be ready before the forward rate grid extends.
-  const monthlyTilesLoading = loading || reconPending || (monthPending && !whole);
+  const monthlyTilesLoading = loading || reconPending || (monthPending && !whole && !reconError);
   const forwardTilesLoading = loading || monthPending;
   const zeroPriceDates = (recon.data ?? []).filter((day) =>
     day.stay_date.startsWith(month + "-") && (day.flags ?? []).includes("zero_price_nights")).length;
