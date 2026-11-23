@@ -433,7 +433,7 @@ export function Dashboard() {
               ) : profile?.role === 'maintenance' ? (
                 <TabsList className="grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12">
                   <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.tickets')}</span></TabsTrigger>
-                  <TabsTrigger value="maintenance-tasks" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.myTasks')}</span></TabsTrigger>
+                  <TabsTrigger value="maintenance-tasks" data-training="maintenance-tasks-tab" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.myTasks')}</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Clock className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.workStatus')}</span></TabsTrigger>
                 </TabsList>
               ) : ['manager','housekeeping_manager','admin','top_management','top_management_manager'].includes(profile?.role || '') ? (
@@ -486,7 +486,7 @@ export function Dashboard() {
                   <Button variant="outline" size="sm" onClick={() => setTicketPermissionDialogOpen(true)} className="text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Ticket Permissions</span><span className="sm:hidden">Tickets</span></Button>
                   <Button variant="outline" size="sm" onClick={() => setCompanySettingsOpen(true)} className="text-xs sm:text-sm"><Settings className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Company Settings</span><span className="sm:hidden">Settings</span></Button>
                 </>}
-                {canCreateTickets && <Button onClick={() => setCreateDialogOpen(true)} size="sm" className="text-xs sm:text-sm"><Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Report maintenance issue</span><span className="sm:hidden">New</span></Button>}
+                {canCreateTickets && <Button data-training="maintenance-report" onClick={() => setCreateDialogOpen(true)} size="sm" className="text-xs sm:text-sm"><Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Report maintenance issue</span><span className="sm:hidden">New</span></Button>}
               </div>
             </div>
 

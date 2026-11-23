@@ -11,7 +11,10 @@ export type RoleKey =
   | 'maintenance'
   | 'maintenance_manager'
   | 'reception'
-  | 'reception_manager';
+  | 'reception_manager'
+  | 'front_office'
+  | 'hr'
+  | 'control_finance';
 
 export type GuardKey =
   | 'always'
@@ -60,6 +63,12 @@ export interface TrainingStepV2 {
   skipWhen?: GuardKey;
   /** For safe navigation controls, clicking the highlighted element moves the tour on. */
   advanceOnClick?: boolean;
+  /** Advance when the next control appears, including hover and mobile dialogs. */
+  advanceOnTarget?: string;
+  /** Skip a workflow stage that an alternate layout already completed. */
+  skipIfTarget?: string;
+  /** This control is revealed by a preceding step on the same screen. */
+  withinWorkflow?: boolean;
   optional?: boolean;
   ctaLabel?: I18nText;
   /** Optional event name emitted to analytics when the step is shown. */
@@ -121,6 +130,9 @@ export interface TrainingCurriculum {
   moduleKey?: TrainingModuleKey;
   /** Rough duration hint shown as "~N min" on each unit card. */
   estMinutes?: number;
+  shortTopic?: boolean;
+  onboarding?: boolean;
+  replaces?: string[];
   /**
    * If true, this curriculum is treated as the "full walkthrough" entry
    * point for its role in the Training Center and is featured at the top.

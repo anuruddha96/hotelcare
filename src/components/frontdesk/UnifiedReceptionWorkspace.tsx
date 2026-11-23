@@ -65,7 +65,7 @@ function snapshotStatus(value: string | null): string {
 
 function isSnapshotOnly(row: any): boolean { return row?.snapshotOnly === true; }
 
-function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, signals }: {
+function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, signals, actionAnchor }: {
   title: string;
   icon: typeof Users;
   items: any[];
@@ -74,6 +74,7 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, 
   signals?: Map<string, GuestSignal>;
   /** One-tap action per row (e.g. Check in / Check out) so reception never has to hunt. */
   actionLabel?: string;
+  actionAnchor?: string;
   onAction?: (row: Record<string, unknown>) => void;
 }) {
   const { t } = useTranslation();
@@ -94,7 +95,7 @@ function SideSection({ title, icon: Icon, items, onOpen, actionLabel, onAction, 
             </div><span className="text-[10px] text-primary shrink-0 font-medium">{reservationChannel(row).label}</span></div>
           </button>
           {actionLabel && onAction && !isSnapshotOnly(row) && (
-            <button type="button" onClick={() => onAction(row)}
+            <button type="button" data-training={actionAnchor} onClick={() => onAction(row)}
               className="shrink-0 px-2 my-1.5 mr-1.5 rounded-md border border-border text-[11px] font-medium text-primary hover:bg-primary hover:text-primary-foreground transition-colors">
               {actionLabel}
             </button>
@@ -477,9 +478,9 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       <aside className="border border-border rounded-lg overflow-hidden bg-card 2xl:sticky 2xl:top-3">
         <SideSection signals={guestSignals} title={unassignedUrgent ? `${floatingTitle} · ${unassignedUrgent} ${t('pms.cal.floatingUrgent')}` : floatingTitle} icon={unassignedUrgent ? AlertTriangle : Waves} items={unassigned} onOpen={openReservation} />
         <SideSection signals={guestSignals} title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation}
-          actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
+          actionAnchor="fd-checkin-button" actionLabel={t('pms.checkIn')} onAction={(row) => setActioned({ row, dialog: 'checkin' })} />
         <SideSection signals={guestSignals} title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation}
-          actionLabel={t('pms.checkOut')} onAction={(row) => setActioned({ row, dialog: 'checkout' })} />
+          actionAnchor="fd-checkout-button" actionLabel={t('pms.checkOut')} onAction={(row) => setActioned({ row, dialog: 'checkout' })} />
         <SideSection signals={guestSignals} title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
         {newOnline.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.newOnline')} icon={Sparkles} items={newOnline} onOpen={openReservation} />}
         {expiringOptions.length > 0 && <SideSection signals={guestSignals} title={t('pms.fd.expiringOptions')} icon={Hourglass} items={expiringOptions} onOpen={openReservation} />}

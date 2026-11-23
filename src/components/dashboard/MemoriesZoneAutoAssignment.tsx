@@ -819,13 +819,13 @@ export function MemoriesZoneAutoAssignment({
               {step === 'zones' ? (
                 <>
                   <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                  <Button onClick={generateZonePlan}><Wand2 className="mr-2 h-4 w-4" />Generate zone plan</Button>
+                  <Button data-training="auto-assign-preview" onClick={generateZonePlan}><Wand2 className="mr-2 h-4 w-4" />Generate zone plan</Button>
                 </>
               ) : (
                 <>
                   <Button variant="outline" onClick={() => setStep('zones')}><ArrowLeft className="mr-2 h-4 w-4" />Zone setup</Button>
                   <Button variant="outline" onClick={generateZonePlan}><RefreshCw className="mr-2 h-4 w-4" />Regenerate</Button>
-                  <Button onClick={savePlan} disabled={saving || staffWithWork.some(preview => preview.totalWithBreak + (areaMinutesByStaff.get(preview.staffId) || 0) > 480)}>
+                  <Button data-training="auto-assign-publish" onClick={savePlan} disabled={saving || staffWithWork.some(preview => preview.totalWithBreak + (areaMinutesByStaff.get(preview.staffId) || 0) > 480)}>
                     {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Save zone assignment
                   </Button>
                 </>

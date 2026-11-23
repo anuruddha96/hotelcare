@@ -19894,6 +19894,18 @@ export type Database = {
           },
         ]
       }
+      training_prompt_receipts: {
+        Row: { user_id: string; prompt_key: string; shown_at: string }
+        Insert: { user_id?: string; prompt_key: string; shown_at?: string }
+        Update: { user_id?: string; prompt_key?: string; shown_at?: string }
+        Relationships: []
+      }
+      training_release_approvals: {
+        Row: { organization_slug: string; release_id: string; approved_by: string; approved_at: string }
+        Insert: { organization_slug: string; release_id: string; approved_by?: string; approved_at?: string }
+        Update: { organization_slug?: string; release_id?: string; approved_by?: string; approved_at?: string }
+        Relationships: []
+      }
       user_tour_progress: {
         Row: {
           completed_at: string

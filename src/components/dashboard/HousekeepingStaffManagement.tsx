@@ -693,6 +693,7 @@ export function HousekeepingStaffManagement() {
           <h3 className="text-base sm:text-lg sm:text-xl font-semibold">{t('staff.staffManagement')}</h3>
         </div>
         <Button 
+          data-training="housekeeping-add-staff"
           onClick={() => setShowCreateForm(!showCreateForm)}
           className="w-full sm:w-auto text-sm"
         >
@@ -904,7 +905,7 @@ export function HousekeepingStaffManagement() {
               </div>
               
               <div className="flex gap-2 pt-4">
-                <Button type="submit" disabled={loading}>
+                <Button type="submit" data-training="housekeeping-create-staff" disabled={loading}>
                   {loading ? 'Creating...' : `Create ${newStaffData.role === 'maintenance' ? 'Maintenance Staff' : newStaffData.role === 'manager' ? 'Manager' : 'Housekeeper'}`}
                 </Button>
                 <Button 
