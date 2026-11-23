@@ -44,7 +44,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
   const [chargeOpen, setChargeOpen] = useState(false);
   const [paymentDay, setPaymentDay] = useState(() => budapestToday());
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
-  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'depart', reservation.room_id, reservation.room_type_id);
+  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'depart', reservation.room_id);
   const isFinalDeparture = !roster.enabled || roster.selectedIds.length === roster.eligible.length;
 
   const payMethods: Array<{ value: string; key: string }> = [
