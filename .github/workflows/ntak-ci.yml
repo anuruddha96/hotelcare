@@ -13,6 +13,7 @@ on:
       - 'scripts/check_changed_migrations.py'
       - 'scripts/tests/**'
       - 'supabase/tests/ntak_finance_business_day.sql'
+      - 'supabase/tests/ntak_finance_guard_integration.sql'
   pull_request:
     paths:
       - 'supabase/functions/_shared/ntak/**'
@@ -74,6 +75,13 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_business_day.sql
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Native/external finance guard integration (disposable PostgreSQL)
+        run: |
+          # Runs after the NTAK fixture/SQL checks below; this step uses an
+          # independent ephemeral database so the finance fixture has its own schema.
+          createdb hotelcare_finance_ci
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_guard_integration.sql
       - name: Run NTAK SQL checks
         run: |
           set -euo pipefail
