@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { canManagePmsServiceCatalogue } from '@/lib/pmsFinance';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -48,6 +50,7 @@ const PAY_METHODS: Array<{ value: string; key: string }> = [
 
 export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps) {
   const { t } = useTranslation();
+  const { profile } = useAuth();
   const [rows, setRows] = useState<FolioRow[]>([]);
   const [balance, setBalance] = useState<number>(Number(reservation.balance_due ?? 0));
   const [loading, setLoading] = useState(true);
@@ -58,7 +61,8 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
   const [payBusy, setPayBusy] = useState(false);
   const [paymentDay, setPaymentDay] = useState(() => budapestToday());
   const currency = String(reservation.currency ?? 'HUF');
-  const closed = ['cancelled', 'no_show'].includes(String(reservation.status));
+  const departed = reservation.status === 'checked_out';
+  const closed = ['cancelled', 'no_show'].includes(String(reservation.status)) || (departed && !canManagePmsServiceCatalogue(profile?.role));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,7 +82,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
 
   const recordPayment = async () => {
     const amount = Number(payAmount);
-    if (!(amount > 0)) return;
+    if (closed || !(amount > 0)) return;
     setPayBusy(true);
     try {
       const method = PAY_METHODS.find((m) => m.value === payMethod);
@@ -108,6 +112,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {departed && <p className="text-xs font-medium text-amber-700">After departure · manager only</p>}
         <div className="flex flex-wrap gap-2">
           <Button type="button" size="sm" className="h-8 gap-1.5" disabled={closed} title={t('pms.charge.tip')} onClick={() => setChargeOpen(true)}>
             <PlusCircle className="h-4 w-4" /> {t('pms.charge.add')}
