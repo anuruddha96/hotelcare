@@ -512,6 +512,7 @@ BEGIN
   IF day=(clock_timestamp() AT TIME ZONE 'Europe/Budapest')::date THEN
     UPDATE public.rooms SET guest_count=inhouse_count,
       is_checkout_room=CASE WHEN inhouse_count=0 THEN _action='depart' ELSE false END,
+      checkout_time=CASE WHEN inhouse_count>0 THEN NULL ELSE checkout_time END,
       updated_at=now()
     WHERE id=COALESCE(dest,r.room_id);
     IF _action='depart' AND inhouse_count=0 THEN
