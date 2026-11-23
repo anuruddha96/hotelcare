@@ -627,8 +627,10 @@ async function sentLastHour(db: Db, hotelId: string): Promise<number> {
 const now = () => new Date().toISOString();
 const issuesJson = (list: NtakIssue[]) => list.map((i) => ({ field: i.field, value: i.value, key: i.key, message: i.message, hint: i.hint ?? null }));
 
-async function exchange(s: Settings, ctx: SendContext, requestXml: string) {
+async function exchange(s: Settings, ctx: SendContext, requestXml: string, beforeSend: (envelope: string) => Promise<void>) {
   const envelope = await signEnvelope({ requestXml, certPem: ctx.certPem, key: ctx.key, profile: s.signature_profile });
+  // Persist exactly the signed envelope before handing it to the transport.
+  await beforeSend(envelope);
   const result = await postSoap(envelope, {
     url: s.endpoint_url!, certPem: ctx.certPem, keyPem: ctx.keyPem,
     proxyUrl: Deno.env.get("NTAK_EGRESS_PROXY_URL") || null,
@@ -636,6 +638,17 @@ async function exchange(s: Settings, ctx: SendContext, requestXml: string) {
     proxyPassword: Deno.env.get("NTAK_EGRESS_PROXY_PASSWORD") || null,
   });
   return { result, parsed: result.body ? parseNtakResponse(result.body) : null };
+}
+
+async function evidenceWrite(query: PromiseLike<{ error: { message: string } | null }>) {
+  const { error } = await query;
+  if (error) throw new Error("NTAK evidence persistence failed: " + error.message);
+}
+
+function evidenceRef(kind: string, ref: string, xml: string): string {
+  if (kind !== "event") return ref;
+  const ids = [...new Set([...xml.matchAll(/<v9:foglalasiSzam>([^<]+)<\/v9:foglalasiSzam>/g)].map((m) => m[1]))];
+  return ids.length ? ids.join(",") : ref;
 }
 
 async function block(db: Db, s: Settings, reason: string) {
@@ -660,9 +673,24 @@ export async function sendDue(db: Db, s: Settings, opts: { limit: number; bookin
       lastBooking = Date.now();
     }
     const uzenetId = crypto.randomUUID();
-    const requestXml = refreshHeader(m.request_xml, uzenetId, new Date());
-    await db.from("ntak_messages").update({ state: "sending", uzenet_id: uzenetId, request_xml: requestXml, attempts: m.attempts + 1, sent_at: now(), updated_at: now() }).eq("id", m.id);
-    const { result, parsed } = await exchange(s, ctx, requestXml);
+    const sentAt = new Date();
+    const requestXml = refreshHeader(m.request_xml, uzenetId, sentAt);
+    const evidenceId = crypto.randomUUID();
+    const { result, parsed } = await exchange(s, ctx, requestXml, async (envelope) => {
+      await evidenceWrite(db.from("ntak_message_evidence").insert({
+        id: evidenceId, message_id: m.id, hotel_id: s.hotel_id, environment: m.environment, kind: m.kind,
+        ref: evidenceRef(m.kind, m.ref, requestXml), phase: "send", uzenet_id: uzenetId,
+        sent_at: sentAt.toISOString(), evidence_day: today(sentAt), request_xml: envelope, status: "sending",
+      }));
+      await evidenceWrite(db.from("ntak_messages").update({ state: "sending", uzenet_id: uzenetId, request_xml: requestXml, attempts: m.attempts + 1, sent_at: sentAt.toISOString(), updated_at: now() }).eq("id", m.id));
+    });
+    // A blank response is not an XML document. Keep it NULL, never fabricate one.
+    await evidenceWrite(db.from("ntak_message_evidence").update({
+      response_xml: result.body || null, http_status: result.status,
+      processing_id: parsed?.kind === "accepted" ? parsed.processingId : null,
+      status: parsed?.kind === "accepted" ? "BEFOGADVA" : parsed?.kind === "rejected" ? "rejected" : result.certificateProblem ? "blocked" : "transport_or_parse_error",
+      completed_at: now(),
+    }).eq("id", evidenceId));
     sent++;
 
     if (parsed?.kind === "accepted") {
@@ -711,11 +739,38 @@ const CLOSURE_STATE: Record<string, string> = { TELJESEN_SIKERES: "accepted", VI
 export async function verifyDue(db: Db, s: Settings, force = false): Promise<{ checked: number; skipped?: string }> {
   const ctx = await sendContext(db, s);
   if (typeof ctx === "string") return { checked: 0, skipped: ctx };
-  let q = db.from("ntak_messages").select("id,kind,ref,processing_id,verify_attempts,sent_at").eq("hotel_id", s.hotel_id).eq("state", "accepted").not("processing_id", "is", null);
+  let q = db.from("ntak_messages").select("id,kind,ref,processing_id,verify_attempts,sent_at,uzenet_id,environment").eq("hotel_id", s.hotel_id).eq("state", "accepted").not("processing_id", "is", null);
   if (!force) q = q.lte("next_verify_at", now());
   const { data: due } = await q.order("next_verify_at").limit(VERIFY_BATCH);
   if (!due?.length) return { checked: 0 };
-  const { result, parsed } = await exchange(s, ctx, buildEllenorzesRequest(common(s), due.map((m: any) => m.processing_id)));
+  const query = common(s);
+  const verificationAt = query.sentAt;
+  const { result, parsed } = await exchange(s, ctx, buildEllenorzesRequest(query, due.map((m: any) => m.processing_id)), async (envelope) => {
+    // Keep a separate row for each poll, including batched and pending results.
+    // Older sends may have no signed evidence; record metadata, never reconstruct XML.
+    for (const m of due) {
+      if (!m.uzenet_id || !m.sent_at) throw new Error("Accepted NTAK message has no original message ID or send time");
+      const day = today(new Date(m.sent_at));
+      await evidenceWrite(db.from("ntak_message_evidence").upsert({
+        message_id: m.id, hotel_id: s.hotel_id, environment: m.environment, kind: m.kind, ref: m.ref,
+        phase: "send", uzenet_id: m.uzenet_id, sent_at: m.sent_at, evidence_day: day,
+        processing_id: m.processing_id, status: "legacy_missing_request",
+      }, { onConflict: "uzenet_id,phase", ignoreDuplicates: true }));
+    }
+    await evidenceWrite(db.from("ntak_message_evidence").insert(due.map((m: any) => ({
+      message_id: m.id, hotel_id: s.hotel_id, environment: m.environment, kind: m.kind, ref: m.ref,
+      phase: "verify", uzenet_id: m.uzenet_id, query_id: query.uzenetId, sent_at: verificationAt.toISOString(),
+      evidence_day: today(new Date(m.sent_at)), request_xml: envelope, processing_id: m.processing_id, status: "sending",
+    }))));
+  });
+  for (const m of due) {
+    const item = parsed?.kind === "verification" ? parsed.results.find((v) => v.processingId === m.processing_id) : undefined;
+    const status = item?.status ?? (parsed?.kind === "verification" ? "missing_result" : "verification_error");
+    await evidenceWrite(db.from("ntak_message_evidence").update({
+      response_xml: result.body || null, http_status: result.status, status, completed_at: now(),
+    }).eq("uzenet_id", m.uzenet_id).eq("query_id", query.uzenetId));
+    if (item) await evidenceWrite(db.from("ntak_message_evidence").update({ status }).eq("uzenet_id", m.uzenet_id).eq("phase", "send"));
+  }
   if (parsed?.kind !== "verification") {
     const reason = parsed?.kind === "rejected" ? parsed.errors.map((e) => `${e.key}: ${e.message}`).join("; ") : result.error ?? `HTTP ${result.status}`;
     for (const m of due) {
