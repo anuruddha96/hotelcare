@@ -178,7 +178,7 @@ class Query {
 // ---------------------------------------------------------------------------
 // Fake NTAK endpoint
 
-interface FakeNtak { url: string; requests: { root: string; uzenetId: string; xml: string }[]; rejectNext: string | null; close(): Promise<void> }
+interface FakeNtak { url: string; requests: { root: string; uzenetId: string; xml: string; envelope: string }[]; rejectNext: string | null; close(): Promise<void> }
 
 async function xmllint(xml: string): Promise<string | null> {
   const file = await Deno.makeTempFile({ suffix: ".xml" });
@@ -202,7 +202,7 @@ function startFakeNtak(cert: string, key: string): FakeNtak {
     if (schemaError) return new Response(env(`<SOAP-ENV:Fault><faultcode>SOAP-ENV:Server</faultcode><faultstring xml:lang="en">Schema Error</faultstring><detail><error hibaUzenet="${schemaError.replace(/[<>&"]/g, " ").slice(0, 300)}" mezoNeve="GLOBAL"/></detail></SOAP-ENV:Fault>`), { status: 500 });
     const root = request.match(/^<v9:(\w+)/)?.[1] ?? "";
     const uzenetId = request.match(/<v9:uzenetId>([^<]+)</)?.[1] ?? "";
-    state.requests.push({ root, uzenetId, xml: request });
+    state.requests.push({ root, uzenetId, xml: request, envelope: body });
     if (state.rejectNext && root !== "ellenorzesRequest") { const key = state.rejectNext; state.rejectNext = null; return new Response(fault(key, "rejected by test"), { status: 500 }); }
     if (root === "ellenorzesRequest") {
       const ids = [...request.matchAll(/<v9:feldolgozasAzonosito>([^<]+)</g)].map((m) => m[1]);
@@ -317,8 +317,25 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     assert.deepEqual(ntak.requests.map((r) => r.root).sort(), ["adatszolgaltatasKezdoDatumRequest", "esemenyvezereltAdatkuldesRequest", "foglalasEsemenyRequest", "napiZarasRequest"]);
     assert.equal(new Set(ntak.requests.map((r) => r.uzenetId)).size, 4, "fresh uzenetId per send");
 
+    const evidence = db.rows("ntak_message_evidence");
+    assert.equal(evidence.length, 4);
+    for (const row of evidence) {
+      assert.equal(row.request_xml, ntak.requests.find(r => r.uzenetId === row.uzenet_id)?.envelope, "signed request must equal exact wire payload");
+      assert.ok(row.response_xml.includes(row.processing_id));
+      assert.equal(row.status, "BEFOGADVA");
+      assert.ok(!row.request_xml.includes("PRIVATE KEY"));
+    }
+
     // 6. Verification results land on messages, the closure register and settings.
     assert.equal((await verifyDue(db, s, true)).checked, 4);
+    const polls = evidence.filter(e => e.phase === "verify");
+    assert.equal(polls.length, 4);
+    for (const poll of polls) {
+      assert.equal(poll.request_xml, ntak.requests.find(r => r.uzenetId === poll.query_id)?.envelope);
+      assert.ok(poll.response_xml.includes(poll.processing_id));
+      assert.equal(evidence.find(e => e.phase === "send" && e.uzenet_id === poll.uzenet_id)?.status, poll.status);
+    }
+    assert.equal(polls.find(p => p.kind === "start_date")?.status, "TELJESEN_SIKERES");
     const c = db.rows("ntak_daily_closures").find((x) => x.closed_day === Y)!;
     assert.equal(c.state, "warnings");
     assert.equal(c.accepted_once, true);
@@ -343,6 +360,11 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     retry.next_attempt_at = new Date(Date.now() - 1000).toISOString();
     ntak.rejectNext = "ElteresCnAdatok";
     await sendDue(db, s, { limit: 1, deadline: Date.now() + 60000 });
+    const retries = evidence.filter(e => e.message_id === retry.id && e.phase === "send");
+    assert.equal(retries.length, 2);
+    assert.notEqual(retries[0].uzenet_id, retries[1].uzenet_id);
+    assert.ok(retries[0].response_xml.includes("SzerverHiba"));
+    assert.ok(retries[1].response_xml.includes("ElteresCnAdatok"));
     assert.match(db.rows("ntak_settings")[0].sending_blocked_reason, /ElteresCnAdatok/);
     assert.match((await sendDue(db, s, { limit: 1, deadline: Date.now() + 60000 })).skipped!, /Sending stopped/);
 
