@@ -311,14 +311,21 @@ BEGIN
       (day + time '12:00') AT TIME ZONE 'Europe/Budapest');
   END IF;
   paid_at := (day + time '12:00') AT TIME ZONE 'Europe/Budapest';
-  INSERT INTO public.guest_folios(reservation_id,guest_id,description,amount,charge_type,created_by)
-  VALUES(r.id,r.guest_id,btrim(_description),_amount,_charge_type,actor) RETURNING id INTO legacy_id;
-  IF _charge_type='payment' THEN
-    ledger_id := public.pms_finance_record_payment(r.id,_amount,r.currency,COALESCE(NULLIF(btrim(_method),''),'other'),NULL,paid_at);
-    UPDATE public.payments SET legacy_guest_folio_id=legacy_id WHERE id=ledger_id;
-  ELSE
-    ledger_id := public.pms_finance_add_charge(r.id,btrim(_description),1,'item',_amount,r.currency,'REVIEW_REQUIRED',NULL,NULL,day);
-    UPDATE public.folio_lines SET legacy_guest_folio_id=legacy_id,source_type=_charge_type WHERE id=ledger_id;
+  INSERT INTO public.guest_folios(reservation_id,guest_id,description,amount,charge_type,charge_date,created_by)
+  VALUES(r.id,r.guest_id,btrim(_description),_amount,_charge_type,day,actor) RETURNING id INTO legacy_id;
+  -- The legacy guest folio is deployed even in instances where the earlier
+  -- financial-core migration has not yet been applied. Preserve dated
+  -- operations now and mirror them once that core is available.
+  IF to_regclass('public.reservation_folios') IS NOT NULL
+     AND to_regclass('public.folio_lines') IS NOT NULL
+     AND to_regclass('public.payments') IS NOT NULL THEN
+    IF _charge_type='payment' THEN
+      ledger_id := public.pms_finance_record_payment(r.id,_amount,r.currency,COALESCE(NULLIF(btrim(_method),''),'other'),NULL,paid_at);
+      UPDATE public.payments SET legacy_guest_folio_id=legacy_id WHERE id=ledger_id;
+    ELSE
+      ledger_id := public.pms_finance_add_charge(r.id,btrim(_description),1,'item',_amount,r.currency,'REVIEW_REQUIRED',NULL,NULL,day);
+      UPDATE public.folio_lines SET legacy_guest_folio_id=legacy_id,source_type=_charge_type WHERE id=ledger_id;
+    END IF;
   END IF;
   -- Preserve the established reception balance until all legacy folios are
   -- migrated into the financial-core ledger.
@@ -465,19 +472,28 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.pms_validate_financial_business_day() FROM PUBLIC,anon,authenticated;
-DROP TRIGGER IF EXISTS pms_validate_financial_business_day ON public.folio_lines;
-CREATE TRIGGER pms_validate_financial_business_day
-BEFORE INSERT OR UPDATE OF service_date ON public.folio_lines
-FOR EACH ROW EXECUTE FUNCTION public.pms_validate_financial_business_day();
-DROP TRIGGER IF EXISTS pms_validate_financial_business_day ON public.payments;
-CREATE TRIGGER pms_validate_financial_business_day
-BEFORE INSERT OR UPDATE OF received_at ON public.payments
-FOR EACH ROW EXECUTE FUNCTION public.pms_validate_financial_business_day();
+-- Databases that have not deployed the earlier PMS financial-core migration
+-- still support dated legacy folios; install the financial-core migration
+-- before certifying NTAK financial reports. Trigger creation is conditional
+-- so an existing non-finance production database can apply Phase 2 safely.
+DO $finance_guard$
+BEGIN
+  IF to_regclass('public.folio_lines') IS NOT NULL THEN
+    EXECUTE 'DROP TRIGGER IF EXISTS pms_validate_financial_business_day ON public.folio_lines';
+    EXECUTE 'CREATE TRIGGER pms_validate_financial_business_day BEFORE INSERT OR UPDATE OF service_date ON public.folio_lines FOR EACH ROW EXECUTE FUNCTION public.pms_validate_financial_business_day()';
+  END IF;
+  IF to_regclass('public.payments') IS NOT NULL THEN
+    EXECUTE 'DROP TRIGGER IF EXISTS pms_validate_financial_business_day ON public.payments';
+    EXECUTE 'CREATE TRIGGER pms_validate_financial_business_day BEFORE INSERT OR UPDATE OF received_at ON public.payments FOR EACH ROW EXECUTE FUNCTION public.pms_validate_financial_business_day()';
+  END IF;
+END;
+$finance_guard$;
 
 -- These are explicit post-migration fixtures for a *test* hotel only:
 -- 1) create FOGL_01/FOGL_02 reservations with 101/103 rooms and complete guests;
 -- 2) grant a scoped manager and enable allow_backdating with min_date <= T02;
 -- 3) call pms_check_in(... T02), pms_change_room(... T03), pms_check_out(... T04);
 -- 4) inspect ntak_event_queue.occurred_at and built XML idopont;
+--    verify pms_finance_* deployment before validating finance-core ledgers;
 -- 5) verify first_closure_date, non-manager and disabled-flag refusals.
 -- Do not run this sequence on production or with live NTAK reporting.
