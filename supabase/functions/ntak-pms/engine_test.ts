@@ -13,7 +13,7 @@ import { verifyEnvelope } from "../_shared/ntak/wssec.ts";
 import { addDays } from "../_shared/ntak/ledger.ts";
 import { isInNtakScope, loadNtakScope } from "./scope.ts";
 import {
-  buildClosure, classificationFor, detectDrift, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
+  buildClosure, classificationFor, detectDrift, loadUnits, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
 } from "./engine.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -516,4 +516,31 @@ Deno.test('Phase 3 processEvents snapshots exactly guest_ids, including voided c
     ['guest2'.padEnd(31,'x')]);
   assert.ok(xml.includes('<v9:foglalasiSzam>FOGL_01</v9:foglalasiSzam>'),'explicit override must win over CHX');
   assert.equal(db.rows('ntak_event_queue').filter(e=>e.state==='sent').length,2);
+});
+
+
+Deno.test('Phase 4 loadUnits uses dated periods on historical days; live status is today-only fallback', async () => {
+  const db = new FakeDb(schemaColumns());
+  db.rows('rooms').push(
+    { id: 'r103', hotel: 'Test Property - HotelCare', room_number: '103', status: 'clean' },
+    { id: 'r104', hotel: 'Test Property - HotelCare', room_number: '104', status: 'out_of_service' },
+  );
+  db.rows('ntak_unit_profiles').push(
+    { room_id: 'r103', hotel_id: 'channex-test-property', active: true, building: '1',
+      room_number: '103', unit_type: 'ECONOMY', single_beds: 1, double_beds: 1, extra_beds: 0 },
+    { room_id: 'r104', hotel_id: 'channex-test-property', active: true, building: '1',
+      room_number: '104', unit_type: 'APARTMAN', single_beds: 0, double_beds: 1, extra_beds: 1 },
+  );
+  db.rows('room_state_periods').push(
+    { room_id: 'r103', hotel_id: 'channex-test-property', organization_slug: 'channex',
+      state: 'out_of_order', from_date: '2026-11-17', to_date: '2026-11-18' },
+    { room_id: 'r104', hotel_id: 'channex-test-property', organization_slug: 'channex',
+      state: 'out_of_service', from_date: '2026-11-18', to_date: '2026-11-19' },
+  );
+  const dated = await loadUnits(db, 'channex-test-property', '2026-11-18');
+  assert.deepEqual(dated.map((u) => u.state), ['ooo', 'oos']);
+  assert.deepEqual((await loadUnits(db, 'channex-test-property', '2026-11-16')).map((u) => u.state),
+    ['available', 'available'], 'historical dates must not inherit today status');
+  assert.deepEqual((await loadUnits(db, 'channex-test-property', today())).map((u) => u.state),
+    ['available', 'oos'], 'today may fall back to the live status only when no dated period exists');
 });

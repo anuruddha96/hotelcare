@@ -4,7 +4,7 @@
 import { strict as assert } from 'node:assert';
 import { buildDaySources, bookingNumber, DEFAULT_LEDGER_CONFIG, type RawReservation } from './ledger.ts';
 import { assembleClosure, type StayGuest, type UnitInfo, type ClosureSettings } from './closure.ts';
-import { buildEsemenyvezereltRequest, type NtakStayEvent, type NtakGuest, type NtakUnit } from './messages.ts';
+import { buildEsemenyvezereltRequest, buildNapiZarasRequest, type NtakStayEvent, type NtakGuest, type NtakUnit } from './messages.ts';
 
 const days = { T02: '2026-11-18', T03: '2026-11-19', T04: '2026-11-20', T05: '2026-11-21' };
 const t = (day: string, hour = '12:00:00') => day + 'T' + hour + 'Z';
@@ -146,4 +146,49 @@ Deno.test('NTAK override wins even with Channex/PMS identifiers and supports res
   assert.equal(bookingNumber(r),'FOGL_01');
   assert.equal(bookingNumber({...r,ntak_booking_no:'__UJRAKULDENDO_VALIDACIO__'}),'__UJRAKULDENDO_VALIDACIO__');
   assert.equal(bookingNumber(reservations[2]),bookingNumber(reservations[3]));
+});
+
+
+Deno.test('NZ_02 T02 room 103 OOO, 104 OOS: rooms 4/1/1/2/0 and beds 10/3/2/5/0', () => {
+  const day = days.T02;
+  const source = buildDaySources({
+    day, reservations, assignments, lines: [], payments: [],
+    guestsFor: (r) => guests[r.id], isCompany: () => false,
+    roomsInBooking: () => 1, label: (r) => r.id,
+  }, DEFAULT_LEDGER_CONFIG);
+  const datedUnits: UnitInfo[] = units.map((u) => ({
+    ...u, state: u.roomId === 'r103' ? 'ooo' : u.roomId === 'r104' ? 'oos' : 'available',
+  }));
+  const assembled = assembleClosure({
+    day, closedAt: t(day), classification: 'UJ', closed: false, units: datedUnits,
+    ...source, otherCharges: [], otherPayments: [],
+  }, setting);
+  assert.deepEqual(assembled.closure.rooms, { total: 4, ooo: 1, oos: 1, rented: 2, available: 0 });
+  assert.deepEqual(assembled.closure.capacity, { total: 10, ooo: 3, oos: 2, rented: 5, available: 0 });
+  assert.deepEqual(assembled.closure.outOfService.map((u) => u.roomNumber).sort(), ['103', '104']);
+  assert.equal(assembled.closure.outOfService.find((u) => u.roomNumber === '104')?.extraBeds, 1, 'extra bed is separate from capacity');
+  assert.ok(!assembled.checklist.some((x) => x.code === 'state_conflict'), 'rooms 101 and 102 are the sold units');
+  const common = {
+    uzenetId: crypto.randomUUID(), sentAt: t(day), softwareVersion: '1.0', softwareId: 'HOTELCARE',
+    registrationNumber: 'MA26004524', taxNumber: '11223355-1-22',
+    accommodationName: 'Test Property', providerName: 'Test Provider',
+  };
+  const xml = buildNapiZarasRequest(common, assembled.closure);
+  for (const [field, value] of [
+    ['osszesSzoba', 4], ['oooSzobak', 1], ['oosSzobak', 1],
+    ['kiadottSzobak', 2], ['kiadhatoSzobak', 0],
+    ['osszesFerohelyKapacitas', 10], ['oooFerohelyKapacitas', 3],
+    ['oosFerohelyKapacitas', 2], ['kiadottFerohelyKapacitas', 5],
+    ['kiadhatoFerohelyKapacitas', 0],
+  ] as const) assert.ok(xml.includes('<v9:' + field + '>' + value + '</v9:' + field + '>'), field);
+  assert.ok(xml.includes('<v9:uzemenKivuliSzobak>'), 'OOS appears under uzemenKivuliSzobak');
+
+  // Impossible input is a hard block, not a warning or silently sent closure.
+  const conflictingUnits = datedUnits.map((u) => u.roomId === 'r101' ? { ...u, state: 'ooo' as const } : u);
+  const conflict = assembleClosure({
+    day, closedAt: t(day), classification: 'UJ', closed: false, units: conflictingUnits,
+    ...source, otherCharges: [], otherPayments: [],
+  }, setting);
+  assert.ok(conflict.checklist.some((x) => x.level === 'error' && x.code === 'state_conflict'),
+    'occupied OOO/OOS is a blocking checklist error');
 });
