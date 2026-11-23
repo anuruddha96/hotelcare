@@ -219,7 +219,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
               <SelectContent>{availableHotels.map(h => <SelectItem key={h.hotel_id} value={h.hotel_id}>{h.hotel_name}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="space-y-2"><Label>{c.room} <span className="text-muted-foreground text-xs">({c.optional})</span></Label>
+          <div className="space-y-2" data-training="maintenance-location"><Label>{c.room} <span className="text-muted-foreground text-xs">({c.optional})</span></Label>
             <MaintenanceRoomPicker key={formData.hotel} options={rooms} value={formData.roomId}
               onChange={roomId => setFormData(previous => ({ ...previous, roomId }))}
               disabled={!selectedHotel} loading={roomsLoading} error={roomsError}
@@ -235,7 +235,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
             <MaintenanceTitleAutocomplete required value={formData.title} onChange={title => setFormData(previous => ({ ...previous, title }))} language={language} /> :
             <Input required value={formData.title} onChange={event => setFormData(previous => ({ ...previous, title: event.target.value }))} placeholder="e.g. Broken curtain rail" className="h-11" />}
         </div>
-        <div className="space-y-2"><Label>{c.description} *</Label><Textarea required value={formData.description} onChange={event => setFormData(previous => ({ ...previous, description: event.target.value }))} rows={4} className="text-base" /></div>
+        <div className="space-y-2"><Label>{c.description} *</Label><Textarea data-training="maintenance-description" required value={formData.description} onChange={event => setFormData(previous => ({ ...previous, description: event.target.value }))} rows={4} className="text-base" /></div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2"><Label>{c.department}</Label>
             <Select value={formData.department} onValueChange={department => { setFormData(previous => ({ ...previous, department })); setSelectedMaintenancePerson('auto'); }}>
@@ -272,7 +272,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpen
             : 'The ticket already exists. Press Report issue again to retry; no duplicate ticket will be created.'}
         </div>}
         <div className="grid grid-cols-2 gap-2 pt-2"><Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading} className="h-11">{c.cancel}</Button>
-          <Button type="submit" disabled={loading || roomsLoading || roomsError || !selectedHotel || !canCreateTickets} className="h-11">{loading ? c.creating : <><CheckCircle2 className="h-4 w-4 mr-2" />{c.submit}</>}</Button>
+          <Button data-training="maintenance-submit" type="submit" disabled={loading || roomsLoading || roomsError || !selectedHotel || !canCreateTickets} className="h-11">{loading ? c.creating : <><CheckCircle2 className="h-4 w-4 mr-2" />{c.submit}</>}</Button>
         </div>
       </form>}
     </DialogContent>

@@ -157,7 +157,7 @@ export default function ReceptionReports() {
         <div className="flex flex-wrap items-center gap-2 mb-3 print:hidden">
           <div className="flex flex-wrap border border-border rounded-md overflow-hidden" role="tablist">
             {(['daily', 'performance', 'channels', 'authority'] as Tab[]).map((key) => (
-              <Button key={key} type="button" size="sm" role="tab" aria-selected={tab === key} variant={tab === key ? 'default' : 'ghost'} className="rounded-none h-9" onClick={() => setTab(key)}>{key === 'authority' ? 'NTAK / VIZA' : t(`pms.rep.tab_${key}`)}</Button>
+              <Button key={key} data-training={key === "daily" ? "reception-report-daily" : undefined} type="button" size="sm" role="tab" aria-selected={tab === key} variant={tab === key ? 'default' : 'ghost'} className="rounded-none h-9" onClick={() => setTab(key)}>{key === 'authority' ? 'NTAK / VIZA' : t(`pms.rep.tab_${key}`)}</Button>
             ))}
           </div>
           {!authority && (tab === 'daily' ? (

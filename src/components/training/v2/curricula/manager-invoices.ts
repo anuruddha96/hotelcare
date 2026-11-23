@@ -19,7 +19,7 @@ export const managerInvoicesCurriculum: TrainingCurriculum = {
     mn: 'Оруулах, AI задлах, мөр шалгах ба зөвшөөрөл.',
     uk: 'Завантаження, AI-розбір, перевірка позицій та погодження.',
   },
-  roles: ['top_management', 'top_management_manager', 'admin'],
+  roles: ['top_management', 'top_management_manager', 'admin', 'control_finance'],
   category: 'feature_promo',
   priority: 30,
   moduleKey: 'invoices',

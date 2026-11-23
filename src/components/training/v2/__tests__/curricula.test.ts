@@ -35,11 +35,11 @@ describe('training v2 curricula shape', () => {
         }
       });
 
-      it('every selector step has route OR tab OR is a global anchor', () => {
+      it('every selector step declares a route, tab, preceding workflow, or global anchor', () => {
         for (const s of cur.steps) {
           if (!s.selector) continue;
           if (GLOBAL_ANCHORS.has(s.selector)) continue;
-          const hasNav = Boolean(s.route || s.tab);
+          const hasNav = Boolean(s.route || s.tab || (s.withinWorkflow && cur.steps[0] !== s));
           expect(
             hasNav,
             `${cur.slug}::${s.key} → selector "${s.selector}" needs route or tab`,

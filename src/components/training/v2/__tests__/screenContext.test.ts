@@ -48,15 +48,15 @@ describe('stepMatchesScreen', () => {
 });
 
 describe('matchCurriculaToScreen with the real curricula', () => {
-  it('offers housekeepers the shift and doorway guides on My Tasks, and only the shift guide on Work status', () => {
+  it('offers housekeepers the shift and doorway guides on My Tasks, and surfaces the shift guides on Work status', () => {
     const hk = curriculaForRole('housekeeping');
     const onTasks = matchCurriculaToScreen(hk, { pathname: `/${ORG}`, tab: 'housekeeping' }, resolveRoute);
-    expect(onTasks.map((m) => m.curriculum.slug)).toEqual(['v2_housekeeper_first_day', 'v2_housekeeper_at_the_door']);
+    expect(onTasks.map((m) => m.curriculum.slug)).toEqual(['v2_housekeeper_first_day', 'visual_housekeeper_start', 'visual_housekeeper_clean', 'visual_housekeeper_finish', 'v2_housekeeper_at_the_door']);
     expect(onTasks[0].stepKey).toBe('open_my_tasks');
-    expect(onTasks[1].stepKey).toBe('door_intro');
+    expect(onTasks.find((match) => match.curriculum.slug === 'v2_housekeeper_at_the_door')?.stepKey).toBe('door_intro');
 
     const onAttendance = matchCurriculaToScreen(hk, { pathname: `/${ORG}`, tab: 'attendance' }, resolveRoute);
-    expect(onAttendance.map((m) => m.curriculum.slug)).toEqual(['v2_housekeeper_first_day']);
+    expect(onAttendance.map((m) => m.curriculum.slug)).toEqual(['v2_housekeeper_first_day', 'visual_housekeeper_start']);
     expect(onAttendance[0].stepKey).toBe('signin');
   });
 
@@ -65,7 +65,7 @@ describe('matchCurriculaToScreen with the real curricula', () => {
     const onHk = matchCurriculaToScreen(mgr, { pathname: `/${ORG}`, tab: 'housekeeping', subTab: 'manage' }, resolveRoute);
     expect(onHk.map((m) => m.curriculum.slug)).toContain('v2_manager_team_and_assignments');
     const onTickets = matchCurriculaToScreen(mgr, { pathname: `/${ORG}`, tab: 'tickets' }, resolveRoute);
-    expect(onTickets.map((m) => m.curriculum.slug)).toEqual(['v2_manager_tickets_and_sla']);
+    expect(onTickets.map((m) => m.curriculum.slug)).toEqual(['visual_maintenance_report', 'visual_maintenance_dispatch', 'v2_manager_tickets_and_sla']);
     const onTraining = matchCurriculaToScreen(mgr, { pathname: `/${ORG}/training` }, resolveRoute);
     expect(onTraining).toEqual([]);
   });

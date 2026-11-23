@@ -567,11 +567,11 @@ export function MaintenanceStaffView() {
             {!!completionPhotoUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.completionPhotos} ({completionPhotoUrls[ticket.id].length})</div><div className="flex flex-wrap gap-2">{completionPhotoUrls[ticket.id].map((url, idx) => <Dialog key={`${ticket.id}-completion-${idx}`}><DialogTrigger asChild><Button type="button" size="sm" variant="outline" aria-label={`${c.completionPhotos} ${idx + 1}`}><Camera className="mr-1 h-3.5 w-3.5" />{idx + 1}</Button></DialogTrigger><DialogContent className="w-[calc(100vw-1rem)] max-w-4xl"><img src={url} alt={`${c.completionPhotos} ${idx + 1}`} loading="lazy" className="mx-auto max-h-[80dvh] w-auto rounded" /></DialogContent></Dialog>)}</div></div>}
 
             {activeTab !== 'done' && <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button onClick={() => void startWork(ticket)} disabled={!signedIn || busy || accessLoading[ticket.id] } className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.start}</Button>}
+              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button data-training="maintenance-start" onClick={() => void startWork(ticket)} disabled={!signedIn || busy || accessLoading[ticket.id] } className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.start}</Button>}
               {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => openDialog(ticket, 'hold')} disabled={!signedIn || busy} className="min-h-11"><PauseCircle className="mr-1 h-4 w-4" />{c.hold}</Button>}
               {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn || busy} className="min-h-11"><Play className="mr-1 h-4 w-4" />{c.resume}</Button>}
               {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => openDialog(ticket, 'note')} disabled={busy} className="min-h-11"><MessageSquare className="mr-1 h-4 w-4" />{c.note}</Button>}
-              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => openDialog(ticket, 'complete')} disabled={!signedIn || busy} className="min-h-11 bg-green-600 hover:bg-green-700"><CheckCircle2 className="mr-1 h-4 w-4" />{c.complete}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button data-training="maintenance-complete" onClick={() => openDialog(ticket, 'complete')} disabled={!signedIn || busy} className="min-h-11 bg-green-600 hover:bg-green-700"><CheckCircle2 className="mr-1 h-4 w-4" />{c.complete}</Button>}
             </div>}
             <div className="flex items-center gap-1 text-[11px] text-muted-foreground"><Clock3 className="h-3 w-3" />{new Date(ticket.updated_at || ticket.created_at).toLocaleString()}</div>
           </CardContent>
@@ -593,7 +593,7 @@ export function MaintenanceStaffView() {
       <Dialog open={dialog === 'complete'} onOpenChange={next => { if (!next) closeDialog(); }}>
         <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] max-w-lg overflow-y-auto p-4 sm:p-6">
           <DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader>
-          <Textarea value={resolution} onChange={event => setResolution(event.target.value)} placeholder={c.resolutionPlaceholder} rows={4} disabled={isSubmittingCompletion} />
+          <Textarea data-training="maintenance-resolution" value={resolution} onChange={event => setResolution(event.target.value)} placeholder={c.resolutionPlaceholder} rows={4} disabled={isSubmittingCompletion} />
           <p className="text-xs text-muted-foreground">{c.photoChoice}</p>
           <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label={c.takePhoto} onChange={event => {
             const file = event.currentTarget.files?.[0] || null;
@@ -648,7 +648,7 @@ export function MaintenanceStaffView() {
           )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal py-2" variant="outline" disabled={isSubmittingCompletion} onClick={closeDialog}>{c.cancel}</Button>
-            <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal break-words bg-green-600 py-2 text-center leading-snug hover:bg-green-700"
+            <Button type="button" data-training="maintenance-finish" className="h-auto min-h-11 w-full min-w-0 whitespace-normal break-words bg-green-600 py-2 text-center leading-snug hover:bg-green-700"
               onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !signedIn || !resolution.trim() || (!completionFile && !completionPhotoSkipped)}>
               <CheckCircle2 className="mr-1 h-4 w-4 shrink-0" />{isSubmittingCompletion ? (language === 'hu' ? 'Beküldés…' : 'Submitting…') : c.submitApproval}
             </Button>

@@ -1331,6 +1331,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           // if the hub is not mounted for a role.
           handleRoomClick(room);
         }}
+        data-training={canInteractWithRooms ? "room-actions-menu" : undefined}
+        data-room-type={isCheckout ? "checkout" : "daily"}
+        data-room-status={room.status}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
         onMouseLeave={handleHoverLeave}
         style={{ cursor: roomCanDragAssign || slntManageOnClick ? 'pointer' : canInteractWithRooms ? 'pointer' : 'default' }}
@@ -1512,6 +1515,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {canMarkReadyToClean && assignment && !assignment.ready_to_clean && (isManagerOrAdmin || canManualGozsduRtc) && (
                 <button
                   className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
+                  data-training="room-ready-to-clean"
                   disabled={actionLoading === `ready-${room.id}`}
                   onClick={async (e) => {
                     e.stopPropagation();
@@ -1782,6 +1786,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 {/* Switch Type */}
                 <button
                   className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+                  data-training={!isCheckout ? "room-switch-checkout" : undefined}
                   disabled={actionLoading === `switch-${room.id}`}
                   onClick={async (e) => {
                     e.stopPropagation();
@@ -1803,6 +1808,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 {room.status === 'clean' && (
                   <button
                     className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                    data-training="room-mark-dirty"
                     disabled={actionLoading === `dirty-${room.id}`}
                     onClick={async (e) => {
                       e.stopPropagation();
@@ -2851,6 +2857,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                           variant="outline"
                           size="sm"
                           className="flex-1 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                          data-training="room-mark-dirty"
                           disabled={actionLoading === 'dirty'}
                           onClick={async () => {
                             setActionLoading('dirty');
@@ -3088,6 +3095,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         variant="outline"
                         size="sm"
                         className="w-full justify-start gap-2"
+                        data-training={assignment?.ready_to_clean ? undefined : "room-ready-to-clean"}
                         disabled={actionLoading === 'ready' || (assignment?.ready_to_clean === true)}
                         onClick={async () => {
                           if (!assignment || !confirmReadyToCleanRelease(selectedRoom, assignment)) return;
@@ -3109,7 +3117,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       </Button>
                     )}
                     {/* Switch Room Type */}
-                    <Button
+                    <Button data-training={!isCheckout ? "room-switch-checkout" : undefined}
                       variant="outline"
                       size="sm"
                       className="w-full justify-start gap-2"
