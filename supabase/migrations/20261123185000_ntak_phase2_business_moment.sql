@@ -429,3 +429,55 @@ GRANT EXECUTE ON FUNCTION public.pms_undo_check_out(uuid,timestamptz) TO authent
 GRANT EXECUTE ON FUNCTION public.pms_record_business_folio_item(uuid,text,numeric,text,date,text) TO authenticated;
 REVOKE ALL ON FUNCTION public.ntak_on_reservation_change() FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION public.viza_on_reservation_status() FROM PUBLIC,anon,authenticated;
+
+
+-- Enforce manager-only historical dates even for callers that bypass the UI
+-- and invoke the existing financial-core functions directly. Keep imported
+-- service-role sync intact (auth.uid() is NULL for trusted server jobs).
+CREATE OR REPLACE FUNCTION public.pms_validate_financial_business_day()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE
+  actor uuid := auth.uid();
+  hotel text;
+  org text;
+  day date;
+BEGIN
+  IF actor IS NULL THEN RETURN NEW; END IF;
+  IF TG_TABLE_NAME='folio_lines' THEN
+    day := NEW.service_date;
+    SELECT f.hotel_id,f.organization_slug INTO hotel,org
+    FROM public.reservation_folios f WHERE f.id=NEW.folio_id;
+  ELSE
+    day := (NEW.received_at AT TIME ZONE 'Europe/Budapest')::date;
+    hotel := NEW.hotel_id;
+    org := NEW.organization_slug;
+  END IF;
+  IF hotel IS NULL THEN RAISE EXCEPTION 'FINANCE_HOTEL_NOT_FOUND'; END IF;
+  IF NOT public.can_access_pms_hotel(actor,hotel,org) THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
+  IF day > (now() AT TIME ZONE 'Europe/Budapest')::date THEN
+    RAISE EXCEPTION 'BUSINESS_MOMENT_CANNOT_BE_FUTURE';
+  END IF;
+  IF day < (now() AT TIME ZONE 'Europe/Budapest')::date THEN
+    PERFORM public.pms_assert_business_moment(
+      hotel,org,(day + time '12:00') AT TIME ZONE 'Europe/Budapest');
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.pms_validate_financial_business_day() FROM PUBLIC,anon,authenticated;
+DROP TRIGGER IF EXISTS pms_validate_financial_business_day ON public.folio_lines;
+CREATE TRIGGER pms_validate_financial_business_day
+BEFORE INSERT OR UPDATE OF service_date ON public.folio_lines
+FOR EACH ROW EXECUTE FUNCTION public.pms_validate_financial_business_day();
+DROP TRIGGER IF EXISTS pms_validate_financial_business_day ON public.payments;
+CREATE TRIGGER pms_validate_financial_business_day
+BEFORE INSERT OR UPDATE OF received_at ON public.payments
+FOR EACH ROW EXECUTE FUNCTION public.pms_validate_financial_business_day();
+
+-- These are explicit post-migration fixtures for a *test* hotel only:
+-- 1) create FOGL_01/FOGL_02 reservations with 101/103 rooms and complete guests;
+-- 2) grant a scoped manager and enable allow_backdating with min_date <= T02;
+-- 3) call pms_check_in(... T02), pms_change_room(... T03), pms_check_out(... T04);
+-- 4) inspect ntak_event_queue.occurred_at and built XML idopont;
+-- 5) verify first_closure_date, non-manager and disabled-flag refusals.
+-- Do not run this sequence on production or with live NTAK reporting.
