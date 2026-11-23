@@ -154,8 +154,15 @@ export async function loadStayGuests(db: Db, hotelId: string, reservations: RawR
   const out = new Map<string, StayGuest[]>();
   const ids = reservations.map((r) => r.id);
   if (!ids.length) return out;
-  const { data: links } = await db.from("reservation_guests").select("reservation_id,guest_id,is_primary,ifa_status,arrived_at,departed_at,room_id,stay_state").in("reservation_id", ids);
-  const linkRows: any[] = links ?? [];
+  let linksResult = await db.from("reservation_guests")
+    .select("reservation_id,guest_id,is_primary,ifa_status,arrived_at,departed_at,room_id,stay_state").in("reservation_id", ids);
+  if (linksResult.error) {
+    // Before Phase 3 migration, remain compatible with Phase-2 guest links.
+    linksResult = await db.from("reservation_guests")
+      .select("reservation_id,guest_id,is_primary,ifa_status").in("reservation_id", ids);
+  }
+  if (linksResult.error) throw new Error("Unable to load reservation guests: " + linksResult.error.message);
+  const linkRows: any[] = linksResult.data ?? [];
   for (const r of reservations) {
     if (r.guest_id && !linkRows.some((l) => l.reservation_id === r.id && l.guest_id === r.guest_id)) {
       linkRows.push({ reservation_id: r.id, guest_id: r.guest_id, is_primary: true, ifa_status: null, stay_state: undefined });
@@ -237,6 +244,15 @@ const unitOf = (u: UnitInfo): NtakUnit => ({ building: u.building, roomNumber: u
 // Daily closure
 
 const RES_COLS = "id,status,check_in_date,check_out_date,actual_check_in,actual_check_out,ntak_booking_no,room_id,room_type_id,rate_per_night,total_amount,currency,adults,children,source,ota_name,pms_channel,channex_booking_id,pms_reservation_id,reservation_number,pms_group_note,pms_rate_plan_id,created_at,guest_id,hotel_id";
+const LEGACY_RES_COLS = RES_COLS.replace("ntak_booking_no,", "");
+// GitHub merge may auto-deploy the worker before the owner applies the SQL.
+// Never query a Phase-3-only column until it exists in this hotel's DB.
+async function phase3SchemaReady(db: Db): Promise<boolean> {
+  try {
+    const { error } = await db.from("reservations").select("ntak_booking_no").limit(1);
+    return !error;
+  } catch { return false; }
+}
 
 /** Actual Budapest calendar boundaries (23/25 hours across DST changes). */
 function budapestMidnight(day: string): string {
@@ -260,6 +276,7 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
 }): Promise<ClosureBuild> {
   const cfg = ledgerConfig(s);
   const scope = await loadNtakScope(db, s);
+  const resCols = await phase3SchemaReady(db) ? RES_COLS : LEGACY_RES_COLS;
   const win = dayWindow(day);
   const current = day >= addDays(today(), -1);
 
@@ -267,11 +284,11 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     { data: staying, error: stayError }, { data: historical, error: historicalError },
     { data: lineRows, error: linesError }, { data: dayPayments, error: paymentsError },
   ] = await Promise.all([
-    db.from("reservations").select(RES_COLS).eq("hotel_id", s.hotel_id)
+    db.from("reservations").select(resCols).eq("hotel_id", s.hotel_id)
       .lte("check_in_date", day).gte("check_out_date", day).in("status", ["checked_in", "checked_out"]),
     // Actual timestamps can fall outside scheduled stay dates (one-day-early
     // arrival / late departure). Do not lose those historical records.
-    db.from("reservations").select(RES_COLS).eq("hotel_id", s.hotel_id)
+    db.from("reservations").select(resCols).eq("hotel_id", s.hotel_id)
       .lte("actual_check_in", win.to).gte("actual_check_out", win.from).eq("status", "checked_out"),
     db.from("folio_lines").select("service_date,room_id,gross_total,vat_rate,currency,status,source_type,reservation_folios!inner(reservation_id,hotel_id),service_catalog_items(category)")
       .eq("reservation_folios.hotel_id", s.hotel_id).eq("service_date", day),
@@ -292,7 +309,7 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
   const known = new Set(reservations.map((r) => r.id));
   const extraIds = [...new Set([...lines.map((l) => l.reservation_id), ...payments.map((p) => p.reservation_id)])].filter((id) => !known.has(id));
   if (extraIds.length) {
-    const { data } = await db.from("reservations").select(RES_COLS).in("id", extraIds).in("status", ["checked_in", "checked_out"]);
+    const { data } = await db.from("reservations").select(resCols).in("id", extraIds).in("status", ["checked_in", "checked_out"]);
     reservations.push(...(data ?? []).filter((r: RawReservation) => isInNtakScope(scope, r)));
   }
   // Only eligible reservations can contribute folio lines or payments, including post-stay entries.
@@ -395,6 +412,8 @@ const BOOKING_COLS = RES_COLS + ",created_at";
 export async function processBookings(db: Db, s: Settings, limit: number): Promise<{ queued: number; clean: number; problems: number }> {
   const cfg = ledgerConfig(s);
   const scope = await loadNtakScope(db, s);
+  const phase3Ready = await phase3SchemaReady(db);
+  const bookingCols = phase3Ready ? BOOKING_COLS : LEGACY_RES_COLS;
   const stats = { queued: 0, clean: 0, problems: 0 };
   const { data: dirty } = await db.from("ntak_booking_queue").select("*").eq("hotel_id", s.hotel_id).order("dirty_at").limit(limit * 3);
   const due = (dirty ?? []).filter((q: any) => !q.last_sent_at || q.dirty_at > q.last_sent_at).slice(0, limit);
@@ -404,11 +423,11 @@ export async function processBookings(db: Db, s: Settings, limit: number): Promi
   for (const q of due) {
     // Booking numbers come from three columns (ledger.ts bookingNumber); query each with eq, never a built filter string.
     const lookups = await Promise.all([
-      db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("ntak_booking_no", q.booking_no),
-      db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("channex_booking_id", q.booking_no),
-      db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("pms_reservation_id", q.booking_no),
-      db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("reservation_number", q.booking_no),
-      /^[0-9a-f-]{36}$/.test(q.booking_no) ? db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("id", q.booking_no) : { data: [] },
+      phase3Ready ? db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("ntak_booking_no", q.booking_no) : { data: [] },
+      db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("channex_booking_id", q.booking_no),
+      db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("pms_reservation_id", q.booking_no),
+      db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("reservation_number", q.booking_no),
+      /^[0-9a-f-]{36}$/.test(q.booking_no) ? db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("id", q.booking_no) : { data: [] },
     ]);
     const seen = new Set<string>();
     const group: RawReservation[] = lookups.flatMap((l: any) => l.data ?? [])
@@ -464,7 +483,11 @@ async function bookingUnitResolver(db: Db, hotelId: string, rows: RawReservation
 /** Initial sync: every booking with an arrival from today (7.5). */
 export async function markAllFutureBookings(db: Db, s: Settings): Promise<number> {
   const scope = await loadNtakScope(db, s);
-  const { data } = await db.from("reservations").select("id,room_id,room_type_id,ntak_booking_no,channex_booking_id,pms_reservation_id,reservation_number")
+  const phase3Ready = await phase3SchemaReady(db);
+  const cols = phase3Ready
+    ? "id,room_id,room_type_id,ntak_booking_no,channex_booking_id,pms_reservation_id,reservation_number"
+    : "id,room_id,room_type_id,channex_booking_id,pms_reservation_id,reservation_number";
+  const { data } = await db.from("reservations").select(cols)
     .eq("hotel_id", s.hotel_id).gte("check_in_date", today()).not("status", "in", "(cancelled,no_show)");
   const keys = [...new Set((data ?? []).filter((r: RawReservation) => isInNtakScope(scope, r)).map((r: any) => bookingNumber(r)))];
   const now = new Date().toISOString();
@@ -483,7 +506,8 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
   const { data: pending } = await db.from("ntak_event_queue").select("*").eq("hotel_id", s.hotel_id).in("state", ["queued", "waiting_data"]).order("occurred_at").limit(limit);
   if (!pending?.length) return { queued: 0, waiting: 0 };
   const resIds = [...new Set(pending.map((e: any) => e.reservation_id))];
-  const { data: resRows } = await db.from("reservations").select(RES_COLS).in("id", resIds);
+  const resCols = await phase3SchemaReady(db) ? RES_COLS : LEGACY_RES_COLS;
+  const { data: resRows } = await db.from("reservations").select(resCols).in("id", resIds);
   const reservations = new Map<string, RawReservation>((resRows ?? []).map((r: any) => [r.id, r]));
   // Never compute/stash NTAK guest IDs for unrelated Channex reservations.
   const eligibleReservations = [...reservations.values()].filter((r) => isInNtakScope(scope, r));
