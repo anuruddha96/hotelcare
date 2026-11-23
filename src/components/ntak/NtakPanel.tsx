@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle2, Download, Loader2, XCircle } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { NtakClosureDialog } from './NtakClosureDialog';
+import { NtakEvidencePanel } from './NtakEvidencePanel';
 import { ACCOMMODATION_CLASSES, callNtak, fmtHuf, UNIT_TYPES, type NtakMessage, type NtakSettings, type NtakStatus, type NtakUnitRow } from './ntakApi';
 
 const STATE_TONE: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -313,6 +314,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
             </TabsContent>
 
             <TabsContent value="messages" className="space-y-1 text-xs">
+              {status.can_manage && <NtakEvidencePanel key={hotelId} hotelId={hotelId} today={status.today} />}
               {status.messages.length === 0 && <p className="text-muted-foreground">{t('ntak.noMessages')}</p>}
               {status.messages.map((m) => <MessageRow key={m.id} m={m} expanded={expanded === m.id} onToggle={() => setExpanded(expanded === m.id ? null : m.id)}
                 onResend={m.kind !== 'closure' && ['rejected', 'failed', 'verified'].includes(m.state) ? () => run('resend', { action: 'resend_message', message_id: m.id }) : undefined} />)}
