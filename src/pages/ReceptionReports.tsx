@@ -42,6 +42,10 @@ export default function ReceptionReports() {
   const [tab, setTab] = useState<Tab>('daily');
   const canViewAuthority = !!profile && (profile.is_super_admin || ['admin', 'top_management', 'top_management_manager'].includes(profile.role));
   const authority = canViewAuthority && tab === 'authority';
+  // A role downgrade during a session must not leave the user on a hidden tab.
+  useEffect(() => {
+    if (!canViewAuthority && tab === 'authority') setTab('daily');
+  }, [canViewAuthority, tab]);
   const [day, setDay] = useState(today);
   const [from, setFrom] = useState(`${today.slice(0, 8)}01`);
   const [to, setTo] = useState(today);
