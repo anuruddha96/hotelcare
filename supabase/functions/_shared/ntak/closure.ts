@@ -54,6 +54,8 @@ export interface StayRecord {
   expectedGuests: number;
   accommodationFee: number | null; // gross HUF for this night
   packageItems: NtakCharge[];
+  /** Separately posted package catalogue lines, not part of the base rate. */
+  postedPackageItems?: NtakCharge[];
   extras: NtakCharge[];
   payments: NtakPayment[];
   problems?: string[]; // mapping problems found upstream (e.g. missing FX rate)
@@ -202,8 +204,8 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
     const packageTotal = st.packageItems.reduce((a, c) => a + c.amount, 0);
     const fee = round2((st.accommodationFee ?? 0) - packageTotal);
     if (st.accommodationFee !== null && fee < 0) err('fee', `${ref}: package items exceed the accommodation fee`, st.reservationId);
-    inPackage.push({ amount: Math.max(0, fee), main: 'SZALLASDIJ', sub: null, vat: s.accommodationVat }, ...st.packageItems);
-    for (const amount of ifaPerGuest(s.ifa, Math.max(0, fee), s.accommodationVat, statuses)) {
+    inPackage.push({ amount: Math.max(0, fee), main: 'SZALLASDIJ', sub: null, vat: s.accommodationVat }, ...st.packageItems, ...(st.postedPackageItems ?? []));
+    for (const amount of st.dayUse ? [] : ifaPerGuest(s.ifa, Math.max(0, fee), s.accommodationVat, statuses)) {
       outPackage.push({ amount, main: 'IFA', sub: null, vat: s.ifaVat });
       totals.ifa += amount;
     }

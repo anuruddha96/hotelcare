@@ -15,7 +15,7 @@
  *    departure day (9.2.2); IFA is computed, never taken from folio lines;
  *  - every amount is converted to HUF (9.2.5).
  */
-import { COUNTRY_CODES, UNKNOWN_FOREIGN_COUNTRY } from './codes.ts';
+import { CATEGORIES, COUNTRY_CODES, UNKNOWN_FOREIGN_COUNTRY } from './codes.ts';
 import type { MarketSegment, PaymentType, SalesChannel, UnitType, VatRate } from './codes.ts';
 import type { NtakBooking, NtakCharge, NtakPayment } from './messages.ts';
 import type { CheckoutRecord, StayGuest, StayRecord } from './closure.ts';
@@ -64,6 +64,7 @@ export const DEFAULT_LEDGER_CONFIG: LedgerConfig = {
   paymentMap: {
     cash: 'KESZPENZ', card: 'BANKKARTYA', credit_card: 'BANKKARTYA', debit_card: 'BANKKARTYA', bank_transfer: 'ATUTALAS',
     transfer: 'ATUTALAS', szep_card: 'SZEP_KARTYA', szep: 'SZEP_KARTYA', voucher: 'UTALVANY', ota: 'ATUTALAS', legacy: 'EGYEB',
+    card_terminal: 'BANKKARTYA', online_card: 'BANKKARTYA', coupon: 'UTALVANY', szep_otp: 'SZEP_KARTYA', szep_mbh: 'SZEP_KARTYA', szep_kh: 'SZEP_KARTYA', on_account: 'UTOLAGOS', later: 'UTOLAGOS', other: 'EGYEB',
   },
   channelMap: {
     'booking.com': 'KOZVETITO_ONLINE', expedia: 'KOZVETITO_ONLINE', airbnb: 'KOZVETITO_ONLINE', agoda: 'KOZVETITO_ONLINE',
@@ -122,6 +123,9 @@ export interface RawFolioLine {
   currency: string | null;
   status: string;
   category: string | null;
+  ntak_main?: string | null;
+  ntak_sub?: string | null;
+  in_package?: boolean | null;
   source_type: string | null;
 }
 
@@ -190,8 +194,8 @@ function vatFor(line: RawFolioLine, mapped: { vat?: VatRate | null }, cfg: Ledge
 }
 
 const lineKey = (l: RawFolioLine) => key(l.category) || key(l.source_type);
-const isAccommodationLine = (l: RawFolioLine, cfg: LedgerConfig) => cfg.accommodationKeys.includes(key(l.category)) || cfg.accommodationKeys.includes(key(l.source_type));
-const isIgnoredLine = (l: RawFolioLine, cfg: LedgerConfig) => cfg.ignoredKeys.includes(key(l.category)) || cfg.ignoredKeys.includes(key(l.source_type));
+const isAccommodationLine = (l: RawFolioLine, cfg: LedgerConfig) => l.ntak_main != null ? l.ntak_main === 'SZALLASDIJ' : cfg.accommodationKeys.includes(key(l.category)) || cfg.accommodationKeys.includes(key(l.source_type));
+const isIgnoredLine = (l: RawFolioLine, cfg: LedgerConfig) => l.ntak_main != null ? l.ntak_main === 'IFA' : cfg.ignoredKeys.includes(key(l.category)) || cfg.ignoredKeys.includes(key(l.source_type));
 const live = (l: RawFolioLine) => l.status !== 'reversed' && l.status !== 'voided';
 
 /** Map non-accommodation folio lines to NTAK charges. */
@@ -199,7 +203,15 @@ export function mapExtras(lines: RawFolioLine[], cfg: LedgerConfig, problems: st
   const out: NtakCharge[] = [];
   for (const l of lines) {
     if (!live(l) || isAccommodationLine(l, cfg) || isIgnoredLine(l, cfg)) continue;
-    const mapped = cfg.categoryMap[lineKey(l)] ?? cfg.categoryMap.other ?? { main: 'EGYEB', sub: 'EGYEB' };
+    const explicit = l.ntak_main != null ? { main: l.ntak_main, sub: l.ntak_sub ?? null, vat: undefined } : null;
+    if (explicit) {
+      const subs = Object.hasOwn(CATEGORIES, explicit.main) ? CATEGORIES[explicit.main] : undefined;
+      if (!subs || (subs.length ? !explicit.sub || !subs.includes(explicit.sub) : explicit.sub !== null)) {
+        problems.push(`Invalid catalogue NTAK category: ${explicit.main}/${explicit.sub ?? ''}`);
+        continue;
+      }
+    } else if (l.ntak_sub != null) { problems.push('Catalogue NTAK subcategory without a main category'); continue; }
+    const mapped = explicit ?? cfg.categoryMap[lineKey(l)] ?? cfg.categoryMap.other ?? { main: 'EGYEB', sub: 'EGYEB' };
     const huf = toHuf(l.gross_total, l.currency, cfg);
     if ('problem' in huf) { problems.push(huf.problem); continue; }
     out.push({ amount: huf.value, main: mapped.main, sub: mapped.sub, vat: vatFor(l, mapped, cfg) });
@@ -217,7 +229,7 @@ export function mapPayments(payments: RawPayment[], cfg: LedgerConfig, problems:
     byType.set(type, round2((byType.get(type) ?? 0) + huf.value));
   }
   // Sum per means of payment (9.2.1).
-  return [...byType.entries()].map(([type, amount]) => ({ amount, type }));
+  return [...byType.entries()].map(([type, amount]) => ({ amount, type, ...(type === 'SZEP_KARTYA' ? { szepAccommodation: true } : {}) }));
 }
 
 /** A recorded actual departure, whether early or late, governs historical closings. */
@@ -324,15 +336,17 @@ export function buildDaySources(input: DayInputs, cfg: LedgerConfig): DaySources
         roomId: roomOnDay(r, input.assignments, day), dayUse, guests, expectedGuests: expected,
         accommodationFee: nightlyFee(r, day, input.lines, cfg, problems),
         packageItems: packageItems(r, Math.max(guests.length, expected), cfg),
-        extras: mapExtras(linesToday, cfg, problems),
+        postedPackageItems: mapExtras(linesToday.filter((l) => l.in_package), cfg, problems),
+        extras: mapExtras(linesToday.filter((l) => !l.in_package), cfg, problems),
         payments, problems,
       });
     } else if (day === departure) {
-      const outPackage = mapExtras(linesToday, cfg, problems);
+      const inPackage = mapExtras(linesToday.filter((l) => l.in_package), cfg, problems);
+      const outPackage = mapExtras(linesToday.filter((l) => !l.in_package), cfg, problems);
       out.checkouts.push({
         reservationId: r.id, bookingNo, label: input.label(r), segment, channel,
         roomId: roomOnDay(r, input.assignments, addDays(day, -1)),
-        inPackage: [], outPackage, payments: mapPayments(paymentsOf((d) => d === day), cfg, problems), problems,
+        inPackage, outPackage, payments: mapPayments(paymentsOf((d) => d === day), cfg, problems), problems,
       });
     } else if (day > departure) {
       const charges = mapExtras(linesToday, cfg, problems);

@@ -18,6 +18,7 @@ on:
       - 'supabase/tests/ntak_phase3_activation_*.sql'
       - 'supabase/tests/ntak_phase4_room_state_*.sql'
       - 'supabase/tests/ntak_phase5_walk_in_*.sql'
+      - 'supabase/tests/ntak_phase8_catalogue_integration.sql'
       - 'src/components/frontdesk/WalkInSaleDialog.tsx'
       - 'scripts/render_ntak_phase3_function_fixture.py'
       - 'src/lib/reservations.ts'
@@ -98,6 +99,7 @@ jobs:
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
           python3 scripts/render_finance_core_fixture.py > /tmp/ntak_finance_core_ddl.sql
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_guard_integration.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase8_catalogue_integration.sql
       - name: Phase-3 activation, undo and VIZA resilience acceptance (PostgreSQL)
         run: |
           set -euo pipefail

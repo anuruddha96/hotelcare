@@ -7,6 +7,7 @@ export const PMS_PAYMENT_METHODS = [
   'szep_otp',
   'szep_mbh',
   'szep_kh',
+  'on_account',
   'other',
 ] as const;
 
