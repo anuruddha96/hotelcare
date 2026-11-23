@@ -46,6 +46,8 @@ export interface NtakSettings {
   closure_mode: 'manual' | 'auto';
   auto_close_time: string;
   first_closure_date: string | null;
+  allow_backdating: boolean;
+  backdating_min_date: string | null;
   software_change_date: string | null;
   data_start_date: string | null;
   ledger_config: Record<string, unknown>;
