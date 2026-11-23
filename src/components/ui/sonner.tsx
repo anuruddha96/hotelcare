@@ -14,7 +14,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       // the Mira launcher, which sits in the bottom-right on desktop.
       position="bottom-left"
       offset="20px"
-      mobileOffset="16px"
+      {...{ mobileOffset: "16px" }}
       // Dialogs use z-50 and lock outside pointer events. Keep toasts below
       // their overlay instead of showing an apparently unclickable close icon.
       style={{ zIndex: 40 }}

@@ -1,5 +1,8 @@
 # PMS + Reception completion roadmap
 
+## Staff screen resume fix (2026-11-23)
+- [x] Keep the venue check non-blocking on app return; verify draft/photo preservation and existing venue gates (18 focused tests passed).
+
 ## Done
 - [x] Migration: hotel-scoped PMS access (`can_access_pms_hotel`, `can_access_reservation`), `has_pms_access` + `top_management_manager`, hotel-scoped RLS (reservations, guests, guest_folios, reservation_room_assignments, reservation_events), `reservation_events` audit table, `pms_guest_name`, indexes + unique previo ref, lifecycle RPCs (check-in/out, status, folio, create/update), availability/conflict helpers.
 - [x] Security hardening: revoked PUBLIC/anon EXECUTE on all new functions (linter deltas resolved; remaining findings pre-date this work).

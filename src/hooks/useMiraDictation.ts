@@ -154,7 +154,7 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       // Cancel may have been pressed while the permission prompt was visible.
-      if (sessionRef.current !== session || stateRef.current !== "starting") {
+      if (sessionRef.current !== session || (stateRef.current as MiraVoiceState) !== "starting") {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }

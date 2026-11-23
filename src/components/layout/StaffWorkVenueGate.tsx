@@ -29,30 +29,34 @@ export function StaffWorkVenueGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [busyHotel, setBusyHotel] = useState<string | null>(null);
 
-  const check = useCallback(async () => {
+  const check = useCallback(async (background = false) => {
     if (!enabled || !user?.id) {
       setChecking(false);
       setState(null);
       return;
     }
-    setChecking(true);
-    const { data, error: readError } = await (supabase as any)
-      .from('staff_work_venue_state')
-      .select('home_hotel,last_worked_hotel,last_switched_on,prompt_next_day')
-      .eq('user_id', user.id)
-      .maybeSingle();
+    // Only the initial check/retry blocks entry. Resume checks must keep open
+    // dialogs and camera file inputs mounted, including while offline.
+    if (!background) setChecking(true);
+    try {
+      const { data, error: readError } = await (supabase as any)
+        .from('staff_work_venue_state')
+        .select('home_hotel,last_worked_hotel,last_switched_on,prompt_next_day')
+        .eq('user_id', user.id)
+        .maybeSingle();
 
-    if (readError) {
-      setError('Could not verify your work hotel. Check your connection and try again.');
-    } else {
+      if (readError) throw readError;
       const nextState = (data || null) as StaffWorkVenueState | null;
       setState(nextState);
       // Another active device may have changed the work venue. Reflect the
       // server-authorized choice instead of showing obsolete property data.
       if (nextState?.last_worked_hotel) applyAssignedHotel(nextState.last_worked_hotel);
       setError(null);
+    } catch {
+      if (!background) setError('Could not verify your work hotel. Check your connection and try again.');
+    } finally {
+      if (!background) setChecking(false);
     }
-    setChecking(false);
   }, [enabled, user?.id, applyAssignedHotel]);
 
   useEffect(() => { void check(); }, [check]);
@@ -60,13 +64,14 @@ export function StaffWorkVenueGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!enabled) return;
     const refreshOnReturn = () => {
-      if (document.visibilityState === 'visible') void check();
+      if (document.visibilityState === 'visible') void check(true);
     };
+    const refreshAfterSwitch = () => { void check(true); };
     document.addEventListener('visibilitychange', refreshOnReturn);
-    window.addEventListener('hotelcare:staff-work-venue-switched', check);
+    window.addEventListener('hotelcare:staff-work-venue-switched', refreshAfterSwitch);
     return () => {
       document.removeEventListener('visibilitychange', refreshOnReturn);
-      window.removeEventListener('hotelcare:staff-work-venue-switched', check);
+      window.removeEventListener('hotelcare:staff-work-venue-switched', refreshAfterSwitch);
     };
   }, [enabled, check]);
 
