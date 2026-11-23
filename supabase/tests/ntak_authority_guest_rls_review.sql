@@ -1,7 +1,7 @@
 -- Disposable CI only. Uses actual Phase 3 policy/function definitions and a minimal fixture;
 -- replace fixture with Claude's schema-only production snapshot when supplied.
 CREATE OR REPLACE FUNCTION public.pms_ntak_guest_scope(
-  _reservation_id uuid,_assigned_room uuid DEFAULT NULL
+  _reservation_id uuid,_room_id uuid DEFAULT NULL
 ) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
 DECLARE r public.reservations%ROWTYPE; cfg public.ntak_settings%ROWTYPE;
   room_to_check uuid;
@@ -11,7 +11,7 @@ BEGIN
   SELECT * INTO cfg FROM public.ntak_settings WHERE hotel_id=r.hotel_id AND enabled;
   IF NOT FOUND THEN RETURN false; END IF;
   IF cfg.unit_scope<>'profiled_only' THEN RETURN true; END IF;
-  room_to_check:=COALESCE(_assigned_room,r.room_id);
+  room_to_check:=COALESCE(_room_id,r.room_id);
   IF room_to_check IS NOT NULL THEN
     RETURN EXISTS(SELECT 1 FROM public.ntak_unit_profiles p
       WHERE p.hotel_id=r.hotel_id AND p.room_id=room_to_check AND p.active);
