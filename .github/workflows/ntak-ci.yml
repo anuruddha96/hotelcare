@@ -11,6 +11,7 @@ on:
       - 'src/components/reservations/ReservationAccountPanel.tsx'
       - '.github/workflows/ntak-ci.yml'
       - 'scripts/check_changed_migrations.py'
+      - 'scripts/render_finance_core_fixture.py'
       - 'scripts/tests/**'
       - 'supabase/tests/ntak_finance_business_day.sql'
       - 'supabase/tests/ntak_finance_guard_integration.sql'
@@ -81,6 +82,7 @@ jobs:
           # independent ephemeral database so the finance fixture has its own schema.
           createdb hotelcare_finance_ci
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          python3 scripts/render_finance_core_fixture.py > /tmp/ntak_finance_core_ddl.sql
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_guard_integration.sql
       - name: Run NTAK SQL checks
         run: |

@@ -52,7 +52,7 @@ $$;
 
 -- Create real finance tables/functions from the already-applied source, then
 -- apply only the NEW correction migration in this disposable database.
-\i supabase/migrations/20260924152000_pms_financial_core_phase1.sql
+\i /tmp/ntak_finance_core_ddl.sql
 \i supabase/migrations/20261123201000_ntak_phase3_finance_guard.sql
 
 INSERT INTO public.profiles(id, role, organization_slug)
