@@ -5,19 +5,16 @@ import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { HOTELS, hotelShort, matchesStaffSearch, type AccessLevel, type WorkforceStaff } from '@/lib/workforce/model';
+import { hotelShort, matchesStaffSearch, type AccessLevel, type WorkforceStaff } from '@/lib/workforce/model';
 import type { WorkforceData, WorkforceProfileOption } from '@/hooks/useWorkforce';
+import { WorkforceStaffDialog } from './WorkforceStaffDialog';
 
 const EMPLOYMENT: Record<WorkforceStaff['employment_type'], string> = {
   full_time: 'Full time', part_time: 'Part time', hourly: 'Hourly', trainee: 'Trainee', external: 'External / on call',
 };
-const NONE = '__none';
 
 interface Props {
   data: WorkforceData;
@@ -40,24 +37,12 @@ export function WorkforceStaffPanel({ data, access, currentHotel, today }: Props
 
   const deptName = useMemo(() => new Map(data.departments.map((d) => [d.id, d.name])), [data.departments]);
   const roleName = useMemo(() => new Map(data.jobRoles.map((r) => [r.id, r.name])), [data.jobRoles]);
-  const linked = useMemo(() => new Map(data.staff.filter((s) => s.profile_id).map((s) => [s.profile_id!, s.id])), [data.staff]);
   const profileName = useMemo(() => new Map(profiles.map((p) => [p.id, p.full_name ?? p.nickname ?? 'Account'])), [profiles]);
 
   const rows = data.staff
     .filter((s) => showInactive || s.is_active)
     .filter((s) => department === 'all' || s.department_id === department)
     .filter((s) => matchesStaffSearch([s.full_name, s.nickname, deptName.get(s.department_id ?? ''), roleName.get(s.job_role_id ?? ''), hotelShort(s.hotel_id), s.notes, EMPLOYMENT[s.employment_type], s.profile_id ? profileName.get(s.profile_id) : null], query));
-
-  const save = async () => {
-    if (!editing?.full_name?.trim()) { toast.error('Enter a name'); return; }
-    try {
-      await data.saveStaff({ ...editing, full_name: editing.full_name.trim() } as WorkforceStaff);
-      toast.success(editing.id ? 'Employee updated' : 'Employee added');
-      setEditing(null);
-    } catch (err) {
-      toast.error((err as { message?: string })?.message ?? 'Could not save');
-    }
-  };
 
   const toggleActive = async (s: WorkforceStaff) => {
     try {
@@ -70,7 +55,6 @@ export function WorkforceStaffPanel({ data, access, currentHotel, today }: Props
     full_name: '', employment_type: 'full_time', daily_hours: 8, is_active: true,
     hotel_id: access === 'property' ? currentHotel : null, sort_order: 0, start_date: today,
   });
-  const rolesFor = (deptId?: string | null) => data.jobRoles.filter((r) => r.is_active && (!deptId || r.department_id === deptId));
 
   return (
     <div className="space-y-3">
@@ -126,80 +110,8 @@ export function WorkforceStaffPanel({ data, access, currentHotel, today }: Props
         </Table>
       </div>
 
-      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editing?.id ? 'Edit employee' : 'Add employee'}</DialogTitle>
-            <DialogDescription>Employees do not need an app login. Link an account so they see their own schedule in the app.</DialogDescription>
-          </DialogHeader>
-          {editing && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Full name"><Input value={editing.full_name ?? ''} onChange={(e) => setEditing({ ...editing, full_name: e.target.value })} /></Field>
-              <Field label="Nickname (shown in the grid)"><Input value={editing.nickname ?? ''} onChange={(e) => setEditing({ ...editing, nickname: e.target.value || null })} /></Field>
-              <Field label="Department">
-                <Select value={editing.department_id ?? NONE} onValueChange={(v) => setEditing({ ...editing, department_id: v === NONE ? null : v, job_role_id: null })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>No department</SelectItem>
-                    {data.departments.filter((d) => d.is_active).map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Job role">
-                <Select value={editing.job_role_id ?? NONE} onValueChange={(v) => setEditing({ ...editing, job_role_id: v === NONE ? null : v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>No role</SelectItem>
-                    {rolesFor(editing.department_id).map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Base hotel">
-                <Select value={editing.hotel_id ?? NONE} onValueChange={(v) => setEditing({ ...editing, hotel_id: v === NONE ? null : v })} disabled={access === 'property'}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>Company / outlets</SelectItem>
-                    {HOTELS.map((h) => <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Contract">
-                <Select value={editing.employment_type ?? 'full_time'} onValueChange={(v) => setEditing({ ...editing, employment_type: v as WorkforceStaff['employment_type'] })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{Object.entries(EMPLOYMENT).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
-                </Select>
-              </Field>
-              <Field label="Daily hours (for days without times)"><Input type="number" min={0} max={24} step={0.5} value={editing.daily_hours ?? 8} onChange={(e) => setEditing({ ...editing, daily_hours: Number(e.target.value) })} /></Field>
-              <Field label="Annual leave days"><Input type="number" min={0} max={60} step={0.5} value={editing.annual_leave_days ?? ''} onChange={(e) => setEditing({ ...editing, annual_leave_days: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
-              <Field label="Start date"><Input type="date" value={editing.start_date ?? ''} onChange={(e) => setEditing({ ...editing, start_date: e.target.value || null })} /></Field>
-              <Field label="End date"><Input type="date" value={editing.end_date ?? ''} onChange={(e) => setEditing({ ...editing, end_date: e.target.value || null })} /></Field>
-              <Field label="App account">
-                <Select value={editing.profile_id ?? NONE} onValueChange={(v) => setEditing({ ...editing, profile_id: v === NONE ? null : v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    <SelectItem value={NONE}>Not linked</SelectItem>
-                    {profiles.filter((p) => !linked.has(p.id) || linked.get(p.id) === editing.id).map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.full_name ?? p.nickname ?? p.id} {p.role ? `· ${p.role.replace(/_/g, ' ')}` : ''}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Order in the grid"><Input type="number" value={editing.sort_order ?? 0} onChange={(e) => setEditing({ ...editing, sort_order: Number(e.target.value) || 0 })} /></Field>
-              <div className="sm:col-span-2"><Field label="Notes (HR)"><Textarea rows={2} value={editing.notes ?? ''} onChange={(e) => setEditing({ ...editing, notes: e.target.value || null })} /></Field></div>
-              {editing.leave_note && <p className="text-xs text-muted-foreground sm:col-span-2">{editing.leave_note}</p>}
-              {editing.source_label && <p className="text-xs text-muted-foreground sm:col-span-2">Excel columns: {editing.source_label}</p>}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button onClick={() => void save()}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <WorkforceStaffDialog staff={editing} data={data} access={access} onClose={() => setEditing(null)} />
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="space-y-1"><Label className="text-xs">{label}</Label>{children}</div>;
-}

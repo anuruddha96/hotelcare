@@ -7,7 +7,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
-  cellLabel, cellStyle, formatHours, hasPendingChange, hotelShort, monthBalanceMinutes, summarizeStaffMonth, weekdayOf, weekdayShort,
+  cellLabel, cellStyle, formatHours, hasPendingChange, HOTEL_STYLE, hotelShort, monthBalanceMinutes, summarizeStaffMonth, weekdayOf, weekdayShort,
   type CellLabels, type ChangeNotice, type WorkforceDepartment, type WorkforceEntry, type WorkforceJobRole, type WorkforceStaff,
 } from '@/lib/workforce/model';
 import { dayCoverage } from '@/lib/workforce/view';
@@ -52,6 +52,8 @@ export interface WorkforceGridProps {
   /** Split each team by hotel in the header (when several hotels are shown). */
   groupByHotel?: boolean;
   cellLabels: CellLabels;
+  /** Click on a name: open that person's details (when the planner may change them). */
+  onEditStaff?: (staff: WorkforceStaff) => void;
 }
 
 type Pos = { r: number; c: number };
@@ -71,7 +73,7 @@ const SUMMARY_ROWS: Array<{ key: string; label: string; hint?: string }> = [
 const SUMMARY_ROW_H = 24;
 
 export function WorkforceGrid(props: WorkforceGridProps) {
-  const { staff, days, today, departments, jobRoles, entries, notes, leaveUsed, codes, layout, canEdit, onApply, onOpenDetails, onEditNote, onSelectionChange, applyRef, zoom = 1, onZoomStep, pinTotals = false, tall = false, notices, groupByHotel = false, cellLabels } = props;
+  const { staff, days, today, departments, jobRoles, entries, notes, leaveUsed, codes, layout, canEdit, onApply, onOpenDetails, onEditNote, onSelectionChange, applyRef, zoom = 1, onZoomStep, pinTotals = false, tall = false, notices, groupByHotel = false, cellLabels, onEditStaff } = props;
   const { t, language } = useTranslation();
   // `t` changes identity on every render; callbacks read it through a ref so they stay stable.
   const tRef = useRef(t);
@@ -454,9 +456,13 @@ export function WorkforceGrid(props: WorkforceGridProps) {
     );
   };
 
+  // The workbook's first rows are colour coded: every person carries the colour of their hotel.
+  const hotelColor = (s: WorkforceStaff) => (s.hotel_id ? HOTEL_STYLE[s.hotel_id]?.bg : undefined) ?? '#94a3b8';
   const staffHeader = (s: WorkforceStaff) => (
     <div className="flex flex-col gap-0.5 leading-tight">
-      <span className="truncate font-semibold" title={s.full_name}>{s.nickname || s.full_name}</span>
+      {onEditStaff
+        ? <button type="button" className="truncate text-left font-semibold underline-offset-2 hover:underline" title={tr('wf.g.editPerson').replace('{name}', s.full_name)} onClick={() => onEditStaff(s)}>{s.nickname || s.full_name}</button>
+        : <span className="truncate font-semibold" title={s.full_name}>{s.nickname || s.full_name}</span>}
       <span className="truncate text-[10px] font-normal text-muted-foreground" title={`${s.full_name} · ${s.job_role_id ? localName(roleName.get(s.job_role_id), t) : ''}`}>
         {s.job_role_id ? localName(roleName.get(s.job_role_id), t) : t('wf.g.noRole')} · {s.hotel_id ? hotelShort(s.hotel_id) : t('wf.m.company')}
       </span>
@@ -511,7 +517,7 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               <th className="sticky left-0 z-20 border-b border-r bg-background" />
               {groups.map((g, i) => (
                 <th key={`${g.id}-${i}`} colSpan={g.span} className="border-b border-r px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide"
-                  style={{ boxShadow: `inset 0 3px 0 ${g.color}` }}>
+                  style={{ boxShadow: `inset 0 3px 0 ${g.color}`, backgroundColor: `${g.color}33` }}>
                   <span className="sticky left-[112px]">{g.name} <span className="font-normal text-muted-foreground">{g.span}</span></span>
                 </th>
               ))}
@@ -520,7 +526,8 @@ export function WorkforceGrid(props: WorkforceGridProps) {
             <tr>
               <th className="sticky left-0 z-20 w-[104px] min-w-[104px] max-w-[104px] border-b border-r bg-background px-2 text-left font-medium text-muted-foreground">{t('wf.m.day')}</th>
               {staff.map((s) => (
-                <th key={s.id} className={cn('w-[92px] min-w-[92px] max-w-[92px] border-b border-r px-1.5 py-1 text-left font-normal', !s.is_active && 'opacity-60')}>{staffHeader(s)}</th>
+                <th key={s.id} className={cn('w-[92px] min-w-[92px] max-w-[92px] border-b border-r px-1.5 py-1 text-left font-normal', !s.is_active && 'opacity-60')}
+                  style={{ backgroundColor: `${hotelColor(s)}40`, boxShadow: `inset 0 -3px 0 ${hotelColor(s)}` }}>{staffHeader(s)}</th>
               ))}
               <th className="sticky right-0 z-20 min-w-[58px] border-b border-l bg-muted px-1.5 text-right text-[10px] font-medium" title={t('wf.t.onDutyHint')}>{t('wf.t.onDuty')}</th>
             </tr>
@@ -573,13 +580,14 @@ export function WorkforceGrid(props: WorkforceGridProps) {
               return [
                 first ? (
                   <tr key={`g-${s.id}`}>
-                    <th colSpan={days.length + SUMMARY_ROWS.length + 1} className="border-b bg-muted/60 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ boxShadow: `inset 3px 0 0 ${g?.color ?? '#94a3b8'}` }}>
+                    <th colSpan={days.length + SUMMARY_ROWS.length + 1} className="border-b bg-muted/60 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide" style={{ boxShadow: `inset 3px 0 0 ${g?.color ?? '#94a3b8'}`, backgroundColor: `${g?.color ?? '#94a3b8'}33` }}>
                       <span className="sticky left-2">{g ? localName(g.name, t) : t('wf.g.noDept')}</span>
                     </th>
                   </tr>
                 ) : null,
                 <tr key={s.id}>
-                  <th className={cn('sticky left-0 z-[5] border-b border-r bg-background px-2 py-1 text-left font-normal', !s.is_active && 'opacity-60')}>{staffHeader(s)}</th>
+                  <th className={cn('sticky left-0 z-[5] border-b border-r bg-background px-2 py-1 text-left font-normal', !s.is_active && 'opacity-60')}
+                    style={{ boxShadow: `inset 4px 0 0 ${hotelColor(s)}` }}>{staffHeader(s)}</th>
                   {days.map((_, c) => renderCell({ r, c }))}
                   {SUMMARY_ROWS.map((row) => <td key={row.key} className="border-b border-r bg-muted/40 px-1.5 text-right tabular-nums">{summaryValue(s, row.key)}</td>)}
                 </tr>,

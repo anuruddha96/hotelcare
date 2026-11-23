@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Copy, Download, Eye, FileSpreadsheet, HelpCircle, History, Info, LayoutGrid, List, Loader2, Maximize2, Minimize2, MoreHorizontal, Rows3, Search, Send, Sparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { BellRing, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, Eye, FileSpreadsheet, HelpCircle, History, Info, LayoutGrid, List, Loader2, Maximize2, Minimize2, MoreHorizontal, Rows3, Search, Send, Sparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useTranslation } from '@/hooks/useTranslation';
 import { loadGridPrefs, saveGridPrefs, stepZoom, type GridPrefs } from '@/lib/workforce/gridPrefs';
@@ -19,6 +19,8 @@ import {
 import { COMPANY_VENUE, inVenue, matchesStatus, noticeIndex, STATUS_FILTERS, venueTabs, type StatusFilter } from '@/lib/workforce/view';
 import { entryFromSnapshot, type RestoreChange } from '@/lib/workforce/history';
 import { useCellLabels } from '@/hooks/useWorkforceLabels';
+import { useWorkforcePresence } from '@/hooks/useWorkforcePresence';
+import { WorkforceStaffDialog } from './WorkforceStaffDialog';
 import { WorkforceHistory } from './WorkforceHistory';
 import { localName } from '@/lib/workforce/names';
 import { customCodesOf, textOfEntry } from '@/lib/workforce/grid';
@@ -159,6 +161,12 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   const [fullscreen, setFullscreen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [editStaff, setEditStaff] = useState<WorkforceStaff | null>(null);
+  /** Draft days of other months that still wait for Publish: "YYYY-MM" -> days. */
+  const [otherDrafts, setOtherDrafts] = useState<Map<string, number>>(new Map());
+  const [draftTick, setDraftTick] = useState(0);
+  /** Tells the other planners that this month changed (set once the live channel is up). */
+  const announceRef = useRef<(month: string) => void>(() => undefined);
   const updatePrefs = useCallback((patch: Partial<GridPrefs>) => setPrefs((current) => { const next = { ...current, ...patch }; saveGridPrefs(next); return next; }), []);
   const zoomStep = useCallback((direction: 1 | -1) => setPrefs((current) => { const next = { ...current, zoom: stepZoom(current.zoom, direction) }; saveGridPrefs(next); return next; }), []);
   useEffect(() => {
@@ -243,13 +251,15 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
     }
     try {
       await Promise.all([data.saveEntries(upserts), data.deleteEntries(deletes)]);
+      announceRef.current(`${ym.y}-${pad2(ym.m)}`);
+      setDraftTick((n) => n + 1);
       return true;
     } catch (err) {
       toast.error((err as { message?: string })?.message ?? t('wf.g.saveFail'));
       return false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, ym]);
 
   const drafts = useMemo(() => {
     const ids = new Set(visibleStaff.filter(mayPlan).map((s) => s.id));
@@ -260,6 +270,53 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
     const limit = new Date(Date.parse(`${today}T12:00:00Z`) + 4 * 86400000).toISOString().slice(0, 10);
     return draftChanges.filter((e) => e.work_date >= today && e.work_date < limit).length;
   }, [draftChanges, today]);
+
+  // --- One shared calendar: who else is here, and refresh when they save ----
+  const monthKey = `${ym.y}-${pad2(ym.m)}`;
+  const reloadTimer = useRef<number | null>(null);
+  const lastNotice = useRef(0);
+  const { others, announce } = useWorkforcePresence({ month: monthKey, venue }, (event) => {
+    setDraftTick((n) => n + 1);
+    if (event.month !== monthKey) return;
+    if (reloadTimer.current) window.clearTimeout(reloadTimer.current);
+    reloadTimer.current = window.setTimeout(() => {
+      void data.reload();
+      if (Date.now() - lastNotice.current > 20_000) { lastNotice.current = Date.now(); toast.info(fill(t('wf.live.updated'), { name: event.name })); }
+    }, 900);
+  });
+  announceRef.current = announce;
+  useEffect(() => () => { if (reloadTimer.current) window.clearTimeout(reloadTimer.current); }, []);
+
+  // --- Reminder: drafts in other months that nobody published yet -----------
+  useEffect(() => {
+    let alive = true;
+    const plannable = new Set(data.staff.filter(mayPlan).map((s) => s.id));
+    if (!plannable.size) { setOtherDrafts(new Map()); return; }
+    void fetchAllRows<{ staff_id: string; work_date: string }>((a, b) => db.from('workforce_entries').select('staff_id,work_date')
+      .eq('status', 'draft').gte('work_date', firstEditable).order('work_date').order('staff_id').range(a, b))
+      .then((rows) => {
+        if (!alive) return;
+        const map = new Map<string, number>();
+        for (const r of rows) {
+          const m = r.work_date.slice(0, 7);
+          if (m !== monthKey && plannable.has(r.staff_id)) map.set(m, (map.get(m) ?? 0) + 1);
+        }
+        setOtherDrafts(map);
+      }, () => undefined);
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.staff, firstEditable, monthKey, draftTick, access, currentHotel]);
+  // Every draft this person may publish in the month shown (not only the filtered ones).
+  const monthDrafts = useMemo(() => {
+    const plannable = new Set(data.staff.filter(mayPlan).map((s) => s.id));
+    return [...data.entries.values()].filter((e) => e.status === 'draft' && plannable.has(e.staff_id) && e.work_date >= firstEditable).length;
+  }, [data.entries, data.staff, mayPlan, firstEditable]);
+  const pendingMonths = useMemo(() => {
+    const list = [...otherDrafts].map(([month, n]) => ({ month, n }));
+    if (monthDrafts) list.push({ month: monthKey, n: monthDrafts });
+    return list.sort((a, b) => a.month.localeCompare(b.month));
+  }, [otherDrafts, monthDrafts, monthKey]);
+  const pendingTotal = pendingMonths.reduce((n, m) => n + m.n, 0);
 
   const monthLabel = (() => {
     const text = new Date(Date.UTC(ym.y, ym.m - 1, 1)).toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' });
@@ -272,6 +329,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
     try {
       const n = await data.publish(days[0], days[days.length - 1], ids);
       toast.success(fill(t('wf.p.done'), { n }));
+      announce(monthKey);
       const reason = publishReason.trim();
       if (reason && ids.length) {
         // The reason goes onto the notices this publication just created.
@@ -323,7 +381,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   };
   const runCopy = async () => {
     if (!copyPlan) return;
-    try { await data.saveEntries(copyPlan.rows); toast.success(fill(t('wf.c4.done'), { n: copyPlan.rows.length })); }
+    try { await data.saveEntries(copyPlan.rows); announce(monthKey); toast.success(fill(t('wf.c4.done'), { n: copyPlan.rows.length })); }
     catch (err) { toast.error((err as { message?: string })?.message ?? t('wf.g.saveFail')); }
     setCopyPlan(null);
   };
@@ -374,6 +432,44 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
 
   return (
     <div className={cn('space-y-2', fullscreen && 'fixed inset-0 z-40 overflow-auto bg-background p-3')}>
+      {/* Who else is planning right now, and what still waits for Publish */}
+      {(others.length > 0 || pendingTotal > 0) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {pendingTotal > 0 && (
+            <div className="flex flex-1 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" role="status" data-training="wf-publish-reminder">
+              <BellRing className="h-4 w-4 shrink-0" />
+              <span className="font-medium">{fill(t('wf.r.pending'), { n: pendingTotal })}</span>
+              <span className="text-xs opacity-80">{t('wf.r.hint')}</span>
+              <span className="ml-auto flex flex-wrap items-center gap-1">
+                {pendingMonths.map((m) => {
+                  const [y, mo] = m.month.split('-').map(Number);
+                  const here = m.month === monthKey;
+                  return (
+                    <button key={m.month} type="button" disabled={here} onClick={() => setYm({ y, m: mo })}
+                      className={cn('rounded-full border border-amber-400 px-2 py-0.5 text-xs', here ? 'bg-amber-200 font-semibold dark:bg-amber-900' : 'bg-background/70 hover:bg-amber-100 dark:hover:bg-amber-900/60')}>
+                      {monthNames[mo - 1]}{y !== ym.y ? ` ${y}` : ''} · {m.n}
+                    </button>
+                  );
+                })}
+                {drafts.length > 0 && <Button size="sm" className="h-7" onClick={() => setConfirmPublish(true)}><Send className="mr-1 h-3.5 w-3.5" />{t('wf.r.publishNow')}</Button>}
+              </span>
+            </div>
+          )}
+          {others.length > 0 && (
+            <div className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs" data-training="wf-presence">
+              <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span>
+              <span className="text-muted-foreground">{t('wf.pr.here')}:</span>
+              {others.map((o) => (
+                <span key={o.id} className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+                  title={fill(t('wf.pr.viewing'), { name: o.name, where: `${monthNames[Number(o.month.slice(5, 7)) - 1] ?? ''} · ${venueName(o.venue || 'all')}` })}>
+                  {o.name}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 1. Which month */}
       <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b" role="tablist" aria-label={t('wf.my.month')}>
         <Button variant="ghost" size="sm" className="h-7 px-1.5" onClick={() => setYm(({ y, m }) => ({ y: y - 1, m }))} aria-label={t('wf.m.prevYear')}><ChevronLeft className="h-4 w-4" /></Button>
@@ -385,9 +481,10 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
           return (
             <button key={i} type="button" role="tab" aria-selected={active} onClick={() => setYm(({ y }) => ({ y, m: i + 1 }))}
               className={cn('-mb-px rounded-t-md border border-b-0 px-2.5 py-1 text-xs transition',
-                active ? 'border-border bg-background font-semibold text-foreground' : 'border-transparent text-muted-foreground hover:bg-muted',
-                isNow && !active && 'text-primary')}>
-              {name}
+                active ? 'border-primary bg-primary font-semibold text-primary-foreground shadow-sm' : 'border-transparent text-muted-foreground hover:bg-muted',
+                isNow && !active && 'font-semibold text-primary')}>
+              {name}{isNow && !active && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-primary align-middle" />}
+              {otherDrafts.has(`${ym.y}-${pad2(i + 1)}`) && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" title={fill(t('wf.r.pending'), { n: otherDrafts.get(`${ym.y}-${pad2(i + 1)}`) ?? 0 })} />}
             </button>
           );
         })}
@@ -457,7 +554,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
           </div>
         )}
         <Button variant="outline" size="sm" className="h-8" onClick={() => setHistoryOpen(true)} data-training="wf-history"><History className="mr-1 h-4 w-4" />{t('wf.m.history')}</Button>
-        {canAskMira && <Button variant="outline" size="sm" className="h-8" onClick={() => askMira('wf.m.miraCheckPrompt')}><Sparkles className="mr-1 h-4 w-4" />{t('wf.m.askMira')}</Button>}
+        {canAskMira && <Button size="sm" className="h-8 border-0 bg-gradient-to-r from-violet-600 via-fuchsia-500 to-sky-500 text-white shadow-sm hover:opacity-90" onClick={() => askMira('wf.m.miraCheckPrompt')}><Sparkles className="mr-1 h-4 w-4" />{t('wf.m.askMira')}</Button>}
         <Popover>
           <PopoverTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t('wf.m.shortcuts')} title={t('wf.m.shortcuts')}><HelpCircle className="h-4 w-4" /></Button></PopoverTrigger>
           <PopoverContent align="end" className="w-80 space-y-1.5 text-xs">
@@ -511,7 +608,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" disabled={copying} onClick={() => void prepareCopy()}><Copy className="mr-1 h-4 w-4" />{t('wf.m.copy4')}</Button>
-              {canPlanWithMira && <Button size="sm" variant="outline" onClick={() => askMira('wf.n.miraPrompt')}><Sparkles className="mr-1 h-4 w-4" />{t('wf.n.mira')}</Button>}
+              {canPlanWithMira && <Button size="sm" className="border-0 bg-gradient-to-r from-violet-600 via-fuchsia-500 to-sky-500 text-white hover:opacity-90" onClick={() => askMira('wf.n.miraPrompt')}><Sparkles className="mr-1 h-4 w-4" />{t('wf.n.mira')}</Button>}
               <span className="text-xs text-muted-foreground">{t('wf.n.manual')}</span>
             </div>
           </AlertDescription>
@@ -535,6 +632,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
             onEditNote={(staff) => setNoteFor({ staff, text: data.notes.get(staff.id) ?? '' })}
             zoom={prefs.zoom} onZoomStep={zoomStep} pinTotals={prefs.pinTotals} tall={fullscreen}
             notices={notices} groupByHotel={venue === 'all'} cellLabels={cellLabels}
+            onEditStaff={(person) => { if (mayPlan(person)) setEditStaff(person); else toast.info(t('wf.m.viewOnly')); }}
           />
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>{visibleStaff.length} {t('wf.m.employees')}</span>
@@ -555,6 +653,8 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
         onClose={() => setDetails(null)}
         onSave={(next) => onApply([{ staff: details!.staff, date: details!.date, next }])}
       />
+
+      <WorkforceStaffDialog staff={editStaff} data={data} access={access} onClose={() => setEditStaff(null)} />
 
       <WorkforceHistory open={historyOpen} onOpenChange={setHistoryOpen} from={days[0]} to={days[days.length - 1]}
         staff={visibleStaff} entries={data.entries} cellLabels={cellLabels} onRestore={restore} />

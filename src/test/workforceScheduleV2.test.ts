@@ -6,6 +6,7 @@ import { describeMyDay } from '@/lib/workforce/mySchedule';
 import { calendarDay, calendarDayName } from '@/lib/workforce/holidays';
 import { workforceTranslations } from '@/lib/workforce/translations';
 import { capabilitiesFor } from '@/lib/accessPolicy';
+import { employeeReport, monthsBetween, normMinutes, weekdayCoverage, type ReportEntry } from '@/lib/workforce/report';
 
 const entry = (patch: Partial<WorkforceEntry>): WorkforceEntry => ({
   staff_id: 's1', work_date: '2026-12-02', kind: 'work', code: null, start_time: '08:00', end_time: '16:00', day_fraction: 1,
@@ -163,5 +164,49 @@ describe('who sees which schedule', () => {
     expect(capabilitiesFor({ role: 'hr' }).scheduleViewAll).toBe(true);
     expect(capabilitiesFor({ role: 'manager', access_role: 'manager' }).scheduleViewAll).toBe(true);
     expect(capabilitiesFor({ role: 'manager' }).scheduleViewAll).toBe(false);
+  });
+});
+
+describe('employee report for HR and payroll', () => {
+  const person = { id: 'p1', full_name: 'Test Person', daily_hours: 8, employment_type: 'full_time', start_date: null, end_date: null, annual_leave_days: 22 };
+  const day = (date: string, patch: Partial<ReportEntry> = {}): ReportEntry => ({ staff_id: 'p1', work_date: date, kind: 'work', worked_minutes: 480, extra_minutes: 0, hotel_id: null, status: 'published', ...patch });
+
+  it('lists the months of a period', () => {
+    expect(monthsBetween('2026-11', '2027-01')).toEqual(['2026-11', '2026-12', '2027-01']);
+  });
+
+  it('sets the norm from statutory working days and skips hourly staff', () => {
+    // November 2026 has 21 working days (1 Nov, All Saints, is a Sunday).
+    expect(normMinutes(person, ['2026-11'])).toBe(21 * 480);
+    expect(normMinutes({ ...person, employment_type: 'hourly' }, ['2026-11'])).toBeNull();
+    expect(normMinutes({ ...person, start_date: '2026-11-16' }, ['2026-11'])).toBe(11 * 480);
+  });
+
+  it('counts shifts, absences and the balance, and flags what needs a look', () => {
+    const entries = [
+      ...['02', '03', '04', '05', '06', '07', '08'].map((d) => day(`2026-11-${d}`)),           // seven days in a row, incl. a weekend
+      day('2026-11-10', { kind: 'night', start_time: '20:00', end_time: '08:00', worked_minutes: 720 }),
+      day('2026-11-11', { kind: 'leave', worked_minutes: 0 }),
+      day('2026-11-12', { kind: 'sick', worked_minutes: 0 }),
+      day('2026-11-13', { kind: 'absent', worked_minutes: 0 }),
+      day('2026-11-16', { status: 'draft' }),
+    ];
+    const [row] = employeeReport(entries, [person], ['2026-11']);
+    expect(row.daysWorked).toBe(9);
+    expect(row.nights).toBe(1);
+    expect(row.weekendShifts).toBe(2);
+    expect(row.longestRun).toBe(7);
+    expect(row.leaveDays).toBe(1);
+    expect(row.minutes).toBe(8 * 480 + 720);
+    // Worked 76 h + 16 h paid absence against a 168 h norm.
+    expect(row.balanceMinutes).toBe(8 * 480 + 720 + 2 * 480 - 21 * 480);
+    expect(row.flags).toEqual(expect.arrayContaining(['under', 'long_run', 'absent', 'drafts']));
+    expect(row.flags).not.toContain('overtime');
+  });
+
+  it('averages how many people work on each weekday', () => {
+    const coverage = weekdayCoverage([day('2026-11-02'), day('2026-11-02', { staff_id: 'p2' }), day('2026-11-09'), day('2026-11-03', { kind: 'leave' })]);
+    expect(coverage[0]).toEqual({ weekday: 0, average: 1.5 });
+    expect(coverage[1].average).toBe(0);
   });
 });

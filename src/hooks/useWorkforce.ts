@@ -16,6 +16,11 @@ const BASE_ENTRY_COLUMNS = 'id,staff_id,work_date,kind,code,start_time,end_time,
 /** `published_version` arrives with the work-schedule v2 database update; until then the screen works without it. */
 let entryColumns = `${BASE_ENTRY_COLUMNS},published_version`;
 const missingColumn = (error: unknown) => /published_version/.test(String((error as { message?: string } | null)?.message ?? ''));
+const BASE_STAFF_COLUMNS = 'id,full_name,nickname,department_id,job_role_id,hotel_id,profile_id,employment_type,daily_hours,annual_leave_days,leave_note,start_date,end_date,is_active,sort_order,notes,source_label';
+/** Phone and e-mail arrive with a later database update; until then they are simply not read. */
+let staffColumns = `${BASE_STAFF_COLUMNS},phone,email`;
+const missingContact = (error: unknown) => /\b(phone|email)\b/.test(String((error as { message?: string } | null)?.message ?? ''));
+export const staffContactAvailable = () => staffColumns !== BASE_STAFF_COLUMNS;
 const NOTICE_COLUMNS = 'id,staff_id,work_date,before,after,short_notice,reason,changed_at,changed_by,acknowledged_at';
 
 /** PostgREST returns at most 1000 rows per request; read in pages. */
@@ -98,9 +103,15 @@ export function useWorkforce(year: number, month: number): WorkforceData {
         db.from('workforce_departments').select('id,name,color,sort_order,is_active').order('sort_order').order('name'),
         db.from('workforce_job_roles').select('id,department_id,name,sort_order,is_active').order('sort_order').order('name'),
         db.from('workforce_shift_codes').select('id,code,label,kind,start_time,end_time,day_fraction,hotel_id,sort_order,is_active').order('sort_order'),
-        fetchAllRows<WorkforceStaff>((a, b) => db.from('workforce_staff')
-          .select('id,full_name,nickname,department_id,job_role_id,hotel_id,profile_id,employment_type,daily_hours,annual_leave_days,leave_note,start_date,end_date,is_active,sort_order,notes,source_label')
-          .order('sort_order').order('full_name').range(a, b)),
+        (async () => {
+          const read = () => fetchAllRows<WorkforceStaff>((a, b) => db.from('workforce_staff').select(staffColumns)
+            .order('sort_order').order('full_name').range(a, b));
+          try { return await read(); } catch (err) {
+            if (!missingContact(err)) throw err;
+            staffColumns = BASE_STAFF_COLUMNS;
+            return read();
+          }
+        })(),
         (async () => {
           const read = () => fetchAllRows<WorkforceEntry>((a, b) => db.from('workforce_entries').select(entryColumns)
             .gte('work_date', from).lte('work_date', to).order('work_date').order('staff_id').range(a, b));
@@ -192,7 +203,8 @@ export function useWorkforce(year: number, month: number): WorkforceData {
   }, []);
 
   const saveStaff = useCallback(async (row: Partial<WorkforceStaff> & { full_name: string }) => {
-    const payload = { ...row, organization_slug: org };
+    const payload: Record<string, unknown> = { ...row, organization_slug: org };
+    if (!staffContactAvailable()) { delete payload.phone; delete payload.email; }
     const query = row.id
       ? db.from('workforce_staff').update(payload).eq('id', row.id)
       : db.from('workforce_staff').insert(payload);

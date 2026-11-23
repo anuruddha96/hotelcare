@@ -18,6 +18,8 @@ export interface WorkforceStaff {
   daily_hours: number; annual_leave_days: number | null; leave_note: string | null;
   start_date: string | null; end_date: string | null; is_active: boolean; sort_order: number;
   notes: string | null; source_label: string | null;
+  /** Contact details kept by HR and managers (planners only). */
+  phone?: string | null; email?: string | null;
 }
 export interface WorkforceEntry {
   id?: string; staff_id: string; work_date: string; kind: WorkforceKind; code: string | null;
