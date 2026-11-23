@@ -10,7 +10,7 @@ import {
   ACCOMMODATION_CLASSES, categoryProblem, COUNTRY_CODES, postalCodeProblem, primaryChargeLimit, primarySpendingLimit,
   type AccommodationClass, type ChargeSlot, type MarketSegment, type Region, type SalesChannel, type Sex, type VatRate,
 } from './codes.ts';
-import { autoIfaStatus, ifaPerGuest, type IfaSetting } from './ifa.ts';
+import { effectiveIfaStatus, isVerifiedIfaStatus, ifaPerGuest, type IfaSetting } from './ifa.ts';
 import type { NtakCharge, NtakDailyClosure, NtakGuest, NtakNight, NtakPayment, NtakSoldUnit, NtakUnit } from './messages.ts';
 
 export interface ClosureSettings {
@@ -187,8 +187,8 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
       if (!COUNTRY_CODES.has(residence)) err('country', `${gref}: country of residence "${residence}" is not an accepted ISO-2 code`, st.reservationId);
       const postal = postalCodeProblem(residence, g.postalCode);
       if (postal) warn('postal', `${gref}: ${postal} (IrszHiba)`, st.reservationId);
-      const ifaStatus = g.ifaStatus || autoIfaStatus(g.birthDate, src.day);
-      if (!/^(KOTELES|im[1-9][0-9]*)$/.test(ifaStatus)) err('ifa', `${gref}: invalid tourism tax status ${ifaStatus}`, st.reservationId);
+      const ifaStatus = effectiveIfaStatus(g.birthDate, src.day, g.ifaStatus);
+      if (!isVerifiedIfaStatus(ifaStatus)) err('ifa_unverified', `${gref}: unverified tourism tax exemption ${ifaStatus}; v9 annex verification required`, st.reservationId);
       statuses.push(ifaStatus);
       guests.push({
         vendegId: g.vendegId, birthYear, sex: g.sex ?? 'EGYEB_VAGY_NEM_ISMERT', nationality, residenceCountry: residence,
@@ -206,7 +206,7 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
     if (st.accommodationFee !== null && fee < 0) err('fee', `${ref}: package items exceed the accommodation fee`, st.reservationId);
     inPackage.push({ amount: Math.max(0, fee), main: 'SZALLASDIJ', sub: null, vat: s.accommodationVat }, ...st.packageItems, ...(st.postedPackageItems ?? []));
     for (const amount of st.dayUse ? [] : ifaPerGuest(s.ifa, Math.max(0, fee), s.accommodationVat, statuses)) {
-      outPackage.push({ amount, main: 'IFA', sub: null, vat: s.ifaVat });
+      outPackage.push({ amount, main: 'IFA', sub: null, vat: 0 });
       totals.ifa += amount;
     }
     outPackage.push(...st.extras);
@@ -282,7 +282,7 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
   };
 
   if (src.classification === 'MODOSITO') {
-    if (!String(src.protocolId ?? '').trim() || String(src.protocolId).length > 25) err('correction', 'A correction needs a record ID (max 25 characters)');
+    if (String(src.protocolId ?? '').length > 25) err('correction', 'A supplied record ID must be at most 25 characters');
     if (!String(src.reason ?? '').trim() || String(src.reason).length > 100) err('correction', 'A correction needs a reason (max 100 characters)');
   }
   totals.charges = round2(totals.charges);
