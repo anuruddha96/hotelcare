@@ -17,6 +17,8 @@ on:
       - 'supabase/tests/ntak_finance_guard_integration.sql'
       - 'supabase/tests/ntak_phase3_activation_*.sql'
       - 'supabase/tests/ntak_phase4_room_state_*.sql'
+      - 'supabase/tests/ntak_phase5_walk_in_*.sql'
+      - 'src/components/frontdesk/WalkInSaleDialog.tsx'
       - 'scripts/render_ntak_phase3_function_fixture.py'
       - 'src/lib/reservations.ts'
       - 'src/lib/pms-translations.ts'
@@ -114,6 +116,16 @@ jobs:
           PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_fixture.sql
           PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123220000_ntak_phase4_room_state_periods.sql
           PGDATABASE=hotelcare_phase4_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_integration.sql
+      - name: Phase 5 walk-in sales atomicity, VAT and RLS integration (PostgreSQL)
+        run: |
+          set -euo pipefail
+          createdb hotelcare_phase5_ci
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_fixture.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase4_room_state_fixture.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261119100000_ntak_pms_v9.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase5_walk_in_fixture.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123230000_ntak_phase5_walk_in_sales.sql
+          PGDATABASE=hotelcare_phase5_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase5_walk_in_integration.sql
       - name: Phase 6 booking field constraints, atomic writes and tenant guards
         run: |
           set -euo pipefail

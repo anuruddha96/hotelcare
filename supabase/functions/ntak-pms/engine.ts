@@ -6,6 +6,7 @@
  */
 import bcrypt from "npm:bcryptjs@2.4.3";
 import { STOP_SENDING_KEYS } from "../_shared/ntak/codes.ts";
+import { mapWalkInSales, type PosSale, type PosLine, type PosPayment } from "../_shared/ntak/pos.ts";
 import { assembleClosure, hasBlockingErrors, type AssembledClosure, type ClosureSettings, type StayGuest, type UnitInfo } from "../_shared/ntak/closure.ts";
 import { computeVendegId, isValidSalt, missingIdentityFields } from "../_shared/ntak/guestId.ts";
 import { autoIfaStatus } from "../_shared/ntak/ifa.ts";
@@ -284,6 +285,33 @@ export function dayWindow(day: string): { from: string; to: string } {
   return { from: budapestMidnight(day), to: budapestMidnight(addDays(day, 1)) };
 }
 
+/** Fail closed on unavailable or truncated walk-in ledgers: zero is not an
+ * acceptable substitute for missing financial data. */
+export async function loadWalkInSales(db: Db, s: Settings, day: string) {
+  const { data, error, count } = await db.from("pos_sales").select("id", { count: "exact" })
+    .eq("hotel_id", s.hotel_id).eq("organization_slug", s.organization_slug).eq("business_day", day).order("id");
+  if (error || !Array.isArray(data) || count !== data.length) {
+    throw new Error("Unable to load complete walk-in sales ledger: " + (error?.message ?? "incomplete sale list"));
+  }
+  const sales: PosSale[] = data;
+  const lines: PosLine[] = [];
+  const payments: PosPayment[] = [];
+  for (let i = 0; i < sales.length; i += 100) {
+    const ids = sales.slice(i, i + 100).map(row => row.id);
+    const [l, p] = await Promise.all([
+      db.from("pos_sale_lines").select("sale_id,gross_total,vat_rate,ntak_main,ntak_sub", { count: "exact" }).in("sale_id", ids),
+      db.from("pos_sale_payments").select("sale_id,method,amount", { count: "exact" }).in("sale_id", ids),
+    ]);
+    if (l.error || p.error || !Array.isArray(l.data) || !Array.isArray(p.data)
+      || l.count !== l.data.length || p.count !== p.data.length) {
+      throw new Error("Unable to load complete walk-in charges/payments: " + (l.error?.message ?? p.error?.message ?? "incomplete sale details"));
+    }
+    lines.push(...l.data);
+    payments.push(...p.data);
+  }
+  return mapWalkInSales(sales, lines, payments, ledgerConfig(s));
+}
+
 export interface ClosureBuild extends AssembledClosure { xml: string; snapshotHash: string; classification: "UJ" | "MODOSITO" }
 
 export async function buildClosure(db: Db, s: Settings, day: string, opts: {
@@ -359,11 +387,18 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     label: (r) => `Room ${roomNumbers.get(roomOnDay(r, assignments ?? [], day) ?? "") ?? "?"} · ${r.reservation_number ?? r.id.slice(0, 8)}`,
   }, cfg);
 
+  let walkIn: ReturnType<typeof mapWalkInSales>;
+  try {
+    walkIn = await loadWalkInSales(db, s, day);
+  } catch (e) {
+    walkIn = { otherCharges: [], otherPayments: [], problems: [e instanceof Error ? e.message : String(e)] };
+  }
   const classification = opts.classification ?? "UJ";
   const assembled = assembleClosure({
     day, closedAt: opts.closedAt ?? new Date(), classification, protocolId: opts.protocolId, reason: opts.reason,
-    closed: opts.closed ?? false, units, ...sources, otherCharges: [], otherPayments: [],
+    closed: opts.closed ?? false, units, ...sources, otherCharges: walkIn.otherCharges, otherPayments: walkIn.otherPayments,
   }, closureSettings(s));
+  for (const problem of walkIn.problems) assembled.checklist.push({ level: "error", code: "walk_in_ledger", message: problem });
   if (stayError || historicalError || linesError || paymentsError) {
     // Never send a closure missing financial rows or historical reservations.
     const source = [stayError && "stays", historicalError && "actual stays", linesError && "folio lines", paymentsError && "payments"].filter(Boolean).join(", ");
