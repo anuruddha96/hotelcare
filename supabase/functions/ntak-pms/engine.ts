@@ -427,25 +427,61 @@ export async function classificationFor(db: Db, s: Settings, day: string): Promi
   return data?.accepted_once ? "MODOSITO" : "UJ";
 }
 
+// Merging may deploy code before the separately coordinated SQL migration.
+export async function phase9SchemaReady(db: Db): Promise<boolean> {
+  try {
+    const [m,c] = await Promise.all([
+      db.from("ntak_messages").select("resend_of,override_reason").limit(1),
+      db.from("ntak_daily_closures").select("override_by,override_reason").limit(1),
+    ]);
+    return !m.error && !c.error;
+  } catch { return false; }
+}
+
+// Only bypass checks for values actually represented in the outgoing XML.
+export function closureOverride(checklist: AssembledClosure["checklist"], environment: Settings["environment"], actor: string | null | undefined, requested: boolean | undefined, reason: string | undefined) {
+  const errors = checklist.filter(c => c.level === "error");
+  const overridable = new Set(["extreme", "age", "country", "ifa", "vat", "negative", "category"]);
+  const why = reason?.trim() || (environment === "test" ? "NTAK test validation" : "");
+  return { allowed: !!requested && !!actor && !!why && why.length <= 500 && errors.every(c => overridable.has(c.code)), reason: why };
+}
+
 export async function queueClosure(db: Db, s: Settings, day: string, opts: {
-  protocolId?: string | null; reason?: string | null; closed?: boolean; actor?: string | null; allowWarnings?: boolean;
+  protocolId?: string | null; reason?: string | null; closed?: boolean; actor?: string | null; allowWarnings?: boolean; override?: boolean; overrideReason?: string;
 }): Promise<{ ok: boolean; build: ClosureBuild; messageId?: string }> {
   const classification = await classificationFor(db, s, day);
   const build = await buildClosure(db, s, day, { classification, protocolId: opts.protocolId, reason: opts.reason, closed: opts.closed });
-  if (hasBlockingErrors(build.checklist)) return { ok: false, build };
+  const ready = await phase9SchemaReady(db);
+  const override = closureOverride(build.checklist, s.environment, opts.actor, opts.override, opts.overrideReason);
+  if (opts.override && !ready) {
+    build.checklist.push({level:"error",code:"migration",message:"The Phase 9 audit migration must be applied before overriding."});
+    return {ok:false,build};
+  }
+  if ((opts.override && !override.allowed) || (hasBlockingErrors(build.checklist) && !override.allowed)) return { ok: false, build };
 
+  const { data: active, error: activeError } = await db.from("ntak_messages").select("id").eq("hotel_id", s.hotel_id).eq("environment", s.environment).eq("kind", "closure").eq("ref", day).in("state", ["sending", "accepted"]).limit(1);
+  if (activeError) throw new Error(activeError.message);
+  if (active?.length) {
+    build.checklist.push({level:"error",code:"pending_result",message:"Wait for the result of the previous submission before correcting this day."});
+    return {ok:false,build};
+  }
   await supersedeOpen(db, s.hotel_id, "closure", day);
   const { data: msg, error } = await db.from("ntak_messages").insert({
     hotel_id: s.hotel_id, organization_slug: s.organization_slug, environment: s.environment, kind: "closure", ref: day,
-    request_xml: build.xml, created_by: opts.actor ?? null,
+    request_xml: build.xml, created_by: opts.actor ?? null, ...(ready ? {override_reason: override.allowed ? override.reason : null} : {}),
   }).select("id").single();
   if (error) throw new Error(error.message);
-  await db.from("ntak_daily_closures").upsert({
+  const { error: closureError } = await db.from("ntak_daily_closures").upsert({
     hotel_id: s.hotel_id, closed_day: day, organization_slug: s.organization_slug, state: "queued", classification,
     protocol_id: opts.protocolId ?? null, reason: opts.reason ?? null, closed_by: opts.actor ?? null, closed_at: new Date().toISOString(),
     snapshot: { closure: build.closure, checklist: build.checklist, totals: build.totals }, snapshot_hash: build.snapshotHash,
+    ...(ready ? {override_by: override.allowed ? opts.actor : null, override_reason: override.allowed ? override.reason : null} : {}),
     message_id: msg.id, needs_correction: false, correction_detected_at: null, updated_at: new Date().toISOString(),
   }, { onConflict: "hotel_id,closed_day" });
+  if (closureError) {
+    await db.from("ntak_messages").update({ state: "superseded" }).eq("id", msg.id).eq("state", "queued");
+    throw new Error(closureError.message);
+  }
   return { ok: true, build, messageId: msg.id };
 }
 
@@ -692,7 +728,7 @@ export async function sendDue(db: Db, s: Settings, opts: { limit: number; bookin
   if (typeof ctx === "string") return { sent: 0, skipped: ctx };
   const budget = HOURLY_SOFT_LIMIT - await sentLastHour(db, s.hotel_id);
   if (budget <= 0) return { sent: 0, skipped: "hourly message budget reached" };
-  const { data: due } = await db.from("ntak_messages").select("*").eq("hotel_id", s.hotel_id).in("state", ["queued", "retry"])
+  const { data: due } = await db.from("ntak_messages").select("*").eq("hotel_id", s.hotel_id).eq("environment", s.environment).in("state", ["queued", "retry"])
     .lte("next_attempt_at", now()).order("next_attempt_at").limit(Math.min(opts.limit, budget));
   let sent = 0;
   let lastBooking = 0;
@@ -755,7 +791,7 @@ const CLOSURE_STATE: Record<string, string> = { TELJESEN_SIKERES: "accepted", VI
 export async function verifyDue(db: Db, s: Settings, force = false): Promise<{ checked: number; skipped?: string }> {
   const ctx = await sendContext(db, s);
   if (typeof ctx === "string") return { checked: 0, skipped: ctx };
-  let q = db.from("ntak_messages").select("id,kind,ref,processing_id,verify_attempts,sent_at").eq("hotel_id", s.hotel_id).eq("state", "accepted").not("processing_id", "is", null);
+  let q = db.from("ntak_messages").select("id,kind,ref,processing_id,verify_attempts,sent_at").eq("hotel_id", s.hotel_id).eq("environment", s.environment).eq("state", "accepted").not("processing_id", "is", null);
   if (!force) q = q.lte("next_verify_at", now());
   const { data: due } = await q.order("next_verify_at").limit(VERIFY_BATCH);
   if (!due?.length) return { checked: 0 };
@@ -781,43 +817,52 @@ export async function verifyDue(db: Db, s: Settings, force = false): Promise<{ c
       }).eq("id", m.id);
       continue;
     }
-    await db.from("ntak_messages").update({
+    // Queue the identical original before finalizing the result; failures leave
+    // the original eligible for the next verification poll.
+    if (r.status === "UJRA_KULDENDO") await resendSameContent(db, s, m.id, m.kind, m.ref);
+    if (m.kind === "closure" && r.status !== "UJRA_KULDENDO") {
+      const {error: registerError} = await db.from("ntak_daily_closures").update({
+        state: CLOSURE_STATE[r.status] ?? "sent", updated_at: now(),
+        ...(["TELJESEN_SIKERES", "VIZSGALANDO"].includes(r.status) ? { accepted_once: true } : {}),
+        needs_correction: r.status === "VIZSGALANDO" || r.status === "TELJESEN_HIBAS",
+      }).eq("hotel_id", s.hotel_id).eq("message_id", m.id);
+      if (registerError) throw new Error(registerError.message);
+    }
+    const {error: resultError} = await db.from("ntak_messages").update({
       state: r.status === "TELJESEN_HIBAS" ? "rejected" : "verified", ntak_status: r.status, warnings: issuesJson(r.warnings), errors: issuesJson(r.errors),
       verified_at: now(), verify_attempts: m.verify_attempts + 1, expected_start_date: r.expectedStartDate, updated_at: now(),
     }).eq("id", m.id);
-    if (m.kind === "closure") {
-      await db.from("ntak_daily_closures").update({
-        state: CLOSURE_STATE[r.status] ?? "sent", updated_at: now(),
-        ...(["TELJESEN_SIKERES", "VIZSGALANDO", "UJRA_KULDENDO"].includes(r.status) ? { accepted_once: true } : {}),
-      }).eq("hotel_id", s.hotel_id).eq("message_id", m.id);
-    }
+    if (resultError) throw new Error(resultError.message);
     if (m.kind === "start_date" && r.expectedStartDate) {
       await db.from("ntak_settings").update({ data_start_date: r.expectedStartDate, data_start_checked_at: now() }).eq("hotel_id", s.hotel_id);
     }
-    if (r.status === "UJRA_KULDENDO") await resendSameContent(db, s, m.id, m.kind, m.ref);
   }
   return { checked: parsed.results.length };
 }
 
-/**
- * UJRA_KULDENDO: NTAK could only partly process the message; the same content
- * must be sent again, closures marked as a modified (MODOSITO) version.
- */
-async function resendSameContent(db: Db, s: Settings, messageId: string, kind: string, ref: string) {
-  let requestXml: string | null = null;
+/** UJRA_KULDENDO: copy the immutable submitted XML, never rebuild the closure.
+ * sendDue refreshes only the header and signs the next attempt. */
+export async function resendSameContent(db: Db, s: Settings, messageId: string, kind: string, ref: string) {
+  const { data: orig, error: readError } = await db.from("ntak_messages").select("request_xml,environment,override_reason,created_by").eq("id", messageId).eq("hotel_id", s.hotel_id).single();
+  if (readError || !orig?.request_xml || orig.environment !== s.environment) throw new Error("Cannot safely recover original NTAK payload");
   if (kind === "closure") {
-    const { data: c } = await db.from("ntak_daily_closures").select("snapshot").eq("hotel_id", s.hotel_id).eq("closed_day", ref).maybeSingle();
-    if (!c?.snapshot?.closure) return;
-    const closure = { ...c.snapshot.closure, classification: "MODOSITO", protocolId: `NTAK-${ref.replace(/-/g, "")}-R`, reason: "Újraküldés az NTAK UJRA_KULDENDO visszajelzése alapján" };
-    requestXml = buildNapiZarasRequest(common(s), closure);
-    await db.from("ntak_daily_closures").update({ classification: "MODOSITO", protocol_id: closure.protocolId, reason: closure.reason, accepted_once: true, state: "queued", updated_at: now() }).eq("hotel_id", s.hotel_id).eq("closed_day", ref);
-  } else {
-    const { data: orig } = await db.from("ntak_messages").select("request_xml").eq("id", messageId).single();
-    requestXml = orig?.request_xml ?? null;
+    const { data: current, error } = await db.from("ntak_daily_closures").select("message_id").eq("hotel_id", s.hotel_id).eq("closed_day", ref).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!current) throw new Error("Missing closure register");
+    // A later manually queued correction takes precedence over an old result.
+    if (current.message_id !== messageId) return;
   }
-  if (!requestXml) return;
-  const { data: msg } = await db.from("ntak_messages").insert({ hotel_id: s.hotel_id, organization_slug: s.organization_slug, environment: s.environment, kind, ref, request_xml: requestXml }).select("id").single();
-  if (kind === "closure" && msg) await db.from("ntak_daily_closures").update({ message_id: msg.id }).eq("hotel_id", s.hotel_id).eq("closed_day", ref);
+  const { error: insertError } = await db.from("ntak_messages").upsert({
+    hotel_id: s.hotel_id, organization_slug: s.organization_slug, environment: orig.environment, kind, ref,
+    request_xml: orig.request_xml, resend_of: messageId, override_reason: orig.override_reason, created_by: orig.created_by,
+  }, { onConflict: "resend_of", ignoreDuplicates: true });
+  if (insertError) throw new Error(insertError.message);
+  const { data: msg, error } = await db.from("ntak_messages").select("id").eq("resend_of", messageId).eq("hotel_id", s.hotel_id).single();
+  if (error || !msg) throw new Error("Resend attempt was not recorded");
+  if (kind === "closure") {
+    const { error: updateError } = await db.from("ntak_daily_closures").update({ message_id: msg.id, state: "queued", updated_at: now() }).eq("hotel_id", s.hotel_id).eq("closed_day", ref).eq("message_id", messageId);
+    if (updateError) throw new Error(updateError.message);
+  }
 }
 
 // ---------------------------------------------------------------------------

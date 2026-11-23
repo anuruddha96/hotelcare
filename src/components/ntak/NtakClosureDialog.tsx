@@ -22,12 +22,13 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
   const [closed, setClosed] = useState(false);
   const [protocolId, setProtocolId] = useState('');
   const [reason, setReason] = useState('');
+  const [overrideReason, setOverrideReason] = useState('');
   const [preview, setPreview] = useState<ClosurePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [showXml, setShowXml] = useState(false);
 
-  useEffect(() => { if (open) { setDay(initialDay); setPreview(null); setProtocolId(''); setReason(''); setClosed(false); } }, [open, initialDay]);
+  useEffect(() => { if (open) { setDay(initialDay); setPreview(null); setProtocolId(''); setReason(''); setOverrideReason(''); setClosed(false); } }, [open, initialDay]);
 
   const check = async () => {
     setLoading(true);
@@ -42,10 +43,10 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
 
   useEffect(() => { if (open) void check(); }, [open, day, closed]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const send = async () => {
+  const send = async (override = false) => {
     setSending(true);
     try {
-      await callNtak({ action: 'close_day', hotel_id: hotelId, day, closed, protocol_id: protocolId || null, reason: reason || null });
+      await callNtak({ action: 'close_day', hotel_id: hotelId, day, closed, protocol_id: protocolId || null, reason: reason || null, override, override_reason: override ? overrideReason.trim() : null });
       toast.success(t('ntak.queuedOk'));
       onQueued?.();
       onOpenChange(false);
@@ -58,10 +59,12 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
     }
   };
 
-  const errors = preview?.checklist.filter((c) => c.level === 'error') ?? [];
+  const errors = preview?.checklist.filter((c) => c.level === 'error' && !(c.code === 'correction' && protocolId.trim() && reason.trim())) ?? [];
   const warnings = preview?.checklist.filter((c) => c.level === 'warning') ?? [];
   const correction = preview?.classification === 'MODOSITO';
   const needsReason = correction && (!protocolId.trim() || !reason.trim());
+  const canOverride = !!preview?.can_manage && (errors.length > 0 || warnings.length > 0) &&
+    errors.every(e => ['extreme', 'age', 'country', 'ifa', 'vat', 'negative', 'category'].includes(e.code));
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!sending) onOpenChange(o); }}>
@@ -118,6 +121,12 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
               {errors.length > 0 && <IssueList title={t('ntak.errors')} items={errors} tone="error" />}
               {warnings.length > 0 && <IssueList title={t('ntak.warnings')} items={warnings} tone="warning" />}
 
+              {canOverride && <div className="rounded border border-amber-500 p-2 space-y-2">
+                <Label htmlFor="ntak-override-reason">{t('ntak.overrideReason')}</Label>
+                <Input id="ntak-override-reason" maxLength={500} value={overrideReason} onChange={e => setOverrideReason(e.target.value)} />
+                <p className="text-xs text-muted-foreground">{t(preview.environment === 'test' ? 'ntak.overrideTest' : 'ntak.overrideProduction')}</p>
+                <Button type="button" variant="destructive" disabled={sending || loading || needsReason || (preview.environment !== 'test' && !overrideReason.trim())} onClick={() => void send(true)}>{t('ntak.sendAnyway')}</Button>
+              </div>}
               <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setShowXml((v) => !v)}>{t('ntak.showXml')}</button>
               {showXml && <pre className="max-h-64 overflow-auto rounded bg-muted p-2 text-[10px] whitespace-pre-wrap break-all">{preview.xml}</pre>}
             </>
@@ -126,7 +135,7 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
         <DialogFooter>
           <Button type="button" variant="outline" disabled={sending} onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button type="button" variant="outline" disabled={loading || sending} onClick={check}>{t('ntak.check')}</Button>
-          <Button type="button" disabled={!preview || loading || sending || errors.length > 0 || needsReason} onClick={send} className="gap-1.5">
+          <Button type="button" disabled={!preview || loading || sending || errors.length > 0 || needsReason} onClick={() => void send()} className="gap-1.5">
             {sending && <Loader2 className="h-4 w-4 animate-spin" />}{t('ntak.send')}
           </Button>
         </DialogFooter>
