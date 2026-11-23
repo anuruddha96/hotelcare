@@ -226,7 +226,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
 
             <TabsContent value="units" className="space-y-3">
               <div className="flex flex-wrap gap-2 items-center">
-                <Button size="sm" variant="outline" disabled={!!busy} onClick={() => run('seed', { action: 'seed_units' }, (r) => toast.success(`+${r.created}`))}>{t('ntak.seedUnits')}</Button>
+                <Button size="sm" variant="outline" disabled={!!busy || s?.unit_scope === 'profiled_only'} onClick={() => run('seed', { action: 'seed_units' }, (r) => toast.success(`+${r.created}`))}>{t('ntak.seedUnits')}</Button>
                 <span className="text-xs text-muted-foreground">{units.filter((u) => u.active).length} / {s?.registered_room_count ?? '?'}</span>
               </div>
               <div className="overflow-x-auto">
