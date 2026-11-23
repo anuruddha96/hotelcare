@@ -513,6 +513,9 @@ export default function RateStrategyGrid({
     () => rateCalendarColumnWidth(viewportW, LEFT_W, ZOOM_CELL_W, dateColumnsToFit, canFitDates),
     [viewportW, LEFT_W, ZOOM_CELL_W, dateColumnsToFit, canFitDates],
   );
+  // Date-navigation rAF reads the new width after React applies the view.
+  const cellWidthRef = useRef(CELL_W);
+  cellWidthRef.current = CELL_W;
 
   /**
    * Font scale follows the actual column width (zoom and month-fit both
@@ -2510,12 +2513,15 @@ export default function RateStrategyGrid({
     setHistoryMonth(null);
     setMonthFilter(value);
     setFitAllDates(true);
+    // An explicit full-period navigation overrides temporary date filters.
+    setReviewOnly(false);
+    setPickupOnly(false);
     setPickedDates(new Set());
     setSelDates(new Set());
     requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollLeft = value ? 0 : RATE_HISTORY_DAYS * CELL_W;
+      if (scrollRef.current) scrollRef.current.scrollLeft = value ? 0 : RATE_HISTORY_DAYS * cellWidthRef.current;
     });
-  }, [CELL_W]);
+  }, []);
 
   // A month that falls outside a newly narrowed range must not hide everything.
   useEffect(() => {
@@ -3382,6 +3388,8 @@ export default function RateStrategyGrid({
                         setHistoryMonth(m.value);
                         setMonthFilter(null);
                         setFitAllDates(true);
+                        setReviewOnly(false);
+                        setPickupOnly(false);
                         setHistoryPickerOpen(false);
                         setPickedDates(new Set());
                         setSelDates(new Set());
