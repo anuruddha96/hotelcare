@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Camera, CheckCircle2, ImageUp, Keyboard, Loader2, PlugZap, ScanLine, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
+import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
 import {
   fetchBridgeScan, isLoopbackUrl, loadScannerSettings, saveScannerSettings, wedgeInputLooksComplete, wedgeInputToMrzText,
@@ -73,19 +74,27 @@ function wipe(canvas: HTMLCanvasElement) {
   canvas.width = 0; canvas.height = 0;
 }
 
-async function ocr(canvas: HTMLCanvasElement): Promise<string> {
+const OCR_PARAMETERS = {
+  tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
+  preserve_interword_spaces: '0',
+};
+
+/**
+ * The reader uses a model trained on the OCR-B type of document code lines
+ * (served from this site, see public/tessdata) — it reads worn and
+ * low-resolution documents that the general English model gets wrong. If it
+ * cannot be loaded, the English model is the fallback.
+ */
+async function createOcrWorker(): Promise<TesseractWorker> {
   const { createWorker } = await import('tesseract.js');
-  const worker = await createWorker('eng');
+  let worker: TesseractWorker;
   try {
-    await worker.setParameters({
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
-      preserve_interword_spaces: '0',
-    });
-    const { data } = await worker.recognize(canvas);
-    return data.text ?? '';
-  } finally {
-    await worker.terminate();
+    worker = await createWorker('mrz', 1, { langPath: `${window.location.origin}/tessdata`, gzip: false });
+  } catch {
+    worker = await createWorker('eng');
   }
+  await worker.setParameters(OCR_PARAMETERS as never);
+  return worker;
 }
 
 export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps) {
@@ -192,20 +201,32 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const readFrom = async (source: CanvasImageSource, width: number, height: number) => {
     setPhase('reading');
     stopCamera();
-    // The code lines are at the bottom; fall back to the whole image if needed.
-    for (const band of ['bottom', 'full'] as const) {
-      const canvas = prepareBand(source, width, height, band);
-      try {
-        const text = await ocr(canvas);
-        const parsed = readMrz(text);
-        if (parsed) { setResult(parsed); setPhase('review'); return; }
-      } catch {
-        // try the next band
-      } finally {
-        wipe(canvas);
+    // The code lines are at the bottom; the whole image is the second try.
+    // A read whose check digits all pass wins; otherwise the first read is
+    // shown with a "check every field" warning.
+    let worker: TesseractWorker | null = null;
+    let unverified: MrzReadResult | null = null;
+    try {
+      worker = await createOcrWorker();
+      for (const band of ['bottom', 'full'] as const) {
+        const canvas = prepareBand(source, width, height, band);
+        try {
+          const { data } = await worker.recognize(canvas);
+          const parsed = readMrz(data.text ?? '');
+          if (parsed?.valid) { setResult(parsed); setPhase('review'); return; }
+          unverified = unverified ?? parsed;
+        } catch {
+          // try the next band
+        } finally {
+          wipe(canvas);
+        }
       }
+    } catch {
+      // OCR could not start: handled as "not found" below
+    } finally {
+      await worker?.terminate().catch(() => undefined);
     }
-    setPhase('failed');
+    if (unverified) { setResult(unverified); setPhase('review'); } else setPhase('failed');
   };
 
   const captureFrame = () => {
@@ -326,7 +347,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               {expired && <Badge variant="destructive">{t('pms.scan.expired')}</Badge>}
             </div>
             <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 rounded-md border border-border p-3 text-sm">
-              <dt className="text-muted-foreground">{t('pms.scan.name')}</dt><dd className="font-semibold">{result.fields.firstName} {result.fields.lastName}</dd>
+              <dt className="text-muted-foreground">{t('pms.guest.familyName')}</dt><dd className="font-semibold">{result.fields.mrzLastName || '—'}</dd>
+              <dt className="text-muted-foreground">{t('pms.guest.givenName')}</dt><dd className="font-semibold">{result.fields.mrzFirstName || '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.nationality')}</dt><dd>{result.fields.nationality}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.birthDate')}</dt><dd>{result.fields.dateOfBirth ?? '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.gender')}</dt><dd>{result.fields.gender ? t(`pms.guest.gender${result.fields.gender[0].toUpperCase()}${result.fields.gender.slice(1)}`) : '—'}</dd>
@@ -334,6 +356,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               <dt className="text-muted-foreground">{t('pms.guest.docNumber')}</dt><dd className="font-mono">{result.fields.documentNumber}</dd>
               <dt className="text-muted-foreground">{t('pms.scan.expiry')}</dt><dd>{result.fields.expiryDate ?? '—'}</dd>
             </dl>
+            <pre aria-label={t('pms.scan.codeLines')} className="overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] leading-tight text-muted-foreground">{result.lines.join('\n')}</pre>
+            <p className="text-[11px] text-muted-foreground">{t('pms.scan.reviewHint')}</p>
           </div>
         )}
 

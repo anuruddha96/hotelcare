@@ -13,7 +13,7 @@
  *   worker (x-worker-secret, cron):  status poll + drain arrival/departure queues
  *   status (JWT, hotel staff):       settings + counters + recent events for the UI
  *   save_settings (JWT, managers):   per-hotel VIZA identity and enable switch
- *   retry (JWT, managers):           requeue a failed event
+ *   retry (JWT, reception staff):    send a failed or rejected guest again (after correcting the data)
  *   unsent_list (JWT, managers):     messages the THF holds as unsent / rejected
  *
  * The THF being unreachable must never block the front desk (spec 4): events
@@ -25,13 +25,14 @@ import { postSoap } from "../_shared/ntak/transport.ts";
 import { importSigningKey, signEnvelope } from "../_shared/ntak/wssec.ts";
 import { firstCertificatePem, normalizePrivateKeyPem } from "../_shared/ntak/x509.ts";
 import { guestToVizaGroups } from "../_shared/viza/mapGuest.ts";
+import { isDue, NEEDS_CORRECTION, nextAttemptAt, readSubmissionOutcome } from "../_shared/viza/outcome.ts";
 import { b64encode, importRsaKey, pemToDer, signEllenorzoString } from "../_shared/viza/wssec.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
 
 const BATCH = 10; // spec: max 10 guests per message
-const MAX_ATTEMPTS = 30;
+const QUICK_TRIES = 3; // guide 6.2: the first three tries follow each other at once
 
 interface Credentials { certPem: string; keyPem: string; source: "vault" | "function-secret" }
 
@@ -78,6 +79,21 @@ async function callThf(cfg: Pick<Settings, "thf_url" | "thf_ca_pem">, bodyXml: s
   return result;
 }
 
+/** A send that cannot reach the THF is tried three times in a row before it counts as one failed attempt. */
+async function sendToThf(cfg: Pick<Settings, "thf_url" | "thf_ca_pem">, bodyXml: string, signer: Signer) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < QUICK_TRIES; attempt++) {
+    try {
+      const res = await callThf(cfg, bodyXml, signer);
+      if (res.status < 500) return res;
+      lastError = new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 type Settings = {
   hotel_id: string; organization_slug: string; enabled: boolean; thf_url: string;
   adatszolgaltatasi_azonosito: string | null; szallas_nev: string | null;
@@ -96,37 +112,46 @@ const hotelBlock = (cfg: Settings) => ({
   szallashelySzolgaltatoNev: String(cfg.szolgaltato_nev ?? ""),
 });
 
-async function markResult(db: Db, ids: string[], kind: "arrival" | "departure", responseXml: string | null, error: string | null) {
-  const okIds: string[] = [];
-  const failures = new Map<string, string>();
-  if (responseXml && readXmlTag(responseXml, "sikeresBefogadas") === "true") {
-    const fogadas = readXmlTag(responseXml, "fogadasAzonosito");
-    const items = readXmlTags(responseXml, "hibaLista");
-    const codes = new Map(items.map((item) => [readXmlTag(item, "erkezesAzonosito") ?? "", readXmlTag(item, "hibaKod") ?? ""]));
-    const { data: rows } = await db.from("viza_guest_events").select("id, erkezes_azonosito").in("id", ids);
-    for (const row of rows ?? []) {
-      const code = codes.get(row.erkezes_azonosito) ?? "OK";
-      if (code === "OK") okIds.push(row.id);
-      else failures.set(row.id, code);
-    }
-    if (okIds.length) {
-      await db.from("viza_guest_events").update(
-        kind === "arrival"
-          ? { arrival_state: "sent", arrival_fogadas_azonosito: fogadas, last_error: null, updated_at: new Date().toISOString() }
-          : { departure_state: "sent", departure_fogadas_azonosito: fogadas, last_error: null, updated_at: new Date().toISOString() },
-      ).in("id", okIds);
-    }
-    for (const [id, code] of failures) {
-      await db.from("viza_guest_events").update({
-        [kind === "arrival" ? "arrival_state" : "departure_state"]: "failed",
-        last_error: `THF ${code}`.slice(0, 300),
-        updated_at: new Date().toISOString(),
-      }).eq("id", id);
-    }
+type QueueRow = { id: string; erkezes_azonosito: string };
+
+async function markResult(db: Db, rows: QueueRow[], kind: "arrival" | "departure", responseXml: string | null, error: string | null) {
+  const stateColumn = kind === "arrival" ? "arrival_state" : "departure_state";
+  const now = () => new Date().toISOString();
+  const outcome = readSubmissionOutcome(responseXml, rows.map((r) => r.erkezes_azonosito));
+  if (!outcome) {
+    // Technical failure: count the attempt, the retry schedule decides when it goes out again.
+    const message = (error ?? readXmlTag(responseXml ?? "", "faultstring") ?? "THF request failed").slice(0, 300);
+    await db.rpc("viza_bump_attempts", { _ids: rows.map((r) => r.id), _kind: kind, _error: message });
     return;
   }
-  const message = (error ?? readXmlTag(responseXml ?? "", "faultstring") ?? "THF request failed").slice(0, 300);
-  await db.rpc("viza_bump_attempts", { _ids: ids, _kind: kind, _error: message });
+  const idOf = new Map(rows.map((r) => [r.erkezes_azonosito, r.id]));
+  const accepted = outcome.guests.filter((g) => g.result === "accepted").map((g) => idOf.get(g.erkezesAzonosito)!);
+  if (accepted.length) {
+    await db.from("viza_guest_events").update(
+      kind === "arrival"
+        ? { arrival_state: "sent", arrival_fogadas_azonosito: outcome.fogadasAzonosito, attempts: 0, last_error: null, updated_at: now() }
+        : { departure_state: "sent", departure_fogadas_azonosito: outcome.fogadasAzonosito, attempts: 0, last_error: null, updated_at: now() },
+    ).in("id", accepted);
+  }
+  for (const guest of outcome.guests) {
+    if (guest.result !== "rejected") continue; // "resend" guests stay queued for the next run
+    await db.from("viza_guest_events").update({
+      [stateColumn]: "failed",
+      attempts: NEEDS_CORRECTION,
+      last_error: `THF ${guest.code}${guest.text ? `: ${guest.text}` : ""}`.slice(0, 300),
+      updated_at: now(),
+    }).eq("id", idOf.get(guest.erkezesAzonosito)!);
+  }
+}
+
+type DueRow = QueueRow & Record<string, unknown> & { attempts: number; updated_at: string };
+
+/** Queued guests (no failed send yet) go out at once; failed sends wait for their place in the retry schedule. */
+function dueNow(rows: DueRow[] | null | undefined): DueRow[] {
+  const now = new Date();
+  return (rows ?? [])
+    .filter((row) => isDue(row.attempts, row.updated_at, now))
+    .slice(0, BATCH);
 }
 
 async function runWorker(db: Db): Promise<Record<string, unknown>> {
@@ -161,17 +186,18 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
       }).eq("hotel_id", cfg.hotel_id);
 
       // 2. Arrivals.
-      const { data: arrivals } = await db.from("viza_guest_events")
-        .select("id, erkezes_azonosito, erkezes_ideje, tavozas_varhato_datuma, guest_id")
+      const { data: arrivalRows } = await db.from("viza_guest_events")
+        .select("id, erkezes_azonosito, erkezes_ideje, tavozas_varhato_datuma, guest_id, attempts, updated_at, arrival_state")
         .eq("hotel_id", cfg.hotel_id).in("arrival_state", ["queued", "failed"])
-        .lt("attempts", MAX_ATTEMPTS).order("created_at").limit(BATCH);
-      if (arrivals?.length) {
-        const guestIds = arrivals.map((a: { guest_id: string | null }) => a.guest_id).filter(Boolean);
+        .lt("attempts", NEEDS_CORRECTION).order("created_at").limit(BATCH * 5);
+      const arrivals = dueNow(arrivalRows);
+      if (arrivals.length) {
+        const guestIds = arrivals.map((a) => a.guest_id).filter(Boolean);
         const { data: guestRows } = guestIds.length
           ? await db.from("guests").select("id, first_name, last_name, birth_last_name, birth_first_name, date_of_birth, birth_place, mother_name, gender, nationality, id_document_type, id_document_number, visa_number, entry_date, entry_place, document_scan").in("id", guestIds)
           : { data: [] };
         const guestById = new Map((guestRows ?? []).map((g: { id: string }) => [g.id, g]));
-        const vizaGuests: VizaArrivalGuest[] = arrivals.map((a: Record<string, unknown>) => {
+        const vizaGuests: VizaArrivalGuest[] = arrivals.map((a) => {
           const guest = a.guest_id ? guestById.get(a.guest_id as string) : null;
           const groups = guest ? guestToVizaGroups(guest as never) : { scanned: null, manual: null };
           return {
@@ -189,28 +215,39 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
         const draft = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, vizaGuests);
         const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
         const { xml } = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, vizaGuests);
-        const res = await callThf(cfg, xml, signer);
-        line.arrivals = { sent: arrivals.length, http: res.status };
-        await markResult(db, arrivals.map((a: { id: string }) => a.id), "arrival", res.status < 500 ? res.body : null, res.status >= 500 ? `HTTP ${res.status}` : null);
+        try {
+          const res = await sendToThf(cfg, xml, signer);
+          line.arrivals = { sent: arrivals.length, http: res.status };
+          await markResult(db, arrivals, "arrival", res.body, null);
+        } catch (err) {
+          line.arrivals = { sent: arrivals.length, error: String(err instanceof Error ? err.message : err) };
+          await markResult(db, arrivals, "arrival", null, String(err instanceof Error ? err.message : err));
+        }
       }
 
       // 3. Departures.
-      const { data: departures } = await db.from("viza_guest_events")
-        .select("id, erkezes_azonosito, tavozas_ideje")
+      const { data: departureRows } = await db.from("viza_guest_events")
+        .select("id, erkezes_azonosito, tavozas_ideje, attempts, updated_at, departure_state")
         .eq("hotel_id", cfg.hotel_id).eq("arrival_state", "sent").in("departure_state", ["queued", "failed"])
-        .lt("attempts", MAX_ATTEMPTS).order("updated_at").limit(BATCH);
-      if (departures?.length) {
+        .lt("attempts", NEEDS_CORRECTION).order("updated_at").limit(BATCH * 5);
+      const departures = dueNow(departureRows);
+      if (departures.length) {
         const bejelentes = vizaTimestamp(new Date());
-        const guests = departures.map((d: Record<string, unknown>) => ({
+        const guests = departures.map((d) => ({
           erkezesAzonosito: String(d.erkezes_azonosito),
           tavozasIdeje: vizaTimestamp(new Date(String(d.tavozas_ideje))),
         }));
         const draft = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, guests);
         const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
         const { xml } = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, guests);
-        const res = await callThf(cfg, xml, signer);
-        line.departures = { sent: departures.length, http: res.status };
-        await markResult(db, departures.map((d: { id: string }) => d.id), "departure", res.status < 500 ? res.body : null, res.status >= 500 ? `HTTP ${res.status}` : null);
+        try {
+          const res = await sendToThf(cfg, xml, signer);
+          line.departures = { sent: departures.length, http: res.status };
+          await markResult(db, departures, "departure", res.body, null);
+        } catch (err) {
+          line.departures = { sent: departures.length, error: String(err instanceof Error ? err.message : err) };
+          await markResult(db, departures, "departure", null, String(err instanceof Error ? err.message : err));
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -242,13 +279,29 @@ Deno.serve(async (req) => {
   switch (action) {
     case "status": {
       const { data: settings } = await db.from("viza_settings").select("*").eq("hotel_id", hotelId).maybeSingle();
-      const { data: events } = await db.from("viza_guest_events")
-        .select("id, reservation_id, erkezes_azonosito, arrival_state, departure_state, last_error, erkezes_ideje, tavozas_ideje, attempts")
+      const { data: eventRows } = await db.from("viza_guest_events")
+        .select("id, reservation_id, guest_id, erkezes_azonosito, arrival_state, departure_state, last_error, erkezes_ideje, tavozas_ideje, attempts, updated_at")
         .eq("hotel_id", hotelId).order("updated_at", { ascending: false }).limit(20);
+      const guestIds = [...new Set((eventRows ?? []).map((e: { guest_id: string | null }) => e.guest_id).filter(Boolean))];
+      const { data: guestNames } = guestIds.length
+        ? await db.from("guests").select("id, first_name, last_name").in("id", guestIds)
+        : { data: [] };
+      const nameOf = new Map((guestNames ?? []).map((g: { id: string; first_name: string | null; last_name: string | null }) => [g.id, `${g.last_name ?? ""} ${g.first_name ?? ""}`.trim()]));
+      const events = (eventRows ?? []).map((e: Record<string, unknown>) => {
+        const failed = e.arrival_state === "failed" || e.departure_state === "failed";
+        const attempts = Number(e.attempts ?? 0);
+        return {
+          ...e,
+          guest_name: e.guest_id ? nameOf.get(e.guest_id as string) ?? null : null,
+          // The guest's data was refused: staff must correct it, no automatic retry.
+          needs_correction: failed && attempts >= NEEDS_CORRECTION,
+          next_attempt_at: failed && attempts < NEEDS_CORRECTION ? nextAttemptAt(attempts, String(e.updated_at))?.toISOString() ?? null : null,
+        };
+      });
       const { count: queued } = await db.from("viza_guest_events")
         .select("id", { count: "exact", head: true })
         .eq("hotel_id", hotelId).or("arrival_state.in.(queued,failed),departure_state.in.(queued,failed)");
-      return json({ ok: true, configured: !!(await hotelCredentials(db, hotelId)), settings: settings ?? null, queued: queued ?? 0, events: events ?? [], can_manage: hasRole(caller, MANAGE_ROLES) });
+      return json({ ok: true, configured: !!(await hotelCredentials(db, hotelId)), settings: settings ?? null, queued: queued ?? 0, events, can_manage: hasRole(caller, MANAGE_ROLES) });
     }
     case "save_settings": {
       if (!hasRole(caller, MANAGE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
@@ -270,9 +323,16 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
     case "retry": {
-      if (!hasRole(caller, MANAGE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
-      const { error } = await db.from("viza_guest_events").update({ attempts: 0, last_error: null, updated_at: new Date().toISOString() })
-        .eq("hotel_id", hotelId).eq("id", String(payload.event_id ?? ""));
+      // Reception corrects the guest's data and sends again: open to everyone who works the front desk.
+      const eventId = String(payload.event_id ?? "");
+      const { data: event } = await db.from("viza_guest_events").select("id, arrival_state, departure_state")
+        .eq("hotel_id", hotelId).eq("id", eventId).maybeSingle();
+      if (!event) return json({ ok: false, error: "Not found" }, 404);
+      const { error } = await db.from("viza_guest_events").update({
+        arrival_state: event.arrival_state === "failed" ? "queued" : event.arrival_state,
+        departure_state: event.departure_state === "failed" ? "queued" : event.departure_state,
+        attempts: 0, last_error: null, updated_at: new Date().toISOString(),
+      }).eq("hotel_id", hotelId).eq("id", eventId);
       if (error) return json({ ok: false, error: error.message }, 400);
       return json({ ok: true });
     }

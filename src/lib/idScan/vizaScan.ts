@@ -7,6 +7,7 @@
  * accepts the scan.
  */
 import type { MrzReadResult } from './mrz';
+import { iso3ToIso2 } from '../../../supabase/functions/_shared/viza/country';
 
 export interface VizaDocumentScan {
   source: 'mrz_camera';
@@ -32,17 +33,21 @@ const GENDER: Record<string, VizaDocumentScan['fields']['nem']> = {
 
 export function toVizaDocumentScan(result: MrzReadResult, now = new Date()): VizaDocumentScan {
   const f = result.fields;
-  const upper = (v: string) => (v ? v.toLocaleUpperCase() : null);
+  // The code lines hold only A–Z: pass the reader's own capitals through, never a re-cased copy.
+  const asRead = (mrz: string | undefined, shown: string) => (mrz ?? shown.toUpperCase()) || null;
+  // A country code the reader got wrong must not travel as "read from the
+  // document" (the THF rejects the whole guest); staff then type the right one.
+  const country = iso3ToIso2(f.nationality);
   return {
     source: 'mrz_camera',
     format: result.format,
     valid: result.valid,
     read_at: now.toISOString(),
     fields: {
-      csaladnev: upper(f.lastName),
-      utonev: upper(f.firstName),
+      csaladnev: asRead(f.mrzLastName, f.lastName),
+      utonev: asRead(f.mrzFirstName, f.firstName),
       szuletesiDatum: f.dateOfBirth,
-      allampolgarsagKod: f.nationality || null,
+      allampolgarsagKod: country && !result.unknownCountry ? country : null,
       nem: f.gender ? GENDER[f.gender] ?? 'EGYEB_VAGY_NEM_ISMERT' : null,
       okmanyTipus: f.documentType === 'passport' ? 'UTLEVEL' : 'SZEM_IG',
       okmanyAzonositoSzam: f.documentNumber || null,
