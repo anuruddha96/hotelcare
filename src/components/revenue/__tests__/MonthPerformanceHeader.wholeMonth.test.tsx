@@ -121,6 +121,36 @@ describe("MonthPerformanceHeader — whole month", () => {
     expect(screen.queryByText("€125")).toBeNull();
   });
 
+  it("shows verified January ADR before the forward calendar finishes loading", () => {
+    recon.data = Array.from({ length: 31 }, (_, i) => ({
+      ...DAYS[12],
+      stay_date: `2027-01-${String(i + 1).padStart(2, "0")}`,
+      is_past_night: false,
+      commercial_sold: 2,
+      booked_nights_all: 2,
+      room_revenue_gross: 200,
+      unpriced_nights: 0,
+      flags: [],
+    }));
+    recon.isLoading = false;
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MonthPerformanceHeader
+          today="2026-11-12"
+          metrics={METRICS}
+          pickupWindowDays={2}
+          onPickupWindowChange={() => {}}
+          hotelId="ottofiori"
+          selectedMonth="2027-01"
+          roomsAvailable={10}
+          loadedThrough="2026-12-31"
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getAllByText("€100").length).toBeGreaterThan(0);
+    expect(screen.getByText("62 of 310 room-nights · whole month")).toBeTruthy();
+  });
+
   it("refuses to label future-only figures as whole-month ADR when the month request fails", () => {
     recon.data = undefined; recon.isLoading = false;
     renderHeader();
