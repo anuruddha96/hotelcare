@@ -28,12 +28,6 @@ RETURNS SETOF text LANGUAGE sql STABLE AS $$
     WHEN 'late-hotel' THEN 'Late Test Property'
     ELSE 'Test Property - HotelCare' END
 $$;
-CREATE OR REPLACE FUNCTION public.pms_ntak_guest_scope(_reservation_id uuid,_room_id uuid DEFAULT NULL)
-RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT EXISTS(SELECT 1 FROM public.reservations r JOIN public.ntak_settings s
-    ON r.hotel_id=s.hotel_id AND s.enabled
-    WHERE r.id=_reservation_id)
-$$;
 CREATE OR REPLACE FUNCTION public.pms_room_has_conflict(
   _room uuid,_from date,_to date,_exclude uuid DEFAULT NULL
 ) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
@@ -50,6 +44,12 @@ CREATE TABLE public.ntak_settings(
   unit_scope text DEFAULT 'all',
   first_closure_date date
 );
+CREATE OR REPLACE FUNCTION public.pms_ntak_guest_scope(_reservation_id uuid,_room_id uuid DEFAULT NULL)
+RETURNS boolean LANGUAGE sql STABLE AS $
+  SELECT EXISTS(SELECT 1 FROM public.reservations r JOIN public.ntak_settings s
+    ON r.hotel_id=s.hotel_id AND s.enabled
+    WHERE r.id=_reservation_id)
+$;
 CREATE TABLE public.ntak_unit_profiles (
   hotel_id text,room_id uuid,active boolean DEFAULT true
 );
