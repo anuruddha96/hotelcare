@@ -162,11 +162,24 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setResult(null);
     setTyped('');
     setFailReason(null);
-    if (source === 'camera') void startCamera();
-    else stopCamera();
-    if (source === 'wedge') setTimeout(() => wedgeRef.current?.focus(), 50);
+    if (source !== 'camera') stopCamera();
     return stopCamera;
-  }, [open, source, startCamera, stopCamera]);
+  }, [open, source, stopCamera]);
+
+  // Wait for the camera-phase video element to be in the DOM before asking
+  // Safari for a stream. A previously failed dialog may reopen without a
+  // video element until the phase reset has rendered.
+  useEffect(() => {
+    if (!open || source !== 'camera' || phase !== 'camera') return;
+    void startCamera();
+    return stopCamera;
+  }, [open, source, phase, startCamera, stopCamera]);
+
+  useEffect(() => {
+    if (!open || source !== 'wedge' || phase !== 'camera') return;
+    const timer = setTimeout(() => wedgeRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
+  }, [open, source, phase]);
 
   // A reader types the whole code zone within a fraction of a second: read it
   // as soon as it is complete, without the receptionist pressing anything.
@@ -287,8 +300,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const retry = () => {
     scanRunRef.current += 1;
     setResult(null); setTyped(''); setFailReason(null); setPhase('camera');
-    if (source === 'camera') void startCamera();
-    if (source === 'wedge') setTimeout(() => wedgeRef.current?.focus(), 50);
+    // The camera and reader effects restart only after their DOM exists.
   };
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
