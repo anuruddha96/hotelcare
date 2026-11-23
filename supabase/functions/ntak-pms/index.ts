@@ -33,7 +33,7 @@ const SETTINGS_FIELDS = [
   "enabled", "environment", "endpoint_url", "software_id", "software_version", "registration_number", "provider_tax_number",
   "data_reporting_id", "registered_room_count", "registered_bed_count", "accommodation_name", "provider_name", "unit_scope", "accommodation_class", "region", "ifa_type", "ifa_rate",
   "ifa_vat", "accommodation_vat", "signature_profile", "unknown_country_code", "closure_mode", "auto_close_time",
-  "first_closure_date", "software_change_date", "ledger_config",
+  "first_closure_date", "software_change_date", "allow_backdating", "backdating_min_date", "ledger_config",
 ] as const;
 
 const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);

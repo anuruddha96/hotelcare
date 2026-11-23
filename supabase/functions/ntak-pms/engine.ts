@@ -55,6 +55,8 @@ export interface Settings {
   closure_mode: "manual" | "auto";
   auto_close_time: string;
   first_closure_date: string | null;
+  backdating_min_date?: string | null;
+  allow_backdating?: boolean;
   software_change_date: string | null;
   data_start_date: string | null;
   ledger_config: Record<string, unknown>;
@@ -230,14 +232,21 @@ const unitOf = (u: UnitInfo): NtakUnit => ({ building: u.building, roomNumber: u
 // ---------------------------------------------------------------------------
 // Daily closure
 
-const RES_COLS = "id,status,check_in_date,check_out_date,actual_check_out,room_id,room_type_id,rate_per_night,total_amount,currency,adults,children,source,ota_name,pms_channel,channex_booking_id,pms_reservation_id,reservation_number,pms_group_note,pms_rate_plan_id,created_at,guest_id,hotel_id";
+const RES_COLS = "id,status,check_in_date,check_out_date,actual_check_in,actual_check_out,room_id,room_type_id,rate_per_night,total_amount,currency,adults,children,source,ota_name,pms_channel,channex_booking_id,pms_reservation_id,reservation_number,pms_group_note,pms_rate_plan_id,created_at,guest_id,hotel_id";
 
-/** Budapest calendar day as a UTC interval. */
-function dayWindow(day: string): { from: string; to: string } {
-  const probe = new Date(`${day}T12:00:00Z`);
-  const offsetHours = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hour12: false }).format(probe)) - 12;
-  const from = new Date(Date.parse(`${day}T00:00:00Z`) - offsetHours * 3600000);
-  return { from: from.toISOString(), to: new Date(from.getTime() + 86400000).toISOString() };
+/** Actual Budapest calendar boundaries (23/25 hours across DST changes). */
+function budapestMidnight(day: string): string {
+  const utc = Date.parse(day + "T00:00:00Z");
+  const label = new Intl.DateTimeFormat("en", { timeZone: TZ, timeZoneName: "longOffset" })
+    .formatToParts(new Date(utc)).find((p) => p.type === "timeZoneName")?.value ?? "";
+  const parsed = /^GMT([+-])(\d{2}):(\d{2})$/.exec(label);
+  if (!parsed) throw new Error("Cannot resolve Budapest timezone offset for " + day);
+  const minutes = (Number(parsed[2]) * 60 + Number(parsed[3])) * (parsed[1] === "-" ? -1 : 1);
+  return new Date(utc - minutes * 60_000).toISOString();
+}
+
+export function dayWindow(day: string): { from: string; to: string } {
+  return { from: budapestMidnight(day), to: budapestMidnight(addDays(day, 1)) };
 }
 
 export interface ClosureBuild extends AssembledClosure { xml: string; snapshotHash: string; classification: "UJ" | "MODOSITO" }
@@ -483,6 +492,10 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
       // Guest data may follow shortly after check-in; give up after 7 days (events older than 1 year are never sent).
       await db.from("ntak_event_queue").update({ state: ageHours > 168 ? "failed" : "waiting_data", last_error: problem, updated_at: new Date().toISOString() }).eq("id", e.id);
       waiting++;
+      continue;
+    }
+    if (s.first_closure_date && day < s.first_closure_date) {
+      await db.from("ntak_event_queue").update({ state: "skipped", last_error: "Before HotelCare first closure date", updated_at: new Date().toISOString() }).eq("id", e.id);
       continue;
     }
     const at = e.occurred_at;
