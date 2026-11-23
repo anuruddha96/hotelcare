@@ -11,6 +11,7 @@ import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
 import { snapshotFrame } from '@/lib/idScan/frameCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
+import { nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   fetchBridgeScan, isLoopbackUrl, loadScannerSettings, saveScannerSettings, wedgeInputLooksComplete, wedgeInputToMrzText,
@@ -218,29 +219,24 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const completeMrz = (parsed: MrzReadResult) => {
     setFailReason(null);
     setReviewAcknowledged(false);
-    if (parsed.fields.documentType === 'passport') {
-      if (frontText) {
-        setResult(null);
-        setFrontText('');
-        setFrontAssessment(null);
-        setFailReason('different_document');
-        setSide('front');
-        setPhase('failed');
-        return;
-      }
-      setResult(parsed);
-      setFrontAssessment(null);
-      setPhase('review');
-      return;
-    }
-    if (!frontText) {
+    const action = nextMrzScanAction(parsed, !!frontText);
+    if (action === 'different_document' || action === 'front_first_required') {
+      // Never accept an ID back as the first side, or mix two documents.
       setResult(null);
+      setFrontText('');
+      setFrontAssessment(null);
       setSide('front');
-      setFailReason('front_first');
+      setFailReason(action === 'different_document' ? 'different_document' : 'front_first');
       setPhase('failed');
       return;
     }
     setResult(parsed);
+    if (action === 'passport_complete') {
+      setFrontAssessment(null);
+      setPhase('review');
+      return;
+    }
+    // ID front was already captured: verify against its MRZ-coded back.
     setSide('mrz');
     setFrontAssessment(assessIdFront(frontText, parsed.fields));
     setPhase('review');
