@@ -587,3 +587,40 @@ Deno.test('Phase 4 loadUnits uses dated periods on historical days; live status 
   assert.deepEqual((await loadUnits(db, 'channex-test-property', today())).map((u) => u.state),
     ['available', 'oos'], 'today may fall back to the live status only when no dated period exists');
 });
+
+Deno.test("Phase 6 worker resends an amended booking and queues a cancellation only once", async () => {
+  const db = new FakeDb(schemaColumns());
+  const day=today();
+  const s: Settings = {
+    hotel_id:"h6",organization_slug:"test",enabled:true,environment:"test",
+    endpoint_url:null,software_id:"HOTELCARE",software_version:"1.0",
+    registration_number:"MA26004524",provider_tax_number:"11223355-1-22",
+    accommodation_name:"Test",provider_name:"Test",registered_room_count:1,registered_bed_count:3,unit_scope:"profiled_only",
+    accommodation_class:"hotel_4",region:"budapest",ifa_type:"TETELES",ifa_rate:400,ifa_vat:0,accommodation_vat:5,signature_profile:"rsa-sha384",
+    unknown_country_code:"EGYEBKULFOLDI",closure_mode:"manual",auto_close_time:"05:00",
+    first_closure_date:null,software_change_date:null,data_start_date:null,ledger_config:{},cert_not_after:null,sending_blocked_reason:null,
+    initial_booking_sync_started_at:null,initial_booking_sync_done_at:null,
+  };
+  db.rows("rooms").push({id:"r6",hotel:"h6",room_number:"101",status:"clean"});
+  db.rows("ntak_unit_profiles").push({room_id:"r6",hotel_id:"h6",active:true,building:"1",room_number:"101",unit_type:"STANDARD",single_beds:1,double_beds:1,extra_beds:0});
+  const r={id:"R6",hotel_id:"h6",ntak_booking_no:"FOGL_04",status:"confirmed",room_id:"r6",room_type_id:null,
+    check_in_date:addDays(day,1),check_out_date:addDays(day,2),total_amount:20000,rate_per_night:20000,currency:"HUF",adults:2,children:0,
+    source:"direct",ota_name:null,pms_channel:null,channex_booking_id:null,pms_reservation_id:null,reservation_number:"R6",created_at:day+"T08:00:00Z",
+    ntak_guaranteed:true,ntak_market_segment:"UZLETI_EGYENI",ntak_sales_channel:"DIREKT_ONLINE",booker_country:"HU",expected_guests:1};
+  db.rows("reservations").push(r);
+  const q: Row={hotel_id:"h6",booking_no:"FOGL_04",dirty_at:day+"T01:00:00Z",last_sent_at:null,cancelled_sent:false};
+  db.rows("ntak_booking_queue").push(q);
+  const messages=()=>db.rows("ntak_messages").filter(m=>m.kind==="booking"&&m.ref==="FOGL_04");
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[0].request_xml,/>true<\/[^>]*garantaltFoglalas>/);
+  r.check_in_date=day; r.total_amount=40000;r.ntak_guaranteed=false;q.dirty_at=day+"T02:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[1].request_xml,/>false<\/[^>]*garantaltFoglalas>/);
+  assert.match(messages()[1].request_xml,/>40000<\/[^>]*foglalasBruttoOsszege>/);
+  r.status="cancelled";q.dirty_at=day+"T03:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[2].request_xml,/>true<\/[^>]*lemondva>/);
+  r.total_amount=41000;q.dirty_at=day+"T04:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,0);
+  assert.equal(messages().length,3);
+});

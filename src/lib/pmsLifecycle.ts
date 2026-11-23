@@ -148,7 +148,20 @@ export async function addFolioItem(
   });
 }
 
+export interface NtakBookingFields {
+  ntak_guaranteed?: boolean | null;
+  ntak_market_segment?: string | null;
+  ntak_sales_channel?: string | null;
+  booker_country?: string | null;
+  expected_guests?: number | null;
+  ntak_booking_no?: string | null;
+}
+export type NtakBookingFieldState = NtakBookingFields & { can_edit_booking_no: boolean };
+export async function fetchNtakBookingFields(hotelId: string, orgSlug: string, reservationId?: string): Promise<NtakBookingFieldState | null> {
+  return rpc("pms_ntak_booking_fields", {_hotel_id: hotelId, _organization_slug: orgSlug, _reservation_id: reservationId ?? null});
+}
 export interface CreateReservationParams {
+  ntakFields?: NtakBookingFields;
   hotelId: string;
   guestId: string | null;
   checkIn: string;
@@ -168,7 +181,7 @@ export interface CreateReservationParams {
 export async function createReservation(
   p: CreateReservationParams,
 ): Promise<{ ok: boolean; id: string; reservation_number: string }> {
-  return rpc("pms_create_reservation", {
+  const args = {
     _hotel_id: p.hotelId,
     _guest_id: p.guestId,
     _check_in: p.checkIn,
@@ -183,10 +196,12 @@ export async function createReservation(
     _special_requests: p.specialRequests ?? null,
     _internal_notes: p.internalNotes ?? null,
     _status: p.status ?? "confirmed",
-  });
+  };
+  return p.ntakFields && Object.keys(p.ntakFields).length ? rpc("pms_create_reservation_phase6", {_args: args, _fields: p.ntakFields}) : rpc("pms_create_reservation", args);
 }
 
 export interface UpdateReservationParams {
+  ntakFields?: NtakBookingFields;
   reservationId: string;
   checkIn?: string | null;
   checkOut?: string | null;
@@ -204,7 +219,7 @@ export interface UpdateReservationParams {
 export async function updateReservation(
   p: UpdateReservationParams,
 ): Promise<{ ok: boolean; pms_managed: boolean }> {
-  return rpc("pms_update_reservation", {
+  const args = {
     _reservation_id: p.reservationId,
     _check_in: p.checkIn ?? null,
     _check_out: p.checkOut ?? null,
@@ -217,5 +232,6 @@ export async function updateReservation(
     _room_type_requested: p.roomTypeRequested ?? null,
     _special_requests: p.specialRequests ?? null,
     _internal_notes: p.internalNotes ?? null,
-  });
+  };
+  return p.ntakFields && Object.keys(p.ntakFields).length ? rpc("pms_update_reservation_phase6", {_args: args, _fields: p.ntakFields}) : rpc("pms_update_reservation", args);
 }
