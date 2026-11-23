@@ -36,6 +36,10 @@ export interface StayGuest {
   residenceCountry: string | null;
   postalCode: string | null;
   ifaStatus: string | null; // manual override; null = automatic
+  arrivedAt?: string | null;
+  departedAt?: string | null;
+  roomId?: string | null;
+  stayState?: 'expected' | 'in_house' | 'departed' | 'void';
 }
 
 export interface StayRecord {

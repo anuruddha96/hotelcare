@@ -453,3 +453,67 @@ Deno.test('profiled_only excludes 15 unrelated rooms, their bookings, events, ch
   assert.equal(intentionalMismatch.closure.rooms.total, 4);
   assert.ok(intentionalMismatch.checklist.some((x) => x.code === "registration"));
 });
+
+
+Deno.test('Phase 3 processEvents snapshots exactly guest_ids, including voided corrections', async () => {
+  const db = new FakeDb(schemaColumns());
+  const day = addDays(today(), -1);
+  const s: Settings = {
+    hotel_id: 'h3',organization_slug:'channex',enabled:true,environment:'test',
+    endpoint_url:null,software_id:'HOTELCARE',software_version:'1.0',
+    registration_number:'MA26004524',provider_tax_number:'11223355-1-22',
+    accommodation_name:'Ceylon Business Services Kft',provider_name:'Interface_csatlakozás_szolgáltató_v9',
+    registered_room_count:4,registered_bed_count:10,unit_scope:'profiled_only',
+    accommodation_class:'hotel_4',region:'budapest',ifa_type:'TETELES',ifa_rate:400,
+    ifa_vat:0,accommodation_vat:5,signature_profile:'rsa-sha384',
+    unknown_country_code:'EGYEBKULFOLDI',closure_mode:'manual',auto_close_time:'05:00',
+    first_closure_date:addDays(day,-1),software_change_date:null,data_start_date:null,ledger_config:{},
+    cert_not_after:null,sending_blocked_reason:null,
+    initial_booking_sync_started_at:null,initial_booking_sync_done_at:null,
+  };
+  db.rows('rooms').push({id:'r101',hotel:'h3',room_number:'101',status:'clean'});
+  db.rows('ntak_unit_profiles').push({room_id:'r101',hotel_id:'h3',active:true,building:'1',
+    room_number:'101',unit_type:'STANDARD',single_beds:1,double_beds:1,extra_beds:0});
+  db.rows('reservations').push({
+    id:'R-FOGL01',hotel_id:'h3',ntak_booking_no:'FOGL_01',
+    reservation_number:'OTHER',channex_booking_id:'CHX-OTHER',pms_reservation_id:'PREVIO-OTHER',
+    status:'checked_in',room_id:'r101',room_type_id:null,
+    check_in_date:day,check_out_date:addDays(day,2),
+    rate_per_night:20000,total_amount:40000,currency:'HUF',adults:3,children:0,
+    guest_id:'luca',source:'direct',ota_name:null,pms_channel:null,pms_group_note:null,pms_rate_plan_id:null,
+    created_at:addDays(day,-10)+'T12:00:00Z',
+  });
+  const fixture = [
+    ['luca','Luca','Ferri','IT','1976-05-21','in_house'],
+    ['maria','Zsidi','Mária','HU','1983-05-10','in_house'],
+    ['tibor','Zsidi','Tibor','HU','1980-11-11','void'],
+  ];
+  for (const [i,[gid,first,last,country,born,state]] of fixture.entries()) {
+    db.rows('guests').push({id:gid,first_name:first,last_name:last,birth_place:'Budapest',
+      date_of_birth:born,gender:gid==='maria'?'female':'male',nationality:country,
+      country,postal_code:country==='HU'?'2072':'47921'});
+    db.rows('reservation_guests').push({reservation_id:'R-FOGL01',guest_id:gid,is_primary:i===0,ifa_status:null,
+      stay_state:state,arrived_at:day+'T08:00:00Z',departed_at:state==='void'?day+'T09:00:00Z':null,room_id:'r101'});
+    db.rows('ntak_guest_ids').push({hotel_id:'h3',guest_id:gid,vendeg_id:('guest'+i).padEnd(31,'x')});
+  }
+  db.rows('ntak_event_queue').push(
+    {id:'arrive',hotel_id:'h3',reservation_id:'R-FOGL01',kind:'erkezett',
+      guest_ids:['luca','maria'],occurred_at:day+'T08:00:00Z',
+      room_id:'r101',from_room_id:null,state:'queued',is_correction:false},
+    {id:'undo',hotel_id:'h3',reservation_id:'R-FOGL01',kind:'tavozott',
+      guest_ids:['tibor'],occurred_at:day+'T09:05:00Z',
+      room_id:'r101',from_room_id:null,state:'queued',is_correction:true},
+  );
+  assert.deepEqual(await processEvents(db,s,10),{queued:2,waiting:0});
+  const xml = String(db.rows('ntak_messages')[0].request_xml);
+  const arrivals = [...xml.matchAll(/<v9:erkezett>([\s\S]*?)<\/v9:erkezett>/g)];
+  const departures = [...xml.matchAll(/<v9:tavozott>([\s\S]*?)<\/v9:tavozott>/g)];
+  assert.equal(arrivals.length,1);
+  assert.equal(departures.length,1);
+  assert.deepEqual([...arrivals[0][1].matchAll(/<v9:vendegId>(.*?)<\/v9:vendegId>/g)].map(m=>m[1]),
+    ['guest0'.padEnd(31,'x'),'guest1'.padEnd(31,'x')]);
+  assert.deepEqual([...departures[0][1].matchAll(/<v9:vendegId>(.*?)<\/v9:vendegId>/g)].map(m=>m[1]),
+    ['guest2'.padEnd(31,'x')]);
+  assert.ok(xml.includes('<v9:foglalasiSzam>FOGL_01</v9:foglalasiSzam>'),'explicit override must win over CHX');
+  assert.equal(db.rows('ntak_event_queue').filter(e=>e.state==='sent').length,2);
+});

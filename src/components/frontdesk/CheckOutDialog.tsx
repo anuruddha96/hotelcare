@@ -16,6 +16,7 @@ import { addFolioItem, checkOutReservation, LifecycleError } from '@/lib/pmsLife
 import { formatMoney, reservationGuestLabel } from '@/lib/reservations';
 import { InvoiceDialog } from '@/components/frontdesk/InvoiceDialog';
 import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/BusinessMomentField';
+import { StayGuestRoster, useStayGuestRoster } from '@/components/frontdesk/StayGuestRoster';
 import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
 import { budapestToday } from '@/lib/businessMoment';
 import { AddChargeDialog } from '@/components/frontdesk/AddChargeDialog';
@@ -43,6 +44,8 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
   const [chargeOpen, setChargeOpen] = useState(false);
   const [paymentDay, setPaymentDay] = useState(() => budapestToday());
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
+  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'depart', reservation.room_id);
+  const isFinalDeparture = !roster.enabled || roster.selectedIds.length === roster.eligible.length;
 
   const payMethods: Array<{ value: string; key: string }> = [
     { value: 'card', key: 'pms.pay.card' },
@@ -111,7 +114,8 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
   const handleCheckOut = async () => {
     setSubmitting(true);
     try {
-      await checkOutReservation(reservation.id, ackBalance, businessMoment.occurredAt);
+      await checkOutReservation(reservation.id, ackBalance, businessMoment.occurredAt,
+        roster.enabled ? roster.selectedIds : null);
       toast.success(`${reservationGuestLabel(reservation)} ${t('pms.checkOut.checkedOut')}`);
       onSuccess();
     } catch (err) {
@@ -182,7 +186,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
             </div>
           )}
 
-          {balance > 0 && (
+          {balance > 0 && isFinalDeparture && (
             <div className="flex items-start gap-2 rounded-md border border-amber-300/50 bg-amber-500/10 p-2.5">
               <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
               <div className="space-y-1.5">
@@ -197,11 +201,15 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
             </div>
           )}
 
+          <StayGuestRoster control={roster} mode="depart" reservationId={reservation.id} hotelId={reservation.hotel_id}
+            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} />
           <BusinessMomentField control={businessMoment} />
 
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-            <BedDouble className="h-3.5 w-3.5 shrink-0" /> {t('pms.co.roomWillBeDirty')}
-          </p>
+          {(!roster.enabled || roster.selectedIds.length === roster.eligible.length) && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <BedDouble className="h-3.5 w-3.5 shrink-0" /> {t('pms.co.roomWillBeDirty')}
+            </p>
+          )}
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="outline" className="gap-1.5 sm:mr-auto" onClick={() => setInvoiceOpen(true)} data-training="fd-checkout-invoice">
@@ -213,7 +221,9 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckOut}
-            disabled={submitting || businessMoment.invalid || (balance > 0 && !ackBalance)}
+            disabled={submitting || businessMoment.invalid || roster.loading
+              || (balance > 0 && isFinalDeparture && !ackBalance)
+              || (roster.enabled && roster.selectedIds.length === 0)}
             variant="default"
             className="gap-1"
             data-training="fd-checkout-confirm"

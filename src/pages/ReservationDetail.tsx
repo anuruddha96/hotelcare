@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
+import { NtakBookingNumberField } from '@/components/ntak/NtakBookingNumberField';
 import { RoomChangeDialog } from '@/components/frontdesk/RoomChangeDialog';
 import { EditReservationDialog } from '@/components/reservations/EditReservationDialog';
 import { ReservationNotesPanel } from '@/components/reservations/ReservationNotesPanel';
@@ -50,6 +51,7 @@ const ReservationDetail = () => {
   const { t } = useTranslation();
   const [reservation, setReservation] = useState<any>(null);
   const [events, setEvents] = useState<any[]>([]);
+  const [ntakActive, setNtakActive] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [checkInOpen, setCheckInOpen] = useState(false);
@@ -75,6 +77,14 @@ const ReservationDetail = () => {
       setReservation(resResult.data);
     }
     setEvents(eventResult.data ?? []);
+    if (resResult.data?.hotel_id) {
+      const { data: enabled, error: availabilityError } = await (supabase.rpc as CallableFunction)(
+        'pms_guest_lifecycle_available',
+        { _reservation_id: resResult.data.id, _room_id: resResult.data.room_id ?? null },
+      );
+      // Availability is not guessed if the new schema has not been applied.
+      setNtakActive(!availabilityError && enabled === true);
+    } else setNtakActive(false);
     setLoadingData(false);
   }, [id]);
 
@@ -159,7 +169,10 @@ const ReservationDetail = () => {
   const pmsManaged = isPmsManaged(reservation);
   const guestLabel = reservationGuestLabel(reservation);
   const active = !['cancelled', 'checked_out', 'no_show'].includes(reservation.status);
-  const canCheckIn = ['confirmed', 'pending'].includes(reservation.status);
+  // Once the first guest arrives, another expected guest may arrive later.
+  // NTAK-enabled hotels keep the check-in action available to add/select them.
+  const canCheckIn = ['confirmed', 'pending'].includes(reservation.status)
+    || (ntakActive && reservation.status === 'checked_in');
   const canCancelOrNoShow = ['confirmed', 'pending'].includes(reservation.status);
 
   return (
@@ -241,6 +254,11 @@ const ReservationDetail = () => {
                 {t('pms.businessMoment.changeRoom')}
               </Button>
             )}
+            {ntakActive && reservation.status === 'checked_out' && (
+              <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-undo-checkout-button">
+                {t('pms.stayGuest.undoDeparture')}
+              </Button>
+            )}
             {reservation.status === 'checked_in' && (
               <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
                 {t('pms.checkOut')}
@@ -286,6 +304,7 @@ const ReservationDetail = () => {
               <div><span className="text-muted-foreground">{t('pms.res.room')}:</span> <strong>{room?.room_number || t('pms.res.unassigned')}</strong></div>
               <div><span className="text-muted-foreground">{t('pms.reservationDetail.roomType')}:</span> {displayRoomType(room?.room_type || reservation.room_type_requested) || t('pms.reservationDetail.notSpecified')}</div>
               {room?.status && <div><span className="text-muted-foreground">{t('common.status')}:</span> <span className="capitalize">{room.status.replaceAll('_', ' ')}</span></div>}
+              <NtakBookingNumberField reservation={reservation} onSaved={() => void fetchData()} />
               {room?.room_capacity ? <div><span className="text-muted-foreground">{t('pms.res.capacity')}:</span> {room.room_capacity}</div> : null}
             </CardContent>
           </Card>

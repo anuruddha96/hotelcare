@@ -1,9 +1,11 @@
 import { pmsTranslations } from '@/lib/pms-translations';
+import { stayGuestLabels } from '@/lib/stayGuestTranslations';
 
 /** NTAK reporting UI strings: English and Hungarian; other languages fall back to English. */
 const LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk', 'ru'] as const;
 
 const rows: Record<string, readonly [string, string]> = {
+  ...stayGuestLabels,
   'pms.businessMoment.recordAnother': ['Record for another day/time', 'Másik napra/időpontra rögzítés'],
   'pms.businessMoment.dateTime': ['Business date and time', 'Üzleti nap és időpont'],
   'pms.businessMoment.budapest': ['Time in Budapest (Europe/Budapest)', 'Budapesti idő (Europe/Budapest)'],
