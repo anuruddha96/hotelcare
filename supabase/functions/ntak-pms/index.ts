@@ -98,6 +98,37 @@ Deno.serve(async (req) => {
     switch (body.action) {
       case "status": return json({ ok: true, can_manage: canManage, ...(await status(db, hotelId, settings)) });
 
+      case "evidence_list": {
+        // Leadership and selected-hotel authorization are enforced above.
+        if (!isDay(body.from) || !isDay(body.to) || body.from > body.to || body.to > addDays(body.from, 366)) {
+          return json({ ok: false, error: "Choose a valid evidence date range of up to one year" }, 400);
+        }
+        if (!["test", "production"].includes(body.environment)) return json({ ok: false, error: "Choose the NTAK environment" }, 400);
+        if (!["all", "booking", "event", "closure", "start_date"].includes(body.kind)) return json({ ok: false, error: "Unknown message kind" }, 400);
+        let q = db.from("ntak_message_evidence")
+          .select("id,message_id,kind,ref,uzenet_id,sent_at,evidence_day,processing_id,status,environment,http_status")
+          .eq("hotel_id", hotelId).eq("environment", body.environment).eq("phase", "send")
+          .gte("evidence_day", body.from).lte("evidence_day", body.to);
+        if (body.kind !== "all") q = q.eq("kind", body.kind);
+        const { data, error } = await q.order("sent_at", { ascending: true }).order("id", { ascending: true }).limit(201);
+        if (error) throw new Error(error.message);
+        if (data.length > 200) return json({ ok: false, error: "More than 200 attempts in this range; narrow your dates or message kind to export all evidence without truncation." }, 422);
+        return json({ ok: true, attempts: data });
+      }
+
+      case "evidence_detail": {
+        const { data: attempt, error } = await db.from("ntak_message_evidence").select("*")
+          .eq("hotel_id", hotelId).eq("phase", "send").eq("id", body.id).maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!attempt) return json({ ok: false, error: "Evidence attempt not found" }, 404);
+        const { data: verifications, error: verifyError } = await db.from("ntak_message_evidence").select("*")
+          .eq("hotel_id", hotelId).eq("environment", attempt.environment).eq("uzenet_id", attempt.uzenet_id).eq("phase", "verify")
+          .order("sent_at", { ascending: true }).order("id", { ascending: true }).limit(501);
+        if (verifyError) throw new Error(verifyError.message);
+        if (verifications.length > 500) return json({ ok: false, error: "Too many verification attempts for interactive export; request a secure database export." }, 422);
+        return json({ ok: true, attempt, verifications });
+      }
+
       case "save_settings": {
         if (!canManage) return forbidden();
         const patch: Record<string, unknown> = {};
