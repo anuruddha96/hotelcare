@@ -12,6 +12,7 @@ import { AlertTriangle, CheckCircle2, Download, Loader2, XCircle } from 'lucide-
 import { useTranslation } from '@/hooks/useTranslation';
 import { ntakResultLabel, ntakNeedsAction } from './ntakApi';
 import { NtakClosureDialog } from './NtakClosureDialog';
+import { NtakEvidencePanel } from './NtakEvidencePanel';
 import { ACCOMMODATION_CLASSES, callNtak, fmtHuf, UNIT_TYPES, type NtakMessage, type NtakSettings, type NtakStatus, type NtakUnitRow } from './ntakApi';
 
 const STATE_TONE: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -314,6 +315,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab =
             </TabsContent>
 
             <TabsContent value="messages" className="space-y-1 text-xs">
+              {status.can_manage && <NtakEvidencePanel key={hotelId} hotelId={hotelId} today={status.today} />}
               {status.messages.length === 0 && <p className="text-muted-foreground">{t('ntak.noMessages')}</p>}
               {status.messages.map((m) => <MessageRow key={m.id} m={m} expanded={expanded === m.id} onToggle={() => setExpanded(expanded === m.id ? null : m.id)}
                 onFix={status.can_manage && m.kind === 'closure' && ntakNeedsAction(m) && status.closures.some(c => c.message_id === m.id) ? () => setClosureDay(m.ref) : undefined}
