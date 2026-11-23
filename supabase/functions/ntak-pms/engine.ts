@@ -154,11 +154,11 @@ export async function loadStayGuests(db: Db, hotelId: string, reservations: RawR
   const out = new Map<string, StayGuest[]>();
   const ids = reservations.map((r) => r.id);
   if (!ids.length) return out;
-  const { data: links } = await db.from("reservation_guests").select("reservation_id,guest_id,is_primary,ifa_status").in("reservation_id", ids);
+  const { data: links } = await db.from("reservation_guests").select("reservation_id,guest_id,is_primary,ifa_status,arrived_at,departed_at,room_id,stay_state").in("reservation_id", ids);
   const linkRows: any[] = links ?? [];
   for (const r of reservations) {
     if (r.guest_id && !linkRows.some((l) => l.reservation_id === r.id && l.guest_id === r.guest_id)) {
-      linkRows.push({ reservation_id: r.id, guest_id: r.guest_id, is_primary: true, ifa_status: null });
+      linkRows.push({ reservation_id: r.id, guest_id: r.guest_id, is_primary: true, ifa_status: null, stay_state: undefined });
     }
   }
   const guestIds = [...new Set(linkRows.map((l) => l.guest_id))];
@@ -198,6 +198,10 @@ export async function loadStayGuests(db: Db, hotelId: string, reservations: RawR
       residenceCountry: residence,
       postalCode: g.postal_code ?? "",
       ifaStatus: link.ifa_status ?? null,
+      arrivedAt: link.arrived_at ?? null,
+      departedAt: link.departed_at ?? null,
+      roomId: link.room_id ?? null,
+      stayState: link.stay_state ?? undefined,
     });
     out.set(link.reservation_id, list);
   }
@@ -232,7 +236,7 @@ const unitOf = (u: UnitInfo): NtakUnit => ({ building: u.building, roomNumber: u
 // ---------------------------------------------------------------------------
 // Daily closure
 
-const RES_COLS = "id,status,check_in_date,check_out_date,actual_check_in,actual_check_out,room_id,room_type_id,rate_per_night,total_amount,currency,adults,children,source,ota_name,pms_channel,channex_booking_id,pms_reservation_id,reservation_number,pms_group_note,pms_rate_plan_id,created_at,guest_id,hotel_id";
+const RES_COLS = "id,status,check_in_date,check_out_date,actual_check_in,actual_check_out,ntak_booking_no,room_id,room_type_id,rate_per_night,total_amount,currency,adults,children,source,ota_name,pms_channel,channex_booking_id,pms_reservation_id,reservation_number,pms_group_note,pms_rate_plan_id,created_at,guest_id,hotel_id";
 
 /** Actual Budapest calendar boundaries (23/25 hours across DST changes). */
 function budapestMidnight(day: string): string {
@@ -400,6 +404,7 @@ export async function processBookings(db: Db, s: Settings, limit: number): Promi
   for (const q of due) {
     // Booking numbers come from three columns (ledger.ts bookingNumber); query each with eq, never a built filter string.
     const lookups = await Promise.all([
+      db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("ntak_booking_no", q.booking_no),
       db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("channex_booking_id", q.booking_no),
       db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("pms_reservation_id", q.booking_no),
       db.from("reservations").select(BOOKING_COLS).eq("hotel_id", s.hotel_id).eq("reservation_number", q.booking_no),
@@ -459,7 +464,7 @@ async function bookingUnitResolver(db: Db, hotelId: string, rows: RawReservation
 /** Initial sync: every booking with an arrival from today (7.5). */
 export async function markAllFutureBookings(db: Db, s: Settings): Promise<number> {
   const scope = await loadNtakScope(db, s);
-  const { data } = await db.from("reservations").select("id,room_id,room_type_id,channex_booking_id,pms_reservation_id,reservation_number")
+  const { data } = await db.from("reservations").select("id,room_id,room_type_id,ntak_booking_no,channex_booking_id,pms_reservation_id,reservation_number")
     .eq("hotel_id", s.hotel_id).gte("check_in_date", today()).not("status", "in", "(cancelled,no_show)");
   const keys = [...new Set((data ?? []).filter((r: RawReservation) => isInNtakScope(scope, r)).map((r: any) => bookingNumber(r)))];
   const now = new Date().toISOString();
@@ -502,11 +507,22 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
     const unit = e.room_id ? units.get(e.room_id) : undefined;
     const from = e.from_room_id ? units.get(e.from_room_id) : undefined;
     const day = localDate(e.occurred_at, TZ);
-    const list = (guests.get(e.reservation_id) ?? []).map((g) => toNtakGuest(g, day, autoIfaStatus)).filter(Boolean) as NtakGuest[];
+    const allGuests = guests.get(e.reservation_id) ?? [];
+    const exactIds = Array.isArray(e.guest_ids) ? e.guest_ids as string[] : null;
+    const requested = exactIds ? new Set(exactIds) : null;
+    // Explicit guest_ids freeze the recipients when the event was queued.
+    // Legacy NULL queues mean all *currently* in-house guests; legacy rows
+    // without stay_state retain pre-Phase-3 behavior.
+    const selected = allGuests.filter((g) => requested
+      ? requested.has(g.guestId)
+      : g.stayState === undefined || g.stayState === 'in_house');
+    const list = selected.map((g) => toNtakGuest(g, day, autoIfaStatus)).filter(Boolean) as NtakGuest[];
+    const exactMatch = !requested || (selected.length === requested.size && list.length === requested.size);
     const ageHours = (Date.now() - Date.parse(e.occurred_at)) / 3600000;
     let problem: string | null = null;
     if (!r) problem = "reservation not found";
     else if (!unit || (e.kind === "lakoegysegetCserelt" && !from)) problem = "room has no NTAK unit profile";
+    else if (requested && (!exactMatch || requested.size===0)) problem = "selected guest identity missing or incomplete";
     else if (!list.length) problem = "no guest with complete personal data yet";
     if (problem) {
       // Guest data may follow shortly after check-in; give up after 7 days (events older than 1 year are never sent).

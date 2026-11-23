@@ -100,6 +100,7 @@ export interface RawReservation {
   pms_channel?: string | null;
   channex_booking_id: string | null;
   pms_reservation_id: string | null;
+  ntak_booking_no?: string | null;
   reservation_number: string | null;
   pms_group_note?: string | null;
   pms_rate_plan_id?: string | null;
@@ -141,8 +142,8 @@ export function localDate(iso: string, timeZone = 'Europe/Budapest'): string {
 }
 
 /** Same booking number on every NTAK channel (9.1.10): booking-level id first. */
-export function bookingNumber(r: Pick<RawReservation, 'id' | 'channex_booking_id' | 'pms_reservation_id' | 'reservation_number'>): string {
-  return String(r.channex_booking_id || r.pms_reservation_id || r.reservation_number || r.id).slice(0, 255);
+export function bookingNumber(r: Pick<RawReservation, 'id' | 'channex_booking_id' | 'pms_reservation_id' | 'reservation_number' | 'ntak_booking_no'>): string {
+  return String(r.ntak_booking_no?.trim() || r.channex_booking_id || r.pms_reservation_id || r.reservation_number || r.id).slice(0, 255);
 }
 
 export function salesChannel(r: RawReservation, cfg: LedgerConfig): SalesChannel {
@@ -231,6 +232,19 @@ export function roomOnDay(r: RawReservation, assignments: RawAssignment[], day: 
   return a?.room_id ?? (segments.length ? null : r.room_id);
 }
 
+/** NTAK nightly occupancy is per registered guest, not the reservation-wide status.
+ * Legacy links without a stay_state still use the existing all-guests behavior.
+ */
+export function guestPresentOnDay(g: StayGuest, day: string, tz: string, dayUse: boolean): boolean {
+  if (g.stayState === 'void' || g.stayState === 'expected') return false;
+  if (g.stayState === undefined) return true;
+  if (!g.arrivedAt) return false;
+  const arrival = localDate(g.arrivedAt, tz);
+  const departure = g.departedAt ? localDate(g.departedAt, tz) : null;
+  return (arrival <= day && (departure === null || day < departure))
+    || (dayUse && arrival === day && (departure === null || departure >= day));
+}
+
 export function nightlyFee(r: RawReservation, day: string, lines: RawFolioLine[], cfg: LedgerConfig, problems: string[]): number | null {
   const acc = lines.filter((l) => l.reservation_id === r.id && l.service_date === day && live(l) && isAccommodationLine(l, cfg));
   if (acc.length) {
@@ -292,8 +306,12 @@ export function buildDaySources(input: DayInputs, cfg: LedgerConfig): DaySources
     const paymentsOf = (pred: (d: string) => boolean) => input.payments.filter((p) => p.reservation_id === r.id && pred(localDate(p.received_at, cfg.timeZone)));
 
     if ((arrival <= day && day < departure) || (dayUse && day === arrival)) {
-      const guests = input.guestsFor(r);
-      const expected = Math.max(0, Number(r.adults ?? 0) + Number(r.children ?? 0));
+      const allGuests = input.guestsFor(r);
+      const guests = allGuests.filter((g) => guestPresentOnDay(g, day, cfg.timeZone, dayUse));
+      // Late arrivals and early departures must not inflate NTAK guest counts.
+      const expected = allGuests.some((g) => g.stayState !== undefined)
+        ? guests.length : Math.max(0, Number(r.adults ?? 0) + Number(r.children ?? 0));
+      if (!guests.length && allGuests.some((g) => g.stayState !== undefined)) continue;
       // Advance payments (received before arrival) are reported on the arrival day.
       const payments = mapPayments(paymentsOf((d) => (day === arrival ? d <= day : d === day)), cfg, problems);
       out.stays.push({
