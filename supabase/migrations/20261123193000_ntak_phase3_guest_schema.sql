@@ -47,12 +47,46 @@ CREATE OR REPLACE FUNCTION public.ntak_booking_no(
     NULLIF(_reservation_number,''),_id::text),255)
 $$;
 
--- State fields must never be changed through the direct REST table API.
--- Existing guest links are still readable. Use pms_add_stay_guest and
--- pms_guest_transition for audited writes.
-REVOKE INSERT,UPDATE,DELETE ON public.reservation_guests FROM authenticated;
-GRANT SELECT ON public.reservation_guests TO authenticated;
-GRANT UPDATE(ifa_status) ON public.reservation_guests TO authenticated;
+-- Existing non-NTAK hotels retain their direct guest-link workflow.
+-- NTAK-enabled hotels must use the audited RPCs; their direct REST writes
+-- are denied by RLS, even when authenticated has table grants.
+ALTER TABLE public.reservation_guests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "PMS staff manage stay guests" ON public.reservation_guests;
+DROP POLICY IF EXISTS "PMS staff view stay guests" ON public.reservation_guests;
+DROP POLICY IF EXISTS "Legacy PMS staff insert stay guests" ON public.reservation_guests;
+DROP POLICY IF EXISTS "Legacy PMS staff update stay guests" ON public.reservation_guests;
+DROP POLICY IF EXISTS "Legacy PMS staff delete stay guests" ON public.reservation_guests;
+CREATE POLICY "PMS staff view stay guests"
+ON public.reservation_guests FOR SELECT TO authenticated USING (
+  public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
+);
+CREATE POLICY "Legacy PMS staff insert stay guests"
+ON public.reservation_guests FOR INSERT TO authenticated WITH CHECK (
+  public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
+  AND NOT EXISTS(
+    SELECT 1 FROM public.ntak_settings cfg JOIN public.reservations r ON r.id=reservation_id
+    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled)
+);
+CREATE POLICY "Legacy PMS staff update stay guests"
+ON public.reservation_guests FOR UPDATE TO authenticated USING (
+  public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
+  AND NOT EXISTS(
+    SELECT 1 FROM public.ntak_settings cfg JOIN public.reservations r ON r.id=reservation_id
+    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled)
+) WITH CHECK (
+  public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
+  AND NOT EXISTS(
+    SELECT 1 FROM public.ntak_settings cfg JOIN public.reservations r ON r.id=reservation_id
+    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled)
+);
+CREATE POLICY "Legacy PMS staff delete stay guests"
+ON public.reservation_guests FOR DELETE TO authenticated USING (
+  public.has_pms_access(auth.uid()) AND public.can_access_reservation(auth.uid(),reservation_id)
+  AND NOT EXISTS(
+    SELECT 1 FROM public.ntak_settings cfg JOIN public.reservations r ON r.id=reservation_id
+    WHERE cfg.hotel_id=r.hotel_id AND cfg.enabled)
+);
+GRANT SELECT,INSERT,UPDATE,DELETE ON public.reservation_guests TO authenticated;
 
 -- Reservation changes triggered *by* the per-guest RPC must not also generate
 -- a second all-guests event. Legacy non-NTAK flows keep their original logic.
