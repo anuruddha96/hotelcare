@@ -4,6 +4,13 @@ import { pmsTranslations } from '@/lib/pms-translations';
 const LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk', 'ru'] as const;
 
 const rows: Record<string, readonly [string, string]> = {
+  'pms.businessMoment.recordAnother': ['Record for another day/time', 'Másik napra/időpontra rögzítés'],
+  'pms.businessMoment.dateTime': ['Business date and time', 'Üzleti nap és időpont'],
+  'pms.businessMoment.budapest': ['Time in Budapest (Europe/Budapest)', 'Budapesti idő (Europe/Budapest)'],
+  'pms.businessMoment.invalid': ['Invalid or disallowed business time. Check the earliest permitted date.', 'Érvénytelen vagy nem engedélyezett üzleti időpont. Ellenőrizze a legkorábbi dátumot.'],
+  'pms.businessMoment.businessDay': ['Business day', 'Üzleti nap'],
+  'pms.businessMoment.noon': ['Recorded at 12:00 Budapest time on this day', 'Rögzítés ezen a napon 12:00 órakor, budapesti idő szerint'],
+  'pms.businessMoment.changeRoom': ['Change room', 'Szobacsere'],
   'ntak.recentActivity': ['Recent reporting activity', 'Legutóbbi adatszolgáltatások'],
   'ntak.refreshReports': ['Refresh', 'Frissítés'],
   'ntak.allReports': ['All reports', 'Összes jelentés'],

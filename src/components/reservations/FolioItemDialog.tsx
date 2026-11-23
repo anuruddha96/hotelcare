@@ -10,6 +10,8 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { CreditCard, Receipt } from 'lucide-react';
+import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
+import { budapestToday } from '@/lib/businessMoment';
 import { useTranslation } from '@/hooks/useTranslation';
 import { addFolioItem, LifecycleError } from '@/lib/pmsLifecycle';
 import { formatMoney } from '@/lib/reservations';
@@ -18,6 +20,7 @@ const CHARGE_TYPES = ['room', 'minibar', 'restaurant', 'bar', 'spa', 'city_tax',
 
 interface FolioItemDialogProps {
   reservationId: string;
+  hotelId?: string | null;
   currency?: string | null;
   mode: 'charge' | 'payment';
   open: boolean;
@@ -25,12 +28,13 @@ interface FolioItemDialogProps {
   onSuccess: () => void;
 }
 
-export function FolioItemDialog({ reservationId, currency, mode, open, onOpenChange, onSuccess }: FolioItemDialogProps) {
+export function FolioItemDialog({ reservationId, hotelId, currency, mode, open, onOpenChange, onSuccess }: FolioItemDialogProps) {
   const { t } = useTranslation();
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState<string>('');
   const [chargeType, setChargeType] = useState('other');
   const [submitting, setSubmitting] = useState(false);
+  const [businessDay, setBusinessDay] = useState(() => budapestToday());
 
   const isPayment = mode === 'payment';
 
@@ -43,7 +47,7 @@ export function FolioItemDialog({ reservationId, currency, mode, open, onOpenCha
     const desc = description.trim() || (isPayment ? t('pms.res.addPayment') : t('pms.res.addCharge'));
     setSubmitting(true);
     try {
-      const result = await addFolioItem(reservationId, desc, value, isPayment ? 'payment' : chargeType);
+      const result = await addFolioItem(reservationId, desc, value, isPayment ? 'payment' : chargeType, businessDay);
       toast.success(
         `${isPayment ? t('pms.res.paymentRecorded') : t('pms.res.chargeAdded')} · ${t('pms.res.balance')}: ${formatMoney(result.balance_due, currency)}`,
       );
@@ -98,6 +102,7 @@ export function FolioItemDialog({ reservationId, currency, mode, open, onOpenCha
               </div>
             )}
           </div>
+          <BusinessDayField hotelId={hotelId} value={businessDay} onChange={setBusinessDay} />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
