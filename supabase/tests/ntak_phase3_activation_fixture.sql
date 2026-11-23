@@ -45,11 +45,11 @@ CREATE TABLE public.ntak_settings(
   first_closure_date date
 );
 CREATE OR REPLACE FUNCTION public.pms_ntak_guest_scope(_reservation_id uuid,_room_id uuid DEFAULT NULL)
-RETURNS boolean LANGUAGE sql STABLE AS $
+RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT EXISTS(SELECT 1 FROM public.reservations r JOIN public.ntak_settings s
     ON r.hotel_id=s.hotel_id AND s.enabled
     WHERE r.id=_reservation_id)
-$;
+$$;
 CREATE TABLE public.ntak_unit_profiles (
   hotel_id text,room_id uuid,active boolean DEFAULT true
 );
