@@ -488,7 +488,7 @@ Deno.test('Phase 3 processEvents snapshots exactly guest_ids, including voided c
     ['maria','Zsidi','Mária','HU','1983-05-10','in_house'],
     ['tibor','Zsidi','Tibor','HU','1980-11-11','void'],
   ];
-  for (const [i,(gid,first,last,country,born,state)] of fixture.entries()) {
+  for (const [i,[gid,first,last,country,born,state]] of fixture.entries()) {
     db.rows('guests').push({id:gid,first_name:first,last_name:last,birth_place:'Budapest',
       date_of_birth:born,gender:gid==='maria'?'female':'male',nationality:country,
       country,postal_code:country==='HU'?'2072':'47921'});
