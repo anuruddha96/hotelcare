@@ -41,7 +41,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [submitting, setSubmitting] = useState(false);
   const [vizaMissing, setVizaMissing] = useState<string[]>([]);
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
-  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive', selectedRoom || reservation.room_id, reservation.room_type_id);
+  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive', selectedRoom || reservation.room_id);
 
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
