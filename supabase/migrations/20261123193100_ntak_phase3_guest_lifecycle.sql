@@ -249,8 +249,8 @@ BEGIN
   IF actor IS NULL OR NOT public.can_access_pms_hotel(actor,r.hotel_id,r.organization_slug) THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
   SELECT * INTO g FROM public.guests WHERE id=_guest_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'GUEST_NOT_FOUND'; END IF;
-  IF (g.hotel_id IS DISTINCT FROM r.hotel_id)
-    AND (g.organization_slug IS DISTINCT FROM r.organization_slug) THEN
+  IF g.organization_slug IS DISTINCT FROM r.organization_slug
+    OR (g.hotel_id IS NOT NULL AND NOT public.user_can_access_hotel(actor,g.hotel_id)) THEN
     RAISE EXCEPTION 'GUEST_WRONG_PROPERTY';
   END IF;
   INSERT INTO public.reservation_guests(reservation_id,guest_id,room_id,created_by)
@@ -363,7 +363,6 @@ DECLARE
   changed_count integer;
   room public.rooms%ROWTYPE;
   dest uuid;
-  old_room uuid;
   ids uuid[];
   link record;
   permitted text;
@@ -416,7 +415,7 @@ BEGIN
     selected:=_guest_ids;
   END IF;
   IF cardinality(selected)=0 THEN RAISE EXCEPTION 'NO_ELIGIBLE_GUESTS'; END IF;
-  SELECT count(DISTINCT x) INTO guest_count FROM unnest(selected) AS x;
+  SELECT count(DISTINCT x.guest_id) INTO guest_count FROM unnest(selected) AS x(guest_id);
   IF guest_count<>cardinality(selected) THEN RAISE EXCEPTION 'DUPLICATE_GUEST_SELECTION'; END IF;
   PERFORM 1 FROM public.reservation_guests WHERE reservation_id=r.id FOR UPDATE;
   SELECT count(*) INTO eligible_count FROM public.reservation_guests
@@ -450,7 +449,7 @@ BEGIN
   PERFORM set_config('hotelcare.guest_lifecycle','1',true);
   IF _action='arrive' THEN
     UPDATE public.reservation_guests SET stay_state='in_house',arrived_at=at_time,
-      departed_at=NULL,room_id=COALESCE(room_id,dest)
+      departed_at=NULL,room_id=dest
       WHERE reservation_id=r.id AND guest_id=ANY(selected);
   ELSIF _action='depart' THEN
     IF EXISTS(SELECT 1 FROM public.reservation_guests WHERE reservation_id=r.id
@@ -472,7 +471,7 @@ BEGIN
     WHEN _action='undo_arrival' THEN 'confirmed' ELSE 'checked_out' END;
   IF _action='arrive' THEN
     UPDATE public.reservations SET status='checked_in',
-      room_id=COALESCE(room_id,dest),actual_check_in=COALESCE(actual_check_in,at_time),
+      room_id=dest,actual_check_in=COALESCE(actual_check_in,at_time),
       actual_check_out=NULL WHERE id=r.id;
   ELSIF _action='undo_arrival' AND inhouse_count=0 THEN
     UPDATE public.reservations SET status='confirmed',actual_check_in=NULL,
@@ -529,7 +528,6 @@ BEGIN
     PERFORM public.pms_enqueue_guest_ntak(r.id,event_kind,link.room_guest_ids,
       link.guest_room,NULL,at_time,correction);
   END LOOP;
-  FOREACH old_room IN ARRAY '{}'::uuid[] LOOP NULL; END LOOP;
   FOR link IN SELECT unnest(selected) AS guest_id LOOP
     PERFORM public.pms_queue_guest_viza(r.id,link.guest_id,_action,at_time);
   END LOOP;
