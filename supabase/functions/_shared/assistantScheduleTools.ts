@@ -3,8 +3,9 @@
 //
 // Every read of the schedule goes through the signed-in person's own session,
 // so row-level security decides what Mira can see: the whole organization for
-// HR / top management, the selected hotel for managers, and only their own
-// hotel for housekeeping managers and supervisors. Mira never writes the
+// HR / top management, the selected hotel for managers, every hotel to read
+// but only their own to plan for housekeeping managers, and only their own
+// hotel for supervisors. Mira never writes the
 // schedule here; an approved plan is saved by assistant-apply-action, again
 // with the person's session.
 
@@ -74,11 +75,20 @@ async function fetchAll<T>(build: (from: number, to: number) => any, pageSize = 
 }
 
 /** Which hotel's schedule this person may read and plan (decided by the database). */
-async function resolveScope(ctx: Ctx, db: any, requested: string | null): Promise<Scope | { error: string }> {
+async function resolveScope(ctx: Ctx, db: any, requested: string | null, mode: "read" | "plan" = "plan"): Promise<Scope | { error: string }> {
   const { data, error } = await db.rpc("workforce_access");
   const row = Array.isArray(data) ? data[0] : null;
   if (error || !row) return { error: "The work schedule is not available for your account." };
   if (row.access_level === "property") {
+    // Housekeeping managers may read (not plan) another hotel when they name it.
+    if (mode === "read" && requested) {
+      const ids = ctx.resolve(requested);
+      if (ids.length === 1 && ids[0] !== String(row.hotel_id ?? "")) {
+        const { data: viewAll } = await db.rpc("workforce_can_view_all");
+        if (viewAll === true) return { level: "property", hotelId: ids[0], organizationSlug: String(row.organization_slug) };
+        return { error: "You can see the work schedule of your own hotel only." };
+      }
+    }
     if (!row.hotel_id) return { error: "Select your hotel first." };
     return { level: "property", hotelId: String(row.hotel_id), organizationSlug: String(row.organization_slug) };
   }
@@ -225,7 +235,7 @@ export function buildScheduleTools(ctx: Ctx): Record<string, any> {
     }),
     execute: async ({ hotelId, startDate, endDate, department }) => {
       const db = userClient(ctx);
-      const scope = await resolveScope(ctx, db, hotelId);
+      const scope = await resolveScope(ctx, db, hotelId, "read");
       if ("error" in scope) return { ok: false, error: scope.error };
       const today = ctx.today();
       const window = period(startDate ?? monthStart(today), endDate, "1900-01-01");
@@ -282,6 +292,69 @@ export function buildScheduleTools(ctx: Ctx): Record<string, any> {
         };
       } catch (error) {
         return { ok: false, error: `The work schedule could not be read: ${(error as Error).message}` };
+      }
+    },
+  });
+
+  tools.get_schedule_changes = tool({
+    description:
+      "Changes to the work schedule of ONE hotel team for a period: (1) published days that changed and the employee has NOT confirmed yet (who, which day, before -> after, reason, short notice under 4 days), (2) changes a manager made after publishing that are NOT published yet (the employee still sees the old shift), and (3) how many draft days wait for Publish. Use it for \"who has not confirmed\", \"what changed\", \"what is still unpublished\".",
+    inputSchema: jsonSchema<{ hotelId: string | null; startDate: string | null; endDate: string | null; department: string | null }>({
+      type: "object",
+      properties: {
+        hotelId: { type: ["string", "null"], description: "Hotel id, or null for the user's own hotel" },
+        startDate: { type: ["string", "null"], description: "YYYY-MM-DD, or null for today" },
+        endDate: { type: ["string", "null"], description: "YYYY-MM-DD, or null for the end of that month" },
+        department: { type: ["string", "null"], description: "Department or job role; null for everyone" },
+      },
+      required: ["hotelId", "startDate", "endDate", "department"],
+      additionalProperties: false,
+    }),
+    execute: async ({ hotelId, startDate, endDate, department }) => {
+      const db = userClient(ctx);
+      const scope = await resolveScope(ctx, db, hotelId, "read");
+      if ("error" in scope) return { ok: false, error: scope.error };
+      const window = period(startDate, endDate, ctx.today());
+      if ("error" in window) return { ok: false, error: window.error };
+      try {
+        const { members } = await loadTeam(db, scope, department);
+        const nameOf = new Map(members.map((m) => [m.id, m.name]));
+        const ids = members.map((m) => m.id);
+        const shift = (row: any) => (row ? entryLabel(toEntry({ ...row, staff_id: "", work_date: "" })) : "day off");
+        const unconfirmed: Array<Record<string, unknown>> = [];
+        const unpublished: Array<Record<string, unknown>> = [];
+        let drafts = 0;
+        for (let i = 0; i < ids.length; i += 80) {
+          const chunk = ids.slice(i, i + 80);
+          const [notices, pending] = await Promise.all([
+            db.from("workforce_change_notices").select("staff_id,work_date,before,after,short_notice,reason,changed_at")
+              .in("staff_id", chunk).is("acknowledged_at", null).gte("work_date", window.from).lte("work_date", window.to).order("work_date").limit(500),
+            db.from("workforce_entries").select(`${ENTRY_COLUMNS},published_version`)
+              .in("staff_id", chunk).eq("status", "draft").gte("work_date", window.from).lte("work_date", window.to).order("work_date").limit(1000),
+          ]);
+          if (notices.error) throw new Error(notices.error.message);
+          if (pending.error) throw new Error(pending.error.message);
+          for (const n of notices.data ?? []) {
+            unconfirmed.push({ name: nameOf.get(String(n.staff_id)), date: n.work_date, before: shift(n.before), after: shift(n.after), reason: n.reason, short_notice: n.short_notice, changed_at: n.changed_at });
+          }
+          for (const e of pending.data ?? []) {
+            drafts += 1;
+            if (e.published_version) unpublished.push({ name: nameOf.get(String(e.staff_id)), date: e.work_date, employee_still_sees: shift(e.published_version), planned: entryLabel(toEntry(e)) });
+          }
+        }
+        return {
+          ok: true,
+          hotel_id: scope.hotelId,
+          hotel_name: ctx.hotels.find((h) => h.hotel_id === scope.hotelId)?.hotel_name ?? scope.hotelId,
+          from: window.from,
+          to: window.to,
+          draft_days_waiting_for_publish: drafts,
+          changes_not_published_yet: unpublished,
+          published_changes_not_confirmed_by_employee: unconfirmed,
+          note: "Employees see only published days. A change to a published day reaches them when the manager presses Publish; they then confirm it in the app. Changes less than 4 days ahead need the employee's agreement (Mt. 97. § (5)).",
+        };
+      } catch (error) {
+        return { ok: false, error: `The schedule changes could not be read: ${(error as Error).message}` };
       }
     },
   });
@@ -416,6 +489,8 @@ export function schedulePrompt(): string {
     "WORK SCHEDULE",
     "- Questions about hours, overtime, norm, leave, who works when: call get_work_schedule and answer with the numbers (hours planned vs norm, balance).",
     "- \"Make / build / fill / complete the schedule\": call plan_work_schedule for the hotel, team and period (default: rest of this month; for \"next month\" use the whole next month). It fills only empty days and never changes leave, sick days or planned shifts. The plan card shows the grid, hours and coverage; the manager approves it there and it is saved as a draft. Never say the schedule was changed or published.",
-    "- Housekeeping managers and supervisors plan only their own hotel; if they ask for another hotel, say so.",
+    "- \"Who has not confirmed\", \"what changed\", \"what is not published yet\": call get_schedule_changes. Name the people and days; for changes under 4 days say the employee has to agree.",
+    "- Housekeeping managers can read every hotel's schedule but plan only their own; supervisors read and plan only their own hotel. If they ask to plan another hotel, say so.",
+    "- Employees see only their own published days. Never tell an employee about a colleague's shifts or about unpublished drafts.",
   ].join("\n");
 }

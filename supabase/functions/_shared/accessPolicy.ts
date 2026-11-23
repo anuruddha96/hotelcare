@@ -60,8 +60,8 @@ export const ACCESS_ROLE_DESCRIPTION: Record<AccessRole, string> = {
   controlling: "Top-management access; lands on Purchase invoices.",
   hr: "Top-management access; lands on HR.",
   manager: "All hotels and operational modules, Mira and review replies. Price list instead of Revenue: no revenue figures.",
-  housekeeping_manager: "Housekeeping and maintenance; work schedule of their own hotel only; no review replies.",
-  housekeeping_supervisor: "Like a housekeeping manager: own hotel only, no review replies.",
+  housekeeping_manager: "Housekeeping and maintenance; sees the work schedule of every hotel and plans their own; no review replies.",
+  housekeeping_supervisor: "Housekeeping and maintenance; work schedule of their own hotel only; no review replies.",
   reception: "Everything except Revenue management; lands on Housekeeping while the hotel runs on Previo.",
   housekeeping: "Own rooms and shift. No Mira. Schedule hidden until it goes live.",
   maintenance: "Own tickets and shift. No Mira. Schedule hidden until it goes live.",
@@ -175,6 +175,8 @@ export type AccessCapabilities = {
   finance: boolean;
   /** Work schedule: whole organization, the selected hotel, their own hotel, or only themselves. */
   scheduleScope: ScheduleScope;
+  /** May read the work schedule of every hotel (planning still follows scheduleScope). */
+  scheduleViewAll: boolean;
   /** Mira may build schedule plans for them. */
   scheduleBuilder: boolean;
   /** May switch the staff schedule live for housekeepers and maintenance. */
@@ -206,6 +208,7 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
     reviews: false,
     finance: false,
     scheduleScope: "self",
+    scheduleViewAll: false,
     scheduleBuilder: false,
     scheduleGoLive: false,
     mail: false,
@@ -221,6 +224,7 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
       reviews: true,
       finance: true,
       scheduleScope: "org",
+      scheduleViewAll: true,
       scheduleBuilder: true,
       scheduleGoLive: true,
       mail: true,
@@ -240,11 +244,14 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
         reviews: true,
         finance: true,
         scheduleScope: named ? "org" : "property",
+        scheduleViewAll: named,
         scheduleBuilder: true,
         mail: true,
       };
     }
     case "housekeeping_manager":
+      // Sees every hotel's schedule (to cover and borrow staff), plans their own.
+      return { ...base, mira: true, scheduleScope: "home_hotel", scheduleViewAll: true, scheduleBuilder: true, mail: true };
     case "housekeeping_supervisor":
       return { ...base, mira: true, scheduleScope: "home_hotel", scheduleBuilder: true, mail: true };
     case "reception":
