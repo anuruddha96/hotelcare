@@ -55,15 +55,17 @@ interface ReservationCalendarProps {
   pmsName?: string | null;
   /** Reception changes a room's housekeeping status from the room column. Omit to make it read-only. */
   onRoomStatusChange?: (room: PlannerRoom, status: RoomStatus) => Promise<void> | void;
+  onRoomPeriodManage?: (room: PlannerRoom) => void;
 }
 
-export type RoomStatus = 'clean' | 'dirty' | 'out_of_order' | 'maintenance';
-const ROOM_STATUSES: RoomStatus[] = ['clean', 'dirty', 'out_of_order', 'maintenance'];
+export type RoomStatus = 'clean' | 'dirty' | 'out_of_order' | 'out_of_service' | 'maintenance';
+const ROOM_STATUSES: RoomStatus[] = ['clean', 'dirty', 'out_of_order', 'out_of_service', 'maintenance'];
 /** Pill + dot colours per room status; unknown values fall back to a neutral pill. */
 const ROOM_STATUS_STYLE: Record<string, { pill: string; dot: string }> = {
   clean: { pill: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-800', dot: 'bg-emerald-500' },
   dirty: { pill: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800', dot: 'bg-amber-500' },
   out_of_order: { pill: 'bg-red-100 text-red-800 border-red-300 dark:bg-red-950 dark:text-red-200 dark:border-red-800', dot: 'bg-red-600' },
+  out_of_service: { pill: 'bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-950 dark:text-violet-200 dark:border-violet-800', dot: 'bg-violet-600' },
   maintenance: { pill: 'bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-950 dark:text-violet-200 dark:border-violet-800', dot: 'bg-violet-500' },
 };
 const ROOM_STATUS_FALLBACK = { pill: 'bg-muted text-muted-foreground border-border', dot: 'bg-muted-foreground/40' };
@@ -121,7 +123,7 @@ const nightsBetween = (from: string, to: string) =>
   Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 86400000));
 
 /** Read-only snapshot bookings are displayed separately from editable HotelCare records. */
-export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged, onQuickAction, pmsName = null, onRoomStatusChange }: ReservationCalendarProps) {
+export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true, editable = false, onChanged, onQuickAction, pmsName = null, onRoomStatusChange, onRoomPeriodManage }: ReservationCalendarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // A phone shows a week by default; everything wider shows two.
@@ -513,6 +515,10 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
     const choose = async (next: RoomStatus) => {
       setStatusMenuRoom(null);
       if (next === status) return;
+      if ((next === 'out_of_order' || next === 'out_of_service') && onRoomPeriodManage) {
+        onRoomPeriodManage(room);
+        return;
+      }
       setStatusSaving(room.id);
       try { await onRoomStatusChange(room, next); } finally { setStatusSaving(null); }
     };
@@ -536,6 +542,10 @@ export function ReservationCalendar({ rooms, reservations, basePath, showUnassig
               </button>
             ))}
           </div>
+          {onRoomPeriodManage && <Button size="sm" variant="outline" className="mt-2 w-full text-xs"
+            onClick={() => { setStatusMenuRoom(null); onRoomPeriodManage(room); }}>
+            {t('ntak.phase4.manage')}
+          </Button>}
           <p className="px-1 pt-2 text-[10px] text-muted-foreground">{t('pms.room.statusHint')}</p>
         </PopoverContent>
       </Popover>

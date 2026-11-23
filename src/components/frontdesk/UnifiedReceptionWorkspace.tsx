@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { RoomStatePeriodManager } from '@/components/dashboard/RoomStatePeriodManager';
 import {
   CalendarDays, Coffee, List, LogIn, LogOut, Plus, Search,
   Users, AlertTriangle,
@@ -114,6 +116,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [reservations, setReservations] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
+  const [periodRoom, setPeriodRoom] = useState<{ id: string; room_number: string } | null>(null);
   const [importHistory, setImportHistory] = useState<ImportHistory | null>(null);
   const [lastImportSuccess, setLastImportSuccess] = useState<string | null>(null);
   // Bookings Previo no longer returns: hidden from the plan and counts, but never silently.
@@ -237,9 +240,10 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
       if (auth.user?.id) patch.last_cleaned_by = auth.user.id;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await supabase.from('rooms').update(patch as any).eq('id', room.id).select('id').maybeSingle();
+    const { data, error } = await supabase.from('rooms').update(patch as any).eq('id', room.id).select('id,status').maybeSingle();
     if (error || !data) { toast.error(error?.message || t('pms.room.statusFailed')); return; }
-    setRooms((list) => list.map((item) => (item.id === room.id ? { ...item, status: next } : item)));
+    if (data.status !== next) { toast.error(t('ntak.phase4.activeOverride')); void fetchAll(); return; }
+    setRooms((list) => list.map((item) => (item.id === room.id ? { ...item, status: data.status } : item)));
     toast.success(t('pms.room.statusSaved').replace('{room}', room.room_number).replace('{status}', label(next).toLowerCase()));
   }, [t]);
 
@@ -462,7 +466,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     })()}
 
     {!loadError && <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_310px] gap-3 items-start"><div className="min-w-0">
-      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} onRoomStatusChange={changeRoomStatus} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
+      {view === 'planner' ? <ReservationCalendar rooms={rooms} reservations={filtered} basePath={basePath} showUnassigned editable={nativeHotel} onChanged={fetchAll} pmsName={nativeHotel ? null : 'Previo'} onQuickAction={(row, action) => setActioned({ row, dialog: action })} onRoomStatusChange={changeRoomStatus} onRoomPeriodManage={(room) => setPeriodRoom(room)} /> : <Card><CardContent className="p-0"><div className="overflow-auto max-h-[720px]"><table className="w-full text-sm">
         <thead className="sticky top-0 bg-card z-10 border-b border-border"><tr className="text-left text-xs text-muted-foreground">
           <th className="px-3 py-2 font-medium">{t('pms.reservations.guest')}</th><th className="px-3 py-2 font-medium">{t('pms.res.room')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.checkInDate')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.status')}</th><th className="px-3 py-2 font-medium">{t('pms.reservations.source')}</th>
         </tr></thead><tbody className="divide-y divide-border">{filtered.map((row) => <tr key={row.id} onClick={() => openReservation(row)} className={isSnapshotOnly(row) ? 'bg-muted/15' : 'cursor-pointer hover:bg-accent/30'}>
@@ -485,6 +489,13 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         <SideSection signals={guestSignals} title={t('pms.unified.futureReservations')} icon={CalendarDays} items={isOttofiori && importStale ? [] : upcomingOnline} onOpen={openReservation} />
       </aside>
     </div>}
+    <Dialog open={!!periodRoom} onOpenChange={(isOpen) => { if (!isOpen) setPeriodRoom(null); }}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+        <DialogHeader><DialogTitle>{t('ntak.phase4.title')}</DialogTitle></DialogHeader>
+        {periodRoom && <RoomStatePeriodManager hotelId={hotelId} roomId={periodRoom.id}
+          roomNumber={periodRoom.room_number} active onChanged={() => void fetchAll()} />}
+      </DialogContent>
+    </Dialog>
     <CreateReservationDialog open={createOpen} onOpenChange={setCreateOpen} onSuccess={() => { setCreateOpen(false); void fetchAll(); }} />
     {actioned?.dialog === 'checkin' && (
       <CheckInDialog reservation={actioned.row} open onOpenChange={(next) => { if (!next) setActioned(null); }}
