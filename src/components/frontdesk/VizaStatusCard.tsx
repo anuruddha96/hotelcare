@@ -18,6 +18,14 @@ import { useTranslation } from '@/hooks/useTranslation';
  * lets managers configure the hotel's NTAK identity, and retry failures.
  */
 
+interface VizaQueueFailure {
+  id: string;
+  reservation_id: string;
+  last_error: string;
+  attempts: number;
+  updated_at: string;
+}
+
 interface VizaStatus {
   configured: boolean;
   can_manage: boolean;
@@ -53,6 +61,7 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<VizaStatus | null>(null);
+  const [queueFailures, setQueueFailures] = useState<VizaQueueFailure[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ enabled: false, adatszolgaltatasi_azonosito: '', szallas_nev: '', szolgaltato_adoszam: '', szolgaltato_nev: '' });
@@ -62,6 +71,14 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
     try {
       const data = await callViza({ action: 'status', hotel_id: hotelId }) as unknown as VizaStatus;
       setStatus(data);
+      // An enqueue failure can occur before there is any VIZA guest event to
+      // retry. Fetch the durable per-reservation failure log separately.
+      const { data: failureRows, error: failureError } = await (supabase as any)
+        .from('viza_trigger_failures')
+        .select('id,reservation_id,last_error,attempts,updated_at')
+        .eq('hotel_id', hotelId).is('resolved_at', null)
+        .order('updated_at', { ascending: false }).limit(5);
+      setQueueFailures(!failureError ? (failureRows ?? []) as VizaQueueFailure[] : []);
       const s = data.settings;
       if (s) {
         setForm({
@@ -74,6 +91,7 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
       }
     } catch {
       setFailed(true);
+      setQueueFailures([]);
       setStatus(null); // no access or function unavailable: show nothing
     }
   }, [hotelId]);
@@ -115,6 +133,19 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
     }
   };
 
+  const retryQueueFailure = async (failureId: string) => {
+    try {
+      const { error } = await (supabase.rpc as CallableFunction)(
+        'pms_retry_viza_trigger_failure', { _failure_id: failureId },
+      );
+      if (error) throw error;
+      toast.success(t('pms.viza.queueRetrySuccess'));
+      await refresh();
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
   const statusTone = !s?.enabled ? 'secondary'
     : s.last_status_code?.startsWith('OK') ? 'default'
     : s.last_status_code ? 'destructive' : 'outline';
@@ -149,6 +180,25 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
             <p className="font-medium">{t('pms.viza.unreachable')}</p>
             <p className="truncate opacity-80" title={s.last_error}>{s.last_error}</p>
           </div>
+        </div>
+      )}
+      {s?.enabled && queueFailures.length > 0 && (
+        <div className="mt-1.5 space-y-1" data-training="fd-viza-queue-failures" role="alert">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold text-destructive">
+            <TriangleAlert className="h-3.5 w-3.5" /> {t('pms.viza.queueFailed')}
+          </p>
+          {queueFailures.map((failure) => (
+            <div key={failure.id} className="flex items-center gap-2 rounded-md border border-destructive/30 px-2 py-1 text-[11px]">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{t('pms.viza.queueReservation')} {failure.reservation_id.slice(0, 8)}</p>
+                <p className="break-words text-destructive">{failure.last_error}</p>
+              </div>
+              <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 text-[11px]"
+                onClick={() => void retryQueueFailure(failure.id)}>
+                {t('pms.viza.retryQueue')}
+              </Button>
+            </div>
+          ))}
         </div>
       )}
       {/* Guests whose report failed: shown to everyone at the desk, with what to do next. */}
