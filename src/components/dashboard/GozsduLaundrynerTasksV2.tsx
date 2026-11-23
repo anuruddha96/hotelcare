@@ -188,7 +188,8 @@ export function GozsduLaundrynerTasksV2() {
       setLoadFailed(false);
     } catch (error) {
       console.error('[GozsduLaundryner] room information refresh failed', error);
-      setSelectedRoom(null);
+      // Failed background reads are not evidence that room access changed.
+      // Keep the current draft/dialog; loadFailed still blocks all writes.
       setLoadFailed(true);
       if (!silent) toast.error(copy.syncError);
     } finally { setLoading(false); }
@@ -402,6 +403,9 @@ export function GozsduLaundrynerTasksV2() {
     <Dialog open={!!selectedRoom} onOpenChange={open => { if (!open && !busy) setSelectedRoom(null); }}>
       <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader><DialogTitle>{copy.room} {selectedRoom?.room_number} • {copy.dirtyLinen}</DialogTitle></DialogHeader>
+        {loadFailed && <div role="alert" className="text-sm text-destructive">
+          {copy.syncError} <Button variant="outline" size="sm" onClick={() => { void load(true); }}>{copy.refresh}</Button>
+        </div>}
         {selectedRoom && <div className="space-y-1 rounded-md border p-3 text-sm">
           <p className="font-semibold">{accessLabel(selectedAccess)}</p>
           <p>{accessCopy.service}: {serviceLabel(selectedRoom, selectedAssignments)}</p>
@@ -429,14 +433,14 @@ export function GozsduLaundrynerTasksV2() {
               onClick={() => setDraft(old => ({ ...old, [item.id]: (old[item.id] || 0) + 1 }))}>+</Button>
           </div>)}
           <div className="grid grid-cols-2 gap-2">
-            <Button disabled={busy || (!isCheckout(selectedRoom) && !guestPermission)} onClick={() => { void submit('collected'); }}>{copy.save}</Button>
-            <Button disabled={busy || (!isCheckout(selectedRoom) && !guestPermission)} variant="outline" onClick={() => { void submit('nothing_to_collect'); }}>{copy.nothingButton}</Button>
+            <Button disabled={busy || loadFailed || (!isCheckout(selectedRoom) && !guestPermission)} onClick={() => { void submit('collected'); }}>{copy.save}</Button>
+            <Button disabled={busy || loadFailed || (!isCheckout(selectedRoom) && !guestPermission)} variant="outline" onClick={() => { void submit('nothing_to_collect'); }}>{copy.nothingButton}</Button>
           </div>
         </div>}
         <div className="space-y-2 border-t pt-3">
           <label htmlFor="laundry-access-reason" className="text-sm font-medium">{copy.accessLabel}</label>
           <Input id="laundry-access-reason" value={reason} disabled={busy} placeholder={copy.reasonPlaceholder} onChange={event => setReason(event.target.value)} />
-          <Button type="button" variant="secondary" disabled={busy || !reason.trim()} onClick={() => { void submit('could_not_access'); }}>{copy.accessButton}</Button>
+          <Button type="button" variant="secondary" disabled={busy || loadFailed || !reason.trim()} onClick={() => { void submit('could_not_access'); }}>{copy.accessButton}</Button>
         </div>
         {busy && <p role="status" className="text-sm"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" />{copy.saving}</p>}
       </DialogContent>

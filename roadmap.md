@@ -2,6 +2,7 @@
 
 ## Staff screen resume fix (2026-11-23)
 - [x] Keep the venue check non-blocking on app return; verify draft/photo preservation and existing venue gates (18 focused tests passed).
+- [x] Review staff app-return handlers; preserve Gozsdu room/photo work on failed background duty checks and linen quantities on failed room reads, keeping save/access guards intact (44 focused tests passed; build OK; signed-in phone-camera verification unavailable).
 
 ## Done
 - [x] Migration: hotel-scoped PMS access (`can_access_pms_hotel`, `can_access_reservation`), `has_pms_access` + `top_management_manager`, hotel-scoped RLS (reservations, guests, guest_folios, reservation_room_assignments, reservation_events), `reservation_events` audit table, `pms_guest_name`, indexes + unique previo ref, lifecycle RPCs (check-in/out, status, folio, create/update), availability/conflict helpers.
