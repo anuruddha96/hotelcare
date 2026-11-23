@@ -5,11 +5,11 @@
  */
 import { strict as assert } from 'node:assert';
 import bcrypt from 'npm:bcryptjs@2.4.3';
-import { categoryProblem, postalCodeProblem, primaryChargeLimit } from './codes.ts';
+import { CATEGORIES, categoryProblem, postalCodeProblem, primaryChargeLimit } from './codes.ts';
 import { assembleClosure, hasBlockingErrors, type ClosureSource, type ClosureSettings, type StayGuest, type UnitInfo } from './closure.ts';
 import { computeVendegId, generateSalt, guestHashInput, isValidSalt, missingIdentityFields } from './guestId.ts';
 import { autoIfaStatus, ifaPerGuest } from './ifa.ts';
-import { buildBooking, buildDaySources, DEFAULT_LEDGER_CONFIG, type RawReservation } from './ledger.ts';
+import { buildBooking, buildDaySources, mapExtras, mapPayments, DEFAULT_LEDGER_CONFIG, type RawReservation } from './ledger.ts';
 import {
   buildAdatszolgaltatasKezdoDatumRequest, buildEllenorzesRequest, buildEsemenyvezereltRequest, buildFoglalasEsemenyRequest,
   buildNapiZarasRequest, escText, formatAmount, xsDateTime, type NtakCommon,
@@ -511,4 +511,26 @@ Deno.test('Phase 2 SQL contract: day-use room conflicts, picker range and negati
   assert.match(migration, /ELSIF _charge_type='adjustment' AND _amount < 0 THEN/);
   assert.match(migration, /INSERT INTO public\.folio_lines/);
   assert.match(migration, /PERFORM public\.pms_finance_recalculate_reservation\(r\.id\)/);
+});
+
+Deno.test('Phase 8 NZ_03 explicit category coverage and seven payment methods', async () => {
+  const day = '2026-11-18';
+  const base = { reservation_id: 'r', service_date: day, vat_rate: 27, currency: 'HUF', status: 'open', category: 'other', source_type: 'manual' };
+  const lines = Object.entries(CATEGORIES).flatMap(([main, subs]) => subs.filter(sub => !(main === 'EGYEB' && sub === 'EGYEB_VENDEGLATAS')).map(sub => ({ ...base, gross_total: 1, ntak_main: main, ntak_sub: sub, in_package: false })));
+  assert.equal(lines.length, 67);
+  const problems: string[] = [];
+  assert.equal(mapExtras(lines, DEFAULT_LEDGER_CONFIG, problems).length, 67);
+  assert.deepEqual(problems, []);
+  const payments = ['cash','card_terminal','bank_transfer','coupon','szep_otp','on_account','other'].map((method, i) => ({ reservation_id: 'r', amount: i < 5 ? 4067 : 4066, currency: 'HUF', method, status: 'recorded', received_at: day + 'T12:00:00Z' }));
+  const mapped = mapPayments(payments, DEFAULT_LEDGER_CONFIG, problems);
+  assert.equal(mapped.length, 7);
+  assert.equal(mapped.reduce((n,p) => n + p.amount, 0), 28467);
+  assert.deepEqual(mapped.map(p => p.type), ['KESZPENZ','BANKKARTYA','ATUTALAS','UTALVANY','SZEP_KARTYA','UTOLAGOS','EGYEB']);
+  assert.equal(mapped.find(p => p.type === 'SZEP_KARTYA')?.szepAccommodation, true);
+  const input = buildDaySources({ day, reservations: [res({ id: 'r', adults: 1, rate_per_night: 28000 })], lines, payments, assignments: [], guestsFor: () => [guest(1)], isCompany: () => false, roomsInBooking: () => 1, label: r => r.id }, DEFAULT_LEDGER_CONFIG);
+  const assembled = assembleClosure({ ...closureSource(), ...input }, { ...settings, accommodationVat: 5, ifa: { type: 'TETELES', rate: 400 } });
+  assert.equal(hasBlockingErrors(assembled.checklist), false, JSON.stringify(assembled.checklist));
+  assert.equal(assembled.totals.charges, 28467);
+  assert.equal(assembled.totals.payments, 28467);
+  await assertValid(buildNapiZarasRequest(common(), assembled.closure));
 });
