@@ -236,13 +236,13 @@ BEGIN
       AND check_in_date<day AND check_out_date>day AND status<>'cancelled';
   UPDATE public.reservation_room_assignments SET status='cancelled'
     WHERE reservation_id=r.id AND room_id=r.room_id AND check_in_date>=day AND status<>'cancelled';
-  IF EXISTS(SELECT 1 FROM public.reservation_room_assignments WHERE reservation_id=r.id AND room_id=_to_room) THEN
-    UPDATE public.reservation_room_assignments SET check_in_date=day,check_out_date=r.check_out_date,status='active'
-      WHERE reservation_id=r.id AND room_id=_to_room;
-  ELSE
-    INSERT INTO public.reservation_room_assignments(reservation_id,room_id,check_in_date,check_out_date,status)
-    VALUES(r.id,_to_room,day,r.check_out_date,'active');
-  END IF;
+  -- Append a fresh segment, including when the guest returns to an earlier
+  -- room. Reusing/updating a prior segment would destroy historical occupancy.
+  UPDATE public.reservation_room_assignments SET status='cancelled'
+    WHERE reservation_id=r.id AND room_id=_to_room
+      AND status IN ('assigned','active') AND check_out_date>day;
+  INSERT INTO public.reservation_room_assignments(reservation_id,room_id,check_in_date,check_out_date,status)
+  VALUES(r.id,_to_room,day,r.check_out_date,'active');
   UPDATE public.reservations SET room_id=_to_room WHERE id=r.id;
   IF day=(now() AT TIME ZONE 'Europe/Budapest')::date THEN
     UPDATE public.rooms SET guest_count=0,updated_at=now() WHERE id=r.room_id;
