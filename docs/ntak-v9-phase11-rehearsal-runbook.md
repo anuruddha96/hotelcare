@@ -18,6 +18,10 @@
 - [ ] Confirm date history and existing closure/message ledger before reserving dates. Disable or isolate unrelated automation that could send for the chosen test dates; never disable required normal reporting path or modify real hotel switches. If isolation cannot be proven, stop.
 - [ ] Have v1.07 task sheet and workbook open, full-screen screenshot capture ready, encrypted/access-controlled evidence location, and named owner/Claude operator. Record exact version, test configuration identity (no secrets), run ID and date plan.
 
+- [ ] Claude alone sets and verifies `ntak_settings.first_closure_date` on `channex-test-property` to T01 or earlier, and the historical minimum date to T01 or earlier, after owner approval. A missing first closure date or a later date blocks the historical sequence. Use the authorized NTAK settings UI or Claude's reviewed database process; read back the dates before activating. Never change another hotel's dates.
+- [ ] Only `channex-test-property` may be activated after readiness approval. `ntak-v9-validation` shares the registration and reporting ID and must remain disabled throughout. Never activate either from this checklist.
+- [ ] Obtain the authority's written confirmation that trial sends are allowed on this exact test registration. Until owner confirms receipt, the rehearsal dates remain TBD and no trial messages may be sent.
+
 ## 2. Date plan — separate rehearsal and official validation
 
 The official v1.07 introduction specifies nine subject days and eight distinct daily closing dates; T01–T05 are five consecutive days with no omissions and may be historical. TX is no earlier than the actual current calendar date when advance bookings are generated. TY is a separate, previously unsent date and need not adjoin T01–T05. Use Budapest calendar dates; do not fake the current date or shorten the elapsed run. The official validation window is at most five calendar days; plan three consecutive actual days A/B/C.
@@ -32,7 +36,7 @@ The official v1.07 introduction specifies nine subject days and eight distinct d
 | TY | TBD (unused eligible day) | TBD (different unused eligible day) |
 | Owner approval / test property / build | TBD | TBD |
 
-Use nonoverlapping subject days across the runs (including TX, TX+1, TX+2 and TY); choose T05 before TX and TY already eligible for closing on Day A. Check all eight closure dates are unused for a new closure at the authority, not merely absent locally; use available reporting history and coordinate with NTAK if uncertain. A rehearsal is a full three-day test-endpoint run with its own different five-day historical period and TY. Trial sends may consume a subject day; do not reset or delete local logs to reuse it as new. No dates reserved or transmissions performed by this document.
+Use nonoverlapping subject days across the runs (including TX, TX+1, TX+2 and TY); choose T05 before TX and TY already eligible for closing on Day A. Check all eight closure dates are unused for a new closure at the authority, not merely absent locally; use available reporting history and coordinate with NTAK if uncertain. Only if NTAK explicitly permits trial sends for this registration, a rehearsal is a full three-day test-endpoint run with its own different five-day historical period and TY. Trial sends may consume a subject day; do not reset or delete local logs to reuse it as new. No dates reserved or transmissions performed by this document.
 
 ## 3. Execution order
 
@@ -59,7 +63,7 @@ For each row, record actual message ID(s), event/closing time(s), processing ID(
 | [ ] | ES_06A departure | T05 | Same-day departure, room 103. |
 | [ ] | ES_06B arrival | T05 | FOGL_03 day-use Kovács Bianka, room 104. |
 | [ ] | ES_06B departure | T05 | Same-day departure, room 104. |
-| [ ] | NZ_05 | T05 | Zero guest nights; room 103 accommodation 28000 cash, room 104 accommodation 34500 card; post-stay FOGL_01 other charge and card payment 10000 each; IFA 400 HUF setting. |
+| [ ] | NZ_05 | T05 | Zero guest nights; room 103 accommodation 28000 cash, room 104 accommodation 34500 card; manager posts the post-stay FOGL_01 other charge and card payment 10000 each; IFA 400 HUF setting. |
 | [ ] | ELO_01A | TX | Create FOGL_04, room 101, HU booker, TX+1 to TX+2, direct online, individual business, guaranteed, 20000 HUF, 1 expected guest. |
 | [ ] | ELO_01B | TX | Create FOGL_05 separately, room 103, other foreign booker, TX+1 to TX+2, traditional intermediary, group business, not guaranteed, 28000 HUF, 2 expected guests. |
 | [ ] | ELO_02 | TX | Modify FOGL_04 arrival to TX, non-guaranteed, 40000 HUF; verify separate message before check-in. |
@@ -94,7 +98,11 @@ For each row, record actual message ID(s), event/closing time(s), processing ID(
 - Use full-screen UI images in NTAK document, populate cover sheet including company/PMS/version, test window, T01/TX/TY, registration/software ID and contact; fill all case values and four XML sections, note deviations honestly. Owner checks section 6 automation declaration and selects exactly one error-handling declaration (list unsupported errors where applicable), dates/signs and sends only the official completed package through agreed authority channel.
 - No private keys, access tokens, real guest records or raw evidence in GitHub. Keep original authority XML securely; redact only separate sharing copies where permitted, never falsify authority submission.
 
-## 5. Failure and handoff
+## 5. Separate VIZA validation
+
+VIZA ticket 150445 uses its own worksheet and evidence package, not the NTAK day plan. Cases 2.1 and 2.2 are performed on the central THF; cases 2.3 and 2.4 use the own THF and remain blocked until the TLS gateway is ready and trusted. Keep both tests separate; do not submit VIZA or NTAK messages as part of code review. Verify mandatory guest data server-side before any arrival; a failed reader means manual entry, not a bypass.
+
+## 6. Failure and handoff
 
 If unexpected result, missing evidence, duplicate closure, wrong property/endpoint, pending dependency, or unresolved workbook discrepancy: stop dependent cases; preserve all attempts and record the blocker, owner, fix PR and rerun scope. Do not reset authority history, reuse a consumed day as new, or manually edit XML to force a pass. Rehearsal failures must be resolved and verified before official dates are approved. If the official window cannot be completed, coordinate a new date plan with NTAK.
 
