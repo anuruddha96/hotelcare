@@ -86,7 +86,7 @@ GRANT EXECUTE ON FUNCTION public.pms_set_business_moment(timestamptz) TO authent
 -- would miss conflicts with same-day arrivals and FOGL_03.
 CREATE OR REPLACE FUNCTION public.pms_room_has_conflict(
   _room_id uuid, _from date, _to date, _exclude_reservation uuid DEFAULT NULL
-) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $
+) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.reservations r
     WHERE r.room_id = _room_id
@@ -106,7 +106,7 @@ CREATE OR REPLACE FUNCTION public.pms_room_has_conflict(
       AND (rra.check_out_date > _from
         OR (rra.check_in_date = rra.check_out_date AND rra.check_in_date >= _from))
   );
-$;
+$$;
 
 -- The reception room picker must also accept a same-day range. Reject only
 -- reversed ranges, never a legitimate day-use stay.
@@ -115,7 +115,7 @@ CREATE OR REPLACE FUNCTION public.pms_available_rooms(
 ) RETURNS TABLE(
   room_id uuid, room_number text, room_type text, room_status text,
   capacity integer, has_conflict boolean
-) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $
+) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF NOT public.can_access_pms_hotel(auth.uid(), _hotel_id, NULL) THEN
     RAISE EXCEPTION 'ACCESS_DENIED';
@@ -131,7 +131,7 @@ BEGIN
   WHERE rm.hotel IN (SELECT public.pms_hotel_room_keys(_hotel_id))
   ORDER BY rm.room_number;
 END;
-$;
+$$;
 
 -- The old entrypoints remain unchanged; the new entrypoints delegate to
 -- them for ordinary, non-backdated check-ins and check-outs.
@@ -257,7 +257,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.pms_change_room(
   _reservation_id uuid, _to_room uuid, _moment timestamptz DEFAULT NULL
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   r public.reservations%ROWTYPE;
   rm public.rooms%ROWTYPE;
