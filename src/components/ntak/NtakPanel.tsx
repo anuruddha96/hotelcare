@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { AlertTriangle, CheckCircle2, Download, Loader2, XCircle } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { ntakResultLabel, ntakNeedsAction } from './ntakApi';
 import { NtakClosureDialog } from './NtakClosureDialog';
 import { NtakEvidencePanel } from './NtakEvidencePanel';
 import { ACCOMMODATION_CLASSES, callNtak, fmtHuf, UNIT_TYPES, type NtakMessage, type NtakSettings, type NtakStatus, type NtakUnitRow } from './ntakApi';
@@ -36,7 +37,7 @@ function toForm(s: NtakSettings | null): Form {
   };
 }
 
-export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId: string; open: boolean; onOpenChange: (o: boolean) => void; onChanged?: () => void }) {
+export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab = 'overview' }: { hotelId: string; open: boolean; onOpenChange: (o: boolean) => void; onChanged?: () => void; initialTab?: 'overview' | 'messages' }) {
   const { t } = useTranslation();
   const [status, setStatus] = useState<NtakStatus | null>(null);
   const [form, setForm] = useState<Form>(toForm(null));
@@ -119,7 +120,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
       <DialogContent className="sm:max-w-4xl max-h-[92vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{t('ntak.manage')}</DialogTitle></DialogHeader>
         {!status ? <Loader2 className="h-5 w-5 animate-spin" /> : (
-          <Tabs defaultValue="overview">
+          <Tabs defaultValue={initialTab}>
             <TabsList className="flex-wrap h-auto">
               {['overview', 'settings', 'units', 'closures', 'messages'].map((k) => <TabsTrigger key={k} value={k}>{t(`ntak.tab.${k}`)}</TabsTrigger>)}
             </TabsList>
@@ -317,7 +318,8 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
               {status.can_manage && <NtakEvidencePanel key={hotelId} hotelId={hotelId} today={status.today} />}
               {status.messages.length === 0 && <p className="text-muted-foreground">{t('ntak.noMessages')}</p>}
               {status.messages.map((m) => <MessageRow key={m.id} m={m} expanded={expanded === m.id} onToggle={() => setExpanded(expanded === m.id ? null : m.id)}
-                onResend={m.kind !== 'closure' && ['rejected', 'failed', 'verified'].includes(m.state) ? () => run('resend', { action: 'resend_message', message_id: m.id }) : undefined} />)}
+                onFix={status.can_manage && m.kind === 'closure' && ntakNeedsAction(m) && status.closures.some(c => c.message_id === m.id) ? () => setClosureDay(m.ref) : undefined}
+                onResend={status.can_manage && m.kind !== 'closure' && ntakNeedsAction(m) && ['rejected', 'failed', 'verified'].includes(m.state) ? () => run('resend', { action: 'resend_message', message_id: m.id }) : undefined} />)}
             </TabsContent>
           </Tabs>
         )}
@@ -335,13 +337,13 @@ function addDay(day: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function MessageRow({ m, expanded, onToggle, onResend }: { m: NtakMessage; expanded: boolean; onToggle: () => void; onResend?: () => void }) {
+function MessageRow({ m, expanded, onToggle, onResend, onFix }: { m: NtakMessage; expanded: boolean; onToggle: () => void; onResend?: () => void; onFix?: () => void }) {
   const { t } = useTranslation();
   const issues = [...m.errors.map((i) => ({ ...i, level: 'error' })), ...m.warnings.map((i) => ({ ...i, level: 'warning' }))];
   return (
     <div className="rounded border px-2 py-1">
       <button type="button" className="flex w-full flex-wrap items-center gap-2 text-left" onClick={onToggle}>
-        <Badge variant={STATE_TONE[m.state] ?? 'outline'} className="text-[10px]">{m.state}</Badge>
+        <Badge variant={STATE_TONE[m.state] ?? 'outline'} className="text-[10px]">{t(ntakResultLabel(m))}</Badge>
         {m.ntak_status && <span className="font-mono">{m.ntak_status}</span>}
         <span className="font-medium">{t(`ntak.kind.${m.kind}`)}</span>
         <span className="text-muted-foreground truncate max-w-[14rem]">{m.ref}</span>
@@ -349,8 +351,11 @@ function MessageRow({ m, expanded, onToggle, onResend }: { m: NtakMessage; expan
         {m.warnings.length > 0 && <span className="text-amber-700">⚠ {m.warnings.length}</span>}
         <span className="ml-auto text-muted-foreground">{new Date(m.sent_at ?? m.created_at).toLocaleString()}</span>
       </button>
-      {expanded && (
+      {m.resend_of && <p className="text-muted-foreground break-all">{t('ntak.resendOf')}: {m.resend_of}</p>}
+      {onFix && <Button size="sm" variant="outline" onClick={onFix}>{t(m.ntak_status === 'VIZSGALANDO' ? 'ntak.sendCorrection' : 'ntak.fixSend')}</Button>}
+      {(expanded || ntakNeedsAction(m)) && (
         <div className="mt-1 space-y-1">
+          {m.override_reason && <p>{t('ntak.overrideReason')}: {m.override_reason}</p>}
           {m.last_error && <p className="text-destructive">{m.last_error}</p>}
           {m.processing_id && <p className="text-muted-foreground font-mono">feldolgozasAzonosito: {m.processing_id}</p>}
           {issues.map((i, idx) => (
@@ -358,7 +363,7 @@ function MessageRow({ m, expanded, onToggle, onResend }: { m: NtakMessage; expan
               <span className="font-mono">{i.key}</span> · {i.field}{i.value ? ` = ${i.value}` : ''}: {i.message}{i.hint ? ` — ${i.hint}` : ''}
             </div>
           ))}
-          {onResend && <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={onResend}>{t('ntak.resend')}</Button>}
+          {onResend && <Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={onResend}>{t(m.ntak_status === 'VIZSGALANDO' ? 'ntak.sendCorrection' : 'ntak.fixSend')}</Button>}
         </div>
       )}
     </div>

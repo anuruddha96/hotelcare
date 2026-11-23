@@ -25,7 +25,7 @@ import { buildAdatszolgaltatasKezdoDatumRequest } from "../_shared/ntak/messages
 import { importSigningKey, signEnvelope, verifyEnvelope } from "../_shared/ntak/wssec.ts";
 import { firstCertificatePem, generateCsr, keyMatchesCertificate, normalizePrivateKeyPem, parseCertificate, rsaModulusFromSpki, spkiSha256, effectiveExpiry } from "../_shared/ntak/x509.ts";
 import {
-  buildClosure, classificationFor, common, configurationProblems, loadSettings, markAllFutureBookings, queueClosure,
+  buildClosure, classificationFor, common, configurationProblems, loadSettings, markAllFutureBookings, phase9SchemaReady, queueClosure,
   queueStartDateQuery, runWorker, today, verifyDue, type Db, type Settings,
 } from "./engine.ts";
 
@@ -200,7 +200,7 @@ Deno.serve(async (req) => {
         const day = isDay(body.day) ? body.day : addDays(today(), -1);
         const classification = await classificationFor(db, settings, day);
         const build = await buildClosure(db, settings, day, { classification, protocolId: body.protocol_id, reason: body.reason, closed: body.closed === true });
-        return json({ ok: true, day, classification, closure: build.closure, checklist: build.checklist, totals: build.totals, xml: build.xml });
+        return json({ ok: true, day, classification, can_manage: canManage && await phase9SchemaReady(db), environment: settings.environment, closure: build.closure, checklist: build.checklist, totals: build.totals, xml: build.xml });
       }
 
       case "close_day": {
@@ -208,7 +208,9 @@ Deno.serve(async (req) => {
         if (!isDay(body.day)) return json({ ok: false, error: "day (YYYY-MM-DD) is required" }, 400);
         if (body.day >= today()) return json({ ok: false, error: "Only past days can be closed" }, 400);
         if (body.day < addDays(today(), -456)) return json({ ok: false, error: "NTAK accepts corrections for 15 months only" }, 400);
-        const result = await queueClosure(db, settings, body.day, { protocolId: body.protocol_id, reason: body.reason, closed: body.closed === true, actor: caller.userId });
+        if (body.override === true && (!canManage || (settings.environment !== "test" && (typeof body.override_reason !== "string" || !body.override_reason.trim())))) return forbidden();
+        if (body.override_reason != null && (typeof body.override_reason !== "string" || body.override_reason.length > 500)) return json({ ok: false, error: "Invalid override reason" }, 400);
+        const result = await queueClosure(db, settings, body.day, { protocolId: body.protocol_id, reason: body.reason, closed: body.closed === true, actor: caller.userId, override: body.override === true, overrideReason: body.override_reason });
         if (!result.ok) return json({ ok: false, error: "The checklist has errors to fix first", checklist: result.build.checklist, totals: result.build.totals }, 422);
         return json({ ok: true, message_id: result.messageId, classification: result.build.classification, checklist: result.build.checklist });
       }
@@ -287,7 +289,23 @@ Deno.serve(async (req) => {
         const { data: m } = await db.from("ntak_messages").select("*").eq("id", body.message_id).eq("hotel_id", hotelId).maybeSingle();
         if (!m) return json({ ok: false, error: "Message not found" }, 404);
         if (m.kind === "closure") return json({ ok: false, error: "Send a closure again from the closure list (it becomes a MODOSITO version when needed)" }, 400);
-        if (["queued", "retry", "sending"].includes(m.state)) return json({ ok: false, error: "The message is still waiting to be sent" }, 400);
+        if (m.environment !== settings?.environment || !settings?.enabled) return json({ok:false,error:"Message belongs to another or inactive NTAK environment"},409);
+        if (!["rejected", "failed", "verified"].includes(m.state) || m.ntak_status === "TELJESEN_SIKERES" || m.ntak_status === "UJRA_KULDENDO") return json({ ok: false, error: "This message does not require a manual retry" }, 400);
+        if (m.kind === "booking") {
+          const {data: queue, error: readError} = await db.from("ntak_booking_queue").select("last_message_id").eq("hotel_id",hotelId).eq("booking_no",m.ref).maybeSingle();
+          if (readError || queue?.last_message_id !== m.id) return json({ok:false,error:"A newer booking message exists or the booking queue is missing"},409);
+          const {error} = await db.from("ntak_booking_queue").update({dirty_at:new Date().toISOString(),last_sent_at:null,last_payload_hash:null,cancelled_sent:false}).eq("hotel_id",hotelId).eq("booking_no",m.ref).eq("last_message_id",m.id);
+          if (error) throw new Error(error.message);
+          return json({ok:true});
+        }
+        if (m.kind === "event") {
+          const {data: events,error: readError} = await db.from("ntak_event_queue").select("id,guest_ids").eq("hotel_id",hotelId).eq("message_id",m.id);
+          // Legacy NULL recipients are not frozen; reusing current guests could change history.
+          if (readError || !events?.length || events.some((e:any)=>!Array.isArray(e.guest_ids)||!e.guest_ids.length)) return json({ok:false,error:"Original guest recipients are unavailable; review this event manually"},409);
+          const {error} = await db.from("ntak_event_queue").update({state:"queued",last_error:null,updated_at:new Date().toISOString()}).eq("hotel_id",hotelId).eq("message_id",m.id);
+          if (error) throw new Error(error.message);
+          return json({ok:true});
+        }
         const { data, error } = await db.from("ntak_messages").insert({
           hotel_id: hotelId, organization_slug: m.organization_slug, environment: m.environment, kind: m.kind, ref: m.ref,
           request_xml: m.request_xml, created_by: caller.userId,
@@ -326,10 +344,11 @@ Deno.serve(async (req) => {
 
 async function status(db: Db, hotelId: string, settings: Settings | null) {
   const since = addDays(today(), -45);
+  const phase9 = await phase9SchemaReady(db);
   const [messages, closures, units, roomTypes, rooms, bookingQueue, events] = await Promise.all([
-    db.from("ntak_messages").select("id,kind,ref,state,ntak_status,processing_id,warnings,errors,attempts,last_http_status,last_error,created_at,sent_at,verified_at,next_attempt_at,expected_start_date")
+    db.from("ntak_messages").select("id,kind,ref,state,ntak_status,processing_id,warnings,errors,attempts,last_http_status,last_error,created_at,sent_at,verified_at,next_attempt_at,expected_start_date" + (phase9 ? ",resend_of,override_reason" : ""))
       .eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(80),
-    db.from("ntak_daily_closures").select("closed_day,state,classification,protocol_id,reason,closed_at,accepted_once,needs_correction,correction_detected_at,message_id,snapshot->totals,snapshot->checklist")
+    db.from("ntak_daily_closures").select("closed_day,state,classification,protocol_id,reason,closed_at,accepted_once,needs_correction,correction_detected_at,message_id,snapshot->totals,snapshot->checklist" + (phase9 ? ",override_by,override_reason" : ""))
       .eq("hotel_id", hotelId).gte("closed_day", since).order("closed_day", { ascending: false }),
     db.from("ntak_unit_profiles").select("room_id,building,room_number,unit_type,single_beds,double_beds,extra_beds,active").eq("hotel_id", hotelId).order("room_number"),
     db.from("ntak_room_type_units").select("room_type_id,unit_type,capacity,active").eq("hotel_id", hotelId),
@@ -341,7 +360,7 @@ async function status(db: Db, hotelId: string, settings: Settings | null) {
 
   // Every day from go-live to yesterday needs a closure (closed days too).
   const firstDay = [settings?.first_closure_date, settings?.data_start_date, since].filter(Boolean).sort().slice(-1)[0] as string;
-  const closed = new Set((closures.data ?? []).map((c: any) => c.closed_day));
+  const closed = new Set((closures.data ?? []).filter((c: any) => c.accepted_once || !["errors", "failed"].includes(c.state)).map((c: any) => c.closed_day));
   const missing: string[] = [];
   if (settings?.enabled && settings.first_closure_date) for (let d = firstDay; d < today(); d = addDays(d, 1)) if (!closed.has(d)) missing.push(d);
 

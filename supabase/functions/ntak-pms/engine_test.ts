@@ -13,7 +13,7 @@ import { verifyEnvelope } from "../_shared/ntak/wssec.ts";
 import { addDays } from "../_shared/ntak/ledger.ts";
 import { isInNtakScope, loadNtakScope } from "./scope.ts";
 import {
-  buildClosure, classificationFor, detectDrift, loadUnits, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
+  buildClosure, classificationFor, closureOverride, resendSameContent, refreshHeader, detectDrift, loadUnits, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
 } from "./engine.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -178,7 +178,7 @@ class Query {
 // ---------------------------------------------------------------------------
 // Fake NTAK endpoint
 
-interface FakeNtak { url: string; requests: { root: string; uzenetId: string; xml: string; envelope: string }[]; rejectNext: string | null; close(): Promise<void> }
+interface FakeNtak { url: string; requests: { root: string; uzenetId: string; xml: string; envelope: string }[]; rejectNext: string | null; closureResult: string; close(): Promise<void> }
 
 async function xmllint(xml: string): Promise<string | null> {
   const file = await Deno.makeTempFile({ suffix: ".xml" });
@@ -189,7 +189,7 @@ async function xmllint(xml: string): Promise<string | null> {
 
 function startFakeNtak(cert: string, key: string): FakeNtak {
   const kinds = new Map<string, string>();
-  const state: FakeNtak = { url: "", requests: [], rejectNext: null, close: async () => {} };
+  const state: FakeNtak = { url: "", requests: [], rejectNext: null, closureResult: "VIZSGALANDO", close: async () => {} };
   const env = (inner: string) => `<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"><SOAP-ENV:Header/><SOAP-ENV:Body>${inner}</SOAP-ENV:Body></SOAP-ENV:Envelope>`;
   const fault = (key: string, msg: string) => env(`<SOAP-ENV:Fault><faultcode>SOAP-ENV:Server</faultcode><faultstring xml:lang="en">Validation Error</faultstring><detail><error hibaKulcs="${key}" hibaUzenet="${msg}" mezoNeve="GLOBAL"/></detail></SOAP-ENV:Fault>`);
   const server = Deno.serve({ cert, key, port: 0, hostname: "127.0.0.1", onListen: () => {} }, async (req) => {
@@ -209,7 +209,7 @@ function startFakeNtak(cert: string, key: string): FakeNtak {
       return new Response(env(`<ns2:ellenorzesResponse xmlns:ns2="http://mtu.gov.hu/ntak/v9">${ids.map((id) => {
         const kind = kinds.get(id);
         const warn = kind === "napiZarasRequest" ? `<ns2:figyelmeztetesLista><ns2:hiba><ns2:mezoNeve>napiFeltoltes.szobaAdatok.osszesSzoba</ns2:mezoNeve><ns2:kuldottErtek>2</ns2:kuldottErtek><ns2:hibaKulcs>ElteresRegisztraltAdatokban</ns2:hibaKulcs><ns2:hibaUzenet>Értéke eltér</ns2:hibaUzenet></ns2:hiba></ns2:figyelmeztetesLista>` : "<ns2:figyelmeztetesLista/>";
-        const status = kind === "napiZarasRequest" ? "VIZSGALANDO" : "TELJESEN_SIKERES";
+        const status = kind === "napiZarasRequest" ? state.closureResult : "TELJESEN_SIKERES";
         const start = kind === "adatszolgaltatasKezdoDatumRequest" ? "<ns2:elvartAdatszolgaltatasKezdoDatuma>2026-01-01</ns2:elvartAdatszolgaltatasKezdoDatuma>" : "";
         return `<ns2:uzenetValaszok><ns2:feldolgozasAzonosito>${id}</ns2:feldolgozasAzonosito><ns2:statusz>${status}</ns2:statusz>${warn}<ns2:hibaLista/>${start}</ns2:uzenetValaszok>`;
       }).join("")}</ns2:ellenorzesResponse>`));
@@ -290,7 +290,26 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
       state: "out_of_order", from_date: Y, to_date: Y,
     });
 
-    // 1. Daily closure for yesterday.
+    // EU_01A/B: force a schema-valid, excessive breakfast amount through the test override.
+    // A hotel_2 has a 500,000 HUF secondary ETEL limit (hotel_4 is 5M).
+    s.accommodation_class = "hotel_2";
+    db.rows("service_catalog_items")[0].category = "breakfast";
+    db.rows("folio_lines")[0].gross_total = 3000000;
+    assert.equal((await queueClosure(db,s,Y,{actor:"u1"})).ok,false);
+    const invalid = await queueClosure(db,s,Y,{actor:"u1",override:true});
+    assert.ok(invalid.ok,JSON.stringify(invalid.build.checklist));
+    assert.match(invalid.build.xml,/3000000/);
+    assert.equal(db.rows("ntak_daily_closures")[0].override_by,"u1");
+    ntak.closureResult = "TELJESEN_HIBAS";
+    assert.equal((await sendDue(db,s,{limit:1,deadline:Date.now()+60000})).sent,1);
+    assert.equal((await verifyDue(db,s,true)).checked,1);
+    assert.equal(db.rows("ntak_daily_closures")[0].state,"errors");
+    assert.equal(await classificationFor(db,s,Y),"UJ");
+    s.accommodation_class = "hotel_4";
+    db.rows("service_catalog_items")[0].category = "minibar";
+    db.rows("folio_lines")[0].gross_total = 2500;
+    ntak.closureResult = "VIZSGALANDO";
+    // 1. Correct the rejected day; first successful version remains UJ.
     const closure = await queueClosure(db, s, Y, { actor: "u1" });
     assert.ok(closure.ok, JSON.stringify(closure.build.checklist));
     assert.equal(closure.build.classification, "UJ");
@@ -313,16 +332,15 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     // 5. Send: every request must pass signature + schema checks at the fake endpoint.
     const sent = await sendDue(db, s, { limit: 10, deadline: Date.now() + 60000 });
     assert.equal(sent.sent, 4, JSON.stringify(db.rows("ntak_messages").map((m) => [m.kind, m.state, m.last_error])));
-    assert.deepEqual(db.rows("ntak_messages").map((m) => m.state), ["accepted", "accepted", "accepted", "accepted"]);
-    assert.deepEqual(ntak.requests.map((r) => r.root).sort(), ["adatszolgaltatasKezdoDatumRequest", "esemenyvezereltAdatkuldesRequest", "foglalasEsemenyRequest", "napiZarasRequest"]);
-    assert.equal(new Set(ntak.requests.map((r) => r.uzenetId)).size, 4, "fresh uzenetId per send");
+    assert.deepEqual(db.rows("ntak_messages").map((m) => m.state), ["rejected", "accepted", "accepted", "accepted", "accepted"]);
+    assert.deepEqual(ntak.requests.slice(2).map((r) => r.root).sort(), ["adatszolgaltatasKezdoDatumRequest", "esemenyvezereltAdatkuldesRequest", "foglalasEsemenyRequest", "napiZarasRequest"]);
+    assert.equal(new Set(ntak.requests.map((r) => r.uzenetId)).size, 6, "fresh uzenetId per send");
 
     const evidence = db.rows("ntak_message_evidence");
-    assert.equal(evidence.length, 4);
+    assert.equal(evidence.length, 6);
     for (const row of evidence) {
       assert.equal(row.request_xml, ntak.requests.find(r => r.uzenetId === row.uzenet_id)?.envelope, "signed request must equal exact wire payload");
-      assert.ok(row.response_xml.includes(row.processing_id));
-      assert.equal(row.status, "BEFOGADVA");
+      if (row.status === "BEFOGADVA") assert.ok(row.response_xml.includes(row.processing_id));
       assert.ok(typeof row.request_xml === "string" && !row.request_xml.includes("PRIVATE KEY"));
     }
 
@@ -339,7 +357,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     const c = db.rows("ntak_daily_closures").find((x) => x.closed_day === Y)!;
     assert.equal(c.state, "warnings");
     assert.equal(c.accepted_once, true);
-    const closureMsg = db.rows("ntak_messages").find((m) => m.kind === "closure")!;
+    const closureMsg = db.rows("ntak_messages").find((m) => m.id === closure.messageId)!;
     assert.equal(closureMsg.ntak_status, "VIZSGALANDO");
     assert.equal(closureMsg.warnings[0].key, "ElteresRegisztraltAdatokban");
     assert.match(closureMsg.warnings[0].hint, /registration/);
@@ -352,7 +370,23 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     assert.ok(fix.ok);
     assert.match(fix.build.xml, /<v9:besorolas>MODOSITO<\/v9:besorolas><v9:jegyzokonyvAzonosito>JK-1</);
 
+    // EU_03: authority asks for identical content, with a new header. A later correction
+    // is not rebuilt from the now changed live source data.
+    ntak.closureResult = "UJRA_KULDENDO";
+    await sendDue(db,s,{limit:1,deadline:Date.now()+60000});
+    await verifyDue(db,s,true);
+    const original = db.rows("ntak_messages").find(m=>m.id===fix.messageId)!;
+    const linked = db.rows("ntak_messages").find(m=>m.resend_of===original.id)!;
+    assert.equal(original.ntak_status,"UJRA_KULDENDO");
+    assert.equal(linked.request_xml,original.request_xml);
+    ntak.closureResult = "TELJESEN_SIKERES";
+    await sendDue(db,s,{limit:1,deadline:Date.now()+60000});
+    await verifyDue(db,s,true);
+    assert.equal(linked.ntak_status,"TELJESEN_SIKERES");
+    assert.notEqual(linked.uzenet_id,original.uzenet_id);
+    assert.equal(linked.request_xml.split("</v9:uzenetAdatok>")[1],original.request_xml.split("</v9:uzenetAdatok>")[1]);
     // 8. Server error -> retry in 1 minute; certificate/registration error -> sending stops.
+    assert.ok((await queueClosure(db,s,Y,{protocolId:"JK-2",reason:"TECH_HIBA_ADATJAVITAS"})).ok);
     ntak.rejectNext = "SzerverHiba";
     await sendDue(db, s, { limit: 1, deadline: Date.now() + 60000 });
     const retry = db.rows("ntak_messages").find((m) => m.state === "retry")!;
@@ -482,6 +516,41 @@ Deno.test('profiled_only excludes 15 unrelated rooms, their bookings, events, ch
   assert.equal(intentionalMismatch.closure.capacity.total, 12);
   assert.equal(intentionalMismatch.closure.rooms.total, 4);
   assert.ok(intentionalMismatch.checklist.some((x) => x.code === "registration"));
+
+  // Phase 5 NZ_02: walk-in charges are independent of booking/unit scope.
+  db.rows("pos_sales").push(
+    { id: "walk-in", hotel_id: s.hotel_id, organization_slug: s.organization_slug, business_day: day },
+    { id: "other-day", hotel_id: s.hotel_id, organization_slug: s.organization_slug, business_day: addDays(day, -1) },
+    { id: "other-tenant", hotel_id: s.hotel_id, organization_slug: "unrelated", business_day: day },
+    { id: "other-hotel", hotel_id: "elsewhere", organization_slug: s.organization_slug, business_day: day },
+  );
+  const expected = [
+    { amount: 5800, main: "KOZFURDO", sub: "WELLNESS_PROGRAM", vat: 18 },
+    { amount: 4600, main: "ETEL", sub: "FOETEL", vat: 5 },
+    { amount: 1000, main: "EGYEB", sub: "EGYEB_VENDEGLATAS", vat: 27 },
+    { amount: 10000, main: "ALKOHOLOSITAL", sub: "ITALCSOMAG", vat: 27 },
+  ];
+  for (const c of expected) db.rows("pos_sale_lines").push({
+    sale_id: "walk-in", gross_total: c.amount, ntak_main: c.main, ntak_sub: c.sub, vat_rate: c.vat,
+  });
+  for (const sale_id of ["other-day","other-hotel","other-tenant"]) {
+    db.rows("pos_sale_lines").push({ sale_id, gross_total: 9000, ntak_main: "ETEL", ntak_sub: "FOETEL", vat_rate: 5 });
+    db.rows("pos_sale_payments").push({ sale_id, amount: 9000, method: "cash" });
+  }
+  db.rows("pos_sale_payments").push({ sale_id: "walk-in", amount: 21400, method: "card_terminal" });
+  const nz02 = await buildClosure(db, s, day, {});
+  assert.equal(nz02.closure.otherCharges.length, 4);
+  assert.deepEqual([...nz02.closure.otherCharges].sort((a,b)=>a.amount-b.amount), [...expected].sort((a,b)=>a.amount-b.amount));
+  assert.deepEqual(nz02.closure.otherPayments, [{ amount: 21400, type: "BANKKARTYA" }]);
+  assert.equal(nz02.totals.charges, 21400);
+  assert.equal(nz02.totals.payments, 21400);
+  assert.ok(nz02.xml.includes("egyebTerhelesek") && nz02.xml.includes("egyebKoltesek"));
+  assert.equal(await xmllint(nz02.xml), null);
+  assert.ok(!nz02.checklist.some(x=>x.code==="walk_in_ledger"));
+  // An unbalanced sale must block reporting, not be hidden as zero revenue.
+  db.rows("pos_sale_payments").find(p=>p.sale_id==="walk-in")!.amount=21399;
+  const invalid = await buildClosure(db, s, day, {});
+  assert.ok(invalid.checklist.some(x=>x.code==="walk_in_ledger" && x.level==="error"));
 });
 
 
@@ -573,4 +642,69 @@ Deno.test('Phase 4 loadUnits uses dated periods on historical days; live status 
     ['available', 'available'], 'historical dates must not inherit today status');
   assert.deepEqual((await loadUnits(db, 'channex-test-property', today())).map((u) => u.state),
     ['available', 'oos'], 'today may fall back to the live status only when no dated period exists');
+});
+
+Deno.test("Phase 6 worker resends an amended booking and queues a cancellation only once", async () => {
+  const db = new FakeDb(schemaColumns());
+  const day=today();
+  const s: Settings = {
+    hotel_id:"h6",organization_slug:"test",enabled:true,environment:"test",
+    endpoint_url:null,software_id:"HOTELCARE",software_version:"1.0",
+    registration_number:"MA26004524",provider_tax_number:"11223355-1-22",
+    accommodation_name:"Test",provider_name:"Test",registered_room_count:1,registered_bed_count:3,unit_scope:"profiled_only",
+    accommodation_class:"hotel_4",region:"budapest",ifa_type:"TETELES",ifa_rate:400,ifa_vat:0,accommodation_vat:5,signature_profile:"rsa-sha384",
+    unknown_country_code:"EGYEBKULFOLDI",closure_mode:"manual",auto_close_time:"05:00",
+    first_closure_date:null,software_change_date:null,data_start_date:null,ledger_config:{},cert_not_after:null,sending_blocked_reason:null,
+    initial_booking_sync_started_at:null,initial_booking_sync_done_at:null,
+  };
+  db.rows("rooms").push({id:"r6",hotel:"h6",room_number:"101",status:"clean"});
+  db.rows("ntak_unit_profiles").push({room_id:"r6",hotel_id:"h6",active:true,building:"1",room_number:"101",unit_type:"STANDARD",single_beds:1,double_beds:1,extra_beds:0});
+  const r={id:"R6",hotel_id:"h6",ntak_booking_no:"FOGL_04",status:"confirmed",room_id:"r6",room_type_id:null,
+    check_in_date:addDays(day,1),check_out_date:addDays(day,2),total_amount:20000,rate_per_night:20000,currency:"HUF",adults:2,children:0,
+    source:"direct",ota_name:null,pms_channel:null,channex_booking_id:null,pms_reservation_id:null,reservation_number:"R6",created_at:day+"T08:00:00Z",
+    ntak_guaranteed:true,ntak_market_segment:"UZLETI_EGYENI",ntak_sales_channel:"DIREKT_ONLINE",booker_country:"HU",expected_guests:1};
+  db.rows("reservations").push(r);
+  const q: Row={hotel_id:"h6",booking_no:"FOGL_04",dirty_at:day+"T01:00:00Z",last_sent_at:null,cancelled_sent:false};
+  db.rows("ntak_booking_queue").push(q);
+  const messages=()=>db.rows("ntak_messages").filter(m=>m.kind==="booking"&&m.ref==="FOGL_04");
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[0].request_xml,/>true<\/[^>]*garantaltFoglalas>/);
+  r.check_in_date=day; r.total_amount=40000;r.ntak_guaranteed=false;q.dirty_at=day+"T02:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[1].request_xml,/>false<\/[^>]*garantaltFoglalas>/);
+  assert.match(messages()[1].request_xml,/>40000<\/[^>]*foglalasBruttoOsszege>/);
+  r.status="cancelled";q.dirty_at=day+"T03:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[2].request_xml,/>true<\/[^>]*lemondva>/);
+  r.total_amount=41000;q.dirty_at=day+"T04:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,0);
+  assert.equal(messages().length,3);
+});
+
+Deno.test("Phase 9 override requires a manager actor and reason in production, never bypasses missing ledger", () => {
+  const errors = [{ level: "error" as const, code: "extreme", message: "Breakfast 3000000" }];
+  assert.equal(closureOverride(errors, "test", "manager", true, undefined).allowed, true);
+  assert.equal(closureOverride(errors, "production", "manager", true, " ").allowed, false);
+  assert.equal(closureOverride(errors, "production", "manager", true, "Investigated amount").allowed, true);
+  assert.equal(closureOverride(errors, "test", null, true, undefined).allowed, false);
+  assert.equal(closureOverride([{level:"error",code:"missing_ledger",message:"incomplete"}], "test", "manager", true, undefined).allowed, false);
+});
+Deno.test("Phase 9 resend preserves entire payload and original UJ, creates exactly one linked attempt", async () => {
+  const db = new FakeDb(schemaColumns());
+  const xml = '<v9:napiZarasRequest><v9:uzenetAdatok><v9:uzenetId>old</v9:uzenetId><v9:uzenetKuldesIdeje>old-time</v9:uzenetKuldesIdeje></v9:uzenetAdatok><v9:besorolas>UJ</v9:besorolas><v9:foglalasAzonosito>__UJRAKULDENDO_VALIDACIO__</v9:foglalasAzonosito></v9:napiZarasRequest>';
+  const s = { hotel_id:"h", organization_slug:"org", environment:"test" } as Settings;
+  db.rows("ntak_messages").push({id:"original",hotel_id:"h",environment:"test",request_xml:xml});
+  db.rows("ntak_daily_closures").push({hotel_id:"h",closed_day:"2026-11-20",message_id:"original",classification:"UJ",accepted_once:false});
+  await resendSameContent(db,s,"original","closure","2026-11-20");
+  await resendSameContent(db,s,"original","closure","2026-11-20");
+  const attempts = db.rows("ntak_messages");
+  assert.equal(attempts.length,2);
+  assert.equal(attempts[1].request_xml,xml);
+  assert.equal(attempts[1].resend_of,"original");
+  assert.equal(db.rows("ntak_daily_closures")[0].classification,"UJ");
+  assert.equal(db.rows("ntak_daily_closures")[0].message_id,attempts[1].id);
+  assert.equal(await classificationFor(db,s,"2026-11-20"),"UJ");
+  const refreshed = refreshHeader(xml,"new-id",new Date("2026-11-23T20:00:00Z"));
+  assert.match(refreshed, /<v9:uzenetId>new-id</);
+  assert.equal(refreshed.split("</v9:uzenetAdatok>")[1],xml.split("</v9:uzenetAdatok>")[1]);
 });
