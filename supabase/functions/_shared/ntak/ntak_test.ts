@@ -46,6 +46,7 @@ async function testCertificate(): Promise<{ keyPem: string; certPem: string; dir
 const common = (): NtakCommon => ({
   uzenetId: crypto.randomUUID(), sentAt: '2026-11-19T05:10:00Z', softwareVersion: 'v1.0.0', softwareId: 'HOTELCARE01',
   registrationNumber: 'SZ25003491', taxNumber: '69861195-2-44',
+  accommodationName: 'Ceylon Business Services Kft', providerName: 'Interface_csatlakozás_szolgáltató_v9',
 });
 
 const vid = (n: number) => (`guest${n}`.padEnd(31, 'x')).slice(0, 31);
@@ -129,8 +130,43 @@ Deno.test('daily closure assembles counts, IFA and passes the v9 schema', async 
   assert.ok(!hasBlockingErrors(checklist), JSON.stringify(checklist));
   const xml = buildNapiZarasRequest(common(), closure);
   await assertValid(xml);
+  assert.match(xml, /<v9:szallasRegisztraciosSzam>SZ25003491<\/v9:szallasRegisztraciosSzam><v9:szallashelySzolgaltatoAdoszam>69861195-2-44<\/v9:szallashelySzolgaltatoAdoszam><v9:szallasNev>Ceylon Business Services Kft<\/v9:szallasNev><v9:szallashelySzolgaltatoNev>Interface_csatlakozás_szolgáltató_v9<\/v9:szallashelySzolgaltatoNev>/);
   assert.ok(xml.includes('<v9:koltesAlTipus>SZALLASHELY</v9:koltesAlTipus>'));
   assert.ok(!/\/>/.test(xml), 'no self-closing tags (c14n form)');
+});
+
+Deno.test('NTAK test tax number stays hyphenated and has the required provider header', async () => {
+  const c = {
+    ...common(), registrationNumber: 'MA26004524',
+    taxNumber: '11223355-1-22',
+    softwareId: 'HOTELCARE', softwareVersion: '1.0',
+  };
+  const xml = buildAdatszolgaltatasKezdoDatumRequest(c);
+  assert.match(xml, /<v9:szallasRegisztraciosSzam>MA26004524<\/v9:szallasRegisztraciosSzam>/);
+  assert.match(xml, /<v9:szallashelySzolgaltatoAdoszam>11223355-1-22<\/v9:szallashelySzolgaltatoAdoszam>/);
+  assert.match(xml, /<v9:szallasNev>Ceylon Business Services Kft<\/v9:szallasNev>/);
+  await assertValid(xml);
+});
+
+Deno.test('NTAK scope count uses four profiles and excludes extra beds; registered bed override is explicit', async () => {
+  const four: UnitInfo[] = [
+    { roomId: '101', building: '1', roomNumber: '101', unitType: 'STANDARD', singleBeds: 1, doubleBeds: 1, extraBeds: 0, state: 'available' },
+    { roomId: '102', building: '1', roomNumber: '102', unitType: 'SUPERIOR', singleBeds: 0, doubleBeds: 1, extraBeds: 0, state: 'available' },
+    { roomId: '103', building: '1', roomNumber: '103', unitType: 'ECONOMY', singleBeds: 1, doubleBeds: 1, extraBeds: 0, state: 'available' },
+    { roomId: '104', building: '1', roomNumber: '104', unitType: 'APARTMAN', singleBeds: 0, doubleBeds: 1, extraBeds: 1, state: 'available' },
+  ];
+  const source: ClosureSource = {
+    ...closureSource(), units: four, stays: [], checkouts: [],
+    postStayCharges: [], postStayPayments: [], otherPayments: [], otherCharges: [],
+  };
+  const standard = assembleClosure(source, { ...settings, registeredRooms: 4, registeredBeds: null });
+  assert.equal(standard.closure.rooms.total, 4);
+  assert.equal(standard.closure.capacity.total, 10);
+  await assertValid(buildNapiZarasRequest(common(), standard.closure));
+  const override = assembleClosure(source, { ...settings, registeredRooms: 5, registeredBeds: 12 });
+  assert.equal(override.closure.capacity.total, 12);
+  assert.ok(override.checklist.some((c) => c.code === 'registration'));
+  await assertValid(buildNapiZarasRequest(common(), override.closure));
 });
 
 Deno.test('closure checklist blocks what NTAK would reject', () => {
@@ -258,9 +294,14 @@ Deno.test('event, verification and start-date requests pass the schema', async (
   await assertValid(buildAdatszolgaltatasKezdoDatumRequest(common()));
 });
 
-Deno.test('the published spec example validates against the consolidated schema', async () => {
+Deno.test('published spec example needs live-endpoint name fields to validate', async () => {
   const xml = `<v9:foglalasEsemenyRequest xmlns:v9="http://mtu.gov.hu/ntak/v9"><v9:uzenetAdatok><v9:uzenetId>686d1d95-a4b6-45d8-a260-94befe406035</v9:uzenetId><v9:uzenetKuldesIdeje>2025-11-27T12:46:00Z</v9:uzenetKuldesIdeje></v9:uzenetAdatok><v9:szoftverAdatok><v9:szoftverVerzio>v1</v9:szoftverVerzio><v9:szoftverAzonosito>MINTA525252</v9:szoftverAzonosito></v9:szoftverAdatok><v9:szallashely><v9:szallasRegisztraciosSzam>SZ25003491</v9:szallasRegisztraciosSzam><v9:szallashelySzolgaltatoAdoszam>69861195-2-44</v9:szallashelySzolgaltatoAdoszam></v9:szallashely><v9:foglalasEsemeny><v9:foglalasiSzam>11111114</v9:foglalasiSzam><v9:esemenyLetrejotte>2025-11-27T10:58:00Z</v9:esemenyLetrejotte><v9:garantaltFoglalas>false</v9:garantaltFoglalas><v9:lemondva>false</v9:lemondva><v9:vendegKuldoOrszaga>HU</v9:vendegKuldoOrszaga><v9:erkezes>2025-12-05</v9:erkezes><v9:tavozas>2025-12-10</v9:tavozas><v9:foglalasIdopont>2025-11-03T02:36:00Z</v9:foglalasIdopont><v9:ertekesitesiCsatorna>DIREKT_HAGYOMANYOS</v9:ertekesitesiCsatorna><v9:foglalasBruttoOsszege>100000</v9:foglalasBruttoOsszege><v9:foglaltLakoegysegek><v9:foglaltLakoegyseg><v9:tipus>ECONOMY</v9:tipus><v9:ferohelyKapacitas>1</v9:ferohelyKapacitas></v9:foglaltLakoegyseg></v9:foglaltLakoegysegek><v9:piaciSzegmens>UZLETI_EGYENI</v9:piaciSzegmens><v9:vendegszam>1</v9:vendegszam></v9:foglalasEsemeny></v9:foglalasEsemenyRequest>`;
-  await assertValid(xml);
+  // The published example omits names; the November 2026 test endpoint requires both.
+  const adapted = xml.replace('</v9:szallashely>',
+    '<v9:szallasNev>Ceylon Business Services Kft</v9:szallasNev>'
+    + '<v9:szallashelySzolgaltatoNev>Interface_csatlakozás_szolgáltató_v9</v9:szallashelySzolgaltatoNev>'
+    + '</v9:szallashely>');
+  await assertValid(adapted);
 });
 
 Deno.test('responses: acceptance, faults and verification statuses (10.6, 11.x)', () => {

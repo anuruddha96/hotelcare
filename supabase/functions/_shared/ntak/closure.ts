@@ -17,6 +17,7 @@ export interface ClosureSettings {
   accommodationClass: AccommodationClass;
   region: Region;
   registeredRooms: number | null;
+  registeredBeds?: number | null;
   ifa: IfaSetting | null;
   accommodationVat: VatRate;
   ifaVat: VatRate;
@@ -134,7 +135,11 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
   const ooo = src.closed ? total : src.units.filter((u) => u.state === 'ooo').length;
   const oos = src.closed ? 0 : src.units.filter((u) => u.state === 'oos').length;
   const cap = (pred: (u: UnitInfo) => boolean) => src.units.filter(pred).reduce((a, u) => a + capacityOf(u), 0);
-  const capTotal = cap(() => true);
+  const calculatedCapacity = cap(() => true);
+  const capTotal = s.registeredBeds ?? calculatedCapacity;
+  if (s.registeredBeds != null && s.registeredBeds !== calculatedCapacity) {
+    warn('registration', `${calculatedCapacity} beds are profiled but NTAK registration says ${s.registeredBeds} beds (ElteresRegisztraltAdatokban)`);
+  }
   if (s.registeredRooms !== null && s.registeredRooms !== total) {
     warn('registration', `${total} units are profiled but NTAK registration says ${s.registeredRooms} rooms (ElteresRegisztraltAdatokban)`);
   }

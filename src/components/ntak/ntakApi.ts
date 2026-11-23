@@ -29,6 +29,9 @@ export interface NtakSettings {
   software_version: string;
   registration_number: string | null;
   provider_tax_number: string | null;
+  accommodation_name: string | null;
+  provider_name: string | null;
+  unit_scope: 'all' | 'profiled_only';
   data_reporting_id: string | null;
   registered_room_count: number | null;
   registered_bed_count: number | null;
@@ -82,7 +85,7 @@ export interface NtakStatus {
   closures: NtakClosureRow[];
   missing_closures: string[];
   units: NtakUnitRow[];
-  room_types: { id: string; name: string; ntak: { unit_type: string; capacity: number } | null }[];
+  room_types: { id: string; name: string; ntak: { unit_type: string; capacity: number; active: boolean } | null }[];
   rooms: { id: string; room_number: string; wing: string | null; room_capacity: number | null }[];
   booking_problems: { booking_no: string; dirty_at: string; last_sent_at: string | null; last_problem: string }[];
   pending_events: { id: string; reservation_id: string; kind: string; occurred_at: string; state: string; last_error: string | null; is_correction: boolean }[];

@@ -25,6 +25,7 @@ function toForm(s: NtakSettings | null): Form {
   return {
     enabled: !!s?.enabled, environment: s?.environment ?? 'test', endpoint_url: v(s?.endpoint_url), software_id: v(s?.software_id),
     software_version: s?.software_version ?? 'v1.0.0', registration_number: v(s?.registration_number), provider_tax_number: v(s?.provider_tax_number),
+    accommodation_name: v(s?.accommodation_name), provider_name: v(s?.provider_name), unit_scope: s?.unit_scope ?? 'all',
     data_reporting_id: v(s?.data_reporting_id), registered_room_count: v(s?.registered_room_count), registered_bed_count: v(s?.registered_bed_count),
     accommodation_class: s?.accommodation_class ?? 'hotel_4', region: s?.region ?? 'budapest', ifa_type: s?.ifa_type ?? 'SZAZALEKOS',
     ifa_rate: v(s?.ifa_rate ?? 4), ifa_vat: v(s?.ifa_vat ?? 0), accommodation_vat: v(s?.accommodation_vat ?? 5), closure_mode: s?.closure_mode ?? 'manual',
@@ -197,6 +198,9 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
                 {field('software_version', 'ntak.f.softwareVersion', { maxLength: 10 })}
                 {field('registration_number', 'ntak.f.registrationNumber', { maxLength: 10, placeholder: 'SZ12345678' })}
                 {field('provider_tax_number', 'ntak.f.taxNumber', { placeholder: '12345678-1-12' })}
+                {field('accommodation_name', 'ntak.f.accommodationName')}
+                {field('provider_name', 'ntak.f.providerName')}
+                {select('unit_scope', 'ntak.f.unitScope', [['all', t('ntak.f.scopeAll')], ['profiled_only', t('ntak.f.scopeProfiled')]])}
                 {field('data_reporting_id', 'ntak.f.dataReportingId', { maxLength: 8 })}
                 {field('registered_room_count', 'ntak.f.registeredRooms', { type: 'number' })}
                 {field('registered_bed_count', 'ntak.f.registeredBeds', { type: 'number' })}
@@ -222,7 +226,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
 
             <TabsContent value="units" className="space-y-3">
               <div className="flex flex-wrap gap-2 items-center">
-                <Button size="sm" variant="outline" disabled={!!busy} onClick={() => run('seed', { action: 'seed_units' }, (r) => toast.success(`+${r.created}`))}>{t('ntak.seedUnits')}</Button>
+                <Button size="sm" variant="outline" disabled={!!busy || s?.unit_scope === 'profiled_only'} onClick={() => run('seed', { action: 'seed_units' }, (r) => toast.success(`+${r.created}`))}>{t('ntak.seedUnits')}</Button>
                 <span className="text-xs text-muted-foreground">{units.filter((u) => u.active).length} / {s?.registered_room_count ?? '?'}</span>
               </div>
               <div className="overflow-x-auto">
@@ -258,7 +262,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
               <table className="w-full text-xs">
                 <tbody>
                   {types.map((rt, i) => {
-                    const ntak = rt.ntak ?? { unit_type: 'STANDARD', capacity: 2 };
+                    const ntak = rt.ntak ?? { unit_type: 'STANDARD', capacity: 2, active: form.unit_scope !== 'profiled_only' };
                     const set = (patch: Partial<typeof ntak>) => setTypes(types.map((x, j) => (j === i ? { ...x, ntak: { ...ntak, ...patch } } : x)));
                     return (
                       <tr key={rt.id} className="border-t">
@@ -269,13 +273,14 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
                           </select>
                         </td>
                         <td className="px-1 py-0.5 flex items-center gap-1">{t('ntak.capacity')}<Input type="number" min={1} max={99} className="h-7 w-16" value={ntak.capacity} onChange={(e) => set({ capacity: Number(e.target.value) })} /></td>
+                        <td className="px-1 py-0.5"><label className="flex items-center gap-1"><Checkbox checked={ntak.active} onCheckedChange={(c) => set({ active: !!c })} /><span>{t('ntak.f.typeReported')}</span></label></td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
               <Button size="sm" variant="outline" disabled={!!busy || !types.length} onClick={() => run('types', {
-                action: 'save_room_types', room_types: types.map((rt) => ({ room_type_id: rt.id, unit_type: rt.ntak?.unit_type ?? 'STANDARD', capacity: rt.ntak?.capacity ?? 2 })),
+                action: 'save_room_types', room_types: types.map((rt) => ({ room_type_id: rt.id, unit_type: rt.ntak?.unit_type ?? 'STANDARD', capacity: rt.ntak?.capacity ?? 2, active: rt.ntak?.active ?? (form.unit_scope !== 'profiled_only') })),
               }, () => toast.success(t('ntak.saved')))}>{t('common.save')}</Button>
             </TabsContent>
 

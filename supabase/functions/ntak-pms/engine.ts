@@ -22,6 +22,7 @@ import { nextRetryDelayMinutes, postSoap } from "../_shared/ntak/transport.ts";
 import { importSigningKey, signEnvelope, type SignatureProfile } from "../_shared/ntak/wssec.ts";
 import { effectiveExpiry } from "../_shared/ntak/x509.ts";
 import { ISO3_TO_ISO2 } from "../_shared/viza/country.ts";
+import { isInNtakScope, loadNtakScope } from "./scope.ts";
 
 export type Db = any;
 export const TZ = "Europe/Budapest";
@@ -39,6 +40,10 @@ export interface Settings {
   registration_number: string | null;
   provider_tax_number: string | null;
   registered_room_count: number | null;
+  registered_bed_count: number | null;
+  accommodation_name: string | null;
+  provider_name: string | null;
+  unit_scope: "all" | "profiled_only";
   accommodation_class: ClosureSettings["accommodationClass"];
   region: ClosureSettings["region"];
   ifa_type: "SZAZALEKOS" | "TETELES" | "NINCS";
@@ -84,6 +89,7 @@ export function closureSettings(s: Settings): ClosureSettings {
     accommodationClass: s.accommodation_class,
     region: s.region,
     registeredRooms: s.registered_room_count,
+    registeredBeds: s.registered_bed_count,
     ifa: { type: s.ifa_type, rate: Number(s.ifa_rate) },
     accommodationVat: s.accommodation_vat as ClosureSettings["accommodationVat"],
     ifaVat: s.ifa_vat as ClosureSettings["ifaVat"],
@@ -97,6 +103,8 @@ export function configurationProblems(s: Settings): string[] {
   if (!softwareId) p.push("NTAK software ID (szoftverAzonosito) is not set");
   if (!s.registration_number) p.push("NTAK registration number is not set");
   if (!s.provider_tax_number) p.push("Accommodation provider tax number is not set");
+  if (!s.accommodation_name?.trim()) p.push("Accommodation name (szallasNev) is not set");
+  if (!s.provider_name?.trim()) p.push("Accommodation provider name (szallashelySzolgaltatoNev) is not set");
   return p;
 }
 
@@ -108,6 +116,8 @@ export function common(s: Settings, now = new Date()): NtakCommon {
     softwareId: s.software_id || Deno.env.get("NTAK_SOFTWARE_ID") || "",
     registrationNumber: s.registration_number ?? "",
     taxNumber: s.provider_tax_number ?? "",
+    accommodationName: s.accommodation_name ?? "",
+    providerName: s.provider_name ?? "",
   };
 }
 
@@ -236,6 +246,7 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
   classification?: "UJ" | "MODOSITO"; protocolId?: string | null; reason?: string | null; closed?: boolean; closedAt?: Date;
 }): Promise<ClosureBuild> {
   const cfg = ledgerConfig(s);
+  const scope = await loadNtakScope(db, s);
   const win = dayWindow(day);
   const current = day >= addDays(today(), -1);
 
@@ -245,8 +256,8 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
       .eq("reservation_folios.hotel_id", s.hotel_id).eq("service_date", day),
     db.from("payments").select("reservation_id,amount,currency,method,status,received_at").eq("hotel_id", s.hotel_id).gte("received_at", win.from).lt("received_at", win.to),
   ]);
-  const reservations: RawReservation[] = staying ?? [];
-  const lines: RawFolioLine[] = (lineRows ?? []).map((l: any) => ({
+  const reservations: RawReservation[] = (staying ?? []).filter((r: RawReservation) => isInNtakScope(scope, r));
+  let lines: RawFolioLine[] = (lineRows ?? []).map((l: any) => ({
     reservation_id: l.reservation_folios.reservation_id, service_date: l.service_date, room_id: l.room_id, gross_total: Number(l.gross_total),
     vat_rate: l.vat_rate === null ? null : Number(l.vat_rate), currency: l.currency, status: l.status,
     category: l.service_catalog_items?.category ?? null, source_type: l.source_type,
@@ -258,8 +269,12 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
   const extraIds = [...new Set([...lines.map((l) => l.reservation_id), ...payments.map((p) => p.reservation_id)])].filter((id) => !known.has(id));
   if (extraIds.length) {
     const { data } = await db.from("reservations").select(RES_COLS).in("id", extraIds).in("status", ["checked_in", "checked_out"]);
-    reservations.push(...(data ?? []));
+    reservations.push(...(data ?? []).filter((r: RawReservation) => isInNtakScope(scope, r)));
   }
+  // Only eligible reservations can contribute folio lines or payments, including post-stay entries.
+  const eligibleIds = new Set(reservations.map((r) => r.id));
+  lines = lines.filter((l) => eligibleIds.has(l.reservation_id));
+  payments = payments.filter((p) => eligibleIds.has(p.reservation_id));
   // Advance payments of today's arrivals are reported on the arrival day.
   const arrivals = reservations.filter((r) => r.check_in_date === day).map((r) => r.id);
   if (arrivals.length) {
@@ -346,6 +361,7 @@ const BOOKING_COLS = RES_COLS + ",created_at";
 
 export async function processBookings(db: Db, s: Settings, limit: number): Promise<{ queued: number; clean: number; problems: number }> {
   const cfg = ledgerConfig(s);
+  const scope = await loadNtakScope(db, s);
   const stats = { queued: 0, clean: 0, problems: 0 };
   const { data: dirty } = await db.from("ntak_booking_queue").select("*").eq("hotel_id", s.hotel_id).order("dirty_at").limit(limit * 3);
   const due = (dirty ?? []).filter((q: any) => !q.last_sent_at || q.dirty_at > q.last_sent_at).slice(0, limit);
@@ -362,10 +378,11 @@ export async function processBookings(db: Db, s: Settings, limit: number): Promi
     ]);
     const seen = new Set<string>();
     const group: RawReservation[] = lookups.flatMap((l: any) => l.data ?? [])
-      .filter((r: any) => bookingNumber(r) === q.booking_no && !seen.has(r.id) && seen.add(r.id));
+      .filter((r: any) => bookingNumber(r) === q.booking_no && !seen.has(r.id) && seen.add(r.id))
+      .filter((r: RawReservation) => isInNtakScope(scope, r));
     const mark = (patch: Record<string, unknown>) => db.from("ntak_booking_queue").update({ last_sent_at: new Date().toISOString(), ...patch })
       .eq("hotel_id", s.hotel_id).eq("booking_no", q.booking_no);
-    if (!group.length) { await mark({ last_problem: "booking not found" }); stats.clean++; continue; }
+    if (!group.length) { await mark({ last_problem: null }); stats.clean++; continue; }
 
     const primary = group.find((r) => r.guest_id)?.guest_id;
     const { data: guest } = primary ? await db.from("guests").select("country,nationality,company_name,tax_id").eq("id", primary).maybeSingle() : { data: null };
@@ -397,8 +414,8 @@ async function bookingUnitResolver(db: Db, hotelId: string, rows: RawReservation
   const roomIds = rows.map((r) => r.room_id).filter(Boolean);
   const typeIds = rows.map((r) => r.room_type_id).filter(Boolean);
   const [{ data: profiles }, { data: types }] = await Promise.all([
-    roomIds.length ? db.from("ntak_unit_profiles").select("room_id,unit_type,single_beds,double_beds").in("room_id", roomIds) : { data: [] },
-    typeIds.length ? db.from("ntak_room_type_units").select("room_type_id,unit_type,capacity").eq("hotel_id", hotelId).in("room_type_id", typeIds) : { data: [] },
+    roomIds.length ? db.from("ntak_unit_profiles").select("room_id,unit_type,single_beds,double_beds").eq("hotel_id", hotelId).eq("active", true).in("room_id", roomIds) : { data: [] },
+    typeIds.length ? db.from("ntak_room_type_units").select("room_type_id,unit_type,capacity").eq("hotel_id", hotelId).eq("active", true).in("room_type_id", typeIds) : { data: [] },
   ]);
   const byRoom = new Map((profiles ?? []).map((p: any) => [p.room_id, p]));
   const byType = new Map((types ?? []).map((t: any) => [t.room_type_id, t]));
@@ -412,9 +429,10 @@ async function bookingUnitResolver(db: Db, hotelId: string, rows: RawReservation
 
 /** Initial sync: every booking with an arrival from today (7.5). */
 export async function markAllFutureBookings(db: Db, s: Settings): Promise<number> {
-  const { data } = await db.from("reservations").select("id,channex_booking_id,pms_reservation_id,reservation_number")
+  const scope = await loadNtakScope(db, s);
+  const { data } = await db.from("reservations").select("id,room_id,room_type_id,channex_booking_id,pms_reservation_id,reservation_number")
     .eq("hotel_id", s.hotel_id).gte("check_in_date", today()).not("status", "in", "(cancelled,no_show)");
-  const keys = [...new Set((data ?? []).map((r: any) => bookingNumber(r)))];
+  const keys = [...new Set((data ?? []).filter((r: RawReservation) => isInNtakScope(scope, r)).map((r: any) => bookingNumber(r)))];
   const now = new Date().toISOString();
   for (let i = 0; i < keys.length; i += 500) {
     await db.from("ntak_booking_queue").upsert(keys.slice(i, i + 500).map((k) => ({ hotel_id: s.hotel_id, booking_no: k, dirty_at: now })), { onConflict: "hotel_id,booking_no" });
@@ -427,12 +445,15 @@ export async function markAllFutureBookings(db: Db, s: Settings): Promise<number
 // Stay events
 
 export async function processEvents(db: Db, s: Settings, limit: number): Promise<{ queued: number; waiting: number }> {
+  const scope = await loadNtakScope(db, s);
   const { data: pending } = await db.from("ntak_event_queue").select("*").eq("hotel_id", s.hotel_id).in("state", ["queued", "waiting_data"]).order("occurred_at").limit(limit);
   if (!pending?.length) return { queued: 0, waiting: 0 };
   const resIds = [...new Set(pending.map((e: any) => e.reservation_id))];
   const { data: resRows } = await db.from("reservations").select(RES_COLS).in("id", resIds);
   const reservations = new Map<string, RawReservation>((resRows ?? []).map((r: any) => [r.id, r]));
-  const guests = await loadStayGuests(db, s.hotel_id, [...reservations.values()]);
+  // Never compute/stash NTAK guest IDs for unrelated Channex reservations.
+  const eligibleReservations = [...reservations.values()].filter((r) => isInNtakScope(scope, r));
+  const guests = await loadStayGuests(db, s.hotel_id, eligibleReservations);
   const units = new Map((await loadUnits(db, s.hotel_id, false)).map((u) => [u.roomId, u]));
 
   const events: NtakStayEvent[] = [];
@@ -440,6 +461,15 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
   let waiting = 0;
   for (const e of pending) {
     const r = reservations.get(e.reservation_id);
+    if (r && !isInNtakScope(scope, r)) {
+      await db.from("ntak_event_queue").update({ state: "skipped", last_error: null, updated_at: new Date().toISOString() }).eq("id", e.id);
+      continue;
+    }
+    // Room changes must not send events for unprofiled destination rooms.
+    if (scope.mode === "profiled_only" && e.room_id && !scope.roomIds.has(e.room_id)) {
+      await db.from("ntak_event_queue").update({ state: "skipped", last_error: null, updated_at: new Date().toISOString() }).eq("id", e.id);
+      continue;
+    }
     const unit = e.room_id ? units.get(e.room_id) : undefined;
     const from = e.from_room_id ? units.get(e.from_room_id) : undefined;
     const day = localDate(e.occurred_at, TZ);

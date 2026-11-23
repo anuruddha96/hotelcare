@@ -31,7 +31,7 @@ import {
 
 const SETTINGS_FIELDS = [
   "enabled", "environment", "endpoint_url", "software_id", "software_version", "registration_number", "provider_tax_number",
-  "data_reporting_id", "registered_room_count", "registered_bed_count", "accommodation_class", "region", "ifa_type", "ifa_rate",
+  "data_reporting_id", "registered_room_count", "registered_bed_count", "accommodation_name", "provider_name", "unit_scope", "accommodation_class", "region", "ifa_type", "ifa_rate",
   "ifa_vat", "accommodation_vat", "signature_profile", "unknown_country_code", "closure_mode", "auto_close_time",
   "first_closure_date", "software_change_date", "ledger_config",
 ] as const;
@@ -132,6 +132,8 @@ Deno.serve(async (req) => {
 
       case "seed_units": {
         if (!canManage) return forbidden();
+        // Do not accidentally profile the 15 unrelated Channex rooms in a scoped certification hotel.
+        if (settings?.unit_scope === "profiled_only") return json({ ok: false, error: "Automatic profiling is disabled in profiled-only NTAK mode. Configure approved rooms individually." }, 400);
         const rooms = await hotelRooms(db, hotelId);
         const { data: existing } = await db.from("ntak_unit_profiles").select("room_id").eq("hotel_id", hotelId);
         const have = new Set((existing ?? []).map((e: any) => e.room_id));
@@ -153,7 +155,7 @@ Deno.serve(async (req) => {
         if (!canManage) return forbidden();
         const types = (Array.isArray(body.room_types) ? body.room_types : []).map((t: any) => ({
           room_type_id: t.room_type_id, hotel_id: hotelId, unit_type: UNIT_TYPES.includes(t.unit_type) ? t.unit_type : "STANDARD",
-          capacity: Math.max(1, Math.min(99, Number(t.capacity) || 2)), updated_at: new Date().toISOString(),
+          capacity: Math.max(1, Math.min(99, Number(t.capacity) || 2)), active: t.active !== false, updated_at: new Date().toISOString(),
         }));
         const { data: own } = await db.from("room_types").select("id").eq("hotel_id", hotelId);
         const ownIds = new Set((own ?? []).map((r: any) => r.id));
@@ -300,7 +302,7 @@ async function status(db: Db, hotelId: string, settings: Settings | null) {
     db.from("ntak_daily_closures").select("closed_day,state,classification,protocol_id,reason,closed_at,accepted_once,needs_correction,correction_detected_at,message_id,snapshot->totals,snapshot->checklist")
       .eq("hotel_id", hotelId).gte("closed_day", since).order("closed_day", { ascending: false }),
     db.from("ntak_unit_profiles").select("room_id,building,room_number,unit_type,single_beds,double_beds,extra_beds,active").eq("hotel_id", hotelId).order("room_number"),
-    db.from("ntak_room_type_units").select("room_type_id,unit_type,capacity").eq("hotel_id", hotelId),
+    db.from("ntak_room_type_units").select("room_type_id,unit_type,capacity,active").eq("hotel_id", hotelId),
     hotelRooms(db, hotelId),
     db.from("ntak_booking_queue").select("booking_no,dirty_at,last_sent_at,last_problem").eq("hotel_id", hotelId).not("last_problem", "is", null).order("dirty_at", { ascending: false }).limit(30),
     db.from("ntak_event_queue").select("id,reservation_id,kind,occurred_at,state,last_error,is_correction").eq("hotel_id", hotelId).in("state", ["queued", "waiting_data", "failed"]).order("occurred_at", { ascending: false }).limit(30),
