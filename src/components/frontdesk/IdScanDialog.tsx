@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
+import { snapshotFrame } from '@/lib/idScan/frameCapture';
 import {
   fetchBridgeScan, isLoopbackUrl, loadScannerSettings, saveScannerSettings, wedgeInputLooksComplete, wedgeInputToMrzText,
   type ScannerSettings, type ScannerSource,
@@ -68,22 +69,6 @@ function prepareBand(source: CanvasImageSource, width: number, height: number, b
   return canvas;
 }
 
-/**
- * Freeze the frame before the camera stream is stopped or React unmounts the
- * video. Previously OCR awaited worker startup after closing the live video,
- * so mobile Safari could hand Tesseract a blank frame.
- */
-function snapshotFrame(source: CanvasImageSource, width: number, height: number): HTMLCanvasElement {
-  const scale = Math.min(1, 2400 / Math.max(width, height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(width * scale));
-  canvas.height = Math.max(1, Math.round(height * scale));
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Canvas is unavailable');
-  context.drawImage(source, 0, 0, width, height, 0, 0, canvas.width, canvas.height);
-  return canvas;
-}
-
 function wipe(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext('2d');
   ctx?.clearRect(0, 0, canvas.width, canvas.height);
@@ -118,6 +103,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanRunRef = useRef(0);
+  const cameraSessionRef = useRef(0);
   const [phase, setPhase] = useState<Phase>('camera');
   const [cameraOk, setCameraOk] = useState<boolean | null>(null);
   const [result, setResult] = useState<MrzReadResult | null>(null);
@@ -138,11 +124,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   };
 
   const stopCamera = useCallback(() => {
+    cameraSessionRef.current += 1; // Invalidate a pending iPhone permission request.
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }, []);
 
   const startCamera = useCallback(async () => {
+    const request = ++cameraSessionRef.current;
     setCameraOk(null);
     if (!navigator.mediaDevices?.getUserMedia) { setCameraOk(false); return; }
     try {
@@ -150,16 +138,23 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => undefined);
+      // getUserMedia may resolve after the dialog was closed or another source
+      // selected. Never leave an iPhone camera running in that case.
+      if (cameraSessionRef.current !== request || !videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
       }
-      setCameraOk(true);
+      streamRef.current = stream;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      if (cameraSessionRef.current === request) setCameraOk(true);
     } catch {
-      setCameraOk(false);
+      if (cameraSessionRef.current === request) {
+        stopCamera();
+        setCameraOk(false);
+      }
     }
-  }, []);
+  }, [stopCamera]);
 
   useEffect(() => {
     if (!open) { scanRunRef.current += 1; stopCamera(); return; }
@@ -270,13 +265,16 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
   const captureFrame = () => {
     const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraOk(false); // Offer the native photo capture when live video cannot start.
+      return;
+    }
     void readFrom(video, video.videoWidth, video.videoHeight);
   };
 
   const readFile = (file: File | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) { setFailReason('unsupported_image'); setPhase('failed'); return; }
+    if (file.type && !file.type.startsWith('image/')) { setFailReason('unsupported_image'); setPhase('failed'); return; }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
@@ -295,7 +293,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) stopCamera(); onOpenChange(next); }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) { scanRunRef.current += 1; stopCamera(); } onOpenChange(next); }}>
       <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-id-scan">
         <DialogHeader className="shrink-0 pr-6 text-left">
           <DialogTitle className="flex items-center gap-2"><ScanLine className="h-5 w-5 text-primary" /> {t('pms.scan.title')}</DialogTitle>
