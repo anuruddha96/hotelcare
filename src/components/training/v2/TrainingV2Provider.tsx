@@ -1025,13 +1025,13 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     let current = true;
     const check = async () => {
       if (document.visibilityState !== 'visible' || document.querySelector('[role="dialog"][data-state="open"]')) return;
-      const { data, error } = await supabase.from('training_release_approvals').select('release_id').eq('organization_slug', org)
+      const { data, error } = await (supabase as any).from('training_release_approvals').select('release_id').eq('organization_slug', org)
         .in('release_id', eligible.map((release) => release.id));
       if (!current || error || !data?.length) return;
       if (!await refreshStatuses() || !current || latestUser.current !== user.id) return;
       for (const release of eligible) {
         const guide = availableCurricula.find((item) => item.slug === release.curriculum);
-        if (!guide || !data.some((row) => row.release_id === release.id)) continue;
+        if (!guide || !data.some((row: { release_id: string }) => row.release_id === release.id)) continue;
         if (hasSeenTraining(guide, latestStatuses.current)) continue;
         if (await claimTrainingPrompt(user.id, `release:${org}:${release.id}`)) {
           if (current) { setNudge(null); setReleasePrompt(guide); }

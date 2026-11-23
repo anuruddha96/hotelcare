@@ -30,9 +30,9 @@ export function TrainingReleaseApproval() {
   useEffect(() => {
     if (!isAdmin || !org || !trainingReleases.length) return;
     let current = true;
-    void supabase.from('training_release_approvals').select('release_id').eq('organization_slug', org)
-      .then(({ data, error }) => {
-        if (current && !error) setApprovals({ org, ids: data.map((row) => row.release_id) });
+    void (supabase as any).from('training_release_approvals').select('release_id').eq('organization_slug', org)
+      .then(({ data, error }: { data: { release_id: string }[] | null; error: unknown }) => {
+        if (current && !error) setApprovals({ org, ids: (data ?? []).map((row: { release_id: string }) => row.release_id) });
       });
     return () => { current = false; };
   }, [isAdmin, org]);
@@ -40,7 +40,7 @@ export function TrainingReleaseApproval() {
   if (!isAdmin || !org) return null;
   const approve = async (releaseId: string) => {
     setBusy(true);
-    const { error } = await supabase.from('training_release_approvals')
+    const { error } = await (supabase as any).from('training_release_approvals')
       .upsert({ organization_slug: org, release_id: releaseId }, { onConflict: 'organization_slug,release_id', ignoreDuplicates: true });
     if (error) toast.error(UI.error[lang] || UI.error.en);
     else setApprovals((current) => current?.org === org ? { org, ids: [...current.ids, releaseId] } : current);

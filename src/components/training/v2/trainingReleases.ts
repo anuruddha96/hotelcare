@@ -5,7 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 export const trainingReleases: ReadonlyArray<{ id: string; curriculum: string }> = [];
 
 export async function claimTrainingPrompt(userId: string, key: string): Promise<boolean> {
-  const { data, error } = await supabase.from('training_prompt_receipts')
+  const { data, error } = await (supabase as any).from('training_prompt_receipts')
     .upsert({ user_id: userId, prompt_key: key }, { onConflict: 'user_id,prompt_key', ignoreDuplicates: true })
     .select('prompt_key').maybeSingle();
   return !error && data?.prompt_key === key;
