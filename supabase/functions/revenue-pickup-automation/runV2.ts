@@ -57,13 +57,16 @@ import {
 } from "../_shared/netRateFactor.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
 import { loadGuestStep, maxGuestGapFor, repairLadder } from "../_shared/rateSafety.ts";
-import { effectiveDateColumnBounds, hotelDateSafetyBounds } from "../_shared/engineV2DateColumnLockstep.ts";
+import {
+  clampPaceBoundsToHotelSafety,
+  effectiveDateColumnBounds,
+  hotelDateSafetyBounds,
+} from "../_shared/engineV2DateColumnLockstep.ts";
 import { confirmedHighImpactEvent, decideRevenueDirector, committedMovement, MOVEMENT_HISTORY_STATUSES } from "../_shared/engineV2RevenueDirector.ts";
 import {
   decidePaceRatchet,
   localMinutesAt,
   paceGridFloor,
-  paceCellCeiling,
   paceQuietHours,
   paceZoneFor,
   expectedOccupancyPct,
@@ -1140,7 +1143,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           });
           paceCellBounds = {
             min: paceGridFloor(pace),
-            max: paceCellCeiling(pace, tier.tier, Math.max(0, ...cellValues), tier.ceilingEur),
+            max: Math.round(tier.ceilingEur ?? (tier.tier === "peak" ? pace.peak_ceiling_eur : pace.ceiling_eur)),
           };
           if (tier.review && !paceTiers.has(stayDate) && !paceReviews.has(stayDate)) {
             paceReviews.set(stayDate, { kind: tier.review.kind, title: tier.review.title, detail: tier.detail });
@@ -1245,7 +1248,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         // its tier ceiling are the limits for every cell of the date.
         const paceDecides = paceLive && paceCellBounds != null;
         const cellSafety = paceDecides
-          ? { ...dateSafetyBounds, min: paceCellBounds!.min, max: Math.max(paceCellBounds!.min, paceCellBounds!.max) }
+          // A pace tier may be commercially stricter than the publisher, but
+          // it must never widen the hotel's persisted absolute ceiling.
+          ? clampPaceBoundsToHotelSafety(dateSafetyBounds, paceCellBounds!)
           : dateSafetyBounds;
         const minMove = paceDecides ? pace.min_step_eur : settings.minMovementEur;
         let boundsProblem: string | null = null;
