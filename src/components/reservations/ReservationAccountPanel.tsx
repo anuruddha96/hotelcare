@@ -1,3 +1,4 @@
+import { CATEGORIES } from '../../../supabase/functions/_shared/ntak/codes';
 import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
 import { budapestToday, budapestWallToIso } from '@/lib/businessMoment';
 import { AddChargeDialog } from '@/components/frontdesk/AddChargeDialog';
@@ -134,6 +135,9 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     grossPrice: '',
     vatCode: 'REVIEW_REQUIRED',
     vatRate: '',
+    ntakMain: '',
+    ntakSub: '',
+    inPackage: false,
   });
   const [correction, setCorrection] = useState<
     | { type: 'charge'; id: string; label: string }
@@ -322,6 +326,11 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       toast.error('VAT rate must be between 0 and 100.');
       return;
     }
+    const subs = CATEGORIES[catalogueForm.ntakMain as keyof typeof CATEGORIES] as readonly string[] | undefined;
+    if (catalogueForm.ntakMain && (!subs || (subs.length > 0 && !subs.includes(catalogueForm.ntakSub)))) {
+      toast.error('Select a valid NTAK subcategory.');
+      return;
+    }
     setBusy(true);
     const { error } = await (supabase as any).from('service_catalog_items').insert({
       organization_slug: reservation.organization_slug,
@@ -332,6 +341,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       currency,
       vat_code: catalogueForm.vatCode || 'REVIEW_REQUIRED',
       vat_rate: vatRate,
+      ...(catalogueForm.ntakMain ? { ntak_main: catalogueForm.ntakMain, ntak_sub: catalogueForm.ntakSub || null, in_package: catalogueForm.inPackage } : {}),
       allowed_hotel_ids: reservation.hotel_id ? [reservation.hotel_id] : [],
       price_editable: true,
       is_active: true,
@@ -342,7 +352,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       return;
     }
     toast.success('Service item created for this property.');
-    setCatalogueForm({ name: '', category: 'other', unit: 'item', grossPrice: '', vatCode: 'REVIEW_REQUIRED', vatRate: '' });
+    setCatalogueForm({ name: '', category: 'other', unit: 'item', grossPrice: '', vatCode: 'REVIEW_REQUIRED', vatRate: '', ntakMain: '', ntakSub: '', inPackage: false });
     await loadAccount();
   };
 
@@ -672,6 +682,20 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
               <Input placeholder="Unit" value={catalogueForm.unit} onChange={(e) => setCatalogueForm((v) => ({ ...v, unit: e.target.value }))} />
               <Input type="number" min="0" step="0.01" placeholder={`Gross ${currency}`} value={catalogueForm.grossPrice} onChange={(e) => setCatalogueForm((v) => ({ ...v, grossPrice: e.target.value }))} />
               <Input type="number" min="0" max="100" step="0.01" placeholder="VAT %" value={catalogueForm.vatRate} onChange={(e) => setCatalogueForm((v) => ({ ...v, vatRate: e.target.value }))} />
+            </div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              <Select value={catalogueForm.ntakMain || '__none__'} onValueChange={(value) => setCatalogueForm(v => ({ ...v, ntakMain: value === '__none__' ? '' : value, ntakSub: '', inPackage: value === 'SZALLASDIJ' }))}>
+                <SelectTrigger><SelectValue placeholder="NTAK category" /></SelectTrigger>
+                <SelectContent><SelectItem value="__none__">NTAK: automatic mapping</SelectItem>{Object.keys(CATEGORIES).map(code => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={catalogueForm.ntakSub} disabled={!(CATEGORIES[catalogueForm.ntakMain as keyof typeof CATEGORIES]?.length)} onValueChange={value => setCatalogueForm(v => ({ ...v, ntakSub: value }))}>
+                <SelectTrigger><SelectValue placeholder="NTAK subcategory" /></SelectTrigger>
+                <SelectContent>{(CATEGORIES[catalogueForm.ntakMain as keyof typeof CATEGORIES] || []).map(code => <SelectItem key={code} value={code}>{code}</SelectItem>)}</SelectContent>
+              </Select>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={catalogueForm.inPackage} disabled={!catalogueForm.ntakMain || ['SZALLASDIJ','IFA'].includes(catalogueForm.ntakMain)} onChange={e => setCatalogueForm(v => ({ ...v, inPackage: e.target.checked }))} />
+                Included in package
+              </label>
             </div>
             <div className="flex gap-2">
               <Input placeholder="VAT code" value={catalogueForm.vatCode} onChange={(e) => setCatalogueForm((v) => ({ ...v, vatCode: e.target.value }))} />
