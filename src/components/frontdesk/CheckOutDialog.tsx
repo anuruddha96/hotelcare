@@ -45,6 +45,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
   const [paymentDay, setPaymentDay] = useState(() => budapestToday());
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
   const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'depart');
+  const isFinalDeparture = !roster.enabled || roster.selectedIds.length === roster.eligible.length;
 
   const payMethods: Array<{ value: string; key: string }> = [
     { value: 'card', key: 'pms.pay.card' },
@@ -185,7 +186,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
             </div>
           )}
 
-          {balance > 0 && (
+          {balance > 0 && isFinalDeparture && (
             <div className="flex items-start gap-2 rounded-md border border-amber-300/50 bg-amber-500/10 p-2.5">
               <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
               <div className="space-y-1.5">
@@ -220,7 +221,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckOut}
-            disabled={submitting || businessMoment.invalid || (balance > 0 && !ackBalance)
+            disabled={submitting || businessMoment.invalid || (balance > 0 && isFinalDeparture && !ackBalance)
               || (roster.enabled && (roster.loading || roster.selectedIds.length === 0))}
             variant="default"
             className="gap-1"

@@ -423,6 +423,11 @@ BEGIN
   IF eligible_count<>cardinality(selected) THEN RAISE EXCEPTION 'INVALID_GUEST_SELECTION'; END IF;
   IF _action='arrive' THEN
     dest:=COALESCE(_room_id,r.room_id);
+    -- A late-arriving guest cannot silently change an already occupied
+    -- reservation's room without the conflict-checked room-change RPC.
+    IF had_inhouse>0 AND dest IS DISTINCT FROM r.room_id THEN
+      RAISE EXCEPTION 'USE_ROOM_CHANGE_WORKFLOW';
+    END IF;
     SELECT * INTO room FROM public.rooms WHERE id=dest FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'ROOM_NOT_FOUND'; END IF;
     IF room.hotel NOT IN(SELECT public.pms_hotel_room_keys(r.hotel_id)) THEN RAISE EXCEPTION 'ROOM_WRONG_HOTEL'; END IF;

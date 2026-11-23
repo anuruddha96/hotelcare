@@ -251,6 +251,11 @@ const ReservationDetail = () => {
                 {t('pms.businessMoment.changeRoom')}
               </Button>
             )}
+            {ntakActive && reservation.status === 'checked_out' && (
+              <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-undo-checkout-button">
+                {t('pms.stayGuest.undoDeparture')}
+              </Button>
+            )}
             {reservation.status === 'checked_in' && (
               <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
                 {t('pms.checkOut')}
