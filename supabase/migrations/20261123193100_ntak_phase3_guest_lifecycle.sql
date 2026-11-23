@@ -374,8 +374,8 @@ BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
   IF actor IS NULL OR NOT public.can_access_pms_hotel(actor,r.hotel_id,r.organization_slug) THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
-  IF NOT EXISTS(SELECT 1 FROM public.ntak_settings WHERE hotel_id=r.hotel_id AND enabled) THEN
-    RAISE EXCEPTION 'GUEST_LIFECYCLE_DISABLED_FOR_HOTEL';
+  IF NOT public.pms_ntak_guest_scope(r.id,COALESCE(_room_id,r.room_id)) THEN
+    RAISE EXCEPTION 'GUEST_LIFECYCLE_DISABLED_FOR_RESERVATION';
   END IF;
   IF _action NOT IN ('arrive','depart','undo_arrival','undo_departure') THEN
     RAISE EXCEPTION 'INVALID_GUEST_ACTION';
@@ -548,6 +548,32 @@ BEGIN
 END;
 $$;
 
+-- Lifecycle is enabled only for explicitly NTAK-scoped reservations. In
+-- profiled_only mode, the unrelated Channex certification rooms MUST keep
+-- the original PMS flow even when the hotel has NTAK enabled.
+CREATE OR REPLACE FUNCTION public.pms_ntak_guest_scope(
+  _reservation_id uuid,_assigned_room uuid DEFAULT NULL
+) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $
+DECLARE r public.reservations%ROWTYPE; cfg public.ntak_settings%ROWTYPE;
+  room_to_check uuid;
+BEGIN
+  SELECT * INTO r FROM public.reservations WHERE id=_reservation_id;
+  IF NOT FOUND THEN RETURN false; END IF;
+  SELECT * INTO cfg FROM public.ntak_settings WHERE hotel_id=r.hotel_id AND enabled;
+  IF NOT FOUND THEN RETURN false; END IF;
+  IF cfg.unit_scope<>'profiled_only' THEN RETURN true; END IF;
+  room_to_check:=COALESCE(_assigned_room,r.room_id);
+  IF room_to_check IS NOT NULL THEN
+    RETURN EXISTS(SELECT 1 FROM public.ntak_unit_profiles p
+      WHERE p.hotel_id=r.hotel_id AND p.room_id=room_to_check AND p.active);
+  END IF;
+  RETURN r.room_type_id IS NOT NULL AND EXISTS(
+    SELECT 1 FROM public.ntak_room_type_units t
+    WHERE t.hotel_id=r.hotel_id AND t.room_type_id=r.room_type_id AND t.active);
+END;
+$;
+REVOKE ALL ON FUNCTION public.pms_ntak_guest_scope(uuid,uuid) FROM PUBLIC,anon,authenticated;
+
 -- Existing frontend RPC signatures are preserved for all hotels. Hotels with
 -- NTAK disabled delegate to the exact Phase-2 implementation.
 CREATE OR REPLACE FUNCTION public.pms_check_in(
@@ -558,7 +584,7 @@ DECLARE r public.reservations%ROWTYPE;
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
-  IF EXISTS(SELECT 1 FROM public.ntak_settings WHERE hotel_id=r.hotel_id AND enabled) THEN
+  IF public.pms_ntak_guest_scope(r.id,COALESCE(_room_id,r.room_id)) THEN
     RETURN public.pms_guest_transition(r.id,'arrive',_guest_ids,_moment,_room_id,false,_override);
   END IF;
   IF _guest_ids IS NOT NULL THEN RAISE EXCEPTION 'GUEST_LIFECYCLE_DISABLED_FOR_HOTEL'; END IF;
@@ -573,7 +599,7 @@ DECLARE r public.reservations%ROWTYPE;
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
-  IF EXISTS(SELECT 1 FROM public.ntak_settings WHERE hotel_id=r.hotel_id AND enabled) THEN
+  IF public.pms_ntak_guest_scope(r.id) THEN
     RETURN public.pms_guest_transition(r.id,'depart',_guest_ids,_moment,NULL,_acknowledge_balance,false);
   END IF;
   IF _guest_ids IS NOT NULL THEN RAISE EXCEPTION 'GUEST_LIFECYCLE_DISABLED_FOR_HOTEL'; END IF;
@@ -592,8 +618,11 @@ DECLARE
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
-  IF NOT EXISTS(SELECT 1 FROM public.ntak_settings WHERE hotel_id=r.hotel_id AND enabled) THEN
+  IF NOT public.pms_ntak_guest_scope(r.id) THEN
     RETURN public.pms_change_room_phase2(_reservation_id,_to_room,_moment);
+  END IF;
+  IF NOT public.pms_ntak_guest_scope(r.id,_to_room) THEN
+    RAISE EXCEPTION 'ROOM_NOT_IN_NTAK_VALIDATION_SCOPE';
   END IF;
   SELECT array_agg(guest_id ORDER BY guest_id) INTO ids
   FROM public.reservation_guests WHERE reservation_id=r.id AND stay_state='in_house'
@@ -617,7 +646,7 @@ DECLARE r public.reservations%ROWTYPE;
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
-  IF EXISTS(SELECT 1 FROM public.ntak_settings WHERE hotel_id=r.hotel_id AND enabled) THEN
+  IF public.pms_ntak_guest_scope(r.id) THEN
     RETURN public.pms_guest_transition(r.id,'undo_arrival',NULL,_moment);
   END IF;
   RETURN public.pms_undo_check_in_phase2(_reservation_id,_moment);
@@ -630,7 +659,7 @@ DECLARE r public.reservations%ROWTYPE;
 BEGIN
   SELECT * INTO r FROM public.reservations WHERE id=_reservation_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
-  IF EXISTS(SELECT 1 FROM public.ntak_settings WHERE hotel_id=r.hotel_id AND enabled) THEN
+  IF public.pms_ntak_guest_scope(r.id) THEN
     RETURN public.pms_guest_transition(r.id,'undo_departure',NULL,_moment);
   END IF;
   RETURN public.pms_undo_check_out_phase2(_reservation_id,_moment);
