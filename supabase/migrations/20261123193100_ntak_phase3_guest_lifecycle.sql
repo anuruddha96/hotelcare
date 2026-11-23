@@ -689,6 +689,32 @@ BEGIN
 END;
 $$;
 
+-- Prevent bypassing manager-only booking-ID edits through direct
+-- reservations.update() in the Data API. This runs even outside our RPC.
+CREATE OR REPLACE FUNCTION public.pms_guard_ntak_booking_no()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $
+DECLARE actor uuid:=auth.uid(); p public.profiles%ROWTYPE;
+BEGIN
+  IF NEW.ntak_booking_no IS NOT DISTINCT FROM OLD.ntak_booking_no THEN RETURN NEW; END IF;
+  IF actor IS NULL THEN RETURN NEW; END IF; -- trusted service-role sync
+  IF NOT public.can_access_pms_hotel(actor,NEW.hotel_id,NEW.organization_slug) THEN
+    RAISE EXCEPTION 'ACCESS_DENIED';
+  END IF;
+  SELECT * INTO p FROM public.profiles WHERE id=actor;
+  IF NOT FOUND OR NOT (
+    COALESCE(p.is_super_admin,false) OR
+    p.role::text IN ('admin','top_management','top_management_manager','manager')
+    OR (p.organization_slug='rdhotels' AND lower(btrim(COALESCE(p.nickname,'')))='anu_000')
+  ) THEN RAISE EXCEPTION 'MANAGER_REQUIRED'; END IF;
+  RETURN NEW;
+END;
+$;
+REVOKE ALL ON FUNCTION public.pms_guard_ntak_booking_no() FROM PUBLIC,anon,authenticated;
+DROP TRIGGER IF EXISTS pms_guard_ntak_booking_no ON public.reservations;
+CREATE TRIGGER pms_guard_ntak_booking_no
+BEFORE UPDATE OF ntak_booking_no ON public.reservations
+FOR EACH ROW EXECUTE FUNCTION public.pms_guard_ntak_booking_no();
+
 -- Deny ad-hoc RPC access to helper functions; validated wrappers use them
 -- with their SECURITY DEFINER context. Authenticated can only invoke the
 -- intended mutation endpoints.
