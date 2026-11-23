@@ -807,10 +807,8 @@ export async function detectDrift(db: Db, s: Settings, maxDays = 2): Promise<num
   for (const c of data ?? []) {
     const closed = c.snapshot?.closure?.closed ?? false;
     const fresh = await buildClosure(db, s, c.closed_day, { classification: c.snapshot?.closure?.classification, protocolId: c.snapshot?.closure?.protocolId, reason: c.snapshot?.closure?.reason, closed });
-    // Room states for older days are not historical: compare with the stored room data instead.
-    fresh.closure.rooms = c.snapshot.closure.rooms;
-    fresh.closure.capacity = c.snapshot.closure.capacity;
-    fresh.closure.outOfService = c.snapshot.closure.outOfService;
+    // Phase 4 dated periods make historical OOO/OOS deterministic. Changes to
+    // past room periods MUST now flag a MODOSITO correction, not be masked.
     const hash = await hashJson({ closure: { ...fresh.closure, closedAt: null } });
     const stored = await hashJson({ closure: { ...c.snapshot.closure, closedAt: null } });
     if (hash !== stored) {
