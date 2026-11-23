@@ -218,6 +218,17 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setFailReason(null);
     setReviewAcknowledged(false);
     if (parsed.fields.documentType === 'passport') {
+      if (frontText) {
+        // An ID front followed by another document's passport MRZ is not a
+        // valid single-document scan. Do not combine two peoples' identities.
+        setResult(null);
+        setFrontText('');
+        setFrontAssessment(null);
+        setFailReason('different_document');
+        setSide('mrz');
+        setPhase('failed');
+        return;
+      }
       setFrontText('');
       setFrontAssessment(null);
       setSide('mrz');
@@ -519,7 +530,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
         {phase === 'failed' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200">
-            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason === 'front_unreadable' ? t('pms.scan.frontUnreadable') : failReason === 'ocr_unavailable' ? t('pms.scan.ocrUnavailable') : failReason === 'unsupported_image' ? t('pms.scan.invalidPhoto') : failReason === 'no_mrz' ? t('pms.scan.noMrzGuide') : failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
+            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason === 'different_document' ? t('pms.scan.differentDocument') : failReason === 'front_unreadable' ? t('pms.scan.frontUnreadable') : failReason === 'ocr_unavailable' ? t('pms.scan.ocrUnavailable') : failReason === 'unsupported_image' ? t('pms.scan.invalidPhoto') : failReason === 'no_mrz' ? t('pms.scan.noMrzGuide') : failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
           </div>
         )}
 
