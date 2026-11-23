@@ -15,6 +15,7 @@ import {
 import { ReservationCalendar, type RoomStatus } from '@/components/reservations/ReservationCalendar';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
+import { WalkInSaleDialog } from '@/components/frontdesk/WalkInSaleDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
 import { toast } from 'sonner';
@@ -126,6 +127,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
   const [search, setSearch] = useState('');
   const [view, setView] = useState<ViewMode>('planner');
   const [createOpen, setCreateOpen] = useState(false);
+  const [walkInOpen, setWalkInOpen] = useState(false);
   const [statPanel, setStatPanel] = useState<'arrivals' | 'departures' | 'inhouse' | 'unassigned' | null>(null);
   // One-tap check-in / check-out straight from the side lists.
   const [actioned, setActioned] = useState<{ row: Record<string, unknown>; dialog: 'checkin' | 'checkout' } | null>(null);
@@ -357,6 +359,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
         </div>
         {breakfastUploadPath && <Link to={breakfastUploadPath} title={t('pms.tip.breakfast')}><Button type="button" size="sm" variant="outline" className="h-9 gap-1.5">🥐 <span className="hidden lg:inline">{t('pms.fd.breakfastUpload')}</span></Button></Link>}
         {canSync && hotelId && !nativeHotel && <span title="🔄 Pull the latest bookings from Previo."><PmsSyncButton hotelId={hotelId} onSynced={fetchAll} compact /></span>}
+        {hotelId && organizationSlug && !isPortfolio && <Button type="button" size="sm" variant="outline" className="h-9 gap-1" onClick={() => setWalkInOpen(true)}>{t('ntak.phase5.title')}</Button>}
         <Button type="button" size="sm" title={t('pms.tip.newReservation')} className="h-9 gap-1" onClick={() => setCreateOpen(true)}>➕ {t('pms.fd.newReservation')}</Button>
       </div>
     </div>
@@ -496,6 +499,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           roomNumber={periodRoom.room_number} active onChanged={() => void fetchAll()} />}
       </DialogContent>
     </Dialog>
+    {hotelId && organizationSlug && !isPortfolio && <WalkInSaleDialog key={hotelId} open={walkInOpen} onOpenChange={setWalkInOpen} hotelId={hotelId} organizationSlug={organizationSlug} />}
     <CreateReservationDialog open={createOpen} onOpenChange={setCreateOpen} onSuccess={() => { setCreateOpen(false); void fetchAll(); }} />
     {actioned?.dialog === 'checkin' && (
       <CheckInDialog reservation={actioned.row} open onOpenChange={(next) => { if (!next) setActioned(null); }}
