@@ -537,9 +537,11 @@ Deno.test('Phase 8 NZ_03 explicit category coverage and seven payment methods', 
   await assertValid(buildNapiZarasRequest(common(), assembled.closure));
   const withPackage = buildDaySources({ day, reservations: [res({ id: 'r', adults: 1, rate_per_night: 28000 })], lines: [{...base,gross_total:5,ntak_main:'ETEL',ntak_sub:'REGGELI',in_package:true}], payments: [], assignments: [], guestsFor: () => [guest(1)], isCompany: () => false, roomsInBooking: () => 1, label: r => r.id }, DEFAULT_LEDGER_CONFIG);
   const pkg = assembleClosure({...closureSource(),...withPackage}, {...settings, accommodationVat:5, ifa:{type:'TETELES',rate:400}});
-  assert.equal(pkg.closure.nights[0].sold.inPackage.find(c=>c.sub==='REGGELI')?.amount,5);
-  assert.equal(pkg.closure.nights[0].sold.inPackage.find(c=>c.main==='SZALLASDIJ')?.amount,28000);
-  assert.ok(!pkg.closure.nights[0].sold.outPackage.some(c=>c.sub==='REGGELI'));
+  const sold = pkg.closure.nights[0].sold;
+  assert.ok(sold, 'package stay must have a sold unit');
+  assert.equal(sold.inPackage.find(c=>c.sub==='REGGELI')?.amount,5);
+  assert.equal(sold.inPackage.find(c=>c.main==='SZALLASDIJ')?.amount,28000);
+  assert.ok(!sold.outPackage.some(c=>c.sub==='REGGELI'));
 });
 
 Deno.test('Phase 8 NZ_05 day-use in 103/104 and FOGL_01 post-departure postings', async () => {
@@ -557,7 +559,7 @@ Deno.test('Phase 8 NZ_05 day-use in 103/104 and FOGL_01 post-departure postings'
   assert.equal(assembled.totals.ifa,0);
   assert.equal(assembled.closure.nights.length,2);
   assert.ok(assembled.closure.nights.every(n=>n.dayUse));
-  assert.deepEqual(assembled.closure.nights.map(n=>n.sold.inPackage[0].amount),[28000,34500]);
+  assert.deepEqual(assembled.closure.nights.map(n=>{ assert.ok(n.sold, 'day-use stay must have a sold unit'); return n.sold.inPackage[0].amount; }),[28000,34500]);
   assert.equal(assembled.totals.charges,72500);
   assert.equal(assembled.totals.payments,72500);
   assert.deepEqual(assembled.closure.postStayCharges,[{bookingNo:'FOGL_01',date:'2026-11-21',charge:{amount:10000,main:'EGYEB',sub:'EGYEB',vat:27}}]);
