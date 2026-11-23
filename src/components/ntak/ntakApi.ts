@@ -65,12 +65,14 @@ export interface NtakSettings {
 }
 
 export interface NtakMessage {
+  resend_of?: string | null; override_reason?: string | null;
   id: string; kind: 'closure' | 'booking' | 'event' | 'start_date'; ref: string; state: string; ntak_status: string | null;
   processing_id: string | null; warnings: NtakIssue[]; errors: NtakIssue[]; attempts: number; last_http_status: number | null;
   last_error: string | null; created_at: string; sent_at: string | null; verified_at: string | null; next_attempt_at: string; expected_start_date: string | null;
 }
 
 export interface NtakClosureRow {
+  message_id?: string | null; override_by?: string | null; override_reason?: string | null;
   closed_day: string; state: string; classification: 'UJ' | 'MODOSITO'; protocol_id: string | null; reason: string | null;
   closed_at: string; accepted_once: boolean; needs_correction: boolean; totals: ClosureTotals | null; checklist: ChecklistItem[] | null;
 }
@@ -95,6 +97,7 @@ export interface NtakStatus {
 }
 
 export interface ClosurePreview {
+  can_manage?: boolean; environment?: 'test' | 'production';
   day: string;
   classification: 'UJ' | 'MODOSITO';
   checklist: ChecklistItem[];
@@ -113,3 +116,6 @@ export const ACCOMMODATION_CLASSES = [
 ] as const;
 
 export const fmtHuf = (n: number) => `${Math.round(n).toLocaleString('hu-HU')} Ft`;
+
+export const ntakResultLabel = (m: NtakMessage) => m.ntak_status ? 'ntak.result.' + m.ntak_status : 'ntak.state.' + m.state;
+export const ntakNeedsAction = (m: NtakMessage) => m.ntak_status === 'VIZSGALANDO' || m.ntak_status === 'TELJESEN_HIBAS' || (!m.ntak_status && ['rejected','failed','blocked'].includes(m.state));

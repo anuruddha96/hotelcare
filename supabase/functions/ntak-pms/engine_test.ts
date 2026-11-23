@@ -13,7 +13,7 @@ import { verifyEnvelope } from "../_shared/ntak/wssec.ts";
 import { addDays } from "../_shared/ntak/ledger.ts";
 import { isInNtakScope, loadNtakScope } from "./scope.ts";
 import {
-  buildClosure, classificationFor, detectDrift, loadUnits, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
+  buildClosure, classificationFor, closureOverride, resendSameContent, refreshHeader, detectDrift, loadUnits, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
 } from "./engine.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -551,4 +551,32 @@ Deno.test('Phase 4 loadUnits uses dated periods on historical days; live status 
     ['available', 'available'], 'historical dates must not inherit today status');
   assert.deepEqual((await loadUnits(db, 'channex-test-property', today())).map((u) => u.state),
     ['available', 'oos'], 'today may fall back to the live status only when no dated period exists');
+});
+
+Deno.test("Phase 9 override requires a manager actor and reason in production, never bypasses missing ledger", () => {
+  const errors = [{ level: "error" as const, code: "extreme", message: "Breakfast 3000000" }];
+  assert.equal(closureOverride(errors, "test", "manager", true, undefined).allowed, true);
+  assert.equal(closureOverride(errors, "production", "manager", true, " ").allowed, false);
+  assert.equal(closureOverride(errors, "production", "manager", true, "Investigated amount").allowed, true);
+  assert.equal(closureOverride(errors, "test", null, true, undefined).allowed, false);
+  assert.equal(closureOverride([{level:"error",code:"missing_ledger",message:"incomplete"}], "test", "manager", true, undefined).allowed, false);
+});
+Deno.test("Phase 9 resend preserves entire payload and original UJ, creates exactly one linked attempt", async () => {
+  const db = new FakeDb(schemaColumns());
+  const xml = '<v9:napiZarasRequest><v9:uzenetAdatok><v9:uzenetId>old</v9:uzenetId><v9:uzenetKuldesIdeje>old-time</v9:uzenetKuldesIdeje></v9:uzenetAdatok><v9:besorolas>UJ</v9:besorolas><v9:foglalasAzonosito>__UJRAKULDENDO_VALIDACIO__</v9:foglalasAzonosito></v9:napiZarasRequest>';
+  const s = { hotel_id:"h", organization_slug:"org", environment:"test" } as Settings;
+  db.rows("ntak_messages").push({id:"original",hotel_id:"h",environment:"test",request_xml:xml});
+  db.rows("ntak_daily_closures").push({hotel_id:"h",closed_day:"2026-11-20",message_id:"original",classification:"UJ",accepted_once:false});
+  await resendSameContent(db,s,"original","closure","2026-11-20");
+  await resendSameContent(db,s,"original","closure","2026-11-20");
+  const attempts = db.rows("ntak_messages");
+  assert.equal(attempts.length,2);
+  assert.equal(attempts[1].request_xml,xml);
+  assert.equal(attempts[1].resend_of,"original");
+  assert.equal(db.rows("ntak_daily_closures")[0].classification,"UJ");
+  assert.equal(db.rows("ntak_daily_closures")[0].message_id,attempts[1].id);
+  assert.equal(await classificationFor(db,s,"2026-11-20"),"UJ");
+  const refreshed = refreshHeader(xml,"new-id",new Date("2026-11-23T20:00:00Z"));
+  assert.match(refreshed, /<v9:uzenetId>new-id</);
+  assert.equal(refreshed.split("</v9:uzenetAdatok>")[1],xml.split("</v9:uzenetAdatok>")[1]);
 });

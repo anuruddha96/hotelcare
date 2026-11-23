@@ -5,7 +5,7 @@ import { Loader2, Building2, ClipboardCheck, Settings2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { NtakClosureDialog } from './NtakClosureDialog';
 import { NtakPanel } from './NtakPanel';
-import { callNtak, type NtakMessage, type NtakStatus } from './ntakApi';
+import { callNtak, ntakResultLabel, ntakNeedsAction, type NtakMessage, type NtakStatus } from './ntakApi';
 
 /**
  * NTAK reporting health in Reception: yesterday's closure, missing days,
@@ -47,6 +47,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
   const recentWarnings = status.messages.filter((m) => m.warnings.length > 0 && m.state === 'verified').length;
   const messages = kind === 'all' ? status.messages : status.messages.filter(m => m.kind === kind);
   const corrections = status.closures.filter((c) => c.needs_correction).length;
+  const actionMessages = status.messages.filter(m => ntakNeedsAction(m) && (m.kind !== 'closure' || status.closures.some(c => c.message_id === m.id)));
 
   return (
     <div className="rounded-lg border border-border bg-card px-3 py-2" data-training="fd-ntak-card" title={t('ntak.tip')}>
@@ -79,6 +80,10 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
       </div>
       {s?.sending_blocked_reason && <p className="mt-1 text-[11px] text-destructive">{t('ntak.blocked')}: {s.sending_blocked_reason}</p>}
       {!s?.sending_blocked_reason && s?.last_error && <p className="mt-1 text-[11px] text-destructive truncate" title={s.last_error}>{s.last_error}</p>}
+      {canManage && actionMessages.length > 0 && <div role="status" className="mt-2 flex items-center gap-2 text-xs text-destructive">
+        <span>{t('ntak.actionRequired')}: {actionMessages.length}</span>
+        <Button size="sm" variant="outline" onClick={() => setPanelOpen(true)}>{t('ntak.tab.messages')}</Button>
+      </div>}
       {report && <div className="mt-3 border-t pt-3 text-sm">
         <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{t('ntak.recentActivity')}</h3>
           <Button size="sm" variant="ghost" onClick={refresh}>{t('ntak.refreshReports')}</Button></div>
@@ -91,7 +96,7 @@ export function NtakStatusCard({ hotelId, report = false }: { hotelId: string; r
         {messages.length === 0 ? <p className="py-2 text-muted-foreground">{t('ntak.noActivity')}</p> :
           <ul className="divide-y text-xs">{messages.slice(0, 20).map(m => <li key={m.id} className="flex flex-wrap items-baseline gap-x-3 py-2">
                 <span className="font-medium">{t(`ntak.kind.${m.kind}`)}</span>
-                <span>{t(m.state === 'accepted' ? 'ntak.state.sent' : m.state === 'verified' && m.warnings.length ? 'ntak.state.warnings' : `ntak.state.${m.state}`)}</span>
+                <span>{t(m.ntak_status ? ntakResultLabel(m) : m.state === 'accepted' ? 'ntak.state.sent' : `ntak.state.${m.state}`)}</span>
                 <time className="ml-auto text-muted-foreground">{new Date(m.verified_at ?? m.sent_at ?? m.created_at).toLocaleString(undefined, {timeZone: 'Europe/Budapest'})}</time>
                 {(m.ntak_status || m.errors.length > 0 || m.warnings.length > 0) && <span className="basis-full break-words">
                   {[m.ntak_status, ...m.errors.map(issue => issue.message || issue.key), ...m.warnings.map(issue => issue.message || issue.key)].filter(Boolean).join(' · ')}

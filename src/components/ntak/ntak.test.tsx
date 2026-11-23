@@ -94,3 +94,12 @@ it('lets reception retry an unavailable report and shows the processing referenc
   expect(await screen.findByText('receipt-123')).toBeInTheDocument();
   expect(screen.getByText(/Sent, awaiting result/)).toBeInTheDocument();
 });
+
+it('allows a test manager to explicitly override an extreme amount', async () => {
+  call.mockReset();
+  call.mockImplementation((async (body?: Record<string, unknown>) => body?.action === 'close_day' ? { ok: true } : preview({can_manage:true,environment:'test',checklist:[{level:'error',code:'extreme',message:'Breakfast 3000000'}]})) as never);
+  render(<TranslationProvider><NtakClosureDialog hotelId="h1" day="2026-11-18" open onOpenChange={() => {}} /></TranslationProvider>);
+  const button = await screen.findByRole('button', { name: 'Send anyway' });
+  fireEvent.click(button);
+  await waitFor(() => expect(call).toHaveBeenCalledWith(expect.objectContaining({action:'close_day',override:true})));
+});

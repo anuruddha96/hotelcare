@@ -169,7 +169,7 @@ Deno.serve(async (req) => {
         const day = isDay(body.day) ? body.day : addDays(today(), -1);
         const classification = await classificationFor(db, settings, day);
         const build = await buildClosure(db, settings, day, { classification, protocolId: body.protocol_id, reason: body.reason, closed: body.closed === true });
-        return json({ ok: true, day, classification, closure: build.closure, checklist: build.checklist, totals: build.totals, xml: build.xml });
+        return json({ ok: true, day, classification, can_manage: canManage, environment: settings.environment, closure: build.closure, checklist: build.checklist, totals: build.totals, xml: build.xml });
       }
 
       case "close_day": {
@@ -177,7 +177,9 @@ Deno.serve(async (req) => {
         if (!isDay(body.day)) return json({ ok: false, error: "day (YYYY-MM-DD) is required" }, 400);
         if (body.day >= today()) return json({ ok: false, error: "Only past days can be closed" }, 400);
         if (body.day < addDays(today(), -456)) return json({ ok: false, error: "NTAK accepts corrections for 15 months only" }, 400);
-        const result = await queueClosure(db, settings, body.day, { protocolId: body.protocol_id, reason: body.reason, closed: body.closed === true, actor: caller.userId });
+        if (body.override === true && (!canManage || (settings.environment !== "test" && (typeof body.override_reason !== "string" || !body.override_reason.trim())))) return forbidden();
+        if (body.override_reason != null && (typeof body.override_reason !== "string" || body.override_reason.length > 500)) return json({ ok: false, error: "Invalid override reason" }, 400);
+        const result = await queueClosure(db, settings, body.day, { protocolId: body.protocol_id, reason: body.reason, closed: body.closed === true, actor: caller.userId, override: body.override === true, overrideReason: body.override_reason });
         if (!result.ok) return json({ ok: false, error: "The checklist has errors to fix first", checklist: result.build.checklist, totals: result.build.totals }, 422);
         return json({ ok: true, message_id: result.messageId, classification: result.build.classification, checklist: result.build.checklist });
       }
@@ -296,9 +298,9 @@ Deno.serve(async (req) => {
 async function status(db: Db, hotelId: string, settings: Settings | null) {
   const since = addDays(today(), -45);
   const [messages, closures, units, roomTypes, rooms, bookingQueue, events] = await Promise.all([
-    db.from("ntak_messages").select("id,kind,ref,state,ntak_status,processing_id,warnings,errors,attempts,last_http_status,last_error,created_at,sent_at,verified_at,next_attempt_at,expected_start_date")
+    db.from("ntak_messages").select("id,kind,ref,state,ntak_status,processing_id,warnings,errors,attempts,last_http_status,last_error,created_at,sent_at,verified_at,next_attempt_at,expected_start_date,resend_of,override_reason")
       .eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(80),
-    db.from("ntak_daily_closures").select("closed_day,state,classification,protocol_id,reason,closed_at,accepted_once,needs_correction,correction_detected_at,message_id,snapshot->totals,snapshot->checklist")
+    db.from("ntak_daily_closures").select("closed_day,state,classification,protocol_id,reason,closed_at,accepted_once,needs_correction,correction_detected_at,message_id,override_by,override_reason,snapshot->totals,snapshot->checklist")
       .eq("hotel_id", hotelId).gte("closed_day", since).order("closed_day", { ascending: false }),
     db.from("ntak_unit_profiles").select("room_id,building,room_number,unit_type,single_beds,double_beds,extra_beds,active").eq("hotel_id", hotelId).order("room_number"),
     db.from("ntak_room_type_units").select("room_type_id,unit_type,capacity,active").eq("hotel_id", hotelId),
@@ -310,7 +312,7 @@ async function status(db: Db, hotelId: string, settings: Settings | null) {
 
   // Every day from go-live to yesterday needs a closure (closed days too).
   const firstDay = [settings?.first_closure_date, settings?.data_start_date, since].filter(Boolean).sort().slice(-1)[0] as string;
-  const closed = new Set((closures.data ?? []).map((c: any) => c.closed_day));
+  const closed = new Set((closures.data ?? []).filter((c: any) => c.accepted_once || !["errors", "failed"].includes(c.state)).map((c: any) => c.closed_day));
   const missing: string[] = [];
   if (settings?.enabled && settings.first_closure_date) for (let d = firstDay; d < today(); d = addDays(d, 1)) if (!closed.has(d)) missing.push(d);
 
