@@ -17,6 +17,8 @@ export interface NtakCommon {
   softwareId: string;
   registrationNumber: string;
   taxNumber: string;
+  accommodationName: string;
+  providerName: string;
 }
 
 export interface NtakUnit {
@@ -136,7 +138,8 @@ const root = (name: string, inner: string) => `<${P}${name} xmlns:v9="${NTAK_NS}
 function header(c: NtakCommon): string {
   return el('uzenetAdatok', txt('uzenetId', c.uzenetId) + el('uzenetKuldesIdeje', xsDateTime(c.sentAt)))
     + el('szoftverAdatok', txt('szoftverVerzio', c.softwareVersion) + txt('szoftverAzonosito', c.softwareId))
-    + el('szallashely', txt('szallasRegisztraciosSzam', c.registrationNumber) + txt('szallashelySzolgaltatoAdoszam', c.taxNumber));
+    + el('szallashely', txt('szallasRegisztraciosSzam', c.registrationNumber) + txt('szallashelySzolgaltatoAdoszam', c.taxNumber)
+      + txt('szallasNev', c.accommodationName) + txt('szallashelySzolgaltatoNev', c.providerName));
 }
 
 export function unitXml(name: string, u: NtakUnit): string {
