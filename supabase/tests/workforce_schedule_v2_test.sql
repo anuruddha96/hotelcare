@@ -43,6 +43,25 @@ SET LOCAL ROLE authenticated;
 SELECT pg_temp.check_true((SELECT count(*) FROM public.workforce_staff) = 2, 'supervisor sees only the own hotel');
 RESET ROLE;
 
+-- 1b. Past days: hotel-level planners from today, company-level from last month
+SET LOCAL test.uid = '00000000-0000-4000-8000-000000000002';
+SET LOCAL ROLE authenticated;
+DO $$ BEGIN
+  INSERT INTO public.workforce_entries (staff_id, work_date, kind) VALUES ('10000000-0000-4000-8000-000000000004', (timezone('Europe/Budapest', now()))::date - 1, 'work');
+  RAISE EXCEPTION 'FAILED: a hotel-level planner changed yesterday';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'ok: hotel-level planner cannot change past days'; END $$;
+RESET ROLE;
+SET LOCAL test.uid = '00000000-0000-4000-8000-000000000001';
+SET LOCAL ROLE authenticated;
+INSERT INTO public.workforce_entries (staff_id, work_date, kind) VALUES ('10000000-0000-4000-8000-000000000005', (timezone('Europe/Budapest', now()))::date - 1, 'work');
+SELECT pg_temp.check_true((SELECT count(*) FROM public.workforce_entries WHERE work_date = (timezone('Europe/Budapest', now()))::date - 1) = 1, 'company-level planner can correct yesterday');
+DO $$ BEGIN
+  INSERT INTO public.workforce_entries (staff_id, work_date, kind) VALUES ('10000000-0000-4000-8000-000000000005', (date_trunc('month', (timezone('Europe/Budapest', now()))::date) - interval '1 month' - interval '1 day')::date, 'work');
+  RAISE EXCEPTION 'FAILED: a day before last month was changed';
+EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'ok: nobody changes days before last month'; END $$;
+DELETE FROM public.workforce_entries WHERE work_date = (timezone('Europe/Budapest', now()))::date - 1;
+RESET ROLE;
+
 -- 2. First publication: no notices --------------------------------------------
 SET LOCAL test.uid = '00000000-0000-4000-8000-000000000002';
 SET LOCAL ROLE authenticated;

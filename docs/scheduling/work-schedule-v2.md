@@ -48,3 +48,12 @@ Requested 23 Nov 2026 after reviewing `WORK SCHEDULE 2026` (the Excel the team p
 - The Staff, Analytics, Teams & codes and Import Excel sub-tabs still have English labels.
 - An employee cannot decline a change in the app; a short-notice change shows "tell your manager now".
 - Excel import of clock ranges that Excel turned into dates (`08-17` stored as 17 August) is unchanged.
+
+## Follow-up (23 Nov, afternoon)
+
+- **Loading**: a month took 1.5–2 s per request because the write policy called `workforce_can_edit_date()` once per row, also on reads. `20261123140000_workforce_schedule_speed_contacts.sql` computes the first editable date once per statement; the rule is unchanged.
+- **Publish reminder**: an amber bar shows how many draft days wait for Publish, per month, for the months this planner may publish; month tabs with drafts carry a dot.
+- **Shared calendar**: planners of one organization share a Realtime channel. It shows who else is in the schedule (and which month and venue) and refreshes the grid when someone else saves. Nothing is stored.
+- **Colour coding**: team header filled with the team colour, each name tinted with the hotel colour; the selected month tab is filled; Ask Mira is highlighted.
+- **Click a name** to edit the employee (name, team, job, hotel, contract, leave, phone, e-mail, linked account). Phone and e-mail are new columns in the same migration.
+- **Analytics**: hotel and department filters; employee report (days, nights, weekend and holiday shifts, hours against the norm, over/under, leave, sick, leave left, flags for overtime, under hours, 7+ days in a row, 3+ sick days, unexcused absence); overtime, absence rate and unpublished-days tiles; people working by weekday; the Excel export has Employees, Summary and Coverage sheets.
