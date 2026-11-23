@@ -574,6 +574,25 @@ END;
 $;
 REVOKE ALL ON FUNCTION public.pms_ntak_guest_scope(uuid,uuid) FROM PUBLIC,anon,authenticated;
 
+-- Read-only decision for the frontend. Unlike a table SELECT, it matches
+-- the exact reservation/room scope used by lifecycle RPCs, even if staff
+-- cannot inspect private NTAK settings directly.
+CREATE OR REPLACE FUNCTION public.pms_guest_lifecycle_available(
+  _reservation_id uuid,_room_id uuid DEFAULT NULL
+) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $
+DECLARE r public.reservations%ROWTYPE; actor uuid:=auth.uid();
+BEGIN
+  SELECT * INTO r FROM public.reservations WHERE id=_reservation_id;
+  IF NOT FOUND OR actor IS NULL OR
+    NOT public.can_access_pms_hotel(actor,r.hotel_id,r.organization_slug) THEN
+    RETURN false;
+  END IF;
+  RETURN public.pms_ntak_guest_scope(r.id,_room_id);
+END;
+$;
+REVOKE ALL ON FUNCTION public.pms_guest_lifecycle_available(uuid,uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.pms_guest_lifecycle_available(uuid,uuid) TO authenticated;
+
 -- Existing frontend RPC signatures are preserved for all hotels. Hotels with
 -- NTAK disabled delegate to the exact Phase-2 implementation.
 CREATE OR REPLACE FUNCTION public.pms_check_in(
