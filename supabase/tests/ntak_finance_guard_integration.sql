@@ -114,7 +114,7 @@ END $$;
 
 -- Simulate a receptionist from the external PMS org. Each mutating finance
 -- RPC must fail BEFORE the financial-core tables or imported balance change.
-DO $
+DO $$
 BEGIN
   IF public.pms_finance_is_native_pms('00000000-0000-4000-8000-000000000001') THEN
     RAISE EXCEPTION 'External reservation classified as native';
@@ -122,7 +122,7 @@ BEGIN
   IF NOT public.pms_finance_is_native_pms('00000000-0000-4000-8000-000000000002') THEN
     RAISE EXCEPTION 'Channex reservation classified as external';
   END IF;
-END $;
+END $$;
 
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000099',false);
 SET ROLE authenticated;
