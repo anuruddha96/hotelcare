@@ -44,7 +44,7 @@ import RateCellHistory from "@/components/revenue/RateCellHistory";
 import PriceDemandJourney from "@/components/revenue/PriceDemandJourney";
 import { setPriceCellPainted, syncPriceCellSelection } from "@/lib/rateGridSelectionPaint";
 import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon, historicalCalendarMonths, historicalMonthDates } from "@/lib/rateCalendarWindow";
-import { canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
+import { RATE_HISTORY_DAYS, canEditCalendarDate, historicalRateKey, rateCalendarColumnWidth } from "@/lib/rateCalendarPresentation";
 import { shouldAllowRateCalendarEdgePan, shouldResetRateCalendarViewport } from "@/lib/rateCalendarScroll";
 import { shouldPinRateSummary } from "@/lib/rateCalendarStickyBoundary";
 import { useHistoricalRoomRates } from "@/hooks/useHistoricalRoomRates";
@@ -403,6 +403,9 @@ export default function RateStrategyGrid({
       }
       return;
     }
+    // A deliberate zoom switches to the readable, horizontally scrollable
+    // detail view. Navigating to another date range restores full-width fit.
+    setFitAllDates(false);
     setZoomPref(clamped);
   }, [zoom, setZoomPref]);
 
@@ -414,13 +417,19 @@ export default function RateStrategyGrid({
    * month and squeezes its columns so all 28-31 days fit without scrolling.
    */
   const [monthFilter, setMonthFilter] = useState<string | null>(null);
+  const [fitAllDates, setFitAllDates] = useState(true);
   // Only the last three nights load by default; selecting a historical month
   // replaces those columns with one read-only archived month on explicit demand.
   const [historyMonth, setHistoryMonth] = useState<string | null>(null);
   const [historyPickerOpen, setHistoryPickerOpen] = useState(false);
   // Always show the previous three read-only nights in the default rolling view.
   const historyRevealed = !historyMonth && (!monthFilter || monthFilter === today.slice(0, 7));
-  const historical = useHistoricalRoomRates(hotelId, today, !!historyMonth || historyRevealed, historyMonth);
+  // For the selected current month, load the full archive through yesterday.
+  // The rolling view still fetches only its three historical nights.
+  const historical = useHistoricalRoomRates(
+    hotelId, today, !!historyMonth || historyRevealed,
+    historyMonth ?? (monthFilter === today.slice(0, 7) ? monthFilter : null),
+  );
   const displayedEventsByDate = useMemo(() => {
     if (!historyMonth && !historyRevealed) return eventsByDate;
     const combined = new Map(eventsByDate ?? []);
@@ -494,10 +503,15 @@ export default function RateStrategyGrid({
 
   const LEFT_W = railed ? RAIL_W : leftW;
 
-  /** Keep all month and rolling date columns identical in size. */
+  /** Desktop fits exactly 30 upcoming nights or every day of the selected
+   * calendar month. Keep mobile and deliberate zoom at a readable scroll width. */
+  const dateColumnsToFit = historyMonth
+    ? historicalMonthDates(today, historyMonth).length
+    : monthFilter ? calendarWindow(today, monthFilter).length : 30;
+  const canFitDates = fitAllDates && !isMobile && viewportW >= 1024;
   const CELL_W = useMemo(
-    () => rateCalendarColumnWidth(viewportW, LEFT_W, ZOOM_CELL_W),
-    [viewportW, LEFT_W, ZOOM_CELL_W],
+    () => rateCalendarColumnWidth(viewportW, LEFT_W, ZOOM_CELL_W, dateColumnsToFit, canFitDates),
+    [viewportW, LEFT_W, ZOOM_CELL_W, dateColumnsToFit, canFitDates],
   );
 
   /**
@@ -2495,10 +2509,13 @@ export default function RateStrategyGrid({
   const selectMonth = useCallback((value: string | null) => {
     setHistoryMonth(null);
     setMonthFilter(value);
+    setFitAllDates(true);
     setPickedDates(new Set());
     setSelDates(new Set());
-    requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
-  }, [today]);
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollLeft = value ? 0 : RATE_HISTORY_DAYS * CELL_W;
+    });
+  }, [CELL_W]);
 
   // A month that falls outside a newly narrowed range must not hide everything.
   useEffect(() => {
@@ -2651,8 +2668,11 @@ export default function RateStrategyGrid({
     const viewportKey = [hotelId ?? "", today, monthFilter ?? "", historyMonth ?? ""].join("|");
     if (!grid || !shouldResetRateCalendarViewport(lastViewportKeyRef.current, viewportKey, hasGridRows)) return;
     lastViewportKeyRef.current = viewportKey;
-    grid.scrollLeft = 0;
-    setVisibleMonth(formatMonth(dates[0] ?? today));
+    // The previous three days remain available by scrolling left, but the
+    // visible rolling window begins at today and ends on the 30th future date.
+    grid.scrollLeft = !monthFilter && !historyMonth ? RATE_HISTORY_DAYS * CELL_W : 0;
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = grid.scrollLeft;
+    setVisibleMonth(formatMonth(!monthFilter && !historyMonth ? today : dates[0] ?? today));
   }, [hotelId, today, monthFilter, historyMonth, hasGridRows]);
 
   const scrollToToday = () => {
@@ -3186,6 +3206,15 @@ export default function RateStrategyGrid({
             >
               {isAutomationWindow ? (hu ? "Tegnap + ma" : "Yesterday + today") : (hu ? "48 óra (motor)" : "48h engine")}
             </Button>
+            {/* Desktop calendar fits the whole date range by default. Manual
+                zoom is a detail mode, and this button restores the full view. */}
+            <Button type="button" size="sm" variant={fitAllDates ? "secondary" : "outline"}
+              className="hidden h-8 px-2 text-[11px] lg:inline-flex"
+              aria-pressed={fitAllDates}
+              title={fitAllDates ? "Showing the full date range on one screen" : "Fit all dates into one screen"}
+              onClick={() => setFitAllDates(true)}>
+              Fit all dates
+            </Button>
             {/* Calendar zoom remains independent of the pickup period. */}
             <div className="flex items-center overflow-hidden rounded-md border">
               <Button
@@ -3311,7 +3340,7 @@ export default function RateStrategyGrid({
           {/* Current date stays visible in the toolbar even when offscreen in the grid. */}
           <div className="flex items-center justify-between gap-2 border-b px-2 py-1">
             <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-              {historyMonth ? "Saved month · read-only" : monthFilter && monthFilter !== today.slice(0, 7) ? "Selected future month" : "Previous 3 days shown automatically"}
+              {historyMonth ? "Saved month · read-only" : monthFilter ? "Full calendar month · past dates read-only" : "Next 30 days · previous 3 available to the left"}
             </span>
             <Button type="button" size="sm" variant="outline"
               className="h-7 shrink-0 gap-1 border-sky-500/60 bg-sky-50 px-2 text-[11px] font-semibold text-sky-800 hover:bg-sky-100 dark:bg-sky-950/50 dark:text-sky-100"
@@ -3352,6 +3381,7 @@ export default function RateStrategyGrid({
                       onClick={() => {
                         setHistoryMonth(m.value);
                         setMonthFilter(null);
+                        setFitAllDates(true);
                         setHistoryPickerOpen(false);
                         setPickedDates(new Set());
                         setSelDates(new Set());
