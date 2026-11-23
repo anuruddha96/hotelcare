@@ -11,8 +11,9 @@
 import { strict as assert } from "node:assert";
 import { verifyEnvelope } from "../_shared/ntak/wssec.ts";
 import { addDays } from "../_shared/ntak/ledger.ts";
+import { isInNtakScope, loadNtakScope } from "./scope.ts";
 import {
-  classificationFor, detectDrift, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
+  buildClosure, classificationFor, detectDrift, markAllFutureBookings, processBookings, processEvents, queueClosure, queueStartDateQuery, sendDue, today, verifyDue, type Settings,
 } from "./engine.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
@@ -245,7 +246,9 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
 
     const s: Settings = {
       hotel_id: "h1", organization_slug: "rd", enabled: true, environment: "test", endpoint_url: ntak.url, software_id: "HOTELCARE01",
-      software_version: "v1.0.0", registration_number: "SZ25003491", provider_tax_number: "69861195-2-44", registered_room_count: 2,
+      software_version: "v1.0.0", registration_number: "SZ25003491", provider_tax_number: "69861195-2-44",
+      accommodation_name: "Ceylon Business Services Kft", provider_name: "Interface_csatlakozás_szolgáltató_v9", unit_scope: "all",
+      registered_room_count: 2, registered_bed_count: null,
       accommodation_class: "hotel_4", region: "budapest", ifa_type: "SZAZALEKOS", ifa_rate: 4, ifa_vat: 0, accommodation_vat: 18,
       signature_profile: "rsa-sha384", unknown_country_code: "EGYEBKULFOLDI", closure_mode: "manual", auto_close_time: "05:00:00",
       first_closure_date: addDays(T, -10), software_change_date: null, data_start_date: null, ledger_config: {},
@@ -349,4 +352,104 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
     Deno.createHttpClient = originalClient;
     await ntak.close();
   }
+});
+
+Deno.test('profiled_only excludes 15 unrelated rooms, their bookings, events, charges and payments', async () => {
+  const db = new FakeDb(schemaColumns());
+  const day = addDays(today(), -1);
+  const s: Settings = {
+    hotel_id: "h-scope", organization_slug: "channex", enabled: true, environment: "test",
+    endpoint_url: null, software_id: "HOTELCARE", software_version: "1.0",
+    registration_number: "MA26004524", provider_tax_number: "11223355-1-22",
+    accommodation_name: "Ceylon Business Services Kft", provider_name: "Interface_csatlakozás_szolgáltató_v9",
+    registered_room_count: 4, registered_bed_count: null, unit_scope: "profiled_only",
+    accommodation_class: "hotel_4", region: "budapest", ifa_type: "TETELES", ifa_rate: 400,
+    ifa_vat: 0, accommodation_vat: 5, signature_profile: "rsa-sha384",
+    unknown_country_code: "EGYEBKULFOLDI", closure_mode: "manual", auto_close_time: "05:00",
+    first_closure_date: null, software_change_date: null, data_start_date: null, ledger_config: {},
+    cert_not_after: null, sending_blocked_reason: null,
+    initial_booking_sync_started_at: null, initial_booking_sync_done_at: null,
+  };
+  const fixtures = [
+    ["101", "STANDARD", 1, 1, 0],
+    ["102", "SUPERIOR", 0, 1, 0],
+    ["103", "ECONOMY", 1, 1, 0],
+    ["104", "APARTMAN", 0, 1, 1],
+  ] as const;
+  for (const [room, type, singles, doubles, extras] of fixtures) {
+    db.rows("rooms").push({ id: room, room_number: room, hotel: s.hotel_id, status: "clean" });
+    db.rows("ntak_unit_profiles").push({
+      room_id: room, hotel_id: s.hotel_id, room_number: room, building: "1", unit_type: type,
+      single_beds: singles, double_beds: doubles, extra_beds: extras, active: true,
+    });
+  }
+  for (let n = 0; n < 15; n++) {
+    const id = "unprofiled-" + n;
+    db.rows("rooms").push({ id, hotel: s.hotel_id, room_number: "T" + n, status: "clean" });
+  }
+  db.rows("room_types").push({ id: "mapped-type", hotel_id: s.hotel_id, name: "NTAK Standard" });
+  db.rows("ntak_room_type_units").push({ room_type_id: "mapped-type", hotel_id: s.hotel_id, unit_type: "STANDARD", capacity: 3, active: true });
+  const scope = await loadNtakScope(db, s);
+  assert.equal(db.rows("rooms").length, 19);
+  assert.equal(scope.roomIds.size, 4);
+  assert.ok(isInNtakScope(scope, { room_id: "101", room_type_id: null }));
+  assert.ok(isInNtakScope(scope, { room_id: null, room_type_id: "mapped-type" }));
+  assert.equal(isInNtakScope(scope, { room_id: "unprofiled-1", room_type_id: "mapped-type" }), false);
+
+  const base = {
+    hotel_id: s.hotel_id, room_type_id: null, rate_per_night: 20000, total_amount: 40000,
+    currency: "HUF", adults: 1, children: 0, source: "direct", ota_name: null,
+    pms_channel: null, channex_booking_id: null, pms_reservation_id: null,
+    pms_group_note: null, pms_rate_plan_id: null, actual_check_out: null,
+    guest_id: null, created_at: day + "T08:00:00Z",
+  };
+  db.rows("reservations").push(
+    { ...base, id: "R-excluded", reservation_number: "U-OLD", status: "checked_in",
+      check_in_date: day, check_out_date: addDays(day, 2), room_id: "unprofiled-1" },
+    { ...base, id: "R-future-excluded", reservation_number: "U-FUTURE", status: "confirmed",
+      check_in_date: addDays(day, 5), check_out_date: addDays(day, 7), room_id: "unprofiled-2" },
+    { ...base, id: "R-future-included", reservation_number: "NTAK-FUTURE", status: "confirmed",
+      check_in_date: addDays(day, 5), check_out_date: addDays(day, 7), room_id: null, room_type_id: "mapped-type" },
+  );
+  db.rows("reservation_folios").push({ id: "f-excluded", reservation_id: "R-excluded", hotel_id: s.hotel_id });
+  db.rows("service_catalog_items").push({ id: "sc-excluded", category: "minibar" });
+  db.rows("folio_lines").push({
+    id: "l-excluded", folio_id: "f-excluded", service_catalog_item_id: "sc-excluded", service_date: day,
+    room_id: "unprofiled-1", gross_total: 1000, vat_rate: 27, currency: "HUF", status: "open", source_type: "manual",
+  });
+  db.rows("payments").push({
+    id: "p-excluded", hotel_id: s.hotel_id, reservation_id: "R-excluded",
+    amount: 1000, currency: "HUF", method: "cash", status: "recorded", received_at: day + "T12:00:00Z",
+  });
+
+  const built = await buildClosure(db, s, day, {});
+  assert.equal(built.closure.rooms.total, 4);
+  assert.equal(built.closure.capacity.total, 10);
+  assert.equal(built.closure.nights.length, 0);
+  assert.equal(built.closure.checkoutSales.length, 0);
+  assert.equal(built.closure.postStayPayments.length, 0);
+  assert.equal(built.closure.postStayCharges.length, 0);
+  assert.equal(built.totals.charges, 0);
+  assert.equal(built.totals.payments, 0);
+  assert.ok(!built.xml.includes("U-OLD"));
+
+  assert.equal(await markAllFutureBookings(db, s), 1);
+  assert.deepEqual(db.rows("ntak_booking_queue").map((q) => q.booking_no), ["NTAK-FUTURE"]);
+  db.rows("ntak_booking_queue").push({
+    hotel_id: s.hotel_id, booking_no: "U-FUTURE", dirty_at: new Date().toISOString(), last_sent_at: null,
+  });
+  await processBookings(db, s, 10);
+  assert.equal(db.rows("ntak_messages").filter((m) => m.kind === "booking" && m.ref === "U-FUTURE").length, 0);
+
+  db.rows("ntak_event_queue").push({
+    id: "e-excluded", hotel_id: s.hotel_id, reservation_id: "R-excluded", kind: "erkezett",
+    occurred_at: day + "T14:00:00Z", room_id: "unprofiled-1", from_room_id: null, state: "queued",
+  });
+  assert.deepEqual(await processEvents(db, s, 10), { queued: 0, waiting: 0 });
+  assert.equal(db.rows("ntak_event_queue")[0].state, "skipped");
+
+  const intentionalMismatch = await buildClosure(db, { ...s, registered_room_count: 5, registered_bed_count: 12 }, day, {});
+  assert.equal(intentionalMismatch.closure.capacity.total, 12);
+  assert.equal(intentionalMismatch.closure.rooms.total, 4);
+  assert.ok(intentionalMismatch.checklist.some((x) => x.code === "registration"));
 });
