@@ -186,21 +186,27 @@ BEGIN
         (hotel_id,organization_slug,reservation_id,from_status,to_status,
          occurred_at,sqlstate,last_error)
       VALUES(NEW.hotel_id,NEW.organization_slug,NEW.id,
-        OLD.status::text,NEW.status::text,moment_at,failure_state,
-        left(failure_message,500))
+        OLD.status::text,NEW.status::text,COALESCE(moment_at,clock_timestamp()),
+        failure_state,left(failure_message,500))
       ON CONFLICT (reservation_id,from_status,to_status)
         WHERE resolved_at IS NULL
       DO UPDATE SET attempts=public.viza_trigger_failures.attempts+1,
         sqlstate=EXCLUDED.sqlstate,last_error=EXCLUDED.last_error,
         occurred_at=EXCLUDED.occurred_at,updated_at=now();
+    EXCEPTION WHEN OTHERS THEN
+      -- Even failure-logging problems may never roll back check-in/out.
+      RAISE WARNING 'VIZA failure log unavailable (reservation %): %',
+        NEW.id,SQLERRM;
+    END;
+    -- A failing settings write must not roll back the durable failure row.
+    BEGIN
       UPDATE public.viza_settings
       SET last_error=left('VIZA queue error for reservation '||NEW.id::text||
         ': '||failure_message,1000),updated_at=now()
       WHERE hotel_id=NEW.hotel_id;
     EXCEPTION WHEN OTHERS THEN
-      -- Even failure-logging problems may never roll back check-in/out.
-      RAISE WARNING 'VIZA failure log unavailable (reservation %): %',
-        NEW.id,SQLERRM;
+      RAISE WARNING 'VIZA hotel status update unavailable (%): %',
+        NEW.hotel_id,SQLERRM;
     END;
     RAISE WARNING 'viza_on_reservation_status (%): %',
       NEW.id,failure_message;
