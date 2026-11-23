@@ -685,11 +685,14 @@ export async function sendDue(db: Db, s: Settings, opts: { limit: number; bookin
       await evidenceWrite(db.from("ntak_messages").update({ state: "sending", uzenet_id: uzenetId, request_xml: requestXml, attempts: m.attempts + 1, sent_at: sentAt.toISOString(), updated_at: now() }).eq("id", m.id));
     });
     // A blank response is not an XML document. Keep it NULL, never fabricate one.
+    const attemptDelay = nextRetryDelayMinutes(m.attempts + 1);
+    const evidenceStatus = parsed?.kind === "accepted" ? "BEFOGADVA"
+      : parsed?.kind === "rejected" ? (parsed.errors.length > 0 && parsed.errors.every(e => e.key === "SzerverHiba") && attemptDelay ? "retry" : "rejected")
+      : result.certificateProblem ? "blocked" : attemptDelay ? "retry" : "failed";
     await evidenceWrite(db.from("ntak_message_evidence").update({
       response_xml: result.body || null, http_status: result.status,
       processing_id: parsed?.kind === "accepted" ? parsed.processingId : null,
-      status: parsed?.kind === "accepted" ? "BEFOGADVA" : parsed?.kind === "rejected" ? "rejected" : result.certificateProblem ? "blocked" : "transport_or_parse_error",
-      completed_at: now(),
+      status: evidenceStatus, completed_at: now(),
     }).eq("id", evidenceId));
     sent++;
 
@@ -788,6 +791,7 @@ export async function verifyDue(db: Db, s: Settings, force = false): Promise<{ c
       const minutes = m.kind === "start_date" ? 5 : 30;
       const age = Date.now() - Date.parse(m.sent_at);
       const giveUp = m.kind === "start_date" ? age > 86400000 : age > 30 * 86400000;
+      if (giveUp) await evidenceWrite(db.from("ntak_message_evidence").update({ status: "failed" }).eq("uzenet_id", m.uzenet_id).eq("phase", "send"));
       await db.from("ntak_messages").update({
         state: giveUp ? "failed" : "accepted", verify_attempts: m.verify_attempts + 1,
         next_verify_at: new Date(Date.now() + minutes * 60000).toISOString(), last_error: giveUp ? "No processing result from NTAK in time: send again" : null, updated_at: now(),
