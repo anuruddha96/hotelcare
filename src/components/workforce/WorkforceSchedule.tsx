@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BellRing, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, Eye, FileSpreadsheet, HelpCircle, History, Info, LayoutGrid, List, Loader2, Maximize2, Minimize2, MoreHorizontal, Rows3, Search, Send, Sparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, BellRing, CalendarDays, ChevronLeft, ChevronRight, Copy, Download, Eye, FileSpreadsheet, HelpCircle, History, Info, LayoutGrid, List, Loader2, Maximize2, Minimize2, MoreHorizontal, Rows3, Search, Send, Sparkles, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useTranslation } from '@/hooks/useTranslation';
 import { loadGridPrefs, saveGridPrefs, stepZoom, type GridPrefs } from '@/lib/workforce/gridPrefs';
@@ -20,6 +21,8 @@ import { COMPANY_VENUE, inVenue, matchesStatus, noticeIndex, STATUS_FILTERS, ven
 import { entryFromSnapshot, type RestoreChange } from '@/lib/workforce/history';
 import { useCellLabels } from '@/hooks/useWorkforceLabels';
 import { useWorkforcePresence } from '@/hooks/useWorkforcePresence';
+import { useUnpublishedWork, type UnpublishedWork } from '@/hooks/useWorkforcePending';
+import { countText, isUrgent, monthTitle, publishTiming, type MonthWork } from '@/lib/workforce/pending';
 import { WorkforceStaffDialog } from './WorkforceStaffDialog';
 import { WorkforceHistory } from './WorkforceHistory';
 import { localName } from '@/lib/workforce/names';
@@ -58,9 +61,32 @@ function editableFrom(access: AccessLevel, today: string): string {
   return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
 }
 
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+/** "24 November", "november 24." … */
+const dayMonth = (date: string, locale: string) => new Date(`${date}T12:00:00Z`).toLocaleDateString(locale, { day: 'numeric', month: 'long', timeZone: 'UTC' });
+/** The month's name as used inside a sentence ("December", "december", "декабрь"). */
+const monthWord = (month: string, locale: string) => {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(locale, { month: 'long', timeZone: 'UTC' });
+};
+
+/** One month of unpublished work in plain words: who is affected, and by when to publish. */
+function describeMonthWork(work: MonthWork, today: string, t: (key: string) => string, locale: string) {
+  const timing = publishTiming(work.month, today);
+  const people = [
+    work.notReceived.length ? countText(t, locale, 'wf.r.notReceived', work.notReceived.length) : null,
+    work.changed.length ? countText(t, locale, 'wf.r.changed', work.changed.length) : null,
+  ].filter((part): part is string => !!part);
+  const when = timing.kind === 'ahead' ? fill(t('wf.r.deadline'), { date: dayMonth(timing.deadline, locale) })
+    : timing.kind === 'late' ? fill(t('wf.r.late'), { date: dayMonth(timing.starts, locale) })
+      : fill(t('wf.r.from'), { date: dayMonth(work.earliest, locale) });
+  return { people, when, urgent: isUrgent(timing) };
+}
+
 export function WorkforceSchedule() {
-  const { profile } = useAuth();
-  const { t } = useTranslation();
+  const { user, profile } = useAuth();
+  const { t, language } = useTranslation();
+  const navigate = useNavigate();
   const role = profile?.role ?? '';
   const isSuper = !!profile?.is_super_admin;
   const policy = useAccessPolicy();
@@ -76,6 +102,41 @@ export function WorkforceSchedule() {
   const [ym, setYm] = useState(() => ({ y: Number(today.slice(0, 4)), m: Number(today.slice(5, 7)) }));
   const data = useWorkforce(ym.y, ym.m);
   const [tab, setTab] = useState('schedule');
+
+  // --- What still waits for this planner to publish ---------------------------
+  const me = access === 'self' ? null : user?.id ?? profile?.id ?? null;
+  const [pendingKey, setPendingKey] = useState(0);
+  const pendingTimer = useRef<number | null>(null);
+  /** Re-read the unpublished work; edits come in bursts, so wait for a quiet moment. */
+  const refreshPending = useCallback((now = false) => {
+    if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
+    if (now) setPendingKey((n) => n + 1);
+    else pendingTimer.current = window.setTimeout(() => setPendingKey((n) => n + 1), 1200);
+  }, []);
+  const pending = useUnpublishedWork(me, today, pendingKey);
+  /** Months this planner changed during this visit (for the reminder when leaving the page). */
+  const editedMonths = useRef(new Set<string>());
+  const onEdited = useCallback((month: string) => { editedMonths.current.add(month); refreshPending(); }, [refreshPending]);
+  const onPublished = useCallback((month: string) => { editedMonths.current.delete(month); refreshPending(true); }, [refreshPending]);
+  const latest = useRef({ pending, t, locale: intlLocale(language), home: `/${profile?.organization_slug || 'rdhotels'}?view=staff-schedule` });
+  latest.current = { pending, t, locale: intlLocale(language), home: `/${profile?.organization_slug || 'rdhotels'}?view=staff-schedule` };
+  // Leaving the page with own changes that nobody can see yet: say so once, with a way back.
+  useEffect(() => () => {
+    if (pendingTimer.current) window.clearTimeout(pendingTimer.current);
+    const { pending: work, t: tr, locale, home } = latest.current;
+    const months = work.mine.filter((m) => editedMonths.current.has(m.month));
+    if (!months.length) return;
+    const description = (
+      <span className="block space-y-0.5">
+        {months.map((m) => <span key={m.month} className="block">{monthTitle(m.month, locale)}: {describeMonthWork(m, todayBudapest(), tr, locale).people.join(' ')}</span>)}
+      </span>
+    );
+    void supabase.auth.getSession().then(({ data: session }) => {
+      if (!session.session) return; // signed out: nothing to remind
+      toast.warning(tr('wf.r.leaveTitle'), { description, duration: 15000, action: { label: tr('wf.r.back'), onClick: () => navigate(home) } });
+    }, () => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (access === 'self') return <MyWorkforceSchedule />;
 
@@ -112,7 +173,8 @@ export function WorkforceSchedule() {
         )}
         <ScheduleTab data={data} ym={ym} setYm={setYm} today={today} access={access} viewAll={viewAll} currentHotel={currentHotel}
           canAskMira={policy.mira} canPlanWithMira={policy.mira && policy.scheduleBuilder}
-          onImport={canImport ? () => setTab('import') : undefined} />
+          onImport={canImport ? () => setTab('import') : undefined}
+          me={me} pending={pending} onEdited={onEdited} onPublished={onPublished} onRemoteChange={refreshPending} />
       </TabsContent>
       <TabsContent value="staff" className="mt-0"><WorkforceStaffPanel data={data} access={access} currentHotel={currentHotel} today={today} /></TabsContent>
       <TabsContent value="analytics" className="mt-0"><WorkforceAnalytics data={data} year={ym.y} month={ym.m} /></TabsContent>
@@ -134,9 +196,18 @@ interface ScheduleTabProps {
   canAskMira: boolean;
   canPlanWithMira: boolean;
   onImport?: () => void;
+  /** The signed-in planner (profile id). */
+  me: string | null;
+  /** What still waits for Publish, from today on. */
+  pending: UnpublishedWork;
+  /** This planner saved changes in a month. */
+  onEdited: (month: string) => void;
+  onPublished: (month: string) => void;
+  /** Another planner saved changes. */
+  onRemoteChange: () => void;
 }
 
-function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, canAskMira, canPlanWithMira, onImport }: ScheduleTabProps) {
+function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, canAskMira, canPlanWithMira, onImport, me, pending, onEdited, onPublished, onRemoteChange }: ScheduleTabProps) {
   const { t, language } = useTranslation();
   const cellLabels = useCellLabels();
   const locale = intlLocale(language);
@@ -162,9 +233,6 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   const [legendOpen, setLegendOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [editStaff, setEditStaff] = useState<WorkforceStaff | null>(null);
-  /** Draft days of other months that still wait for Publish: "YYYY-MM" -> days. */
-  const [otherDrafts, setOtherDrafts] = useState<Map<string, number>>(new Map());
-  const [draftTick, setDraftTick] = useState(0);
   /** Tells the other planners that this month changed (set once the live channel is up). */
   const announceRef = useRef<(month: string) => void>(() => undefined);
   const updatePrefs = useCallback((patch: Partial<GridPrefs>) => setPrefs((current) => { const next = { ...current, ...patch }; saveGridPrefs(next); return next; }), []);
@@ -184,6 +252,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   }), [locale]);
 
   const days = useMemo(() => monthDays(ym.y, ym.m), [ym]);
+  const monthKey = `${ym.y}-${pad2(ym.m)}`;
   const codes = useMemo(() => customCodesOf(data.shiftCodes), [data.shiftCodes]);
   const deptName = useMemo(() => new Map(data.departments.map((d) => [d.id, d.name])), [data.departments]);
   const deptOrder = useMemo(() => new Map(data.departments.map((d, i) => [d.id, d.sort_order * 1000 + i])), [data.departments]);
@@ -220,14 +289,14 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   const visibleStaff = useMemo(() => venueStaff
     .filter((s) => {
       if (department !== 'all' && s.department_id !== department) return false;
-      if (!matchesStatus(status, monthEntriesByStaff.get(s.id) ?? [], openNoticesByStaff.get(s.id) ?? 0)) return false;
+      if (!matchesStatus(status, monthEntriesByStaff.get(s.id) ?? [], openNoticesByStaff.get(s.id) ?? 0, { me, today })) return false;
       return matchesStaffSearch([s.full_name, s.nickname, deptName.get(s.department_id ?? ''), roleName.get(s.job_role_id ?? ''), hotelShort(s.hotel_id), s.employment_type.replace('_', ' '), s.notes, data.notes.get(s.id)], query);
     })
     .sort((a, b) => (deptOrder.get(a.department_id ?? '') ?? 1e9) - (deptOrder.get(b.department_id ?? '') ?? 1e9)
       || hotelOrder(a.hotel_id) - hotelOrder(b.hotel_id)
       || (roleOrder.get(a.job_role_id ?? '') ?? 1e9) - (roleOrder.get(b.job_role_id ?? '') ?? 1e9)
       || Number(b.is_active) - Number(a.is_active) || a.sort_order - b.sort_order || a.full_name.localeCompare(b.full_name)),
-  [venueStaff, data.notes, monthEntriesByStaff, openNoticesByStaff, query, department, status, deptName, roleName, deptOrder, roleOrder, hotelOrder]);
+  [venueStaff, data.notes, monthEntriesByStaff, openNoticesByStaff, query, department, status, me, today, deptName, roleName, deptOrder, roleOrder, hotelOrder]);
 
   const firstEditable = editableFrom(access, today);
   const mayPlan = useCallback((s: WorkforceStaff) => access === 'org' || s.hotel_id === currentHotel, [access, currentHotel]);
@@ -251,32 +320,47 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
     }
     try {
       await Promise.all([data.saveEntries(upserts), data.deleteEntries(deletes)]);
-      announceRef.current(`${ym.y}-${pad2(ym.m)}`);
-      setDraftTick((n) => n + 1);
+      announceRef.current(monthKey);
+      onEdited(monthKey);
       return true;
     } catch (err) {
       toast.error((err as { message?: string })?.message ?? t('wf.g.saveFail'));
       return false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, ym]);
+  }, [data, monthKey, onEdited]);
 
+  // --- What Publish (toolbar) would publish: the unpublished days of the employees shown ---
   const drafts = useMemo(() => {
     const ids = new Set(visibleStaff.filter(mayPlan).map((s) => s.id));
     return [...data.entries.values()].filter((e) => e.status === 'draft' && ids.has(e.staff_id) && e.work_date >= firstEditable);
   }, [data.entries, visibleStaff, mayPlan, firstEditable]);
-  const draftChanges = useMemo(() => drafts.filter((e) => hasPendingChange(e)), [drafts]);
+  const draftPeople = useMemo(() => [...new Set(drafts.map((d) => d.staff_id))], [drafts]);
+  /** The employee already received this month: what changes now reaches them as a notice to confirm. */
+  const hasMonth = useCallback((id: string) => pending.received.has(`${id}|${monthKey}`)
+    || (monthEntriesByStaff.get(id) ?? []).some((e) => e.status === 'published' || !!e.published_version), [pending.received, monthKey, monthEntriesByStaff]);
+  const publishPlan = useMemo(() => {
+    const fresh: string[] = [];
+    const notified: string[] = [];
+    const upcoming = new Set(drafts.filter((d) => d.work_date >= today).map((d) => d.staff_id));
+    for (const id of draftPeople) {
+      if (!hasMonth(id)) fresh.push(id);
+      else if (upcoming.has(id)) notified.push(id); // changes to past days are corrections: nobody is notified
+    }
+    const otherNames = me ? [...new Set(drafts.filter((d) => d.updated_by !== me)
+      .map((d) => (d.updated_by && pending.names.get(d.updated_by)) || t('wf.r.someone')))] : [];
+    return { fresh, notified, otherNames };
+  }, [drafts, draftPeople, hasMonth, today, me, pending.names, t]);
   const shortNotice = useMemo(() => {
     const limit = new Date(Date.parse(`${today}T12:00:00Z`) + 4 * 86400000).toISOString().slice(0, 10);
-    return draftChanges.filter((e) => e.work_date >= today && e.work_date < limit).length;
-  }, [draftChanges, today]);
+    return drafts.filter((e) => e.work_date >= today && e.work_date < limit && (hasPendingChange(e) || hasMonth(e.staff_id))).length;
+  }, [drafts, today, hasMonth]);
 
   // --- One shared calendar: who else is here, and refresh when they save ----
-  const monthKey = `${ym.y}-${pad2(ym.m)}`;
   const reloadTimer = useRef<number | null>(null);
   const lastNotice = useRef(0);
   const { others, announce } = useWorkforcePresence({ month: monthKey, venue }, (event) => {
-    setDraftTick((n) => n + 1);
+    onRemoteChange();
     if (event.month !== monthKey) return;
     if (reloadTimer.current) window.clearTimeout(reloadTimer.current);
     reloadTimer.current = window.setTimeout(() => {
@@ -287,36 +371,33 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   announceRef.current = announce;
   useEffect(() => () => { if (reloadTimer.current) window.clearTimeout(reloadTimer.current); }, []);
 
-  // --- Reminder: drafts in other months that nobody published yet -----------
-  useEffect(() => {
-    let alive = true;
-    const plannable = new Set(data.staff.filter(mayPlan).map((s) => s.id));
-    if (!plannable.size) { setOtherDrafts(new Map()); return; }
-    void fetchAllRows<{ staff_id: string; work_date: string }>((a, b) => db.from('workforce_entries').select('staff_id,work_date')
-      .eq('status', 'draft').gte('work_date', firstEditable).order('work_date').order('staff_id').range(a, b))
-      .then((rows) => {
-        if (!alive) return;
-        const map = new Map<string, number>();
-        for (const r of rows) {
-          const m = r.work_date.slice(0, 7);
-          if (m !== monthKey && plannable.has(r.staff_id)) map.set(m, (map.get(m) ?? 0) + 1);
-        }
-        setOtherDrafts(map);
-      }, () => undefined);
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.staff, firstEditable, monthKey, draftTick, access, currentHotel]);
-  // Every draft this person may publish in the month shown (not only the filtered ones).
-  const monthDrafts = useMemo(() => {
-    const plannable = new Set(data.staff.filter(mayPlan).map((s) => s.id));
-    return [...data.entries.values()].filter((e) => e.status === 'draft' && plannable.has(e.staff_id) && e.work_date >= firstEditable).length;
-  }, [data.entries, data.staff, mayPlan, firstEditable]);
-  const pendingMonths = useMemo(() => {
-    const list = [...otherDrafts].map(([month, n]) => ({ month, n }));
-    if (monthDrafts) list.push({ month: monthKey, n: monthDrafts });
-    return list.sort((a, b) => a.month.localeCompare(b.month));
-  }, [otherDrafts, monthDrafts, monthKey]);
-  const pendingTotal = pendingMonths.reduce((n, m) => n + m.n, 0);
+  // --- Reminder: this planner's own work that staff cannot see yet ----------
+  const myPendingMonths = useMemo(() => new Set(pending.mine.map((m) => m.month)), [pending.mine]);
+  const reminderUrgent = pending.mine.some((m) => isUrgent(publishTiming(m.month, today)));
+  // Company-level planners also see who else has not published yet.
+  const othersWaiting = useMemo(() => {
+    if (access !== 'org') return [];
+    const byMonth = new Map<string, Set<string>>();
+    for (const o of pending.others) {
+      const name = (o.plannerId && pending.names.get(o.plannerId)) || t('wf.r.someone');
+      byMonth.set(o.month, (byMonth.get(o.month) ?? new Set()).add(name));
+    }
+    return [...byMonth].map(([month, names]) => ({ month, names: [...names] }));
+  }, [access, pending.others, pending.names, t]);
+  /** Show the month with only the employees this planner still has to publish; optionally publish right away. */
+  const openMine = (month: string, publishNow: boolean) => {
+    const [y, m] = month.split('-').map(Number);
+    setQuery(''); setDepartment('all'); setStatus('mine');
+    if (viewAll) setVenue('all');
+    setYm({ y, m });
+    if (publishNow) setConfirmPublish(true);
+  };
+  const openDrafts = (month: string) => {
+    const [y, m] = month.split('-').map(Number);
+    setQuery(''); setDepartment('all'); setStatus('draft');
+    if (viewAll) setVenue('all');
+    setYm({ y, m });
+  };
 
   const monthLabel = (() => {
     const text = new Date(Date.UTC(ym.y, ym.m - 1, 1)).toLocaleDateString(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' });
@@ -324,12 +405,17 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   })();
 
   const publish = async () => {
-    const ids = [...new Set(drafts.map((d) => d.staff_id))];
+    const ids = draftPeople;
+    // An empty list would mean "everyone" to the database: never send it.
+    if (!ids.length) { setConfirmPublish(false); return; }
     const since = new Date(Date.now() - 120_000).toISOString();
     try {
       const n = await data.publish(days[0], days[days.length - 1], ids);
-      toast.success(fill(t('wf.p.done'), { n }));
+      if (n > 0) toast.success(countText(t, locale, 'wf.p.donePeople', ids.length));
       announce(monthKey);
+      onPublished(monthKey);
+      // Nothing is left behind the "my changes" filter: show everyone again.
+      if (status === 'mine' || status === 'draft') setStatus('all');
       const reason = publishReason.trim();
       if (reason && ids.length) {
         // The reason goes onto the notices this publication just created.
@@ -381,7 +467,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
   };
   const runCopy = async () => {
     if (!copyPlan) return;
-    try { await data.saveEntries(copyPlan.rows); announce(monthKey); toast.success(fill(t('wf.c4.done'), { n: copyPlan.rows.length })); }
+    try { await data.saveEntries(copyPlan.rows); announce(monthKey); onEdited(monthKey); toast.success(fill(t('wf.c4.done'), { n: copyPlan.rows.length })); }
     catch (err) { toast.error((err as { message?: string })?.message ?? t('wf.g.saveFail')); }
     setCopyPlan(null);
   };
@@ -432,27 +518,36 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
 
   return (
     <div className={cn('space-y-2', fullscreen && 'fixed inset-0 z-40 overflow-auto bg-background p-3')}>
-      {/* Who else is planning right now, and what still waits for Publish */}
-      {(others.length > 0 || pendingTotal > 0) && (
-        <div className="flex flex-wrap items-center gap-2">
-          {pendingTotal > 0 && (
-            <div className="flex flex-1 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" role="status" data-training="wf-publish-reminder">
-              <BellRing className="h-4 w-4 shrink-0" />
-              <span className="font-medium">{fill(t('wf.r.pending'), { n: pendingTotal })}</span>
-              <span className="text-xs opacity-80">{t('wf.r.hint')}</span>
-              <span className="ml-auto flex flex-wrap items-center gap-1">
-                {pendingMonths.map((m) => {
-                  const [y, mo] = m.month.split('-').map(Number);
+      {/* What still waits for this planner to publish, and who else is planning right now */}
+      {(others.length > 0 || pending.mine.length > 0) && (
+        <div className="flex flex-wrap items-start gap-2">
+          {pending.mine.length > 0 && (
+            <div role="status" data-training="wf-publish-reminder"
+              className={cn('min-w-[280px] flex-1 rounded-md border px-3 py-2 text-sm', reminderUrgent
+                ? 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100'
+                : 'border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100')}>
+              <p className="flex items-center gap-1.5 font-semibold"><BellRing className="h-4 w-4 shrink-0" />{t('wf.r.title')}</p>
+              <ul className="mt-1.5 space-y-1.5">
+                {pending.mine.map((m) => {
                   const here = m.month === monthKey;
+                  const text = describeMonthWork(m, today, t, locale);
                   return (
-                    <button key={m.month} type="button" disabled={here} onClick={() => setYm({ y, m: mo })}
-                      className={cn('rounded-full border border-amber-400 px-2 py-0.5 text-xs', here ? 'bg-amber-200 font-semibold dark:bg-amber-900' : 'bg-background/70 hover:bg-amber-100 dark:hover:bg-amber-900/60')}>
-                      {monthNames[mo - 1]}{y !== ym.y ? ` ${y}` : ''} · {m.n}
-                    </button>
+                    <li key={m.month} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="min-w-[240px] flex-1">
+                        <span className="font-semibold">{monthTitle(m.month, locale)}</span>
+                        <span className="mx-1.5 opacity-50">—</span>
+                        {text.people.join(' ')}
+                        <span className={cn('ml-1', text.urgent ? 'font-semibold' : 'opacity-80')}>{text.when}</span>
+                      </span>
+                      <Button size="sm" variant={here ? 'default' : 'outline'} className={cn('h-7 shrink-0', !here && 'bg-background/80')}
+                        onClick={() => openMine(m.month, here)}>
+                        {here ? <Send className="mr-1 h-3.5 w-3.5" /> : <ArrowRight className="mr-1 h-3.5 w-3.5" />}
+                        {capitalize(fill(t(here ? 'wf.r.publishMonth' : 'wf.r.open'), { month: monthWord(m.month, locale) }))}
+                      </Button>
+                    </li>
                   );
                 })}
-                {drafts.length > 0 && <Button size="sm" className="h-7" onClick={() => setConfirmPublish(true)}><Send className="mr-1 h-3.5 w-3.5" />{t('wf.r.publishNow')}</Button>}
-              </span>
+              </ul>
             </div>
           )}
           {others.length > 0 && (
@@ -467,6 +562,16 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
               ))}
             </div>
           )}
+        </div>
+      )}
+      {othersWaiting.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-training="wf-others-pending">
+          <span>{t('wf.r.others')}</span>
+          {othersWaiting.map((o) => (
+            <button key={o.month} type="button" onClick={() => openDrafts(o.month)} className="rounded-full border bg-background px-2 py-0.5 hover:bg-muted">
+              <span className="font-medium text-foreground">{monthTitle(o.month, locale)}</span> — {o.names.join(', ')}
+            </button>
+          ))}
         </div>
       )}
 
@@ -484,7 +589,7 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
                 active ? 'border-primary bg-primary font-semibold text-primary-foreground shadow-sm' : 'border-transparent text-muted-foreground hover:bg-muted',
                 isNow && !active && 'font-semibold text-primary')}>
               {name}{isNow && !active && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-primary align-middle" />}
-              {otherDrafts.has(`${ym.y}-${pad2(i + 1)}`) && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" title={fill(t('wf.r.pending'), { n: otherDrafts.get(`${ym.y}-${pad2(i + 1)}`) ?? 0 })} />}
+              {myPendingMonths.has(`${ym.y}-${pad2(i + 1)}`) && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle ring-1 ring-background" title={t('wf.r.title')} />}
             </button>
           );
         })}
@@ -576,7 +681,9 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
             {onImport && <DropdownMenuItem onSelect={onImport}><FileSpreadsheet className="mr-2 h-4 w-4" />{t('wf.m.import')}</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button size="sm" className="h-8" disabled={!drafts.length} onClick={() => setConfirmPublish(true)}><Send className="mr-1 h-4 w-4" />{t('wf.m.publish')}{drafts.length ? ` · ${drafts.length} ${t('wf.m.drafts')}` : ''}</Button>
+        <Button size="sm" className="h-8" disabled={!draftPeople.length} title={t('wf.m.publishHint')} onClick={() => setConfirmPublish(true)} data-training="wf-publish">
+          <Send className="mr-1 h-4 w-4" />{draftPeople.length ? countText(t, locale, 'wf.m.publishCount', draftPeople.length) : t('wf.m.publish')}
+        </Button>
       </div>
 
       {viewOnly && <p className="flex items-center gap-1.5 rounded-md bg-muted px-3 py-1.5 text-xs text-muted-foreground"><Eye className="h-3.5 w-3.5" />{t('wf.m.viewOnly')}</p>}
@@ -692,13 +799,14 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
             <AlertDialogTitle>{fill(t('wf.p.title'), { month: monthLabel })}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm text-muted-foreground">
-                <p>{fill(t('wf.p.body'), { days: drafts.length, people: new Set(drafts.map((d) => d.staff_id)).size })}</p>
-                {draftChanges.length > 0 && <p className="rounded-md bg-sky-50 px-2 py-1.5 text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">{fill(t('wf.p.changes'), { n: draftChanges.length })}</p>}
+                {publishPlan.fresh.length > 0 && <p>{countText(t, locale, 'wf.p.newPeople', publishPlan.fresh.length)}</p>}
+                {publishPlan.notified.length > 0 && <p className="rounded-md bg-sky-50 px-2 py-1.5 text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">{countText(t, locale, 'wf.p.changedPeople', publishPlan.notified.length)}</p>}
                 {shortNotice > 0 && <p className="rounded-md bg-amber-50 px-2 py-1.5 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">{fill(t('wf.p.short'), { n: shortNotice })}</p>}
+                {publishPlan.otherNames.length > 0 && <p className="rounded-md border border-dashed px-2 py-1.5">{fill(t('wf.p.others'), { names: publishPlan.otherNames.join(', ') })}</p>}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {draftChanges.length > 0 && (
+          {publishPlan.notified.length > 0 && (
             <div className="space-y-1">
               <Label htmlFor="wf-publish-reason" className="text-xs">{t('wf.p.reason')}</Label>
               <Input id="wf-publish-reason" maxLength={300} value={publishReason} placeholder={t('wf.p.reasonPh')} onChange={(e) => setPublishReason(e.target.value)} />
@@ -706,7 +814,9 @@ function ScheduleTab({ data, ym, setYm, today, access, viewAll, currentHotel, ca
           )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('wf.g.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void publish()}>{t('wf.m.publish')}</AlertDialogAction>
+            <AlertDialogAction disabled={!draftPeople.length} onClick={() => void publish()}>
+              {draftPeople.length ? countText(t, locale, 'wf.m.publishCount', draftPeople.length) : t('wf.m.publish')}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

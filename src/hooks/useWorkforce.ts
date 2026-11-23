@@ -12,7 +12,7 @@ const db = supabase as any;
 
 export const entryKey = (staffId: string, date: string) => `${staffId}|${date}`;
 
-const BASE_ENTRY_COLUMNS = 'id,staff_id,work_date,kind,code,start_time,end_time,day_fraction,extra_minutes,hotel_id,raw_text,note,worked_minutes,status';
+const BASE_ENTRY_COLUMNS = 'id,staff_id,work_date,kind,code,start_time,end_time,day_fraction,extra_minutes,hotel_id,raw_text,note,worked_minutes,status,updated_by';
 /** `published_version` arrives with the work-schedule v2 database update; until then the screen works without it. */
 let entryColumns = `${BASE_ENTRY_COLUMNS},published_version`;
 const missingColumn = (error: unknown) => /published_version/.test(String((error as { message?: string } | null)?.message ?? ''));
@@ -149,7 +149,8 @@ export function useWorkforce(year: number, month: number): WorkforceData {
 
   const saveEntries = useCallback(async (rows: WorkforceEntry[]) => {
     if (!rows.length) return;
-    const payload = rows.map(({ id: _id, worked_minutes: _w, published_version: _p, ...rest }) => rest);
+    // Bookkeeping columns are set by the database (published version, last editor).
+    const payload = rows.map(({ id: _id, worked_minutes: _w, published_version: _p, updated_by: _u, ...rest }) => rest);
     const saved: WorkforceEntry[] = [];
     for (let i = 0; i < payload.length; i += 500) {
       const { data, error: err } = await db.from('workforce_entries')

@@ -26,13 +26,19 @@ export function inVenue(staff: Pick<WorkforceStaff, 'hotel_id'>, monthEntries: A
   return staff.hotel_id === hotel || (hotel !== null && monthEntries.some((e) => e.hotel_id === hotel));
 }
 
-export type StatusFilter = 'all' | 'draft' | 'pending' | 'unseen' | 'leave' | 'sick' | 'night' | 'confirm' | 'empty';
-export const STATUS_FILTERS: StatusFilter[] = ['all', 'draft', 'pending', 'unseen', 'leave', 'sick', 'night', 'confirm', 'empty'];
+export type StatusFilter = 'all' | 'mine' | 'draft' | 'pending' | 'unseen' | 'leave' | 'sick' | 'night' | 'confirm' | 'empty';
+export const STATUS_FILTERS: StatusFilter[] = ['all', 'mine', 'draft', 'pending', 'unseen', 'leave', 'sick', 'night', 'confirm', 'empty'];
 
-/** Does the person have at least one day of that kind in the month shown. */
-export function matchesStatus(filter: StatusFilter, monthEntries: WorkforceEntry[], openNotices: number): boolean {
+/**
+ * Does the person have at least one day of that kind in the month shown.
+ * "mine": a day the signed-in planner changed and has not published, from today on.
+ */
+export function matchesStatus(
+  filter: StatusFilter, monthEntries: WorkforceEntry[], openNotices: number, ctx: { me?: string | null; today?: string } = {},
+): boolean {
   switch (filter) {
     case 'all': return true;
+    case 'mine': return !!ctx.me && monthEntries.some((e) => e.status === 'draft' && e.updated_by === ctx.me && (!ctx.today || e.work_date >= ctx.today));
     case 'draft': return monthEntries.some((e) => e.status === 'draft');
     case 'pending': return monthEntries.some((e) => hasPendingChange(e));
     case 'unseen': return openNotices > 0;
