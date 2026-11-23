@@ -52,6 +52,9 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
     { value: 'cash', key: 'pms.pay.cash' },
     { value: 'transfer', key: 'pms.pay.transfer' },
     { value: 'szep_card', key: 'pms.pay.szep' },
+    { value: 'voucher', key: 'Voucher' },
+    { value: 'on_account', key: 'On account / later' },
+    { value: 'other', key: 'Other' },
   ];
 
   const refreshBalance = async () => {
@@ -68,7 +71,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
       const methodLabel = payMethods.find((m) => m.value === payMethod);
       const result = await addFolioItem(
         reservation.id,
-        `${t('pms.pay.recordPayment')} · ${methodLabel ? t(methodLabel.key) : payMethod}`,
+        `${t('pms.pay.recordPayment')} · ${methodLabel ? (methodLabel.key.startsWith('pms.') ? t(methodLabel.key) : methodLabel.key) : payMethod}`,
         amount,
         'payment', paymentDay, payMethod,
       );
@@ -171,7 +174,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
                   placeholder={String(balance)} onChange={(e) => setPayAmount(e.target.value)} />
                 <Select value={payMethod} onValueChange={setPayMethod}>
                   <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-                  <SelectContent>{payMethods.map((m) => <SelectItem key={m.value} value={m.value}>{t(m.key)}</SelectItem>)}</SelectContent>
+                  <SelectContent>{payMethods.map((m) => <SelectItem key={m.value} value={m.value}>{m.key.startsWith('pms.') ? t(m.key) : m.key}</SelectItem>)}</SelectContent>
                 </Select>
                 <Button type="button" size="sm" variant="outline" className="h-8 shrink-0"
                   disabled={payBusy || !(Number(payAmount) > 0)} onClick={recordPayment}>
