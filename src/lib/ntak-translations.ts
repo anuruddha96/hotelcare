@@ -7,7 +7,7 @@ const LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk', 'ru'] as const;
 const rows: Record<string, readonly [string, string]> = {
   ...stayGuestLabels,
   'ntak.phase5.title': ["Walk-in sale","Helyszíni értékesítés"],
-  'ntak.phase5.hint': ["Record a paid sale without a guest reservation. Amounts include VAT.","Foglaláshoz nem kapcsolódó, kifizetett értékesítés rögzítése. Az összegek bruttók."],
+  'ntak.phase5.hint': ["Walk-in sales must be paid in full immediately; on-account or deferred payment is not available. Amounts include VAT.","A foglalás nélküli értékesítést azonnal, teljes összegben ki kell fizetni; halasztott fizetés nem lehetséges. Az összegek bruttók."],
   'ntak.phase5.day': ["Business day","Üzleti nap"],
   'ntak.phase5.items': ["Sale items","Értékesítési tételek"],
   'ntak.phase5.item': ["Service item","Szolgáltatási tétel"],
