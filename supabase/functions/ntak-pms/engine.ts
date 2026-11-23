@@ -10,7 +10,7 @@ import { assembleClosure, hasBlockingErrors, type AssembledClosure, type Closure
 import { computeVendegId, isValidSalt, missingIdentityFields } from "../_shared/ntak/guestId.ts";
 import { autoIfaStatus } from "../_shared/ntak/ifa.ts";
 import {
-  addDays, buildBooking, buildDaySources, bookingNumber, DEFAULT_LEDGER_CONFIG, localDate, toIso2,
+  addDays, buildBooking, buildDaySources, bookingNumber, DEFAULT_LEDGER_CONFIG, localDate, roomOnDay, toIso2,
   type LedgerConfig, type RawFolioLine, type RawPayment, type RawReservation,
 } from "../_shared/ntak/ledger.ts";
 import {
@@ -55,6 +55,8 @@ export interface Settings {
   closure_mode: "manual" | "auto";
   auto_close_time: string;
   first_closure_date: string | null;
+  backdating_min_date?: string | null;
+  allow_backdating?: boolean;
   software_change_date: string | null;
   data_start_date: string | null;
   ledger_config: Record<string, unknown>;
@@ -230,14 +232,21 @@ const unitOf = (u: UnitInfo): NtakUnit => ({ building: u.building, roomNumber: u
 // ---------------------------------------------------------------------------
 // Daily closure
 
-const RES_COLS = "id,status,check_in_date,check_out_date,actual_check_out,room_id,room_type_id,rate_per_night,total_amount,currency,adults,children,source,ota_name,pms_channel,channex_booking_id,pms_reservation_id,reservation_number,pms_group_note,pms_rate_plan_id,created_at,guest_id,hotel_id";
+const RES_COLS = "id,status,check_in_date,check_out_date,actual_check_in,actual_check_out,room_id,room_type_id,rate_per_night,total_amount,currency,adults,children,source,ota_name,pms_channel,channex_booking_id,pms_reservation_id,reservation_number,pms_group_note,pms_rate_plan_id,created_at,guest_id,hotel_id";
 
-/** Budapest calendar day as a UTC interval. */
-function dayWindow(day: string): { from: string; to: string } {
-  const probe = new Date(`${day}T12:00:00Z`);
-  const offsetHours = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour: "numeric", hour12: false }).format(probe)) - 12;
-  const from = new Date(Date.parse(`${day}T00:00:00Z`) - offsetHours * 3600000);
-  return { from: from.toISOString(), to: new Date(from.getTime() + 86400000).toISOString() };
+/** Actual Budapest calendar boundaries (23/25 hours across DST changes). */
+function budapestMidnight(day: string): string {
+  const utc = Date.parse(day + "T00:00:00Z");
+  const label = new Intl.DateTimeFormat("en", { timeZone: TZ, timeZoneName: "longOffset" })
+    .formatToParts(new Date(utc)).find((p) => p.type === "timeZoneName")?.value ?? "";
+  const parsed = /^GMT([+-])(\d{2}):(\d{2})$/.exec(label);
+  if (!parsed) throw new Error("Cannot resolve Budapest timezone offset for " + day);
+  const minutes = (Number(parsed[2]) * 60 + Number(parsed[3])) * (parsed[1] === "-" ? -1 : 1);
+  return new Date(utc - minutes * 60_000).toISOString();
+}
+
+export function dayWindow(day: string): { from: string; to: string } {
+  return { from: budapestMidnight(day), to: budapestMidnight(addDays(day, 1)) };
 }
 
 export interface ClosureBuild extends AssembledClosure { xml: string; snapshotHash: string; classification: "UJ" | "MODOSITO" }
@@ -250,13 +259,24 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
   const win = dayWindow(day);
   const current = day >= addDays(today(), -1);
 
-  const [{ data: staying }, { data: lineRows }, { data: dayPayments }] = await Promise.all([
-    db.from("reservations").select(RES_COLS).eq("hotel_id", s.hotel_id).lte("check_in_date", day).gte("check_out_date", day).in("status", ["checked_in", "checked_out"]),
+  const [
+    { data: staying, error: stayError }, { data: historical, error: historicalError },
+    { data: lineRows, error: linesError }, { data: dayPayments, error: paymentsError },
+  ] = await Promise.all([
+    db.from("reservations").select(RES_COLS).eq("hotel_id", s.hotel_id)
+      .lte("check_in_date", day).gte("check_out_date", day).in("status", ["checked_in", "checked_out"]),
+    // Actual timestamps can fall outside scheduled stay dates (one-day-early
+    // arrival / late departure). Do not lose those historical records.
+    db.from("reservations").select(RES_COLS).eq("hotel_id", s.hotel_id)
+      .lte("actual_check_in", win.to).gte("actual_check_out", win.from).eq("status", "checked_out"),
     db.from("folio_lines").select("service_date,room_id,gross_total,vat_rate,currency,status,source_type,reservation_folios!inner(reservation_id,hotel_id),service_catalog_items(category)")
       .eq("reservation_folios.hotel_id", s.hotel_id).eq("service_date", day),
     db.from("payments").select("reservation_id,amount,currency,method,status,received_at").eq("hotel_id", s.hotel_id).gte("received_at", win.from).lt("received_at", win.to),
   ]);
-  const reservations: RawReservation[] = (staying ?? []).filter((r: RawReservation) => isInNtakScope(scope, r));
+  const rows = new Map<string, RawReservation>(
+    [...(staying ?? []), ...(historical ?? [])].map((r: RawReservation) => [r.id, r]),
+  );
+  const reservations: RawReservation[] = [...rows.values()].filter((r: RawReservation) => isInNtakScope(scope, r));
   let lines: RawFolioLine[] = (lineRows ?? []).map((l: any) => ({
     reservation_id: l.reservation_folios.reservation_id, service_date: l.service_date, room_id: l.room_id, gross_total: Number(l.gross_total),
     vat_rate: l.vat_rate === null ? null : Number(l.vat_rate), currency: l.currency, status: l.status,
@@ -276,14 +296,18 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
   lines = lines.filter((l) => eligibleIds.has(l.reservation_id));
   payments = payments.filter((p) => eligibleIds.has(p.reservation_id));
   // Advance payments of today's arrivals are reported on the arrival day.
-  const arrivals = reservations.filter((r) => r.check_in_date === day).map((r) => r.id);
+  const arrivals = reservations.filter((r) => (r.actual_check_in ? localDate(r.actual_check_in, TZ) : r.check_in_date) === day).map((r) => r.id);
   if (arrivals.length) {
     const { data } = await db.from("payments").select("reservation_id,amount,currency,method,status,received_at").in("reservation_id", arrivals).lt("received_at", win.from);
     payments = [...payments, ...(data ?? [])];
   }
   const [{ data: assignments }, guestsByRes, units] = await Promise.all([
     reservations.length ? db.from("reservation_room_assignments").select("reservation_id,room_id,check_in_date,check_out_date,status").in("reservation_id", reservations.map((r) => r.id)) : { data: [] },
-    loadStayGuests(db, s.hotel_id, reservations.filter((r) => r.check_in_date <= day && day <= r.check_out_date)),
+    loadStayGuests(db, s.hotel_id, reservations.filter((r) => {
+      const arrival = r.actual_check_in ? localDate(r.actual_check_in, TZ) : r.check_in_date;
+      const departure = r.actual_check_out ? localDate(r.actual_check_out, TZ) : r.check_out_date;
+      return arrival <= day && day <= departure;
+    })),
     loadUnits(db, s.hotel_id, current),
   ]);
   const { data: companies } = await db.from("guests").select("id,company_name,tax_id").in("id", reservations.map((r) => r.guest_id).filter(Boolean));
@@ -297,7 +321,7 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     guestsFor: (r) => guestsByRes.get(r.id) ?? [],
     isCompany: (r) => !!r.guest_id && companyGuests.has(r.guest_id),
     roomsInBooking: (r) => perBooking.get(bookingNumber(r)) ?? 1,
-    label: (r) => `Room ${roomNumbers.get(r.room_id ?? "") ?? "?"} · ${r.reservation_number ?? r.id.slice(0, 8)}`,
+    label: (r) => `Room ${roomNumbers.get(roomOnDay(r, assignments ?? [], day) ?? "") ?? "?"} · ${r.reservation_number ?? r.id.slice(0, 8)}`,
   }, cfg);
 
   const classification = opts.classification ?? "UJ";
@@ -305,6 +329,11 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     day, closedAt: opts.closedAt ?? new Date(), classification, protocolId: opts.protocolId, reason: opts.reason,
     closed: opts.closed ?? false, units, ...sources, otherCharges: [], otherPayments: [],
   }, closureSettings(s));
+  if (stayError || historicalError || linesError || paymentsError) {
+    // Never send a closure missing financial rows or historical reservations.
+    const source = [stayError && "stays", historicalError && "actual stays", linesError && "folio lines", paymentsError && "payments"].filter(Boolean).join(", ");
+    assembled.checklist.push({ level: "error", code: "missing_ledger", message: `Unable to load complete historical data (${source}). Deploy PMS financial core before NTAK closure.` });
+  }
   if (!current) assembled.checklist.push({ level: "warning", code: "history", message: "Room out-of-order states are only known for today and yesterday: older days are reported with every unit available." });
   if (s.first_closure_date && day < s.first_closure_date) assembled.checklist.push({ level: "error", code: "period", message: `HotelCare reports from ${s.first_closure_date}; earlier days belong to the previous PMS.` });
   if (s.data_start_date && day < s.data_start_date) assembled.checklist.push({ level: "warning", code: "period", message: `NTAK expects data from ${s.data_start_date}.` });
@@ -483,6 +512,10 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
       // Guest data may follow shortly after check-in; give up after 7 days (events older than 1 year are never sent).
       await db.from("ntak_event_queue").update({ state: ageHours > 168 ? "failed" : "waiting_data", last_error: problem, updated_at: new Date().toISOString() }).eq("id", e.id);
       waiting++;
+      continue;
+    }
+    if (s.first_closure_date && day < s.first_closure_date) {
+      await db.from("ntak_event_queue").update({ state: "skipped", last_error: "Before HotelCare first closure date", updated_at: new Date().toISOString() }).eq("id", e.id);
       continue;
     }
     const at = e.occurred_at;

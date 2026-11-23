@@ -15,6 +15,9 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { addFolioItem, checkOutReservation, LifecycleError } from '@/lib/pmsLifecycle';
 import { formatMoney, reservationGuestLabel } from '@/lib/reservations';
 import { InvoiceDialog } from '@/components/frontdesk/InvoiceDialog';
+import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/BusinessMomentField';
+import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
+import { budapestToday } from '@/lib/businessMoment';
 import { AddChargeDialog } from '@/components/frontdesk/AddChargeDialog';
 
 interface CheckOutDialogProps {
@@ -38,6 +41,8 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
   const [payBusy, setPayBusy] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [chargeOpen, setChargeOpen] = useState(false);
+  const [paymentDay, setPaymentDay] = useState(() => budapestToday());
+  const businessMoment = useBusinessMoment(reservation.hotel_id, open);
 
   const payMethods: Array<{ value: string; key: string }> = [
     { value: 'card', key: 'pms.pay.card' },
@@ -62,7 +67,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
         reservation.id,
         `${t('pms.pay.recordPayment')} · ${methodLabel ? t(methodLabel.key) : payMethod}`,
         amount,
-        'payment',
+        'payment', paymentDay, payMethod,
       );
       setBalance(Number(result.balance_due ?? 0));
       setPayAmount('');
@@ -79,6 +84,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
     if (!open) return;
     let alive = true;
     setAckBalance(false);
+    setPaymentDay(budapestToday());
     // Fresh balance + folio total + room number so the receptionist confirms real numbers.
     (async () => {
       const [{ data: fresh }, { data: folio }] = await Promise.all([
@@ -105,12 +111,13 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
   const handleCheckOut = async () => {
     setSubmitting(true);
     try {
-      await checkOutReservation(reservation.id, ackBalance);
+      await checkOutReservation(reservation.id, ackBalance, businessMoment.occurredAt);
       toast.success(`${reservationGuestLabel(reservation)} ${t('pms.checkOut.checkedOut')}`);
       onSuccess();
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
-      toast.error(key ? t(key) : t('pms.checkOut.failedCheckOut'));
+      toast.error(key ? t(key) : (err as Error).message || t('pms.checkOut.failedCheckOut'));
+
     } finally {
       setSubmitting(false);
     }
@@ -167,6 +174,7 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
                   {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'OK'}
                 </Button>
               </div>
+              <BusinessDayField hotelId={reservation.hotel_id} value={paymentDay} onChange={setPaymentDay} />
               <button type="button" className="text-xs text-muted-foreground underline"
                 onClick={() => setPayAmount(String(balance))}>
                 {formatMoney(balance, reservation.currency)}
@@ -189,6 +197,8 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
             </div>
           )}
 
+          <BusinessMomentField control={businessMoment} />
+
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             <BedDouble className="h-3.5 w-3.5 shrink-0" /> {t('pms.co.roomWillBeDirty')}
           </p>
@@ -203,12 +213,12 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckOut}
-            disabled={submitting || (balance > 0 && !ackBalance)}
+            disabled={submitting || businessMoment.invalid || (balance > 0 && !ackBalance)}
             variant="default"
             className="gap-1"
             data-training="fd-checkout-confirm"
           >
-            <LogOut className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : t('pms.checkOut')}
+            <LogOut className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : `${t('pms.checkOut')} · ${businessMoment.display}`}
           </Button>
         </DialogFooter>
         <AddChargeDialog reservation={reservation} open={chargeOpen} onOpenChange={setChargeOpen} onAdded={(due) => setBalance(due)} />

@@ -4,6 +4,13 @@ import { pmsTranslations } from '@/lib/pms-translations';
 const LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'az', 'tl', 'uk', 'ru'] as const;
 
 const rows: Record<string, readonly [string, string]> = {
+  'pms.businessMoment.recordAnother': ['Record for another day/time', 'Másik napra/időpontra rögzítés'],
+  'pms.businessMoment.dateTime': ['Business date and time', 'Üzleti nap és időpont'],
+  'pms.businessMoment.budapest': ['Time in Budapest (Europe/Budapest)', 'Budapesti idő (Europe/Budapest)'],
+  'pms.businessMoment.invalid': ['Invalid or disallowed business time. Check the earliest permitted date.', 'Érvénytelen vagy nem engedélyezett üzleti időpont. Ellenőrizze a legkorábbi dátumot.'],
+  'pms.businessMoment.businessDay': ['Business day', 'Üzleti nap'],
+  'pms.businessMoment.noon': ['Recorded at 12:00 Budapest time on this day', 'Rögzítés ezen a napon 12:00 órakor, budapesti idő szerint'],
+  'pms.businessMoment.changeRoom': ['Change room', 'Szobacsere'],
   'ntak.recentActivity': ['Recent reporting activity', 'Legutóbbi adatszolgáltatások'],
   'ntak.refreshReports': ['Refresh', 'Frissítés'],
   'ntak.allReports': ['All reports', 'Összes jelentés'],
@@ -89,6 +96,9 @@ const rows: Record<string, readonly [string, string]> = {
   'ntak.f.closureManual': ['Manual (recommended)', 'Kézi (ajánlott)'],
   'ntak.f.closureAuto': ['Automatic', 'Automatikus'],
   'ntak.f.autoCloseTime': ['Automatic closure time', 'Automatikus zárás időpontja'],
+  'ntak.f.allowBackdating': ['Allow managers to record past business days', 'Korábbi üzleti napok rögzítése vezetőknek'],
+  'ntak.f.backdatingMinDate': ['Earliest business day allowed', 'Legkorábbi engedélyezett üzleti nap'],
+  'ntak.f.backdatingHint': ['Off by default. Earlier days are restricted by the first HotelCare closure day and minimum date.', 'Alapértelmezetten kikapcsolva. A korábbi napokat az első HotelCare-napzárás és a minimális dátum korlátozza.'],
   'ntak.f.firstClosureDate': ['First day reported by HotelCare', 'Első nap, amit a HotelCare jelent'],
   'ntak.f.softwareChangeDate': ['Last day closed by the previous PMS', 'Az előző PMS által lezárt utolsó nap'],
   'ntak.f.signatureProfile': ['Signature algorithm', 'Aláírási algoritmus'],

@@ -55,22 +55,42 @@ export async function checkInReservation(
   reservationId: string,
   roomId: string,
   override = false,
+  occurredAt: string | null = null,
 ): Promise<{ ok: boolean; room_number?: string }> {
-  return rpc("pms_check_in_reservation", {
+  return rpc("pms_check_in", {
     _reservation_id: reservationId,
     _room_id: roomId,
     _override: override,
+    _moment: occurredAt,
+    _guest_ids: null,
   });
 }
 
 export async function checkOutReservation(
   reservationId: string,
   acknowledgeBalance = false,
+  occurredAt: string | null = null,
 ): Promise<{ ok: boolean; balance_at_checkout?: number }> {
-  return rpc("pms_check_out_reservation", {
+  return rpc("pms_check_out", {
     _reservation_id: reservationId,
     _acknowledge_balance: acknowledgeBalance,
+    _moment: occurredAt,
+    _guest_ids: null,
   });
+}
+
+export async function changeRoomReservation(
+  reservationId: string, toRoomId: string, occurredAt: string | null = null,
+): Promise<{ ok: boolean; room_number?: string }> {
+  return rpc("pms_change_room", { _reservation_id: reservationId, _to_room: toRoomId, _moment: occurredAt });
+}
+
+export async function undoReservationCheckIn(reservationId: string, occurredAt: string | null = null) {
+  return rpc("pms_undo_check_in", { _reservation_id: reservationId, _moment: occurredAt });
+}
+
+export async function undoReservationCheckOut(reservationId: string, occurredAt: string | null = null) {
+  return rpc("pms_undo_check_out", { _reservation_id: reservationId, _moment: occurredAt });
 }
 
 export async function setReservationStatus(
@@ -90,12 +110,19 @@ export async function addFolioItem(
   description: string,
   amount: number,
   chargeType: string,
+  businessDay: string | null = null,
+  paymentMethod: string | null = null,
 ): Promise<{ ok: boolean; balance_due: number }> {
-  return rpc("pms_add_folio_item", {
+  if (amount < 0 && businessDay === null) return rpc("pms_add_folio_item", {
+    _reservation_id: reservationId, _description: description, _amount: amount, _charge_type: chargeType,
+  });
+  return rpc("pms_record_business_folio_item", {
     _reservation_id: reservationId,
     _description: description,
     _amount: amount,
     _charge_type: chargeType,
+    _business_day: businessDay,
+    _method: paymentMethod,
   });
 }
 

@@ -29,7 +29,7 @@ function toForm(s: NtakSettings | null): Form {
     data_reporting_id: v(s?.data_reporting_id), registered_room_count: v(s?.registered_room_count), registered_bed_count: v(s?.registered_bed_count),
     accommodation_class: s?.accommodation_class ?? 'hotel_4', region: s?.region ?? 'budapest', ifa_type: s?.ifa_type ?? 'SZAZALEKOS',
     ifa_rate: v(s?.ifa_rate ?? 4), ifa_vat: v(s?.ifa_vat ?? 0), accommodation_vat: v(s?.accommodation_vat ?? 5), closure_mode: s?.closure_mode ?? 'manual',
-    auto_close_time: (s?.auto_close_time ?? '05:00').slice(0, 5), first_closure_date: v(s?.first_closure_date), software_change_date: v(s?.software_change_date),
+    auto_close_time: (s?.auto_close_time ?? '05:00').slice(0, 5), first_closure_date: v(s?.first_closure_date), allow_backdating: !!s?.allow_backdating, backdating_min_date: v(s?.backdating_min_date), software_change_date: v(s?.software_change_date),
     signature_profile: s?.signature_profile ?? 'rsa-sha384', unknown_country_code: s?.unknown_country_code ?? 'EGYEBKULFOLDI',
     ledger_config: JSON.stringify(s?.ledger_config ?? {}, null, 2),
   };
@@ -213,10 +213,15 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged }: { hotelId:
                 {select('closure_mode', 'ntak.f.closureMode', [['manual', t('ntak.f.closureManual')], ['auto', t('ntak.f.closureAuto')]])}
                 {field('auto_close_time', 'ntak.f.autoCloseTime', { type: 'time' })}
                 {field('first_closure_date', 'ntak.f.firstClosureDate', { type: 'date' })}
+                {field('backdating_min_date', 'ntak.f.backdatingMinDate', { type: 'date' })}
                 {field('software_change_date', 'ntak.f.softwareChangeDate', { type: 'date' })}
                 {select('signature_profile', 'ntak.f.signatureProfile', ['rsa-sha384', 'rsa-sha256', 'rsa-sha512'])}
                 {select('unknown_country_code', 'ntak.f.unknownCountry', ['EGYEBKULFOLDI', 'EGYEB'])}
               </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <Checkbox checked={!!form.allow_backdating} onCheckedChange={(v) => setForm({ ...form, allow_backdating: !!v })} /> {t('ntak.f.allowBackdating')}
+              </label>
+              <p className="text-xs text-muted-foreground">{t('ntak.f.backdatingHint')}</p>
               <div>
                 <Label className="text-xs">{t('ntak.f.ledgerConfig')}</Label>
                 <Textarea className="font-mono text-[11px] h-32" value={String(form.ledger_config)} onChange={(e) => setForm({ ...form, ledger_config: e.target.value })} />

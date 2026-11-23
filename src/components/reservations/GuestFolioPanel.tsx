@@ -11,6 +11,8 @@ import { FileText, Loader2, PlusCircle, Receipt, Wallet } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { addFolioItem, LifecycleError } from '@/lib/pmsLifecycle';
 import { formatMoney } from '@/lib/reservations';
+import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
+import { budapestToday } from '@/lib/businessMoment';
 import { AddChargeDialog } from '@/components/frontdesk/AddChargeDialog';
 import { InvoiceDialog } from '@/components/frontdesk/InvoiceDialog';
 
@@ -51,6 +53,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('card');
   const [payBusy, setPayBusy] = useState(false);
+  const [paymentDay, setPaymentDay] = useState(() => budapestToday());
   const currency = String(reservation.currency ?? 'HUF');
   const closed = ['cancelled', 'no_show'].includes(String(reservation.status));
 
@@ -76,7 +79,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
     setPayBusy(true);
     try {
       const method = PAY_METHODS.find((m) => m.value === payMethod);
-      await addFolioItem(reservation.id, `${t('pms.pay.recordPayment')} · ${method ? t(method.key) : payMethod}`, amount, 'payment');
+      await addFolioItem(reservation.id, `${t('pms.pay.recordPayment')} · ${method ? t(method.key) : payMethod}`, amount, 'payment', paymentDay, payMethod);
       setPayAmount('');
       toast.success(t('pms.pay.recorded'));
       await refresh();
@@ -135,6 +138,8 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
             ))}
           </div>
         )}
+
+        {!closed && balance > 0 && <BusinessDayField hotelId={reservation.hotel_id} value={paymentDay} onChange={setPaymentDay} />}
 
         {!closed && balance > 0 && (
           <div className="flex gap-1.5" data-training="reservation-account-pay">

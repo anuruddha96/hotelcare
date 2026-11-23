@@ -19,6 +19,7 @@ import {
 import { balanceOf, formatMoney, reservationGuestLabel } from '@/lib/reservations';
 import { summarizeReservationNote } from '@/lib/previoReservationNote';
 import { GuestDetailsSection } from '@/components/frontdesk/GuestDetailsSection';
+import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/BusinessMomentField';
 import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
 import { useParams } from 'react-router-dom';
 
@@ -38,6 +39,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [override, setOverride] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [vizaMissing, setVizaMissing] = useState<string[]>([]);
+  const businessMoment = useBusinessMoment(reservation.hotel_id, open);
 
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
@@ -80,12 +82,13 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
     }
     setSubmitting(true);
     try {
-      const result = await checkInReservation(reservation.id, selectedRoom, override);
+      const result = await checkInReservation(reservation.id, selectedRoom, override, businessMoment.occurredAt);
       toast.success(`${reservationGuestLabel(reservation)} ${t('pms.checkIn.checkedIn')} · ${t('pms.res.room')} ${result.room_number ?? ''}`);
       onSuccess();
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
-      toast.error(key ? t(key) : t('pms.checkIn.failedCheckIn'));
+      toast.error(key ? t(key) : (err as Error).message || t('pms.checkIn.failedCheckIn'));
+
     } finally {
       setSubmitting(false);
     }
@@ -170,6 +173,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             </button>
           </div>
 
+          <BusinessMomentField control={businessMoment} />
+
           {(needsOverride || reservation.check_in_date !== today) && (
             <div className="flex items-start gap-2">
               <Checkbox id="override" checked={override} onCheckedChange={(c) => setOverride(!!c)} className="mt-0.5" />
@@ -186,11 +191,11 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
-            disabled={submitting || !selectedRoom || (vizaWarn && !override)}
+            disabled={submitting || businessMoment.invalid || !selectedRoom || (vizaWarn && !override)}
             className="gap-1"
             data-training="fd-checkin-confirm"
           >
-            <LogIn className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : t('pms.checkIn')}
+            <LogIn className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : `${t('pms.checkIn')} · ${businessMoment.display}`}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -390,3 +390,125 @@ Deno.test('certificate parsing, key matching and PKCS#1 keys', async () => {
   assert.ok(pkcs8.includes('BEGIN PRIVATE KEY'));
   await importSigningKey(pkcs8);
 });
+
+
+Deno.test('Phase 2 FOGL_01/FOGL_02: T02 arrival, T03 room change and T04 departure preserve idopont and validate XML', async () => {
+  // NTAK groups events by kind inside the message. Verify exact moments per
+  // booking/kind rather than relying on the order within the XML document.
+  const guest = { vendegId: vid(1), birthYear: 1980, sex: 'NO' as const, nationality: 'HU', residenceCountry: 'HU', postalCode: '1051', ifaStatus: 'KOTELES' };
+  const room101 = { building: '1', roomNumber: '101', unitType: 'STANDARD' as const, singleBeds: 0, doubleBeds: 1, extraBeds: 0 };
+  const room102 = { ...room101, roomNumber: '102' };
+  const room103 = { ...room101, roomNumber: '103' };
+  const events = [
+    { kind: 'erkezett' as const, at: '2026-11-18T13:00:00Z', bookingNo: 'FOGL_01', guests: [guest], unit: room101 },
+    { kind: 'erkezett' as const, at: '2026-11-18T13:15:00Z', bookingNo: 'FOGL_02', guests: [guest], unit: room103 },
+    { kind: 'lakoegysegetCserelt' as const, at: '2026-11-19T09:30:00Z', bookingNo: 'FOGL_01', guests: [guest], from: room101, to: room102 },
+    { kind: 'tavozott' as const, at: '2026-11-20T09:00:00Z', bookingNo: 'FOGL_01', guests: [guest], unit: room102 },
+    { kind: 'tavozott' as const, at: '2026-11-20T09:10:00Z', bookingNo: 'FOGL_02', guests: [guest], unit: room103 },
+  ];
+  const xml = buildEsemenyvezereltRequest(common(), events);
+  for (const instant of events.map((event) => event.at)) {
+    assert.ok(xml.includes(instant.replace('.000Z', 'Z')), `missing idopont for ${instant}`);
+  }
+  assert.match(xml, /FOGL_01/);
+  assert.match(xml, /FOGL_02/);
+  assert.match(xml, /lakoegysegetCserelt/);
+  await assertValid(xml);
+});
+
+Deno.test('Phase 2 historical closures follow actual arrival/departure and room assignment segments', () => {
+  const a = res({
+    id: 'FOGL_01', reservation_number: 'FOGL_01', room_id: 'r102',
+    status: 'checked_out', check_in_date: '2026-11-17', check_out_date: '2026-11-21',
+    actual_check_in: '2026-11-18T13:00:00Z', actual_check_out: '2026-11-20T09:00:00Z',
+  });
+  const b = res({
+    id: 'FOGL_02', reservation_number: 'FOGL_02', room_id: 'r103',
+    status: 'checked_out', check_in_date: '2026-11-18', check_out_date: '2026-11-21',
+    actual_check_in: '2026-11-18T13:15:00Z', actual_check_out: '2026-11-20T09:10:00Z',
+  });
+  const assignments = [
+    { reservation_id: 'FOGL_01', room_id: 'r101', check_in_date: '2026-11-18', check_out_date: '2026-11-19', status: 'completed' },
+    { reservation_id: 'FOGL_01', room_id: 'r102', check_in_date: '2026-11-19', check_out_date: '2026-11-21', status: 'completed' },
+    { reservation_id: 'FOGL_02', room_id: 'r103', check_in_date: '2026-11-18', check_out_date: '2026-11-21', status: 'completed' },
+  ];
+  const base = { reservations: [a, b], assignments, lines: [], payments: [],
+    guestsFor: () => [guest(1)], isCompany: () => false, roomsInBooking: () => 1,
+    label: (r: RawReservation) => r.id };
+  const T01 = buildDaySources({ ...base, day: '2026-11-17' }, DEFAULT_LEDGER_CONFIG);
+  assert.ok(!T01.stays.some((x) => x.bookingNo === 'FOGL_01'), 'do not report a night before actual check-in');
+  const T02 = buildDaySources({ ...base, day: '2026-11-18' }, DEFAULT_LEDGER_CONFIG);
+  assert.equal(T02.stays.find((x) => x.bookingNo === 'FOGL_01')?.roomId, 'r101');
+  assert.equal(T02.stays.find((x) => x.bookingNo === 'FOGL_02')?.roomId, 'r103');
+  const T03 = buildDaySources({ ...base, day: '2026-11-19' }, DEFAULT_LEDGER_CONFIG);
+  assert.equal(T03.stays.find((x) => x.bookingNo === 'FOGL_01')?.roomId, 'r102');
+  const T04 = buildDaySources({ ...base, day: '2026-11-20' }, DEFAULT_LEDGER_CONFIG);
+  assert.equal(T04.checkouts.find((x) => x.bookingNo === 'FOGL_01')?.roomId, 'r102');
+  assert.equal(T04.checkouts.find((x) => x.bookingNo === 'FOGL_02')?.roomId, 'r103');
+});
+
+
+Deno.test('FOGL_03 ES_06A/B: day-use check-in, room change and check-out on T02 produce valid NTAK idopont XML', async () => {
+  const T02 = '2026-11-18';
+  const dayUse = res({
+    id: 'FOGL_03', reservation_number: 'FOGL_03',
+    status: 'checked_out', check_in_date: T02, check_out_date: T02,
+    actual_check_in: '2026-11-18T08:00:00Z',
+    actual_check_out: '2026-11-18T11:00:00Z',
+    room_id: 'r102', total_amount: 28000, rate_per_night: 28000, adults: 1,
+  });
+  // Keep arrival/departure dates equal. The dated assignment extends through
+  // the business day so roomOnDay can attribute FOGL_03 to the final room.
+  const assignments = [
+    { reservation_id: 'FOGL_03', room_id: 'r101', check_in_date: T02, check_out_date: T02, status: 'cancelled' },
+    { reservation_id: 'FOGL_03', room_id: 'r102', check_in_date: T02, check_out_date: '2026-11-19', status: 'completed' },
+  ];
+  const base = {
+    reservations: [dayUse], assignments, lines: [], payments: [],
+    guestsFor: () => [guest(1)], isCompany: () => false, roomsInBooking: () => 1,
+    label: (r: RawReservation) => r.id,
+  };
+  const NZ_05 = buildDaySources({ ...base, day: T02 }, DEFAULT_LEDGER_CONFIG);
+  assert.equal(NZ_05.stays.length, 1, 'day use must appear in its same-day closure');
+  assert.equal(NZ_05.stays[0].bookingNo, 'FOGL_03');
+  assert.equal(NZ_05.stays[0].roomId, 'r102', 'the final assigned room is reported');
+  assert.equal(NZ_05.stays[0].dayUse, true, 'no overnight room-night is sold');
+  assert.equal(NZ_05.stays[0].accommodationFee, 28000);
+  assert.equal(NZ_05.checkouts.length, 0, 'day use is not a second overnight checkout');
+  const prior = buildDaySources({ ...base, day: '2026-11-17' }, DEFAULT_LEDGER_CONFIG);
+  assert.equal(prior.stays.length, 0, 'not reported on the previous day');
+
+  const g = { vendegId: vid(1), birthYear: 1980, sex: 'NO' as const, nationality: 'HU', residenceCountry: 'HU', postalCode: '1051', ifaStatus: 'KOTELES' };
+  const room101 = { building: '1', roomNumber: '101', unitType: 'STANDARD' as const, singleBeds: 0, doubleBeds: 1, extraBeds: 0 };
+  const room102 = { ...room101, roomNumber: '102' };
+  const events = [
+    { kind: 'erkezett' as const, at: '2026-11-18T08:00:00Z', bookingNo: 'FOGL_03', guests: [g], unit: room101 },
+    { kind: 'lakoegysegetCserelt' as const, at: '2026-11-18T09:30:00Z', bookingNo: 'FOGL_03', guests: [g], from: room101, to: room102 },
+    { kind: 'tavozott' as const, at: '2026-11-18T11:00:00Z', bookingNo: 'FOGL_03', guests: [g], unit: room102 },
+  ];
+  const xml = buildEsemenyvezereltRequest(common(), events);
+  assert.equal((xml.match(/<v9:idopont>/g) ?? []).length, 3);
+  for (const { at } of events) {
+    assert.ok(xml.includes('<v9:idopont>' + at + '</v9:idopont>'), 'FOGL_03 missing exact idopont ' + at);
+  }
+  assert.match(xml, /<v9:lakoegysegetCserelt>/);
+  await assertValid(xml);
+});
+
+Deno.test('Phase 2 SQL contract: day-use room conflicts, picker range and negative adjustment guard', async () => {
+  // Source assertions; actual SQL RPC tests require staging migration.
+  const migration = await Deno.readTextFile(new URL('../../../migrations/20261123185000_ntak_phase2_business_moment.sql', import.meta.url));
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.pms_room_has_conflict\(/);
+  assert.match(migration, /_to = _from THEN _from \+ 1 ELSE _to/);
+  assert.match(migration, /r\.check_in_date = r\.check_out_date AND r\.check_in_date >= _from/);
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.pms_available_rooms\(/);
+  assert.match(migration, /_to < _from THEN/);
+  assert.match(migration, /day_use := r\.check_in_date = r\.check_out_date/);
+  assert.match(migration, /day_use AND day <> r\.check_in_date/);
+  assert.match(migration, /CASE WHEN day_use THEN day \+ 1 ELSE r\.check_out_date END/);
+  assert.match(migration, /_amount=0 OR ABS\(_amount\)>100000000/);
+  assert.match(migration, /_amount < 0 AND _charge_type <> 'adjustment'/);
+  assert.match(migration, /ELSIF _charge_type='adjustment' AND _amount < 0 THEN/);
+  assert.match(migration, /INSERT INTO public\.folio_lines/);
+  assert.match(migration, /PERFORM public\.pms_finance_recalculate_reservation\(r\.id\)/);
+});

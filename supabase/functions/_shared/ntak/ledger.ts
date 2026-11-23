@@ -86,6 +86,7 @@ export interface RawReservation {
   status: string;
   check_in_date: string;
   check_out_date: string;
+  actual_check_in?: string | null;
   actual_check_out?: string | null;
   room_id: string | null;
   room_type_id?: string | null;
@@ -213,18 +214,21 @@ export function mapPayments(payments: RawPayment[], cfg: LedgerConfig, problems:
   return [...byType.entries()].map(([type, amount]) => ({ amount, type }));
 }
 
-/** Effective departure: early check-out shortens the stay. */
+/** A recorded actual departure, whether early or late, governs historical closings. */
 export function effectiveDeparture(r: RawReservation, tz: string): string {
   if (r.status === 'checked_out' && r.actual_check_out) {
     const actual = localDate(r.actual_check_out, tz);
-    if (actual < r.check_out_date && actual >= r.check_in_date) return actual;
+    const arrival = r.actual_check_in ? localDate(r.actual_check_in, tz) : r.check_in_date;
+    if (actual >= arrival) return actual;
   }
   return r.check_out_date;
 }
 
 export function roomOnDay(r: RawReservation, assignments: RawAssignment[], day: string): string | null {
-  const a = assignments.find((x) => x.reservation_id === r.id && x.status !== 'cancelled' && x.check_in_date <= day && day < x.check_out_date);
-  return a?.room_id ?? r.room_id;
+  const segments = assignments.filter((x) => x.reservation_id === r.id);
+  const a = segments.find((x) => x.status !== 'cancelled' && x.check_in_date <= day && day < x.check_out_date);
+  // Never use the current room for a historic day with recorded assignments.
+  return a?.room_id ?? (segments.length ? null : r.room_id);
 }
 
 export function nightlyFee(r: RawReservation, day: string, lines: RawFolioLine[], cfg: LedgerConfig, problems: string[]): number | null {
@@ -277,7 +281,7 @@ export function buildDaySources(input: DayInputs, cfg: LedgerConfig): DaySources
   const out: DaySources = { stays: [], checkouts: [], postStayCharges: [], postStayPayments: [] };
   for (const r of input.reservations) {
     if (!STAYED.has(r.status)) continue;
-    const arrival = r.check_in_date;
+    const arrival = r.actual_check_in ? localDate(r.actual_check_in, cfg.timeZone) : r.check_in_date;
     const departure = effectiveDeparture(r, cfg.timeZone);
     const dayUse = arrival === departure;
     const problems: string[] = [];

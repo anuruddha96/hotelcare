@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Loader2, PlusCircle } from 'lucide-react';
+import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
+import { budapestToday } from '@/lib/businessMoment';
 import { useTranslation } from '@/hooks/useTranslation';
 import { addFolioItem, LifecycleError } from '@/lib/pmsLifecycle';
 import { formatMoney, reservationGuestLabel } from '@/lib/reservations';
@@ -54,7 +56,7 @@ const OPTIONS: ChargeOption[] = [
 ];
 
 interface AddChargeDialogProps {
-  reservation: { id: string; currency?: string | null } & StayLike & Record<string, unknown>;
+  reservation: { id: string; hotel_id?: string | null; currency?: string | null } & StayLike & Record<string, unknown>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAdded?: (balanceDue: number) => void;
@@ -67,6 +69,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded }: Ad
   const [unitPrice, setUnitPrice] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [businessDay, setBusinessDay] = useState(() => budapestToday());
 
   const total = useMemo(() => {
     const q = Number(qty);
@@ -79,7 +82,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded }: Ad
     setQty(String(option.qty ? option.qty(reservation) : 1));
   };
 
-  const reset = () => { setChoice(null); setQty('1'); setUnitPrice(''); setNote(''); };
+  const reset = () => { setChoice(null); setQty('1'); setUnitPrice(''); setNote(''); setBusinessDay(budapestToday()); };
 
   const save = async () => {
     if (!choice || !(total > 0)) return;
@@ -91,7 +94,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded }: Ad
         q !== 1 ? `${label} × ${q}` : label,
         note.trim() ? `— ${note.trim()}` : '',
       ].filter(Boolean).join(' ').slice(0, 200);
-      const result = await addFolioItem(reservation.id, description, total, choice.chargeType);
+      const result = await addFolioItem(reservation.id, description, total, choice.chargeType, businessDay);
       toast.success(`${t('pms.charge.added')} · ${formatMoney(total, reservation.currency)}`);
       onAdded?.(Number(result.balance_due ?? 0));
       reset();
@@ -145,6 +148,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded }: Ad
               <Label className="text-xs">{t('pms.charge.note')}</Label>
               <Input className="h-9" value={note} maxLength={120} onChange={(e) => setNote(e.target.value)} />
             </div>
+            <BusinessDayField hotelId={reservation.hotel_id} value={businessDay} onChange={setBusinessDay} />
             <p className="text-sm text-right">{t('pms.inv.total')}: <span className="font-semibold">{formatMoney(total, reservation.currency)}</span></p>
           </div>
         )}
