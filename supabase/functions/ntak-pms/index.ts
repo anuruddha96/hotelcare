@@ -132,6 +132,8 @@ Deno.serve(async (req) => {
 
       case "seed_units": {
         if (!canManage) return forbidden();
+        // Do not accidentally profile the 15 unrelated Channex rooms in a scoped certification hotel.
+        if (settings?.unit_scope === "profiled_only") return json({ ok: false, error: "Automatic profiling is disabled in profiled-only NTAK mode. Configure approved rooms individually." }, 400);
         const rooms = await hotelRooms(db, hotelId);
         const { data: existing } = await db.from("ntak_unit_profiles").select("room_id").eq("hotel_id", hotelId);
         const have = new Set((existing ?? []).map((e: any) => e.room_id));
