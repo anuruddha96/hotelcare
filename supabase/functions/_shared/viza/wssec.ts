@@ -46,7 +46,7 @@ export function pemToDer(pem: string): Uint8Array {
 export async function importRsaKey(pemPkcs8: string, hash: 'SHA-256' | 'SHA-384'): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'pkcs8',
-    pemToDer(pemPkcs8),
+    pemToDer(pemPkcs8) as BufferSource,
     { name: 'RSASSA-PKCS1-v1_5', hash },
     false,
     ['sign'],

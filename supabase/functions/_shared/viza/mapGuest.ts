@@ -14,6 +14,8 @@ import type { VizaGuestFields } from './messages.ts';
 export interface GuestRowForViza {
   first_name?: string | null;
   last_name?: string | null;
+  birth_last_name?: string | null;
+  birth_first_name?: string | null;
   date_of_birth?: string | null;
   birth_place?: string | null;
   mother_name?: string | null;
@@ -56,6 +58,8 @@ export function guestToVizaGroups(guest: GuestRowForViza): { scanned: VizaGuestF
   const current: VizaGuestFields = {
     csaladnev: norm(guest.last_name) || null,
     utonev: norm(guest.first_name) || null,
+    szuletesiCsaladnev: norm(guest.birth_last_name) || null,
+    szuletesiUtonev: norm(guest.birth_first_name) || null,
     szuletesiDatum: norm(guest.date_of_birth) || null,
     szuletesiHely: norm(guest.birth_place) || null,
     anyjaCsaladnev: mother.csalad,

@@ -24,6 +24,9 @@ export interface GuestVizaRow {
   id: string;
   first_name: string;
   last_name: string;
+  birth_last_name: string | null;
+  birth_first_name: string | null;
+  mother_name: string | null;
   nationality: string | null;
   date_of_birth: string | null;
   birth_place: string | null;
@@ -31,7 +34,13 @@ export interface GuestVizaRow {
   id_document_type: string | null;
   id_document_number: string | null;
   visa_number: string | null;
+  entry_date: string | null;
+  entry_place: string | null;
 }
+
+const BASE_COLUMNS = 'id, first_name, last_name, nationality, date_of_birth, birth_place, gender, id_document_type, id_document_number, visa_number, mother_name';
+// Added for VIZA (birth name, entry into Hungary); read separately so the form keeps working until the migration is applied.
+const EXTRA_COLUMNS = 'birth_last_name, birth_first_name, entry_date, entry_place';
 
 const REQUIRED: Array<keyof GuestVizaRow> = [
   'nationality', 'date_of_birth', 'birth_place', 'gender', 'id_document_type', 'id_document_number',
@@ -55,18 +64,23 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   const [dirty, setDirty] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [pendingScan, setPendingScan] = useState<VizaDocumentScan | null>(null);
+  const [hasExtraColumns, setHasExtraColumns] = useState(false);
 
   useEffect(() => {
     if (!guestId) { setGuest(null); onCompletenessChange?.(vizaMissingFields(null)); return; }
     let alive = true;
     setLoading(true);
     (async () => {
-      const { data } = await supabase.from('guests')
-        .select('id, first_name, last_name, nationality, date_of_birth, birth_place, gender, id_document_type, id_document_number, visa_number')
-        .eq('id', guestId).maybeSingle();
+      const guests = supabase.from('guests') as never as {
+        select: (columns: string) => { eq: (column: string, value: string) => { maybeSingle: () => Promise<{ data: Record<string, unknown> | null; error: unknown }> } };
+      };
+      let { data, error } = await guests.select(`${BASE_COLUMNS}, ${EXTRA_COLUMNS}`).eq('id', guestId).maybeSingle();
+      const extended = !error;
+      if (error) ({ data, error } = await guests.select(BASE_COLUMNS).eq('id', guestId).maybeSingle());
       if (!alive) return;
-      const row = (data ?? null) as GuestVizaRow | null;
+      const row = (data ? { birth_last_name: null, birth_first_name: null, entry_date: null, entry_place: null, ...data } : null) as GuestVizaRow | null;
       setGuest(row);
+      setHasExtraColumns(extended);
       setDirty(false);
       onCompletenessChange?.(vizaMissingFields(row));
       setLoading(false);
@@ -77,6 +91,12 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
 
   const set = (field: keyof GuestVizaRow, value: string) => {
     setGuest((g) => (g ? { ...g, [field]: value || null } : g));
+    setDirty(true);
+  };
+
+  // Names are required columns: keep the text as typed, never null.
+  const setName = (field: 'first_name' | 'last_name', value: string) => {
+    setGuest((g) => (g ? { ...g, [field]: value } : g));
     setDirty(true);
   };
 
@@ -108,7 +128,11 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
       nationality: guest.nationality, date_of_birth: guest.date_of_birth || null,
       birth_place: guest.birth_place, gender: guest.gender,
       id_document_type: guest.id_document_type, id_document_number: guest.id_document_number,
-      visa_number: guest.visa_number,
+      visa_number: guest.visa_number, mother_name: guest.mother_name,
+      ...(hasExtraColumns ? {
+        birth_last_name: guest.birth_last_name, birth_first_name: guest.birth_first_name,
+        entry_date: guest.entry_date || null, entry_place: guest.entry_place,
+      } : {}),
       ...(pendingScan ? { document_scan: pendingScan } : {}),
     };
     // Generated types may lag behind the latest migration for the new columns.
@@ -151,6 +175,30 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
           )}
           <div className="grid grid-cols-2 gap-2.5">
             <div>
+              <Label className="text-xs">{t('pms.guest.familyName')}</Label>
+              <Input className="h-8" value={guest.last_name ?? ''} onChange={(e) => setName('last_name', e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">{t('pms.guest.givenName')}</Label>
+              <Input className="h-8" value={guest.first_name ?? ''} onChange={(e) => setName('first_name', e.target.value)} />
+            </div>
+            {hasExtraColumns && (
+              <>
+                <div>
+                  <Label className="text-xs">{t('pms.guest.birthFamilyName')}</Label>
+                  <Input className="h-8" value={guest.birth_last_name ?? ''} onChange={(e) => set('birth_last_name', e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">{t('pms.guest.birthGivenName')}</Label>
+                  <Input className="h-8" value={guest.birth_first_name ?? ''} onChange={(e) => set('birth_first_name', e.target.value)} />
+                </div>
+              </>
+            )}
+            <div className="col-span-2">
+              <Label className="text-xs">{t('pms.guest.motherName')}</Label>
+              <Input className="h-8" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
+            </div>
+            <div>
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>
               <Input className="h-8" value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value)} placeholder="HU / DE / US…" />
             </div>
@@ -192,6 +240,18 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
               <Label className="text-xs">{t('pms.guest.visaNumber')}</Label>
               <Input className="h-8" value={guest.visa_number ?? ''} onChange={(e) => set('visa_number', e.target.value)} />
             </div>
+            {hasExtraColumns && (
+              <>
+                <div>
+                  <Label className="text-xs">{t('pms.guest.entryDate')}</Label>
+                  <Input className="h-8" type="date" value={guest.entry_date ?? ''} onChange={(e) => set('entry_date', e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">{t('pms.guest.entryPlace')}</Label>
+                  <Input className="h-8" value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
+                </div>
+              </>
+            )}
           </div>
           <Button type="button" size="sm" variant="outline" className="h-8" disabled={!dirty || saving} onClick={save}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t('pms.guest.save')}

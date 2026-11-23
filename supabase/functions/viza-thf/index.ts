@@ -1,27 +1,31 @@
 /**
  * viza-thf — Hungarian VIZA guest-data reporting through the THF module.
  *
- * Secrets (never reach a browser):
- *   VIZA_NTAK_CLIENT_CERT_PEM  NTAK client certificate (TLS + WS-Security token)
- *   VIZA_NTAK_CLIENT_KEY_PEM   its private key (PKCS8 PEM)
- *   VIZA_NTAK_SIGN_CERT_PEM    hotel signing certificate (validation message);
- *                              defaults to the client certificate
- *   VIZA_NTAK_SIGN_KEY_PEM     its key; defaults to the client key
+ * Certificates (never reach a browser): the THF is addressed with the same
+ * NTAK certificate and the same WS-Security header as the NTAK endpoint
+ * (guide 3.1), so each hotel's certificate and key are read from Vault, where
+ * the NTAK module keeps them (ntak_get_secret). Function secrets are only a
+ * fallback for a hotel without its own certificate:
+ *   VIZA_NTAK_CLIENT_CERT_PEM / VIZA_NTAK_CLIENT_KEY_PEM
+ * Fixed-IP egress: VIZA_EGRESS_PROXY_URL/_USER/_PASSWORD, else the NTAK proxy.
  *
  * Actions:
  *   worker (x-worker-secret, cron):  status poll + drain arrival/departure queues
  *   status (JWT, hotel staff):       settings + counters + recent events for the UI
  *   save_settings (JWT, managers):   per-hotel VIZA identity and enable switch
  *   retry (JWT, managers):           requeue a failed event
+ *   unsent_list (JWT, managers):     messages the THF holds as unsent / rejected
  *
  * The THF being unreachable must never block the front desk (spec 4): events
  * stay queued and the worker keeps retrying; counters surface in Reception.
  */
 import { authorizeHotelCaller, hasRole, json, MANAGE_ROLES, serviceDb, VIEW_ROLES, workerAuthorized, type Caller } from "../_shared/channex/http.ts";
-import { buildArrivalBody, buildDepartureBody, buildStatusBody, readXmlTag, readXmlTags, vizaTimestamp, type VizaArrivalGuest } from "../_shared/viza/messages.ts";
+import { buildArrivalBody, buildDepartureBody, buildStatusBody, buildUnsentListBody, parseUnsentList, readXmlTag, readXmlTags, vizaTimestamp, type VizaArrivalGuest } from "../_shared/viza/messages.ts";
 import { postSoap } from "../_shared/ntak/transport.ts";
+import { importSigningKey, signEnvelope } from "../_shared/ntak/wssec.ts";
+import { firstCertificatePem, normalizePrivateKeyPem } from "../_shared/ntak/x509.ts";
 import { guestToVizaGroups } from "../_shared/viza/mapGuest.ts";
-import { b64encode, buildSignedEnvelope, importRsaKey, pemToDer, signEllenorzoString } from "../_shared/viza/wssec.ts";
+import { b64encode, importRsaKey, pemToDer, signEllenorzoString } from "../_shared/viza/wssec.ts";
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -29,26 +33,46 @@ type Db = any;
 const BATCH = 10; // spec: max 10 guests per message
 const MAX_ATTEMPTS = 30;
 
-function secrets() {
-  const clientCert = Deno.env.get("VIZA_NTAK_CLIENT_CERT_PEM") ?? "";
-  const clientKey = Deno.env.get("VIZA_NTAK_CLIENT_KEY_PEM") ?? "";
+interface Credentials { certPem: string; keyPem: string; source: "vault" | "function-secret" }
+
+/** The hotel's NTAK certificate from Vault, else the function-level fallback. */
+async function hotelCredentials(db: Db, hotelId: string): Promise<Credentials | null> {
+  const [cert, key] = await Promise.all([
+    db.rpc("ntak_get_secret", { _hotel_id: hotelId, _kind: "cert" }),
+    db.rpc("ntak_get_secret", { _hotel_id: hotelId, _kind: "key" }),
+  ]);
+  if (cert.data && key.data) return { certPem: String(cert.data), keyPem: String(key.data), source: "vault" };
+  const envCert = firstCertificatePem(Deno.env.get("VIZA_NTAK_CLIENT_CERT_PEM") ?? "");
+  const envKey = Deno.env.get("VIZA_NTAK_CLIENT_KEY_PEM") ?? "";
+  if (envCert && envKey) return { certPem: envCert, keyPem: normalizePrivateKeyPem(envKey), source: "function-secret" };
+  return null;
+}
+
+interface Signer { creds: Credentials; envelopeKey: CryptoKey; validationKey: CryptoKey; certB64: string }
+
+async function signerFor(creds: Credentials): Promise<Signer> {
   return {
-    clientCert,
-    clientKey,
-    signCert: Deno.env.get("VIZA_NTAK_SIGN_CERT_PEM") || clientCert,
-    signKey: Deno.env.get("VIZA_NTAK_SIGN_KEY_PEM") || clientKey,
-    configured: !!(clientCert && clientKey),
+    creds,
+    // Same header as NTAK: rsa-sha384 over Body + Timestamp (accepted by the NTAK test endpoint).
+    envelopeKey: await importSigningKey(creds.keyPem, "rsa-sha384"),
+    // Accommodation validation message: SHA-256 + RSA (guide 3.2).
+    validationKey: await importRsaKey(normalizePrivateKeyPem(creds.keyPem), "SHA-256"),
+    certB64: b64encode(pemToDer(creds.certPem)),
   };
 }
 
-async function callThf(url: string, envelope: string, credentials: ReturnType<typeof secrets>) {
+const env = (name: string) => Deno.env.get(name) || null;
+
+async function callThf(url: string, bodyXml: string, signer: Signer) {
+  const envelope = await signEnvelope({ requestXml: bodyXml, certPem: signer.creds.certPem, key: signer.envelopeKey, profile: "rsa-sha384" });
+  const ownProxy = env("VIZA_EGRESS_PROXY_URL");
   const result = await postSoap(envelope, {
-    url, certPem: credentials.clientCert, keyPem: credentials.clientKey,
-    proxyUrl: Deno.env.get("VIZA_EGRESS_PROXY_URL"),
-    proxyUser: Deno.env.get("VIZA_EGRESS_PROXY_USER"),
-    proxyPassword: Deno.env.get("VIZA_EGRESS_PROXY_PASSWORD"),
+    url, certPem: signer.creds.certPem, keyPem: signer.creds.keyPem,
+    proxyUrl: ownProxy ?? env("NTAK_EGRESS_PROXY_URL"),
+    proxyUser: ownProxy ? env("VIZA_EGRESS_PROXY_USER") : env("NTAK_EGRESS_PROXY_USER"),
+    proxyPassword: ownProxy ? env("VIZA_EGRESS_PROXY_PASSWORD") : env("NTAK_EGRESS_PROXY_PASSWORD"),
   });
-  if (result.error) throw new Error(result.error);
+  if (result.error && !result.body) throw new Error(result.error);
   return result;
 }
 
@@ -57,6 +81,9 @@ type Settings = {
   adatszolgaltatasi_azonosito: string | null; szallas_nev: string | null;
   szolgaltato_adoszam: string | null; szolgaltato_nev: string | null;
 };
+
+type GuestExtras = { visa_number?: string | null; entry_date?: string | null; entry_place?: string | null };
+const text = (v: unknown): string | null => { const t = String(v ?? "").trim(); return t || null; };
 
 const hotelBlock = (cfg: Settings) => ({
   adatszolgaltatasiAzonosito: String(cfg.adatszolgaltatasi_azonosito),
@@ -100,29 +127,32 @@ async function markResult(db: Db, ids: string[], kind: "arrival" | "departure", 
 
 async function runWorker(db: Db): Promise<Record<string, unknown>> {
   const report: Record<string, unknown> = {};
-  const sec = secrets();
-  if (!sec.configured) return { skipped: "VIZA certificates are not configured yet (VIZA_NTAK_CLIENT_CERT_PEM / _KEY_PEM)" };
-  const clientKey = await importRsaKey(sec.clientKey, "SHA-384");
-  const signKey = await importRsaKey(sec.signKey, "SHA-256");
-  const signCertB64 = b64encode(pemToDer(sec.signCert));
-
   const { data: hotels } = await db.from("viza_settings").select("*").eq("enabled", true)
     .not("adatszolgaltatasi_azonosito", "is", null);
   for (const cfg of (hotels ?? []) as Settings[]) {
     const line: Record<string, unknown> = {};
     report[cfg.hotel_id] = line;
     try {
+      const creds = await hotelCredentials(db, cfg.hotel_id);
+      if (!creds) {
+        line.skipped = "no NTAK certificate for this hotel";
+        await db.from("viza_settings").update({ last_error: "No NTAK certificate installed for this hotel", updated_at: new Date().toISOString() }).eq("hotel_id", cfg.hotel_id);
+        continue;
+      }
+      const signer = await signerFor(creds);
+
       // 1. Status poll (spec 4.1) — counters must reach the UI.
-      const statusEnv = await buildSignedEnvelope({ bodyXml: buildStatusBody(), clientCertPem: sec.clientCert, clientKey });
-      const statusRes = await callThf(cfg.thf_url, statusEnv, sec);
+      const statusRes = await callThf(cfg.thf_url, buildStatusBody(), signer);
       const code = readXmlTag(statusRes.body, "allapotKod");
-      line.status = code ?? `HTTP ${statusRes.status}`;
+      const statusProblem = code ? null : `Status call failed: HTTP ${statusRes.status} ${readXmlTag(statusRes.body, "faultstring") ?? ""}`.trim().slice(0, 300);
+      line.status = code ?? statusProblem;
+      line.thf_time = readXmlTag(statusRes.body, "idoPecset");
       await db.from("viza_settings").update({
         last_status_code: code ?? `HTTP ${statusRes.status}`,
         last_status_at: new Date().toISOString(),
         unsent_count: Number(readXmlTag(statusRes.body, "bekuldetlenUzenetekSzama") ?? 0),
         failed_count: Number(readXmlTag(statusRes.body, "hibasUzenetekSzama") ?? 0),
-        last_error: code ? null : `Status call failed: HTTP ${statusRes.status}`,
+        last_error: statusProblem,
         updated_at: new Date().toISOString(),
       }).eq("hotel_id", cfg.hotel_id);
 
@@ -134,7 +164,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
       if (arrivals?.length) {
         const guestIds = arrivals.map((a: { guest_id: string | null }) => a.guest_id).filter(Boolean);
         const { data: guestRows } = guestIds.length
-          ? await db.from("guests").select("id, first_name, last_name, date_of_birth, birth_place, mother_name, gender, nationality, id_document_type, id_document_number, visa_number, document_scan").in("id", guestIds)
+          ? await db.from("guests").select("id, first_name, last_name, birth_last_name, birth_first_name, date_of_birth, birth_place, mother_name, gender, nationality, id_document_type, id_document_number, visa_number, entry_date, entry_place, document_scan").in("id", guestIds)
           : { data: [] };
         const guestById = new Map((guestRows ?? []).map((g: { id: string }) => [g.id, g]));
         const vizaGuests: VizaArrivalGuest[] = arrivals.map((a: Record<string, unknown>) => {
@@ -146,15 +176,16 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
             tavozasVarhatoDatuma: String(a.tavozas_varhato_datuma),
             scanned: groups.scanned,
             manual: groups.manual,
-            vizumEngedelySzam: (guest as { visa_number?: string } | null)?.visa_number ?? null,
+            vizumEngedelySzam: text((guest as GuestExtras | null)?.visa_number),
+            beutazasDatuma: text((guest as GuestExtras | null)?.entry_date),
+            beutazasHelye: text((guest as GuestExtras | null)?.entry_place),
           };
         });
         const bejelentes = vizaTimestamp(new Date());
-        const draft = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signCertB64 }, vizaGuests);
-        const alairas = await signEllenorzoString(draft.ellenorzoString, signKey);
-        const { xml } = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signCertB64 }, vizaGuests);
-        const envelope = await buildSignedEnvelope({ bodyXml: xml, clientCertPem: sec.clientCert, clientKey });
-        const res = await callThf(cfg.thf_url, envelope, sec);
+        const draft = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, vizaGuests);
+        const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
+        const { xml } = buildArrivalBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, vizaGuests);
+        const res = await callThf(cfg.thf_url, xml, signer);
         line.arrivals = { sent: arrivals.length, http: res.status };
         await markResult(db, arrivals.map((a: { id: string }) => a.id), "arrival", res.status < 500 ? res.body : null, res.status >= 500 ? `HTTP ${res.status}` : null);
       }
@@ -170,11 +201,10 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
           erkezesAzonosito: String(d.erkezes_azonosito),
           tavozasIdeje: vizaTimestamp(new Date(String(d.tavozas_ideje))),
         }));
-        const draft = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signCertB64 }, guests);
-        const alairas = await signEllenorzoString(draft.ellenorzoString, signKey);
-        const { xml } = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signCertB64 }, guests);
-        const envelope = await buildSignedEnvelope({ bodyXml: xml, clientCertPem: sec.clientCert, clientKey });
-        const res = await callThf(cfg.thf_url, envelope, sec);
+        const draft = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas: "", alairoTanusitvany: signer.certB64 }, guests);
+        const alairas = await signEllenorzoString(draft.ellenorzoString, signer.validationKey);
+        const { xml } = buildDepartureBody({ uzenetAzonosito: crypto.randomUUID(), hotel: hotelBlock(cfg), bejelentesIdopontja: bejelentes, alairas, alairoTanusitvany: signer.certB64 }, guests);
+        const res = await callThf(cfg.thf_url, xml, signer);
         line.departures = { sent: departures.length, http: res.status };
         await markResult(db, departures.map((d: { id: string }) => d.id), "departure", res.status < 500 ? res.body : null, res.status >= 500 ? `HTTP ${res.status}` : null);
       }
@@ -214,7 +244,7 @@ Deno.serve(async (req) => {
       const { count: queued } = await db.from("viza_guest_events")
         .select("id", { count: "exact", head: true })
         .eq("hotel_id", hotelId).or("arrival_state.in.(queued,failed),departure_state.in.(queued,failed)");
-      return json({ ok: true, configured: secrets().configured, settings: settings ?? null, queued: queued ?? 0, events: events ?? [], can_manage: hasRole(caller, MANAGE_ROLES) });
+      return json({ ok: true, configured: !!(await hotelCredentials(db, hotelId)), settings: settings ?? null, queued: queued ?? 0, events: events ?? [], can_manage: hasRole(caller, MANAGE_ROLES) });
     }
     case "save_settings": {
       if (!hasRole(caller, MANAGE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
@@ -241,6 +271,24 @@ Deno.serve(async (req) => {
         .eq("hotel_id", hotelId).eq("id", String(payload.event_id ?? ""));
       if (error) return json({ ok: false, error: error.message }, 400);
       return json({ ok: true });
+    }
+    case "unsent_list": {
+      if (!hasRole(caller, MANAGE_ROLES)) return json({ ok: false, error: "Forbidden" }, 403);
+      const { data: cfg } = await db.from("viza_settings").select("*").eq("hotel_id", hotelId).maybeSingle();
+      if (!cfg) return json({ ok: false, error: "VIZA is not set up for this hotel" }, 400);
+      const creds = await hotelCredentials(db, hotelId);
+      if (!creds) return json({ ok: false, error: "No NTAK certificate installed for this hotel" }, 400);
+      try {
+        const signer = await signerFor(creds);
+        const lists: Record<string, unknown> = {};
+        for (const kind of ["NEMBEKULDOTT", "HIBAS"] as const) {
+          const res = await callThf((cfg as Settings).thf_url, buildUnsentListBody(kind), signer);
+          lists[kind] = parseUnsentList(res.body);
+        }
+        return json({ ok: true, lists });
+      } catch (err) {
+        return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 502);
+      }
     }
     default:
       return json({ ok: false, error: `Unknown action: ${action}` }, 400);

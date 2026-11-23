@@ -195,7 +195,7 @@ export const buildStatusBody = (): string =>
   '<v1:allapotLekerdezesRequest xmlns:v1="http://vizainfo.hu/thf/v1"></v1:allapotLekerdezesRequest>';
 
 export const buildUnsentListBody = (kind: 'NEMBEKULDOTT' | 'HIBAS'): string =>
-  `<v1:bekuldetlenAdatListaRequest xmlns:v1="http://vizainfo.hu/thf/v1"><v1:tipus>${kind}</v1:tipus></v1:bekuldetlenAdatListaRequest>`;
+  `<v1:bekuldetlenAdatListaRequest xmlns:v1="http://vizainfo.hu/thf/v1"><v1:bekuldetlenAdatTipus>${kind}</v1:bekuldetlenAdatTipus></v1:bekuldetlenAdatListaRequest>`;
 
 /** ISO 8601 with milliseconds and numeric zone, as every spec example shows. */
 export function vizaTimestamp(date: Date, timeZone = 'Europe/Budapest'): string {
@@ -227,4 +227,25 @@ export function readXmlTags(xml: string, tagName: string): string[] {
   const re = new RegExp(`<(?:[A-Za-z0-9]+:)?${tagName}[^>]*>([\\s\\S]*?)</(?:[A-Za-z0-9]+:)?${tagName}>`, 'g');
   for (let m = re.exec(xml); m; m = re.exec(xml)) out.push(m[1].trim());
   return out;
+}
+
+export interface UnsentListResult {
+  eredmenyKod: string | null;
+  fault: string | null;
+  items: Array<Record<string, string>>;
+}
+
+/** bekuldetlenAdatListaResponse: result code plus 0..n entries, every child element kept by name. */
+export function parseUnsentList(xml: string): UnsentListResult {
+  // Exact element name: readXmlTags would also match the bekuldetlenAdatListaResponse root.
+  const entries: string[] = [];
+  const entryRe = /<(?:[A-Za-z0-9]+:)?bekuldetlenAdat(?:\s[^>]*)?>([\s\S]*?)<\/(?:[A-Za-z0-9]+:)?bekuldetlenAdat>/g;
+  for (let m = entryRe.exec(xml); m; m = entryRe.exec(xml)) entries.push(m[1]);
+  const items = entries.map((entry) => {
+    const row: Record<string, string> = {};
+    const re = /<(?:[A-Za-z0-9]+:)?([A-Za-z0-9]+)[^>]*>([^<]*)<\/(?:[A-Za-z0-9]+:)?\1>/g;
+    for (let m = re.exec(entry); m; m = re.exec(entry)) row[m[1]] = m[2].trim();
+    return row;
+  });
+  return { eredmenyKod: readXmlTag(xml, 'eredmenyKod'), fault: readXmlTag(xml, 'faultstring'), items };
 }
