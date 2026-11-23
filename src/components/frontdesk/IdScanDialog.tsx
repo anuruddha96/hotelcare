@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
+import { snapshotFrame } from '@/lib/idScan/frameCapture';
 import {
   fetchBridgeScan, isLoopbackUrl, loadScannerSettings, saveScannerSettings, wedgeInputLooksComplete, wedgeInputToMrzText,
   type ScannerSettings, type ScannerSource,
@@ -38,8 +39,8 @@ interface IdScanDialogProps {
 type Phase = 'camera' | 'reading' | 'review' | 'failed';
 
 /** Grayscale + contrast stretch + upscale: OCR reads MRZ much better this way. */
-function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'full'): HTMLCanvasElement {
-  const top = band === 'bottom' ? Math.floor(height * 0.58) : 0;
+function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'lower' | 'full'): HTMLCanvasElement {
+  const top = band === 'bottom' ? Math.floor(height * 0.58) : band === 'lower' ? Math.floor(height * 0.3) : 0;
   const cropH = height - top;
   const scale = Math.min(3, Math.max(1, 1800 / width));
   const canvas = document.createElement('canvas');
@@ -101,7 +102,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const scanRunRef = useRef(0);
+  const cameraSessionRef = useRef(0);
   const [phase, setPhase] = useState<Phase>('camera');
   const [cameraOk, setCameraOk] = useState<boolean | null>(null);
   const [result, setResult] = useState<MrzReadResult | null>(null);
@@ -122,11 +124,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   };
 
   const stopCamera = useCallback(() => {
+    cameraSessionRef.current += 1; // Invalidate a pending iPhone permission request.
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }, []);
 
   const startCamera = useCallback(async () => {
+    const request = ++cameraSessionRef.current;
     setCameraOk(null);
     if (!navigator.mediaDevices?.getUserMedia) { setCameraOk(false); return; }
     try {
@@ -134,28 +138,48 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => undefined);
+      // getUserMedia may resolve after the dialog was closed or another source
+      // selected. Never leave an iPhone camera running in that case.
+      if (cameraSessionRef.current !== request || !videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
       }
-      setCameraOk(true);
+      streamRef.current = stream;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      if (cameraSessionRef.current === request) setCameraOk(true);
     } catch {
-      setCameraOk(false);
+      if (cameraSessionRef.current === request) {
+        stopCamera();
+        setCameraOk(false);
+      }
     }
-  }, []);
+  }, [stopCamera]);
 
   useEffect(() => {
-    if (!open) { stopCamera(); return; }
+    if (!open) { scanRunRef.current += 1; stopCamera(); return; }
     setPhase('camera');
     setResult(null);
     setTyped('');
     setFailReason(null);
-    if (source === 'camera') void startCamera();
-    else stopCamera();
-    if (source === 'wedge') setTimeout(() => wedgeRef.current?.focus(), 50);
+    if (source !== 'camera') stopCamera();
     return stopCamera;
-  }, [open, source, startCamera, stopCamera]);
+  }, [open, source, stopCamera]);
+
+  // Wait for the camera-phase video element to be in the DOM before asking
+  // Safari for a stream. A previously failed dialog may reopen without a
+  // video element until the phase reset has rendered.
+  useEffect(() => {
+    if (!open || source !== 'camera' || phase !== 'camera') return;
+    void startCamera();
+    return stopCamera;
+  }, [open, source, phase, startCamera, stopCamera]);
+
+  useEffect(() => {
+    if (!open || source !== 'wedge' || phase !== 'camera') return;
+    const timer = setTimeout(() => wedgeRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
+  }, [open, source, phase]);
 
   // A reader types the whole code zone within a fraction of a second: read it
   // as soon as it is complete, without the receptionist pressing anything.
@@ -199,72 +223,99 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   };
 
   const readFrom = async (source: CanvasImageSource, width: number, height: number) => {
+    const run = ++scanRunRef.current;
+    let frame: HTMLCanvasElement;
+    // Capture synchronously while the live video/image is still available.
+    // In particular, do not await the OCR worker before copying the video.
+    try {
+      frame = snapshotFrame(source, width, height);
+    } catch {
+      setFailReason('ocr_unavailable');
+      setPhase('failed');
+      return;
+    }
     setPhase('reading');
+    setFailReason(null);
     stopCamera();
-    // The code lines are at the bottom; the whole image is the second try.
-    // A read whose check digits all pass wins; otherwise the first read is
-    // shown with a "check every field" warning.
     let worker: TesseractWorker | null = null;
     let unverified: MrzReadResult | null = null;
+    let readAttempted = false;
     try {
       worker = await createOcrWorker();
-      for (const band of ['bottom', 'full'] as const) {
-        const canvas = prepareBand(source, width, height, band);
+      for (const band of ['bottom', 'lower', 'full'] as const) {
+        if (scanRunRef.current !== run) return;
+        const canvas = prepareBand(frame, frame.width, frame.height, band);
         try {
           const { data } = await worker.recognize(canvas);
+          readAttempted = true;
           const parsed = readMrz(data.text ?? '');
-          if (parsed?.valid) { setResult(parsed); setPhase('review'); return; }
+          if (parsed?.valid && !parsed.unknownCountry) {
+            if (scanRunRef.current === run) { setResult(parsed); setPhase('review'); }
+            return;
+          }
           unverified = unverified ?? parsed;
         } catch {
-          // try the next band
+          // A damaged band must not prevent the next crop from being tried.
         } finally {
           wipe(canvas);
         }
       }
     } catch {
-      // OCR could not start: handled as "not found" below
+      // Show a distinct OCR/runtime error, not misleading "No lines found".
     } finally {
+      wipe(frame);
       await worker?.terminate().catch(() => undefined);
     }
-    if (unverified) { setResult(unverified); setPhase('review'); } else setPhase('failed');
+    if (scanRunRef.current !== run) return;
+    if (unverified) {
+      setResult(unverified);
+      setPhase('review');
+    } else {
+      setFailReason(readAttempted ? 'no_mrz' : 'ocr_unavailable');
+      setPhase('failed');
+    }
   };
 
   const captureFrame = () => {
     const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraOk(false); // Offer the native photo capture when live video cannot start.
+      return;
+    }
     void readFrom(video, video.videoWidth, video.videoHeight);
   };
 
   const readFile = (file: File | undefined) => {
     if (!file) return;
+    if (file.type && !file.type.startsWith('image/')) { setFailReason('unsupported_image'); setPhase('failed'); return; }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       void readFrom(img, img.naturalWidth, img.naturalHeight).finally(() => URL.revokeObjectURL(url));
     };
-    img.onerror = () => { URL.revokeObjectURL(url); setPhase('failed'); };
+    img.onerror = () => { URL.revokeObjectURL(url); setFailReason('unsupported_image'); setPhase('failed'); };
     img.src = url;
-    if (fileRef.current) fileRef.current.value = '';
   };
 
   const retry = () => {
+    scanRunRef.current += 1;
     setResult(null); setTyped(''); setFailReason(null); setPhase('camera');
-    if (source === 'camera') void startCamera();
-    if (source === 'wedge') setTimeout(() => wedgeRef.current?.focus(), 50);
+    // The camera and reader effects restart only after their DOM exists.
   };
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) stopCamera(); onOpenChange(next); }}>
-      <DialogContent className="sm:max-w-lg" data-training="fd-id-scan">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) { scanRunRef.current += 1; stopCamera(); } onOpenChange(next); }}>
+      <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-id-scan">
+        <DialogHeader className="shrink-0 pr-6 text-left">
           <DialogTitle className="flex items-center gap-2"><ScanLine className="h-5 w-5 text-primary" /> {t('pms.scan.title')}</DialogTitle>
         </DialogHeader>
 
-        <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+        <p className="flex shrink-0 items-start gap-1.5 text-[11px] text-muted-foreground">
           <ShieldCheck className="h-3.5 w-3.5 shrink-0 mt-px text-emerald-600" /> {t('pms.scan.privacy')}
         </p>
 
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-0.5" data-training="fd-id-scan-scroll">
         {phase === 'camera' && (
           <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1" role="tablist" aria-label={t('pms.scan.source')}>
             {([
@@ -312,17 +363,16 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           <div className="space-y-2">
             <p className="text-xs">{t('pms.scan.hint')}</p>
             {cameraOk !== false ? (
-              <div className="relative overflow-hidden rounded-lg bg-black aspect-[4/3]">
-                <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
+              <div className="relative mx-auto w-full max-h-[34dvh] overflow-hidden rounded-lg bg-black aspect-[1.58/1]">
+                <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
                 {/* Guide frame: the MRZ band sits in the lower part of the document. */}
-                <div className="pointer-events-none absolute inset-x-[6%] bottom-[10%] top-[45%] rounded-md border-2 border-dashed border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
-                <span className="pointer-events-none absolute left-1/2 bottom-[12%] -translate-x-1/2 text-[11px] font-mono text-white/90">P&lt;HUN&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</span>
+                <div className="pointer-events-none absolute inset-[7%] rounded-md border-2 border-dashed border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)]" />
+                <div className="pointer-events-none absolute inset-x-[7%] bottom-[7%] h-[24%] border-t border-dashed border-white/80 bg-primary/15" />
                 {cameraOk === null && <Loader2 className="absolute inset-0 m-auto h-6 w-6 animate-spin text-white" />}
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">{t('pms.scan.noCamera')}</div>
             )}
-            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => readFile(e.target.files?.[0])} />
           </div>
         )}
 
@@ -334,7 +384,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
         {phase === 'failed' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200">
-            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
+            <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason === 'ocr_unavailable' ? t('pms.scan.ocrUnavailable') : failReason === 'unsupported_image' ? t('pms.scan.invalidPhoto') : failReason === 'no_mrz' ? t('pms.scan.noMrzGuide') : failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
           </div>
         )}
 
@@ -361,19 +411,33 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        </div>
+        <DialogFooter className="shrink-0 !flex-col gap-2 border-t border-border pt-3 pb-[env(safe-area-inset-bottom)]">
           {phase === 'camera' && source === 'bridge' && (
             <Button type="button" className="gap-1.5" disabled={!settings.bridgeUrl} onClick={() => void readFromBridge()}><ScanLine className="h-4 w-4" /> {t('pms.scan.readDocument')}</Button>
           )}
           {phase === 'camera' && source === 'camera' && (
             <>
-              <Button type="button" variant="outline" className="gap-1.5" onClick={() => fileRef.current?.click()}><ImageUp className="h-4 w-4" /> {t('pms.scan.takePhoto')}</Button>
-              {cameraOk && <Button type="button" className="gap-1.5" onClick={captureFrame}><Camera className="h-4 w-4" /> {t('pms.scan.capture')}</Button>}
+              {cameraOk && <Button type="button" className="w-full gap-1.5" onClick={captureFrame}><ScanLine className="h-4 w-4" /> {t('pms.scan.capture')}</Button>}
+              <div className="grid w-full grid-cols-2 gap-2">
+                <Button variant="outline" asChild>
+                  <label className="relative cursor-pointer gap-1.5">
+                    <Camera className="h-4 w-4" /> {t('pms.scan.takeNewPhoto')}
+                    <input type="file" accept="image/*" capture="environment" aria-label={t('pms.scan.takeNewPhoto')} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" onChange={(e) => { readFile(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
+                  </label>
+                </Button>
+                <Button variant="outline" asChild>
+                  <label className="relative cursor-pointer gap-1.5">
+                    <ImageUp className="h-4 w-4" /> {t('pms.scan.choosePhoto')}
+                    <input type="file" accept="image/*" aria-label={t('pms.scan.choosePhoto')} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" onChange={(e) => { readFile(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
+                  </label>
+                </Button>
+              </div>
             </>
           )}
-          {(phase === 'failed' || phase === 'review') && <Button type="button" variant="outline" onClick={retry}>{t('pms.scan.retry')}</Button>}
+          {(phase === 'failed' || phase === 'review') && <Button type="button" variant="outline" className="w-full" onClick={retry}>{t('pms.scan.retry')}</Button>}
           {phase === 'review' && result && (
-            <Button type="button" onClick={() => { onApply(result); onOpenChange(false); }}>{t('pms.scan.use')}</Button>
+            <Button type="button" className="w-full" onClick={() => { onApply(result); onOpenChange(false); }}>{t('pms.scan.use')}</Button>
           )}
         </DialogFooter>
       </DialogContent>

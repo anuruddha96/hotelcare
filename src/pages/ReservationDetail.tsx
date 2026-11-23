@@ -203,7 +203,7 @@ const ReservationDetail = () => {
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex w-full min-w-0 flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold truncate">{guestLabel}</h1>
@@ -237,40 +237,40 @@ const ReservationDetail = () => {
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button size="sm" variant="outline" className="gap-1" onClick={() => setEditOpen(true)}>
+          <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+            <Button size="sm" variant="outline" className="min-w-0 w-full gap-1 sm:w-auto" onClick={() => setEditOpen(true)}>
               <Edit className="h-3.5 w-3.5" /> {t('common.edit')}
             </Button>
             {reservation.status === 'pending' && (
-              <Button size="sm" onClick={confirmReservation} disabled={statusBusy}>{t('pms.reservationDetail.confirm')}</Button>
+              <Button size="sm" className="min-w-0 w-full sm:w-auto" onClick={confirmReservation} disabled={statusBusy}>{t('pms.reservationDetail.confirm')}</Button>
             )}
             {canCheckIn && (
-              <Button size="sm" onClick={() => setCheckInOpen(true)} data-training="fd-checkin-button">
+              <Button size="sm" className="min-w-0 w-full sm:w-auto" onClick={() => setCheckInOpen(true)} data-training="fd-checkin-button">
                 {t('pms.checkIn')}
               </Button>
             )}
             {reservation.status === 'checked_in' && reservation.room_id && (
-              <Button size="sm" variant="outline" onClick={() => setRoomChangeOpen(true)} data-training="fd-room-change-button">
+              <Button size="sm" variant="outline" className="min-w-0 w-full sm:w-auto" onClick={() => setRoomChangeOpen(true)} data-training="fd-room-change-button">
                 {t('pms.businessMoment.changeRoom')}
               </Button>
             )}
             {ntakActive && reservation.status === 'checked_out' && (
-              <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-undo-checkout-button">
+              <Button size="sm" variant="outline" className="min-w-0 w-full sm:w-auto" onClick={() => setCheckOutOpen(true)} data-training="fd-undo-checkout-button">
                 {t('pms.stayGuest.undoDeparture')}
               </Button>
             )}
             {reservation.status === 'checked_in' && (
-              <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
+              <Button size="sm" variant="outline" className="min-w-0 w-full sm:w-auto" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
                 {t('pms.checkOut')}
               </Button>
             )}
             {canCancelOrNoShow && (
-              <Button size="sm" variant="outline" onClick={() => setStatusAction('no_show')}>
+              <Button size="sm" variant="outline" className="min-w-0 w-full sm:w-auto" onClick={() => setStatusAction('no_show')}>
                 {t('pms.res.markNoShow')}
               </Button>
             )}
             {active && reservation.status !== 'checked_in' && (
-              <Button size="sm" variant="destructive" onClick={() => setStatusAction('cancelled')}>
+              <Button size="sm" variant="destructive" className="min-w-0 w-full sm:w-auto" onClick={() => setStatusAction('cancelled')}>
                 {t('pms.reservationDetail.cancel')}
               </Button>
             )}

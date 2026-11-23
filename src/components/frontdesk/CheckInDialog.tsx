@@ -100,13 +100,13 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto" data-training="fd-checkin-dialog">
+      <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-checkin-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <LogIn className="h-5 w-5 text-primary" /> {t('pms.checkIn.checkInGuest')}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-0.5 pb-3" data-training="fd-checkin-scroll">
           <div className="p-3 rounded-lg bg-accent/30 border border-border">
             <p className="font-semibold">{reservationGuestLabel(reservation)}</p>
             <p className="text-sm text-muted-foreground">{reservation.reservation_number}</p>
@@ -193,7 +193,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             </div>
           )}
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0 gap-2 border-t border-border pt-3 pb-[env(safe-area-inset-bottom)] sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
