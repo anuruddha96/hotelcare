@@ -1,3 +1,5 @@
+import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
+import { budapestToday, budapestWallToIso } from '@/lib/businessMoment';
 import { GuestFolioPanel } from '@/components/reservations/GuestFolioPanel';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Banknote, BookOpen, CreditCard, Plus, Receipt, Settings2, Trash2 } from 'lucide-react';
@@ -97,6 +99,8 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [catalogueOpen, setCatalogueOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [chargeDay, setChargeDay] = useState(() => budapestToday());
+  const [paymentDay, setPaymentDay] = useState(() => budapestToday());
 
   const [charge, setCharge] = useState({
     itemId: MANUAL_ITEM,
@@ -240,7 +244,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       _vat_code: charge.vatCode || 'REVIEW_REQUIRED',
       _vat_rate: vatRate,
       _service_catalog_item_id: charge.itemId === MANUAL_ITEM ? null : charge.itemId,
-      _service_date: new Date().toISOString().slice(0, 10),
+      _service_date: chargeDay,
     });
     setBusy(false);
     if (error) {
@@ -266,7 +270,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
       _currency: currency,
       _method: payment.method,
       _reference: payment.reference.trim() || null,
-      _received_at: new Date().toISOString(),
+      _received_at: budapestWallToIso(`${paymentDay}T12:00`),
     });
     setBusy(false);
     if (error) {
@@ -547,6 +551,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
                 <Input type="number" min="0" max="100" step="0.01" placeholder="special" value={charge.vatRate} onChange={(e) => setCharge((v) => ({ ...v, vatRate: e.target.value }))} />
               </div>
             </div>
+            <BusinessDayField hotelId={reservation.hotel_id} value={chargeDay} onChange={setChargeDay} />
             <div>
               <Label>VAT code</Label>
               <Input value={charge.vatCode} onChange={(e) => setCharge((v) => ({ ...v, vatCode: e.target.value }))} />
@@ -584,6 +589,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
               <Label>Reference / note</Label>
               <Input value={payment.reference} onChange={(e) => setPayment((v) => ({ ...v, reference: e.target.value }))} placeholder="Optional terminal, transfer or voucher reference" />
             </div>
+            <BusinessDayField hotelId={reservation.hotel_id} value={paymentDay} onChange={setPaymentDay} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPaymentOpen(false)}>Cancel</Button>
