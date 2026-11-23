@@ -1,3 +1,4 @@
+import { NtakBookingFieldsGroup, useNtakBookingFields, inferredChannel } from '@/components/ntak/NtakBookingFieldsGroup';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -30,6 +31,7 @@ interface CreateReservationDialogProps {
 export function CreateReservationDialog({ open, onOpenChange, onSuccess }: CreateReservationDialogProps) {
   const { t } = useTranslation();
   const { hotelId, hotelKeys, orgSlug } = useOperationalHotel();
+  const ntak = useNtakBookingFields(open, hotelId, orgSlug);
   const [submitting, setSubmitting] = useState(false);
   const [rooms, setRooms] = useState<AvailableRoom[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
@@ -108,6 +110,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
     try {
       const result = await createReservation({
         hotelId,
+        ntakFields: ntak.initial ? { ...(inferredChannel(form.source) ? {ntak_sales_channel: inferredChannel(form.source)} : {}), ...ntak.patch } : undefined,
         guestId: form.guest_id || null,
         checkIn: form.check_in_date,
         checkOut: form.check_out_date,
@@ -128,6 +131,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
         room_id: UNASSIGNED, room_type_requested: '', rate_per_night: 0, currency: form.currency,
         source: 'direct', special_requests: '', internal_notes: '',
       });
+      ntak.reset();
       onSuccess();
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
@@ -250,6 +254,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
             </p>
           )}
 
+          {ntak.initial && <NtakBookingFieldsGroup initial={ntak.initial} patch={ntak.patch} setPatch={ntak.setPatch} source={form.source} guestCount={Number(form.adults)+Number(form.children)} />}
           <div>
             <Label>{t('pms.createReservation.specialRequests')}</Label>
             <Textarea value={form.special_requests} onChange={(e) => setForm({ ...form, special_requests: e.target.value })} placeholder={t('pms.createReservation.guestPreferences')} />

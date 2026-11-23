@@ -15,7 +15,7 @@
  *    departure day (9.2.2); IFA is computed, never taken from folio lines;
  *  - every amount is converted to HUF (9.2.5).
  */
-import { COUNTRY_CODES, UNKNOWN_FOREIGN_COUNTRY } from './codes.ts';
+import { CATEGORIES, COUNTRY_CODES, UNKNOWN_FOREIGN_COUNTRY } from './codes.ts';
 import type { MarketSegment, PaymentType, SalesChannel, UnitType, VatRate } from './codes.ts';
 import type { NtakBooking, NtakCharge, NtakPayment } from './messages.ts';
 import type { CheckoutRecord, StayGuest, StayRecord } from './closure.ts';
@@ -64,6 +64,7 @@ export const DEFAULT_LEDGER_CONFIG: LedgerConfig = {
   paymentMap: {
     cash: 'KESZPENZ', card: 'BANKKARTYA', credit_card: 'BANKKARTYA', debit_card: 'BANKKARTYA', bank_transfer: 'ATUTALAS',
     transfer: 'ATUTALAS', szep_card: 'SZEP_KARTYA', szep: 'SZEP_KARTYA', voucher: 'UTALVANY', ota: 'ATUTALAS', legacy: 'EGYEB',
+    card_terminal: 'BANKKARTYA', online_card: 'BANKKARTYA', coupon: 'UTALVANY', szep_otp: 'SZEP_KARTYA', szep_mbh: 'SZEP_KARTYA', szep_kh: 'SZEP_KARTYA', on_account: 'UTOLAGOS', later: 'UTOLAGOS', other: 'EGYEB',
   },
   channelMap: {
     'booking.com': 'KOZVETITO_ONLINE', expedia: 'KOZVETITO_ONLINE', airbnb: 'KOZVETITO_ONLINE', agoda: 'KOZVETITO_ONLINE',
@@ -101,6 +102,11 @@ export interface RawReservation {
   channex_booking_id: string | null;
   pms_reservation_id: string | null;
   ntak_booking_no?: string | null;
+  ntak_guaranteed?: boolean | null;
+  ntak_market_segment?: MarketSegment | null;
+  ntak_sales_channel?: SalesChannel | null;
+  booker_country?: string | null;
+  expected_guests?: number | null;
   reservation_number: string | null;
   pms_group_note?: string | null;
   pms_rate_plan_id?: string | null;
@@ -117,6 +123,9 @@ export interface RawFolioLine {
   currency: string | null;
   status: string;
   category: string | null;
+  ntak_main?: string | null;
+  ntak_sub?: string | null;
+  in_package?: boolean | null;
   source_type: string | null;
 }
 
@@ -185,8 +194,8 @@ function vatFor(line: RawFolioLine, mapped: { vat?: VatRate | null }, cfg: Ledge
 }
 
 const lineKey = (l: RawFolioLine) => key(l.category) || key(l.source_type);
-const isAccommodationLine = (l: RawFolioLine, cfg: LedgerConfig) => cfg.accommodationKeys.includes(key(l.category)) || cfg.accommodationKeys.includes(key(l.source_type));
-const isIgnoredLine = (l: RawFolioLine, cfg: LedgerConfig) => cfg.ignoredKeys.includes(key(l.category)) || cfg.ignoredKeys.includes(key(l.source_type));
+const isAccommodationLine = (l: RawFolioLine, cfg: LedgerConfig) => l.ntak_main != null ? l.ntak_main === 'SZALLASDIJ' : cfg.accommodationKeys.includes(key(l.category)) || cfg.accommodationKeys.includes(key(l.source_type));
+const isIgnoredLine = (l: RawFolioLine, cfg: LedgerConfig) => l.ntak_main != null ? l.ntak_main === 'IFA' : cfg.ignoredKeys.includes(key(l.category)) || cfg.ignoredKeys.includes(key(l.source_type));
 const live = (l: RawFolioLine) => l.status !== 'reversed' && l.status !== 'voided';
 
 /** Map non-accommodation folio lines to NTAK charges. */
@@ -194,7 +203,15 @@ export function mapExtras(lines: RawFolioLine[], cfg: LedgerConfig, problems: st
   const out: NtakCharge[] = [];
   for (const l of lines) {
     if (!live(l) || isAccommodationLine(l, cfg) || isIgnoredLine(l, cfg)) continue;
-    const mapped = cfg.categoryMap[lineKey(l)] ?? cfg.categoryMap.other ?? { main: 'EGYEB', sub: 'EGYEB' };
+    const explicit = l.ntak_main != null ? { main: l.ntak_main, sub: l.ntak_sub ?? null, vat: undefined } : null;
+    if (explicit) {
+      const subs = Object.hasOwn(CATEGORIES, explicit.main) ? CATEGORIES[explicit.main] : undefined;
+      if (!subs || (subs.length ? !explicit.sub || !subs.includes(explicit.sub) : explicit.sub !== null)) {
+        problems.push(`Invalid catalogue NTAK category: ${explicit.main}/${explicit.sub ?? ''}`);
+        continue;
+      }
+    } else if (l.ntak_sub != null) { problems.push('Catalogue NTAK subcategory without a main category'); continue; }
+    const mapped = explicit ?? cfg.categoryMap[lineKey(l)] ?? cfg.categoryMap.other ?? { main: 'EGYEB', sub: 'EGYEB' };
     const huf = toHuf(l.gross_total, l.currency, cfg);
     if ('problem' in huf) { problems.push(huf.problem); continue; }
     out.push({ amount: huf.value, main: mapped.main, sub: mapped.sub, vat: vatFor(l, mapped, cfg) });
@@ -212,7 +229,7 @@ export function mapPayments(payments: RawPayment[], cfg: LedgerConfig, problems:
     byType.set(type, round2((byType.get(type) ?? 0) + huf.value));
   }
   // Sum per means of payment (9.2.1).
-  return [...byType.entries()].map(([type, amount]) => ({ amount, type }));
+  return [...byType.entries()].map(([type, amount]) => ({ amount, type, ...(type === 'SZEP_KARTYA' ? { szepAccommodation: true } : {}) }));
 }
 
 /** A recorded actual departure, whether early or late, governs historical closings. */
@@ -319,15 +336,17 @@ export function buildDaySources(input: DayInputs, cfg: LedgerConfig): DaySources
         roomId: roomOnDay(r, input.assignments, day), dayUse, guests, expectedGuests: expected,
         accommodationFee: nightlyFee(r, day, input.lines, cfg, problems),
         packageItems: packageItems(r, Math.max(guests.length, expected), cfg),
-        extras: mapExtras(linesToday, cfg, problems),
+        postedPackageItems: mapExtras(linesToday.filter((l) => l.in_package), cfg, problems),
+        extras: mapExtras(linesToday.filter((l) => !l.in_package), cfg, problems),
         payments, problems,
       });
     } else if (day === departure) {
-      const outPackage = mapExtras(linesToday, cfg, problems);
+      const inPackage = mapExtras(linesToday.filter((l) => l.in_package), cfg, problems);
+      const outPackage = mapExtras(linesToday.filter((l) => !l.in_package), cfg, problems);
       out.checkouts.push({
         reservationId: r.id, bookingNo, label: input.label(r), segment, channel,
         roomId: roomOnDay(r, input.assignments, addDays(day, -1)),
-        inPackage: [], outPackage, payments: mapPayments(paymentsOf((d) => d === day), cfg, problems), problems,
+        inPackage, outPackage, payments: mapPayments(paymentsOf((d) => d === day), cfg, problems), problems,
       });
     } else if (day > departure) {
       const charges = mapExtras(linesToday, cfg, problems);
@@ -379,24 +398,32 @@ export function buildBooking(rows: RawReservation[], opts: {
     if ('problem' in huf) problems.push(huf.problem); else gross += huf.value;
   }
   if (gross >= 1_000_000_000) problems.push('booking amount is above the secondary limit (1 billion HUF)');
-  const guestCount = scope.reduce((a, r) => a + Number(r.adults ?? 0) + Number(r.children ?? 0), 0);
+  const guestCount = scope.reduce((a, r) => a + (r.expected_guests ?? (Number(r.adults ?? 0) + Number(r.children ?? 0))), 0);
   const capacity = units.reduce((a, u) => a + u.capacity, 0);
   if (guestCount < 1 || guestCount > 99) problems.push(`guest count ${guestCount} must be 1–99`);
   else if (units.length && guestCount > capacity + 2 * units.length) problems.push(`guest count ${guestCount} exceeds capacity + 2 extra beds per unit`);
 
-  const first = [...scope].sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+  const ordered = [...scope].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  const first = ordered[0];
+  // Explicit booking-level values take precedence, including false. Reject conflicting
+  // overrides across rooms rather than reporting an arbitrary value.
+  function override<K extends keyof RawReservation>(key: K): RawReservation[K] | undefined {
+    const values = ordered.map(r => r[key]).filter(v => v !== null && v !== undefined);
+    if (new Set(values).size > 1) problems.push(`conflicting booking field ${key}`);
+    return values[0];
+  }
   const booking: NtakBooking = {
     bookingNo: bookingNumber(first),
     eventCreatedAt: opts.eventCreatedAt,
-    guaranteed: null,
+    guaranteed: override('ntak_guaranteed') ?? null,
     cancelled,
-    originCountry: opts.originCountry ?? opts.unknownCountryCode ?? UNKNOWN_FOREIGN_COUNTRY,
+    originCountry: override('booker_country') ?? opts.originCountry ?? opts.unknownCountryCode ?? UNKNOWN_FOREIGN_COUNTRY,
     arrival, departure,
     bookedAt: first.created_at,
-    channel: salesChannel(first, cfg),
+    channel: override('ntak_sales_channel') ?? salesChannel(first, cfg),
     grossAmount: Math.round(gross),
     units,
-    segment: marketSegment(first, cfg, scope.length, opts.isCompany),
+    segment: override('ntak_market_segment') ?? marketSegment(first, cfg, scope.length, opts.isCompany),
     guestCount: Math.min(99, Math.max(1, guestCount)),
   };
   return { booking: problems.length ? null : booking, problems };

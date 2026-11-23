@@ -495,6 +495,41 @@ Deno.test('profiled_only excludes 15 unrelated rooms, their bookings, events, ch
   assert.equal(intentionalMismatch.closure.capacity.total, 12);
   assert.equal(intentionalMismatch.closure.rooms.total, 4);
   assert.ok(intentionalMismatch.checklist.some((x) => x.code === "registration"));
+
+  // Phase 5 NZ_02: walk-in charges are independent of booking/unit scope.
+  db.rows("pos_sales").push(
+    { id: "walk-in", hotel_id: s.hotel_id, organization_slug: s.organization_slug, business_day: day },
+    { id: "other-day", hotel_id: s.hotel_id, organization_slug: s.organization_slug, business_day: addDays(day, -1) },
+    { id: "other-tenant", hotel_id: s.hotel_id, organization_slug: "unrelated", business_day: day },
+    { id: "other-hotel", hotel_id: "elsewhere", organization_slug: s.organization_slug, business_day: day },
+  );
+  const expected = [
+    { amount: 5800, main: "KOZFURDO", sub: "WELLNESS_PROGRAM", vat: 18 },
+    { amount: 4600, main: "ETEL", sub: "FOETEL", vat: 5 },
+    { amount: 1000, main: "EGYEB", sub: "EGYEB_VENDEGLATAS", vat: 27 },
+    { amount: 10000, main: "ALKOHOLOSITAL", sub: "ITALCSOMAG", vat: 27 },
+  ];
+  for (const c of expected) db.rows("pos_sale_lines").push({
+    sale_id: "walk-in", gross_total: c.amount, ntak_main: c.main, ntak_sub: c.sub, vat_rate: c.vat,
+  });
+  for (const sale_id of ["other-day","other-hotel","other-tenant"]) {
+    db.rows("pos_sale_lines").push({ sale_id, gross_total: 9000, ntak_main: "ETEL", ntak_sub: "FOETEL", vat_rate: 5 });
+    db.rows("pos_sale_payments").push({ sale_id, amount: 9000, method: "cash" });
+  }
+  db.rows("pos_sale_payments").push({ sale_id: "walk-in", amount: 21400, method: "card_terminal" });
+  const nz02 = await buildClosure(db, s, day, {});
+  assert.equal(nz02.closure.otherCharges.length, 4);
+  assert.deepEqual([...nz02.closure.otherCharges].sort((a,b)=>a.amount-b.amount), [...expected].sort((a,b)=>a.amount-b.amount));
+  assert.deepEqual(nz02.closure.otherPayments, [{ amount: 21400, type: "BANKKARTYA" }]);
+  assert.equal(nz02.totals.charges, 21400);
+  assert.equal(nz02.totals.payments, 21400);
+  assert.ok(nz02.xml.includes("egyebTerhelesek") && nz02.xml.includes("egyebKoltesek"));
+  assert.equal(await xmllint(nz02.xml), null);
+  assert.ok(!nz02.checklist.some(x=>x.code==="walk_in_ledger"));
+  // An unbalanced sale must block reporting, not be hidden as zero revenue.
+  db.rows("pos_sale_payments").find(p=>p.sale_id==="walk-in")!.amount=21399;
+  const invalid = await buildClosure(db, s, day, {});
+  assert.ok(invalid.checklist.some(x=>x.code==="walk_in_ledger" && x.level==="error"));
 });
 
 
@@ -586,6 +621,43 @@ Deno.test('Phase 4 loadUnits uses dated periods on historical days; live status 
     ['available', 'available'], 'historical dates must not inherit today status');
   assert.deepEqual((await loadUnits(db, 'channex-test-property', today())).map((u) => u.state),
     ['available', 'oos'], 'today may fall back to the live status only when no dated period exists');
+});
+
+Deno.test("Phase 6 worker resends an amended booking and queues a cancellation only once", async () => {
+  const db = new FakeDb(schemaColumns());
+  const day=today();
+  const s: Settings = {
+    hotel_id:"h6",organization_slug:"test",enabled:true,environment:"test",
+    endpoint_url:null,software_id:"HOTELCARE",software_version:"1.0",
+    registration_number:"MA26004524",provider_tax_number:"11223355-1-22",
+    accommodation_name:"Test",provider_name:"Test",registered_room_count:1,registered_bed_count:3,unit_scope:"profiled_only",
+    accommodation_class:"hotel_4",region:"budapest",ifa_type:"TETELES",ifa_rate:400,ifa_vat:0,accommodation_vat:5,signature_profile:"rsa-sha384",
+    unknown_country_code:"EGYEBKULFOLDI",closure_mode:"manual",auto_close_time:"05:00",
+    first_closure_date:null,software_change_date:null,data_start_date:null,ledger_config:{},cert_not_after:null,sending_blocked_reason:null,
+    initial_booking_sync_started_at:null,initial_booking_sync_done_at:null,
+  };
+  db.rows("rooms").push({id:"r6",hotel:"h6",room_number:"101",status:"clean"});
+  db.rows("ntak_unit_profiles").push({room_id:"r6",hotel_id:"h6",active:true,building:"1",room_number:"101",unit_type:"STANDARD",single_beds:1,double_beds:1,extra_beds:0});
+  const r={id:"R6",hotel_id:"h6",ntak_booking_no:"FOGL_04",status:"confirmed",room_id:"r6",room_type_id:null,
+    check_in_date:addDays(day,1),check_out_date:addDays(day,2),total_amount:20000,rate_per_night:20000,currency:"HUF",adults:2,children:0,
+    source:"direct",ota_name:null,pms_channel:null,channex_booking_id:null,pms_reservation_id:null,reservation_number:"R6",created_at:day+"T08:00:00Z",
+    ntak_guaranteed:true,ntak_market_segment:"UZLETI_EGYENI",ntak_sales_channel:"DIREKT_ONLINE",booker_country:"HU",expected_guests:1};
+  db.rows("reservations").push(r);
+  const q: Row={hotel_id:"h6",booking_no:"FOGL_04",dirty_at:day+"T01:00:00Z",last_sent_at:null,cancelled_sent:false};
+  db.rows("ntak_booking_queue").push(q);
+  const messages=()=>db.rows("ntak_messages").filter(m=>m.kind==="booking"&&m.ref==="FOGL_04");
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[0].request_xml,/>true<\/[^>]*garantaltFoglalas>/);
+  r.check_in_date=day; r.total_amount=40000;r.ntak_guaranteed=false;q.dirty_at=day+"T02:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[1].request_xml,/>false<\/[^>]*garantaltFoglalas>/);
+  assert.match(messages()[1].request_xml,/>40000<\/[^>]*foglalasBruttoOsszege>/);
+  r.status="cancelled";q.dirty_at=day+"T03:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,1);
+  assert.match(messages()[2].request_xml,/>true<\/[^>]*lemondva>/);
+  r.total_amount=41000;q.dirty_at=day+"T04:00:00Z";
+  assert.equal((await processBookings(db,s,10)).queued,0);
+  assert.equal(messages().length,3);
 });
 
 Deno.test("Phase 9 override requires a manager actor and reason in production, never bypasses missing ledger", () => {

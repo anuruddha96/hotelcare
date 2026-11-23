@@ -6,6 +6,7 @@
  */
 import bcrypt from "npm:bcryptjs@2.4.3";
 import { STOP_SENDING_KEYS } from "../_shared/ntak/codes.ts";
+import { mapWalkInSales, type PosSale, type PosLine, type PosPayment } from "../_shared/ntak/pos.ts";
 import { assembleClosure, hasBlockingErrors, type AssembledClosure, type ClosureSettings, type StayGuest, type UnitInfo } from "../_shared/ntak/closure.ts";
 import { computeVendegId, isValidSalt, missingIdentityFields } from "../_shared/ntak/guestId.ts";
 import { autoIfaStatus } from "../_shared/ntak/ifa.ts";
@@ -284,6 +285,33 @@ export function dayWindow(day: string): { from: string; to: string } {
   return { from: budapestMidnight(day), to: budapestMidnight(addDays(day, 1)) };
 }
 
+/** Fail closed on unavailable or truncated walk-in ledgers: zero is not an
+ * acceptable substitute for missing financial data. */
+export async function loadWalkInSales(db: Db, s: Settings, day: string) {
+  const { data, error, count } = await db.from("pos_sales").select("id", { count: "exact" })
+    .eq("hotel_id", s.hotel_id).eq("organization_slug", s.organization_slug).eq("business_day", day).order("id");
+  if (error || !Array.isArray(data) || count !== data.length) {
+    throw new Error("Unable to load complete walk-in sales ledger: " + (error?.message ?? "incomplete sale list"));
+  }
+  const sales: PosSale[] = data;
+  const lines: PosLine[] = [];
+  const payments: PosPayment[] = [];
+  for (let i = 0; i < sales.length; i += 100) {
+    const ids = sales.slice(i, i + 100).map(row => row.id);
+    const [l, p] = await Promise.all([
+      db.from("pos_sale_lines").select("sale_id,gross_total,vat_rate,ntak_main,ntak_sub", { count: "exact" }).in("sale_id", ids),
+      db.from("pos_sale_payments").select("sale_id,method,amount", { count: "exact" }).in("sale_id", ids),
+    ]);
+    if (l.error || p.error || !Array.isArray(l.data) || !Array.isArray(p.data)
+      || l.count !== l.data.length || p.count !== p.data.length) {
+      throw new Error("Unable to load complete walk-in charges/payments: " + (l.error?.message ?? p.error?.message ?? "incomplete sale details"));
+    }
+    lines.push(...l.data);
+    payments.push(...p.data);
+  }
+  return mapWalkInSales(sales, lines, payments, ledgerConfig(s));
+}
+
 export interface ClosureBuild extends AssembledClosure { xml: string; snapshotHash: string; classification: "UJ" | "MODOSITO" }
 
 export async function buildClosure(db: Db, s: Settings, day: string, opts: {
@@ -304,7 +332,7 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     // arrival / late departure). Do not lose those historical records.
     db.from("reservations").select(resCols).eq("hotel_id", s.hotel_id)
       .lte("actual_check_in", win.to).gte("actual_check_out", win.from).eq("status", "checked_out"),
-    db.from("folio_lines").select("service_date,room_id,gross_total,vat_rate,currency,status,source_type,reservation_folios!inner(reservation_id,hotel_id),service_catalog_items(category)")
+    db.from("folio_lines").select("service_date,room_id,gross_total,vat_rate,currency,status,source_type,reservation_folios!inner(reservation_id,hotel_id),service_catalog_items(category,ntak_main,ntak_sub,in_package)")
       .eq("reservation_folios.hotel_id", s.hotel_id).eq("service_date", day),
     db.from("payments").select("reservation_id,amount,currency,method,status,received_at").eq("hotel_id", s.hotel_id).gte("received_at", win.from).lt("received_at", win.to),
   ]);
@@ -316,6 +344,8 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     reservation_id: l.reservation_folios.reservation_id, service_date: l.service_date, room_id: l.room_id, gross_total: Number(l.gross_total),
     vat_rate: l.vat_rate === null ? null : Number(l.vat_rate), currency: l.currency, status: l.status,
     category: l.service_catalog_items?.category ?? null, source_type: l.source_type,
+    ntak_main: l.service_catalog_items?.ntak_main ?? null, ntak_sub: l.service_catalog_items?.ntak_sub ?? null,
+    in_package: l.service_catalog_items?.in_package ?? false,
   }));
   let payments: RawPayment[] = dayPayments ?? [];
 
@@ -359,11 +389,18 @@ export async function buildClosure(db: Db, s: Settings, day: string, opts: {
     label: (r) => `Room ${roomNumbers.get(roomOnDay(r, assignments ?? [], day) ?? "") ?? "?"} · ${r.reservation_number ?? r.id.slice(0, 8)}`,
   }, cfg);
 
+  let walkIn: ReturnType<typeof mapWalkInSales>;
+  try {
+    walkIn = await loadWalkInSales(db, s, day);
+  } catch (e) {
+    walkIn = { otherCharges: [], otherPayments: [], problems: [e instanceof Error ? e.message : String(e)] };
+  }
   const classification = opts.classification ?? "UJ";
   const assembled = assembleClosure({
     day, closedAt: opts.closedAt ?? new Date(), classification, protocolId: opts.protocolId, reason: opts.reason,
-    closed: opts.closed ?? false, units, ...sources, otherCharges: [], otherPayments: [],
+    closed: opts.closed ?? false, units, ...sources, otherCharges: walkIn.otherCharges, otherPayments: walkIn.otherPayments,
   }, closureSettings(s));
+  for (const problem of walkIn.problems) assembled.checklist.push({ level: "error", code: "walk_in_ledger", message: problem });
   if (stayError || historicalError || linesError || paymentsError) {
     // Never send a closure missing financial rows or historical reservations.
     const source = [stayError && "stays", historicalError && "actual stays", linesError && "folio lines", paymentsError && "payments"].filter(Boolean).join(", ");
@@ -456,13 +493,18 @@ async function supersedeOpen(db: Db, hotelId: string, kind: string, ref: string)
 // ---------------------------------------------------------------------------
 // Advance bookings
 
-const BOOKING_COLS = RES_COLS + ",created_at";
+const PHASE6_COLS = "ntak_guaranteed,ntak_market_segment,ntak_sales_channel,booker_country,expected_guests";
+async function phase6SchemaReady(db: Db): Promise<boolean> {
+  try { const { error } = await db.from("reservations").select(PHASE6_COLS).limit(1); return !error; }
+  catch { return false; }
+}
 
 export async function processBookings(db: Db, s: Settings, limit: number): Promise<{ queued: number; clean: number; problems: number }> {
   const cfg = ledgerConfig(s);
   const scope = await loadNtakScope(db, s);
   const phase3Ready = await phase3SchemaReady(db);
-  const bookingCols = phase3Ready ? BOOKING_COLS : LEGACY_RES_COLS;
+  const phase6Ready = phase3Ready && await phase6SchemaReady(db);
+  const bookingCols = (phase3Ready ? RES_COLS : LEGACY_RES_COLS) + (phase6Ready ? "," + PHASE6_COLS : "");
   const stats = { queued: 0, clean: 0, problems: 0 };
   const { data: dirty } = await db.from("ntak_booking_queue").select("*").eq("hotel_id", s.hotel_id).order("dirty_at").limit(limit * 3);
   const due = (dirty ?? []).filter((q: any) => !q.last_sent_at || q.dirty_at > q.last_sent_at).slice(0, limit);
@@ -478,11 +520,12 @@ export async function processBookings(db: Db, s: Settings, limit: number): Promi
       db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("reservation_number", q.booking_no),
       /^[0-9a-f-]{36}$/.test(q.booking_no) ? db.from("reservations").select(bookingCols).eq("hotel_id", s.hotel_id).eq("id", q.booking_no) : { data: [] },
     ]);
+    if (lookups.some((l: any) => l.error)) { stats.problems++; continue; }
     const seen = new Set<string>();
     const group: RawReservation[] = lookups.flatMap((l: any) => l.data ?? [])
       .filter((r: any) => bookingNumber(r) === q.booking_no && !seen.has(r.id) && seen.add(r.id))
       .filter((r: RawReservation) => isInNtakScope(scope, r));
-    const mark = (patch: Record<string, unknown>) => db.from("ntak_booking_queue").update({ last_sent_at: new Date().toISOString(), ...patch })
+    const mark = (patch: Record<string, unknown>) => db.from("ntak_booking_queue").update({ last_sent_at: q.dirty_at, ...patch })
       .eq("hotel_id", s.hotel_id).eq("booking_no", q.booking_no);
     if (!group.length) { await mark({ last_problem: null }); stats.clean++; continue; }
 
@@ -502,11 +545,12 @@ export async function processBookings(db: Db, s: Settings, limit: number): Promi
     if (built.booking.cancelled && q.cancelled_sent) { await mark({ last_problem: null, last_payload_hash: hash }); stats.clean++; continue; }
 
     await supersedeOpen(db, s.hotel_id, "booking", q.booking_no);
-    const { data: msg } = await db.from("ntak_messages").insert({
+    const { data: msg, error: queueError } = await db.from("ntak_messages").insert({
       hotel_id: s.hotel_id, organization_slug: s.organization_slug, environment: s.environment, kind: "booking", ref: q.booking_no,
       request_xml: buildFoglalasEsemenyRequest(common(s), built.booking),
     }).select("id").single();
-    await mark({ last_problem: null, last_payload_hash: hash, last_message_id: msg?.id ?? null, cancelled_sent: built.booking.cancelled });
+    if (queueError || !msg?.id) { stats.problems++; continue; }
+    await mark({ last_problem: null, last_payload_hash: hash, last_message_id: msg.id, cancelled_sent: built.booking.cancelled });
     stats.queued++;
   }
   return stats;

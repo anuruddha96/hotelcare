@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { canManagePmsServiceCatalogue } from '@/lib/pmsFinance';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,10 +43,14 @@ const PAY_METHODS: Array<{ value: string; key: string }> = [
   { value: 'cash', key: 'pms.pay.cash' },
   { value: 'transfer', key: 'pms.pay.transfer' },
   { value: 'szep_card', key: 'pms.pay.szep' },
+  { value: 'voucher', key: 'Voucher' },
+  { value: 'on_account', key: 'On account / later' },
+  { value: 'other', key: 'Other' },
 ];
 
 export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps) {
   const { t } = useTranslation();
+  const { profile } = useAuth();
   const [rows, setRows] = useState<FolioRow[]>([]);
   const [balance, setBalance] = useState<number>(Number(reservation.balance_due ?? 0));
   const [loading, setLoading] = useState(true);
@@ -55,7 +61,8 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
   const [payBusy, setPayBusy] = useState(false);
   const [paymentDay, setPaymentDay] = useState(() => budapestToday());
   const currency = String(reservation.currency ?? 'HUF');
-  const closed = ['cancelled', 'no_show'].includes(String(reservation.status));
+  const departed = reservation.status === 'checked_out';
+  const closed = ['cancelled', 'no_show'].includes(String(reservation.status)) || (departed && !canManagePmsServiceCatalogue(profile?.role));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,11 +82,11 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
 
   const recordPayment = async () => {
     const amount = Number(payAmount);
-    if (!(amount > 0)) return;
+    if (closed || !(amount > 0)) return;
     setPayBusy(true);
     try {
       const method = PAY_METHODS.find((m) => m.value === payMethod);
-      await addFolioItem(reservation.id, `${t('pms.pay.recordPayment')} · ${method ? t(method.key) : payMethod}`, amount, 'payment', paymentDay, payMethod);
+      await addFolioItem(reservation.id, `${t('pms.pay.recordPayment')} · ${method ? (method.key.startsWith('pms.') ? t(method.key) : method.key) : payMethod}`, amount, 'payment', paymentDay, payMethod);
       setPayAmount('');
       toast.success(t('pms.pay.recorded'));
       await refresh();
@@ -105,6 +112,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {departed && <p className="text-xs font-medium text-amber-700">After departure · manager only</p>}
         <div className="flex flex-wrap gap-2">
           <Button type="button" size="sm" className="h-8 gap-1.5" disabled={closed} title={t('pms.charge.tip')} onClick={() => setChargeOpen(true)}>
             <PlusCircle className="h-4 w-4" /> {t('pms.charge.add')}
@@ -146,7 +154,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
             <Input className="h-8" type="number" min={0} step="any" placeholder={String(balance)} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
             <Select value={payMethod} onValueChange={setPayMethod}>
               <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>{PAY_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{t(m.key)}</SelectItem>)}</SelectContent>
+              <SelectContent>{PAY_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.key.startsWith('pms.') ? t(m.key) : m.key}</SelectItem>)}</SelectContent>
             </Select>
             <Button type="button" size="sm" variant="outline" className="h-8 shrink-0 gap-1" disabled={payBusy || !(Number(payAmount) > 0)} onClick={recordPayment}>
               {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wallet className="h-3.5 w-3.5" />} {t('pms.pay.recordPayment')}
