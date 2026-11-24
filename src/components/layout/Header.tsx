@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AppearanceMenu } from './AppearanceMenu';
 import { WorkspaceConditions } from './WorkspaceConditions';
-import { HeaderWelcomeQuote } from './HeaderWelcomeQuote';
 import { canSeeWorkspaceWeather } from '@/lib/workspaceAppearance';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -146,10 +145,7 @@ export function Header() {
         </div>
 
         {canSeeWorkspaceWeather(profile) && (
-          <div className="flex min-w-0 items-center gap-2">
-            <WorkspaceConditions organizationSlug={profile?.organization_slug} hotelId={profile?.assigned_hotel} />
-            <HeaderWelcomeQuote userId={user?.id && profile?.id === user.id ? user.id : null} />
-          </div>
+          <WorkspaceConditions organizationSlug={profile?.organization_slug} hotelId={profile?.assigned_hotel} />
         )}
 
         {/* Mobile actions scroll on a separate row instead of colliding with the language control. */}
