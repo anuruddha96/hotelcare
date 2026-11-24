@@ -116,6 +116,8 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
   const activeGuests = control.guests.filter(g => g.stay_state !== 'void');
   const count = expectedGuests ?? activeGuests.length;
   const vacant = Math.max(0, count - activeGuests.length);
+  const unlinkedBooker = !!bookingGuestId && !control.guests.some(g=>g.guest_id===bookingGuestId);
+  const reserveBookerSlot = unlinkedBooker && vacant===1;
   const isComplete = (g: StayGuestRow) => vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length === 0;
   const ready = activeGuests.filter(isComplete).length;
   const openExisting = (g: StayGuestRow, scan = false) => {
@@ -217,11 +219,11 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
       {express && !control.loading && Array.from({length:Math.min(vacant,100)},(_,index) => (
         <div key={'vacant-'+index} className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 space-y-2">
           <div className="flex items-center gap-2"><UserRoundPlus className="h-5 w-5 text-primary shrink-0"/><div className="flex-1"><p className="text-sm font-medium">{t('pms.express.guestNumber').replace('{number}',String(activeGuests.length+index+1))}</p><p className="text-xs text-muted-foreground">{t('pms.express.awaiting')}</p></div></div>
-          {index===0 && !draft && <Button type="button" className="w-full gap-2" disabled={busy} onClick={startScan}><ScanLine className="h-4 w-4"/>{t('pms.express.scanDocument')}</Button>}
-          {index===0 && !draft && bookingGuestId && !activeGuests.some(g=>g.guest_id===bookingGuestId) && <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy} onClick={async()=>{setBusy(true);try{await addStayGuest(reservationId,bookingGuestId);await control.refresh();setDetailsId(bookingGuestId);setAutoScanId(bookingGuestId);}catch{toast.error(t('pms.express.registerFailed'));}finally{setBusy(false);}}}>{t('pms.express.useBooker')}</Button>}
-          {index===0 && !draft && <Button type="button" size="sm" variant="ghost" className="w-full" onClick={()=>setAdding(v=>!v)}>{t('pms.express.otherOptions')}</Button>}
+          {index===0 && !draft && <Button type="button" className="w-full gap-2" disabled={busy || reserveBookerSlot} onClick={startScan}><ScanLine className="h-4 w-4"/>{t('pms.express.scanDocument')}</Button>}
+          {index===0 && !draft && bookingGuestId && unlinkedBooker && <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy} onClick={async()=>{setBusy(true);try{await addStayGuest(reservationId,bookingGuestId);await control.refresh();setDetailsId(bookingGuestId);setAutoScanId(bookingGuestId);}catch{toast.error(t('pms.express.registerFailed'));}finally{setBusy(false);}}}>{t('pms.express.useBooker')}</Button>}
+          {index===0 && !draft && !reserveBookerSlot && <Button type="button" size="sm" variant="ghost" className="w-full" onClick={()=>setAdding(v=>!v)}>{t('pms.express.otherOptions')}</Button>}
           {index===0 && draft && <GuestDetailsSection draft={draft} guestId={null} vizaReservationId={reservationId} occurredAt={occurredAt} onRegister={register}
-            onCancelDraft={()=>setDraft(null)} onSaved={async()=>{setDraft(null);await control.refresh();toast.success(t('pms.stayGuest.added'));}} />}
+            onCancelDraft={()=>setDraft(null)} onSaved={async()=>{setDraft(null);await control.refresh();const next=activeGuests.find(g=>g.stay_state==='expected'&&!isComplete(g));setDetailsId(next?.guest_id??null);toast.success(t('pms.stayGuest.added'));}} />}
         </div>
       ))}
       {express && <IdScanDialog open={scanNewOpen} onOpenChange={setScanNewOpen} onApply={(result,optical={})=>setDraft({result,optical})}/>}
