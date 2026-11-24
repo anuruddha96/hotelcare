@@ -42,3 +42,16 @@ uk:['Виправити — немає часу виходу','Виправит�
 ru:['Исправить — нет времени выхода','Исправить','Удалить','Добавить пропущенную явку','Причина (обязательно)','Сохранить','Отмена','Удалить эту запись?','Перерыв (минуты)','Использовать плановый конец смены','Нет планового начала','{n} из {m} вовремя','Человеко-дни','Завершённые человеко-дни','Не удалось выполнить запрос','Посещаемость сохранена','Месяц','Время Будапешта','Экспорт Excel','Плановая смена','Только проблемы','Местоположение не проверено','Нет записи о явке','Примечание']
 };
 for (const [lang, values] of Object.entries(attendanceRows)) attendanceKeys.forEach((key,i)=>{hrTranslations[lang][key]=values[i];});
+
+const comparisonKeys=['hr.a.hotel','hr.a.department','hr.a.all','hr.a.from','hr.a.to','hr.a.late','hr.a.early','hr.a.dayOff'];
+const comparisonRows:Record<string,string[]>={
+en:['Hotel','Department','All','From','To','Late arrival','Left early','Worked on day off'],
+hu:['Szálloda','Részleg','Mind','Kezdő dátum','Záró dátum','Késés','Korai távozás','Szabadnapon dolgozott'],
+es:['Hotel','Departamento','Todos','Desde','Hasta','Llegada tarde','Salida anticipada','Trabajó en día libre'],
+vi:['Khách sạn','Bộ phận','Tất cả','Từ','Đến','Đến muộn','Về sớm','Làm ngày nghỉ'],
+mn:['Зочид буудал','Хэлтэс','Бүгд','Эхлэх','Дуусах','Хоцорсон','Эрт явсан','Амралтын өдөр ажилласан'],
+az:['Otel','Şöbə','Hamısı','Başlanğıc','Son','Gecikib','Erkən çıxıb','İstirahət günü işləyib'],
+tl:['Hotel','Departamento','Lahat','Mula','Hanggang','Huli sa pagdating','Maagang umalis','Nagtrabaho sa araw ng pahinga'],
+uk:['Готель','Відділ','Усі','З','До','Запізнення','Ранній вихід','Працював у вихідний'],
+ru:['Отель','Отдел','Все','С','По','Опоздание','Ранний уход','Работал в выходной']
+};for(const [lang,values] of Object.entries(comparisonRows))comparisonKeys.forEach((key,i)=>{hrTranslations[lang][key]=values[i];});

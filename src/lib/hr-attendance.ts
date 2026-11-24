@@ -16,3 +16,39 @@ export function personDaySummary(rows: {user_id:string;work_date:string;check_ou
  for(const row of rows){const key=row.user_id+'|'+row.work_date;days.add(key);if(row.check_out_time){completed.add(key);hours+=Number(row.total_hours??0);}}
  return {days:days.size,completed:completed.size,hours,average:completed.size?hours/completed.size:0};
 }
+
+import {WORKING_KINDS, type WorkforceKind} from './workforce/cellParser';
+export type PlannedShift={kind:WorkforceKind;start_time:string|null;end_time:string|null;worked_minutes?:number;hotel_id:string|null};
+export type ActualAttendance={user_id:string;work_date:string;check_in_time:string;check_out_time:string|null;total_hours?:number|null};
+export function publishedShift<T extends PlannedShift>(entry:{status:string;published_version?:PlannedShift|null}&T):PlannedShift|null {
+ return entry.status==='published'?entry:entry.published_version??null;
+}
+export function shiftBounds(date:string,shift:PlannedShift|null) {
+ if(!shift||!WORKING_KINDS.has(shift.kind)||!shift.start_time||!shift.end_time)return null;
+ const start=shift.start_time.slice(0,5),end=shift.end_time.slice(0,5);
+ const endDate=end<=start?new Date(Date.parse(date+'T12:00:00Z')+86400000).toISOString().slice(0,10):date;
+ try{return {start:Date.parse(budapestUtc(date+'T'+start)),end:Date.parse(budapestUtc(endDate+'T'+end))};}catch{return null;}
+}
+export function dayComparison(date:string,shift:PlannedShift|null,actual:ActualAttendance[],today:string,tolerance=5) {
+ const bounds=shiftBounds(date,shift);
+ const first=actual.length?Math.min(...actual.map(r=>Date.parse(r.check_in_time))):null;
+ const closed=actual.filter(r=>r.check_out_time);
+ const last=closed.length===actual.length&&closed.length?Math.max(...closed.map(r=>Date.parse(r.check_out_time!))):null;
+ const minutes=closed.reduce((n,r)=>n+Number(r.total_hours??0)*60,0);
+ const expected=shift&&WORKING_KINDS.has(shift.kind)?shift.worked_minutes??(bounds?(bounds.end-bounds.start)/60000:null):null;
+ return {minutes,expected,delta:expected==null||last==null?null:minutes-expected,
+ late:bounds!==null&&first!==null&&first>bounds.start+tolerance*60000,
+ early:bounds!==null&&last!==null&&last<bounds.end,
+ missing:date<today&&!!shift&&WORKING_KINDS.has(shift.kind)&&!actual.length,
+ dayOff:!!actual.length&&!!shift&&['day_off','fixed_day_off'].includes(shift.kind),
+ open:actual.some(r=>!r.check_out_time),scheduled:bounds!==null,onTime:bounds!==null&&first!==null&&first<=bounds.start+tolerance*60000};
+}
+export function csvCell(value:unknown):string {
+ const text=String(value??'');return '"'+(/^[\s]*[=+@-]/.test(text)?"'"+text:text).replace(/"/g,'""')+'"';
+}
+export function attendanceMapUrl(value:unknown):string|null {
+ if(!value||typeof value!=='object')return null;
+ const {latitude,longitude}=value as {latitude?:unknown;longitude?:unknown};
+ if(typeof latitude!=='number'||typeof longitude!=='number'||!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180)return null;
+ return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(latitude+','+longitude);
+}

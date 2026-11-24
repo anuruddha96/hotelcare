@@ -13,3 +13,14 @@ describe('HR attendance',()=>{
  expect(()=>budapestUtc('2026-10-25T02:30')).toThrow();
  });
 });
+
+import {dayComparison,publishedShift,csvCell,attendanceMapUrl} from './hr-attendance';
+describe('schedule reconciliation',()=>{
+ const shift={kind:'night' as const,start_time:'20:00',end_time:'08:00',hotel_id:'ottofiori',worked_minutes:720};
+ const row={user_id:'a',work_date:'2026-11-20',check_in_time:'2026-11-20T19:06:00Z',check_out_time:'2026-11-21T06:00:00Z',total_hours:10};
+ it('uses last published snapshot instead of unpublished changes',()=>expect(publishedShift({...shift,status:'draft',start_time:'12:00',published_version:shift})).toEqual(shift));
+ it('detects lateness and early overnight departure',()=>expect(dayComparison(row.work_date,shift,[row],'2026-11-24')).toMatchObject({late:true,early:true,delta:-120,missing:false}));
+ it('only flags missing on past published work days',()=>{expect(dayComparison(row.work_date,shift,[],'2026-11-24').missing).toBe(true);expect(dayComparison(row.work_date,null,[],'2026-11-24').missing).toBe(false);expect(dayComparison(row.work_date,shift,[],row.work_date).missing).toBe(false);});
+ it('does not infer a day off without a published shift',()=>{expect(dayComparison(row.work_date,null,[row],'2026-11-24').dayOff).toBe(false);expect(dayComparison(row.work_date,{...shift,kind:'day_off'},[row],'2026-11-24').dayOff).toBe(true);});
+ it('escapes CSV quotes and formulas and validates map coordinates',()=>{expect(csvCell('=1+1')).toBe('"\'=1+1"');expect(csvCell('a"b')).toBe('"a""b"');expect(attendanceMapUrl({latitude:91,longitude:1})).toBeNull();expect(attendanceMapUrl({latitude:47,longitude:19})).toContain('47%2C19');});
+});
