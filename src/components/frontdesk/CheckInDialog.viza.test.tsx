@@ -8,7 +8,13 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: { rpc: mocks.rpc, f
 vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('react-router-dom', () => ({ useParams: () => ({ organizationSlug: 'fixture' }) }));
 vi.mock('@/components/guests/GuestWelcomeCard', () => ({ GuestWelcomeCard: () => null }));
-vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: () => null }));
+vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: ({open,onOpenChange,onApply}: {
+  open:boolean; onOpenChange:(value:boolean)=>void; onApply:(result: import('@/lib/idScan/mrz').MrzReadResult)=>void;
+}) => open ? <button onClick={()=>{onApply({format:'TD3',valid:true,unknownCountry:false,lines:[],fields:{
+  firstName:'Synthetic',lastName:'Foreign',mrzFirstName:'SYNTHETIC',mrzLastName:'FOREIGN',
+  nationality:'DE',nationalityIso3:'DEU',dateOfBirth:'1990-01-01',gender:'female',
+  documentType:'passport',documentNumber:'TEST-DE',expiryDate:'2030-01-01',issuingState:'DEU'
+}});onOpenChange(false);}}>Use synthetic passport</button> : null }));
 vi.mock('@/components/frontdesk/BusinessMomentField', () => ({
   BusinessMomentField: () => null,
   useBusinessMoment: () => ({ occurredAt: null, invalid: false, display: '10:00' }),
@@ -23,7 +29,7 @@ vi.mock('@/lib/pmsLifecycle', () => ({
 }));
 
 describe('VIZA-only whole-reservation check-in screen', () => {
-  it('registers a Hungarian ID and a foreign passport with NTAK lifecycle off', async () => {
+  it.each(['existing','scan'])('registers two occupants with NTAK off via %s', async (method) => {
     const resId = 'two-adults';
     const review = { reservation_id: resId, scan_reviewed: true };
     const hu = { id: 'hungarian', first_name: 'Synthetic', last_name: 'Hungarian',
@@ -39,7 +45,17 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       viza_review: { ...review, birth_name_absent: true, birth_place_absent: true, mother_name_absent: false } };
     const row = (guest: typeof hu | typeof foreign) => ({ guest_id: guest.id, stay_state: 'expected', arrived_at: null, departed_at: null, room_id: 'room-1', guests: guest });
     let rows = [row(hu)];
-    mocks.rpc.mockImplementation(async (name: string) => ({ data: name === 'pms_viza_registration_required', error: null }));
+    mocks.rpc.mockImplementation(async (name: string, args?: {_data?:Record<string,unknown>}) => {
+      if(name==='pms_express_channel_guest_hints') return {data:[{first_name:'Synthetic',last_name:'Hungarian'},{first_name:'Synthetic',last_name:'Companion'}],error:null};
+      if(name==='pms_register_scanned_stay_guest'){
+        expect(args?._data).toMatchObject({first_name:'Synthetic',last_name:'Foreign',id_document_number:'TEST-DE',
+          document_scan:{fields:{okmanyAzonositoSzam:'TEST-DE'}},
+          viza_review:{birth_name_absent:true,birth_place_absent:true,mother_name_absent:true,scan_reviewed:true}});
+        rows=[row(hu),row({...foreign,viza_review:{...review,birth_name_absent:true,birth_place_absent:true,mother_name_absent:true}})];
+        return {data:{status:'registered',guest_id:'foreign'},error:null};
+      }
+      return {data:name==='pms_viza_registration_required',error:null};
+    });
     mocks.rooms.mockResolvedValue([{ room_id: 'room-1', room_number: '101', room_status: 'clean', capacity: 2 }]);
     mocks.add.mockImplementation(async () => { rows = [row(hu), row(foreign)]; });
     mocks.checkIn.mockResolvedValue({ ok: true, room_number: '101' });
@@ -66,20 +82,37 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     await waitFor(() => expect(confirm()).toBeDisabled());
     expect(screen.getByText('pms.guest.occupantCount')).toBeInTheDocument();
     expect(screen.getByText('pms.guest.wholeReservation')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'pms.stayGuest.addGuest' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Select foreign guest' }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'pms.stayGuest.addGuest' })[1]);
-    await screen.findByText('Synthetic Foreign');
-    expect(mocks.add).toHaveBeenCalledWith(resId, foreign.id);
-    expect(confirm()).toBeDisabled();
-    expect(screen.getByText('pms.stayGuest.registrationMissing')).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /pms.stayGuest.arrivingNow/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'pms.stayGuest.details' })[1]);
-    await screen.findByPlaceholderText('HU / DE / USA…');
-    const absent = screen.getAllByRole('checkbox', { name: 'pms.guest.notOnDocument' });
-    expect(absent).toHaveLength(3);
-    fireEvent.click(absent.find(el => !(el as HTMLInputElement).checked)!);
-    fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
+    expect(screen.getByRole('button', { name: 'pms.express.scanDocument' })).toBeInTheDocument();
+    expect(await screen.findByText(/Synthetic Companion/)).toBeInTheDocument();
+    expect(screen.getByText(/pms\.express\.channelName/)).toBeInTheDocument();
+    if(method==='existing'){
+      fireEvent.click(screen.getByRole('button', { name: 'pms.express.otherOptions' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Select foreign guest' }));
+      fireEvent.click(screen.getByRole('button', { name: 'pms.stayGuest.addGuest' }));
+      await screen.findByText('Synthetic Foreign');
+      expect(mocks.add).toHaveBeenCalledWith(resId, foreign.id);
+      expect(confirm()).toBeDisabled();
+      expect(screen.getByText('pms.stayGuest.registrationMissing')).toBeInTheDocument();
+      expect(screen.queryByRole('checkbox', { name: /pms.stayGuest.arrivingNow/ })).not.toBeInTheDocument();
+      await screen.findByPlaceholderText('HU / DE / USA…');
+      const absent = screen.getAllByRole('checkbox', { name: 'pms.guest.notOnDocument' });
+      expect(absent).toHaveLength(3);
+      fireEvent.click(absent.find(el => !(el as HTMLInputElement).checked)!);
+      fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
+  
+    }else{
+      fireEvent.click(screen.getByRole('button',{name:'pms.express.scanDocument'}));
+      fireEvent.click(await screen.findByRole('button',{name:'Use synthetic passport'}));
+      await screen.findByPlaceholderText('HU / DE / USA…');
+      expect(screen.getByDisplayValue('Synthetic')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Foreign')).toBeInTheDocument();
+      expect(screen.getByRole('button',{name:'pms.express.confirmGuest'})).toBeDisabled();
+      screen.getAllByRole('checkbox',{name:'pms.guest.notOnDocument'}).forEach(el=>fireEvent.click(el));
+      fireEvent.click(screen.getByRole('checkbox',{name:'pms.express.verify'}));
+      expect(screen.getByRole('button',{name:'pms.express.confirmGuest'})).toBeEnabled();
+      fireEvent.click(screen.getByRole('button',{name:'pms.express.confirmGuest'}));
+      await screen.findByText('Synthetic Foreign');
+    }
     await waitFor(() => expect(confirm()).toBeEnabled());
     expect(screen.getAllByText('pms.stayGuest.registrationComplete')).toHaveLength(2);
     fireEvent.click(confirm());

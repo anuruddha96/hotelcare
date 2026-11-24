@@ -127,6 +127,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-0.5 pb-3" data-training="fd-checkin-scroll">
           <div className="p-3 rounded-lg bg-accent/30 border border-border">
+            <p className="text-xs text-muted-foreground">{t('pms.express.bookingContact')}</p>
             <p className="font-semibold">{reservationGuestLabel(reservation)}</p>
             <p className="text-sm text-muted-foreground">{reservation.reservation_number}</p>
             <p className="text-sm text-muted-foreground">
@@ -143,7 +144,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
               onSaved={() => setArrivalError(null)} />
           )}
 
-          <StayGuestRoster vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
+          <StayGuestRoster expectedGuests={pax} bookingGuestId={reservation.guest_id} vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
             orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} />
           {vizaLoadFailed && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaStatusFailed')}</p>}
           {arrivalError && <p role="alert" className="text-sm text-destructive break-words">{arrivalError}</p>}

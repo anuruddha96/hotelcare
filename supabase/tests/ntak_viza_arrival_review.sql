@@ -118,3 +118,112 @@ UPDATE public.guests SET nationality='DE',id_document_type='passport',id_documen
  viza_review='{"reservation_id":"00000000-0000-4000-8000-000000000094","manual_reason":"Scanner failure","birth_name_absent":true,"birth_place_absent":true,"mother_name_absent":true}'
  WHERE id='00000000-0000-4000-8000-000000000093';
 SELECT public.pms_check_in('00000000-0000-4000-8000-000000000094',NULL,NULL,NULL,true);
+
+
+-- Express registration regression: extend the disposable fixture to match the
+-- guest/stay columns used by the production linking helper.
+ALTER TABLE public.guests ADD COLUMN IF NOT EXISTS organization_slug text;
+ALTER TABLE public.reservation_guests ADD COLUMN IF NOT EXISTS created_by uuid;
+CREATE OR REPLACE FUNCTION public.pms_add_stay_guest(
+  _reservation_id uuid,_guest_id uuid
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE r public.reservations%ROWTYPE; g public.guests%ROWTYPE; actor uuid:=auth.uid();
+BEGIN
+  SELECT * INTO r FROM public.reservations WHERE id=_reservation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
+  IF actor IS NULL OR NOT public.can_access_pms_hotel(actor,r.hotel_id,r.organization_slug) THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
+  SELECT * INTO g FROM public.guests WHERE id=_guest_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'GUEST_NOT_FOUND'; END IF;
+  IF g.organization_slug IS DISTINCT FROM r.organization_slug
+    OR (g.hotel_id IS NOT NULL AND NOT public.user_can_access_hotel(actor,g.hotel_id)) THEN
+    RAISE EXCEPTION 'GUEST_WRONG_PROPERTY';
+  END IF;
+  INSERT INTO public.reservation_guests(reservation_id,guest_id,room_id,created_by)
+  VALUES(r.id,g.id,r.room_id,actor)
+  ON CONFLICT (reservation_id,guest_id) DO NOTHING;
+  RETURN jsonb_build_object('ok',true,'guest_id',g.id);
+END;
+$$;
+\ir ../migrations/20261124143000_pms_express_guest_registration.sql
+UPDATE public.guests SET organization_slug='fixture';
+UPDATE public.reservations SET adults=3 WHERE id='00000000-0000-4000-8000-000000000094';
+
+DO $express_test$
+DECLARE
+  res uuid:='00000000-0000-4000-8000-000000000094';
+  registered jsonb;
+  payload jsonb := '{"first_name":"New","last_name":"Visitor","nationality":"DE","gender":"female","date_of_birth":"1992-01-01","id_document_type":"passport","id_document_number":"EXPRESS-TEST","viza_review":{"birth_name_absent":true,"birth_place_absent":true,"mother_name_absent":true},"document_scan":{"source":"mrz_camera","format":"TD3","valid":true,"read_at":"2026-11-24T10:00:00Z","fields":{"csaladnev":"VISITOR","utonev":"NEW","szuletesiDatum":"1992-01-01","allampolgarsagKod":"DE","nem":"NO","okmanyTipus":"UTLEVEL","okmanyAzonositoSzam":"EXPRESS-TEST"}}}';
+  candidate uuid;
+BEGIN
+  -- No cross-tenant access, even when the caller supplies a valid reservation ID.
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000099',false);
+  BEGIN
+    PERFORM public.pms_register_scanned_stay_guest(res,payload,NULL);
+    RAISE EXCEPTION 'unauthorized registration succeeded';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'ACCESS_DENIED' THEN RAISE; END IF; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000091',false);
+  -- Existing document identity: no update or link until explicit confirmation.
+  INSERT INTO public.guests(first_name,last_name,hotel_id,organization_slug,nationality,date_of_birth,id_document_type,id_document_number)
+    VALUES('New','Visitor','viza-hotel','fixture','DE','1992-01-01','passport','EXPRESS-TEST') RETURNING id INTO candidate;
+  registered:=public.pms_register_scanned_stay_guest(res,payload,NULL);
+  IF registered->>'status'<>'match' OR (registered->>'guest_id')::uuid<>candidate
+     OR EXISTS(SELECT 1 FROM public.reservation_guests WHERE reservation_id=res AND guest_id=candidate)
+     OR EXISTS(SELECT 1 FROM public.guests WHERE id=candidate AND document_scan IS NOT NULL) THEN RAISE EXCEPTION 'unconfirmed match changed data'; END IF;
+  BEGIN
+    PERFORM public.pms_register_scanned_stay_guest(res,payload||'{"first_name":"Other"}'::jsonb,candidate);
+    RAISE EXCEPTION 'identity mismatch accepted';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'EXPRESS_IDENTITY_CONFLICT' THEN RAISE; END IF; END;
+  registered:=public.pms_register_scanned_stay_guest(res,payload,candidate);
+  IF registered->>'status'<>'registered' OR (registered->>'guest_id')::uuid<>candidate
+     OR NOT EXISTS(SELECT 1 FROM public.reservation_guests WHERE reservation_id=res AND guest_id=candidate)
+     OR NOT EXISTS(SELECT 1 FROM public.guests WHERE id=candidate AND document_scan->'fields'->>'okmanyAzonositoSzam'='EXPRESS-TEST')
+     THEN RAISE EXCEPTION 'confirmed match did not register'; END IF;
+  PERFORM public.pms_assert_viza_arrival_data(res,NULL,current_date);
+  BEGIN
+    PERFORM public.pms_register_scanned_stay_guest(res,payload||'{"id_document_number":"OVERFLOW"}'::jsonb,NULL);
+    RAISE EXCEPTION 'overfilled reservation';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'EXPRESS_OCCUPANCY_FULL' THEN RAISE; END IF; END;
+  UPDATE public.reservations SET adults=4 WHERE id=res;
+  registered:=public.pms_register_scanned_stay_guest(res,
+    payload||'{"first_name":"Second","id_document_number":"EXPRESS-NEW"}'::jsonb
+      ||jsonb_build_object('document_scan',jsonb_set(payload->'document_scan','{fields,okmanyAzonositoSzam}','"EXPRESS-NEW"'::jsonb)),NULL);
+  IF registered->>'status'<>'registered' OR NOT EXISTS(
+      SELECT 1 FROM public.guests g JOIN public.reservation_guests rg ON rg.guest_id=g.id
+      WHERE rg.reservation_id=res AND g.id=(registered->>'guest_id')::uuid AND g.hotel_id='viza-hotel' AND g.organization_slug='fixture')
+    THEN RAISE EXCEPTION 'new guest was not atomically registered'; END IF;
+  PERFORM public.pms_assert_viza_arrival_data(res,NULL,current_date);
+END $express_test$;
+
+
+-- Room-level channel names are a read-only hint; never pull other rooms or
+-- unaccepted revisions, and never resurrect purged payloads.
+ALTER TABLE public.reservations ADD COLUMN IF NOT EXISTS channex_room_index integer;
+CREATE TABLE public.channex_booking_revisions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), hotel_id text, channex_booking_id text,
+  reservation_ids uuid[] NOT NULL DEFAULT '{}', state text, created_at timestamptz DEFAULT now(), payload jsonb
+);
+\ir ../migrations/20261124143100_pms_express_channel_guest_hints.sql
+UPDATE public.reservations SET channex_booking_id='11111111-1111-4111-8111-111111111111',channex_room_index=1
+ WHERE id='00000000-0000-4000-8000-000000000094';
+INSERT INTO public.channex_booking_revisions(hotel_id,channex_booking_id,reservation_ids,state,created_at,payload) VALUES
+('viza-hotel','11111111-1111-4111-8111-111111111111',ARRAY['00000000-0000-4000-8000-000000000094'::uuid],'applied',now()-interval '2 days',
+ '{"rooms":[{"guests":[{"name":"Wrong","surname":"Room"}]},{"guests":[{"name":"Correct","surname":"Companion","email":"not-returned@example.invalid"}]}]}'),
+('viza-hotel','11111111-1111-4111-8111-111111111111',ARRAY['00000000-0000-4000-8000-000000000094'::uuid],'review',now()-interval '1 day',
+ '{"rooms":[{},{"guests":[{"name":"Pending","surname":"Revision"}]}]}');
+DO $hint_test$
+DECLARE
+  res uuid:='00000000-0000-4000-8000-000000000094';
+  result jsonb;
+BEGIN
+  result:=public.pms_express_channel_guest_hints(res);
+  IF result IS DISTINCT FROM '[{"first_name":"Correct","last_name":"Companion"}]'::jsonb THEN RAISE EXCEPTION 'wrong room/revision or extra PII returned'; END IF;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000099',false);
+  BEGIN
+    PERFORM public.pms_express_channel_guest_hints(res);
+    RAISE EXCEPTION 'unauthorized channel names returned';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'ACCESS_DENIED' THEN RAISE; END IF; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000091',false);
+  INSERT INTO public.channex_booking_revisions(hotel_id,channex_booking_id,reservation_ids,state,created_at,payload)
+    VALUES('viza-hotel','11111111-1111-4111-8111-111111111111',ARRAY[res],'applied',now(),NULL);
+  IF public.pms_express_channel_guest_hints(res) IS DISTINCT FROM '[]'::jsonb THEN RAISE EXCEPTION 'purged payload resurrected'; END IF;
+END $hint_test$;
