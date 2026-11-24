@@ -41,6 +41,10 @@ describe('printed fields and guest autofill', () => {
     expect(guestScanPatch(sample).mother_name).toBeUndefined();
     expect(guestScanPatch(sample).birth_place).toBeUndefined();
   });
+  it('reads a labeled bilingual passport birthplace beside the sex field', () => {
+    expect(extractOpticalGuestFields('Sex/Sexe Place of birth/Lieu de naissance\nM GIBRALTAR\nDate of issue\n24 JAN 07').birth_place).toBe('Gibraltar');
+    expect(extractOpticalGuestFields('Sex/Sexe Place of birth/Lieu de naissance\nDate of issue\n24 JAN 07').birth_place).toBeUndefined();
+  });
   it('does not replace the MRZ names with an unrelated printed name', () => {
     expect(opticalGuestFields(sample, 'Given name: Anna', '').first_name).toBeUndefined();
     expect(opticalGuestFields(sample, 'Given name: Éva', '').first_name).toBe('Éva');

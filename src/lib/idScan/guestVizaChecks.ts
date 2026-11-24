@@ -34,6 +34,7 @@ export interface VizaReview {
   birth_place_absent?: boolean;
   mother_name_absent?: boolean;
   visa_exempt?: boolean;
+  entry_details_absent?: boolean;
   manual_reason?: string;
   scan_reviewed?: boolean;
   parent_statement?: boolean;
@@ -133,8 +134,8 @@ export function vizaAdmissionFields(guest: GuestVizaValues | null | undefined, r
   oldest.setUTCFullYear(oldest.getUTCFullYear() - 110);
   if (!validDate(guest.date_of_birth) || String(guest.date_of_birth) < isoDay(oldest) || vizaProblems(guest, day).includes('birthDate')) add('date_of_birth');
   if (thirdCountry(guest)) {
-    if (!validDate(guest.entry_date) || String(guest.entry_date) > isoDay(day)) add('entry_date');
-    if (!filled(guest.entry_place)) add('entry_place');
+    if (filled(guest.entry_date) ? !validDate(guest.entry_date) || String(guest.entry_date) > isoDay(day) : !review.entry_details_absent) add('entry_date');
+    if ((!filled(guest.entry_place) && !review.entry_details_absent) || [...String(guest.entry_place ?? '').trim()].length > 200 || new TextEncoder().encode(String(guest.entry_place ?? '').trim()).length > 254) add('entry_place');
     if ((!filled(guest.visa_number) && !review.visa_exempt) || String(guest.visa_number ?? '').length > 100) add('visa_number');
   }
   if (childWithoutDoc) {

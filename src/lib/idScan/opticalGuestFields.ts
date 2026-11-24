@@ -96,6 +96,17 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
   // the issuing-country heading, expiry date or a generic country token.
   for (let i=0;i<lines.length;i++) {
     const line=fold(lines[i]);
+    // Passport layouts often put Sex and Place of birth on the same row,
+    // followed by a bilingual label and then a sex marker + printed place.
+    // Never infer the place from the issuing state or MRZ.
+    if (/\b(?:sex|sexe)\b/.test(line) && /\bplace\s+of\s+birth\b/.test(line)) {
+      const placeLabel = /place\s+of\s+birth(?:\s*\/\s*lieu\s+de\s+naissance)?/.exec(line);
+      if (placeLabel) {
+        const rest = lines[i].slice(placeLabel.index + placeLabel[0].length).trim();
+        const candidate = rest || (lines[i + 1] ?? '').replace(/^[MFX]\s+/i, '').trim();
+        if (candidate && !otherLabel.test(fold(candidate)) && !labels.some(([, p]) => p.test(fold(candidate)))) add('birth_place', name(candidate));
+      }
+    }
     const dateLabel=/(?:szuletesi\s*ido|date\s*of\s*birth)/.exec(line);
     if(dateLabel) {
       const tail=line.slice(dateLabel.index+dateLabel[0].length);
