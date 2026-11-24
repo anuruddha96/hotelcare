@@ -15,8 +15,8 @@ const name = (s: string) => /^[\p{L}\p{M}][\p{L}\p{M} .'’\-]{0,79}$/u.test(s) 
 // Explicit field labels only. Never infer a maiden name from the current
 // surname, nationality from the issuing country, or birthplace from an address.
 const labels = [
-  ['mother_name', /(?:anyja\s+(?:szuletesi\s+)?neve?|mother(?:'s|s)?\s+(?:birth|maiden)\s+name)/i],
-  ['birth_pair', /(?:szuletesi\s+csalad(?:i)?\s+es\s+uto(?:neve|nev)|szuletesi\s+neve?|birth name|^\s*name at birth)/i],
+  ['mother_name', /(?:anyja\s+(?:szuletesi\s+)?(?:csalad(?:i)?\s+es\s+uto(?:neve|nev)|neve?)|mother(?:['’]s|s)?\s+(?:(?:birth|maiden)\s+name|(?:family name and given names? at birth)))/i],
+  ['birth_pair', /(?:szuletesi\s+csalad(?:i)?\s+es\s+uto(?:neve|nev)|family name and given names? at birth|szuletesi\s+neve?|birth name|^\s*name at birth)/i],
   ['birth_last_name', /(?:szuletesi\s+csalad(?:i)?nev|family name at birth|birth surname|surname at birth)/i],
   ['birth_first_name', /(?:szuletesi\s+uto(?:neve|nev)|given names? at birth|birth given names?)/i],
   ['birth_place', /(?:szuletesi\s+helye?|place of birth|birth place)/i],
@@ -70,6 +70,8 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
     if (!tail) {
       const next = lines[i + 1] ?? '';
       if (labels.some(([, p]) => p.test(fold(next))) || otherLabel.test(fold(next))) continue;
+      // Do not accidentally consume a machine-readable line as a name.
+      if (next.includes('<')) continue;
       tail = next;
     }
     if (key === 'nationality') add(key, nationalityValue(tail));
@@ -83,6 +85,10 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
       }
     } else if (key === 'mother_name') {
       if (tail.split(/\s+/).length >= 2) add(key, name(tail));
+    } else if (key === 'birth_place') {
+      // Hungarian specimen prints the town followed by (HUN). Keep the
+      // birthplace text, never infer nationality from a birthplace suffix.
+      add(key, name(tail.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim()));
     } else add(key, name(tail));
   }
   const out: OpticalGuestFields = {};
