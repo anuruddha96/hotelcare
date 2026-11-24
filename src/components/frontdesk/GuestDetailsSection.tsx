@@ -8,7 +8,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { CheckCircle2, IdCard, Loader2, PencilLine, ScanLine, TriangleAlert, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, IdCard, Loader2, PencilLine, ScanLine, TriangleAlert, X } from 'lucide-react';
 import { IdScanDialog } from '@/components/frontdesk/IdScanDialog';
 import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
@@ -50,12 +50,15 @@ const openItems = (guest: GuestVizaRow | null) => [...vizaMissingFields(guest), 
 interface GuestDetailsSectionProps {
   guestId: string | null;
   onCompletenessChange?: (missing: string[]) => void;
+  onSaved?: (guest: GuestVizaRow) => void;
 }
 
-export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDetailsSectionProps) {
+export function GuestDetailsSection({ guestId, onCompletenessChange, onSaved }: GuestDetailsSectionProps) {
   const { t } = useTranslation();
   const [guest, setGuest] = useState<GuestVizaRow | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
@@ -67,6 +70,8 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
 
   useEffect(() => {
     setOptical({});
+    setExpanded(false);
+    setGuest(null);
     if (!guestId) { setGuest(null); setScan(null); onCompletenessChange?.(openItems(null)); return; }
     let alive = true;
     setLoading(true);
@@ -81,6 +86,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
       const { document_scan: storedScan, ...columns } = (data ?? {}) as Record<string, unknown>;
       const row = (data ? { birth_last_name: null, birth_first_name: null, entry_date: null, entry_place: null, ...columns } : null) as GuestVizaRow | null;
       setGuest(row);
+      setExpanded(openItems(row).length > 0);
       setScan((storedScan as VizaDocumentScan | null) ?? null);
       setScanChanged(false);
       setHasExtraColumns(extended);
@@ -90,7 +96,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [guestId]);
+  }, [guestId, loadAttempt]);
 
   const set = (field: keyof GuestVizaRow, value: string) => {
     setGuest((g) => (g ? { ...g, [field]: value || null } : g));
@@ -149,6 +155,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
     setScanChanged(false);
     toast.success(t('pms.guest.saved'));
     onCompletenessChange?.(openItems(guest));
+    onSaved?.(guest);
   };
 
   if (!guestId) return null;
@@ -185,15 +192,23 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   };
 
   return (
-    <details className="rounded-lg border border-border" open={open > 0} data-training="fd-guest-viza">
-      <summary className="list-none cursor-pointer select-none px-3 py-2 flex items-center gap-2 text-sm font-medium">
+    <section className="rounded-lg border border-border" data-training="fd-guest-viza">
+      <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}
+        className="w-full text-left cursor-pointer px-3 py-2 flex items-center gap-2 text-sm font-medium">
         <IdCard className="h-4 w-4 text-primary shrink-0" />
         <span className="flex-1">{t('pms.guest.detailsTitle')}</span>
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : open === 0
           ? <Badge className="bg-emerald-600 text-white">✓ {t('pms.guest.complete')}</Badge>
           : <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">{t('pms.guest.missing')}: {open}</Badge>}
-      </summary>
-      {guest && (
+        <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      {!loading && !guest && expanded && (
+        <div role="alert" className="px-3 pb-3 space-y-2">
+          <p className="text-sm text-destructive">{t('pms.guest.vizaArrivalBlocked')}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setLoadAttempt((n) => n + 1)}>{t('ntak.refreshReports')}</Button>
+        </div>
+      )}
+      {guest && expanded && (
         <div className="px-3 pb-3 space-y-2.5">
           <Button type="button" size="sm" variant={read ? 'outline' : 'default'} className="h-9 w-full gap-1.5" onClick={() => setScanOpen(true)} data-training="fd-id-scan-open">
             <ScanLine className="h-4 w-4" /> {read ? t('pms.scan.retry') : t('pms.scan.button')}
@@ -321,12 +336,12 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
               </div>
             </details>
           </div>
-          <Button type="button" size="sm" variant="outline" className="h-10 w-full sm:h-8 sm:w-auto" disabled={!dirty || saving} onClick={save}>
+          <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} className="h-10 w-full sm:h-8 sm:w-auto" disabled={!dirty || saving} onClick={save}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t('pms.guest.save')}
           </Button>
         </div>
       )}
       <IdScanDialog open={scanOpen} onOpenChange={setScanOpen} onApply={applyScan} />
-    </details>
+    </section>
   );
 }
