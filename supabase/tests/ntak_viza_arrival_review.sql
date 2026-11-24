@@ -193,3 +193,37 @@ BEGIN
     THEN RAISE EXCEPTION 'new guest was not atomically registered'; END IF;
   PERFORM public.pms_assert_viza_arrival_data(res,NULL,current_date);
 END $express_test$;
+
+
+-- Room-level channel names are a read-only hint; never pull other rooms or
+-- unaccepted revisions, and never resurrect purged payloads.
+ALTER TABLE public.reservations ADD COLUMN IF NOT EXISTS channex_room_index integer;
+CREATE TABLE public.channex_booking_revisions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), hotel_id text, channex_booking_id text,
+  reservation_ids uuid[] NOT NULL DEFAULT '{}', state text, created_at timestamptz DEFAULT now(), payload jsonb
+);
+\ir ../migrations/20261124143100_pms_express_channel_guest_hints.sql
+UPDATE public.reservations SET channex_booking_id='11111111-1111-4111-8111-111111111111',channex_room_index=1
+ WHERE id='00000000-0000-4000-8000-000000000094';
+INSERT INTO public.channex_booking_revisions(hotel_id,channex_booking_id,reservation_ids,state,created_at,payload) VALUES
+('viza-hotel','11111111-1111-4111-8111-111111111111',ARRAY['00000000-0000-4000-8000-000000000094'::uuid],'applied',now()-interval '2 days',
+ '{"rooms":[{"guests":[{"name":"Wrong","surname":"Room"}]},{"guests":[{"name":"Correct","surname":"Companion","email":"not-returned@example.invalid"}]}]}'),
+('viza-hotel','11111111-1111-4111-8111-111111111111',ARRAY['00000000-0000-4000-8000-000000000094'::uuid],'review',now()-interval '1 day',
+ '{"rooms":[{},{"guests":[{"name":"Pending","surname":"Revision"}]}]}');
+DO $hint_test$
+DECLARE
+  res uuid:='00000000-0000-4000-8000-000000000094';
+  result jsonb;
+BEGIN
+  result:=public.pms_express_channel_guest_hints(res);
+  IF result IS DISTINCT FROM '[{"first_name":"Correct","last_name":"Companion"}]'::jsonb THEN RAISE EXCEPTION 'wrong room/revision or extra PII returned'; END IF;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000099',false);
+  BEGIN
+    PERFORM public.pms_express_channel_guest_hints(res);
+    RAISE EXCEPTION 'unauthorized channel names returned';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'ACCESS_DENIED' THEN RAISE; END IF; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000091',false);
+  INSERT INTO public.channex_booking_revisions(hotel_id,channex_booking_id,reservation_ids,state,created_at,payload)
+    VALUES('viza-hotel','11111111-1111-4111-8111-111111111111',ARRAY[res],'applied',now(),NULL);
+  IF public.pms_express_channel_guest_hints(res) IS DISTINCT FROM '[]'::jsonb THEN RAISE EXCEPTION 'purged payload resurrected'; END IF;
+END $hint_test$;
