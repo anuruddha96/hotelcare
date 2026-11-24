@@ -9,13 +9,12 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { canManagePmsServiceCatalogue } from '@/lib/pmsFinance';
-import { isNativePmsOrganization } from '@/hooks/useAccessPolicy';
 import { Loader2, PlusCircle } from 'lucide-react';
 import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
 import { budapestToday } from '@/lib/businessMoment';
 import { useTranslation } from '@/hooks/useTranslation';
 import { addFolioItem, LifecycleError } from '@/lib/pmsLifecycle';
-import { formatMoney, reservationGuestLabel } from '@/lib/reservations';
+import { formatMoney, reservationGuestLabel, lifecycleErrorKey } from '@/lib/reservations';
 
 /**
  * Post an extra to the guest folio in two taps: pick what it is, confirm the
@@ -73,7 +72,20 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded, cata
   const manager = canManagePmsServiceCatalogue(profile?.role);
   const departed = reservation.status === 'checked_out';
   const blocked = ['cancelled','no_show'].includes(String(reservation.status)) || (departed && !manager);
-  const native = isNativePmsOrganization(String(reservation.organization_slug ?? ''));
+  const [nativeAccess, setNativeAccess] = useState<{id:string; allowed:boolean} | null>(null);
+  const native = nativeAccess?.id === reservation.id && nativeAccess.allowed;
+  useEffect(() => {
+    setNativeAccess(null);
+    if (!open) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const {data,error} = await (supabase.rpc as CallableFunction)('pms_finance_native_access',{_reservation_id:reservation.id});
+        if (alive) setNativeAccess({id:reservation.id,allowed:!error && data===true});
+      } catch { if (alive) setNativeAccess({id:reservation.id,allowed:false}); }
+    })();
+    return () => { alive = false; };
+  }, [open,reservation.id]);
   const [catalogue, setCatalogue] = useState<Array<{id:string;name:string;default_gross_price:number;currency:string;ntak_main:string|null;ntak_sub:string|null;in_package:boolean;allowed_hotel_ids:string[];requires_manager_approval:boolean}>>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [many, setMany] = useState(catalogueOnly);
@@ -129,7 +141,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded, cata
         if (error) throw new Error(error.message);
         toast.success(`${data.posted} charges posted · ${formatMoney(manyTotal,reservation.currency)}`);
         onAdded?.(Number(data.balance_due ?? 0)); reset(); onOpenChange(false);
-      } catch (err) { toast.error((err as Error).message); }
+      } catch (err) { const key = lifecycleErrorKey(err); toast.error(key ? t(key) : (err as Error).message); }
       finally { setSaving(false); }
       return;
     }
@@ -164,7 +176,7 @@ export function AddChargeDialog({ reservation, open, onOpenChange, onAdded, cata
           </DialogTitle>
         </DialogHeader>
 
-        {departed && <p className="text-xs font-medium text-amber-700">After departure · manager only</p>}
+        {departed && <p className="text-xs font-medium text-amber-700">{t('pms.err.postDepartureRequiresManager')}</p>}
         {native && !catalogueOnly && <Button type="button" variant="outline" disabled={saving || blocked} onClick={() => { setMany(v=>!v); setChoice(null); }}>{many ? 'Single charge' : 'Post many charges'}</Button>}
         {many && <div className="space-y-2">
           {catalogueLoading ? <p className="text-sm">Loading catalogue…</p> : catalogueError ? <p className="text-sm text-muted-foreground">Catalogue posting unavailable until the Phase 8 migration is applied.</p> : <>

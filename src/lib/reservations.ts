@@ -301,6 +301,7 @@ export const LIFECYCLE_ERROR_KEYS: Record<string, string> = {
   INVALID_AMOUNT: "pms.err.invalidAmount",
   INVALID_DESCRIPTION: "pms.err.invalidDescription",
   INVALID_CHARGE_TYPE: "pms.err.invalidChargeType",
+  POST_DEPARTURE_REQUIRES_MANAGER: "pms.err.postDepartureRequiresManager",
   UNSUPPORTED_STATUS: "pms.err.invalidStatus",
   HOTEL_REQUIRED: "pms.err.hotelRequired",
   ROOM_LOCKED_WHILE_CHECKED_IN: "pms.err.roomLockedWhileCheckedIn",
