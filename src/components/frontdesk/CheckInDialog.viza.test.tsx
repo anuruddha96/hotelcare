@@ -67,7 +67,23 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     guestQuery.select.mockReturnValue(guestQuery);
     guestQuery.eq.mockReturnValue(guestQuery);
     guestQuery.maybeSingle.mockResolvedValue({ data: foreign, error: null });
-    guestQuery.update.mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) });
+    guestQuery.update.mockImplementation((payload: Record<string, unknown>) => ({
+      eq: vi.fn().mockImplementation((column: string, id: string) => {
+        expect(column).toBe('id');
+        expect(id).toBe(foreign.id);
+        return {
+          select: vi.fn().mockImplementation((columns: string) => {
+            expect(columns).toBe('id');
+            return { maybeSingle: vi.fn().mockImplementation(async () => {
+              rows = rows.map(item => item.guest_id === id
+                ? row({ ...foreign, ...payload } as typeof foreign)
+                : item);
+              return { data: { id }, error: null };
+            }) };
+          }),
+        };
+      }),
+    }));
     mocks.from.mockImplementation((table: string) => table === 'reservation_guests' ? rosterQuery : guestQuery);
     const today = getLocalDateString();
     const onSuccess = vi.fn();
@@ -98,7 +114,14 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       const absent = screen.getAllByRole('checkbox', { name: 'pms.guest.notOnDocument' });
       expect(absent).toHaveLength(3);
       fireEvent.click(absent.find(el => !(el as HTMLInputElement).checked)!);
-      fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
+      expect(confirm()).toBeDisabled();
+      expect(screen.getByText('pms.guest.autosaving')).toBeInTheDocument();
+      // The check-in must become ready from an acknowledged autosave,
+      // without clicking Save now or manually refreshing the roster.
+      await screen.findByText(/pms\.guest\.autosaved/, {}, { timeout: 3000 });
+      expect(guestQuery.update).toHaveBeenCalledWith(expect.objectContaining({
+        viza_review: expect.objectContaining({ mother_name_absent: true }),
+      }));
   
     }else{
       fireEvent.click(screen.getByRole('button',{name:'pms.express.scanDocument'}));
