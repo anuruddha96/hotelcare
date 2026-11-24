@@ -32,8 +32,8 @@ const format = (n: number, currency: string) => {
   try { return new Intl.NumberFormat(undefined,{style:"currency",currency}).format(n); }
   catch { return String(n) + " " + currency; }
 };
-const panel = "rounded-2xl border border-slate-200 bg-white p-4 md:p-6 shadow-sm";
-const input = "w-full rounded-xl border border-slate-200 px-3 py-2.5 bg-white";
+const panel = "rounded-2xl border border-slate-200 dark:border-border bg-white dark:bg-card p-4 md:p-6 shadow-sm";
+const input = "w-full rounded-xl border border-slate-200 dark:border-input px-3 py-2.5 bg-white dark:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:[color-scheme:dark]";
 const action = "rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-40";
 
 type Props = {
@@ -104,20 +104,20 @@ export function InSuiteCommerceConsole({
   if (mode === "orders") return <section className="space-y-4">
     <div className="flex items-center justify-between">
       <h2 className="text-xl font-semibold flex items-center gap-2"><UtensilsCrossed className="h-5 w-5" /> In-room food requests</h2>
-      <span className="text-sm text-slate-500">{orders.filter((o) => !["delivered","declined","cancelled"].includes(o.status)).length} open</span>
+      <span className="text-sm text-slate-500 dark:text-muted-foreground">{orders.filter((o) => !["delivered","declined","cancelled"].includes(o.status)).length} open</span>
     </div>
-    <p className="text-sm text-amber-900 rounded-xl bg-amber-50 p-3 border border-amber-200">
+    <p className="text-sm text-amber-900 dark:text-amber-200 rounded-xl bg-amber-50 dark:bg-amber-950/50 p-3 border border-amber-200 dark:border-amber-800">
       Orders are quotations until staff confirms. No automatic folio/Previo charge or online payment occurs.
     </p>
     {!orders.length && <div className={panel}>No food orders in the past three days.</div>}
     {sortedOrders.map((o) => <article key={o.id} className={panel + " space-y-3"}>
       <div className="flex gap-4 justify-between flex-wrap">
         <div><strong className="text-lg">Room {roomLabels[o.room_id] || "?"} · {o.kind.replaceAll("_"," ")}</strong>
-          <p className="text-xs text-slate-500">{new Date(o.created_at).toLocaleString()} · Requested {new Date(o.requested_at).toLocaleString()}</p>
+          <p className="text-xs text-slate-500 dark:text-muted-foreground">{new Date(o.created_at).toLocaleString()} · Requested {new Date(o.requested_at).toLocaleString()}</p>
           {o.notes && <p className="mt-2 whitespace-pre-wrap text-sm">{o.notes}</p>}
         </div>
         <div><strong>{format(o.quoted_total,o.currency)}</strong>
-          <p className="text-sm text-slate-500">{o.status.replaceAll("_"," ")}</p>
+          <p className="text-sm text-slate-500 dark:text-muted-foreground">{o.status.replaceAll("_"," ")}</p>
         </div>
       </div>
       <ul className="space-y-1 text-sm">
@@ -140,7 +140,7 @@ export function InSuiteCommerceConsole({
 
   if (mode === "bookings") return <section className="space-y-4">
     <h2 className="text-xl font-semibold flex items-center gap-2"><Clock3 className="h-5 w-5" /> Transport and facility requests</h2>
-    <p className="text-sm text-amber-900 rounded-xl bg-amber-50 border border-amber-200 p-3">
+    <p className="text-sm text-amber-900 dark:text-amber-200 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 p-3">
       Verify operator, price, capacity and time before confirming any taxi, spa, sauna, jacuzzi or gym reservation.
       A guest request is never automatically a confirmed booking.
     </p>
@@ -148,9 +148,9 @@ export function InSuiteCommerceConsole({
     {bookings.map((b) => <article className={panel + " space-y-3"} key={b.id}>
       <div className="flex gap-3 justify-between flex-wrap">
         <div><strong className="text-lg">Room {roomLabels[b.room_id] || "?"} · {b.kind}</strong>
-          <p className="text-sm text-slate-500">{b.party_size} people · Requested {new Date(b.starts_at).toLocaleString()}</p>
+          <p className="text-sm text-slate-500 dark:text-muted-foreground">{b.party_size} people · Requested {new Date(b.starts_at).toLocaleString()}</p>
           {b.notes && <p className="mt-2 text-sm whitespace-pre-wrap">{b.notes}</p>}
-        </div><span className="text-sm font-semibold rounded-full bg-slate-100 px-3 py-2 h-fit">{b.status}</span>
+        </div><span className="text-sm font-semibold rounded-full bg-slate-100 dark:bg-muted px-3 py-2 h-fit">{b.status}</span>
       </div>
       <label className="block space-y-1 text-sm font-semibold">Message to guest (availability, pickup details or reason)
         <textarea rows={2} maxLength={400} className={input}
@@ -174,17 +174,17 @@ export function InSuiteCommerceConsole({
   return <section className="space-y-5">
     <div>
       <h2 className="text-xl font-semibold">Hotel In-Suite menu editor</h2>
-      <p className="text-sm text-slate-500">Add verified items per hotel, including accurate price, currency and allergen information.</p>
+      <p className="text-sm text-slate-500 dark:text-muted-foreground">Add verified items per hotel, including accurate price, currency and allergen information.</p>
     </div>
     <div className="grid lg:grid-cols-[minmax(0,1fr)_minmax(280px,1fr)] gap-5">
       <div className={panel + " space-y-3"}>
         <h3 className="font-semibold">Existing menu items ({catalogItems.length})</h3>
-        {!catalogItems.length && <p className="text-sm text-slate-500">No items yet.</p>}
+        {!catalogItems.length && <p className="text-sm text-slate-500 dark:text-muted-foreground">No items yet.</p>}
         {catalogItems.map((c) => <button key={c.id} onClick={() => edit(c)}
-          className="flex items-center justify-between w-full rounded-xl border p-3 text-left gap-3 hover:bg-slate-50">
+          className="flex items-center justify-between w-full rounded-xl border p-3 text-left gap-3 hover:bg-slate-50 dark:hover:bg-accent">
           <div><strong>{c.name}</strong>
-            <p className="text-xs text-slate-500">{c.kind.replaceAll("_"," ")} · {format(c.price,c.currency)}</p></div>
-          <span className={`text-xs shrink-0 rounded-full px-2 py-1 ${c.is_active ? "bg-emerald-100 text-emerald-900" : "bg-slate-100"}`}>
+            <p className="text-xs text-slate-500 dark:text-muted-foreground">{c.kind.replaceAll("_"," ")} · {format(c.price,c.currency)}</p></div>
+          <span className={`text-xs shrink-0 rounded-full px-2 py-1 ${c.is_active ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-200" : "bg-slate-100 dark:bg-muted"}`}>
             {c.is_active ? "Guest visible" : "Unpublished"}
           </span>
         </button>)}
@@ -211,9 +211,9 @@ export function InSuiteCommerceConsole({
           <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((old) => ({...old,is_active:e.target.checked}))}/>
           Make available to guest tablets
         </label>
-        {form.is_active && <p className="rounded-xl p-3 bg-amber-50 text-amber-900 text-xs">
+        {form.is_active && <p className="rounded-xl p-3 bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200 text-xs">
           Please verify this price and allergen details. When this hotel's service category is enabled, the item becomes immediately available on tablets.</p>}
-        <button className="rounded-xl bg-slate-900 px-4 py-3 text-white font-semibold disabled:opacity-40"
+        <button className="rounded-xl bg-slate-900 dark:bg-primary px-4 py-3 text-white dark:text-primary-foreground font-semibold disabled:opacity-40"
           disabled={!!busy} type="submit">{busy ? "Saving…" : editingId ? "Save item" : "Create item"}</button>
       </form>
     </div>

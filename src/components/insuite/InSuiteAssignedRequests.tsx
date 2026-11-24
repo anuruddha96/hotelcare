@@ -66,24 +66,24 @@ export function InSuiteAssignedRequests() {
   };
 
   if (!INSUITE_OPERATIONS_ENABLED || !items.length) return null;
-  return <section className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-3 sm:p-4 space-y-3"
+  return <section className="rounded-2xl border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/50 text-foreground p-3 sm:p-4 space-y-3"
     aria-label="Priority guest requests">
     <div className="flex items-center justify-between gap-2">
-      <h2 className="font-bold flex items-center gap-2 text-amber-950">
+      <h2 className="font-bold flex items-center gap-2 text-amber-950 dark:text-amber-100">
         <BellRing className="w-5 h-5" /> PRIORITY · Guest room requests
       </h2>
       <Link className="text-xs underline" to={`/${org}/insuite`}>Open all requests</Link>
     </div>
-    {items.map((r) => <article key={r.id} className="rounded-xl bg-white border p-3 space-y-2">
+    {items.map((r) => <article key={r.id} className="rounded-xl bg-white dark:bg-card border p-3 space-y-2">
       <div className="flex flex-wrap gap-2 items-start justify-between">
         <div><strong>Room {roomLabels[r.room_id || ""] || "?"} · {r.request_type.replaceAll("_", " ")}</strong>
           <p className="text-sm">{r.quantity} item(s){r.detail ? ` · ${r.detail}` : ""}</p>
-          <p className="text-xs text-slate-500 flex items-center gap-1"><Clock3 className="w-3 h-3" /> {new Date(r.created_at).toLocaleTimeString()}</p></div>
-        <span className="text-xs rounded-full bg-amber-100 px-2 py-1">{r.status}</span>
+          <p className="text-xs text-slate-500 dark:text-muted-foreground flex items-center gap-1"><Clock3 className="w-3 h-3" /> {new Date(r.created_at).toLocaleTimeString()}</p></div>
+        <span className="text-xs rounded-full bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-200 px-2 py-1">{r.status}</span>
       </div>
       <div className="flex flex-wrap gap-2">
         {(follow[r.status] || []).map((s) => <button key={s} disabled={busy === r.id}
-          className={`rounded-lg px-3 py-2 text-sm font-semibold ${s === "completed" ? "bg-emerald-700 text-white" : "border bg-white"}`}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold ${s === "completed" ? "bg-emerald-700 text-white" : "border bg-white dark:bg-card"}`}
           onClick={() => void update(r.id, s)}>
           {s === "completed" ? <CheckCheck className="h-4 w-4 inline mr-1" /> : s === "unavailable" ? <AlertCircle className="h-4 w-4 inline mr-1" /> : null}
           {s.replaceAll("_", " ")}</button>)}
