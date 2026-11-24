@@ -156,10 +156,10 @@ function monthBands(dates: string[]) {
 /** Colour coding for the internal demand grade. */
 function demandTone(band: DemandBand): string {
   switch (band) {
-    case "very_strong": return "bg-red-500 text-white";
-    case "strong": return "bg-orange-300 text-orange-950 dark:bg-orange-700 dark:text-orange-50";
-    case "normal": return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
-    case "soft": return "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100";
+    case "very_strong": return "bg-red-500 text-white dark:bg-red-400/[0.13] dark:text-red-200";
+    case "strong": return "bg-orange-300 text-orange-950 dark:bg-orange-400/[0.12] dark:text-orange-100";
+    case "normal": return "bg-amber-100 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200";
+    case "soft": return "bg-sky-100 text-sky-900 dark:bg-sky-400/[0.08] dark:text-foreground";
     default: return "bg-muted text-muted-foreground";
   }
 }
@@ -176,10 +176,10 @@ const DEMAND_SHORT: Record<DemandBand, string> = {
 /** How much inventory is left, colour-graded from plenty to sold out. */
 function leftTone(left: number, units: number): string {
   if (units <= 0) return "text-muted-foreground";
-  if (left <= 0) return "bg-destructive/20 text-destructive font-semibold";
+  if (left <= 0) return "bg-destructive/20 text-destructive font-semibold dark:bg-red-400/[0.07] dark:text-red-300";
   const pct = left / units;
-  if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
-  return "text-muted-foreground";
+  if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200";
+  return "text-foreground";
 }
 
 /**
@@ -222,8 +222,7 @@ function isWeekendTrading(d: string): boolean {
 
 function weekendLabelTone(d: string): string {
   const tone = weekendTradingTone(d);
-  if (tone === "friday") return "font-bold text-blue-900 dark:text-blue-200";
-  if (tone === "saturday") return "font-bold text-violet-900 dark:text-violet-200";
+  if (tone === "friday" || tone === "saturday") return "font-bold text-sky-950 dark:text-foreground";
   if (tone === "sunday") return "font-semibold text-foreground/80";
   return "text-muted-foreground";
 }
@@ -243,9 +242,8 @@ function dateColumnEdge(d: string, today: string): string {
  *  related but lighter so the three days no longer read as one flat block. */
 function dayBg(d: string, i: number): string {
   const weekendTone = weekendTradingTone(d);
-  if (weekendTone === "friday") return "bg-blue-200/80 dark:bg-blue-900/60";
-  if (weekendTone === "saturday") return "bg-violet-200/80 dark:bg-violet-900/60";
-  if (weekendTone === "sunday") return "bg-indigo-100/60 dark:bg-indigo-950/45";
+  if (weekendTone === "friday" || weekendTone === "saturday") return "bg-sky-200/85 dark:bg-[hsl(211_46%_24%)]";
+  if (weekendTone === "sunday") return "bg-sky-100/65 dark:bg-[hsl(211_24%_20%)]";
   return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
 }
 
@@ -3736,15 +3734,15 @@ export default function RateStrategyGrid({
                         title={pickup === null
                           ? `${d} · pickup not available yet`
                           : `${d} · net ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} in, ${lost} out, counted over ${pickupWindowLabel(pickupWindowDays).toLowerCase()}${latestLabel ? ` · last movement ${latestLabel}` : ""}${isAutomationWindow ? "" : " · the automation reacts to the last 48 hours, so this window can disagree with the purple dots"}`}
-                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)}`}
+                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.severity === "none" ? `${dayBg(d, i)} ${tone.className}` : tone.className} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(11), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
                         {lost > 0 && (
-                          <span className="font-medium text-destructive" style={{ fontSize: fz(8) }}>-{lost} lost</span>
+                          <span className="font-medium text-destructive dark:text-red-300" style={{ fontSize: fz(8) }}>-{lost} lost</span>
                         )}
                         {lost === 0 && latestLabel && pickup !== 0 && (
-                          <span className="max-w-[56px] truncate font-normal opacity-80" style={{ fontSize: fz(8) }}>{latestLabel}</span>
+                          <span className="max-w-[56px] truncate font-normal opacity-80 dark:opacity-100" style={{ fontSize: fz(8) }}>{latestLabel}</span>
                         )}
                       </div>
                     );
@@ -3775,7 +3773,7 @@ export default function RateStrategyGrid({
                         title={m
                           ? `${m.roomsSold} / ${m.roomsAvailable} rooms · ${tone?.label ?? "occupancy unavailable"}${recorded ? ` · recorded ${new Date(recorded.captured_at).toLocaleString()}` : ""}`
                           : `${d} · no recorded occupancy data`}
-                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone?.className || dayBg(d, i)} ${dateColumnEdge(d, today)}`}
+                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${!tone || tone.severity === "none" ? `${dayBg(d, i)} ${tone?.className ?? ""}` : tone.className} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(12), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         {pct === null || !Number.isFinite(pct) ? "—" : `${Math.round(pct)}%`}
@@ -3813,7 +3811,7 @@ export default function RateStrategyGrid({
                         title={m && left !== null
                           ? `${left} of ${units} rooms available for booking on ${d}. ${m.roomsSold} booked; ${d < today ? "based on saved same-day occupancy snapshot" : closedNotFull ? "some physical rooms are closed/not priced rather than occupied" : "physical occupancy is counted separately"}${manualDetailLabel ? ` · Previo inventory adjustment: ${manualDetailLabel}` : ""}`
                           : `${d} · no recorded inventory data`}
-                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${left === null ? "text-muted-foreground" : leftTone(left, units)} ${dayBg(d, i)} ${dateColumnEdge(d, today)}`}
+                        className={`relative flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${left === null || units <= 0 ? `text-muted-foreground ${dayBg(d, i)}` : left > 0 && left / units > 0.2 ? `${leftTone(left, units)} ${dayBg(d, i)}` : leftTone(left, units)} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
                         <span className="leading-none">{units && left !== null ? (closedNotFull ? "Closed" : left === 0 ? "Sold out" : left) : "—"}</span>
@@ -4025,9 +4023,9 @@ export default function RateStrategyGrid({
                   .map((band) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-card/90 dark:border-red-400/45 dark:text-red-200"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-card/90 dark:border-amber-400/40 dark:text-amber-200"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const spanColumns = revenueEventBandColumnSpan(band);
                   const wide = spanColumns >= 2;
@@ -4064,13 +4062,13 @@ export default function RateStrategyGrid({
                       </span>
 
                       {veryWide && band.event.venue && (
-                        <span className="hidden min-w-0 max-w-[35%] truncate text-[8px] leading-none opacity-70 lg:inline">
+                        <span className="hidden min-w-0 max-w-[35%] truncate text-[8px] leading-none opacity-70 dark:opacity-100 lg:inline">
                           {band.event.venue}
                         </span>
                       )}
 
                       {wide && (
-                        <span className="shrink-0 text-[8px] font-semibold uppercase leading-none opacity-80">
+                        <span className="shrink-0 text-[8px] font-semibold uppercase leading-none opacity-80 dark:opacity-100">
                           {impact || "event"}{band.endDate !== band.startDate && range ? ` · ${range}` : ""}
                         </span>
                       )}
@@ -4084,9 +4082,9 @@ export default function RateStrategyGrid({
                 {showEventBand && singleDayEventLayouts.map(({ band, dateIndex, topLane, heightLanes }) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-card/90 dark:border-red-400/45 dark:text-red-200"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-card/90 dark:border-amber-400/40 dark:text-amber-200"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const expanded = heightLanes >= 1.45;
                   const roomy = heightLanes >= 2.25;
@@ -4124,7 +4122,7 @@ export default function RateStrategyGrid({
                       </span>
 
                       {roomy && (band.event.category || band.event.venue) && (
-                        <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75">
+                        <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75 dark:opacity-100">
                           {band.event.category && (
                             <span className="capitalize">{String(band.event.category).replace(/_/g, " ")}</span>
                           )}
@@ -4134,7 +4132,7 @@ export default function RateStrategyGrid({
                       )}
 
                       {expanded && (
-                        <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-80">
+                        <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-80 dark:opacity-100">
                           <span className="min-w-0 truncate capitalize">
                             {!roomy && band.event.category
                               ? String(band.event.category).replace(/_/g, " ")
@@ -4264,16 +4262,16 @@ export default function RateStrategyGrid({
                             : left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : `${row.typeName} · ${left === 0 ? "sold out" : `${left} of ${units} left`} on ${d}${calculated !== undefined ? ` · automatic ${calculated}` : ""}${manual ? ` · manual adjustment ${signedInventoryDelta(manual)}` : ""}${left === 0 && closedAt != null ? ` · last sold at ${eur(closedAt)}${soldOcc != null ? ` for ${soldOcc} ${soldOcc === 1 ? "guest" : "guests"}` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}${canEditRates ? " · tap to change rooms for sale in Previo" : ""}`}
-                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dateColumnEdge(d, today)}`}
+                          className={`relative flex flex-col items-center justify-center leading-tight shrink-0 font-semibold tabular-nums ${canEditRates && left !== undefined ? "cursor-pointer hover:ring-1 hover:ring-inset hover:ring-primary/50" : ""} ${left === undefined || units <= 0 ? `text-muted-foreground ${dayBg(d, i)}` : left > 0 && left / units > 0.2 ? `${leftTone(left, units)} ${dayBg(d, i)}` : leftTone(left, units)} ${dateColumnEdge(d, today)}`}
                           style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : unpricedKind ? (
-                            <><span className="text-amber-700 dark:text-amber-300">{hu ? "Nincs ár" : "Not priced"}</span><span className="text-[9px] font-normal opacity-80">{left ?? 0} {hu ? "értékesíthető a Previóban" : "to sell in Previo"}</span></>
+                            <><span className="text-amber-700 dark:text-amber-300">{hu ? "Nincs ár" : "Not priced"}</span><span className="text-[9px] font-normal opacity-80 dark:opacity-100 dark:text-foreground">{left ?? 0} {hu ? "értékesíthető a Previóban" : "to sell in Previo"}</span></>
                           ) : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
                             <>
                               <span>{hu ? "Elfogyott" : "Sold out"}</span>
                               {closedAt != null && (
-                                <span className="font-semibold opacity-80 inline-flex max-w-full min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap" style={{ fontSize: fz(9) }}>
+                                <span className="font-semibold opacity-80 dark:opacity-100 dark:text-foreground inline-flex max-w-full min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap" style={{ fontSize: fz(9) }}>
                         {priceLabel(closedAt)}
                         {soldOcc != null && (
                           <>
@@ -4324,7 +4322,7 @@ export default function RateStrategyGrid({
                         <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} role="cell"
                           aria-label={`${row.roomTypeName} · ${d} · ${historicalPrice === null ? "No recorded price" : eur(historicalPrice)} · read-only`}
                           title={detail}
-                          className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground"
+                          className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground dark:text-foreground"
                           style={{ width: CELL_W, fontSize: fz(12) }}>
                           {historicalPrice === null ? (historical.loading ? "…" : "—") : priceLabel(historicalPrice)}
                         </div>
@@ -4461,7 +4459,7 @@ export default function RateStrategyGrid({
                            place the cell's story is told, so the browser
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80 dark:opacity-100" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 dark:bg-primary/20 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                          style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
 
                       >
@@ -4773,7 +4771,7 @@ export default function RateStrategyGrid({
               ) : (
                 <>
                   {existingSharedWatches.has(`${upgradePrompt.obkId}|${upgradePrompt.date}`) && (
-                    <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-slate-800">
+                    <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-slate-800 dark:border-sky-500/30 dark:bg-sky-400/10 dark:text-foreground">
                       These room types are already linked. Verify and restore availability
                       in Previo without creating a second rule.
                     </p>
@@ -4912,7 +4910,7 @@ export default function RateStrategyGrid({
             {/* One-tap presets — the same steps as the day editor. */}
             <div className="space-y-2">
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">{hu ? "Emelés" : "Increase"}</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-300">{hu ? "Emelés" : "Increase"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -4928,7 +4926,7 @@ export default function RateStrategyGrid({
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">{hu ? "Csökkentés" : "Decrease"}</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600 dark:text-rose-300">{hu ? "Csökkentés" : "Decrease"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -5656,8 +5654,8 @@ export default function RateStrategyGrid({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium">{e.title}</span>
                             <Badge variant="secondary" className={
-                              e.impact === "high" ? "bg-red-100 text-red-700"
-                                : e.impact === "medium" ? "bg-amber-100 text-amber-700"
+                              e.impact === "high" ? "bg-red-100 text-red-700 dark:bg-red-400/10 dark:text-red-200"
+                                : e.impact === "medium" ? "bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200"
                                 : "bg-muted text-muted-foreground"
                             }>
                               {e.impact} impact
