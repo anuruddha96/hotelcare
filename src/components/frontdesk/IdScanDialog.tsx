@@ -11,6 +11,7 @@ import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
 import { guideCrop, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
 import { OcrSession } from '@/lib/idScan/ocrSession';
+import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, rowHasLabel } from '@/lib/idScan/hungarianCard';
 import { shouldAdvanceFront, confidenceTone, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
 import { opticalGuestFields, guestScanPatch, extractOpticalGuestFields, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
@@ -190,7 +191,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [confidence, setConfidence] = useState<number | null>(null);
   const [opticalFields, setOpticalFields] = useState<OpticalGuestFields>({});
   const [opticalReading, setOpticalReading] = useState(false);
-  const [opticalSession] = useState(() => new OcrSession(createFrontOcrWorker));
+  const [opticalIssue, setOpticalIssue] = useState(false);
   const [numberReview, setNumberReview] = useState<{ needsReview: boolean; printed: string | null }>({ needsReview: false, printed: null });
   const [mrzSession] = useState(() => new OcrSession(createOcrWorker));
   const [frontSession] = useState(() => new OcrSession(createFrontOcrWorker));
@@ -212,9 +213,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const clearFront = useCallback(() => {
     flipUntil.current = 0;
     frontSession.reset();
-    opticalSession.reset();
     frontRef.current = { captured: false, positive: false, text: '' };
-  }, [frontSession, opticalSession]);
+  }, [frontSession]);
 
   const chooseSource = (next: ScannerSource) => {
     if (next === source) return;
@@ -295,6 +295,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     clearPreview();
     setOpticalFields({});
     setOpticalReading(false);
+    setOpticalIssue(false);
     setNumberReview({ needsReview: false, printed: null });
     setSide('front');
     setSource('camera');
@@ -357,7 +358,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       if (scanRunRef.current !== run) break;
       const canvas = printedCanvas(frame, idBack, enhanced);
       try {
-        const reading = await session.recognizeWithConfidence(canvas, 12000);
+        const reading = await session.recognizeWithConfidence(canvas, 12000, '6');
         if (scanRunRef.current !== run) break;
         if (reading.text.trim()) texts.push(reading.text);
         if (reading.confidence !== null) {
@@ -373,6 +374,51 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       finally { wipe(canvas); }
     }
     return { texts, score, positiveScore };
+  };
+
+  const readHungarianRows = async (frame: HTMLCanvasElement, run: number) => {
+    const gray = graySample(frame, {x:0,y:0,width:frame.width,height:frame.height});
+    const h = gray.length / 320;
+    const box = estimateCardRect(gray, 320, h);
+    gray.fill(0);
+    const card = {x:box.x*frame.width/320,y:box.y*frame.height/h,
+      width:box.width*frame.width/320,height:box.height*frame.height/h};
+    const rows: Array<{row: typeof HUNGARIAN_BACK_ROWS[number]; label:string; value:string; confidence:number|null}> = [];
+    for (const row of HUNGARIAN_BACK_ROWS) {
+      if (scanRunRef.current !== run) break;
+      let label = '';
+      for (const valueOnly of [false,true]) {
+        if (scanRunRef.current !== run) break;
+        if (valueOnly && !rowHasLabel(row,label)) break;
+        const region=printedRowRect(card,row,valueOnly);
+        const canvas=document.createElement('canvas');
+        const scale=Math.min(3, 1500/region.width);
+        canvas.width=Math.max(1,Math.round(region.width*scale))+32;
+        canvas.height=Math.max(1,Math.round(region.height*scale))+32;
+        const ctx=canvas.getContext('2d',{willReadFrequently:true});
+        try {
+          if (!ctx) continue;
+          ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);
+          ctx.drawImage(frame,region.x,region.y,region.width,region.height,16,16,canvas.width-32,canvas.height-32);
+          if (valueOnly) {
+            const pixels=ctx.getImageData(16,16,canvas.width-32,canvas.height-32);
+            const d=pixels.data, hist=new Uint32Array(256);
+            for(let i=0;i<d.length;i+=4){const v=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);d[i]=v;hist[v]++;}
+            const quantile=(q:number)=>{let n=0;for(let i=0;i<256;i++){n+=hist[i];if(n>=q*d.length/4)return i;}return 255;};
+            const low=quantile(.035),high=quantile(.85);
+            const threshold=Math.max(70,Math.min(150,low+(high-low)*.30));
+            for(let i=0;i<d.length;i+=4){const v=d[i]<threshold?0:255;d[i]=d[i+1]=d[i+2]=v;}
+            ctx.putImageData(pixels,16,16);d.fill(0);
+          }
+          const reading=await frontSession.recognizeWithConfidence(canvas,6000,valueOnly?'7':'6');
+          if (scanRunRef.current!==run) break;
+          if (!valueOnly) label=reading.text;
+          else rows.push({row,label,value:reading.text,confidence:reading.confidence});
+        } catch { /* no value is invented after a timeout */ }
+        finally { wipe(canvas); }
+      }
+    }
+    return mergeHungarianRows(true,rows);
   };
 
   const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current, ocrConfidence: number | null = null, frame?: HTMLCanvasElement) => {
@@ -405,7 +451,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     const frontText = action === 'id_complete' ? front.text : '';
     setOpticalFields(opticalGuestFields(parsed, frontText, ''));
     setOpticalReading(!!frame);
-    clearFront();
+    setOpticalIssue(false);
+    // Preserve the already initialized printed OCR worker for the back.
+    frontRef.current = {captured:false, positive:false, text:''};
     setPhase('review');
     // Read the printed fields on the back (or passport bio page) as well as
     // the MRZ. Only labeled values go into the proposed guest form. The
@@ -414,17 +462,25 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       let copy: HTMLCanvasElement | null = null;
       try {
         copy = snapshotFrame(frame, frame.width, frame.height);
-        const { texts } = await readPrinted(opticalSession, copy, action === 'id_complete' && parsed.format === 'TD1' && parsed.fields.issuingState === 'HUN', run);
+        const hungarian = action === 'id_complete' && parsed.format === 'TD1' && (parsed.fields.issuingState === 'HUN' || parsed.fields.nationalityIso3 === 'HUN' || /HUNGARY|MAGYARORSZ[AÁ]G/i.test(frontText));
+        const { texts } = await readPrinted(frontSession, copy, hungarian, run);
+        let extracted = opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n'));
+        const complete = (v: OpticalGuestFields) => !!(v.birth_place && v.birth_last_name && v.birth_first_name && v.mother_name);
+        if (hungarian && !complete(extracted) && scanRunRef.current === run) {
+          const targeted = await readHungarianRows(copy, run);
+          // Do not overwrite a conflicting labeled read. Review all proposals.
+          extracted = { ...targeted, ...extracted };
+        }
         if (scanRunRef.current === run) {
-          setOpticalFields(opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n')));
+          setOpticalFields(extracted);
+          setOpticalIssue(!texts.length || (hungarian && !complete(extracted)));
           setReviewAcknowledged(false);
         }
-      } catch { /* Missing printed data is never guessed. */ }
+      } catch { if(scanRunRef.current===run) setOpticalIssue(true); }
       finally {
         if (copy) wipe(copy);
         if (scanRunRef.current === run) {
           setOpticalReading(false);
-          opticalSession.reset();
         }
       }
     }
@@ -672,7 +728,6 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     const fileRun = ++scanRunRef.current;
     mrzSession.reset();
     frontSession.reset();
-    opticalSession.reset();
     busyRef.current = fileRun;
     setPhase('reading');
     pauseCamera();
@@ -692,7 +747,6 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     scanRunRef.current += 1;
     busyRef.current = null;
     mrzSession.reset();
-    opticalSession.reset();
     setAutoReading(false);
     clearPreview();
     setFlipPrompt(false);
@@ -712,7 +766,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setAutoReading(false);
     mrzSession.reset();
     setResult(null); clearFront(); clearPreview(); setFrontAssessment(null);
-    setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setOpticalFields({}); setOpticalReading(false); setNumberReview({ needsReview: false, printed: null });
+    setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setOpticalFields({}); setOpticalReading(false); setOpticalIssue(false); setNumberReview({ needsReview: false, printed: null });
     setFrontCaptureAttempted(false); setReviewAcknowledged(false);
     setSide('front'); setSource('camera'); setTyped(''); setFailReason(null);
     setPhase('camera');
@@ -877,6 +931,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               {(['birth_last_name', 'birth_first_name', 'mother_name', 'birth_place'] as const).map(key => opticalFields[key] && <div key={key} className="contents"><dt className="text-muted-foreground">{t(({ birth_last_name: 'pms.guest.birthFamilyName', birth_first_name: 'pms.guest.birthGivenName', mother_name: 'pms.guest.motherName', birth_place: 'pms.guest.birthPlace' })[key])}</dt><dd>{opticalFields[key]}</dd></div>)}
               <dt className="text-muted-foreground">{t('pms.scan.expiry')}</dt><dd>{result.fields.expiryDate ?? '—'}</dd>
             </dl>
+            {opticalIssue && !opticalReading && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{t('pms.scan.printedIncomplete')}</p>}
             {opticalReading && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/>{t('pms.scan.readingPrintedFields')}</p>}
             {Object.keys(opticalFields).length > 0 && <p className="text-xs text-amber-700 dark:text-amber-300">{t('pms.scan.printedFieldsReview')}</p>}
             <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">{t('pms.scan.codeLines')}</summary><pre className="mt-1 overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] leading-tight">{result.lines.join('\n')}</pre></details>
