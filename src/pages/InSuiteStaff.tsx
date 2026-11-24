@@ -68,9 +68,9 @@ const defaults: InSuiteContent = {
 // Jacuzzi reservations are physically available only at Hotel Memories Budapest;
 // the server also refuses jacuzzi publication and bookings for other hotels.
 const JACUZZI_HOTELS = new Set(["memories-budapest"]);
-const inputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm";
-const actionClass = "rounded-xl bg-slate-900 text-white px-4 py-2.5 text-sm font-semibold disabled:opacity-40";
-const card = "rounded-2xl border bg-white p-4 sm:p-6 shadow-sm";
+const inputClass = "w-full rounded-xl border border-slate-200 dark:border-input bg-white dark:bg-card px-3 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:[color-scheme:dark]";
+const actionClass = "rounded-xl bg-slate-900 dark:bg-primary text-white dark:text-primary-foreground px-4 py-2.5 text-sm font-semibold disabled:opacity-40";
+const card = "rounded-2xl border bg-white dark:bg-card p-4 sm:p-6 shadow-sm";
 
 export default function InSuiteStaff() {
   const { user, profile, loading: authLoading } = useAuth();
@@ -232,7 +232,7 @@ export default function InSuiteStaff() {
     const url = String(draft[key] || "");
     return <div className="space-y-2">
       <div className="text-sm font-semibold">{title}</div>
-      <label className="block rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 p-4 text-center
+      <label className="block rounded-xl border-2 border-dashed border-slate-200 dark:border-border bg-slate-50 dark:bg-muted p-4 text-center
         cursor-pointer hover:border-sky-400 focus-within:ring-2 focus-within:ring-sky-300"
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
         onDrop={(e) => { e.preventDefault(); void uploadPropertyImage(kind, e.dataTransfer.files?.[0]); }}>
@@ -242,14 +242,14 @@ export default function InSuiteStaff() {
         {url && <img src={url} alt={kind === "logo" ? "Current hotel logo" : "Current welcome photo"}
           className={`mx-auto mb-3 max-w-full rounded-lg object-contain ${kind === "logo" ? "max-h-28" : "max-h-48"}`} />}
         {uploading === kind ? <span className="text-sm">Compressing and uploading image…</span> :
-          <span className="inline-flex items-center gap-2 text-sm text-slate-700">
+          <span className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-foreground">
             <CloudUpload className="h-4 w-4" /> Drag an image here or click to upload
           </span>}
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-slate-500 dark:text-muted-foreground">
           Converted to WebP before upload · maximum 550 KB stored · no original file sent
         </p>
       </label>
-      <details className="text-xs text-slate-600">
+      <details className="text-xs text-slate-600 dark:text-muted-foreground">
         <summary className="cursor-pointer">Or use an existing HTTPS image URL</summary>
         <input className={inputClass + " mt-2"} aria-label={title + " URL"} value={url}
           placeholder="https://…" onChange={(e) => setDraft((old) => ({ ...old, [key]: e.target.value }))} />
@@ -298,15 +298,15 @@ export default function InSuiteStaff() {
   if (authLoading || tenantLoading) return <div className="p-8">Loading In-Suite…</div>;
   if (!user || !profile) return <Navigate to={`/${organizationSlug || "rdhotels"}/auth`} replace />;
 
-  return <div className="min-h-screen bg-slate-50">
+  return <div className="min-h-screen bg-slate-50 dark:bg-background text-foreground dark:[color-scheme:dark]">
     <Header />
     <main className="container mx-auto p-4 lg:p-8 space-y-6 max-w-7xl">
       <OperationsNavigation current="insuite" />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-sm text-slate-500">HotelCare · Guest experience</p>
+          <p className="text-sm text-slate-500 dark:text-muted-foreground">HotelCare · Guest experience</p>
           <h1 className="text-3xl font-bold">In-Suite Console</h1>
-          <p className="text-sm text-slate-500">Service requests, reception, staff alerts, food orders and reservations.</p>
+          <p className="text-sm text-slate-500 dark:text-muted-foreground">Service requests, reception, staff alerts, food orders and reservations.</p>
         </div>
         <div className="flex items-center gap-2">
           <select className={inputClass} aria-label="Select hotel" value={hotelId}
@@ -326,51 +326,51 @@ export default function InSuiteStaff() {
           { id: "menu", name: "Menus", Icon: Settings2 },
           { id: "admin", name: "Tablet & content setup", Icon: Settings2 },
         ].map((t) => <button key={t.id}
-          onClick={() => setTab(t.id as typeof tab)} className={`rounded-xl px-4 py-3 flex gap-2 items-center shrink-0 ${tab === t.id ? "bg-slate-900 text-white" : "bg-white border"}`}>
+          onClick={() => setTab(t.id as typeof tab)} className={`rounded-xl px-4 py-3 flex gap-2 items-center shrink-0 ${tab === t.id ? "bg-slate-900 dark:bg-primary text-white dark:text-primary-foreground" : "bg-white dark:bg-card border dark:hover:bg-accent"}`}>
           <t.Icon className="h-4 w-4" /> {t.name}
         </button>)}
       </div>
       {!hotelId && <p>Select a hotel to begin.</p>}
       {data && data.alerts?.length > 0 && <section className={card + " space-y-3 border-l-4 border-l-amber-400"}>
         <div className="flex gap-2 items-center">
-          <BellRing className="h-5 w-5 text-amber-700" />
+          <BellRing className="h-5 w-5 text-amber-700 dark:text-amber-300" />
           <h2 className="font-semibold">Unread guest-service alerts ({data.alerts.length})</h2>
         </div>
         <div className="grid md:grid-cols-2 gap-2">
           {data.alerts.slice(0, 10).map((alert) => <div key={alert.id}
-            className="rounded-xl bg-amber-50 border border-amber-100 p-3 flex gap-2 items-start justify-between">
+            className="rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-100 dark:border-amber-800 p-3 flex gap-2 items-start justify-between">
             <div><strong className="text-sm">{alert.title}</strong>
-              <p className="text-xs text-slate-600">{alert.body}</p>
+              <p className="text-xs text-slate-600 dark:text-muted-foreground">{alert.body}</p>
               {data.room_guest_labels?.[alert.room_id] &&
-                <p className="text-xs text-slate-500">Current guest: {data.room_guest_labels[alert.room_id]}</p>}
+                <p className="text-xs text-slate-500 dark:text-muted-foreground">Current guest: {data.room_guest_labels[alert.room_id]}</p>}
             </div>
-            <button disabled={busy} className="rounded-lg border bg-white px-3 py-2 text-xs shrink-0"
+            <button disabled={busy} className="rounded-lg border bg-white dark:bg-card px-3 py-2 text-xs shrink-0"
               onClick={() => void execute("staff-ack-alert",{alert_id:alert.id},"Alert acknowledged")}>
               Acknowledge</button>
           </div>)}
         </div>
-        <p className="text-xs text-slate-500">Alerts are stored until acknowledged, including when browser notifications are disabled.</p>
+        <p className="text-xs text-slate-500 dark:text-muted-foreground">Alerts are stored until acknowledged, including when browser notifications are disabled.</p>
       </section>}
       {loading && <p>Loading property service information…</p>}
       {!loading && data && tab === "requests" && <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">Service queue</h2>
-          <span className="text-sm text-slate-500">{activeRequests.filter((r) => !["completed", "cancelled", "unavailable"].includes(r.status)).length} open</span>
+          <span className="text-sm text-slate-500 dark:text-muted-foreground">{activeRequests.filter((r) => !["completed", "cancelled", "unavailable"].includes(r.status)).length} open</span>
         </div>
         {!activeRequests.length && <div className={card}>No guest tablet requests for this hotel.</div>}
         {activeRequests.map((r) => <article key={r.id} className={card + " space-y-3"}>
           <div className="flex items-start justify-between gap-4">
-            <div><div className="flex gap-2 items-center"><BellRing className="h-5 w-5 text-amber-600" />
+            <div><div className="flex gap-2 items-center"><BellRing className="h-5 w-5 text-amber-600 dark:text-amber-400" />
               <h3 className="text-lg font-bold">Room {roomLabel(r.room_id)} · {labels[r.request_type] || r.request_type}</h3></div>
-              <p className="text-sm text-slate-500">{r.quantity} × · {r.department || "Service"} · {new Date(r.created_at).toLocaleString()}</p>
+              <p className="text-sm text-slate-500 dark:text-muted-foreground">{r.quantity} × · {r.department || "Service"} · {new Date(r.created_at).toLocaleString()}</p>
               {r.detail && <p className="mt-2 whitespace-pre-wrap">{r.detail}</p>}
               {data.room_guest_labels?.[r.room_id || ""] &&
-                <p className="text-sm text-slate-500">Verified in-house guest: {data.room_guest_labels[r.room_id || ""]}</p>}
+                <p className="text-sm text-slate-500 dark:text-muted-foreground">Verified in-house guest: {data.room_guest_labels[r.room_id || ""]}</p>}
               </div>
-            <span className={`px-3 py-1 rounded-full text-xs font-bold ${r.status === "completed" ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"}`}>{r.status}</span>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${r.status === "completed" ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-200" : "bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-200"}`}>{r.status}</span>
           </div>
-          {r.assigned_to ? <p className="text-sm text-slate-600">Assigned to: {data.eligible_staff?.find((p) => p.id === r.assigned_to)?.name || r.assigned_to.slice(0,8) + "…"}</p>
-            : <p className="text-sm font-medium text-amber-700">Unassigned — manager or reception must route this request.</p>}
+          {r.assigned_to ? <p className="text-sm text-slate-600 dark:text-muted-foreground">Assigned to: {data.eligible_staff?.find((p) => p.id === r.assigned_to)?.name || r.assigned_to.slice(0,8) + "…"}</p>
+            : <p className="text-sm font-medium text-amber-700 dark:text-amber-300">Unassigned — manager or reception must route this request.</p>}
           {data.can_reply && !["completed","cancelled","unavailable"].includes(r.status) &&
             <label className="block text-sm font-semibold space-y-1 max-w-md">
               <span>Assign to an on-duty employee</span>
@@ -410,22 +410,22 @@ export default function InSuiteStaff() {
       {!loading && data && tab === "chat" && <div className="grid lg:grid-cols-[300px_1fr] gap-4">
         <section className={card + " space-y-3"}>
           <h2 className="font-semibold text-lg">Guest conversations</h2>
-          {!byDevice.length && <p className="text-sm text-slate-500">No messages yet.</p>}
+          {!byDevice.length && <p className="text-sm text-slate-500 dark:text-muted-foreground">No messages yet.</p>}
           {byDevice.map(([id, items]) => <button key={id} onClick={() => setDeviceId(id)}
-            className={`w-full rounded-xl p-3 border text-left ${deviceId === id ? "bg-blue-50 border-blue-400" : "bg-white"}`}>
+            className={`w-full rounded-xl p-3 border text-left ${deviceId === id ? "bg-blue-50 dark:bg-blue-950 border-blue-400" : "bg-white dark:bg-card"}`}>
             <strong>Room {roomLabel(items[0].room_id)}</strong>
-            <p className="text-sm text-slate-500 truncate">{items[0].sender === "guest" ? "Guest: " : "Reception: "}{items[0].body}</p>
+            <p className="text-sm text-slate-500 dark:text-muted-foreground truncate">{items[0].sender === "guest" ? "Guest: " : "Reception: "}{items[0].body}</p>
           </button>)}
         </section>
         <section className={card + " flex flex-col gap-3 min-h-96"}>
           {deviceId && selectedMessages.length ? <>
             <h2 className="font-semibold">Room {roomLabel(selectedMessages[0].room_id)}
               {data.room_guest_labels?.[selectedMessages[0].room_id || ""] &&
-                <span className="ml-2 text-sm text-slate-500">· {data.room_guest_labels[selectedMessages[0].room_id || ""]}</span>}
+                <span className="ml-2 text-sm text-slate-500 dark:text-muted-foreground">· {data.room_guest_labels[selectedMessages[0].room_id || ""]}</span>}
             </h2>
             <div className="flex-1 space-y-3 max-h-[55vh] overflow-y-auto">
               {selectedMessages.map((m) => <div key={m.id}
-                className={`rounded-xl p-3 max-w-[85%] ${m.sender === "reception" ? "ml-auto bg-blue-100" : "bg-slate-100"}`}>
+                className={`rounded-xl p-3 max-w-[85%] ${m.sender === "reception" ? "ml-auto bg-blue-100 dark:bg-blue-950" : "bg-slate-100 dark:bg-muted"}`}>
                 <p className="text-xs font-semibold">{m.sender === "guest" ? "Guest" : "Reception"} · {new Date(m.created_at).toLocaleTimeString()}</p>
                 <p className="whitespace-pre-wrap">{m.body}</p>
               </div>)}
@@ -438,7 +438,7 @@ export default function InSuiteStaff() {
               <button disabled={!reply.trim() || busy || !data.can_reply} className={actionClass}
                 onClick={() => void execute("staff-reply", { device_id: deviceId, message: reply }, "Reply sent").then((v) => { if (v) setReply(""); })}>
                 <Send className="h-5 w-5" /></button></div>
-          </> : <p className="text-slate-500">Select a room to view and reply. Previous guest sessions are not shown.</p>}
+          </> : <p className="text-slate-500 dark:text-muted-foreground">Select a room to view and reply. Previous guest sessions are not shown.</p>}
         </section>
       </div>}
       {!loading && data && tab === "admin" && <div className="space-y-5">
@@ -448,13 +448,13 @@ export default function InSuiteStaff() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2"><Hotel className="h-5 w-5" /><h2 className="text-xl font-semibold">Property content</h2></div>
                 <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs font-semibold">
-                  {saveStatus === "saved" ? <><CheckCircle2 className="h-4 w-4 text-emerald-600" /> All changes saved</> :
+                  {saveStatus === "saved" ? <><CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> All changes saved</> :
                    saveStatus === "saving" ? <><RefreshCw className="h-4 w-4 animate-spin" /> Saving…</> :
-                   saveStatus === "error" ? <><AlertCircle className="h-4 w-4 text-red-600" /> Save failed</> :
+                   saveStatus === "error" ? <><AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" /> Save failed</> :
                      <><Save className="h-4 w-4" /> Unsaved changes</>}
                 </div>
               </div>
-              <p className="text-sm text-slate-600">Draft content is not shown to guests until published and enabled. Verify opening hours and guest Wi-Fi information before publishing.</p>
+              <p className="text-sm text-slate-600 dark:text-muted-foreground">Draft content is not shown to guests until published and enabled. Verify opening hours and guest Wi-Fi information before publishing.</p>
               <button className="rounded-xl border px-3 py-2 text-sm font-semibold" disabled={busy || saveStatus === "saving"}
                 onClick={async () => {
                   if (!await saveDraft(latestDraftRef.current, hotelId)) return;
@@ -462,7 +462,7 @@ export default function InSuiteStaff() {
                 }}>
                 Prefill from HotelCare hotel branding
               </button>
-              <p className="text-xs text-slate-500">Address, Wi-Fi, menus, facilities and opening hours still require property verification.</p>
+              <p className="text-xs text-slate-500 dark:text-muted-foreground">Address, Wi-Fi, menus, facilities and opening hours still require property verification.</p>
               {field("hotel_name", "Displayed hotel name")}
               {field("welcome", "Welcome message", true)}
               {imageField("logo", "Hotel logo")}
@@ -486,16 +486,16 @@ export default function InSuiteStaff() {
             <section className="space-y-5">
               <div className={card + " space-y-4"}>
                 <h2 className="text-xl font-semibold">Enabled guest services</h2>
-                <p className="text-sm text-slate-500">Only enable services the property can deliver. Menu orders require staff confirmation; no automatic charging.</p>
+                <p className="text-sm text-slate-500 dark:text-muted-foreground">Only enable services the property can deliver. Menu orders require staff confirmation; no automatic charging.</p>
                 {services.filter((code) => code !== "jacuzzi" || JACUZZI_HOTELS.has(hotelId))
-                  .map((code) => <label key={code} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl">
+                  .map((code) => <label key={code} className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-accent rounded-xl">
                   <input type="checkbox" checked={!!draft.services?.[code]} onChange={(e) =>
                     setDraft((old) => ({ ...old, services: { ...(old.services || {}), [code]: e.target.checked } }))} />
                   <span>{serviceNames[code] || code.replaceAll("_", " ")}</span>
                 </label>)}
                 {!JACUZZI_HOTELS.has(hotelId) &&
-                  <p className="text-xs text-slate-400">Jacuzzi reservations are available only at Hotel Memories Budapest.</p>}
-                <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 p-3 shadow-sm backdrop-blur">
+                  <p className="text-xs text-slate-400 dark:text-muted-foreground">Jacuzzi reservations are available only at Hotel Memories Budapest.</p>}
+                <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-xl border bg-white/95 dark:bg-card p-3 shadow-sm backdrop-blur">
                   <button disabled={busy || !!uploading} className={actionClass}
                     onClick={() => void saveDraft(latestDraftRef.current, hotelId)}>
                     {saveStatus === "error" ? "Retry save" : "Save now"}
@@ -506,7 +506,7 @@ export default function InSuiteStaff() {
                       if (!await saveDraft(latestDraftRef.current, hotelId)) return;
                       await execute("staff-publish", {}, "Guest content published");
                     }}>Publish verified draft</button>
-                  <span className="text-xs text-slate-500">Changes autosave as draft; publishing is always manual.</span>
+                  <span className="text-xs text-slate-500 dark:text-muted-foreground">Changes autosave as draft; publishing is always manual.</span>
                 </div>
                 <p className="text-sm">{data.config.enabled ? "Published and enabled" : "Not published; guest access is disabled"}</p>
               </div>
@@ -522,7 +522,7 @@ export default function InSuiteStaff() {
                   const result = await execute("staff-create-device", { room_id: selectedRoom }, "Pairing code generated");
                   if (result) setIssued(result);
                 }}>Generate one-time pairing code</button>
-                {issued && <div className="rounded-xl bg-amber-50 border border-amber-300 p-4 space-y-2">
+                {issued && <div className="rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700 p-4 space-y-2">
                   <strong>Room {issued.room_number}</strong>
                   <p className="text-sm">Code (expires in 15 minutes). Enter once at <Link className="underline" to="/suite">/suite</Link>.</p>
                   <p className="font-mono tracking-wider break-all">{issued.code}</p>
@@ -540,11 +540,11 @@ export default function InSuiteStaff() {
             onChanged={async () => { await load(true); }} />
           <section className={card + " space-y-3"}>
             <h2 className="text-xl font-semibold flex items-center gap-2"><Wifi className="h-5 w-5" /> Registered devices & room QR codes</h2>
-            {!data.devices.some((d) => d.is_active) && <p className="text-slate-500">No active devices or QR codes.</p>}
-            <p className="text-xs text-slate-500">{data.devices.filter((d) => !d.is_active).length} revoked records hidden for clarity.</p>
+            {!data.devices.some((d) => d.is_active) && <p className="text-slate-500 dark:text-muted-foreground">No active devices or QR codes.</p>}
+            <p className="text-xs text-slate-500 dark:text-muted-foreground">{data.devices.filter((d) => !d.is_active).length} revoked records hidden for clarity.</p>
             {data.devices.filter((d) => d.is_active).map((d) => <div key={d.id} className="flex flex-col md:flex-row justify-between gap-3 border-t py-3">
               <div><strong>Room {roomLabel(d.room_id)} — {d.label}</strong>
-                <p className="text-xs text-slate-500">{d.is_active ? d.paired_at ? "Paired" : "Awaiting pairing" : "Revoked"}
+                <p className="text-xs text-slate-500 dark:text-muted-foreground">{d.is_active ? d.paired_at ? "Paired" : "Awaiting pairing" : "Revoked"}
                   {" · "}Last seen: {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "Never"}
                   {" · "}Stay: {d.active_reservation_id ? "Verified reservation" : "Not verified"}</p>
               </div>
@@ -555,7 +555,7 @@ export default function InSuiteStaff() {
                 <button className="border rounded-xl px-3 py-2 text-sm" disabled={busy || !d.is_active}
                   onClick={() => { if (window.confirm("End current guest session? Clear the screen and start a new stay.")) void execute("staff-reset-session", { device_id: d.id }, "Guest session reset"); }}>
                   <ShieldCheck className="h-4 w-4 inline mr-1" /> Reset guest session</button>
-                <button className="border rounded-xl px-3 py-2 text-sm text-red-700" disabled={busy || !d.is_active}
+                <button className="border rounded-xl px-3 py-2 text-sm text-red-700 dark:text-red-400" disabled={busy || !d.is_active}
                   onClick={() => { if (window.confirm("Revoke this tablet immediately? It must be enrolled again.")) void execute("staff-revoke-device", { device_id: d.id }, "Device revoked"); }}>
                   <LockKeyhole className="h-4 w-4 inline mr-1" /> Revoke</button>
               </div>
@@ -563,7 +563,7 @@ export default function InSuiteStaff() {
           </section>
         </>}
       </div>}
-      <p className="text-xs text-slate-500">Pilot: reservation status changes rotate guest sessions automatically. Physical kiosk lockdown,
+      <p className="text-xs text-slate-500 dark:text-muted-foreground">Pilot: reservation status changes rotate guest sessions automatically. Physical kiosk lockdown,
         payment/folio posting, booking-provider confirmation and escalation-job scheduling must still be verified before production activation.</p>
     </main>
   </div>;

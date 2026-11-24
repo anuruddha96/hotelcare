@@ -13,8 +13,8 @@ import {
   type TransferPrice, type WellnessResource, type WellnessSlot,
 } from "@/lib/wellness";
 
-const inputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm";
-const card = "rounded-2xl border bg-white p-4 sm:p-5 shadow-sm";
+const inputClass = "w-full rounded-xl border border-slate-200 dark:border-input bg-white dark:bg-card px-3 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:[color-scheme:dark]";
+const card = "rounded-2xl border bg-white dark:bg-card p-4 sm:p-5 shadow-sm";
 const WEEKDAYS = [["1", "Mon"], ["2", "Tue"], ["3", "Wed"], ["4", "Thu"], ["5", "Fri"], ["6", "Sat"], ["7", "Sun"]] as const;
 const REFRESH_MS = 20_000;
 
@@ -71,37 +71,37 @@ export function InSuiteWellnessBoard({ hotelId }: { hotelId: string }) {
     finally { setBusyId(null); }
   };
 
-  if (!data && loading) return <div className={card + " flex items-center gap-2 text-slate-500"}><Loader2 className="h-4 w-4 animate-spin" /> Loading the jacuzzi and sauna calendar…</div>;
+  if (!data && loading) return <div className={card + " flex items-center gap-2 text-slate-500 dark:text-muted-foreground"}><Loader2 className="h-4 w-4 animate-spin" /> Loading the jacuzzi and sauna calendar…</div>;
   if (!data) return null;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button className="rounded-xl border bg-white p-2.5" aria-label="Previous day" onClick={() => setDate((d) => d <= hotelToday() ? d : addDays(d, -1))}>
+          <button className="rounded-xl border bg-white dark:bg-card p-2.5" aria-label="Previous day" onClick={() => setDate((d) => d <= hotelToday() ? d : addDays(d, -1))}>
             <ChevronLeft className="h-4 w-4" />
           </button>
           <div className="flex gap-1 overflow-x-auto">
             {(days.length ? days : [date]).map((d) => (
               <button key={d} onClick={() => setDate(d)}
-                className={`shrink-0 rounded-xl px-3 py-2 text-sm font-medium ${d === date ? "bg-slate-900 text-white" : "border bg-white"}`}>
+                className={`shrink-0 rounded-xl px-3 py-2 text-sm font-medium ${d === date ? "bg-slate-900 dark:bg-primary text-white dark:text-primary-foreground" : "border bg-white dark:bg-card"}`}>
                 {d === hotelToday() ? "Today" : hotelDayLabel(d)}
               </button>
             ))}
           </div>
-          <button className="rounded-xl border bg-white p-2.5" aria-label="Next day" onClick={() => setDate((d) => addDays(d, 1))}>
+          <button className="rounded-xl border bg-white dark:bg-card p-2.5" aria-label="Next day" onClick={() => setDate((d) => addDays(d, 1))}>
             <ChevronRight className="h-4 w-4" />
           </button>
-          <label className="ml-1 flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm">
-            <CalendarDays className="h-4 w-4 text-slate-400" />
+          <label className="ml-1 flex items-center gap-2 rounded-xl border bg-white dark:bg-card px-3 py-2 text-sm">
+            <CalendarDays className="h-4 w-4 text-slate-400 dark:text-muted-foreground" />
             <input type="date" value={date} min={hotelToday()} onChange={(e) => e.target.value && setDate(e.target.value)} className="bg-transparent" aria-label="Go to date" />
           </label>
         </div>
         <div className="flex items-center gap-2">
-          {data.can_setup && <button onClick={() => setSetupOpen((v) => !v)} className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${setupOpen ? "bg-slate-900 text-white" : "border bg-white"}`}>
+          {data.can_setup && <button onClick={() => setSetupOpen((v) => !v)} className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${setupOpen ? "bg-slate-900 dark:bg-primary text-white dark:text-primary-foreground" : "border bg-white dark:bg-card"}`}>
             <Settings2 className="h-4 w-4" /> Setup
           </button>}
-          <button onClick={() => void load()} aria-label="Refresh" className="rounded-xl border bg-white p-2.5"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
+          <button onClick={() => void load()} aria-label="Refresh" className="rounded-xl border bg-white dark:bg-card p-2.5"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
         </div>
       </div>
 
@@ -109,7 +109,7 @@ export function InSuiteWellnessBoard({ hotelId }: { hotelId: string }) {
 
       {!active.length && <div className={card}>
         <p className="font-medium">No jacuzzi or sauna is switched on for this hotel.</p>
-        <p className="mt-1 text-sm text-slate-500">{data.can_setup ? "Open Setup, check the opening hours and switch them on." : "Top management can switch them on in Setup."}</p>
+        <p className="mt-1 text-sm text-slate-500 dark:text-muted-foreground">{data.can_setup ? "Open Setup, check the opening hours and switch them on." : "Top management can switch them on in Setup."}</p>
       </div>}
 
       <div className={`grid gap-4 ${active.length > 1 ? "lg:grid-cols-2" : ""}`}>
@@ -121,12 +121,12 @@ export function InSuiteWellnessBoard({ hotelId }: { hotelId: string }) {
             <section key={resource.id} className={card + " space-y-3"}>
               <header className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="flex items-center gap-2 text-lg font-semibold"><Icon className="h-5 w-5 text-sky-700" />{resource.name}</h3>
-                  <p className="text-sm text-slate-500">Open {resource.opens_at}–{resource.closes_at}, {resource.slot_minutes}-minute slots, up to {resource.max_guests} guests{Number(resource.price) ? "" : ", free for guests"}</p>
+                  <h3 className="flex items-center gap-2 text-lg font-semibold"><Icon className="h-5 w-5 text-sky-700 dark:text-sky-300" />{resource.name}</h3>
+                  <p className="text-sm text-slate-500 dark:text-muted-foreground">Open {resource.opens_at}–{resource.closes_at}, {resource.slot_minutes}-minute slots, up to {resource.max_guests} guests{Number(resource.price) ? "" : ", free for guests"}</p>
                 </div>
-                <span className="shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-medium">{taken} booked</span>
+                <span className="shrink-0 whitespace-nowrap rounded-full bg-slate-100 dark:bg-muted px-3 py-1 text-xs font-medium">{taken} booked</span>
               </header>
-              {!day?.open && <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">Closed on this day.</p>}
+              {!day?.open && <p className="rounded-xl bg-slate-50 dark:bg-muted p-3 text-sm text-slate-600 dark:text-muted-foreground">Closed on this day.</p>}
               <ol className="divide-y">
                 {(day?.slots ?? []).map((slot) => {
                   const b = slot.booking;
@@ -138,28 +138,28 @@ export function InSuiteWellnessBoard({ hotelId }: { hotelId: string }) {
                         <div className="min-w-0 flex-1 space-y-1">
                           <p className="flex flex-wrap items-center gap-x-2 text-sm">
                             <strong>{b.guest_name}</strong>
-                            <span className="text-slate-500">{b.room_number ? `Room ${b.room_number}` : "No room"}, {b.party_size} {b.party_size === 1 ? "person" : "people"}</span>
+                            <span className="text-slate-500 dark:text-muted-foreground">{b.room_number ? `Room ${b.room_number}` : "No room"}, {b.party_size} {b.party_size === 1 ? "person" : "people"}</span>
                           </p>
-                          <p className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                            <span className="rounded-md bg-slate-100 px-2 py-0.5 font-semibold tracking-wider text-slate-700">{b.ticket_code}</span>
+                          <p className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-muted-foreground">
+                            <span className="rounded-md bg-slate-100 dark:bg-muted px-2 py-0.5 font-semibold tracking-wider text-slate-700 dark:text-foreground">{b.ticket_code}</span>
                             <span>{b.source ? SOURCE_LABEL[b.source] : ""}</span>
-                            {b.status === "completed" && <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-emerald-800">Done</span>}
-                            {b.status === "booked" && b.key_handed_at && <span className="flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-amber-800"><KeyRound className="h-3 w-3" />Key out since {hotelTime(b.key_handed_at)}</span>}
+                            {b.status === "completed" && <span className="rounded-md bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 text-emerald-800 dark:text-emerald-200">Done</span>}
+                            {b.status === "booked" && b.key_handed_at && <span className="flex items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 text-amber-800 dark:text-amber-200"><KeyRound className="h-3 w-3" />Key out since {hotelTime(b.key_handed_at)}</span>}
                             {b.notes && <span className="italic">{b.notes}</span>}
                           </p>
                           {data.can_book && b.status === "booked" && (
                             <div className="flex flex-wrap gap-2 pt-1">
-                              {!b.key_handed_at && <button disabled={busyId === b.id} onClick={() => void change(b.id, "key_handed")} className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">Key handed over</button>}
+                              {!b.key_handed_at && <button disabled={busyId === b.id} onClick={() => void change(b.id, "key_handed")} className="rounded-lg bg-slate-900 dark:bg-primary px-3 py-1.5 text-xs font-medium text-white dark:text-primary-foreground disabled:opacity-50">Key handed over</button>}
                               <button disabled={busyId === b.id} onClick={() => void change(b.id, "complete")} className="rounded-lg border px-3 py-1.5 text-xs">Done</button>
                               {Date.parse(b.starts_at) <= Date.now() && !b.key_handed_at && <button disabled={busyId === b.id} onClick={() => void change(b.id, "no_show")} className="rounded-lg border px-3 py-1.5 text-xs">No-show</button>}
-                              <button disabled={busyId === b.id} onClick={() => void change(b.id, "cancel")} className="rounded-lg border px-3 py-1.5 text-xs text-red-700">Cancel</button>
+                              <button disabled={busyId === b.id} onClick={() => void change(b.id, "cancel")} className="rounded-lg border px-3 py-1.5 text-xs text-red-700 dark:text-red-400">Cancel</button>
                             </div>
                           )}
                         </div>
                       ) : (
                         <div className="flex flex-1 items-center justify-between gap-3">
-                          <span className="text-sm text-slate-500">{past ? "Passed" : "Free"}</span>
-                          {data.can_book && !past && <button onClick={() => setPending({ resource, slot })} className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900">Book</button>}
+                          <span className="text-sm text-slate-500 dark:text-muted-foreground">{past ? "Passed" : "Free"}</span>
+                          {data.can_book && !past && <button onClick={() => setPending({ resource, slot })} className="rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 px-3 py-1.5 text-xs font-semibold text-sky-900 dark:text-sky-200">Book</button>}
                         </div>
                       )}
                     </li>
@@ -174,8 +174,8 @@ export function InSuiteWellnessBoard({ hotelId }: { hotelId: string }) {
       {data.transfer_prices?.length > 0 && <section className={card + " space-y-2"}>
         <h3 className="font-semibold">Taxi and airport transfer prices</h3>
         <ul className="grid gap-1 text-sm sm:grid-cols-2">
-          {data.transfer_prices.map((p, i) => <li key={i} className="flex justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-            <span>{p.label}{p.note ? <span className="text-slate-500"> ({p.note})</span> : null}</span>
+          {data.transfer_prices.map((p, i) => <li key={i} className="flex justify-between gap-3 rounded-lg bg-slate-50 dark:bg-muted px-3 py-2">
+            <span>{p.label}{p.note ? <span className="text-slate-500 dark:text-muted-foreground"> ({p.note})</span> : null}</span>
             <strong className="tabular-nums">{new Intl.NumberFormat("hu-HU").format(p.price)} {p.currency}</strong>
           </li>)}
         </ul>
@@ -247,25 +247,25 @@ function BookDialog({ hotelId, pending, onClose, onBooked, onConflict }: {
           <DialogDescription>{bookingWhen(pending.slot.starts_at, pending.slot.ends_at)}. The booking is confirmed at once and reception gets an email.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="flex gap-2 rounded-xl bg-slate-100 p-1 text-sm">
-            <button className={`flex-1 rounded-lg px-3 py-2 ${!walkIn ? "bg-white font-semibold shadow-sm" : ""}`} onClick={() => setWalkIn(false)}>Hotel guest</button>
-            <button className={`flex-1 rounded-lg px-3 py-2 ${walkIn ? "bg-white font-semibold shadow-sm" : ""}`} onClick={() => setWalkIn(true)}>No reservation</button>
+          <div className="flex gap-2 rounded-xl bg-slate-100 dark:bg-muted p-1 text-sm">
+            <button className={`flex-1 rounded-lg px-3 py-2 ${!walkIn ? "bg-white dark:bg-card font-semibold shadow-sm" : ""}`} onClick={() => setWalkIn(false)}>Hotel guest</button>
+            <button className={`flex-1 rounded-lg px-3 py-2 ${walkIn ? "bg-white dark:bg-card font-semibold shadow-sm" : ""}`} onClick={() => setWalkIn(true)}>No reservation</button>
           </div>
           {!walkIn ? (
             <div className="space-y-2">
               <label className="relative block">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400 dark:text-muted-foreground" />
                 <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Room number or guest name" className={inputClass + " pl-9"} />
               </label>
               <div className="max-h-56 space-y-1 overflow-y-auto">
-                {searching && !stays.length && <p className="p-2 text-sm text-slate-500">Searching…</p>}
-                {!searching && !stays.length && <p className="p-2 text-sm text-slate-500">No current or upcoming stay matches.</p>}
+                {searching && !stays.length && <p className="p-2 text-sm text-slate-500 dark:text-muted-foreground">Searching…</p>}
+                {!searching && !stays.length && <p className="p-2 text-sm text-slate-500 dark:text-muted-foreground">No current or upcoming stay matches.</p>}
                 {stays.map((s) => (
-                  <label key={s.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-2.5 text-sm ${stayId === s.id ? "border-sky-400 bg-sky-50" : ""}`}>
+                  <label key={s.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-2.5 text-sm ${stayId === s.id ? "border-sky-400 bg-sky-50 dark:bg-sky-950" : ""}`}>
                     <input type="radio" name="stay" checked={stayId === s.id} onChange={() => setStayId(s.id)} />
                     <span className="w-20 shrink-0 whitespace-nowrap font-semibold">{s.room_number ? `Room ${s.room_number}` : "No room"}</span>
                     <span className="min-w-0 flex-1 truncate">{s.guest_name}</span>
-                    <span className="shrink-0 text-xs text-slate-500">{s.status === "checked_in" ? "In house" : `Arrives ${hotelDayLabel(s.check_in_date)}`}</span>
+                    <span className="shrink-0 text-xs text-slate-500 dark:text-muted-foreground">{s.status === "checked_in" ? "In house" : `Arrives ${hotelDayLabel(s.check_in_date)}`}</span>
                   </label>
                 ))}
               </div>
@@ -288,12 +288,12 @@ function BookDialog({ hotelId, pending, onClose, onBooked, onConflict }: {
           </div>
           <label className={`flex items-center gap-2 text-sm ${canSendTicket ? "" : "opacity-50"}`}>
             <input type="checkbox" checked={sendTicket && canSendTicket} disabled={!canSendTicket} onChange={(e) => setSendTicket(e.target.checked)} />
-            <Mail className="h-4 w-4 text-slate-400" /> Email the ticket to the guest
+            <Mail className="h-4 w-4 text-slate-400 dark:text-muted-foreground" /> Email the ticket to the guest
           </label>
         </div>
         <DialogFooter>
           <button onClick={onClose} className="rounded-xl border px-4 py-2.5 text-sm">Close</button>
-          <button onClick={() => void submit()} disabled={!ready || saving} className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
+          <button onClick={() => void submit()} disabled={!ready || saving} className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 dark:bg-primary px-4 py-2.5 text-sm font-semibold text-white dark:text-primary-foreground disabled:opacity-40">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />} Book {hotelTime(pending.slot.starts_at)}
           </button>
         </DialogFooter>
@@ -355,14 +355,14 @@ function WellnessSetup({ hotelId, data, onSaved }: { hotelId: string; data: Boar
   };
 
   return (
-    <section className="space-y-4 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-4 sm:p-5">
+    <section className="space-y-4 rounded-2xl border-2 border-dashed border-slate-200 dark:border-border bg-slate-50/60 dark:bg-muted p-4 sm:p-5">
       <div>
         <h3 className="text-lg font-semibold">Jacuzzi and sauna setup</h3>
-        <p className="text-sm text-slate-500">Only top management sees this. Changes apply at once to guests in the room, the website booking link and reception.</p>
+        <p className="text-sm text-slate-500 dark:text-muted-foreground">Only top management sees this. Changes apply at once to guests in the room, the website booking link and reception.</p>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         {forms.map((f, i) => (
-          <div key={f.id ?? f.kind} className="space-y-3 rounded-2xl border bg-white p-4">
+          <div key={f.id ?? f.kind} className="space-y-3 rounded-2xl border bg-white dark:bg-card p-4">
             <div className="flex items-center justify-between gap-3">
               <input value={f.name} onChange={(e) => patch(i, { name: e.target.value })} className={inputClass + " font-semibold"} aria-label="Name shown to guests" />
               <label className="flex shrink-0 items-center gap-2 text-sm font-medium">
@@ -372,38 +372,38 @@ function WellnessSetup({ hotelId, data, onSaved }: { hotelId: string; data: Boar
             <textarea value={f.description} onChange={(e) => patch(i, { description: e.target.value })} rows={2} maxLength={600}
               className={inputClass} placeholder="What guests should know (shown on the booking page)" />
             <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1 text-xs font-medium text-slate-600">Opens
+              <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-muted-foreground">Opens
                 <input type="time" value={f.opens_at} onChange={(e) => patch(i, { opens_at: e.target.value })} className={inputClass} /></label>
-              <label className="space-y-1 text-xs font-medium text-slate-600">Closes
+              <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-muted-foreground">Closes
                 <input type="time" value={f.closes_at} onChange={(e) => patch(i, { closes_at: e.target.value })} className={inputClass} /></label>
-              <label className="space-y-1 text-xs font-medium text-slate-600">Slot length
+              <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-muted-foreground">Slot length
                 <select value={f.slot_minutes} onChange={(e) => patch(i, { slot_minutes: Number(e.target.value) })} className={inputClass}>
                   {[30, 45, 60, 90, 120].map((m) => <option key={m} value={m}>{m} min</option>)}
                 </select></label>
-              <label className="space-y-1 text-xs font-medium text-slate-600">Max guests
+              <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-muted-foreground">Max guests
                 <select value={f.max_guests} onChange={(e) => patch(i, { max_guests: Number(e.target.value) })} className={inputClass}>
                   {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n}</option>)}
                 </select></label>
-              <label className="space-y-1 text-xs font-medium text-slate-600">Bookings per room per day
+              <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-muted-foreground">Bookings per room per day
                 <select value={f.max_per_day} onChange={(e) => patch(i, { max_per_day: Number(e.target.value) })} className={inputClass}>
                   {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
                 </select></label>
-              <label className="space-y-1 text-xs font-medium text-slate-600">Price (0 = free)
+              <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-muted-foreground">Price (0 = free)
                 <input type="number" min={0} step={100} value={f.price} onChange={(e) => patch(i, { price: Number(e.target.value) })} className={inputClass} /></label>
-              <label className="space-y-1 text-xs font-medium text-slate-600">Currency
+              <label className="space-y-1 text-xs font-medium text-slate-600 dark:text-muted-foreground">Currency
                 <input value={f.currency} onChange={(e) => patch(i, { currency: e.target.value.toUpperCase().slice(0, 3) })} className={inputClass} /></label>
             </div>
             <fieldset className="flex flex-wrap gap-1.5">
-              <legend className="mb-1 text-xs font-medium text-slate-600">Open on</legend>
+              <legend className="mb-1 text-xs font-medium text-slate-600 dark:text-muted-foreground">Open on</legend>
               {WEEKDAYS.map(([n, label]) => {
                 const on = f.weekdays.includes(Number(n));
                 return <button key={n} type="button" aria-pressed={on}
                   onClick={() => patch(i, { weekdays: on ? f.weekdays.filter((d) => d !== Number(n)) : [...f.weekdays, Number(n)].sort() })}
-                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${on ? "bg-slate-900 text-white" : "border bg-white text-slate-500"}`}>{label}</button>;
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${on ? "bg-slate-900 dark:bg-primary text-white dark:text-primary-foreground" : "border bg-white dark:bg-card text-slate-500 dark:text-muted-foreground"}`}>{label}</button>;
               })}
             </fieldset>
             <button onClick={() => void saveResource(i)} disabled={saving !== null}
-              className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              className="flex items-center gap-2 rounded-xl bg-slate-900 dark:bg-primary px-4 py-2 text-sm font-semibold text-white dark:text-primary-foreground disabled:opacity-50">
               {saving === (f.id ?? f.kind) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save {f.name.toLowerCase()}
             </button>
           </div>
@@ -414,13 +414,13 @@ function WellnessSetup({ hotelId, data, onSaved }: { hotelId: string; data: Boar
           kind: k, name: k === "jacuzzi" ? "Jacuzzi" : "Sauna", description: "", opens_at: "09:00", closes_at: "21:00",
           slot_minutes: 60, max_guests: 2, max_per_day: 1, price: 0, currency: "HUF", weekdays: [1, 2, 3, 4, 5, 6, 7],
           is_active: false, sort_order: k === "jacuzzi" ? 1 : 2,
-        }])} className="flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm"><Plus className="h-4 w-4" /> Add {k}</button>)}
+        }])} className="flex items-center gap-2 rounded-xl border bg-white dark:bg-card px-3 py-2 text-sm"><Plus className="h-4 w-4" /> Add {k}</button>)}
       </div>}
 
-      <div className="space-y-3 rounded-2xl border bg-white p-4">
+      <div className="space-y-3 rounded-2xl border bg-white dark:bg-card p-4">
         <label className="block space-y-1 text-sm font-medium">Reception emails for every booking and cancellation
           <input value={emails} onChange={(e) => setEmails(e.target.value)} className={inputClass} placeholder="reception@hotel.hu, frontdesk@hotel.hu" /></label>
-        {!!data.settings?.recipients?.length && <p className="flex items-center gap-1 text-xs text-slate-500"><UserRound className="h-3 w-3" /> Currently sent to {data.settings.recipients.join(", ")}</p>}
+        {!!data.settings?.recipients?.length && <p className="flex items-center gap-1 text-xs text-slate-500 dark:text-muted-foreground"><UserRound className="h-3 w-3" /> Currently sent to {data.settings.recipients.join(", ")}</p>}
         <div className="space-y-2">
           <p className="text-sm font-medium">Taxi and airport transfer prices</p>
           {prices.map((p, i) => (
@@ -436,7 +436,7 @@ function WellnessSetup({ hotelId, data, onSaved }: { hotelId: string; data: Boar
           <input value={source} onChange={(e) => setSource(e.target.value)} className={inputClass} placeholder="Where the prices come from (for example the hotel website page)" />
         </div>
         <button onClick={() => void saveSettings()} disabled={saving !== null}
-          className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+          className="flex items-center gap-2 rounded-xl bg-slate-900 dark:bg-primary px-4 py-2 text-sm font-semibold text-white dark:text-primary-foreground disabled:opacity-50">
           {saving === "settings" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save emails and prices
         </button>
       </div>
