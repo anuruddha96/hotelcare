@@ -168,6 +168,37 @@ describe('check-in autosave', () => {
     return { query, acknowledge };
   }
 
+  it.each([
+    { name: 'visa-exempt', review: { visa_exempt: true }, visa_number: 'Na', entry_date: '2026-11-20', entry_place: 'Budapest', field: 'visa_number', cleared: { visa_number: null }, kept: { entry_date: '2026-11-20', entry_place: 'Budapest' } },
+    { name: 'valid entry absence', review: { entry_details_absent: true, entry_details_reason: 'lives_in_hungary_with_permit' as const, visa_exempt: false }, visa_number: 'PERMIT123', entry_date: '2026-11-20', entry_place: 'NA', field: 'entry_place', cleared: { entry_date: null, entry_place: null }, kept: { visa_number: 'PERMIT123' } },
+  ])('clears stale $name values and autosaves the normalized payload', async ({ review, visa_number, entry_date, entry_place, field, cleared, kept }) => {
+    const row = { ...scannedGuest, nationality: 'US', visa_number, entry_date, entry_place, viza_review: { ...currentReview, ...review } };
+    const { query } = autoQuery(row);
+    const saved = vi.fn();
+    const pending = vi.fn();
+    const { container } = render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" occurredAt="2026-11-24T10:00:00Z" autoSave onSaved={saved} onSavePendingChange={pending} />);
+    const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.requirement.counter/));
+    if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+    const input = container.querySelector<HTMLInputElement>('[data-viza-field="' + field + '"]')!;
+    expect(input).toBeDisabled();
+    expect(input).toHaveValue('');
+    if (field === 'entry_place') expect(container.querySelector('[data-viza-field="entry_date"]')).toHaveValue('');
+    fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'CA' } });
+    await waitFor(() => expect(saved).toHaveBeenCalledWith(expect.objectContaining({ ...cleared, ...kept, nationality: 'CA' })), { timeout: 3000 });
+    expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ ...cleared, ...kept, nationality: 'CA' }));
+    expect(pending).toHaveBeenLastCalledWith(false);
+    expect(screen.queryByText('pms.guest.autosaveFailed')).not.toBeInTheDocument();
+  });
+
+  it('still blocks a placeholder for a required permit number', async () => {
+    const { query } = autoQuery({ ...scannedGuest, nationality: 'US', visa_number: 'Na', viza_review: { ...currentReview, visa_exempt: false } });
+    render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" autoSave />);
+    fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'CA' } });
+    await screen.findByText('pms.guest.autosaveFailed', {}, { timeout: 3000 });
+    expect(query.update).not.toHaveBeenCalled();
+  });
+
   it('persists typed edits and acknowledged scan data without pressing Save', async () => {
     const { query } = autoQuery();
     const pending = vi.fn();
@@ -251,5 +282,34 @@ describe('check-in autosave', () => {
     expect(saved).not.toHaveBeenCalled();
     await waitFor(() => expect(saved).toHaveBeenCalledWith(expect.objectContaining({ nationality: 'DE' })), { timeout: 3000 });
     expect(query.update).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('VIZA case 2.2 frontend follow-up', () => {
+  it('uses the check-in business day for entry date shortcuts', async () => {
+    mockGuest({ ...scannedGuest, nationality: 'US', viza_review: { ...currentReview, visa_exempt: false } });
+    await openEditor('res-1');
+    const entry = document.querySelector('[data-viza-field="entry_date"]');
+    fireEvent.click(screen.getByRole('button', { name: 'pms.guest.requirement.today' }));
+    expect(entry).toHaveValue('2026-11-24');
+    fireEvent.click(screen.getByRole('button', { name: 'pms.guest.requirement.yesterday' }));
+    expect(entry).toHaveValue('2026-11-23');
+  });
+
+  it.each([
+    ['EXPRESS_IDENTITY_CONFLICT', 'pms.express.identityConflict'],
+    ['EXPRESS_OCCUPANCY_FULL', 'pms.express.occupancyFull'],
+    ['EXPRESS_INVALID_DATA', 'pms.express.invalidData'],
+    ['EXPRESS_INVALID_ENTRY_REASON', 'pms.express.invalidEntryReason'],
+    ['EXPRESS_INVALID_SCAN', 'pms.express.invalidScan'],
+    ['UNRECOGNIZED', 'pms.express.registerFailed'],
+  ])('shows a safe registration message for %s', async (message, key) => {
+    const onRegister = vi.fn().mockRejectedValue({ code: 'P0001', message });
+    render(<GuestDetailsSection guestId={null} vizaReservationId="res-1" occurredAt="2026-11-24T10:00:00Z" draft={{ result: readResult('TEST123'), optical: manualBirth }} onRegister={onRegister} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'pms.express.verify' }));
+    const confirm = screen.getByRole('button', { name: 'pms.express.confirmGuest' });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(await screen.findByText(key)).toBeInTheDocument();
   });
 });

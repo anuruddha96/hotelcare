@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,7 @@ import { IdScanDialog, type ScanApplyOutcome } from '@/components/frontdesk/IdSc
 import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
 import { guestScanPatch, recognizedNationality, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
-import { ENTRY_DETAILS_REASONS, isVizaPlaceholder } from '../../../supabase/functions/_shared/viza/fieldRules';
+import { ENTRY_DETAILS_REASONS, isVizaPlaceholder, validEntryAbsence } from '../../../supabase/functions/_shared/viza/fieldRules';
 import { useTranslation } from '@/hooks/useTranslation';
 import { documentRequired, scanFieldState, vizaMissingFields, vizaProblems, type VizaProblem, type VizaReview, vizaAdmissionFields, vizaFieldRequirements, isHungarianId, thirdCountry, vizaArrivalDay } from '@/lib/idScan/guestVizaChecks';
 
@@ -53,6 +53,38 @@ const REVIEW_COLUMNS = 'mother_family_name, mother_given_name, viza_review';
 /** What still stands between this guest and a report VIZA accepts: empty required fields plus refused values. */
 const openItems = (guest: GuestVizaRow | null, reservationId?: string, occurredAt?: string | null) => reservationId ? vizaAdmissionFields(guest, reservationId, vizaArrivalDay(occurredAt)) : [...vizaMissingFields(guest), ...vizaProblems(guest)];
 
+// Only discard values when this stay's review makes them inapplicable.
+// Also remove stale placeholder values from otherwise inapplicable extras.
+function clearInapplicableExtras(guest: GuestVizaRow, reservationId?: string, occurredAt?: string | null): GuestVizaRow {
+  if (!reservationId) return guest;
+  const review = guest.viza_review?.reservation_id === reservationId ? guest.viza_review : {};
+  const requirements = vizaFieldRequirements(guest, reservationId, vizaArrivalDay(occurredAt));
+  const clearVisa = requirements.visa_number.state === 'not_needed' &&
+    (review.visa_exempt === true || isVizaPlaceholder(guest.visa_number));
+  const clearEntry = requirements.entry_date.state === 'not_needed' && validEntryAbsence(review);
+  const clearPlace = clearEntry || (requirements.entry_place.state === 'not_needed' && isVizaPlaceholder(guest.entry_place));
+  return { ...guest, ...(clearVisa ? { visa_number: null } : {}),
+    ...(clearEntry ? { entry_date: null } : {}), ...(clearPlace ? { entry_place: null } : {}) };
+}
+
+const expressErrorKeys: Record<string, string> = {
+  EXPRESS_IDENTITY_CONFLICT: 'pms.express.identityConflict',
+  EXPRESS_OCCUPANCY_FULL: 'pms.express.occupancyFull',
+  EXPRESS_INVALID_DATA: 'pms.express.invalidData',
+  EXPRESS_INVALID_ENTRY_REASON: 'pms.express.invalidEntryReason',
+  EXPRESS_INVALID_SCAN: 'pms.express.invalidScan',
+};
+
+function expressErrorKey(error: unknown): string {
+  const fields = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {};
+  for (const value of [fields.code, fields.message, typeof error === 'string' ? error : undefined]) {
+    if (typeof value !== 'string') continue;
+    const code = value.trim();
+    if (Object.prototype.hasOwnProperty.call(expressErrorKeys, code)) return expressErrorKeys[code];
+  }
+  return 'pms.express.registerFailed';
+}
+
 export interface GuestRegistrationDraft {
   result: MrzReadResult | null;
   optical: OpticalGuestFields;
@@ -76,7 +108,9 @@ interface GuestDetailsSectionProps {
 }
 
 export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft, autoSave = false, onSavePendingChange, focusProblem }: GuestDetailsSectionProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const entryPlacesId = useId();
+  const otherReasonId = useId();
   const [guest, setGuest] = useState<GuestVizaRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -154,7 +188,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       if (error) ({ data, error } = await guests.select(BASE_COLUMNS).eq('id', guestId).maybeSingle());
       if (!alive) return;
       const { document_scan: storedScan, ...columns } = (data ?? {}) as Record<string, unknown>;
-      const row = (data ? { birth_last_name: null, birth_first_name: null, entry_date: null, entry_place: null, ...columns, ...(vizaReservationId ? {document_scan: storedScan ?? null} : {}) } : null) as GuestVizaRow | null;
+      const loadedRow = (data ? { birth_last_name: null, birth_first_name: null, entry_date: null, entry_place: null, ...columns, ...(vizaReservationId ? {document_scan: storedScan ?? null} : {}) } : null) as GuestVizaRow | null;
+      const row = loadedRow ? clearInapplicableExtras(loadedRow, vizaReservationId, occurredAt) : null;
       setGuest(row);
       setExpanded(openItems(row, vizaReservationId, occurredAt).length > 0);
       setScan((storedScan as VizaDocumentScan | null) ?? null);
@@ -268,23 +303,29 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
 
   const save = async () => {
     if (!guest || !dirty || inFlight.current || (vizaReservationId && !hasReviewColumns)) return;
-    if (vizaReservationId && [guest.visa_number,guest.entry_place,guest.birth_place,guest.birth_last_name,guest.birth_first_name,guest.mother_family_name,guest.mother_given_name].some(isVizaPlaceholder)) {setSaveFailed(true);return;}
+    const normalizedGuest = clearInapplicableExtras(guest, vizaReservationId, occurredAt);
+    const saveRequirements = vizaReservationId ? vizaFieldRequirements({ ...normalizedGuest, document_scan: scan }, vizaReservationId, vizaArrivalDay(occurredAt)) : null;
+    const placeholderFields = ['visa_number', 'entry_place', 'birth_place', 'birth_last_name', 'birth_first_name', 'mother_family_name', 'mother_given_name'] as const;
+    if (saveRequirements && placeholderFields.some(field => saveRequirements[field].state !== 'not_needed' && isVizaPlaceholder(normalizedGuest[field]))) {
+      setSaveFailed(true);
+      return;
+    }
     const savingRevision = revision.current;
     inFlight.current = true;
     setSaveFailed(false);
     setSaving(true);
-    const savedGuest = vizaReservationId ? { ...guest, document_scan:scan, mother_name: [guest.mother_family_name, guest.mother_given_name].filter(Boolean).join(' ') || (review.mother_name_absent ? null : guest.mother_name) } : guest;
+    const savedGuest = vizaReservationId ? { ...normalizedGuest, document_scan:scan, mother_name: [guest.mother_family_name, guest.mother_given_name].filter(Boolean).join(' ') || (review.mother_name_absent ? null : guest.mother_name) } : guest;
     const payload = {
       first_name: guest.first_name,
       last_name: guest.last_name,
       nationality: guest.nationality, date_of_birth: guest.date_of_birth || null,
       birth_place: guest.birth_place, gender: guest.gender,
       id_document_type: guest.id_document_type, id_document_number: guest.id_document_number,
-      visa_number: guest.visa_number, mother_name: savedGuest.mother_name,
+      visa_number: savedGuest.visa_number, mother_name: savedGuest.mother_name,
       ...(hasReviewColumns && vizaReservationId ? { mother_family_name: guest.mother_family_name ?? null, mother_given_name: guest.mother_given_name ?? null, viza_review: guest.viza_review ?? null } : {}),
       ...(hasExtraColumns ? {
         birth_last_name: guest.birth_last_name, birth_first_name: guest.birth_first_name,
-        entry_date: guest.entry_date || null, entry_place: guest.entry_place,
+        entry_date: savedGuest.entry_date || null, entry_place: savedGuest.entry_place,
       } : {}),
       ...(scanChanged ? { document_scan: scan } : {}),
     };
@@ -293,8 +334,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         const result = await onRegister(payload, matchId);
         if (result.status === 'match') setMatchId(result.guest_id);
         else { setDirty(false); onSaved?.({ ...savedGuest, id: result.guest_id }); }
-      } catch {
-        setRegisterError(t('pms.express.registerFailed'));
+      } catch (error) {
+        setRegisterError(t(expressErrorKey(error)));
       } finally { inFlight.current = false; setSaving(false); }
       return;
     }
@@ -339,7 +380,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     // save is intentionally scheduled from the current form snapshot, not
     // from unstable parent callbacks or every unrelated re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autosaving, guest, dirty, saving, saveFailed, scanOpen, scan, scanChanged, vizaReservationId, hasReviewColumns]);
+  }, [autosaving, guest, dirty, saving, saveFailed, scanOpen, scan, scanChanged, vizaReservationId, occurredAt, hasReviewColumns]);
 
   useEffect(()=>{if(focusProblem){setExpanded(true);setShowAllFields(true);}},[focusProblem]);
   useEffect(()=>{
@@ -350,8 +391,17 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   if (!guestId && !draft) return null;
   const requirements = vizaReservationId ? vizaFieldRequirements(guest ? {...guest,document_scan:scan} : null,vizaReservationId,vizaArrivalDay(occurredAt)) : null;
   const missing = requirements ? Object.keys(requirements).filter(key=>!requirements[key].ok) : vizaMissingFields(guest);
-  const toConfirm = missing.filter(key=>requirements?.[key].state==='printed_only' && !guest?.[key as keyof GuestVizaRow]).length;
-  const counter = t('pms.guest.requirement.counter').replace('{n}',String(missing.length-toConfirm)).replace('{m}',String(toConfirm));
+  // A printed name is one review item even when both name inputs are missing.
+  const printedGroups = new Map<string, string[]>();
+  for (const key of missing) {
+    if (requirements?.[key].state !== 'printed_only') continue;
+    const group = key === 'birth_last_name' || key === 'birth_first_name' ? 'birth_name'
+      : key === 'mother_family_name' || key === 'mother_given_name' ? 'mother_name' : key;
+    printedGroups.set(group, [...(printedGroups.get(group) ?? []), key]);
+  }
+  const toConfirm = [...printedGroups.values()].filter(fields => fields.every(key => !guest?.[key as keyof GuestVizaRow])).length;
+  const toFill = missing.filter(key => requirements?.[key].state !== 'printed_only').length + printedGroups.size - toConfirm;
+  const counter = t('pms.guest.requirement.counter').replace('{n}',String(toFill)).replace('{m}',String(toConfirm));
   const fieldTag = (key: string) => requirements?.[key] ? <><span className={`block text-[11px] font-medium ${requirements[key].ok?'text-muted-foreground':'text-destructive'}`}>{t('pms.guest.requirement.'+({required:'required',printed_only:'printedOnly',optional:'optional',not_needed:'notNeeded'}[requirements[key].state]))}</span>{focusProblem?.field===key && !requirements[key].ok && <span role="alert" className="text-xs text-destructive">{t('pms.guest.vizaArrivalBlocked')}</span>}{requirements[key].messageKey==='pms.guest.requirement.placeholder' && <span role="alert" className="text-xs text-destructive">{t(requirements[key].messageKey)}</span>}</> : null;
   const problems = vizaReservationId ? [] : vizaProblems(guest);
   const open = missing.length + problems.length;
@@ -406,7 +456,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
         <span className="col-start-2 col-end-4 min-w-0">
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : open === 0
-          ? <Badge variant="outline" className="max-w-full whitespace-normal border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" />{requirements ? counter : t('pms.guest.complete')}</Badge>
+          ? <Badge variant="outline" className="max-w-full whitespace-normal border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" />{t('pms.guest.complete')}</Badge>
           : <Badge variant="outline" className="max-w-full whitespace-normal border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">{requirements ? counter : `${t('pms.guest.missing')}: ${open}`}</Badge>}
         </span>
       </button>
@@ -454,7 +504,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
           </div>}
           {missing.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              {requirements ? counter : t('pms.guest.missing')}: {missing.map((f) => <button key={f} type="button" className="mr-2 underline" onClick={e=>{setShowAllFields(true); const scope=e.currentTarget.closest('section'); const target=scope?.querySelector<HTMLElement>('[data-viza-field="'+f+'"]'); target?.scrollIntoView?.({block:'center'}); target?.focus();}}>{fieldLabel[f] ?? f}</button>)}
+              {requirements ? t('pms.guest.requirement.openItems') : t('pms.guest.missing')}: {missing.map((f) => <button key={f} type="button" className="mr-2 underline" onClick={e=>{setShowAllFields(true); const scope=e.currentTarget.closest('section'); const target=scope?.querySelector<HTMLElement>('[data-viza-field="'+f+'"]'); target?.scrollIntoView?.({block:'center'}); target?.focus();}}>{fieldLabel[f] ?? f}</button>)}
             </p>
           )}
           {problems.length > 0 && (
@@ -478,7 +528,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>{fieldTag('nationality')}
               <Input data-viza-field="nationality" aria-invalid={!!requirements && !requirements['nationality']?.ok} className="h-11 bg-background/70 uppercase text-foreground" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="HU / DE / USA…" />
               {mark('nationality')}
-              {knownNationality && <p className="text-xs text-muted-foreground">{new Intl.DisplayNames(['en'], {type:'region'}).of(knownNationality)} ({knownNationality})</p>}
+              {knownNationality && <p className="text-xs text-muted-foreground">{new Intl.DisplayNames([language || 'en', 'en'], {type:'region'}).of(knownNationality)} ({knownNationality})</p>}
             </div>
             <div hidden={hideExtracted('date_of_birth')}>
               <Label className="text-xs">{t('pms.guest.birthDate')}</Label>{fieldTag('date_of_birth')}
@@ -568,16 +618,16 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
                   <div className="min-w-0">
                     <Label className="text-xs">{t('pms.guest.entryDate')}</Label>{fieldTag('entry_date')}
                     <Input data-viza-field="entry_date" aria-invalid={!!requirements && !requirements['entry_date']?.ok} className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-10" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} disabled={!!vizaReservationId && review.entry_details_absent===true} max={vizaArrivalDay(occurredAt).toISOString().slice(0,10)} min={guest.date_of_birth ?? undefined} value={guest.entry_date ?? ''} onChange={(e) => set('entry_date', e.target.value)} />
-                    {vizaReservationId && <div className="flex gap-2">{[0,1].map(offset=><Button key={offset} type="button" variant="outline" size="sm" className="min-h-11 flex-1" disabled={review.entry_details_absent===true} onClick={()=>{const day=vizaArrivalDay();day.setUTCDate(day.getUTCDate()-offset);set('entry_date',day.toISOString().slice(0,10));}}>{t(offset?'pms.guest.requirement.yesterday':'pms.guest.requirement.today')}</Button>)}</div>}
+                    {vizaReservationId && <div className="flex gap-2">{[0,1].map(offset=><Button key={offset} type="button" variant="outline" size="sm" className="min-h-11 flex-1" disabled={review.entry_details_absent===true} onClick={()=>{const day=vizaArrivalDay(occurredAt);day.setUTCDate(day.getUTCDate()-offset);set('entry_date',day.toISOString().slice(0,10));}}>{t(offset?'pms.guest.requirement.yesterday':'pms.guest.requirement.today')}</Button>)}</div>}
                   </div>
                   <div className="min-w-0">
                     <Label className="text-xs">{t('pms.guest.entryPlace')}</Label>{fieldTag('entry_place')}
-                    <Input data-viza-field="entry_place" aria-invalid={!!requirements && !requirements['entry_place']?.ok} className="h-10 sm:h-10" disabled={!!vizaReservationId && review.entry_details_absent===true} list={`viza-entry-places-${guest.id}`} value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
-                    <datalist id={`viza-entry-places-${guest.id}`}>{["Budapest Liszt Ferenc Airport","Debrecen Airport","Hegyeshalom","Röszke","Záhony"].map(place=><option key={place} value={place}/>)}</datalist>
+                    <Input data-viza-field="entry_place" aria-invalid={!!requirements && !requirements['entry_place']?.ok} className="h-10 sm:h-10" disabled={!!vizaReservationId && review.entry_details_absent===true} list={entryPlacesId} value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
+                    <datalist id={entryPlacesId}>{["Budapest Liszt Ferenc Airport","Debrecen Airport","Hegyeshalom","Röszke","Záhony"].map(place=><option key={place} value={place}/>)}</datalist>
                     {vizaReservationId && <p className="text-xs text-muted-foreground">{t('pms.guest.requirement.entryHelp')}</p>}
                   </div>
                   {vizaReservationId && thirdCountry(guest) && <label className="sm:col-span-2 flex min-h-11 items-start gap-2 text-xs"><input type="checkbox" className="!w-6 !h-6 mt-0.5 shrink-0" checked={review.entry_details_absent === true} onChange={e => setReview({ entry_details_absent: e.target.checked })} />{t('pms.guest.entryDetailsAbsent')}</label>}
-                  {vizaReservationId && thirdCountry(guest) && review.entry_details_absent && <div className="sm:col-span-2 space-y-2"><Label>{t('pms.guest.requirement.reason')}</Label>{fieldTag('entry_details_reason')}<Select value={review.entry_details_reason??''} onValueChange={value=>setReview({entry_details_reason:value as VizaReview['entry_details_reason']})}><SelectTrigger data-viza-field="entry_details_reason" className="min-h-11"><SelectValue placeholder="—" /></SelectTrigger><SelectContent>{ENTRY_DETAILS_REASONS.map(reason=><SelectItem key={reason} value={reason}>{t('pms.guest.requirement.'+reason)}</SelectItem>)}</SelectContent></Select>{review.entry_details_reason==='other' && <Input value={review.entry_details_reason_text??''} onChange={e=>setReview({entry_details_reason_text:e.target.value})} minLength={10} />}</div>}
+                  {vizaReservationId && thirdCountry(guest) && review.entry_details_absent && <div className="sm:col-span-2 space-y-2"><Label>{t('pms.guest.requirement.reason')}</Label>{fieldTag('entry_details_reason')}<Select value={review.entry_details_reason??''} onValueChange={value=>setReview({entry_details_reason:value as VizaReview['entry_details_reason']})}><SelectTrigger data-viza-field="entry_details_reason" className="min-h-11"><SelectValue placeholder="—" /></SelectTrigger><SelectContent>{ENTRY_DETAILS_REASONS.map(reason=><SelectItem key={reason} value={reason}>{t('pms.guest.requirement.'+reason)}</SelectItem>)}</SelectContent></Select>{review.entry_details_reason==='other' && <div className="space-y-1.5"><Label htmlFor={otherReasonId}>{t('pms.guest.requirement.other')}</Label><Input id={otherReasonId} aria-describedby={`${otherReasonId}-hint`} value={review.entry_details_reason_text??''} onChange={e=>setReview({entry_details_reason_text:e.target.value})} minLength={10} /><p id={`${otherReasonId}-hint`} className="flex flex-wrap justify-between gap-1 text-xs text-muted-foreground"><span>{t('pms.guest.requirement.minReasonLength')}</span><span aria-live="polite">{[...(review.entry_details_reason_text??'').trim()].length} / 10</span></p></div>}</div>}
                 </>}
               </div>
             </details>}
