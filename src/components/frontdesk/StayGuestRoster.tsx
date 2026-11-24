@@ -192,7 +192,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
   };
 
   return (
-    <div className="rounded-lg border border-border p-3 space-y-2" data-training="fd-per-guest-roster">
+    <div className="min-w-0 space-y-3 rounded-xl border border-border/70 bg-card/40 p-2 sm:p-3" data-training="fd-per-guest-roster">
       <div className="flex items-center justify-between gap-2">
         <p className="font-medium text-sm">{t(express ? 'pms.express.registration' : mode === 'arrive' ? 'pms.stayGuest.arrivingNow' : 'pms.stayGuest.leavingNow')}</p>
         {express ? <span className="text-sm font-semibold tabular-nums text-muted-foreground">{t('pms.express.readyCount').replace('{ready}',String(ready)).replace('{total}',String(count))}</span> :
@@ -220,7 +220,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
               <p className="text-sm font-medium break-words">{g.guests?.first_name} {g.guests?.last_name}</p>
               <div className="flex flex-wrap items-center gap-1 mt-1">
                 <Badge variant="outline" className="text-[10px]">{t('pms.stayGuest.state.' + g.stay_state)}</Badge>
-                <Badge className={complete ? 'bg-emerald-600/10 text-emerald-700 border-emerald-500/20' : 'bg-amber-600/10 text-amber-700 border-amber-500/20'} variant="outline">
+                <Badge className={complete ? 'bg-emerald-600/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20' : 'bg-amber-600/10 text-amber-700 dark:text-amber-300 border-amber-500/20'} variant="outline">
                   {t(complete ? 'pms.stayGuest.registrationComplete' : 'pms.stayGuest.registrationMissing')}
                 </Badge>
               </div>
@@ -241,7 +241,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
         </div>;
       })}
       {express && !control.loading && Array.from({length:Math.min(vacant,100)},(_,index) => (
-        <div key={'vacant-'+index} className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 space-y-2">
+        <div key={'vacant-'+index} className={draft && index===0 ? "min-w-0 space-y-3" : "min-w-0 space-y-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3"}>
           <div className="flex items-center gap-2"><UserRoundPlus className="h-5 w-5 text-primary shrink-0"/><div className="flex-1"><p className="text-sm font-medium">{t('pms.express.guestNumber').replace('{number}',String(activeGuests.length+index+1))}</p>{unmatchedHints[index] && !reserveBookerSlot && <p className="text-sm font-medium break-words">{displayName(unmatchedHints[index].first_name,unmatchedHints[index].last_name)} <span className="text-xs font-normal text-muted-foreground">· {t('pms.express.channelName')}</span></p>}
             <p className="text-xs text-muted-foreground">{t('pms.express.awaiting')}</p></div></div>
           {index===0 && !draft && <Button type="button" className="w-full gap-2" disabled={busy || reserveBookerSlot} onClick={startScan}><ScanLine className="h-4 w-4"/>{t('pms.express.scanDocument')}</Button>}
@@ -270,7 +270,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
         </Button>
       </div>
       {control.incompleteSelected>0 && (
-        <p role="alert" className="text-xs text-amber-700">{t('pms.stayGuest.completeBeforeReporting')}</p>
+        <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">{t('pms.stayGuest.completeBeforeReporting')}</p>
       )}
       <AlertDialog open={!!undo} onOpenChange={(open) => { if(!open&&!busy)setUndo(null); }}>
         <AlertDialogContent>
