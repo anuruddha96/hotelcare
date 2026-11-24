@@ -1,3 +1,4 @@
+import { ThemeProvider } from "next-themes";
 import { Suspense, lazy, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -273,6 +274,7 @@ const AuthenticatedShell = ({ children }: { children: React.ReactNode }) => {
 };
 
 const MainApp = () => (
+  <ThemeProvider attribute="class" defaultTheme="light" enableSystem storageKey="hotelcare-appearance" disableTransitionOnChange>
   <QueryClientProvider client={queryClient}>
     <TranslationProvider>
       <AuthProvider>
@@ -303,6 +305,7 @@ const MainApp = () => (
       </AuthProvider>
     </TranslationProvider>
   </QueryClientProvider>
+  </ThemeProvider>
 );
 
 const App = () => {

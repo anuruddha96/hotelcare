@@ -200,7 +200,7 @@ function isMonday(d: string): boolean {
   return new Date(`${d}T00:00:00Z`).getUTCDay() === 1;
 }
 
-type WeekendTradingTone = "peak" | "sunday" | null;
+type WeekendTradingTone = "friday" | "saturday" | "sunday" | null;
 
 /**
  * Friday and Saturday are the strongest leisure/revenue trading nights.
@@ -209,7 +209,8 @@ type WeekendTradingTone = "peak" | "sunday" | null;
  */
 function weekendTradingTone(d: string): WeekendTradingTone {
   const day = new Date(`${d}T00:00:00Z`).getUTCDay();
-  if (day === 5 || day === 6) return "peak";
+  if (day === 5) return "friday";
+  if (day === 6) return "saturday";
   if (day === 0) return "sunday";
   return null;
 }
@@ -221,7 +222,8 @@ function isWeekendTrading(d: string): boolean {
 
 function weekendLabelTone(d: string): string {
   const tone = weekendTradingTone(d);
-  if (tone === "peak") return "font-bold text-foreground";
+  if (tone === "friday") return "font-bold text-blue-900 dark:text-blue-200";
+  if (tone === "saturday") return "font-bold text-violet-900 dark:text-violet-200";
   if (tone === "sunday") return "font-semibold text-foreground/80";
   return "text-muted-foreground";
 }
@@ -241,8 +243,9 @@ function dateColumnEdge(d: string, today: string): string {
  *  related but lighter so the three days no longer read as one flat block. */
 function dayBg(d: string, i: number): string {
   const weekendTone = weekendTradingTone(d);
-  if (weekendTone === "peak") return "bg-primary/20";
-  if (weekendTone === "sunday") return "bg-primary/10";
+  if (weekendTone === "friday") return "bg-blue-200/80 dark:bg-blue-900/60";
+  if (weekendTone === "saturday") return "bg-violet-200/80 dark:bg-violet-900/60";
+  if (weekendTone === "sunday") return "bg-indigo-100/60 dark:bg-indigo-950/45";
   return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
 }
 
