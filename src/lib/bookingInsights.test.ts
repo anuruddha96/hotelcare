@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bookingChangePct, observedCohortIncidence, scheduledLosCoverage, fmtPct, formatBookingMoney } from "./bookingInsights";
+import { bookingChangePct, observedCohortIncidence, scheduledLosCoverage, fmtPct, formatBookingMoney, resolveBookingCurrency } from "./bookingInsights";
 describe("Previo booking-insights metrics", () => {
   it("keeps same-window event counts separate from observed cohort incidence", () => {
     expect(observedCohortIncidence({booked_reservations: 100, ever_had_cancelled_nights: 12})).toBe(12);
@@ -15,6 +15,17 @@ describe("Previo booking-insights metrics", () => {
     expect(scheduledLosCoverage(s)).toBe(75);
     expect(scheduledLosCoverage({...s,booked_room_items:0})).toBeNull();
     expect(fmtPct(null)).toBe("—");
+  });
+  it("keeps published booking currency when the settings lookup is unavailable", () => {
+    expect(resolveBookingCurrency("EUR", null)).toBe("EUR");
+    expect(resolveBookingCurrency("HUF", null)).toBe("HUF");
+    expect(formatBookingMoney(460.08, resolveBookingCurrency("EUR", null))).toContain("€");
+    expect(formatBookingMoney(40000, resolveBookingCurrency("HUF", null))).not.toContain("€");
+  });
+  it("uses the dataset currency ahead of settings and never guesses an unknown currency", () => {
+    expect(resolveBookingCurrency(" huf ", "EUR")).toBe("HUF");
+    expect(resolveBookingCurrency(null, "eur")).toBe("EUR");
+    expect(resolveBookingCurrency("", "invalid", null)).toBeNull();
   });
   it("formats SLNT amounts in HUF and RD Hotels amounts in EUR", () => {
     const huf = formatBookingMoney(40000,"HUF");

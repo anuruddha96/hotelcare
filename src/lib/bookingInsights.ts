@@ -52,6 +52,16 @@ export function scheduledLosCoverage(summary: BookingInsightSummary): number | n
 }
 export const fmtPct = (value: number | null, digits = 0): string => value === null ? "—" : value.toFixed(digits) + "%";
 
+/** Prefer the currency published with the booking amounts, not a separate settings read. */
+export function resolveBookingCurrency(...candidates: unknown[]): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const code = candidate.trim().toUpperCase();
+    if (/^[A-Z]{3}$/.test(code)) return code;
+  }
+  return null;
+}
+
 export function formatBookingMoney(amount: number | null | undefined, code: string | null | undefined): string {
   const value = validNumber(amount);
   return code && /^[A-Z]{3}$/.test(code)
