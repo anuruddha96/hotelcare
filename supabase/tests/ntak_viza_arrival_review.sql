@@ -1,4 +1,6 @@
 -- Disposable CI only: load base + activation fixtures before this script.
+-- Match the Budapest business day used by the arrival guard, including UTC midnight rollover.
+SET TIME ZONE 'Europe/Budapest';
 -- Exact production gender/stay state/arrival state checks read from pg_constraint.
 ALTER TABLE public.guests ADD COLUMN nationality text,ADD COLUMN date_of_birth date,ADD COLUMN birth_place text,ADD COLUMN gender text,ADD COLUMN id_document_type text,ADD COLUMN id_document_number text;
 ALTER TABLE public.guests ADD CONSTRAINT guests_gender_check CHECK (gender IS NULL OR gender=ANY(ARRAY['male','female','other']));
