@@ -7,7 +7,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { GuestDetailsSection } from '@/components/frontdesk/GuestDetailsSection';
+import { GuestDetailsSection, type GuestVizaRow } from '@/components/frontdesk/GuestDetailsSection';
 import { GuestSearchSelect } from '@/components/guests/GuestSearchSelect';
 import { useTranslation } from '@/hooks/useTranslation';
 import { vizaMissingFields, vizaProblems, type GuestVizaValues } from '@/lib/idScan/guestVizaChecks';
@@ -31,6 +31,7 @@ export interface GuestRosterControl {
   selectedIds: string[];
   setSelectedIds: (ids: string[]) => void;
   refresh: () => Promise<void>;
+  updateSavedGuest: (guest: GuestVizaRow) => void;
   eligible: StayGuestRow[];
   incompleteSelected: number;
 }
@@ -76,7 +77,10 @@ export function useStayGuestRoster(
   const eligible = useMemo(() => guests.filter((g) => g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house')), [guests,mode]);
   const incompleteSelected = useMemo(() => guests.filter((g) => selectedIds.includes(g.guest_id))
     .filter((g) => vizaMissingFields(g.guests).length + vizaProblems(g.guests).length > 0).length, [guests,selectedIds]);
-  return { enabled,loading,guests,selectedIds,setSelectedIds,refresh,eligible,incompleteSelected };
+  const updateSavedGuest = useCallback((guest: GuestVizaRow) => {
+    setGuests((rows) => rows.map((row) => row.guest_id === guest.id ? { ...row, guests: guest } : row));
+  }, []);
+  return { enabled,loading,guests,selectedIds,setSelectedIds,refresh,eligible,incompleteSelected,updateSavedGuest };
 }
 
 export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug, occurredAt, onChanged }: {
@@ -153,7 +157,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
               </div>
             </div>
             <div className="flex gap-1 flex-wrap justify-end">
-              <Button type="button" size="sm" variant="ghost" onClick={() => setDetailsId(detailsId===g.guest_id ? null : g.guest_id)}>
+              <Button type="button" size="sm" variant={mode === 'arrive' && canChoose && !complete ? 'default' : 'outline'} aria-expanded={detailsId === g.guest_id} onClick={() => setDetailsId(detailsId===g.guest_id ? null : g.guest_id)}>
                 {t('pms.stayGuest.details')}
               </Button>
               {(g.stay_state==='in_house' || g.stay_state==='departed') && (
@@ -165,7 +169,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
             </div>
           </div>
           {detailsId===g.guest_id && <GuestDetailsSection guestId={g.guest_id}
-            onCompletenessChange={() => { /* Refresh roster after the section saves via Refresh */ }} />}
+            onSaved={control.updateSavedGuest} />}
         </div>;
       })}
       {adding && (
