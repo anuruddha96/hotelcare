@@ -66,7 +66,7 @@ describe("Mira voice input", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows interim speech without inserting it until reviewed and confirmed", async () => {
+  it("exposes live speech in the composer and finalizes it once Done is pressed", async () => {
     const onConfirm = vi.fn();
     const { result, unmount } = renderHook(() => useMiraDictation(onConfirm, "en"));
 
@@ -82,14 +82,13 @@ describe("Mira voice input", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    await waitFor(() => expect(result.current.state).toBe("review"));
+    await waitFor(() => expect(result.current.state).toBe("paused"));
     expect(result.current.preview).toBe("Prepare next month's rates");
     expect(onConfirm).not.toHaveBeenCalled();
     expect(stopTrack).toHaveBeenCalled();
 
-    act(() => { result.current.setPreview("Check December occupancy"); });
     act(() => { result.current.confirm(); });
-    expect(onConfirm).toHaveBeenCalledWith("Check December occupancy");
+    expect(onConfirm).toHaveBeenCalledWith("Prepare next month's rates");
     expect(result.current.state).toBe("idle");
     expect(result.current.preview).toBe("");
     unmount();
@@ -136,13 +135,64 @@ describe("Mira voice input", () => {
     await act(async () => { await result.current.start(); });
     expect(result.current.preview).toBe("");
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6000);
+      await vi.advanceTimersByTimeAsync(3000);
     });
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(result.current.preview).toBe("Prepare next month's rates");
     expect(result.current.state).toBe("recording");
     expect(onConfirm).not.toHaveBeenCalled();
     act(() => { result.current.cancel(); });
+    unmount();
+  });
+
+  it("pauses after ten seconds of silence and releases the microphone", async () => {
+    vi.useFakeTimers();
+    const onConfirm = vi.fn();
+    const { result, unmount } = renderHook(() => useMiraDictation(onConfirm, "en"));
+    await act(async () => { await result.current.start(); });
+    act(() => { recognition.emit("Check"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    act(() => { recognition.emit("Check occupancy"); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(9999); });
+    expect(result.current.state).toBe("recording");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(result.current.state).toBe("paused");
+    expect(stopTrack).toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("resumes with the existing words and finalizes both segments once", async () => {
+    invoke.mockResolvedValueOnce({ data: { text: "Check occupancy" }, error: null })
+      .mockResolvedValueOnce({ data: { text: "for tomorrow" }, error: null });
+    const onConfirm = vi.fn();
+    const { result, unmount } = renderHook(() => useMiraDictation(onConfirm, "en"));
+    await act(async () => { await result.current.start(); });
+    act(() => { recognition.emit("Check occupancy"); });
+    await act(async () => { result.current.stop(); });
+    await waitFor(() => expect(result.current.state).toBe("paused"));
+    await act(async () => { await result.current.start(); });
+    expect(result.current.preview).toBe("Check occupancy");
+    act(() => { recognition.emit("for tomorrow"); });
+    expect(result.current.preview).toBe("Check occupancy for tomorrow");
+    await act(async () => { result.current.confirm(); });
+    await waitFor(() => expect(result.current.state).toBe("idle"));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith("Check occupancy for tomorrow");
+    expect(result.current.preview).toBe("");
+    unmount();
+  });
+
+  it("cancels a paused session without committing dictated words", async () => {
+    const onConfirm = vi.fn();
+    const { result, unmount } = renderHook(() => useMiraDictation(onConfirm, "en"));
+    await act(async () => { await result.current.start(); });
+    act(() => { recognition.emit("Discard"); });
+    await act(async () => { result.current.stop(); });
+    await waitFor(() => expect(result.current.state).toBe("paused"));
+    act(() => { result.current.cancel(); });
+    expect(result.current.preview).toBe("");
+    expect(onConfirm).not.toHaveBeenCalled();
     unmount();
   });
 });
