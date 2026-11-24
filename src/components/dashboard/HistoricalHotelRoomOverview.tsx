@@ -125,31 +125,31 @@ const statusStyle = (
   roomStatus: string | null | undefined,
 ): string => {
   if (noService) {
-    return 'bg-slate-200 text-slate-800 border-slate-400 dark:bg-slate-800 dark:text-slate-200';
+    return 'bg-slate-200 text-slate-800 border-slate-400';
   }
   if (assignmentStatus === 'completed' && approved) {
-    return 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200';
+    return 'bg-emerald-200 text-emerald-900 border-emerald-500';
   }
   if (assignmentStatus === 'completed') {
-    return 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200';
+    return 'bg-violet-200 text-violet-900 border-violet-500';
   }
   if (assignmentStatus === 'in_progress') {
-    return 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200';
+    return 'bg-sky-200 text-sky-900 border-sky-500';
   }
   if (assignmentStatus === 'dnd_pending_retry') {
-    return 'bg-purple-100 text-purple-900 border-purple-500 dark:bg-purple-900/50 dark:text-purple-200';
+    return 'bg-purple-100 text-purple-900 border-purple-500';
   }
   if (assignmentStatus) {
-    return 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200';
+    return 'bg-amber-200 text-amber-900 border-amber-500';
   }
   if (roomStatus === 'clean' || roomStatus === 'inspected') {
-    return 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200';
+    return 'bg-emerald-200 text-emerald-900 border-emerald-500';
   }
   if (roomStatus === 'in_progress') {
-    return 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200';
+    return 'bg-sky-200 text-sky-900 border-sky-500';
   }
   if (roomStatus === 'dirty') {
-    return 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200';
+    return 'bg-amber-200 text-amber-900 border-amber-500';
   }
   return 'bg-muted text-muted-foreground border-border';
 };
