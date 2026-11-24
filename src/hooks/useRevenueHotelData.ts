@@ -174,6 +174,8 @@ export interface RevenueHotelData {
   /** Who triggered the last revenue sync (null = automatic / unknown). */
   lastSyncBy: string | null;
   thresholds: RevenueThresholds;
+  /** Native currency of the published dataset, with no guessed default. */
+  publishedCurrency?: string | null;
   /** True while later dates of the requested horizon are still being fetched. */
   extending: boolean;
   reload: () => Promise<void>;
@@ -593,6 +595,7 @@ export function useRevenueHotelData(
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
     nights, snapshots, rates, cancellations, soldOutPrices, availability, metrics, lastSyncAt, lastSyncBy, thresholds, reload, refreshAvailability, refreshRoomTypes,
     excludedRoomTypeIds, inventoryMismatch, configuredRooms: sellableOverride,
+    publishedCurrency: typeof settings.base_currency === "string" ? settings.base_currency : null,
     extending,
   };
 }
