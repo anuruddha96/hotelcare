@@ -313,3 +313,23 @@ describe('VIZA case 2.2 frontend follow-up', () => {
     expect(await screen.findByText(key)).toBeInTheDocument();
   });
 });
+
+describe('manual recovery save acknowledgement', () => {
+  it('keeps the correction dirty if the server does not acknowledge the guest update', async () => {
+    const query = mockGuest(guest);
+    const acknowledge = vi.fn().mockResolvedValueOnce({ data: null, error: null }).mockResolvedValueOnce({ data: { id: guest.id }, error: null });
+    query.update.mockReturnValue({ eq: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ maybeSingle: acknowledge }) }) });
+    const onDirtyChange = vi.fn();
+    render(<GuestDetailsSection guestId={guest.id} onDirtyChange={onDirtyChange} />);
+    const input = await screen.findByPlaceholderText('HU / DE / USA…');
+    fireEvent.change(input, { target: { value: 'HU' } });
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'pms.guest.save' })).toBeEnabled());
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(false));
+    expect(acknowledge).toHaveBeenCalledTimes(2);
+  });
+});
