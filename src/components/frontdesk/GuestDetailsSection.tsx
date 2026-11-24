@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,6 +62,8 @@ interface GuestDetailsSectionProps {
   onRegister?: (payload: Record<string, unknown>, confirmedMatch: string | null) => Promise<GuestRegistrationResult>;
   protectIdentity?: boolean;
   autoScan?: boolean;
+  autoSave?: boolean;
+  onSavePendingChange?: (pending: boolean) => void;
   onCancelDraft?: () => void;
   guestId: string | null;
   vizaReservationId?: string;
@@ -70,7 +72,7 @@ interface GuestDetailsSectionProps {
   onSaved?: (guest: GuestVizaRow) => void;
 }
 
-export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft }: GuestDetailsSectionProps) {
+export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft, autoSave = false, onSavePendingChange }: GuestDetailsSectionProps) {
   const { t } = useTranslation();
   const [guest, setGuest] = useState<GuestVizaRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,6 +80,17 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const revision = useRef(0);
+  const inFlight = useRef(false);
+  const autosaving = autoSave && !draft && !!guestId;
+  const markDirty = () => {
+    revision.current += 1;
+    setDirty(true);
+    setSaveFailed(false);
+    if (autosaving) onSavePendingChange?.(true);
+  };
   const [scanOpen, setScanOpen] = useState(false);
   // The reader's output for this guest: loaded with the guest, replaced by a new scan, cleared by "remove".
   const [scan, setScan] = useState<VizaDocumentScan | null>(null);
@@ -92,6 +105,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
 
   useEffect(() => {
     setOptical({});
+    setSaveFailed(false);
+    setSavedAt(null);
     setExpanded(false);
     setGuest(null);
     setVerified(false);
@@ -154,21 +169,21 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const set = (field: Exclude<keyof GuestVizaRow, 'viza_review'>, value: string) => {
     invalidateConfirmation();
     setGuest(g => g ? { ...g, [field]: value || null } : g);
-    setDirty(true);
+    markDirty();
   };
 
   const review: VizaReview = guest?.viza_review?.reservation_id === vizaReservationId ? guest?.viza_review ?? {} : {};
   const setReview = (patch: Partial<VizaReview>) => {
     invalidateConfirmation();
     setGuest(g => g ? { ...g, viza_review: { ...review, ...patch, reservation_id: vizaReservationId } } : g);
-    setDirty(true);
+    markDirty();
   };
 
   // Names are required columns: keep the text as typed, never null.
   const setName = (field: 'first_name' | 'last_name', value: string) => {
     invalidateConfirmation();
     setGuest((g) => (g ? { ...g, [field]: value } : g));
-    setDirty(true);
+    markDirty();
   };
 
   // Fill from a scanned passport/ID. The document is the guest's legal
@@ -218,7 +233,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     setOptical(opticalFields);
     setScan(toVizaDocumentScan(result));
     setScanChanged(true);
-    setDirty(true);
+    markDirty();
     toast.success(t('pms.scan.applied'));
   };
 
@@ -228,11 +243,14 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     setScan(null);
     if (vizaReservationId) setReview({ scan_reviewed: false });
     setScanChanged(true);
-    setDirty(true);
+    markDirty();
   };
 
   const save = async () => {
-    if (!guest || (vizaReservationId && !hasReviewColumns)) return;
+    if (!guest || !dirty || inFlight.current || (vizaReservationId && !hasReviewColumns)) return;
+    const savingRevision = revision.current;
+    inFlight.current = true;
+    setSaveFailed(false);
     setSaving(true);
     const savedGuest = vizaReservationId ? { ...guest, mother_name: [guest.mother_family_name, guest.mother_given_name].filter(Boolean).join(' ') || (review.mother_name_absent ? null : guest.mother_name) } : guest;
     const payload = {
@@ -256,22 +274,51 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         else { setDirty(false); onSaved?.({ ...savedGuest, id: result.guest_id }); }
       } catch {
         setRegisterError(t('pms.express.registerFailed'));
-      } finally { setSaving(false); }
+      } finally { inFlight.current = false; setSaving(false); }
       return;
     }
     // Generated types may lag behind the latest migration for the new columns.
-    const { error } = await (supabase.from('guests') as never as {
-      update: (values: Record<string, unknown>) => { eq: (column: string, value: string) => Promise<{ error: { message: string } | null }> };
-    }).update(payload).eq('id', guest.id);
-    setSaving(false);
-    if (error) { toast.error(t('pms.guest.saveFailed')); return; }
-    setDirty(false);
-    setScanChanged(false);
-    toast.success(t('pms.guest.saved'));
-    setGuest(savedGuest);
-    onCompletenessChange?.(openItems(savedGuest, vizaReservationId, occurredAt));
-    onSaved?.(savedGuest);
+    try {
+      const update = (supabase.from('guests') as never as {
+        update: (values: Record<string, unknown>) => { eq: (column: string, value: string) => Promise<{ error: { message: string } | null }> & { select: (columns: string) => { maybeSingle: () => Promise<{ data: { id: string } | null; error: unknown }> } } };
+      }).update(payload).eq('id', guest.id);
+      if (autosaving) {
+        // An RLS-filtered update may succeed with zero affected rows. Only
+        // acknowledge a save once the server returns the actual guest id.
+        const { data, error } = await update.select('id').maybeSingle();
+        if (error || data?.id !== guest.id) throw new Error('Guest update not acknowledged');
+      } else {
+        const { error } = await update;
+        if (error) throw error;
+      }
+      // A newer edit may have arrived while this request was in flight.
+      // Never replace that text, clear its dirty flag or unlock navigation.
+      if (revision.current !== savingRevision) return;
+      setDirty(false);
+      setScanChanged(false);
+      setSavedAt(new Date());
+      setGuest(savedGuest);
+      onCompletenessChange?.(openItems(savedGuest, vizaReservationId, occurredAt));
+      onSaved?.(savedGuest);
+      if (autosaving) onSavePendingChange?.(false);
+      else toast.success(t('pms.guest.saved'));
+    } catch {
+      if (revision.current === savingRevision) setSaveFailed(true);
+      if (!autosaving) toast.error(t('pms.guest.saveFailed'));
+    } finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
   };
+
+  useEffect(() => {
+    if (!autosaving || !guest || !dirty || saving || saveFailed || scanOpen || (vizaReservationId && !hasReviewColumns)) return;
+    const timeout = window.setTimeout(() => { void save(); }, 650);
+    return () => window.clearTimeout(timeout);
+    // save is intentionally scheduled from the current form snapshot, not
+    // from unstable parent callbacks or every unrelated re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosaving, guest, dirty, saving, saveFailed, scanOpen, scan, scanChanged, vizaReservationId, hasReviewColumns]);
 
   if (!guestId && !draft) return null;
   const missing = vizaReservationId ? vizaAdmissionFields(guest, vizaReservationId, vizaArrivalDay(occurredAt)) : vizaMissingFields(guest);
@@ -328,6 +375,12 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
           : <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">{t('pms.guest.missing')}: {open}</Badge>}
         <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
+      {autosaving && !loading && guest && <div role="status" aria-live="polite" className="px-3 pb-2 flex flex-wrap items-center gap-1.5 text-xs">
+        {saveFailed || (dirty && !!vizaReservationId && !hasReviewColumns) ? <><TriangleAlert className="h-3.5 w-3.5 text-destructive" /><span className="text-destructive">{t('pms.guest.autosaveFailed')}</span><Button type="button" size="sm" variant="outline" disabled={saving || (!!vizaReservationId && !hasReviewColumns)} onClick={() => void save()}>{t('pms.guest.autosaveRetry')}</Button></>
+          : dirty || saving ? <><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /><span className="text-muted-foreground">{t('pms.guest.autosaving')}</span></>
+          : savedAt ? <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /><span className="text-emerald-700 dark:text-emerald-400">{t('pms.guest.autosaved')} · {savedAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span></>
+          : <span className="text-muted-foreground">{t('pms.guest.autosaveEnabled')}</span>}
+      </div>}
       {!loading && !guest && expanded && (
         <div role="alert" className="px-3 pb-3 space-y-2">
           <p className="text-sm text-destructive">{t('pms.guest.vizaArrivalBlocked')}</p>
@@ -484,7 +537,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             {registerError && <p role="alert" className="text-sm text-destructive">{registerError}</p>}
           </div>}
           <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} className="h-10 w-full sm:h-8 sm:w-auto" disabled={!dirty || saving || (!!vizaReservationId && !hasReviewColumns) || (!!draft && (!verified || open > 0))} onClick={save}>
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t(draft ? matchId ? 'pms.express.confirmMatch' : 'pms.express.confirmGuest' : 'pms.guest.save')}
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t(draft ? matchId ? 'pms.express.confirmMatch' : 'pms.express.confirmGuest' : autosaving ? 'pms.guest.autosaveNow' : 'pms.guest.save')}
           </Button>
           {draft && <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={onCancelDraft}>{t('common.cancel')}</Button>}
         </div>
