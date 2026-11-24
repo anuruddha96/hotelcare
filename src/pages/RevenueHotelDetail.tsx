@@ -1295,6 +1295,8 @@ function PrevioRevenueHotelDetail() {
             ourRateByDate={ourRateByDate}
             reservationMovement={
               <PickupMovementBoard
+                          key={hotelId}
+                          publishedCurrency={live.publishedCurrency ?? null}
                           metrics={live.metrics}
                           windowDays={pickupWindow}
                           nights={live.nights}
