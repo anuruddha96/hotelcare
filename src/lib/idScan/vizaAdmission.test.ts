@@ -40,6 +40,19 @@ describe('document-aware VIZA admission', () => {
       viza_review: { ...guest.viza_review, visa_exempt: true } })).toEqual([]);
     expect(check({ ...base, nationality: 'CH' })).toEqual([]);
   });
+  it('allows reviewed unavailable entry details without bypassing invalid supplied values', () => {
+    const guest: GuestVizaValues = { ...base, nationality: 'GB', id_document_type: 'passport',
+      birth_first_name: null, birth_last_name: null, mother_family_name: null, mother_given_name: null,
+      birth_place: 'Gibraltar', viza_review: { reservation_id: stay, scan_reviewed: true, birth_name_absent: true, mother_name_absent: true, visa_exempt: true, entry_details_absent: true },
+    };
+    expect(check(guest)).toEqual([]);
+    expect(check({ ...guest, entry_date: '2026-11-25' })).toContain('entry_date');
+    expect(check({ ...guest, entry_date: '2026-02-30' })).toContain('entry_date');
+    expect(check({ ...guest, entry_place: 'ő'.repeat(128) })).toContain('entry_place');
+    expect(check({ ...guest, viza_review: { ...guest.viza_review, reservation_id: 'old-stay' } })).toEqual(expect.arrayContaining(['entry_date', 'entry_place', 'visa_number']));
+    expect(check({ ...guest, birth_place: null })).toContain('birth_place');
+    expect(check({ ...guest, viza_review: { ...guest.viza_review, visa_exempt: false } })).toContain('visa_number');
+  });
   it('uses the actual arrival day at the fourteenth birthday', () => {
     expect(documentRequired('2012-11-24', day)).toBe(true);
     expect(documentRequired('2012-11-25', day)).toBe(false);

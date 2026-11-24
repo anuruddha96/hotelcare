@@ -355,6 +355,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const euEea = new Set(['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','IS','LI','NO']);
   const knownNationality = recognizedNationality(guest?.nationality);
   const entryOptional = !!knownNationality && (euEea.has(knownNationality) || knownNationality === 'CH') && !guest?.visa_number && !guest?.entry_date && !guest?.entry_place;
+  const skipBirthName = !!guest && !guest.birth_last_name?.trim() && !guest.birth_first_name?.trim() && !review.birth_name_absent;
+  const skipMotherName = !!guest && !guest.mother_name?.trim() && !guest.mother_family_name?.trim() && !guest.mother_given_name?.trim() && !review.mother_name_absent;
   const absent = (key: 'birth_name_absent' | 'birth_place_absent' | 'mother_name_absent') => vizaReservationId && guest && !isHungarianId(guest) && (needsDocument || !!guest.id_document_number) ? (
     <label className="col-span-2 flex items-center gap-2 text-xs">
       <input type="checkbox" className="!w-4 !h-4" checked={review[key] === true} onChange={e => setReview({ [key]: e.target.checked })} />
@@ -448,6 +450,10 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               <Input className="h-11 bg-background/70 text-foreground" value={guest.first_name ?? ''} onChange={(e) => setName('first_name', e.target.value)} />
               {mark('first_name')}
             </div>
+            {vizaReservationId && guest.id_document_type === 'passport' && review.scan_reviewed && (skipBirthName || skipMotherName) && <div className="col-span-2 rounded-md border border-border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">{t('pms.guest.confirmAbsentHint')}</p>
+              <Button type="button" variant="outline" size="sm" className="h-auto min-h-10 w-full whitespace-normal" onClick={() => setReview({ ...(skipBirthName ? { birth_name_absent: true } : {}), ...(skipMotherName ? { mother_name_absent: true } : {}) })}>{t('pms.guest.confirmAbsentNames')}</Button>
+            </div>}
             {hasExtraColumns && (
               <>
                 <div>
@@ -539,6 +545,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
                     <Label className="text-xs">{t('pms.guest.entryPlace')}</Label>
                     <Input className="h-10 sm:h-10" value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
                   </div>
+                  {vizaReservationId && thirdCountry(guest) && <label className="sm:col-span-2 flex items-start gap-2 text-xs"><input type="checkbox" className="!w-4 !h-4 mt-0.5 shrink-0" checked={review.entry_details_absent === true} onChange={e => setReview({ entry_details_absent: e.target.checked })} />{t('pms.guest.entryDetailsAbsent')}</label>}
                 </>}
               </div>
             </details>
