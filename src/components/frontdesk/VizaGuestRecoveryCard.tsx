@@ -6,7 +6,7 @@ import {useTranslation} from '@/hooks/useTranslation';
 import {formatVizaArrivalError} from '@/lib/idScan/vizaArrivalError';
 import {toast} from 'sonner';
 
-type Repair={id:string;reservation_id:string;guest_id:string|null;guest_name:string|null;reservation_number:string|null};
+type Repair={id:string;reservation_id:string;guest_id:string|null;guest_name:string|null;reservation_number:string|null;last_error?:string|null};
 async function call(body:Record<string,unknown>){
  const {data,error}=await supabase.functions.invoke('viza-thf',{body});
  if(error){
@@ -24,6 +24,7 @@ export function VizaGuestRecoveryCard({hotelId}:{hotelId:string}){
  const [total,setTotal]=useState(0);
  const [open,setOpen]=useState<string|null>(null);
  const [busy,setBusy]=useState(false);
+ const [dirty,setDirty]=useState(false);
  const refresh=useCallback(async()=>{
   const data=await call({action:'desk_status',hotel_id:hotelId});
   setRows(data?.events??[]);setTotal(data?.total??0);
@@ -31,12 +32,13 @@ export function VizaGuestRecoveryCard({hotelId}:{hotelId:string}){
  useEffect(()=>{
   let alive=true;
   const load=()=>{if(alive)void refresh().catch(()=>{});};
-  setRows([]);setTotal(0);setOpen(null);load();
+  setRows([]);setTotal(0);setOpen(null);setDirty(false);load();
   const id=setInterval(load,60000);
   return()=>{alive=false;clearInterval(id);};
  },[refresh]);
  if(!rows.length)return null;
  const retry=async(id:string)=>{
+  if(dirty||busy)return;
   setBusy(true);
   try{await call({action:'desk_retry',hotel_id:hotelId,event_id:id});await refresh();setOpen(null);toast.success(t('pms.viza.queuedAgain'));}
   catch(e){const msg=(e as Error).message;toast.error(formatVizaArrivalError(msg,t)??msg);}
@@ -46,8 +48,9 @@ export function VizaGuestRecoveryCard({hotelId}:{hotelId:string}){
   <div className="flex items-center justify-between"><h2 className="text-sm font-semibold">{t('pms.viza.guestProblems')} · {total}</h2><Button size="sm" variant="ghost" onClick={()=>void refresh().catch(()=>{})}>{t('ntak.refreshReports')}</Button></div>
   <p className="text-xs text-muted-foreground">{t('pms.viza.needsFix')}</p>
   {rows.map(row=><div key={row.id} className="border-t pt-2 space-y-2">
-   <div className="flex items-center gap-2 justify-between"><span className="text-sm font-medium">{row.guest_name||'—'} · {row.reservation_number||'—'}</span><Button size="sm" variant="outline" disabled={!row.guest_id} onClick={()=>setOpen(open===row.id?null:row.id)}>{t('pms.stayGuest.details')}</Button></div>
-   {open===row.id&&row.guest_id&&<><GuestDetailsSection vizaReservationId={row.reservation_id} guestId={row.guest_id}/><Button size="sm" disabled={busy} onClick={()=>void retry(row.id)}>{t('pms.viza.sendAgain')}</Button></>}
+   <div className="flex items-center gap-2 justify-between"><span className="text-sm font-medium">{row.guest_name||'—'} · {row.reservation_number||'—'}</span><Button size="sm" variant="outline" disabled={!row.guest_id||dirty||busy} onClick={()=>{setDirty(false);setOpen(open===row.id?null:row.id);}}>{t('pms.stayGuest.details')}</Button></div>
+   {row.last_error&&<p className="break-words text-xs text-destructive">{row.last_error}</p>}
+   {open===row.id&&row.guest_id&&<><GuestDetailsSection key={row.id} vizaReservationId={row.reservation_id} guestId={row.guest_id} onDirtyChange={setDirty}/><Button size="sm" disabled={busy||dirty} onClick={()=>void retry(row.id)}>{t('pms.viza.sendAgain')}</Button>{dirty&&<p className="text-xs text-muted-foreground">{t('pms.viza.saveCorrections')}</p>}</>}
   </div>)}
  </section>;
 }
