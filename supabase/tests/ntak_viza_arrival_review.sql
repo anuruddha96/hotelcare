@@ -43,9 +43,9 @@ SELECT public.pms_check_in('00000000-0000-4000-8000-000000000094',NULL,NULL,NULL
 UPDATE public.guests SET id_document_number=NULL WHERE id='00000000-0000-4000-8000-000000000092';
 UPDATE public.viza_settings SET adatszolgaltatasi_azonosito=NULL;
 SELECT public.pms_check_in('00000000-0000-4000-8000-000000000094',NULL,NULL,NULL,true);
-DO $ BEGIN
+DO $$ BEGIN
  IF public.pms_viza_registration_required('00000000-0000-4000-8000-000000000094') THEN RAISE EXCEPTION 'Unregistered hotel incorrectly requires VIZA data'; END IF;
-END $;
+END $$;
 UPDATE public.viza_settings SET adatszolgaltatasi_azonosito='TEST0001',enabled=false;
 SELECT public.pms_check_in('00000000-0000-4000-8000-000000000094',NULL,NULL,NULL,true);
 INSERT INTO public.viza_guest_events(hotel_id,organization_slug,reservation_id,guest_id,arrival_state,tavozas_ideje)
