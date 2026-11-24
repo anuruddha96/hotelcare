@@ -62,7 +62,7 @@ export function useStayGuestRoster(
       setEnabled(active || vizaRequired);
       if (!active && !vizaRequired) { setGuests([]); setSelectedIds([]); return; }
       const { data, error } = await (supabase as any).from('reservation_guests')
-        .select('guest_id,stay_state,arrived_at,departed_at,room_id,guests:guest_id(id,first_name,last_name,birth_last_name,birth_first_name,mother_name,nationality,date_of_birth,birth_place,gender,id_document_type,id_document_number,visa_number,entry_date,entry_place' + (vizaRequired ? ',mother_family_name,mother_given_name,viza_review' : '') + ')')
+        .select('guest_id,stay_state,arrived_at,departed_at,room_id,guests:guest_id(id,first_name,last_name,birth_last_name,birth_first_name,mother_name,nationality,date_of_birth,birth_place,gender,id_document_type,id_document_number,visa_number,entry_date,entry_place' + (vizaRequired ? ',mother_family_name,mother_given_name,viza_review,document_scan' : '') + ')')
         .eq('reservation_id', reservationId).order('is_primary', { ascending: false });
       if (error) throw error;
       const records = (data ?? []) as StayGuestRow[];

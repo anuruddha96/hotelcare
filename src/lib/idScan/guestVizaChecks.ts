@@ -115,7 +115,7 @@ const messageForState: Record<VizaFieldState, string> = {
 
 /** One local admission matrix; stay-scoped review flags never imply a printed field is present. */
 export function vizaFieldRequirements(guest: GuestVizaValues | null | undefined, reservationId: string, day = vizaArrivalDay()): VizaFieldRequirements {
-  const g = guest ?? {};
+  const g: GuestVizaValues = guest ?? {};
   const result: VizaFieldRequirements = {};
   const review = g.viza_review?.reservation_id === reservationId ? g.viza_review : {};
   const put = (field: string, state: VizaFieldState, ok: boolean, placeholder = false) => {

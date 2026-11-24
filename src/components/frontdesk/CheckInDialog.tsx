@@ -23,6 +23,7 @@ import { StayGuestRoster, useStayGuestRoster } from '@/components/frontdesk/Stay
 import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { vizaArrivalDay } from '@/lib/idScan/guestVizaChecks';
 import { formatVizaArrivalError } from '@/lib/idScan/vizaArrivalError';
 
 interface CheckInDialogProps {
@@ -67,6 +68,28 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
   const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open && !vizaLoading && !vizaLoadFailed, 'arrive', selectedRoom || reservation.room_id, vizaRequired, businessMoment.occurredAt);
 
+  const [serverRequirements,setServerRequirements] = useState<{key:string;version:number;ok:boolean;failed:boolean}|null>(null);
+  const day = vizaArrivalDay(businessMoment.occurredAt).toISOString().slice(0,10);
+  const idsKey = JSON.stringify(roster.perGuestLifecycle ? roster.selectedIds : null);
+  const requestKey = JSON.stringify([reservation.id,day,idsKey,roster.guests]);
+  useEffect(()=>{
+    if(!open || !vizaRequired || roster.loading || savePending) return;
+    let active=true;
+    const timeout=window.setTimeout(()=>{
+      void (supabase.rpc as CallableFunction)('pms_viza_arrival_requirements',{_reservation_id:reservation.id,_guest_ids:JSON.parse(idsKey),_day:day})
+        .then(({data,error}:{data:unknown;error:unknown})=>{
+          if(!active)return;
+          const value=data as {version?:number;occupant_count_ok?:boolean;guests?:{missing?:unknown[]}[]}|null;
+          const valid=!error && typeof value?.version==='number' && value.version>=2 && Array.isArray(value.guests) && typeof value.occupant_count_ok==='boolean';
+          setServerRequirements({key:requestKey,version:valid?value!.version!:0,failed:!valid,ok:!!valid && value!.occupant_count_ok===true && value!.guests!.length>0 && value!.guests!.every(g=>Array.isArray(g.missing)&&g.missing.length===0)});
+        })
+        .catch(()=>{if(active)setServerRequirements({key:requestKey,version:0,ok:false,failed:true});});
+    },250);
+    return ()=>{active=false;window.clearTimeout(timeout);};
+  },[open,vizaRequired,roster.loading,savePending,reservation.id,day,idsKey,requestKey]);
+  useEffect(()=>{if(!open)setServerRequirements(null);},[open,reservation.id]);
+  const serverReady = serverRequirements?.key===requestKey && serverRequirements.ok && !serverRequirements.failed;
+  const serverFailed = vizaRequired && serverRequirements?.failed === true;
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
   const balance = balanceOf(reservation);
@@ -103,10 +126,10 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const vizaWarn = !!reservation.guest_id && (vizaMissing?.length ?? 0) > 0;
   const needsOverride = capacityWarn || notCleanWarn || (vizaWarn && !vizaRequired);
   const rosterCountMismatch = vizaRequired && roster.enabled && roster.guests.filter(g => g.stay_state !== 'void').length !== pax;
-  const vizaBlocked = vizaRequired && (roster.enabled ? roster.incompleteSelected > 0 || rosterCountMismatch : vizaWarn || !reservation.guest_id || pax > 1);
+  const vizaBlocked = vizaRequired && (!serverReady || (roster.enabled ? roster.incompleteSelected > 0 || rosterCountMismatch : vizaWarn || !reservation.guest_id || pax > 1));
 
   const handleCheckIn = async () => {
-    if (savePending) return;
+    if (savePending || vizaBlocked || vizaLoading || vizaLoadFailed) return;
     if (!selectedRoom) {
       toast.error(t('pms.checkIn.pleaseSelectRoom'));
       return;
@@ -156,9 +179,9 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
               onSaved={() => setArrivalError(null)} />
           )}
 
-          <StayGuestRoster expectedGuests={pax} bookingGuestId={reservation.guest_id} vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
-            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} savePending={savePending} onSavePendingChange={setSavePending} />
-          {vizaLoadFailed && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaStatusFailed')}</p>}
+          {(!vizaRequired || (serverRequirements?.version ?? 0)>=2) && <StayGuestRoster expectedGuests={pax} bookingGuestId={reservation.guest_id} vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
+            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} savePending={savePending} onSavePendingChange={setSavePending} />}
+          {(vizaLoadFailed || serverFailed) && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaStatusFailed')}</p>}
           {arrivalError && <p role="alert" className="text-sm text-destructive break-words">{arrivalError}</p>}
 
           {(noteSummary || balance > 0 || missingContact) && (
