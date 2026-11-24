@@ -83,6 +83,9 @@ def thf_context(cert_pem: bytes, key_pem: bytes) -> ssl.SSLContext:
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.load_verify_locations(cafile=THF_CA)
+    # THF_CA may be the issuing (intermediate) CA only, as VIZA's test THF CA is;
+    # the THF sends its leaf only. Trust that CA as an anchor, like HotelCare does.
+    ctx.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
     ctx.check_hostname = True
     cert_fd = _memory_file(cert_pem)
     key_fd = _memory_file(key_pem)
