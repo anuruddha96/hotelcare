@@ -275,6 +275,51 @@ Deno.serve(async (req) => {
   if (callerOr instanceof Response) return callerOr;
   const caller = callerOr as Caller;
   const canManage = caller.isSuperAdmin || ["admin", "top_management", "top_management_manager"].includes(caller.role);
+  // Operational repair is deliberately separate from leadership-only reports/settings.
+  // No raw authority XML, settings, identifiers or certificate information are returned.
+  if (action === "desk_status" || action === "desk_retry") {
+    const { data: allowed } = await db.rpc("can_access_pms_hotel", {
+      _uid: caller.userId, _hotel_id: hotelId, _org_slug: caller.organizationSlug,
+    });
+    if (!canManage && allowed !== true) return json({ ok: false, error: "Forbidden" }, 403);
+    const { data: cfg, error: cfgError } = await db.from("viza_settings").select("enabled").eq("hotel_id", hotelId).maybeSingle();
+    if (cfgError) return json({ ok: false, error: "Cannot load VIZA repair tasks" }, 500);
+    if (!cfg?.enabled) return json({ ok: true, enabled: false, events: [], total: 0 });
+    if (action === "desk_retry") {
+      const eventId = String(payload.event_id ?? "");
+      const { data: event, error: eventError } = await db.from("viza_guest_events")
+        .select("id, reservation_id, guest_id, arrival_state, attempts, erkezes_ideje")
+        .eq("hotel_id", hotelId).eq("id", eventId).eq("arrival_state", "failed").gte("attempts", NEEDS_CORRECTION).maybeSingle();
+      if (eventError || !event || !event.guest_id) return json({ ok: false, error: "Repair task not found" }, 404);
+      const day = new Intl.DateTimeFormat("en-CA", {timeZone:"Europe/Budapest",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(event.erkezes_ideje));
+      const { error: incomplete } = await db.rpc("pms_assert_viza_arrival_data", {_reservation_id:event.reservation_id,_guest_ids:[event.guest_id],_day:day});
+      if (incomplete) return json({ ok: false, error: incomplete.message }, 400);
+      const { data: updated, error } = await db.from("viza_guest_events").update({
+        arrival_state: "queued", attempts: 0, last_error: null, updated_at: new Date().toISOString(),
+      }).eq("hotel_id",hotelId).eq("id",event.id).eq("arrival_state","failed").gte("attempts",NEEDS_CORRECTION).select("id").maybeSingle();
+      if (error || !updated) return json({ ok:false,error:"Repair task changed; refresh and try again" },409);
+      return json({ ok:true });
+    }
+    // Intentionally no reservation-status or date filter: rejected arrivals
+    // remain actionable even if the guest has already checked out.
+    const { data: rows, error, count } = await db.from("viza_guest_events")
+      .select("id,reservation_id,guest_id",{count:"exact"}).eq("hotel_id",hotelId)
+      .eq("arrival_state","failed").gte("attempts",NEEDS_CORRECTION)
+      .order("updated_at",{ascending:true}).limit(50);
+    if(error) return json({ok:false,error:"Cannot load VIZA repair tasks"},500);
+    const events = rows ?? [];
+    const reservationIds = [...new Set(events.map((e:{reservation_id:string})=>e.reservation_id))];
+    const guestIds = [...new Set(events.map((e:{guest_id:string|null})=>e.guest_id).filter(Boolean))];
+    const [reservations, guests] = await Promise.all([
+      reservationIds.length ? db.from("reservations").select("id,reservation_number").eq("hotel_id",hotelId).in("id",reservationIds) : {data:[]},
+      guestIds.length ? db.from("guests").select("id,first_name,last_name").in("id",guestIds) : {data:[]},
+    ]);
+    const numberOf=new Map((reservations.data??[]).map((x:{id:string;reservation_number:string})=>[x.id,x.reservation_number]));
+    const nameOf=new Map((guests.data??[]).map((x:{id:string;first_name:string;last_name:string})=>[x.id,`${x.last_name??""} ${x.first_name??""}`.trim()]));
+    return json({ok:true,enabled:true,total:count??events.length,events:events.map((e:{id:string;reservation_id:string;guest_id:string|null})=>({
+      ...e,reservation_number:numberOf.get(e.reservation_id)??null,guest_name:e.guest_id?nameOf.get(e.guest_id)??null:null,
+    }))});
+  }
   if (!canManage) return json({ ok: false, error: "Forbidden" }, 403);
 
   switch (action) {

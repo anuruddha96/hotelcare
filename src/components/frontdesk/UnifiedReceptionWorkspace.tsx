@@ -15,6 +15,7 @@ import {
 import { ReservationCalendar, type RoomStatus } from '@/components/reservations/ReservationCalendar';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
+import { VizaGuestRecoveryCard } from '@/components/frontdesk/VizaGuestRecoveryCard';
 import { WalkInSaleDialog } from '@/components/frontdesk/WalkInSaleDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { PmsSyncButton } from '@/components/frontdesk/PmsSyncButton';
@@ -365,6 +366,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
     </div>
 
 
+    {hotelId && !isPortfolio && <VizaGuestRecoveryCard key={hotelId} hotelId={hotelId} />}
     <div className="relative" data-training="fd-quick-search">
       <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
       <Input
