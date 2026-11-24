@@ -10,11 +10,11 @@ vi.mock('react-router-dom', () => ({ useParams: () => ({ organizationSlug: 'fixt
 vi.mock('@/components/guests/GuestWelcomeCard', () => ({ GuestWelcomeCard: () => null }));
 vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: ({open,onOpenChange,onApply}: {
   open:boolean; onOpenChange:(value:boolean)=>void; onApply:(result: import('@/lib/idScan/mrz').MrzReadResult)=>void;
-}) => open ? <button onClick={()=>{onApply({format:'TD3',valid:true,unknownCountry:false,lines:[],fields:{
+}) => open ? <><button onClick={()=>{onApply({format:'TD3',valid:true,unknownCountry:false,lines:[],fields:{
   firstName:'Synthetic',lastName:'Foreign',mrzFirstName:'SYNTHETIC',mrzLastName:'FOREIGN',
   nationality:'DE',nationalityIso3:'DEU',dateOfBirth:'1990-01-01',gender:'female',
   documentType:'passport',documentNumber:'TEST-DE',expiryDate:'2030-01-01',issuingState:'DEU'
-}});onOpenChange(false);}}>Use synthetic passport</button> : null }));
+}});onOpenChange(false);}}>Use synthetic passport</button><button type="button" onClick={()=>onOpenChange(false)}>Close synthetic scanner</button></> : null }));
 vi.mock('@/components/frontdesk/BusinessMomentField', () => ({
   BusinessMomentField: () => null,
   useBusinessMoment: () => ({ occurredAt: null, invalid: false, display: '10:00' }),
@@ -111,6 +111,9 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       expect(screen.getByText('pms.stayGuest.registrationMissing')).toBeInTheDocument();
       expect(screen.queryByRole('checkbox', { name: /pms.stayGuest.arrivingNow/ })).not.toBeInTheDocument();
       await screen.findByPlaceholderText('HU / DE / USA…');
+      // Adding an existing guest automatically opens the document scanner.
+      // Close it before editing the underlying guest registration form, as in the real UI.
+      fireEvent.click(await screen.findByRole('button', { name: 'Close synthetic scanner' }));
       const absent = screen.getAllByRole('checkbox', { name: 'pms.guest.notOnDocument' });
       expect(absent).toHaveLength(3);
       fireEvent.click(absent.find(el => !(el as HTMLInputElement).checked)!);
