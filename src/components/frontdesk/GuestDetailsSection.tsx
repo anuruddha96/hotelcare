@@ -86,6 +86,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const [hasExtraColumns, setHasExtraColumns] = useState(false);
   const [hasReviewColumns, setHasReviewColumns] = useState(false);
   const [verified, setVerified] = useState(false);
+  const [showAllFields, setShowAllFields] = useState(false);
   const [matchId, setMatchId] = useState<string | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
 
@@ -94,6 +95,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     setExpanded(false);
     setGuest(null);
     setVerified(false);
+    setShowAllFields(false);
     setMatchId(null);
     setRegisterError(null);
     if (draft) {
@@ -180,7 +182,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       const normalize = (v?: string | null) => (v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
       const knownName = normalize(guest.first_name) + '|' + normalize(guest.last_name);
       const readName = normalize(next.first_name) + '|' + normalize(next.last_name);
-      const sameNumber = !!guest.id_document_number && normalize(guest.id_document_number) === normalize(next.id_document_number);
+      const sameNumber = !!guest.id_document_number && normalize(guest.id_document_number) === normalize(next.id_document_number) && guest.id_document_type === next.id_document_type && recognizedNationality(guest.nationality) === recognizedNationality(next.nationality);
       if ((guest.date_of_birth && next.date_of_birth && guest.date_of_birth !== next.date_of_birth) ||
         (!sameNumber && knownName !== '|' && readName !== knownName)) {
         toast.error(t('pms.express.identityMismatch'));
@@ -212,6 +214,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         } : {}),
       };
     });
+    setShowAllFields(false);
     setOptical(opticalFields);
     setScan(toVizaDocumentScan(result));
     setScanChanged(true);
@@ -292,6 +295,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       : <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400"><PencilLine className="h-3 w-3" /> {t('pms.guest.correctedByHand')}</p>;
   };
   const read = scan?.fields;
+  const compactReview = (!!draft || protectIdentity) && !!scan?.valid && !!read;
+  const hideExtracted = (field: keyof GuestVizaRow) => compactReview && !showAllFields && !!guest && !missing.includes(field) && !optical[field as keyof OpticalGuestFields] && scanFieldState(field,guest,scan)==='fromDocument';
   const euEea = new Set(['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','IS','LI','NO']);
   const knownNationality = recognizedNationality(guest?.nationality);
   const entryOptional = !!knownNationality && (euEea.has(knownNationality) || knownNationality === 'CH') && !guest?.visa_number && !guest?.entry_date && !guest?.entry_place;
@@ -347,10 +352,16 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
                 <dt className="font-sans text-muted-foreground">{t('pms.guest.birthDate')}</dt><dd>{read.szuletesiDatum ?? '—'}</dd>
                 <dt className="font-sans text-muted-foreground">{t('pms.guest.nationality')}</dt><dd>{read.allampolgarsagKod ?? '—'}</dd>
                 <dt className="font-sans text-muted-foreground">{t('pms.guest.docNumber')}</dt><dd>{read.okmanyAzonositoSzam ?? '—'}</dd>
+                {compactReview && <><dt className="font-sans text-muted-foreground">{t('pms.guest.gender')}</dt><dd>{read.nem==='NO'?t('pms.guest.genderFemale'):read.nem==='FERFI'?t('pms.guest.genderMale'):read.nem?t('pms.guest.genderOther'):'—'}</dd>
+                <dt className="font-sans text-muted-foreground">{t('pms.guest.docType')}</dt><dd>{read.okmanyTipus==='UTLEVEL'?t('pms.guest.docPassport'):read.okmanyTipus==='SZEM_IG'?t('pms.guest.docIdCard'):read.okmanyTipus??'—'}</dd></>}
               </dl>
               <p className="mt-1.5 text-[11px] text-muted-foreground">{t('pms.guest.scanPanelNote')}</p>
             </div>
           )}
+          {compactReview && <div className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-2">
+            <p className="text-xs font-medium">{t('pms.express.reviewExtracted')}</p>
+            <Button type="button" variant="ghost" size="sm" className="gap-1" onClick={()=>setShowAllFields(v=>!v)}><PencilLine className="h-3.5 w-3.5"/>{t(showAllFields?'pms.express.hideExtracted':'pms.express.editExtracted')}</Button>
+          </div>}
           {missing.length > 0 && (
             <p className="text-xs text-muted-foreground">
               {t('pms.guest.missing')}: {missing.map((f) => fieldLabel[f] ?? f).join(', ')}
@@ -362,12 +373,12 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             </ul>
           )}
           <div className="grid w-full min-w-0 grid-cols-2 gap-2.5 [&>div]:min-w-0 [&_input]:min-w-0 [&_input]:max-w-full [&_input]:w-full [&_input]:box-border [&_button]:min-w-0">
-            <div>
+            <div hidden={hideExtracted('last_name')}>
               <Label className="text-xs">{t('pms.guest.familyName')}</Label>
               <Input className="h-8" value={guest.last_name ?? ''} onChange={(e) => setName('last_name', e.target.value)} />
               {mark('last_name')}
             </div>
-            <div>
+            <div hidden={hideExtracted('first_name')}>
               <Label className="text-xs">{t('pms.guest.givenName')}</Label>
               <Input className="h-8" value={guest.first_name ?? ''} onChange={(e) => setName('first_name', e.target.value)} />
               {mark('first_name')}
@@ -397,12 +408,12 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               <Input className="h-8" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
                   {mark('mother_name')}
             </div>}
-            <div className="col-span-2 sm:col-span-1">
+            <div className="col-span-2 sm:col-span-1" hidden={hideExtracted('nationality')}>
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>
               <Input className="h-8 uppercase" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="HU / DE / USA…" />
               {mark('nationality')}
             </div>
-            <div className="col-span-2 sm:col-span-1">
+            <div className="col-span-2 sm:col-span-1" hidden={hideExtracted('date_of_birth')}>
               <Label className="text-xs">{t('pms.guest.birthDate')}</Label>
               <Input className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-8" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} value={guest.date_of_birth ?? ''} onChange={(e) => set('date_of_birth', e.target.value)} />
               {mark('date_of_birth')}
@@ -413,7 +424,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
                   {mark('birth_place')}
                   {absent('birth_place_absent')}
             </div>
-            <div>
+            <div hidden={hideExtracted('gender')}>
               <Label className="text-xs">{t('pms.guest.gender')}</Label>
               <Select value={guest.gender ?? ''} onValueChange={(v) => set('gender', v)}>
                 <SelectTrigger className="h-8"><SelectValue placeholder="—" /></SelectTrigger>
@@ -425,7 +436,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               </Select>
               {mark('gender')}
             </div>
-            <div>
+            <div hidden={hideExtracted('id_document_type')}>
               <Label className="text-xs">{t('pms.guest.docType')}</Label>
               <Select value={guest.id_document_type ?? ''} onValueChange={(v) => set('id_document_type', v)}>
                 <SelectTrigger className="h-8"><SelectValue placeholder="—" /></SelectTrigger>
@@ -438,7 +449,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               </Select>
               {mark('id_document_type')}
             </div>
-            <div>
+            <div hidden={hideExtracted('id_document_number')}>
               <Label className="text-xs">{t('pms.guest.docNumber')}</Label>
               <Input className="h-8" maxLength={100} value={guest.id_document_number ?? ''} onChange={(e) => set('id_document_number', e.target.value)} />
               {mark('id_document_number')}
