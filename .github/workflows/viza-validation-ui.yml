@@ -1,0 +1,78 @@
+name: VIZA validation UI checks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/components/frontdesk/Viza*.tsx'
+      - 'src/components/frontdesk/GuestDetailsSection*.tsx'
+      - 'src/lib/pms-reception-translations.ts'
+      - 'supabase/functions/viza-thf/**'
+      - '.github/workflows/viza-validation-ui.yml'
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Targeted front desk and reader tests
+        run: npx vitest run src/components/frontdesk src/lib/idScan
+      - name: Compare TypeScript and changed-file ESLint diagnostics against base
+        if: always()
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="$RUNNER_TEMP/viza-base"
+          git worktree add --detach "$base" "$BASE_SHA"
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$base/node_modules"
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMR "$BASE_SHA" HEAD -- '*.ts' '*.tsx')
+          basefiles=()
+          for file in "${files[@]}"; do
+            if [[ -f "$base/$file" ]]; then basefiles+=("$file"); fi
+          done
+          run_tsc() {
+            local folder="$1" output="$2" rc=0
+            (cd "$folder" && npx tsc --noEmit -p tsconfig.app.json --pretty false) > "$output" 2>&1 || rc=$?
+            if [[ "$rc" != 0 ]] && ! grep -q 'error TS' "$output"; then cat "$output"; return "$rc"; fi
+          }
+          run_lint() {
+            local folder="$1" output="$2" rc=0
+            shift 2
+            if [[ "$#" == 0 ]]; then echo '[]' > "$output"; return; fi
+            (cd "$folder" && npx eslint --format json "$@") > "$output" || rc=$?
+            if [[ "$rc" -gt 1 ]]; then return "$rc"; fi
+          }
+          run_tsc "$base" "$RUNNER_TEMP/base-tsc.txt"
+          run_tsc "$GITHUB_WORKSPACE" "$RUNNER_TEMP/head-tsc.txt"
+          run_lint "$base" "$RUNNER_TEMP/base-lint.json" "${basefiles[@]}"
+          run_lint "$GITHUB_WORKSPACE" "$RUNNER_TEMP/head-lint.json" "${files[@]}"
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const tmp = process.env.RUNNER_TEMP;
+          const read = name => fs.readFileSync(path.join(tmp, name), 'utf8');
+          const tsc = name => read(name).split('\n').filter(line => /error TS\d+:/.test(line))
+            .map(line => line.replace(/\(\d+,\d+\):/g, ':'));
+          const lint = (name, root) => JSON.parse(read(name)).flatMap(file =>
+            file.messages.filter(msg => msg.severity === 2).map(msg =>
+              path.relative(root, file.filePath) + ': ' + msg.ruleId + ': ' + msg.message));
+          function compare(label, before, after) {
+            const counts = new Map();
+            for (const item of before) counts.set(item, (counts.get(item) || 0) + 1);
+            const added = [];
+            for (const item of after) {
+              const remaining = counts.get(item) || 0;
+              if (remaining) counts.set(item, remaining - 1); else added.push(item);
+            }
+            console.log(label + ': base=' + before.length + ', head=' + after.length + ', new=' + added.length);
+            if (added.length) { console.error(added.join('\n')); process.exitCode = 1; }
+          }
+          compare('TypeScript', tsc('base-tsc.txt'), tsc('head-tsc.txt'));
+          compare('ESLint', lint('base-lint.json', path.join(tmp, 'viza-base')), lint('head-lint.json', process.env.GITHUB_WORKSPACE));
+          JS
