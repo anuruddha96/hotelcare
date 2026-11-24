@@ -229,8 +229,9 @@ function weekendLabelTone(d: string): string {
 
 /** Vertical rules: month > week > day, so columns never blur together. */
 function dayEdge(d: string): string {
-  if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40";
-  return "border-l border-l-border/40";
+  if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40 dark:border-l-[#737373]";
+  if (isMonday(d)) return "border-l border-l-border/40 dark:border-l-[#505050]";
+  return "border-l border-l-border/40 dark:border-l-[#292929]";
 }
 /** High-contrast vertical guide for the current Budapest date. */
 function dateColumnEdge(d: string, today: string): string {
@@ -240,11 +241,17 @@ function dateColumnEdge(d: string, today: string): string {
 /** Zebra shading so a long row of numbers stays trackable.
  *  Friday + Saturday get the stronger weekend fill; Sunday stays visibly
  *  related but lighter so the three days no longer read as one flat block. */
-function dayBg(d: string, i: number): string {
+function dayBg(d: string, i: number, surface: "body" | "header" = "body"): string {
   const weekendTone = weekendTradingTone(d);
-  if (weekendTone === "friday" || weekendTone === "saturday") return "bg-sky-200/85 dark:bg-[hsl(211_46%_24%)]";
-  if (weekendTone === "sunday") return "bg-sky-100/65 dark:bg-[hsl(211_24%_20%)]";
-  return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
+  // The dates are the strong visual anchor; the same blue continues through
+  // the price matrix at a calmer intensity. Keep the light palette intact.
+  if (weekendTone === "friday" || weekendTone === "saturday") {
+    return surface === "header" ? "bg-sky-200/85 dark:bg-[#234968]" : "bg-sky-200/85 dark:bg-[#172e43]";
+  }
+  if (weekendTone === "sunday") {
+    return surface === "header" ? "bg-sky-100/65 dark:bg-[#253747]" : "bg-sky-100/65 dark:bg-[#1a242e]";
+  }
+  return i % 2 === 1 ? "bg-foreground/[0.03] dark:bg-white/[0.025]" : "";
 }
 
 /** Compact money for a 60px column; the exact figure lives in the tooltip. */
@@ -3579,7 +3586,7 @@ export default function RateStrategyGrid({
                         }}
                         title={d === today ? `TODAY · ${d} · ${canEditRates ? "Tap to edit today's prices" : "Current Budapest date"}` : canEditRates ? (multiMode ? `Tap to ${picked ? "remove" : "add"} ${d} ${picked ? "from" : "to"} the selection` : `Change every price on ${d}`) : d}
                         aria-current={d === today ? "date" : undefined}
-                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/35 text-foreground font-semibold ring-2 ring-inset ring-primary" : d === today ? "bg-sky-100 text-sky-950 dark:bg-sky-900/70 dark:text-sky-50" : dayBg(d, i)} ${dateColumnEdge(d, today)} ${d === today && !picked ? "ring-2 ring-inset ring-sky-600" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/35 text-foreground font-semibold ring-2 ring-inset ring-primary" : d === today ? "bg-sky-100 text-sky-950 dark:bg-sky-900/70 dark:text-sky-50" : dayBg(d, i, "header")} ${dateColumnEdge(d, today)} ${d === today && !picked ? "ring-2 ring-inset ring-sky-600" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                         style={{ width: CELL_W, height: DAY_H , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${DAY_H}px` }}
                       >
 
@@ -4014,9 +4021,9 @@ export default function RateStrategyGrid({
                   .map((band) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-red-500/25 dark:border-red-400/70 dark:text-red-100"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-[#502525] dark:border-red-400/70 dark:text-red-100"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-amber-400/25 dark:border-amber-400/70 dark:text-amber-100"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-[#4d3d1c] dark:border-amber-400/70 dark:text-amber-100"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const spanColumns = revenueEventBandColumnSpan(band);
                   const wide = spanColumns >= 2;
@@ -4073,9 +4080,9 @@ export default function RateStrategyGrid({
                 {showEventBand && singleDayEventLayouts.map(({ band, dateIndex, topLane, heightLanes }) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-red-500/25 dark:border-red-400/70 dark:text-red-100"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-[#502525] dark:border-red-400/70 dark:text-red-100"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-amber-400/25 dark:border-amber-400/70 dark:text-amber-100"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-[#4d3d1c] dark:border-amber-400/70 dark:text-amber-100"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const expanded = heightLanes >= 1.45;
                   const roomy = heightLanes >= 2.25;
@@ -4148,7 +4155,7 @@ export default function RateStrategyGrid({
                 <div
                   key={row.key}
                   data-rate-grid-row-kind={row.kind}
-                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/95" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
+                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/95 dark:border-t dark:border-t-[#4a4a4a] dark:border-b-[#393939] dark:bg-[#202020]" : row.kind === "rate" ? "border-b dark:border-b-[#272727] dark:bg-[#101010]" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold dark:border-t-[#4a4a4a] dark:bg-[#1d252c]"}`}
                   style={{
                     height: rowH(row.kind),
                     minHeight: rowH(row.kind),
@@ -4157,7 +4164,7 @@ export default function RateStrategyGrid({
                   {/* Frozen label cell — must stay fully opaque, otherwise the
                       scrolling date cells read through it. */}
                   <div
-                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold" : row.kind === "rate" ? "bg-card text-muted-foreground" : "bg-muted border-l-2 border-l-primary font-semibold text-foreground"}`}
+                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold dark:bg-[#202020] dark:text-foreground" : row.kind === "rate" ? "bg-card text-muted-foreground dark:bg-[#101010]" : "bg-muted border-l-2 border-l-primary font-semibold text-foreground dark:bg-[#1d252c]"}`}
                     style={{ width: LEFT_W, fontSize: fz(11) }}
 
                   >
@@ -4450,7 +4457,7 @@ export default function RateStrategyGrid({
                            place the cell's story is told, so the browser
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80 dark:opacity-100" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 dark:bg-primary/20 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.severity === "ok" ? "dark:font-medium dark:text-foreground" : ""} ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80 dark:opacity-100" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 dark:!bg-primary/20 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                          style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
 
                       >
