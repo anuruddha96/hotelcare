@@ -13,7 +13,7 @@ import { guideCrop, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCap
 import { OcrSession } from '@/lib/idScan/ocrSession';
 import { shouldAdvanceFront, confidenceTone, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
-import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
+import { opticalGuestFields, guestScanPatch, extractOpticalGuestFields, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { assessReadiness, type Readiness } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
 import { firstSideAction, nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
@@ -48,7 +48,7 @@ type Phase = 'camera' | 'reading' | 'front_preview' | 'review' | 'failed';
 type DocumentSide = 'mrz' | 'front'; // 'front' is ALWAYS the initial camera capture.
 
 /** Grayscale + contrast stretch + upscale: OCR reads MRZ much better this way. */
-function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'lower' | 'full', live = false): HTMLCanvasElement {
+function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'lower' | 'full', live = false, enhanced = true): HTMLCanvasElement {
   const top = band === 'bottom' ? Math.floor(height * (live ? 0.51 : 0.58)) : band === 'lower' ? Math.floor(height * 0.3) : 0;
   const cropH = height - top;
   const scale = Math.min(3, 1600 / width);
@@ -71,7 +71,7 @@ function prepareBand(source: CanvasImageSource, width: number, height: number, b
   const range = Math.max(1, max - min);
   for (let i = 0; i < d.length; i += 4) {
     const v = ((d[i] - min) / range) * 255;
-    const out = v < 128 ? Math.max(0, v - 40) : Math.min(255, v + 40);
+    const out = enhanced ? (v < 128 ? Math.max(0, v - 40) : Math.min(255, v + 40)) : v;
     d[i] = d[i + 1] = d[i + 2] = out;
   }
   ctx.putImageData(img, 0, 0);
@@ -344,6 +344,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           if (looksLikeIdFront(reading.text)) positiveScore = Math.max(positiveScore ?? 0, reading.confidence);
         }
         if (!idBack && positiveScore !== null && positiveScore > 90) break;
+        if (idBack) {
+          const fields = extractOpticalGuestFields(reading.text);
+          if (fields.birth_place && fields.mother_name && fields.birth_first_name && fields.birth_last_name) break;
+        }
       } catch { /* retain any earlier successful pass */ }
       finally { wipe(canvas); }
     }
@@ -537,10 +541,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       if (!active()) return;
       // Read the tight band first and then the wider/full still if needed.
       // A high-confidence, valid MRZ can skip remaining passes.
-      const bands: Array<'bottom' | 'lower' | 'full'> = ['bottom', 'lower', 'full'];
-      for (const band of bands) {
+      const bands: Array<{ band: 'bottom' | 'lower' | 'full'; enhanced: boolean }> = [
+        { band: 'bottom', enhanced: false }, { band: 'bottom', enhanced: true },
+        { band: 'lower', enhanced: true }, { band: 'full', enhanced: true },
+      ];
+      for (const { band, enhanced } of bands) {
         if (!active()) return;
-        const prepared = prepareBand(frame, frame.width, frame.height, band, live);
+        const prepared = prepareBand(frame, frame.width, frame.height, band, live, enhanced);
         try {
           const { text, confidence: score } = await mrzSession.recognizeWithConfidence(prepared, 10000);
           if (!active()) return;
@@ -643,6 +650,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     if (!file) return;
     const fileRun = ++scanRunRef.current;
     mrzSession.reset();
+    frontSession.reset();
+    opticalSession.reset();
     busyRef.current = fileRun;
     setPhase('reading');
     stopCamera();
@@ -680,6 +689,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     scanRunRef.current += 1;
     busyRef.current = null;
     setAutoReading(false);
+    mrzSession.reset();
     setResult(null); clearFront(); clearPreview(); setFrontAssessment(null);
     setFlipPrompt(false); setConfidence(null); setFrontConfidence(null); setOpticalFields({}); setOpticalReading(false); setNumberReview({ needsReview: false, printed: null });
     setFrontCaptureAttempted(false); setReviewAcknowledged(false);
@@ -834,7 +844,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
                 : <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400 gap-1"><TriangleAlert className="h-3.5 w-3.5" /> {t('pms.scan.checkCarefully')}</Badge>}
               {expired && <Badge variant="destructive">{t('pms.scan.expired')}</Badge>}
             </div>
-            <div className="rounded-lg border p-3 space-y-1.5"><div className="flex justify-between text-sm font-semibold"><span>{t('pms.scan.ocrConfidence')}</span><span>{confidence === null ? t('pms.scan.confidenceUnavailable') : `${confidence}%`}</span></div>{confidence !== null && <div role="progressbar" aria-label={t('pms.scan.ocrConfidence')} aria-valuenow={confidence} aria-valuemin={0} aria-valuemax={100} className="h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full rounded-full ${confidenceTone(confidence) === 'high' && result.valid && !numberReview.needsReview ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${confidence}%` }}/></div>}<p className="text-[11px] text-muted-foreground">{t('pms.scan.confidenceHint')}</p></div>
+            <div className="rounded-lg border p-3 space-y-1.5"><div className="flex justify-between text-sm font-semibold"><span>{t('pms.scan.ocrConfidence')} (MRZ)</span><span>{confidence === null ? t('pms.scan.confidenceUnavailable') : `${confidence}%`}</span></div>{confidence !== null && <div role="progressbar" aria-label={t('pms.scan.ocrConfidence')} aria-valuenow={confidence} aria-valuemin={0} aria-valuemax={100} className="h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full rounded-full ${confidenceTone(confidence) === 'high' && result.valid && !numberReview.needsReview ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${confidence}%` }}/></div>}{result.fields.documentType === 'id_card' && frontConfidence !== null && <div className="flex justify-between gap-2 text-xs text-muted-foreground"><span>{t('pms.scan.frontConfidence')}</span><span>{scanConfidence(frontConfidence)}%</span></div>}<p className="text-[11px] text-muted-foreground">{t('pms.scan.confidenceHint')}</p></div>
             <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 rounded-md border border-border p-3 text-sm">
               <dt className="text-muted-foreground">{t('pms.guest.familyName')}</dt><dd className="font-semibold">{proposed?.last_name || '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.givenName')}</dt><dd className="font-semibold">{proposed?.first_name || '—'}</dd>
