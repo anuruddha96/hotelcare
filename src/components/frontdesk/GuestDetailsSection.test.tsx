@@ -101,7 +101,7 @@ function mockGuest(row = scannedGuest) {
 async function openEditor(reservationId: string) {
   render(<GuestDetailsSection guestId={guest.id} vizaReservationId={reservationId} occurredAt="2026-11-24T10:00:00Z" />);
   const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
-  await waitFor(() => expect(screen.queryByText('pms.guest.complete') || screen.queryByText(/pms.guest.missing/)).toBeInTheDocument());
+  await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
   if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
   await screen.findByPlaceholderText('HU / DE / USA…');
 }
