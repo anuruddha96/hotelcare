@@ -14,7 +14,7 @@ import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
 import { guestScanPatch, recognizedNationality, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { useTranslation } from '@/hooks/useTranslation';
-import { documentRequired, scanFieldState, vizaMissingFields, vizaProblems, type VizaProblem, type VizaReview, vizaAdmissionFields, isHungarianId, thirdCountry } from '@/lib/idScan/guestVizaChecks';
+import { documentRequired, scanFieldState, vizaMissingFields, vizaProblems, type VizaProblem, type VizaReview, vizaAdmissionFields, isHungarianId, thirdCountry, vizaArrivalDay } from '@/lib/idScan/guestVizaChecks';
 
 /**
  * Hungarian guest-registration (VIZA) data, captured at check-in.
@@ -49,16 +49,17 @@ const EXTRA_COLUMNS = 'birth_last_name, birth_first_name, entry_date, entry_plac
 const REVIEW_COLUMNS = 'mother_family_name, mother_given_name, viza_review';
 
 /** What still stands between this guest and a report VIZA accepts: empty required fields plus refused values. */
-const openItems = (guest: GuestVizaRow | null, reservationId?: string) => reservationId ? vizaAdmissionFields(guest, reservationId) : [...vizaMissingFields(guest), ...vizaProblems(guest)];
+const openItems = (guest: GuestVizaRow | null, reservationId?: string, occurredAt?: string | null) => reservationId ? vizaAdmissionFields(guest, reservationId, vizaArrivalDay(occurredAt)) : [...vizaMissingFields(guest), ...vizaProblems(guest)];
 
 interface GuestDetailsSectionProps {
   guestId: string | null;
   vizaReservationId?: string;
+  occurredAt?: string | null;
   onCompletenessChange?: (missing: string[]) => void;
   onSaved?: (guest: GuestVizaRow) => void;
 }
 
-export function GuestDetailsSection({ guestId, vizaReservationId, onCompletenessChange, onSaved }: GuestDetailsSectionProps) {
+export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved }: GuestDetailsSectionProps) {
   const { t } = useTranslation();
   const [guest, setGuest] = useState<GuestVizaRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,7 +79,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, onCompleteness
     setOptical({});
     setExpanded(false);
     setGuest(null);
-    if (!guestId) { setGuest(null); setScan(null); onCompletenessChange?.(openItems(null, vizaReservationId)); return; }
+    if (!guestId) { setGuest(null); setScan(null); onCompletenessChange?.(openItems(null, vizaReservationId, occurredAt)); return; }
     let alive = true;
     setLoading(true);
     (async () => {
@@ -94,13 +95,13 @@ export function GuestDetailsSection({ guestId, vizaReservationId, onCompleteness
       const { document_scan: storedScan, ...columns } = (data ?? {}) as Record<string, unknown>;
       const row = (data ? { birth_last_name: null, birth_first_name: null, entry_date: null, entry_place: null, ...columns } : null) as GuestVizaRow | null;
       setGuest(row);
-      setExpanded(openItems(row, vizaReservationId).length > 0);
+      setExpanded(openItems(row, vizaReservationId, occurredAt).length > 0);
       setScan((storedScan as VizaDocumentScan | null) ?? null);
       setScanChanged(false);
       setHasExtraColumns(extended);
       setHasReviewColumns(reviewed);
       setDirty(false);
-      onCompletenessChange?.(openItems(row, vizaReservationId));
+      onCompletenessChange?.(openItems(row, vizaReservationId, occurredAt));
       setLoading(false);
     })();
     return () => { alive = false; };
@@ -165,7 +166,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, onCompleteness
   const save = async () => {
     if (!guest || (vizaReservationId && !hasReviewColumns)) return;
     setSaving(true);
-    const savedGuest = vizaReservationId ? { ...guest, mother_name: [guest.mother_family_name, guest.mother_given_name].filter(Boolean).join(' ') || null } : guest;
+    const savedGuest = vizaReservationId ? { ...guest, mother_name: [guest.mother_family_name, guest.mother_given_name].filter(Boolean).join(' ') || (review.mother_name_absent ? null : guest.mother_name) } : guest;
     const payload = {
       first_name: guest.first_name,
       last_name: guest.last_name,
@@ -178,7 +179,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, onCompleteness
         birth_last_name: guest.birth_last_name, birth_first_name: guest.birth_first_name,
         entry_date: guest.entry_date || null, entry_place: guest.entry_place,
       } : {}),
-      ...(scanChanged ? { document_scan: scan } : {}),
+      ...(vizaReservationId && !review.scan_reviewed ? { document_scan: null } : scanChanged ? { document_scan: scan } : {}),
     };
     // Generated types may lag behind the latest migration for the new columns.
     const { error } = await (supabase.from('guests') as never as {
@@ -188,17 +189,18 @@ export function GuestDetailsSection({ guestId, vizaReservationId, onCompleteness
     if (error) { toast.error(t('pms.guest.saveFailed')); return; }
     setDirty(false);
     setScanChanged(false);
+    if (vizaReservationId && !review.scan_reviewed) setScan(null);
     toast.success(t('pms.guest.saved'));
     setGuest(savedGuest);
-    onCompletenessChange?.(openItems(savedGuest, vizaReservationId));
+    onCompletenessChange?.(openItems(savedGuest, vizaReservationId, occurredAt));
     onSaved?.(savedGuest);
   };
 
   if (!guestId) return null;
-  const missing = vizaReservationId ? vizaAdmissionFields(guest, vizaReservationId) : vizaMissingFields(guest);
+  const missing = vizaReservationId ? vizaAdmissionFields(guest, vizaReservationId, vizaArrivalDay(occurredAt)) : vizaMissingFields(guest);
   const problems = vizaReservationId ? [] : vizaProblems(guest);
   const open = missing.length + problems.length;
-  const needsDocument = documentRequired(guest?.date_of_birth);
+  const needsDocument = documentRequired(guest?.date_of_birth, vizaArrivalDay(occurredAt));
   const problemText: Record<VizaProblem, string> = {
     birthNamePair: t('pms.guest.problem.birthNamePair'), motherName: t('pms.guest.problem.motherName'),
     entryDate: t('pms.guest.problem.entryDate'), nationality: t('pms.guest.problem.nationality'),
