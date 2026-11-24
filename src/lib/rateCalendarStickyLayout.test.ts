@@ -178,3 +178,35 @@ describe('Month selection is not covered by the old sticky MONTH arrow', () => {
     expect(layout).not.toContain('position: sticky;\n    left: 0;\n    z-index: 2;');
   });
 });
+
+describe('Always-visible rate calendar controls', () => {
+  const component = readFileSync('src/components/revenue/RateStrategyGrid.tsx', 'utf8');
+  const actions = component.split('data-rate-calendar-actions="true"')[1]
+    ?.split('data-rate-calendar-filters="true"')[0] ?? '';
+  const filters = component.split('data-rate-calendar-filters="true"')[1]
+    ?.split('{/* Legend')[0] ?? '';
+
+  it('keeps pickup and display controls outside collapsible details', () => {
+    expect(filters).toContain('Pickup period');
+    expect(filters).toContain('Dates with pickup');
+    expect(filters).toContain('48h engine');
+    expect(filters).toContain('Fit all dates');
+    expect(filters).toContain('Make the calendar smaller');
+    expect(filters).toContain('Make the calendar bigger');
+    expect(filters).not.toContain('<details');
+    expect(filters).not.toContain('<summary');
+    expect(filters).toContain('aria-pressed={pickupOnly}');
+    expect(filters).toContain('aria-pressed={isAutomationWindow}');
+  });
+
+  it('exposes pricing actions without removing edit permissions', () => {
+    expect(actions).not.toContain('<details');
+    expect(actions).not.toContain('<summary');
+    expect(actions).toContain('Price activity');
+    expect(actions).toContain('Bulk edit prices');
+    expect(actions).toContain('Select days');
+    expect(actions).toContain('canEditRates && <PickupAutomationRules');
+    expect(actions).toContain('aria-pressed={multiMode}');
+    expect(component).not.toContain('calendarToolsOpen');
+  });
+});
