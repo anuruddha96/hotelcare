@@ -7,7 +7,7 @@
  * `warning` items are shown to the user but the closure can still be sent.
  */
 import {
-  ACCOMMODATION_CLASSES, categoryProblem, COUNTRY_CODES, postalCodeProblem, primaryChargeLimit, primarySpendingLimit,
+  ACCOMMODATION_CLASSES, isClosureCorrectionReason, categoryProblem, COUNTRY_CODES, postalCodeProblem, primaryChargeLimit, primarySpendingLimit,
   type AccommodationClass, type ChargeSlot, type MarketSegment, type Region, type SalesChannel, type Sex, type VatRate,
 } from './codes.ts';
 import { effectiveIfaStatus, isVerifiedIfaStatus, ifaPerGuest, type IfaSetting } from './ifa.ts';
@@ -188,7 +188,7 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
       const postal = postalCodeProblem(residence, g.postalCode);
       if (postal) warn('postal', `${gref}: ${postal} (IrszHiba)`, st.reservationId);
       const ifaStatus = effectiveIfaStatus(g.birthDate, src.day, g.ifaStatus);
-      if (!isVerifiedIfaStatus(ifaStatus)) err('ifa_unverified', `${gref}: unverified tourism tax exemption ${ifaStatus}; v9 annex verification required`, st.reservationId);
+      if (!isVerifiedIfaStatus(ifaStatus)) err('ifa_unverified', `${gref}: unsupported tourism tax status ${ifaStatus}; municipality-specific statuses are not supported`, st.reservationId);
       statuses.push(ifaStatus);
       guests.push({
         vendegId: g.vendegId, birthYear, sex: g.sex ?? 'EGYEB_VAGY_NEM_ISMERT', nationality, residenceCountry: residence,
@@ -283,7 +283,10 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
 
   if (src.classification === 'MODOSITO') {
     if (!String(src.protocolId ?? '').trim() || String(src.protocolId).length > 25) err('correction', 'A correction needs a record ID (max 25 characters)');
-    if (!String(src.reason ?? '').trim() || String(src.reason).length > 100) err('correction', 'A correction needs a reason (max 100 characters)');
+    if (!isClosureCorrectionReason(src.reason)) err('correction', 'A correction needs a reason from the eight NTAK correction codes');
+  } else {
+    if (src.protocolId != null && src.protocolId !== '') err('correction', 'A new closure must have an empty record ID');
+    if (src.reason != null && src.reason !== '') err('correction', 'A new closure must not include a correction reason');
   }
   totals.charges = round2(totals.charges);
   totals.payments = round2(totals.payments);

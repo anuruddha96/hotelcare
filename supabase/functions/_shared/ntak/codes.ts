@@ -30,17 +30,38 @@ export type VatRate = typeof VAT_RATES[number];
 export const IFA_TYPES = ['SZAZALEKOS', 'TETELES', 'NINCS'] as const;
 export type IfaType = typeof IFA_TYPES[number];
 
-// TODO(Phase 7): obtain official v9 annex before adding exemptions. im1 is the existing under-18 code.
-export const IFA_EXEMPTIONS: {code: string; hu: string; en: string}[] = [
-  { code: 'im1', hu: '18 év alatti', en: 'Under 18' },
-];
-
-// Confirmed by the official validation worksheet v1.07, NZ_04B and EU_02B.
-// TODO: complete the reason list from the v9.07 annex; do not guess codes.
-export const CLOSURE_CORRECTION_REASONS = [
-  { code: 'VENDEG_VAGY_IFA_JAVITAS', hu: 'Vendég vagy IFA javítása', en: 'Guest or tourist tax correction' },
-  { code: 'TECH_HIBA_ADATJAVITAS', hu: 'Technikai hiba miatti adatjavítás', en: 'Technical data correction' },
+/** NTAK PMS Interface v9.07 ENG §§9.2.17, 10.2.26 (owner-verified);
+ * Hungarian labels from official v9.09 HUN §9.2.17, pp. 83–84.
+ * National statutory categories only; municipality-defined codes are out of scope.
+ */
+export const IFA_PAYABLE = { code: 'KOTELES', hu: 'IFA-t fizet', en: 'Pays tourist tax' } as const;
+export const IFA_EXEMPTIONS = [
+  { code: 'im1', hu: '18. életévét be nem töltött magánszemély.', en: 'Under 18' },
+  { code: 'im2', hu: 'Gyógyintézetben fekvőbeteg szakellátásban részesülő vagy szociális intézményben ellátott magánszemély.', en: 'Inpatient or social institution care' },
+  { code: 'im3', hu: 'Közép- és felsőfokú oktatási intézménynél tanulói vagy hallgatói jogviszony alapján, vagy szakképzés keretében az önkormányzat illetékességi területén tartózkodó magánszemély.', en: 'Pupil, student or vocational trainee staying in the municipality' },
+  { code: 'im4', hu: 'Közszolgálati kötelezettség teljesítése céljából az önkormányzat illetékességi területén tartózkodó magánszemély.', en: 'Public service obligation in the municipality' },
+  { code: 'im5', hu: 'Hatóság vagy bíróság intézkedése folytán az önkormányzat illetékességi területén tartózkodó magánszemély.', en: 'Authority or court measure in the municipality' },
+  { code: 'im6', hu: 'A településen székhellyel, vagy telephellyel rendelkező vállalkozó esetén vállalkozási tevékenység folytatása céljából vagy ezen vállalkozó munkavállalója által folytatott munkavégzés céljából az önkormányzat illetékességi területén tartózkodó magánszemély.', en: 'Business activity or employment for a local entrepreneur' },
+  { code: 'im8', hu: 'Az önkormányzat illetékességi területén lévő üdülő tulajdonosa vagy bérlője, továbbá a használati jogosultság időtartamára a lakásszövetkezet tulajdonában álló üdülő használati jogával rendelkező lakásszövetkezeti tag, illetőleg a tulajdonos, a bérlő hozzátartozója, valamint a lakásszövetkezet tulajdonában álló üdülő használati jogával rendelkező lakásszövetkezeti tag használati jogosultságának időtartamára annak a Polgári Törvénykönyv szerinti hozzátartozója.', en: 'Holiday-home owner, tenant, eligible cooperative member or qualifying relative' },
+  { code: 'im9', hu: 'Az egyházi jogi személy tulajdonában lévő építményben, telken vendégéjszakát – kizárólag az egyházi jogi személy hitéleti tevékenységéhez kapcsolódó részvétel céljából – eltöltő egyházi személy.', en: 'Clergy staying on church property exclusively for religious activity' },
+  { code: 'im10', hu: 'A településen lakóhellyel, tartózkodási hellyel rendelkező magánszemély.', en: 'Resident of the settlement' },
 ] as const;
+export const IFA_STATUSES = [IFA_PAYABLE, ...IFA_EXEMPTIONS] as const;
+
+/** NTAK v9 §10.2 napiZarasBesorolas, v9.09 HUN §10.2.1.2.3, p. 116. */
+export const CLOSURE_CORRECTION_REASONS = [
+  { code: 'VENDEG_VAGY_IFA_JAVITAS', hu: 'Vendégadatok vagy IFA tétel javítása', en: 'Guest data or tourist tax correction' },
+  { code: 'SZOBA_VAGY_FEROHELY_MOD', hu: 'Téves szoba- vagy férőhelykapacitás módosítása', en: 'Correction of room or bed capacity' },
+  { code: 'TERHELES_VAGY_KOLTES_JAV', hu: 'Terhelési vagy költési tételek javítása', en: 'Correction of charge or spending items' },
+  { code: 'SZAMLAMODOSITAS', hu: 'Számlamódosítás', en: 'Invoice modification' },
+  { code: 'TECH_HIBA_ADATJAVITAS', hu: 'Technikai hiba miatti hibás adatok korrigálása', en: 'Correction of incorrect data due to technical error' },
+  { code: 'ELLENORZES_ELTERES_JAV', hu: 'Ellenőrzéskor feltárt adateltérés javítása', en: 'Correction of discrepancy identified during inspection' },
+  { code: 'ELOZO_BEKULDES_NEM_TELJES', hu: 'Előző beküldés nem volt teljes', en: 'Previous submission was incomplete' },
+  { code: 'EGYEB', hu: 'Egyéb ok', en: 'Other reason' },
+] as const;
+export function isClosureCorrectionReason(value: unknown): boolean {
+  return CLOSURE_CORRECTION_REASONS.some(r => r.code === value);
+}
 
 /** Message processing states returned by the verification endpoint (7.6). */
 export const NTAK_STATUSES = ['BEFOGADVA', 'TELJESEN_SIKERES', 'VIZSGALANDO', 'TELJESEN_HIBAS', 'UJRA_KULDENDO'] as const;

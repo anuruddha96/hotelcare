@@ -188,7 +188,7 @@ function counts(names: string[], c: NtakRoomCounts): string {
 
 export function buildNapiZarasRequest(c: NtakCommon, z: NtakDailyClosure): string {
   const besorolas = txt('besorolas', z.classification)
-    + (z.classification === 'MODOSITO' ? opt('jegyzokonyvAzonosito', z.protocolId) + opt('indoklas', z.reason) : '');
+    + (z.classification === 'MODOSITO' ? opt('jegyzokonyvAzonosito', z.protocolId) + opt('indoklas', z.reason) : txt('jegyzokonyvAzonosito', ''));
   const nights = z.nights.map((n) => el('lakoegysegEjszaka',
     (n.sold ? soldUnitXml(n.sold) : '')
     + el('vendegek', n.guests.map((g) => guestXml('vendeg', g)).join(''))

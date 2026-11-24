@@ -11,7 +11,7 @@
  * One IFA charge item is produced per taxable guest (outside the package);
  * the room total is rounded to whole forints and split without losing a forint.
  */
-import type { IfaType } from './codes.ts';
+import { IFA_STATUSES, type IfaType } from './codes.ts';
 
 export interface IfaSetting { type: IfaType; rate: number }
 
@@ -46,5 +46,5 @@ export function ifaPerGuest(setting: IfaSetting | null | undefined, accommodatio
   return Array.from({ length: taxable }, (_, i) => base + (i < rest ? 1 : 0));
 }
 
-/** Existing under-18 code only; additional exemptions require the official v9 annex. */
-export function isVerifiedIfaStatus(status: string): boolean { return status === 'KOTELES' || status === 'im1'; }
+/** National statuses from NTAK v9 §§9.2.17, 10.2.26; exact case-sensitive match. */
+export function isVerifiedIfaStatus(status: string): boolean { return IFA_STATUSES.some(entry => entry.code === status); }
