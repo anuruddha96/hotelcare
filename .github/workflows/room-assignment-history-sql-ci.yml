@@ -1,0 +1,41 @@
+name: Room assignment history SQL CI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261124145500_room_assignment_history.sql'
+      - 'supabase/tests/room_assignment_history_*.sql'
+      - 'supabase/tests/housekeeping_tenant_guard_fixture.sql'
+      - '.github/workflows/room-assignment-history-sql-ci.yml'
+permissions:
+  contents: read
+jobs:
+  audit-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: assignment_audit_ci
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: assignment_audit_ci
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Exercise assignment audit and access restrictions
+        run: |
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/housekeeping_tenant_guard_fixture.sql \
+            -f supabase/tests/room_assignment_history_fixture.sql \
+            -f supabase/migrations/20261124145500_room_assignment_history.sql \
+            -f supabase/tests/room_assignment_history_integration.sql
