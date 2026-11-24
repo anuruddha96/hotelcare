@@ -61,22 +61,22 @@ export function occupancyTone2(pct: number | null | undefined, t: RevenueThresho
     return { severity: "critical", className: "bg-destructive/10 text-destructive dark:bg-destructive/[0.07] dark:text-red-300", label: "soft demand" };
   }
   if (pct >= t.occupancyHighPct) {
-    return { severity: "ok", className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-400/10 dark:text-foreground", label: "nearly full" };
+    return { severity: "ok", className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-400/25 dark:text-foreground", label: "nearly full" };
   }
-  return { severity: "warn", className: "bg-amber-50 text-amber-900 dark:bg-amber-400/[0.06] dark:text-foreground", label: "building" };
+  return { severity: "warn", className: "bg-amber-50 text-amber-900 dark:bg-amber-400/20 dark:text-foreground", label: "building" };
 }
 
 /** Colour net pickup: negative = losing rooms, strong = demand spike. */
 export function pickupTone(pickup: number | null | undefined, t: RevenueThresholds): Tone {
   if (pickup === null || pickup === undefined) return NONE;
   if (pickup < 0) {
-    return { severity: "critical", className: "bg-sky-200 text-sky-900 dark:bg-sky-400/10 dark:text-foreground", label: "net cancellations" };
+    return { severity: "critical", className: "bg-sky-200 text-sky-900 dark:bg-sky-400/25 dark:text-foreground", label: "net cancellations" };
   }
   if (pickup === 0) return { severity: "none", className: "text-muted-foreground", label: "no movement" };
   if (pickup >= t.pickupStrongThreshold) {
-    return { severity: "ok", className: "bg-emerald-500 text-white dark:bg-emerald-400/20 dark:text-foreground", label: "strong pickup" };
+    return { severity: "ok", className: "bg-emerald-500 text-white dark:bg-emerald-700 dark:text-white", label: "strong pickup" };
   }
-  return { severity: "warn", className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-400/10 dark:text-foreground", label: "light pickup" };
+  return { severity: "warn", className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-400/25 dark:text-foreground", label: "light pickup" };
 }
 
 /** Room-type name in the user's language, falling back to the PMS name. */
