@@ -156,10 +156,10 @@ function monthBands(dates: string[]) {
 /** Colour coding for the internal demand grade. */
 function demandTone(band: DemandBand): string {
   switch (band) {
-    case "very_strong": return "bg-red-500 text-white";
-    case "strong": return "bg-orange-300 text-orange-950 dark:bg-orange-700 dark:text-orange-50";
-    case "normal": return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
-    case "soft": return "bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100";
+    case "very_strong": return "bg-red-500 text-white dark:bg-red-400/[0.13] dark:text-red-200";
+    case "strong": return "bg-orange-300 text-orange-950 dark:bg-orange-400/[0.12] dark:text-orange-100";
+    case "normal": return "bg-amber-100 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200";
+    case "soft": return "bg-sky-100 text-sky-900 dark:bg-sky-400/[0.08] dark:text-foreground";
     default: return "bg-muted text-muted-foreground";
   }
 }
@@ -176,9 +176,9 @@ const DEMAND_SHORT: Record<DemandBand, string> = {
 /** How much inventory is left, colour-graded from plenty to sold out. */
 function leftTone(left: number, units: number): string {
   if (units <= 0) return "text-muted-foreground";
-  if (left <= 0) return "bg-destructive/20 text-destructive font-semibold";
+  if (left <= 0) return "bg-destructive/20 text-destructive font-semibold dark:bg-red-400/[0.07] dark:text-red-300";
   const pct = left / units;
-  if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100";
+  if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200";
   return "text-muted-foreground";
 }
 
@@ -222,8 +222,7 @@ function isWeekendTrading(d: string): boolean {
 
 function weekendLabelTone(d: string): string {
   const tone = weekendTradingTone(d);
-  if (tone === "friday") return "font-bold text-blue-900 dark:text-blue-200";
-  if (tone === "saturday") return "font-bold text-violet-900 dark:text-violet-200";
+  if (tone === "friday" || tone === "saturday") return "font-bold text-sky-950 dark:text-foreground";
   if (tone === "sunday") return "font-semibold text-foreground/80";
   return "text-muted-foreground";
 }
@@ -243,9 +242,8 @@ function dateColumnEdge(d: string, today: string): string {
  *  related but lighter so the three days no longer read as one flat block. */
 function dayBg(d: string, i: number): string {
   const weekendTone = weekendTradingTone(d);
-  if (weekendTone === "friday") return "bg-blue-200/80 dark:bg-blue-900/60";
-  if (weekendTone === "saturday") return "bg-violet-200/80 dark:bg-violet-900/60";
-  if (weekendTone === "sunday") return "bg-indigo-100/60 dark:bg-indigo-950/45";
+  if (weekendTone === "friday" || weekendTone === "saturday") return "bg-sky-200/85 dark:bg-[hsl(211_46%_24%)]";
+  if (weekendTone === "sunday") return "bg-sky-100/65 dark:bg-[hsl(211_24%_20%)]";
   return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
 }
 
@@ -3741,7 +3739,7 @@ export default function RateStrategyGrid({
                       >
                         <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
                         {lost > 0 && (
-                          <span className="font-medium text-destructive" style={{ fontSize: fz(8) }}>-{lost} lost</span>
+                          <span className="font-medium text-destructive dark:text-red-300" style={{ fontSize: fz(8) }}>-{lost} lost</span>
                         )}
                         {lost === 0 && latestLabel && pickup !== 0 && (
                           <span className="max-w-[56px] truncate font-normal opacity-80" style={{ fontSize: fz(8) }}>{latestLabel}</span>
@@ -4025,9 +4023,9 @@ export default function RateStrategyGrid({
                   .map((band) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-card/90 dark:border-red-400/45 dark:text-red-200"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-card/90 dark:border-amber-400/40 dark:text-amber-200"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const spanColumns = revenueEventBandColumnSpan(band);
                   const wide = spanColumns >= 2;
@@ -4084,9 +4082,9 @@ export default function RateStrategyGrid({
                 {showEventBand && singleDayEventLayouts.map(({ band, dateIndex, topLane, heightLanes }) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:text-red-300"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-card/90 dark:border-red-400/45 dark:text-red-200"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-card/90 dark:border-amber-400/40 dark:text-amber-200"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const expanded = heightLanes >= 1.45;
                   const roomy = heightLanes >= 2.25;
@@ -4273,7 +4271,7 @@ export default function RateStrategyGrid({
                             <>
                               <span>{hu ? "Elfogyott" : "Sold out"}</span>
                               {closedAt != null && (
-                                <span className="font-semibold opacity-80 inline-flex max-w-full min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap" style={{ fontSize: fz(9) }}>
+                                <span className="font-semibold opacity-80 dark:opacity-100 dark:text-foreground inline-flex max-w-full min-w-0 items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap" style={{ fontSize: fz(9) }}>
                         {priceLabel(closedAt)}
                         {soldOcc != null && (
                           <>
@@ -4461,7 +4459,7 @@ export default function RateStrategyGrid({
                            place the cell's story is told, so the browser
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80 dark:opacity-100" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                          style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
 
                       >
@@ -4773,7 +4771,7 @@ export default function RateStrategyGrid({
               ) : (
                 <>
                   {existingSharedWatches.has(`${upgradePrompt.obkId}|${upgradePrompt.date}`) && (
-                    <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-slate-800">
+                    <p className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-slate-800 dark:border-sky-500/30 dark:bg-sky-400/10 dark:text-foreground">
                       These room types are already linked. Verify and restore availability
                       in Previo without creating a second rule.
                     </p>
@@ -4912,7 +4910,7 @@ export default function RateStrategyGrid({
             {/* One-tap presets — the same steps as the day editor. */}
             <div className="space-y-2">
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">{hu ? "Emelés" : "Increase"}</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-300">{hu ? "Emelés" : "Increase"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -4928,7 +4926,7 @@ export default function RateStrategyGrid({
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">{hu ? "Csökkentés" : "Decrease"}</div>
+                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600 dark:text-rose-300">{hu ? "Csökkentés" : "Decrease"}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
                     <Button
@@ -5656,8 +5654,8 @@ export default function RateStrategyGrid({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-medium">{e.title}</span>
                             <Badge variant="secondary" className={
-                              e.impact === "high" ? "bg-red-100 text-red-700"
-                                : e.impact === "medium" ? "bg-amber-100 text-amber-700"
+                              e.impact === "high" ? "bg-red-100 text-red-700 dark:bg-red-400/10 dark:text-red-200"
+                                : e.impact === "medium" ? "bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200"
                                 : "bg-muted text-muted-foreground"
                             }>
                               {e.impact} impact
