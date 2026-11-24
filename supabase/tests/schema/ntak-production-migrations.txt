@@ -1,0 +1,4 @@
+# Pending migrations, in order, on top of ntak-production-baseline.sql (snapshot 2026-11-24 05:40 Europe/Budapest).
+# Maintained by Claude from the deployed inventory. Add each new reviewed migration below.
+# Phase 8 is held in production until its NULL-organisation guard fix exists; the fix must follow it here.
+20261123235900_ntak_phase8_catalogue_categories.sql
