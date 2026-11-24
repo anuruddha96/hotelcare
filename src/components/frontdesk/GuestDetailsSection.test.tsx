@@ -205,7 +205,11 @@ describe('check-in autosave', () => {
   it('never replaces an established identity even after name-change confirmation', async () => {
     const { query } = autoQuery();
     render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" protectIdentity autoSave />);
-    await screen.findByPlaceholderText('HU / DE / USA…');
+    const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+    // Verified fields may be hidden by compact review; wait for the scan action instead.
+    await screen.findByRole('button', { name: 'pms.scan.retry' });
     const read = readResult('OTHER123');
     read.fields.firstName = 'Other';
     read.fields.lastName = 'Person';
