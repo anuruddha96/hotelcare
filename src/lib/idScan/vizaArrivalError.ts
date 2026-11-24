@@ -18,3 +18,13 @@ export function formatVizaArrivalError(message: string, t: (key:string)=>string)
   return title + ' — ' + rows.map(row => row.guest + ': ' + row.fields.map(field => t(LABELS[field] || field)).join(', ')).join('; ');
  } catch { return title; }
 }
+
+export function firstVizaArrivalFailure(message:string): {guestId:string;field:string}|null {
+  const prefix='VIZA_GUEST_DATA_INCOMPLETE: ';
+  if(!message.includes(prefix)) return null;
+  try {
+    const rows=JSON.parse(message.slice(message.indexOf(prefix)+prefix.length)) as {guest_id?:string;fields?:string[]}[];
+    const first=rows.find(r=>r.guest_id && r.fields?.length);
+    return first?.guest_id && first.fields?.[0] ? {guestId:first.guest_id,field:first.fields[0]} : null;
+  } catch { return null; }
+}

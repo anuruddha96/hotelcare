@@ -90,7 +90,8 @@ export function useStayGuestRoster(
   return { enabled,perGuestLifecycle,loading,guests,selectedIds,setSelectedIds,refresh,eligible,incompleteSelected,updateSavedGuest };
 }
 
-export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug, occurredAt, onChanged, vizaRequired = false, expectedGuests, bookingGuestId, savePending = false, onSavePendingChange }: {
+export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug, occurredAt, onChanged, vizaRequired = false, expectedGuests, bookingGuestId, savePending = false, onSavePendingChange, focusProblem }: {
+  focusProblem?: {guestId:string;field:string;attempt:number}|null;
   control: GuestRosterControl;
   vizaRequired?: boolean;
   expectedGuests?: number;
@@ -109,6 +110,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
   const [guestIdToAdd, setGuestIdToAdd] = useState('');
   const [busy, setBusy] = useState(false);
   const [detailsId, setDetailsId] = useState<string | null>(null);
+  useEffect(()=>{if(focusProblem)setDetailsId(focusProblem.guestId);},[focusProblem]);
   const [autoScanId, setAutoScanId] = useState<string | null>(null);
   const [scanNewOpen, setScanNewOpen] = useState(false);
   const [draft, setDraft] = useState<GuestRegistrationDraft | null>(null);
@@ -239,7 +241,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
               )}
             </div>
           </div>
-          {detailsId===g.guest_id && <GuestDetailsSection key={g.guest_id + (autoScanId===g.guest_id ? '-scan' : '')} occurredAt={occurredAt} vizaReservationId={vizaRequired ? reservationId : undefined} guestId={g.guest_id}
+          {detailsId===g.guest_id && <GuestDetailsSection key={g.guest_id + (autoScanId===g.guest_id ? '-scan' : '')} occurredAt={occurredAt} vizaReservationId={vizaRequired ? reservationId : undefined} guestId={g.guest_id} focusProblem={focusProblem?.guestId===g.guest_id ? focusProblem : undefined}
             protectIdentity={express} autoScan={autoScanId===g.guest_id} autoSave={mode==='arrive' && !!onSavePendingChange} onSavePendingChange={onSavePendingChange} onSaved={mode==='arrive' && onSavePendingChange ? control.updateSavedGuest : nextAfterSave} />}
         </div>;
       })}

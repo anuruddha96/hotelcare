@@ -60,6 +60,7 @@ export interface GuestRegistrationDraft {
 export type GuestRegistrationResult = { status: 'match' | 'registered'; guest_id: string };
 
 interface GuestDetailsSectionProps {
+  focusProblem?: {field:string;attempt:number}|null;
   draft?: GuestRegistrationDraft;
   onRegister?: (payload: Record<string, unknown>, confirmedMatch: string | null) => Promise<GuestRegistrationResult>;
   protectIdentity?: boolean;
@@ -74,11 +75,12 @@ interface GuestDetailsSectionProps {
   onSaved?: (guest: GuestVizaRow) => void;
 }
 
-export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft, autoSave = false, onSavePendingChange }: GuestDetailsSectionProps) {
+export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft, autoSave = false, onSavePendingChange, focusProblem }: GuestDetailsSectionProps) {
   const { t } = useTranslation();
   const [guest, setGuest] = useState<GuestVizaRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const sectionRef=useRef<HTMLElement|null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -339,12 +341,18 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autosaving, guest, dirty, saving, saveFailed, scanOpen, scan, scanChanged, vizaReservationId, hasReviewColumns]);
 
+  useEffect(()=>{if(focusProblem){setExpanded(true);setShowAllFields(true);}},[focusProblem]);
+  useEffect(()=>{
+    if(!focusProblem || !expanded || loading || !guest)return;
+    const timer=window.setTimeout(()=>{const target=sectionRef.current?.querySelector<HTMLElement>('[data-viza-field="'+focusProblem.field+'"]');(target??sectionRef.current)?.scrollIntoView?.({block:'center'});target?.focus();},50);
+    return ()=>window.clearTimeout(timer);
+  },[focusProblem,expanded,loading,guest]);
   if (!guestId && !draft) return null;
   const requirements = vizaReservationId ? vizaFieldRequirements(guest ? {...guest,document_scan:scan} : null,vizaReservationId,vizaArrivalDay(occurredAt)) : null;
   const missing = requirements ? Object.keys(requirements).filter(key=>!requirements[key].ok) : vizaMissingFields(guest);
   const toConfirm = missing.filter(key=>requirements?.[key].state==='printed_only' && !guest?.[key as keyof GuestVizaRow]).length;
   const counter = t('pms.guest.requirement.counter').replace('{n}',String(missing.length-toConfirm)).replace('{m}',String(toConfirm));
-  const fieldTag = (key: string) => requirements?.[key] ? <><span className={`block text-[11px] font-medium ${requirements[key].ok?'text-muted-foreground':'text-destructive'}`}>{t('pms.guest.requirement.'+({required:'required',printed_only:'printedOnly',optional:'optional',not_needed:'notNeeded'}[requirements[key].state]))}</span>{requirements[key].messageKey==='pms.guest.requirement.placeholder' && <span role="alert" className="text-xs text-destructive">{t(requirements[key].messageKey)}</span>}</> : null;
+  const fieldTag = (key: string) => requirements?.[key] ? <><span className={`block text-[11px] font-medium ${requirements[key].ok?'text-muted-foreground':'text-destructive'}`}>{t('pms.guest.requirement.'+({required:'required',printed_only:'printedOnly',optional:'optional',not_needed:'notNeeded'}[requirements[key].state]))}</span>{focusProblem?.field===key && !requirements[key].ok && <span role="alert" className="text-xs text-destructive">{t('pms.guest.vizaArrivalBlocked')}</span>}{requirements[key].messageKey==='pms.guest.requirement.placeholder' && <span role="alert" className="text-xs text-destructive">{t(requirements[key].messageKey)}</span>}</> : null;
   const problems = vizaReservationId ? [] : vizaProblems(guest);
   const open = missing.length + problems.length;
   const needsDocument = documentRequired(guest?.date_of_birth, vizaArrivalDay(occurredAt));
@@ -390,7 +398,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   };
 
   return (
-    <section className="min-w-0 rounded-xl border border-border/80 bg-card text-card-foreground" data-training="fd-guest-viza">
+    <section ref={sectionRef} className="min-w-0 rounded-xl border border-border/80 bg-card text-card-foreground" data-training="fd-guest-viza">
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}
         className="grid w-full min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 px-3 py-3 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <IdCard className="h-4 w-4 text-primary shrink-0" />
@@ -454,7 +462,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               {problems.map((problem) => <li key={problem} className="flex items-start gap-1.5"><TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" /> {problemText[problem]}</li>)}
             </ul>
           )}
-          <div className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-4 [&>div]:min-w-0 [&>div:not([hidden])]:flex [&>div:not([hidden])]:flex-col [&>div:not([hidden])]:gap-1.5 [&>div>label]:leading-snug [&>div>label:first-child]:min-h-[2rem] [&_input]:min-w-0 [&_input]:max-w-full [&_input]:w-full [&_input]:box-border [&_button]:min-w-0 data-[viza-attempted=true]:[&_[aria-invalid=true]]:border-destructive" data-viza-attempted={!!savedAt || saveFailed}>
+          <div className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-4 [&>div]:min-w-0 [&>div:not([hidden])]:flex [&>div:not([hidden])]:flex-col [&>div:not([hidden])]:gap-1.5 [&>div>label]:leading-snug [&>div>label:first-child]:min-h-[2rem] [&_input]:min-w-0 [&_input]:max-w-full [&_input]:w-full [&_input]:box-border [&_button]:min-w-0 data-[viza-attempted=true]:[&_[aria-invalid=true]]:border-destructive" data-viza-attempted={!!savedAt || saveFailed || !!focusProblem}>
+            {requirements && <h4 className="col-span-2 text-sm font-semibold">{t('pms.guest.requirement.readGroup')}</h4>}
             <div hidden={hideExtracted('last_name')}>
               <Label className="text-xs">{t('pms.guest.familyName')}</Label>{fieldTag('last_name')}
               <Input data-viza-field="last_name" aria-invalid={!!requirements && !requirements['last_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.last_name ?? ''} onChange={(e) => setName('last_name', e.target.value)} />
@@ -465,35 +474,6 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               <Input data-viza-field="first_name" aria-invalid={!!requirements && !requirements['first_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.first_name ?? ''} onChange={(e) => setName('first_name', e.target.value)} />
               {mark('first_name')}
             </div>
-            {vizaReservationId && guest.id_document_type === 'passport' && review.scan_reviewed && (skipBirthName || skipMotherName) && <div className="col-span-2 rounded-md border border-border bg-muted/30 p-3 space-y-2">
-              <p className="text-xs text-muted-foreground">{t('pms.guest.confirmAbsentHint')}</p>
-              <Button type="button" variant="outline" size="sm" className="h-auto min-h-10 w-full whitespace-normal" onClick={() => setReview({ ...(skipBirthName ? { birth_name_absent: true } : {}), ...(skipMotherName ? { mother_name_absent: true } : {}) })}>{t('pms.guest.confirmAbsentNames')}</Button>
-            </div>}
-            {hasExtraColumns && (
-              <>
-                <div>
-                  <Label className="text-xs">{t('pms.guest.birthFamilyName')}</Label>{fieldTag('birth_last_name')}
-                  <Input data-viza-field="birth_last_name" aria-invalid={!!requirements && !requirements['birth_last_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_last_name ?? ''} onChange={(e) => set('birth_last_name', e.target.value)} />
-                  {mark('birth_last_name')}
-                </div>
-                <div>
-                  <Label className="text-xs">{t('pms.guest.birthGivenName')}</Label>{fieldTag('birth_first_name')}
-                  <Input data-viza-field="birth_first_name" aria-invalid={!!requirements && !requirements['birth_first_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_first_name ?? ''} onChange={(e) => set('birth_first_name', e.target.value)} />
-                  {mark('birth_first_name')}
-                </div>
-                {absent('birth_name_absent')}
-              </>
-            )}
-            {vizaReservationId ? <>
-              {guest.mother_name && !guest.mother_family_name && !guest.mother_given_name && <p className="col-span-2 text-xs text-muted-foreground">{t('pms.guest.motherName')}: {guest.mother_name}</p>}
-              <div><Label className="text-xs">{t('pms.guest.motherFamily')}</Label>{fieldTag('mother_family_name')}<Input data-viza-field="mother_family_name" aria-invalid={!!requirements && !requirements['mother_family_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_family_name ?? ''} onChange={e => set('mother_family_name', e.target.value)} /></div>
-              <div><Label className="text-xs">{t('pms.guest.motherGiven')}</Label>{fieldTag('mother_given_name')}<Input data-viza-field="mother_given_name" aria-invalid={!!requirements && !requirements['mother_given_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_given_name ?? ''} onChange={e => set('mother_given_name', e.target.value)} /></div>
-              {absent('mother_name_absent')}
-            </> : <div className="col-span-2">
-              <Label className="text-xs">{t('pms.guest.motherName')}</Label>
-              <Input className="h-11 bg-background/70 text-foreground" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
-                  {mark('mother_name')}
-            </div>}
             <div hidden={hideExtracted('nationality')}>
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>{fieldTag('nationality')}
               <Input data-viza-field="nationality" aria-invalid={!!requirements && !requirements['nationality']?.ok} className="h-11 bg-background/70 uppercase text-foreground" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="HU / DE / USA…" />
@@ -504,14 +484,6 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               <Label className="text-xs">{t('pms.guest.birthDate')}</Label>{fieldTag('date_of_birth')}
               <Input data-viza-field="date_of_birth" aria-invalid={!!requirements && !requirements['date_of_birth']?.ok} className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-10" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} value={guest.date_of_birth ?? ''} onChange={(e) => set('date_of_birth', e.target.value)} />
               {mark('date_of_birth')}
-            </div>
-            <div>
-              <Label className="text-xs">{t('pms.guest.birthPlace')}</Label>{fieldTag('birth_place')}
-              <Input data-viza-field="birth_place" aria-invalid={!!requirements && !requirements['birth_place']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} />
-                  {mark('birth_place')}
-                  {guest.id_document_type==='passport' && requirements && <p className="text-xs text-muted-foreground">{t('pms.guest.requirement.birthHint')}</p>}
-                  {absent('birth_place_absent')}
-                  {guest.id_document_type==='passport' && review.birth_place_absent && <p className="text-xs text-amber-700 dark:text-amber-300">{t('pms.guest.requirement.birthWarning')}</p>}
             </div>
             <div hidden={hideExtracted('gender')}>
               <Label className="text-xs">{t('pms.guest.gender')}</Label>{fieldTag('gender')}
@@ -542,6 +514,44 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               <Label className="text-xs">{t('pms.guest.docNumber')}</Label>{fieldTag('id_document_number')}
               <Input data-viza-field="id_document_number" aria-invalid={!!requirements && !requirements['id_document_number']?.ok} className="h-11 bg-background/70 text-foreground" maxLength={100} value={guest.id_document_number ?? ''} onChange={(e) => set('id_document_number', e.target.value)} />
               {mark('id_document_number')}
+            </div>
+            {requirements && <h4 className="col-span-2 border-t pt-3 text-sm font-semibold">{t('pms.guest.requirement.printedGroup')}</h4>}
+            {vizaReservationId && guest.id_document_type === 'passport' && review.scan_reviewed && (skipBirthName || skipMotherName) && <div className="col-span-2 rounded-md border border-border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">{t('pms.guest.confirmAbsentHint')}</p>
+              <Button type="button" variant="outline" size="sm" className="h-auto min-h-10 w-full whitespace-normal" onClick={() => setReview({ ...(skipBirthName ? { birth_name_absent: true } : {}), ...(skipMotherName ? { mother_name_absent: true } : {}) })}>{t('pms.guest.confirmAbsentNames')}</Button>
+            </div>}
+            {hasExtraColumns && (
+              <>
+                <div>
+                  <Label className="text-xs">{t('pms.guest.birthFamilyName')}</Label>{fieldTag('birth_last_name')}
+                  <Input data-viza-field="birth_last_name" aria-invalid={!!requirements && !requirements['birth_last_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_last_name ?? ''} onChange={(e) => set('birth_last_name', e.target.value)} />
+                  {mark('birth_last_name')}
+                </div>
+                <div>
+                  <Label className="text-xs">{t('pms.guest.birthGivenName')}</Label>{fieldTag('birth_first_name')}
+                  <Input data-viza-field="birth_first_name" aria-invalid={!!requirements && !requirements['birth_first_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_first_name ?? ''} onChange={(e) => set('birth_first_name', e.target.value)} />
+                  {mark('birth_first_name')}
+                </div>
+                {absent('birth_name_absent')}
+              </>
+            )}
+            {vizaReservationId ? <>
+              {guest.mother_name && !guest.mother_family_name && !guest.mother_given_name && <p className="col-span-2 text-xs text-muted-foreground">{t('pms.guest.motherName')}: {guest.mother_name}</p>}
+              <div><Label className="text-xs">{t('pms.guest.motherFamily')}</Label>{fieldTag('mother_family_name')}<Input data-viza-field="mother_family_name" aria-invalid={!!requirements && !requirements['mother_family_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_family_name ?? ''} onChange={e => set('mother_family_name', e.target.value)} /></div>
+              <div><Label className="text-xs">{t('pms.guest.motherGiven')}</Label>{fieldTag('mother_given_name')}<Input data-viza-field="mother_given_name" aria-invalid={!!requirements && !requirements['mother_given_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.mother_given_name ?? ''} onChange={e => set('mother_given_name', e.target.value)} /></div>
+              {absent('mother_name_absent')}
+            </> : <div className="col-span-2">
+              <Label className="text-xs">{t('pms.guest.motherName')}</Label>
+              <Input className="h-11 bg-background/70 text-foreground" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
+                  {mark('mother_name')}
+            </div>}
+            <div>
+              <Label className="text-xs">{t('pms.guest.birthPlace')}</Label>{fieldTag('birth_place')}
+              <Input data-viza-field="birth_place" aria-invalid={!!requirements && !requirements['birth_place']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} />
+                  {mark('birth_place')}
+                  {guest.id_document_type==='passport' && requirements && <p className="text-xs text-muted-foreground">{t('pms.guest.requirement.birthHint')}</p>}
+                  {absent('birth_place_absent')}
+                  {guest.id_document_type==='passport' && review.birth_place_absent && <p className="text-xs text-amber-700 dark:text-amber-300">{t('pms.guest.requirement.birthWarning')}</p>}
             </div>
             {vizaReservationId && !needsDocument && !guest.id_document_number && <label className="col-span-2 flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" className="!w-6 !h-6" data-viza-field="parent_statement" checked={review.parent_statement === true} onChange={e => setReview({ parent_statement: e.target.checked })} />{t('pms.guest.parentStatement')}</label>}
             {vizaReservationId && (needsDocument || guest.id_document_number) && (!review.scan_reviewed || !scan) && <div className="col-span-2"><Label className="text-xs">{t('pms.guest.manualReason')}</Label>{fieldTag('manual_reason')}<Input data-viza-field="manual_reason" value={review.manual_reason ?? ''} onChange={e => setReview({ manual_reason: e.target.value })} /></div>}

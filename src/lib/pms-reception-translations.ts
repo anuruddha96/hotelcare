@@ -540,6 +540,8 @@ const partialRows: Record<string, readonly [string, ...string[]]> = {
   'pms.guest.entryDetailsAbsent': ["Date and place of entry are not relevant for this guest", "A beutazás dátuma és helye ennél a vendégnél nem releváns", "La fecha y el lugar de entrada no son pertinentes para este huésped"],
   'pms.guest.visaExempt': ["Visa-exempt (no visa, no residence permit)", "Vízummentes (nincs vízuma és tartózkodási engedélye sem)", "Exento de visado (sin visado ni permiso de residencia)"],
   'pms.guest.wholeReservation': ["All registered guests check in together", "Minden rögzített vendég együtt jelentkezik be", "Todos los huéspedes registrados se alojan juntos"],
+  'pms.guest.requirement.readGroup': ["Read from the document","Az okmányból kiolvasott adatok","Datos leídos del documento"],
+  'pms.guest.requirement.printedGroup': ["Only if printed on the document","Csak ha szerepel az okmányon","Solo si figura en el documento"],
   'pms.guest.requirement.required': ["Required","Kötelező","Obligatorio"],
   'pms.guest.requirement.printedOnly': ["Only if printed on the document","Csak ha szerepel az okmányon","Solo si figura en el documento"],
   'pms.guest.requirement.optional': ["Optional","Nem kötelező","Opcional"],

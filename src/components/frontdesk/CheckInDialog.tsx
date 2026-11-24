@@ -24,7 +24,7 @@ import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { vizaArrivalDay } from '@/lib/idScan/guestVizaChecks';
-import { formatVizaArrivalError } from '@/lib/idScan/vizaArrivalError';
+import { formatVizaArrivalError, firstVizaArrivalFailure } from '@/lib/idScan/vizaArrivalError';
 
 interface CheckInDialogProps {
   reservation: any;
@@ -54,11 +54,12 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   }, [savePending]);
   const [vizaMissing, setVizaMissing] = useState<string[] | null>(null);
   const [arrivalError, setArrivalError] = useState<string | null>(null);
+  const [focusProblem,setFocusProblem]=useState<{guestId:string;field:string;attempt:number}|null>(null);
   const [vizaRequired, setVizaRequired] = useState(false);
   const [vizaLoading, setVizaLoading] = useState(true);
   const [vizaLoadFailed, setVizaLoadFailed] = useState(false);
   useEffect(() => {
-    let active=true; setVizaRequired(false); setVizaMissing(null); setArrivalError(null);
+    let active=true; setVizaRequired(false); setVizaMissing(null); setArrivalError(null); setFocusProblem(null);
     setVizaLoading(open); setVizaLoadFailed(false);
     if(open) void (supabase.rpc as CallableFunction)('pms_viza_registration_required',{_reservation_id:reservation.id})
       .then(({data,error}: {data:unknown;error:unknown}) => {if(active) { setVizaRequired(data===true); setVizaLoadFailed(!!error); setVizaLoading(false); }})
@@ -144,7 +145,12 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
       const registrationError = formatVizaArrivalError((err as Error).message ?? '', t);
-      if (registrationError) setArrivalError(registrationError);
+      if (registrationError) {
+        setArrivalError(registrationError);
+        const problem=firstVizaArrivalFailure((err as Error).message??'');
+        if(problem)setFocusProblem({...problem,attempt:Date.now()});
+        void roster.refresh();
+      }
       toast.error(registrationError ?? (key ? t(key) : (err as Error).message || t('pms.checkIn.failedCheckIn')));
 
     } finally {
@@ -179,7 +185,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
               onSaved={() => setArrivalError(null)} />
           )}
 
-          {(!vizaRequired || (serverRequirements?.version ?? 0)>=2) && <StayGuestRoster expectedGuests={pax} bookingGuestId={reservation.guest_id} vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
+          {(!vizaRequired || (serverRequirements?.version ?? 0)>=2) && <StayGuestRoster focusProblem={focusProblem} expectedGuests={pax} bookingGuestId={reservation.guest_id} vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
             orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} savePending={savePending} onSavePendingChange={setSavePending} />}
           {(vizaLoadFailed || serverFailed) && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaStatusFailed')}</p>}
           {arrivalError && <p role="alert" className="text-sm text-destructive break-words">{arrivalError}</p>}

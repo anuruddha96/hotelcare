@@ -150,7 +150,7 @@ BEGIN
  result:=public.pms_viza_arrival_requirements_internal(_reservation_id,_guest_ids,_day);
  IF NOT (result->>'occupant_count_ok')::boolean THEN failures:=failures||jsonb_build_array(jsonb_build_object('guest','—','fields',ARRAY['occupant_count'])); END IF;
  FOR guest IN SELECT value FROM jsonb_array_elements(result->'guests') LOOP
-   IF jsonb_array_length(guest->'missing')>0 THEN failures:=failures||jsonb_build_array(jsonb_build_object('guest',guest->>'name','fields',guest->'missing')); END IF;
+   IF jsonb_array_length(guest->'missing')>0 THEN failures:=failures||jsonb_build_array(jsonb_build_object('guest',guest->>'name','guest_id',guest->>'guest_id','fields',guest->'missing')); END IF;
  END LOOP;
  IF jsonb_array_length(failures)>0 THEN RAISE EXCEPTION 'VIZA_GUEST_DATA_INCOMPLETE: %',failures::text; END IF;
 END;
