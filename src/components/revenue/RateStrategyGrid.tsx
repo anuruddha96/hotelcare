@@ -3926,7 +3926,7 @@ export default function RateStrategyGrid({
                 </div>
 
                 {/* Demand grade */}
-                <div className="flex border-b-2 border-b-foreground/20 bg-card" style={{ height: ROW_H }}>
+                <div data-rate-demand-row="true" className="flex border-b-2 border-b-foreground/20 bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
                     {railed ? <span title="Demand grade">Dem</span> : (
                       <>
