@@ -49,7 +49,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
     return ()=>{active=false;};
   },[open,reservation.id]);
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
-  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive', selectedRoom || reservation.room_id, vizaRequired);
+  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive', selectedRoom || reservation.room_id, vizaRequired, businessMoment.occurredAt);
 
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
@@ -87,7 +87,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const vizaWarn = !!reservation.guest_id && (vizaMissing?.length ?? 0) > 0;
   const needsOverride = capacityWarn || notCleanWarn || (vizaWarn && !vizaRequired);
   const rosterCountMismatch = vizaRequired && roster.enabled && roster.guests.filter(g => g.stay_state !== 'void').length !== pax;
-  const vizaBlocked = vizaRequired && (roster.enabled ? roster.incompleteSelected > 0 || rosterCountMismatch : vizaWarn || pax > 1);
+  const vizaBlocked = vizaRequired && (roster.enabled ? roster.incompleteSelected > 0 || rosterCountMismatch : vizaWarn || !reservation.guest_id || pax > 1);
 
   const handleCheckIn = async () => {
     if (!selectedRoom) {
@@ -134,7 +134,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             basePath={organizationSlug ? `/${organizationSlug}` : undefined} />
 
           {!roster.enabled && reservation.guest_id && (
-            <GuestDetailsSection vizaReservationId={vizaRequired ? reservation.id : undefined} guestId={reservation.guest_id} onCompletenessChange={setVizaMissing}
+            <GuestDetailsSection occurredAt={businessMoment.occurredAt} vizaReservationId={vizaRequired ? reservation.id : undefined} guestId={reservation.guest_id} onCompletenessChange={setVizaMissing}
               onSaved={() => setArrivalError(null)} />
           )}
 
