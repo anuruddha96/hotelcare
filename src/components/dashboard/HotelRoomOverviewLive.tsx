@@ -171,19 +171,19 @@ function getSizeLabel(sqm: number | null): string | null {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
-  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
-  inspected: 'bg-teal-200 text-teal-900 border-teal-500 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-600',
-  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
-  overdue: 'bg-rose-300 text-rose-950 border-rose-600 dark:bg-rose-900/60 dark:text-rose-200 dark:border-rose-500',
+  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500',
+  inspected: 'bg-teal-200 text-teal-900 border-teal-500',
+  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500',
+  overdue: 'bg-rose-300 text-rose-950 border-rose-600',
 };
 
 const TASK_STATUS_COLORS: Record<string, string> = {
-  assigned: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
+  assigned: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500',
 };
 
 const DEFAULT_COLOR = 'bg-muted text-muted-foreground border-border';
@@ -240,10 +240,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  // Keep the operational board uncluttered for Memories and SLNT. Other hotels
-  // retain their existing initial legend preference; every badge explanation
-  // remains available via the Show Legend toggle.
-  const [showLegend, setShowLegend] = useState(!isSlntTenant && !isHotelMemoriesBudapest(hotelName));
+  // The status key is visible on initial load at every hotel.
+  const [showLegend, setShowLegend] = useState(true);
   // SLNT portfolio managers can narrow TODAY's room board without changing
   // PMS data, historical snapshots, assignment types or the section totals.
   const [slntRoomSearch, setSlntRoomSearch] = useState('');
@@ -1344,16 +1342,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             ${slntSolo ? 'slnt-solo-chip text-left whitespace-normal break-words' : ''}
             ${compactChips ? 'px-1.5 py-0.5 text-[11px] font-semibold leading-tight min-w-[34px]' : 'px-2 py-1 text-xs font-bold border-2 min-w-[40px]'}
             ${colorClass}
-            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-            ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
-            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1 ring-offset-background' : ''}
+            ${noShow ? 'ring-2 ring-red-600 ring-offset-1 ring-offset-background' : ''}
+            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1 ring-offset-background' : ''}
             ${roomOverdue ? 'animate-pulse' : ''}
-            ${isSelected ? 'ring-2 ring-primary ring-offset-2 shadow-md scale-105' : ''}
+            ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background shadow-md scale-105' : ''}
             ${canInteractWithRooms && !compactChips ? 'hover:scale-110 hover:shadow-md' : ''}
             ${compactChips && canInteractWithRooms ? 'hover:shadow-sm' : ''}
             ${hkDropTarget ? 'ring-1 ring-dashed ring-primary/50' : ''}
             ${hkHovered ? 'ring-2 ring-primary ring-offset-1 shadow-md' : ''}
-            ${hkSuccessRoomId === room.id ? 'ring-2 ring-emerald-500 ring-offset-1' : ''}
+            ${hkSuccessRoomId === room.id ? 'ring-2 ring-emerald-500 ring-offset-1 ring-offset-background' : ''}
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
           title={displayLabel && displayLabel !== room.room_number ? room.room_number : undefined}
@@ -1422,7 +1420,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
             );
           })()}
-          {!memoriesOverview && !isHotelMemoriesBudapest(room.hotel) && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {!memoriesOverview && !isHotelMemoriesBudapest(room.hotel) && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700">SH</span>}
           {effectiveService.towelChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {effectiveService.linenChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
           {portfolioCarry && portfolioCarryCopy && <span className="ml-0.5 inline-flex items-center justify-center rounded bg-amber-600 px-0.5 text-[9px] font-extrabold text-white" title={`${portfolioCarryCopy.summary} · ${portfolioCarryCopy.detail || ''}`} aria-label={isRdCarryForwardHotel(room.hotel) ? 'Missed housekeeping service from yesterday' : 'Carried housekeeping service'}>
@@ -2100,9 +2098,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         <div
           className={`
             px-2 py-1 rounded text-xs font-bold border-2 min-w-[40px] text-center ${colorClass}
-            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-            ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
-            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1 ring-offset-background' : ''}
+            ${noShow ? 'ring-2 ring-red-600 ring-offset-1 ring-offset-background' : ''}
+            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1 ring-offset-background' : ''}
           `}
           title={`Yesterday · ${isCheckout ? 'Checkout' : 'Daily'} · ${status}${approved ? ' (approved)' : ''}`}
         >
@@ -2114,7 +2112,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             >M</span>
           )}
           {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
-          {!memoriesOverview && !isHotelMemoriesBudapest(room.hotel) && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {!memoriesOverview && !isHotelMemoriesBudapest(room.hotel) && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700">SH</span>}
           {frozen.towelChangeRequired && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {frozen.linenChangeRequired && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
@@ -2563,7 +2561,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   return (
     <>
-      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-10-10-v6' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
+      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-10-10-v6' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-background shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
         <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
           {/* Row 1: Title + actions */}
           <div className="flex items-center justify-between gap-2">
@@ -2632,9 +2630,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             </TooltipProvider>
           </div>
 
-          {/* Row 3: Toggle Legend (collapsed by default) */}
+          {/* Row 3: Toggle Legend (expanded by default) */}
           <div>
             <button
+              type="button" aria-expanded={showLegend}
               onClick={() => setShowLegend(prev => !prev)}
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
             >
@@ -2671,7 +2670,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       ) : (
                         <div className={`w-3 h-3 rounded border-2 ${item.cls}`} />
                       )}
-                      <span className="text-[10px] text-muted-foreground">{item.label}</span>
+                      <span className="text-[11px] text-foreground">{item.label}</span>
                     </div>
                   </HelpTooltip>
                 ))}
