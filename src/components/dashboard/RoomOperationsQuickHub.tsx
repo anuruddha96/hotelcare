@@ -1266,7 +1266,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             ) : (
               <Button
                 type="button"
-                className="w-full bg-teal-600 font-bold text-white hover:bg-teal-700"
+                className="w-full bg-teal-700 font-bold text-white hover:bg-teal-800"
                 disabled={readOnlyForPast || !!actionLoading || selection.assignmentStatus === 'completed'}
                 onClick={() => void markReadyToClean()}
               >
@@ -1291,7 +1291,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 dark:border-emerald-800 dark:bg-emerald-950/25">
             <Button
               type="button"
-              className="w-full bg-emerald-600 font-bold text-white hover:bg-emerald-700"
+              className="w-full bg-emerald-700 font-bold text-white hover:bg-emerald-800"
               disabled={readOnlyForPast || !!actionLoading || (isSlntTenant && selection.roomStatus === 'out_of_order')}
               onClick={() => void markRoomClean()}
             >
@@ -1474,7 +1474,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             {selection.roomStatus === 'out_of_order' ? (
               <Button
                 type="button"
-                className="bg-emerald-600 text-white hover:bg-emerald-700"
+                className="bg-emerald-700 text-white hover:bg-emerald-800"
                 disabled={readOnlyForPast || !!actionLoading}
                 onClick={() => void setOutOfService(false)}
               >
@@ -1565,8 +1565,8 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
 
       {(!venuesEnabled || isSlntTenant) && canOpen && (
         <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) { setPanel('main'); setMoreOpen(false); } }}>
-          <DialogContent className="flex max-h-[94vh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden p-0">
-            <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 dark:bg-none dark:bg-card px-4 py-4 sm:px-5">
+          <DialogContent className="flex max-h-[94vh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden bg-background text-foreground p-0">
+            <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 dark:bg-none dark:bg-card text-foreground px-4 py-4 sm:px-5">
               <div className="flex items-start gap-2 pr-8">
                 {panel !== 'main' && (
                   <Button type="button" size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => setPanel('main')}>
