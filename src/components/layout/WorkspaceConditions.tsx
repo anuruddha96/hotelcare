@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, Clock, Cloud, CloudRain, CloudSnow, CloudLightning, Sun, Moon } from "lucide-react";
+import { CalendarDays, Cloud, CloudRain, CloudSnow, CloudLightning, Sun, Moon } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useTenant } from "@/contexts/TenantContext";
 import { workspaceLocation, workspaceWeatherKind, type WorkspaceLocation } from "@/lib/workspaceAppearance";
@@ -62,20 +62,30 @@ export function WorkspaceConditions({ organizationSlug, hotelId }: { organizatio
       ? { date: "Fecha", time: "Hora", weather: "Pronóstico del tiempo", unavailable: "No disponible" }
       : { date: "Date", time: "Time", weather: "Weather forecast", unavailable: "Unavailable" };
   const timeZone = location?.timeZone;
-  const date = new Intl.DateTimeFormat(language, { weekday: "short", month: "short", day: "numeric", timeZone }).format(now);
+  const date = new Intl.DateTimeFormat(language, { weekday: "long", month: "short", day: "numeric", timeZone }).format(now);
   const time = new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(now);
   const kind = workspaceWeatherKind(data?.symbol ?? "");
   const WeatherIcon = kind === "sun" ? (data?.symbol.endsWith("_night") ? Moon : Sun) : kind === "rain" ? CloudRain : kind === "snow" ? CloudSnow : kind === "storm" ? CloudLightning : Cloud;
   return (
-    <div className="flex w-fit max-w-full shrink-0 items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-xs text-card-foreground shadow-sm sm:gap-2.5" aria-label={`${labels.date}, ${labels.time}, ${labels.weather}`}>
-      <span className="flex items-center gap-1.5 whitespace-nowrap" title={labels.date}><CalendarDays className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />{date}</span>
-      <span className="flex items-center gap-1.5 whitespace-nowrap border-l pl-2 tabular-nums" title={timeZone || labels.time}><Clock className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" /><span className="font-semibold">{time}</span></span>
-      {location && <span className="flex items-center gap-1 whitespace-nowrap border-l pl-2" title={`${labels.weather} · ${location.label}`}>
-        <WeatherIcon className={`h-4 w-4 ${kind === "sun" ? "text-amber-600 dark:text-amber-300" : "text-primary"}`} aria-hidden="true" />
-        <span className="font-semibold">{data ? `${Math.round(data.temperature)}°C` : "—"}</span>
-        <a href="https://www.met.no/en" target="_blank" rel="noreferrer" className="text-[9px] text-muted-foreground underline" title={`MET Norway · CC BY 4.0 · ${data ? labels.weather : labels.unavailable}`}>MET</a>
-        <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className="sr-only">CC BY 4.0</a>
-      </span>}
+    <div className="flex min-w-0 shrink-0 items-center gap-3 rounded-xl border border-border bg-card px-3 py-1.5 text-card-foreground sm:gap-4" aria-label={`${labels.date}, ${labels.time}, ${labels.weather}`}>
+      <div className="flex items-center gap-2">
+        <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <div className="flex min-w-0 flex-col leading-tight">
+          <time className="text-[11px] font-medium text-muted-foreground whitespace-nowrap" dateTime={now.toISOString()}>{date}</time>
+          <time className="text-lg font-semibold tracking-tight tabular-nums" dateTime={now.toISOString()} title={timeZone || labels.time}>{time}</time>
+        </div>
+      </div>
+      {location && <div className="flex items-center gap-2 border-l pl-3 sm:pl-4" title={`${labels.weather} · ${location.label}`}>
+        <WeatherIcon className={`h-6 w-6 shrink-0 ${kind === "sun" ? "text-amber-600 dark:text-amber-300" : "text-primary"}`} aria-hidden="true" />
+        <div className="flex flex-col leading-tight">
+          <span className="text-base font-semibold tabular-nums whitespace-nowrap">{data ? `${Math.round(data.temperature)}°C` : "—"}</span>
+          <span className="flex items-center gap-1 text-[10px] text-muted-foreground whitespace-nowrap">
+            {location.label}
+            <a href="https://www.met.no/en" target="_blank" rel="noreferrer" className="underline underline-offset-2" title={`MET Norway · CC BY 4.0 · ${data ? labels.weather : labels.unavailable}`}>MET</a>
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer" className="sr-only">CC BY 4.0</a>
+          </span>
+        </div>
+      </div>}
     </div>
   );
 }
