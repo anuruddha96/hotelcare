@@ -156,10 +156,10 @@ function monthBands(dates: string[]) {
 /** Colour coding for the internal demand grade. */
 function demandTone(band: DemandBand): string {
   switch (band) {
-    case "very_strong": return "bg-red-500 text-white dark:bg-red-400/[0.13] dark:text-red-200";
-    case "strong": return "bg-orange-300 text-orange-950 dark:bg-orange-400/[0.12] dark:text-orange-100";
-    case "normal": return "bg-amber-100 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200";
-    case "soft": return "bg-sky-100 text-sky-900 dark:bg-sky-400/[0.08] dark:text-foreground";
+    case "very_strong": return "bg-red-500 text-white dark:bg-red-700 dark:text-white";
+    case "strong": return "bg-orange-300 text-orange-950";
+    case "normal": return "bg-amber-100 text-amber-900";
+    case "soft": return "bg-sky-100 text-sky-900";
     default: return "bg-muted text-muted-foreground";
   }
 }
@@ -4023,9 +4023,9 @@ export default function RateStrategyGrid({
                   .map((band) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-card/90 dark:border-red-400/45 dark:text-red-200"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-red-500/25 dark:border-red-400/70 dark:text-red-100"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-card/90 dark:border-amber-400/40 dark:text-amber-200"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-amber-400/25 dark:border-amber-400/70 dark:text-amber-100"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const spanColumns = revenueEventBandColumnSpan(band);
                   const wide = spanColumns >= 2;
@@ -4082,9 +4082,9 @@ export default function RateStrategyGrid({
                 {showEventBand && singleDayEventLayouts.map(({ band, dateIndex, topLane, heightLanes }) => {
                   const impact = String(band.event.impact || "").toLowerCase();
                   const tone = impact === "high"
-                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-card/90 dark:border-red-400/45 dark:text-red-200"
+                    ? "border-red-400/70 bg-red-500/15 text-red-700 dark:bg-red-500/25 dark:border-red-400/70 dark:text-red-100"
                     : impact === "medium"
-                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-card/90 dark:border-amber-400/40 dark:text-amber-200"
+                      ? "border-amber-400/70 bg-amber-400/15 text-amber-800 dark:bg-amber-400/25 dark:border-amber-400/70 dark:text-amber-100"
                       : "border-border bg-muted/80 text-muted-foreground";
                   const expanded = heightLanes >= 1.45;
                   const roomy = heightLanes >= 2.25;
