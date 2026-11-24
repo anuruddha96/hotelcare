@@ -3,152 +3,145 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { History, RefreshCw, ArrowRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 
-type HistoryEvent = {
-  id: number;
-  room_number: string;
-  occurred_at: string;
+type Audit = {
+  id: number; assignment_date: string; occurred_at: string;
   event_type: 'assigned' | 'reassigned' | 'unassigned';
-  previous_assignee_id: string | null;
-  previous_assignee_name: string | null;
-  new_assignee_id: string | null;
-  new_assignee_name: string | null;
-  actor_id: string | null;
-  actor_name: string | null;
+  previous_assignee_id: string | null; previous_assignee_name: string | null;
+  new_assignee_id: string | null; new_assignee_name: string | null;
+  actor_id: string | null; actor_name: string | null;
 };
-const PAGE_SIZE = 50;
-// The migration is deployed separately from generated database typings.
-const historyClient = supabase as unknown as SupabaseClient;
+type Saved = { id: string; assignment_date: string; assigned_to: string; assigned_by: string | null; created_at: string };
+type Snapshot = { business_date: string; assignment_id: string | null; assigned_to: string | null };
+const client = supabase as unknown as SupabaseClient;
+const LIMIT = 200;
 
-export function RoomAssignmentHistory({ hotel, organizationSlug, selectedDate, hu }: {
-  hotel: string;
-  organizationSlug: string;
-  selectedDate: string;
-  hu: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [room, setRoom] = useState('');
+export function historyWindow(day: string, page: number) {
+  const shift = (n: number) => {
+    const d = new Date(day + 'T12:00:00Z');
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  return { from: shift(page * 30 + 29), to: shift(page * 30) };
+}
+export function missingAssignmentSnapshots(records: Saved[], snapshots: Snapshot[]) {
+  const saved = new Set(records.map(a => [a.assignment_date, a.id, a.assigned_to].join('|')));
+  return snapshots.filter(s => s.assigned_to && !saved.has([s.business_date, s.assignment_id, s.assigned_to].join('|')));
+}
+type Props = { hotel: string; roomId: string; roomNumber: string; selectedDate: string };
+export function RoomAssignmentHistory(props: Props) {
+  const { profile } = useAuth();
+  const { language } = useTranslation();
+  if (!profile?.organization_slug || !hasManagerPowers(profile.role)) return null;
+  return <RoomHistoryContent key={`${profile.organization_slug}:${props.hotel}:${props.roomId}:${props.selectedDate}`}
+    {...props} organizationSlug={profile.organization_slug} hu={language === 'hu'} />;
+}
+function RoomHistoryContent({ hotel, roomId, roomNumber, selectedDate, organizationSlug, hu }: Props & { organizationSlug: string; hu: boolean }) {
+  const [expanded, setExpanded] = useState(false);
   const [page, setPage] = useState(0);
   const [revision, setRevision] = useState(0);
-  const [events, setEvents] = useState<HistoryEvent[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [date, setDate] = useState(selectedDate);
-
-  const changeOpen = (next: boolean) => {
-    if (next) {
-      setDate(selectedDate);
-      setPage(0);
-      setRoom('');
-      setEvents([]);
-      setFailed(false);
-      setLoading(true);
-    }
-    setOpen(next);
-  };
+  const [result, setResult] = useState<{ events: Audit[]; records: Saved[]; snapshots: Snapshot[]; names: Record<string,string>; errors: string[]; truncated: boolean } | null>(null);
+  const { from, to } = historyWindow(selectedDate, page);
   useEffect(() => {
-    if (!open || !date) return;
+    if (!expanded) return;
     let cancelled = false;
-    setLoading(true);
-    setFailed(false);
-    setEvents([]);
-    setHasMore(false);
+    setResult(null);
     async function load() {
       try {
         const keys = await resolveHotelKeys(hotel);
-        if (!keys.length || cancelled) return;
-        let query = historyClient.from('room_assignment_history')
-          .select('id,room_number,occurred_at,event_type,previous_assignee_id,previous_assignee_name,new_assignee_id,new_assignee_name,actor_id,actor_name')
-          .eq('organization_slug', organizationSlug)
-          .in('hotel', keys)
-          .eq('assignment_date', date);
-        if (room.trim()) query = query.eq('room_number', room.trim());
-        const { data, error } = await query.order('occurred_at', { ascending: false })
-          .order('id', { ascending: false })
-          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-        if (error) throw error;
         if (cancelled) return;
-        const rows = (data ?? []) as HistoryEvent[];
-        setHasMore(rows.length > PAGE_SIZE);
-        setEvents(rows.slice(0, PAGE_SIZE));
+        if (!keys.length) throw new Error('Missing property scope');
+        const [audit, saved, daily] = await Promise.all([
+          client.from('room_assignment_history').select('id,assignment_date,occurred_at,event_type,previous_assignee_id,previous_assignee_name,new_assignee_id,new_assignee_name,actor_id,actor_name')
+            .eq('organization_slug', organizationSlug).eq('room_id', roomId).in('hotel', keys)
+            .gte('assignment_date', from).lte('assignment_date', to).order('assignment_date', { ascending: false }).order('occurred_at', { ascending: false }).order('id', { ascending: false }).limit(LIMIT + 1),
+          supabase.from('room_assignments').select('id,assignment_date,assigned_to,assigned_by,created_at')
+            .eq('organization_slug', organizationSlug).eq('room_id', roomId)
+            .gte('assignment_date', from).lte('assignment_date', to).order('assignment_date', { ascending: false }).order('created_at', { ascending: false }).order('id').limit(LIMIT + 1),
+          client.from('housekeeping_room_snapshots').select('business_date,assignment_id,assigned_to')
+            .eq('organization_slug', organizationSlug).eq('room_id', roomId).in('hotel', keys)
+            .gte('business_date', from).lte('business_date', to).not('assigned_to','is',null).order('business_date', { ascending: false }).limit(LIMIT + 1),
+        ]);
+        const events = (audit.data ?? []) as Audit[];
+        const records = (saved.data ?? []) as Saved[];
+        const dailyRows = (daily.data ?? []) as Snapshot[];
+        const errors = [audit.error && 'audit', saved.error && 'saved', daily.error && 'daily'].filter(Boolean) as string[];
+        const ids = [...new Set([...records.flatMap(a => [a.assigned_to,a.assigned_by]), ...dailyRows.map(s => s.assigned_to)].filter((id): id is string => !!id))];
+        const names: Record<string,string> = {};
+        for (let i=0;i<ids.length;i+=100) {
+          if (cancelled) return;
+          const people = await supabase.from('profiles').select('id,full_name').eq('organization_slug', organizationSlug).in('id',ids.slice(i,i+100));
+          if (people.error) { errors.push('names'); break; }
+          for (const person of people.data ?? []) names[person.id] = person.full_name;
+        }
+        if (!cancelled) setResult({ events: events.slice(0,LIMIT), records: records.slice(0,LIMIT), snapshots: missingAssignmentSnapshots(records,dailyRows).slice(0,LIMIT), names, errors, truncated: [events,records,dailyRows].some(rows=>rows.length>LIMIT) });
       } catch {
-        if (!cancelled) setFailed(true);
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setResult({events:[],records:[],snapshots:[],names:{},errors:['all'],truncated:false});
       }
     }
     void load();
     return () => { cancelled = true; };
-  }, [open, hotel, organizationSlug, date, room, page, revision]);
-
-  const copy = hu ? {
-    title: 'Szobakiosztási előzmények', description: 'A kiosztás, áthelyezés és visszavonás naplója. Csak a naplózás bevezetése utáni változások láthatók.',
-    date: 'Munkanap', room: 'Szobaszám', roomPlaceholder: 'pl. 042', refresh: 'Frissítés', empty: 'Nincs rögzített kiosztási változás a kiválasztott napon.',
-    failed: 'Az előzmények nem tölthetők be. Próbálja újra.', loading: 'Betöltés…', none: 'Nincs kiosztva', unknown: 'Ismeretlen felhasználó', system: 'Rendszer / ismeretlen',
-    by: 'Módosította', assigned: 'Kiosztva', reassigned: 'Áthelyezve', unassigned: 'Kiosztás visszavonva', previous: 'Előző', next: 'Következő',
+  }, [expanded,hotel,roomId,organizationSlug,from,to,revision]);
+  const c = hu ? {
+    title:'Szobakiosztási előzmények', audit:'Hitelesített változások', saved:'Mentett kiosztások',
+    note:'A korábbi mentett adatok nem igazolják az áthelyezés pontos idejét vagy végrehajtóját.',
+    noAudit:'Nincs naplózott változás ebben az időszakban.', noSaved:'Nincs mentett kiosztás.',
+    failed:'Egyes előzmények nem tölthetők be. Frissítse az adatokat.', loading:'Betöltés…',
+    none:'Nincs kiosztva',unknown:'Ismeretlen',system:'Rendszer / ismeretlen',by:'Módosította',recordedBy:'Rögzített kiosztó',created:'Rekord létrehozva',
+    assigned:'Kiosztva',reassigned:'Áthelyezve',unassigned:'Visszavonva',snapshot:'Mentett napi állapot',
+    older:'Korábbi 30 nap',newer:'Újabb 30 nap',refresh:'Frissítés',truncated:'Az időszak első 200 rekordja látható.'
   } : {
-    title: 'Room assignment history', description: 'Assignment, reassignment and removal activity. Only changes recorded after audit logging was enabled are shown.',
-    date: 'Work date', room: 'Room number', roomPlaceholder: 'e.g. 042', refresh: 'Refresh', empty: 'No recorded assignment changes for the selected day.',
-    failed: 'Could not load assignment history. Please retry.', loading: 'Loading…', none: 'Unassigned', unknown: 'Unknown user', system: 'System / unknown',
-    by: 'Changed by', assigned: 'Assigned', reassigned: 'Reassigned', unassigned: 'Unassigned', previous: 'Previous', next: 'Next',
+    title:'Room assignment history',audit:'Verified assignment changes',saved:'Saved assignment records',
+    note:'Older saved records show the recorded owner, not the exact time or actor of a reassignment.',
+    noAudit:'No audited changes in this period.',noSaved:'No saved assignments in this period.',
+    failed:'Some history could not be loaded. Please refresh.',loading:'Loading…',
+    none:'Unassigned',unknown:'Unknown',system:'System / unknown',by:'Changed by',recordedBy:'Recorded assigned by',created:'Record created',
+    assigned:'Assigned',reassigned:'Reassigned',unassigned:'Unassigned',snapshot:'Saved daily snapshot',
+    older:'Older 30 days',newer:'Newer 30 days',refresh:'Refresh',truncated:'Showing the latest 200 records per source in this period.'
   };
-  const time = new Intl.DateTimeFormat(hu ? 'hu-HU' : 'en-GB', {
-    timeZone: 'Europe/Budapest', dateStyle: 'medium', timeStyle: 'medium',
-  });
-  const assignee = (id: string | null, name: string | null) => name || (id ? copy.unknown : copy.none);
-  return (
-    <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2 touch-manipulation">
-          <History className="h-4 w-4" />{copy.title}
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[90dvh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{copy.title}</DialogTitle>
-          <DialogDescription>{copy.description}</DialogDescription>
-        </DialogHeader>
-        <div className="grid grid-cols-2 gap-2 items-end">
-          <label className="space-y-1 text-sm">
-            <span>{copy.date}</span>
-            <Input type="date" value={date} onChange={e => { if (e.target.value) { setDate(e.target.value); setPage(0); } }} />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span>{copy.room}</span>
-            <Input value={room} placeholder={copy.roomPlaceholder} onChange={e => { setRoom(e.target.value); setPage(0); }} />
-          </label>
-        </div>
-        <Button variant="outline" size="sm" className="w-fit gap-2" onClick={() => { setPage(0); setRevision(v => v + 1); }} disabled={loading}>
-          <RefreshCw className="h-4 w-4" />{copy.refresh}
-        </Button>
-        {loading ? <p role="status" className="text-sm text-muted-foreground">{copy.loading}</p>
-          : failed ? <p role="alert" className="text-sm text-destructive">{copy.failed}</p>
-          : events.length === 0 ? <p className="rounded-md border p-4 text-sm text-muted-foreground">{copy.empty}</p>
-          : <div className="space-y-2">
-            {events.map(event => (
-              <div key={event.id} className="rounded-lg border p-3 space-y-2">
-                <div className="flex flex-wrap justify-between items-center gap-2">
-                  <span className="font-semibold">{event.room_number} · {copy[event.event_type]}</span>
-                  <time dateTime={event.occurred_at} className="text-xs text-muted-foreground">{time.format(new Date(event.occurred_at))}</time>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span>{assignee(event.previous_assignee_id, event.previous_assignee_name)}</span>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                  <span className="font-medium">{assignee(event.new_assignee_id, event.new_assignee_name)}</span>
-                </div>
-                <p className="text-sm text-muted-foreground">{copy.by}: <span className="text-foreground">{event.actor_name || (event.actor_id ? copy.unknown : copy.system)}</span></p>
-              </div>
-            ))}
-          </div>}
-        {!loading && !failed && (page > 0 || hasMore) && <div className="flex justify-between">
-          <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>{copy.previous}</Button>
-          <Button variant="outline" size="sm" disabled={!hasMore} onClick={() => setPage(p => p + 1)}>{copy.next}</Button>
-        </div>}
-      </DialogContent>
-    </Dialog>
-  );
+  const time = new Intl.DateTimeFormat(hu?'hu-HU':'en-GB',{timeZone:'Europe/Budapest',dateStyle:'medium',timeStyle:'medium'});
+  const person = (id: string | null, name?: string | null) => name || (id ? result?.names[id] || c.unknown : c.none);
+  return <section className="rounded-xl border p-3 space-y-3" aria-label={c.title}>
+    <Button type="button" variant="ghost" className="w-full justify-start gap-2 px-0" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)}>
+      <History className="h-4 w-4" />{c.title} · {roomNumber}
+    </Button>
+    {expanded && <>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-medium">{from} – {to}</span>
+        <Button type="button" variant="outline" size="sm" onClick={()=>{setResult(null);setRevision(v=>v+1);}} aria-label={c.refresh}><RefreshCw className="h-4 w-4" /></Button>
+      </div>
+      {!result ? <p role="status" className="text-sm text-muted-foreground">{c.loading}</p> : <>
+        {!!result.errors.length && <p role="alert" className="text-sm text-destructive">{c.failed}</p>}
+        {result.truncated && <p className="text-xs text-muted-foreground">{c.truncated}</p>}
+        <h3 className="font-semibold text-sm">{c.audit}</h3>
+        {!result.events.length && !result.errors.includes('audit') && !result.errors.includes('all') && <p className="text-sm text-muted-foreground">{c.noAudit}</p>}
+        {result.events.map(e=><div key={e.id} className="rounded-lg border p-2 space-y-1 text-sm">
+          <div className="flex flex-wrap justify-between gap-1"><Badge variant="outline">{c[e.event_type]}</Badge><time dateTime={e.occurred_at} className="text-xs text-muted-foreground">{time.format(new Date(e.occurred_at))}</time></div>
+          <div className="flex items-center flex-wrap gap-2">{person(e.previous_assignee_id,e.previous_assignee_name)}<ArrowRight className="h-4 w-4" />{person(e.new_assignee_id,e.new_assignee_name)}</div>
+          <p className="text-xs text-muted-foreground">{c.by}: {e.actor_name || (e.actor_id?c.unknown:c.system)} · {e.assignment_date}</p>
+        </div>)}
+        <h3 className="font-semibold text-sm">{c.saved}</h3>
+        <p className="text-xs text-muted-foreground">{c.note}</p>
+        {!result.records.length && !result.snapshots.length && !result.errors.includes('saved') && !result.errors.includes('daily') && !result.errors.includes('all') && <p className="text-sm text-muted-foreground">{c.noSaved}</p>}
+        {[...result.records.map(a=>({key:'a'+a.id,date:a.assignment_date,owner:a.assigned_to,by:a.assigned_by,created:a.created_at,snapshot:false})),
+          ...result.snapshots.map(s=>({key:'s'+s.business_date+':'+s.assignment_id,date:s.business_date,owner:s.assigned_to,by:null,created:null,snapshot:true}))]
+          .sort((a,b)=>b.date.localeCompare(a.date)).map(row=><div key={row.key} className="rounded-lg border p-2 text-sm space-y-1">
+            <div className="flex justify-between gap-2"><span className="font-medium">{person(row.owner)}</span><span className="text-xs text-muted-foreground">{row.date}</span></div>
+            {row.snapshot ? <span className="text-xs text-muted-foreground">{c.snapshot}</span> : <>
+              <p className="text-xs text-muted-foreground">{c.recordedBy}: {row.by?person(row.by):c.unknown}</p>
+              {row.created && <p className="text-xs text-muted-foreground">{c.created}: {time.format(new Date(row.created))}</p>}
+            </>}
+          </div>)}
+      </>}
+      <div className="flex flex-wrap justify-between gap-2">
+        <Button type="button" variant="outline" size="sm" disabled={page===0} onClick={()=>{setResult(null);setPage(p=>p-1);}}>{c.newer}</Button>
+        <Button type="button" variant="outline" size="sm" onClick={()=>{setResult(null);setPage(p=>p+1);}}>{c.older}</Button>
+      </div>
+    </>}
+  </section>;
 }
