@@ -22,12 +22,12 @@ const SIGNAL_REFRESH_MS = 5 * 60_000;
 const marketDemandCss = `
   [data-hc-competitor-pricing-row="1"] { min-height: 30px !important; align-items: stretch !important; }
   [data-price-signal-band="surge"] { background: rgb(185 28 28) !important; color: white !important; }
-  [data-price-signal-band="strong"] { background: rgb(249 115 22) !important; color: white !important; }
+  [data-price-signal-band="strong"] { background: rgb(249 115 22) !important; color: rgb(67 20 7) !important; }
   [data-price-signal-band="on_pace"] { background: hsl(var(--muted)) !important; color: hsl(var(--foreground)) !important; }
   [data-price-signal-band="soft"] { background: rgb(186 230 253) !important; color: rgb(12 74 110) !important; }
-  [data-price-signal-band="weak"] { background: rgb(59 130 246) !important; color: white !important; }
+  [data-price-signal-band="weak"] { background: rgb(59 130 246) !important; color: rgb(8 23 47) !important; }
   [data-hc-competitor-pricing-row="1"] > * { min-height: 30px !important; height: auto !important; align-self: stretch !important; }
-  [data-market-demand-band="very_strong"] { background: rgb(239 68 68) !important; color: white !important; }
+  [data-market-demand-band="very_strong"] { background: rgb(239 68 68) !important; color: rgb(45 8 8) !important; }
   [data-market-demand-band="strong"] { background: rgb(253 186 116) !important; color: rgb(67 20 7) !important; }
   [data-market-demand-band="normal"] { background: rgb(254 243 199) !important; color: rgb(69 26 3) !important; }
   [data-market-demand-band="soft"] { background: rgb(224 242 254) !important; color: rgb(12 74 110) !important; }
@@ -48,20 +48,9 @@ function ensureStyle() {
 }
 
 function findDemandRow(card: HTMLElement): HTMLElement | null {
-  const pane = card.querySelector<HTMLElement>('[data-rate-grid-scroll="true"]')
-    ?? card.querySelector<HTMLElement>(".relative.overflow-auto.overscroll-x-contain");
-  const grid = pane?.firstElementChild as HTMLElement | null;
-  const sticky = grid
-    ? Array.from(grid.children).find((child) => child instanceof HTMLElement && child.classList.contains("sticky") && child.classList.contains("top-0")) as HTMLElement | undefined
-    : undefined;
-  if (!sticky) return null;
-
-  return Array.from(sticky.children).find((child) => {
-    if (!(child instanceof HTMLElement)) return false;
-    const left = child.firstElementChild as HTMLElement | null;
-    const label = (left?.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-    return label === "dem" || label.startsWith("demand");
-  }) as HTMLElement | null;
+  // The signal row is now in the normal scrolling calendar, outside the frozen
+  // summary. Do not infer its position from sticky rows or translated labels.
+  return card.querySelector<HTMLElement>('[data-rate-demand-row="true"]');
 }
 
 function dateOrder(card: HTMLElement): string[] {

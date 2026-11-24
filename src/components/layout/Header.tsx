@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { AppearanceMenu } from './AppearanceMenu';
 import { WorkspaceConditions } from './WorkspaceConditions';
+import { HeaderWelcomeQuote } from './HeaderWelcomeQuote';
 import { canSeeWorkspaceWeather } from '@/lib/workspaceAppearance';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -145,12 +146,15 @@ export function Header() {
         </div>
 
         {canSeeWorkspaceWeather(profile) && (
-          <WorkspaceConditions organizationSlug={profile?.organization_slug} hotelId={profile?.assigned_hotel} />
+          <div className="flex min-w-0 items-center gap-2">
+            <WorkspaceConditions organizationSlug={profile?.organization_slug} hotelId={profile?.assigned_hotel} />
+            <HeaderWelcomeQuote userId={user?.id && profile?.id === user.id ? user.id : null} />
+          </div>
         )}
 
         {/* Mobile actions scroll on a separate row instead of colliding with the language control. */}
-        <div className="flex w-full min-w-0 items-center justify-start gap-1 overflow-x-auto overscroll-x-contain scrollbar-hide sm:w-auto sm:flex-1 sm:justify-end sm:gap-2">
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div className="flex w-full min-w-0 items-center justify-start gap-1 overflow-x-auto overscroll-x-contain scrollbar-hide sm:w-auto sm:flex-1 sm:gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0 sm:ml-auto">
             <div className="shrink-0">
               <DirtyLinenCartBadge />
             </div>

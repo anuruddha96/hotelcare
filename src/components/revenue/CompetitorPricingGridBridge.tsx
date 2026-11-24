@@ -254,7 +254,7 @@ export function competitorGridStyleText(): string {
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    [${ROW_ATTR}="1"] > button {
+    [${ROW_ATTR}="1"] > button[data-hc-market-cell="1"] {
       position: relative;
       display: flex !important;
       flex-direction: column !important;
@@ -263,7 +263,7 @@ export function competitorGridStyleText(): string {
       gap: 2px !important;
       font-size: 0 !important;
     }
-    [${ROW_ATTR}="1"] > button::before {
+    [${ROW_ATTR}="1"] > button[data-hc-market-cell="1"]::before {
       content: attr(data-hc-demand-label);
       color: inherit;
       font-size: 9.5px;
@@ -271,7 +271,7 @@ export function competitorGridStyleText(): string {
       font-weight: 700;
       white-space: nowrap;
     }
-    [${ROW_ATTR}="1"] > button::after {
+    [${ROW_ATTR}="1"] > button[data-hc-market-cell="1"]::after {
       content: attr(data-hc-market-summary);
       color: inherit;
       font-size: 8px;
@@ -302,19 +302,9 @@ function ensureStyle() {
 }
 
 function findDemandRow(): HTMLElement | null {
-  const existing = document.querySelector<HTMLElement>(`[${ROW_ATTR}="1"]`);
-  if (existing?.isConnected) return existing;
-
-  const labels = Array.from(document.querySelectorAll<HTMLElement>("div.sticky.left-0"));
-  for (const label of labels) {
-    const text = (label.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (!(text === "Demand" || text === "Dem" || text.startsWith("Demand "))) continue;
-    const row = label.parentElement as HTMLElement | null;
-    if (!row || !row.classList.contains("flex")) continue;
-    row.setAttribute(ROW_ATTR, "1");
-    return row;
-  }
-  return null;
+  const row = document.querySelector<HTMLElement>('[data-training="revenue-grid"] [data-rate-demand-row="true"]');
+  if (row) row.setAttribute(ROW_ATTR, "1");
+  return row;
 }
 
 /**
@@ -378,7 +368,7 @@ export default function CompetitorPricingGridBridge() {
       label.title = "Price signal 0–100 per stay date, from the same facts the pricing engine uses: pace vs. lead-time target (35), 7-day pickup (25), approved events (20), competitor median vs. our rate (10), inventory and weekend (10). Dark red ≥80 Surge · orange ≥60 Strong · grey On pace · light blue Soft · blue Weak. ▲ price up · ● hold · ▼ price down. Second line: validated competitor median and coverage.";
       label.setAttribute("aria-label", "Price signal. Hotel demand score per date with recommended price direction and validated market-rate evidence.");
 
-      const grid = row.parentElement;
+      const grid = row.closest('[data-training="revenue-grid"]');
       if (!grid) return;
       const dateNodes = Array.from(grid.querySelectorAll<HTMLElement>("button[data-date]"));
       const dates: string[] = [];

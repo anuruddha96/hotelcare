@@ -15,7 +15,7 @@ describe("readable dark revenue tones", () => {
     expect(lost.label).toBe("net cancellations");
     expect(strong.label).toBe("strong pickup");
     expect(lost.className).toContain("dark:text-foreground");
-    expect(strong.className).toContain("dark:bg-emerald-400/20");
+    expect(strong.className).toContain("dark:bg-emerald-700");
   });
   it("does not change healthy rate classification or missing values", () => {
     expect(rateTone(100, DEFAULT_THRESHOLDS)).toMatchObject({ severity: "ok", className: "" });
