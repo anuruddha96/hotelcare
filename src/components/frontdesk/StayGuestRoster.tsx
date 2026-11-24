@@ -90,10 +90,12 @@ export function useStayGuestRoster(
   return { enabled,perGuestLifecycle,loading,guests,selectedIds,setSelectedIds,refresh,eligible,incompleteSelected,updateSavedGuest };
 }
 
-export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug, occurredAt, onChanged, vizaRequired = false, expectedGuests, bookingGuestId }: {
+export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug, occurredAt, onChanged, vizaRequired = false, expectedGuests, bookingGuestId, savePending = false, onSavePendingChange }: {
   control: GuestRosterControl;
   vizaRequired?: boolean;
   expectedGuests?: number;
+  savePending?: boolean;
+  onSavePendingChange?: (pending: boolean) => void;
   bookingGuestId?: string | null;
   mode: 'arrive' | 'depart';
   reservationId: string;
@@ -145,11 +147,12 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
     linkedNameKeys.splice(i,1); return false;
   });
   const openExisting = (g: StayGuestRow, scan = false) => {
+    if (savePending) return;
     setDraft(null); setAdding(false);
     setAutoScanId(scan ? g.guest_id : null);
     setDetailsId(detailsId === g.guest_id && !scan ? null : g.guest_id);
   };
-  const startScan = () => { setDraft(null); setDetailsId(null); setAutoScanId(null); setAdding(false); setScanNewOpen(true); };
+  const startScan = () => { if (savePending) return; setDraft(null); setDetailsId(null); setAutoScanId(null); setAdding(false); setScanNewOpen(true); };
   const register = async (payload: Record<string, unknown>, match: string | null): Promise<GuestRegistrationResult> => {
     const { data, error } = await (supabase.rpc as CallableFunction)('pms_register_scanned_stay_guest', {
       _reservation_id: reservationId, _data: payload, _confirmed_match: match,
@@ -237,16 +240,16 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
             </div>
           </div>
           {detailsId===g.guest_id && <GuestDetailsSection key={g.guest_id + (autoScanId===g.guest_id ? '-scan' : '')} occurredAt={occurredAt} vizaReservationId={vizaRequired ? reservationId : undefined} guestId={g.guest_id}
-            protectIdentity={express} autoScan={autoScanId===g.guest_id} onSaved={nextAfterSave} />}
+            protectIdentity={express} autoScan={autoScanId===g.guest_id} autoSave={mode==='arrive' && !!onSavePendingChange} onSavePendingChange={onSavePendingChange} onSaved={mode==='arrive' && onSavePendingChange ? control.updateSavedGuest : nextAfterSave} />}
         </div>;
       })}
       {express && !control.loading && Array.from({length:Math.min(vacant,100)},(_,index) => (
         <div key={'vacant-'+index} className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 space-y-2">
           <div className="flex items-center gap-2"><UserRoundPlus className="h-5 w-5 text-primary shrink-0"/><div className="flex-1"><p className="text-sm font-medium">{t('pms.express.guestNumber').replace('{number}',String(activeGuests.length+index+1))}</p>{unmatchedHints[index] && !reserveBookerSlot && <p className="text-sm font-medium break-words">{displayName(unmatchedHints[index].first_name,unmatchedHints[index].last_name)} <span className="text-xs font-normal text-muted-foreground">· {t('pms.express.channelName')}</span></p>}
             <p className="text-xs text-muted-foreground">{t('pms.express.awaiting')}</p></div></div>
-          {index===0 && !draft && <Button type="button" className="w-full gap-2" disabled={busy || reserveBookerSlot} onClick={startScan}><ScanLine className="h-4 w-4"/>{t('pms.express.scanDocument')}</Button>}
-          {index===0 && !draft && bookingGuestId && unlinkedBooker && <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy} onClick={async()=>{setBusy(true);try{await addStayGuest(reservationId,bookingGuestId);await control.refresh();setDetailsId(bookingGuestId);setAutoScanId(bookingGuestId);}catch{toast.error(t('pms.express.registerFailed'));}finally{setBusy(false);}}}>{t('pms.express.useBooker')}</Button>}
-          {index===0 && !draft && !reserveBookerSlot && <Button type="button" size="sm" variant="ghost" className="w-full" onClick={()=>setAdding(v=>!v)}>{t('pms.express.otherOptions')}</Button>}
+          {index===0 && !draft && <Button type="button" className="w-full gap-2" disabled={busy || savePending || reserveBookerSlot} onClick={startScan}><ScanLine className="h-4 w-4"/>{t('pms.express.scanDocument')}</Button>}
+          {index===0 && !draft && bookingGuestId && unlinkedBooker && <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy || savePending} onClick={async()=>{setBusy(true);try{await addStayGuest(reservationId,bookingGuestId);await control.refresh();setDetailsId(bookingGuestId);setAutoScanId(bookingGuestId);}catch{toast.error(t('pms.express.registerFailed'));}finally{setBusy(false);}}}>{t('pms.express.useBooker')}</Button>}
+          {index===0 && !draft && !reserveBookerSlot && <Button type="button" size="sm" variant="ghost" className="w-full" disabled={savePending} onClick={()=>setAdding(v=>!v)}>{t('pms.express.otherOptions')}</Button>}
           {index===0 && draft && <GuestDetailsSection draft={draft} guestId={null} vizaReservationId={reservationId} occurredAt={occurredAt} onRegister={register}
             onCancelDraft={()=>setDraft(null)} onSaved={async()=>{setDraft(null);await control.refresh();const next=activeGuests.find(g=>g.stay_state==='expected'&&!isComplete(g));setDetailsId(next?.guest_id??null);toast.success(t('pms.stayGuest.added'));}} />}
         </div>
@@ -257,15 +260,15 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
         <div className="space-y-2 border-t pt-2">
           <GuestSearchSelect value={guestIdToAdd} onChange={setGuestIdToAdd}
             hotelId={hotelId} orgSlug={orgSlug} hotelKeys={express && hotelId ? [hotelId] : undefined} allowCreate={!express} />
-          <Button type="button" size="sm" disabled={!guestIdToAdd || busy} onClick={() => void addGuest()}>
+          <Button type="button" size="sm" disabled={!guestIdToAdd || busy || savePending} onClick={() => void addGuest()}>
             {t('pms.stayGuest.addGuest')}
           </Button>
-          {express && <Button type="button" variant="outline" size="sm" className="w-full" onClick={()=>{setAdding(false);setDetailsId(null);setDraft({result:null,optical:{}});}}>{t('pms.express.manualException')}</Button>}
+          {express && <Button type="button" variant="outline" size="sm" className="w-full" disabled={savePending} onClick={()=>{setAdding(false);setDetailsId(null);setDraft({result:null,optical:{}});}}>{t('pms.express.manualException')}</Button>}
         </div>
       )}
       <div className="flex justify-between items-center">
         <p className="text-xs text-muted-foreground">{control.perGuestLifecycle ? t('pms.stayGuest.selectedCount').replace('{count}',String(control.selectedIds.length)) : t('pms.guest.wholeReservation')}</p>
-        <Button type="button" variant="ghost" size="sm" onClick={() => void control.refresh()}>
+        <Button type="button" variant="ghost" size="sm" disabled={savePending} onClick={() => void control.refresh()}>
           {t('ntak.refreshReports')}
         </Button>
       </div>
