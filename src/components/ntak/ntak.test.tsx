@@ -43,14 +43,44 @@ describe('NTAK closure dialog', () => {
     expect(call).toHaveBeenCalledWith(expect.objectContaining({ action: 'close_day', day: '2026-11-18', closed: false }));
   });
 
-  it('requires a reason, but permits no record id for a correction (MODOSITO)', async () => {
-    call.mockResolvedValue(preview({ classification: 'MODOSITO' }));
-    render(<NtakClosureDialog hotelId="h1" day="2026-11-18" open onOpenChange={() => {}} />);
+  it('requires both a nonblank record ID and a reason for a correction (MODOSITO)', async () => {
+    call.mockImplementation((async (body?: Record<string, unknown>) => {
+      if (body?.action === 'close_day') return { ok: true, message_id: 'correction-m1' };
+      const protocolId = String(body?.protocol_id ?? '');
+      const reason = String(body?.reason ?? '');
+      const checklist = [
+        ...(!protocolId.trim() || protocolId.length > 25
+          ? [{ level: 'error', code: 'correction', message: 'A correction needs a record ID (max 25 characters)' }] : []),
+        ...(!reason.trim() || reason.length > 100
+          ? [{ level: 'error', code: 'correction', message: 'A correction needs a reason (max 100 characters)' }] : []),
+      ];
+      return preview({ classification: 'MODOSITO', checklist });
+    }) as never);
+    const onQueued = vi.fn();
+    render(<NtakClosureDialog hotelId="h1" day="2026-11-18" open onOpenChange={() => {}} onQueued={onQueued} />);
     const send = await screen.findByRole('button', { name: /Send/ });
     await screen.findByText('MODOSITO');
+    const record = screen.getByRole('textbox', { name: /Record ID/i });
+    const reason = screen.getByRole('combobox');
     expect(send).toBeDisabled();
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'VENDEG_VAGY_IFA_JAVITAS' } });
+
+    fireEvent.change(reason, { target: { value: 'VENDEG_VAGY_IFA_JAVITAS' } });
+    await waitFor(() => expect(call).toHaveBeenCalledWith(expect.objectContaining({ action: 'preview_closure', reason: 'VENDEG_VAGY_IFA_JAVITAS', protocol_id: null })));
+    expect(send).toBeDisabled();
+    fireEvent.change(record, { target: { value: '   ' } });
+    expect(send).toBeDisabled();
+
+    fireEvent.change(record, { target: { value: 'NZ-04B-TEST' } });
     await waitFor(() => expect(send).not.toBeDisabled());
+    fireEvent.change(reason, { target: { value: '' } });
+    expect(send).toBeDisabled();
+    fireEvent.change(reason, { target: { value: 'VENDEG_VAGY_IFA_JAVITAS' } });
+    await waitFor(() => expect(send).not.toBeDisabled());
+    fireEvent.click(send);
+    await waitFor(() => expect(onQueued).toHaveBeenCalled());
+    expect(call).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'close_day', protocol_id: 'NZ-04B-TEST', reason: 'VENDEG_VAGY_IFA_JAVITAS',
+    }));
   });
 });
 
