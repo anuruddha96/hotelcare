@@ -151,12 +151,12 @@ UPDATE public.guests SET nationality='GB',entry_date=NULL,entry_place=NULL,visa_
  viza_review=viza_review||'{"entry_details_absent":true,"visa_exempt":true}'::jsonb WHERE id='00000000-0000-4000-8000-000000000093';
 SELECT public.pms_assert_viza_arrival_data('00000000-0000-4000-8000-000000000094',NULL,current_date);
 UPDATE public.guests SET entry_date=current_date+1 WHERE id='00000000-0000-4000-8000-000000000093';
-DO $ BEGIN
+DO $$ BEGIN
  BEGIN
   PERFORM public.pms_assert_viza_arrival_data('00000000-0000-4000-8000-000000000094',NULL,current_date);
   RAISE EXCEPTION 'Invalid future entry date accepted';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'VIZA_GUEST_DATA_INCOMPLETE:%entry_date%' THEN RAISE; END IF; END;
-END $;
+END $$;
 UPDATE public.guests SET entry_date=NULL,nationality='DE' WHERE id='00000000-0000-4000-8000-000000000093';
 UPDATE public.guests SET organization_slug='fixture';
 UPDATE public.reservations SET adults=3 WHERE id='00000000-0000-4000-8000-000000000094';
