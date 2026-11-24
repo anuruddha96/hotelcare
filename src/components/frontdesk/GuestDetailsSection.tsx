@@ -99,6 +99,7 @@ interface GuestDetailsSectionProps {
   autoScan?: boolean;
   autoSave?: boolean;
   onSavePendingChange?: (pending: boolean) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onCancelDraft?: () => void;
   guestId: string | null;
   vizaReservationId?: string;
@@ -107,7 +108,7 @@ interface GuestDetailsSectionProps {
   onSaved?: (guest: GuestVizaRow) => void;
 }
 
-export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft, autoSave = false, onSavePendingChange, focusProblem }: GuestDetailsSectionProps) {
+export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft, autoSave = false, onSavePendingChange, onDirtyChange, focusProblem }: GuestDetailsSectionProps) {
   const { t, language } = useTranslation();
   const entryPlacesId = useId();
   const otherReasonId = useId();
@@ -126,6 +127,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const markDirty = () => {
     revision.current += 1;
     setDirty(true);
+    onDirtyChange?.(true);
     setSaveFailed(false);
     if (autosaving) onSavePendingChange?.(true);
   };
@@ -344,7 +346,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       const update = (supabase.from('guests') as never as {
         update: (values: Record<string, unknown>) => { eq: (column: string, value: string) => Promise<{ error: { message: string } | null }> & { select: (columns: string) => { maybeSingle: () => Promise<{ data: { id: string } | null; error: unknown }> } } };
       }).update(payload).eq('id', guest.id);
-      if (autosaving) {
+      if (autosaving || onDirtyChange) {
         // An RLS-filtered update may succeed with zero affected rows. Only
         // acknowledge a save once the server returns the actual guest id.
         const { data, error } = await update.select('id').maybeSingle();
@@ -357,6 +359,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       // Never replace that text, clear its dirty flag or unlock navigation.
       if (revision.current !== savingRevision) return;
       setDirty(false);
+      onDirtyChange?.(false);
       setScanChanged(false);
       setSavedAt(new Date());
       setGuest(savedGuest);
