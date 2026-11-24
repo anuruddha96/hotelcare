@@ -8,6 +8,10 @@ import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
 import { useTranslation } from '@/hooks/useTranslation';
 import { resolveHistoricalHousekeepingState } from '@/lib/housekeepingHistoricalFinalState';
 
@@ -184,7 +188,12 @@ export function HistoricalHotelRoomOverviewSaved({
   refreshKey,
 }: HistoricalHotelRoomOverviewProps) {
   const { t } = useTranslation();
+  const { profile } = useAuth();
+  const canReadHistory = hasManagerPowers(profile?.role);
+  const [historyRoomId, setHistoryRoomId] = useState<string | null>(null);
   const [rows, setRows] = useState<RoomSnapshot[]>([]);
+  const historyRoom = rows.find(r => r.room_id === historyRoomId);
+  useEffect(() => { setHistoryRoomId(null); }, [selectedDate, hotelName]);
   const [tasks, setTasks] = useState<HistoricalTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -296,6 +305,10 @@ export function HistoricalHotelRoomOverviewSaved({
     return (
       <div key={room.room_id} className="flex flex-col items-center gap-0.5 select-none">
         <div
+          role={canReadHistory ? 'button' : undefined}
+          tabIndex={canReadHistory ? 0 : undefined}
+          onClick={canReadHistory ? () => setHistoryRoomId(room.room_id) : undefined}
+          onKeyDown={canReadHistory ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHistoryRoomId(room.room_id); } } : undefined}
           className={`relative rounded border-2 px-2 py-1 text-xs font-bold min-w-[40px] text-center ${colorClass} ${dnd ? 'ring-2 ring-purple-500 ring-offset-1' : ''} ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''} ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}`}
           title={[
             `Room ${room.room_number}`,
@@ -531,6 +544,15 @@ export function HistoricalHotelRoomOverviewSaved({
           </>
         )}
       </CardContent>
+      {canReadHistory && historyRoom && (
+        <Dialog open onOpenChange={open => { if (!open) setHistoryRoomId(null); }}>
+          <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>{historyRoom.room_number} · {selectedDate}</DialogTitle></DialogHeader>
+            <RoomAssignmentHistory hotel={hotelName} roomId={historyRoom.room_id}
+              roomNumber={historyRoom.room_number} selectedDate={selectedDate} />
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   );
 }

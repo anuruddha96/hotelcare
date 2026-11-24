@@ -47,6 +47,7 @@ import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
 import { RoomMinibarOperations } from './RoomMinibarOperations';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { RoomPlannedNotesCalendar } from './RoomPlannedNotesCalendar';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
 import { RoomNoteProvenance } from './RoomNoteProvenance';
 import { toast } from 'sonner';
 
@@ -1515,6 +1516,11 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             </p>
           )}
         </section>
+      )}
+
+      {selection.roomId && hasManagerPowers(profile?.role) && (
+        <RoomAssignmentHistory hotel={hotelName} roomId={selection.roomId}
+          roomNumber={selection.roomNumber} selectedDate={selectedDate} />
       )}
 
       <section className="grid grid-cols-1 gap-2 sm:grid-cols-2">

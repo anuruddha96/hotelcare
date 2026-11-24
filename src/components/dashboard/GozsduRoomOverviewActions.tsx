@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { GozsduCourtRoomOverview } from './GozsduCourtRoomOverview';
 import { GozsduRoomEssentials } from './GozsduRoomEssentials';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
 import { RoomDetailDialog } from './RoomDetailDialog';
 
 type Props = React.ComponentProps<typeof GozsduCourtRoomOverview>;
@@ -467,6 +468,10 @@ export function GozsduRoomOverviewActions(props: Props) {
                       onClick={() => void save()}>{saving ? t('gozsdu.saving') : staffId === 'keep' ? t('gozsdu.saveCleaningSection') : t('gozsdu.saveAssignRoom')}</Button>
                   </> : <p className="text-xs text-muted-foreground">{t('gozsdu.managerOnlyHint')}</p>}
                 </section>
+                {hasManagerPowers(profile?.role) && (
+                  <RoomAssignmentHistory hotel={GOZSDU_COURT_HOTEL_ID} roomId={room.id}
+                    roomNumber={label} selectedDate={props.selectedDate} />
+                )}
                 <GozsduRoomEssentials key={`${room.id}:${props.selectedDate}`} roomId={room.id}
                   roomLabel={label} selectedDate={props.selectedDate} serviceLabel={serviceLabel}
                   staffMap={props.staffMap} onChanged={() => { if (room?.id) void openRoom(room.id); }} />
