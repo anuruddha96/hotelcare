@@ -1,4 +1,4 @@
--- Repair legacy null-organization logging and never resurrect a guest with a recorded VIZA departure.
+-- Repair legacy null-organization logging and never resurrect a guest with a recorded VIZA departure on a still-open stay; reconstruct completed stays as departed.
 CREATE OR REPLACE FUNCTION public.viza_on_reservation_status()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
@@ -74,7 +74,7 @@ BEGIN
     AND r.hotel_id=_hotel_id
     AND r.status IN ('checked_in','checked_out')
     AND rg.stay_state='expected' AND rg.arrived_at IS NULL
-    AND NOT EXISTS(SELECT 1 FROM public.viza_guest_events ev WHERE ev.reservation_id=r.id AND ev.guest_id=rg.guest_id AND ev.tavozas_ideje IS NOT NULL)
+    AND (r.status <> 'checked_in' OR NOT EXISTS(SELECT 1 FROM public.viza_guest_events ev WHERE ev.reservation_id=r.id AND ev.guest_id=rg.guest_id AND ev.tavozas_ideje IS NOT NULL))
     AND (rg.is_primary OR rg.guest_id=r.guest_id OR EXISTS(
       SELECT 1 FROM public.viza_guest_events ev
       WHERE ev.reservation_id=r.id AND ev.guest_id=rg.guest_id

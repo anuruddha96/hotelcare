@@ -232,3 +232,27 @@ UPDATE public.ntak_settings SET enabled=true WHERE hotel_id='late-hotel';
 DO $$ BEGIN
  IF (SELECT stay_state FROM public.reservation_guests WHERE reservation_id='00000000-0000-4000-8000-000000000003' AND guest_id='00000000-0000-4000-8000-000000000033') <> 'expected' THEN RAISE EXCEPTION 'Activation resurrected an undone arrival'; END IF;
 END $$;
+
+-- 7. A fully checked-out stay with a sent VIZA departure must rebuild as
+-- departed, retaining the authority event's arrival and departure timestamps.
+UPDATE public.ntak_settings SET enabled=false WHERE hotel_id='late-hotel';
+INSERT INTO public.reservations(id,hotel_id,organization_slug,guest_id,room_id,status,check_in_date,check_out_date,adults,children,balance_due)
+VALUES('00000000-0000-4000-8000-000000000006','late-hotel','late-org','00000000-0000-4000-8000-000000000033','00000000-0000-4000-8000-000000000020','checked_out',current_date-2,current_date-1,1,0,0);
+INSERT INTO public.reservation_guests(reservation_id,guest_id,is_primary)
+VALUES('00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000033',true);
+INSERT INTO public.viza_guest_events(hotel_id,organization_slug,reservation_id,guest_id,erkezes_ideje,tavozas_varhato_datuma,tavozas_ideje,arrival_state,departure_state)
+VALUES('late-hotel','late-org','00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000033',now()-interval '2 days',current_date-1,now()-interval '1 day','sent','sent');
+UPDATE public.ntak_settings SET enabled=true WHERE hotel_id='late-hotel';
+DO $review$
+BEGIN
+ IF NOT EXISTS(
+   SELECT 1 FROM public.reservation_guests rg JOIN public.viza_guest_events ev
+     ON ev.reservation_id=rg.reservation_id AND ev.guest_id=rg.guest_id
+   WHERE rg.reservation_id='00000000-0000-4000-8000-000000000006'
+     AND rg.stay_state='departed' AND rg.arrived_at=ev.erkezes_ideje AND rg.departed_at=ev.tavozas_ideje
+     AND ev.departure_state='sent'
+ ) THEN RAISE EXCEPTION 'Acceptance 7: checked-out guest with sent VIZA departure was not rebuilt as departed'; END IF;
+ IF public.pms_rebuild_ntak_guest_states('late-hotel') IS DISTINCT FROM 0 THEN
+   RAISE EXCEPTION 'Acceptance 7: rebuild is not idempotent';
+ END IF;
+END $review$;
