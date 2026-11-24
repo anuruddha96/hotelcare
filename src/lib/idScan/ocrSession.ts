@@ -35,6 +35,10 @@ export class OcrSession {
   get ready(): boolean { return !!this.slot?.worker; }
 
   async recognize(canvas: HTMLCanvasElement, timeoutMs: number): Promise<string> {
+    return (await this.recognizeWithConfidence(canvas, timeoutMs)).text;
+  }
+
+  async recognizeWithConfidence(canvas: HTMLCanvasElement, timeoutMs: number): Promise<{ text: string; confidence: number | null }> {
     if (timeoutMs <= 0) throw new Error('OCR timeout');
     const workerPromise = this.warm();
     const slot = this.slot!;
@@ -49,7 +53,7 @@ export class OcrSession {
         workerPromise.then(worker => {
           if (this.slot !== slot) throw new Error('OCR cancelled');
           return worker.recognize(canvas);
-        }).then(({ data }) => data.text ?? ''),
+        }).then(({ data }) => ({ text: data.text ?? '', confidence: Number.isFinite(data.confidence) ? Math.max(0, Math.min(100, data.confidence)) : null })),
         cancelled,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {

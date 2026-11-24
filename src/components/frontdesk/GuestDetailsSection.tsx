@@ -12,6 +12,7 @@ import { CheckCircle2, IdCard, Loader2, PencilLine, ScanLine, TriangleAlert, X }
 import { IdScanDialog } from '@/components/frontdesk/IdScanDialog';
 import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
+import { guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { useTranslation } from '@/hooks/useTranslation';
 import { documentRequired, scanFieldState, vizaMissingFields, vizaProblems, type VizaProblem } from '@/lib/idScan/guestVizaChecks';
 
@@ -61,9 +62,11 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   // The reader's output for this guest: loaded with the guest, replaced by a new scan, cleared by "remove".
   const [scan, setScan] = useState<VizaDocumentScan | null>(null);
   const [scanChanged, setScanChanged] = useState(false);
+  const [optical, setOptical] = useState<OpticalGuestFields>({});
   const [hasExtraColumns, setHasExtraColumns] = useState(false);
 
   useEffect(() => {
+    setOptical({});
     if (!guestId) { setGuest(null); setScan(null); onCompletenessChange?.(openItems(null)); return; }
     let alive = true;
     setLoading(true);
@@ -104,18 +107,9 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   // identity, so what it says replaces the booking's name and details; the
   // receptionist then corrects anything misread (sent to VIZA as a manual
   // correction next to the unchanged reading) and presses Save.
-  const applyScan = (result: MrzReadResult) => {
-    const f = result.fields;
-    setGuest((g) => g ? {
-      ...g,
-      first_name: f.firstName || g.first_name,
-      last_name: f.lastName || g.last_name,
-      nationality: result.unknownCountry ? g.nationality : f.nationality || g.nationality,
-      date_of_birth: f.dateOfBirth || g.date_of_birth,
-      gender: f.gender || g.gender,
-      id_document_type: f.documentType,
-      id_document_number: f.documentNumber || g.id_document_number,
-    } : g);
+  const applyScan = (result: MrzReadResult, opticalFields: OpticalGuestFields = {}) => {
+    setGuest((g) => g ? { ...g, ...guestScanPatch(result, opticalFields) } : g);
+    setOptical(opticalFields);
     setScan(toVizaDocumentScan(result));
     setScanChanged(true);
     setDirty(true);
@@ -123,6 +117,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   };
 
   const removeScan = () => {
+    setOptical({});
     setScan(null);
     setScanChanged(true);
     setDirty(true);
@@ -168,8 +163,11 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   };
   // Under each field the reader filled: unchanged from the document, or corrected by hand.
   const mark = (field: Exclude<keyof GuestVizaRow, 'id'>) => {
+    const opticalValue = optical[field as keyof OpticalGuestFields];
+    if (guest && opticalValue && guest[field] === opticalValue) return <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400"><TriangleAlert className="h-3 w-3 shrink-0" /> {t('pms.scan.printedFieldsReview')}</p>;
     const state = guest ? scanFieldState(field, guest, scan) : null;
     if (!state) return null;
+    if (state === 'fromDocument' && scan?.valid === false) return <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400"><TriangleAlert className="h-3 w-3 shrink-0" /> {t('pms.scan.fieldNeedsReview')}</p>;
     return state === 'fromDocument'
       ? <p className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" /> {t('pms.guest.fromDocument')}</p>
       : <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400"><PencilLine className="h-3 w-3" /> {t('pms.guest.correctedByHand')}</p>;
@@ -178,6 +176,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
   const fieldLabel: Record<string, string> = {
     last_name: t('pms.guest.familyName'), first_name: t('pms.guest.givenName'),
     nationality: t('pms.guest.nationality'), date_of_birth: t('pms.guest.birthDate'),
+    birth_last_name: t('pms.guest.birthFamilyName'), birth_first_name: t('pms.guest.birthGivenName'), mother_name: t('pms.guest.motherName'),
     birth_place: t('pms.guest.birthPlace'), gender: t('pms.guest.gender'),
     id_document_type: t('pms.guest.docType'), id_document_number: t('pms.guest.docNumber'),
   };
@@ -197,9 +196,9 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
             <ScanLine className="h-4 w-4" /> {read ? t('pms.scan.retry') : t('pms.scan.button')}
           </Button>
           {read && (
-            <div className="rounded-md border border-emerald-300 bg-emerald-50/60 p-2.5 dark:border-emerald-900 dark:bg-emerald-950/20" data-training="fd-guest-scan-panel">
+            <div className={`rounded-md border p-2.5 ${scan?.valid === false ? "border-amber-300 bg-amber-50/60 dark:bg-amber-950/20" : "border-emerald-300 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20"}`} data-training="fd-guest-scan-panel">
               <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                {scan?.valid === false ? <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600" /> : <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
                 <p className="flex-1 text-xs font-semibold">{t('pms.guest.scanPanelTitle')}</p>
                 {scan?.read_at && <time className="text-[10px] text-muted-foreground">{new Date(scan.read_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</time>}
                 <Button type="button" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px]" onClick={removeScan}><X className="h-3 w-3" /> {t('pms.guest.scanRemove')}</Button>
@@ -223,7 +222,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
               {problems.map((problem) => <li key={problem} className="flex items-start gap-1.5"><TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" /> {problemText[problem]}</li>)}
             </ul>
           )}
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-2.5 [&>div]:min-w-0 [&_input]:min-w-0 [&_input]:w-full">
             <div>
               <Label className="text-xs">{t('pms.guest.familyName')}</Label>
               <Input className="h-8" value={guest.last_name ?? ''} onChange={(e) => setName('last_name', e.target.value)} />
@@ -239,16 +238,19 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
                 <div>
                   <Label className="text-xs">{t('pms.guest.birthFamilyName')}</Label>
                   <Input className="h-8" value={guest.birth_last_name ?? ''} onChange={(e) => set('birth_last_name', e.target.value)} />
+                  {mark('birth_last_name')}
                 </div>
                 <div>
                   <Label className="text-xs">{t('pms.guest.birthGivenName')}</Label>
                   <Input className="h-8" value={guest.birth_first_name ?? ''} onChange={(e) => set('birth_first_name', e.target.value)} />
+                  {mark('birth_first_name')}
                 </div>
               </>
             )}
             <div className="col-span-2">
               <Label className="text-xs">{t('pms.guest.motherName')}</Label>
               <Input className="h-8" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
+                  {mark('mother_name')}
             </div>
             <div>
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>
@@ -263,6 +265,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
             <div>
               <Label className="text-xs">{t('pms.guest.birthPlace')}</Label>
               <Input className="h-8" value={guest.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} />
+                  {mark('birth_place')}
             </div>
             <div>
               <Label className="text-xs">{t('pms.guest.gender')}</Label>
