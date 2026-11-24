@@ -5,10 +5,10 @@
  */
 import { strict as assert } from 'node:assert';
 import bcrypt from 'npm:bcryptjs@2.4.3';
-import { CATEGORIES, categoryProblem, postalCodeProblem, primaryChargeLimit } from './codes.ts';
+import { CATEGORIES, CLOSURE_CORRECTION_REASONS, IFA_STATUSES, categoryProblem, postalCodeProblem, primaryChargeLimit } from './codes.ts';
 import { assembleClosure, hasBlockingErrors, type ClosureSource, type ClosureSettings, type StayGuest, type UnitInfo } from './closure.ts';
 import { computeVendegId, generateSalt, guestHashInput, isValidSalt, missingIdentityFields } from './guestId.ts';
-import { autoIfaStatus, effectiveIfaStatus, ifaPerGuest } from './ifa.ts';
+import { autoIfaStatus, effectiveIfaStatus, isVerifiedIfaStatus, ifaPerGuest } from './ifa.ts';
 import { buildBooking, buildDaySources, mapExtras, mapPayments, DEFAULT_LEDGER_CONFIG, type RawReservation } from './ledger.ts';
 import {
   buildAdatszolgaltatasKezdoDatumRequest, buildEllenorzesRequest, buildEsemenyvezereltRequest, buildFoglalasEsemenyRequest,
@@ -202,7 +202,7 @@ Deno.test('closed accommodation reports every room as out of order', async () =>
 
 Deno.test('MODOSITO closure carries record id and reason', async () => {
   const src = closureSource();
-  src.classification = 'MODOSITO'; src.protocolId = 'JK-2026-001'; src.reason = 'Szállásdíj javítása';
+  src.classification = 'MODOSITO'; src.protocolId = 'JK-2026-001'; src.reason = 'TERHELES_VAGY_KOLTES_JAV';
   const { closure, checklist } = assembleClosure(src, settings);
   assert.ok(!hasBlockingErrors(checklist));
   const xml = buildNapiZarasRequest(common(), closure);
@@ -527,8 +527,7 @@ Deno.test('Phase 7: NZ_04A/B correcting a guest retains identity, 400 HUF rate a
   assert.equal(before.closure.nights[0].guests[0].birthYear, 1986);
   await assertValid(buildNapiZarasRequest(common(), before.closure));
 
-  // im5 is documented in official v8.23 section 11.21; verify v9.07 annex
-  // before final certification. Keep the originally transmitted guest ID.
+  // Verified national im5; keep the originally transmitted guest ID.
   src.classification = 'MODOSITO';
   src.reason = 'VENDEG_VAGY_IFA_JAVITAS';
   src.protocolId = 'NZ-04B-TEST';
@@ -542,7 +541,7 @@ Deno.test('Phase 7: NZ_04A/B correcting a guest retains identity, 400 HUF rate a
   assert.equal(after.closure.nights[0].guests[0].vendegId, sergey.vendegId);
   assert.equal(after.closure.nights[0].guests[0].ifaStatus, 'im5');
   assert.deepEqual(after.closure.nights[0].sold!.outPackage.filter(c => c.main === 'IFA'), [{ amount: 400, main: 'IFA', sub: null, vat: 0 }]);
-  assert.ok(after.checklist.some(c => c.code === 'ifa_unverified' && c.level === 'error'), 'unverified im5 must block transmission');
+  assert.ok(!hasBlockingErrors(after.checklist), JSON.stringify(after.checklist));
   const xml = buildNapiZarasRequest(common(), after.closure);
   assert.ok(xml.includes('VENDEG_VAGY_IFA_JAVITAS'));
   assert.ok(xml.includes('<v9:jegyzokonyvAzonosito>NZ-04B-TEST</v9:jegyzokonyvAzonosito>'));
@@ -629,4 +628,34 @@ Deno.test('MODOSITO requires a nonblank record ID and reason', () => {
   assert.ok(!assembleClosure(src, settings).checklist.some(c => c.code === 'correction'));
   src.reason = ' ';
   assert.ok(assembleClosure(src, settings).checklist.some(c => c.code === 'correction' && c.message.includes('reason')));
+});
+
+Deno.test('National IFA status set is exact; im7 and municipal codes are refused', () => {
+  const expected = ['KOTELES','im1','im2','im3','im4','im5','im6','im8','im9','im10'];
+  assert.deepEqual(IFA_STATUSES.map(x => x.code), expected);
+  for (const code of expected) assert.equal(isVerifiedIfaStatus(code), true);
+  for (const code of ['im7','im11','im100','IM5',' im5','im5 ','','koteles']) assert.equal(isVerifiedIfaStatus(code), false);
+  const src = closureSource();
+  src.stays[0].guests = [guest(1,{ifaStatus:'im7'})];
+  assert.ok(assembleClosure(src, settings).checklist.some(c => c.code === 'ifa_unverified' && c.level === 'error'));
+});
+Deno.test('EU_02B uses technical correction code, and UJ omits reason and has empty record ID', async () => {
+  const src = closureSource();
+  const fixed: ClosureSettings = {...settings, ifa:{type:'TETELES',rate:400}, ifaVat:0};
+  const newClosure = assembleClosure(src,fixed);
+  const newXml = buildNapiZarasRequest(common(),newClosure.closure);
+  assert.ok(newXml.includes('<v9:jegyzokonyvAzonosito></v9:jegyzokonyvAzonosito>'));
+  assert.ok(!newXml.includes('<v9:indoklas>'));
+  await assertValid(newXml);
+  src.protocolId = 'invalid-on-UJ'; src.reason = 'EGYEB';
+  assert.equal(assembleClosure(src,fixed).checklist.filter(c => c.code === 'correction').length,2);
+  src.classification='MODOSITO'; src.protocolId='EU-02B-TEST'; src.reason='TECH_HIBA_ADATJAVITAS';
+  const corrected = assembleClosure(src,fixed);
+  assert.ok(!hasBlockingErrors(corrected.checklist), JSON.stringify(corrected.checklist));
+  const xml = buildNapiZarasRequest(common(),corrected.closure);
+  assert.ok(xml.includes('<v9:indoklas>TECH_HIBA_ADATJAVITAS</v9:indoklas>'));
+  await assertValid(xml);
+  assert.deepEqual(CLOSURE_CORRECTION_REASONS.map(r=>r.code),['VENDEG_VAGY_IFA_JAVITAS','SZOBA_VAGY_FEROHELY_MOD','TERHELES_VAGY_KOLTES_JAV','SZAMLAMODOSITAS','TECH_HIBA_ADATJAVITAS','ELLENORZES_ELTERES_JAV','ELOZO_BEKULDES_NEM_TELJES','EGYEB']);
+  for (const r of CLOSURE_CORRECTION_REASONS) { src.reason=r.code; assert.ok(!assembleClosure(src,fixed).checklist.some(c=>c.code==='correction')); }
+  for (const reason of ['free text','EGYEB ','egyeb','',null]) { src.reason=reason; assert.ok(assembleClosure(src,fixed).checklist.some(c=>c.code==='correction' && c.level==='error')); }
 });

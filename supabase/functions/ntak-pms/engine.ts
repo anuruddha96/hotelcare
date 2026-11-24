@@ -639,7 +639,7 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
     let problem: string | null = null;
     if (!r) problem = "reservation not found";
     else if (!unit || (e.kind === "lakoegysegetCserelt" && !from)) problem = "room has no NTAK unit profile";
-    else if (selected.some(g => !isVerifiedIfaStatus(effectiveIfaStatus(g.birthDate, day, g.ifaStatus)))) problem = "Unverified IFA exemption: official v9 annex required";
+    else if (selected.some(g => !isVerifiedIfaStatus(effectiveIfaStatus(g.birthDate, day, g.ifaStatus)))) problem = "Unsupported IFA status: municipality-specific exemptions are not supported";
     else if (requested && (!exactMatch || requested.size===0)) problem = "selected guest identity missing or incomplete";
     else if (!list.length) problem = "no guest with complete personal data yet";
     if (problem) {

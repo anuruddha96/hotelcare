@@ -8,6 +8,7 @@ import '@/lib/ntak-translations';
 import { TranslationProvider } from '@/hooks/useTranslation';
 import { callNtak } from './ntakApi';
 import { NtakClosureDialog } from './NtakClosureDialog';
+import { CLOSURE_CORRECTION_REASONS, isClosureCorrectionReason } from '../../../supabase/functions/_shared/ntak/codes';
 import { NtakStatusCard } from './NtakStatusCard';
 
 const call = vi.mocked(callNtak);
@@ -51,7 +52,7 @@ describe('NTAK closure dialog', () => {
       const checklist = [
         ...(!protocolId.trim() || protocolId.length > 25
           ? [{ level: 'error', code: 'correction', message: 'A correction needs a record ID (max 25 characters)' }] : []),
-        ...(!reason.trim() || reason.length > 100
+        ...(!isClosureCorrectionReason(reason)
           ? [{ level: 'error', code: 'correction', message: 'A correction needs a reason (max 100 characters)' }] : []),
       ];
       return preview({ classification: 'MODOSITO', checklist });
@@ -62,6 +63,7 @@ describe('NTAK closure dialog', () => {
     await screen.findByText('MODOSITO');
     const record = screen.getByRole('textbox', { name: /(?:Protocol|Record) ID/i });
     const reason = screen.getByRole('combobox');
+    expect(Array.from((reason as HTMLSelectElement).options).map(o => o.value)).toEqual(['', ...CLOSURE_CORRECTION_REASONS.map(r => r.code)]);
     expect(send).toBeDisabled();
 
     fireEvent.change(reason, { target: { value: 'VENDEG_VAGY_IFA_JAVITAS' } });

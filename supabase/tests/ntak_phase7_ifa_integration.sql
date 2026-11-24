@@ -13,6 +13,7 @@ CREATE TABLE public.reservation_folios(id uuid PRIMARY KEY,hotel_id text);
 CREATE TABLE public.folio_lines(id uuid PRIMARY KEY,folio_id uuid,service_date date,room_id uuid,gross_total numeric,vat_rate numeric,currency text,status text,source_type text,service_catalog_item_id uuid);
 CREATE TABLE public.payments(id uuid PRIMARY KEY,reservation_id uuid,hotel_id text,amount numeric,currency text,method text,status text,received_at timestamptz);
 \ir ../migrations/20261124010300_ntak_phase7_ifa_corrections.sql
+\ir ../migrations/20261124010600_ntak_verified_v9_code_lists.sql
 INSERT INTO guests VALUES ('00000000-0000-0000-0000-000000000001','1986-01-01','1111','RU','HU');
 INSERT INTO reservations VALUES ('00000000-0000-0000-0000-000000000002','test','2026-11-01','2026-11-03',NULL,NULL);
 INSERT INTO reservation_guests VALUES ('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001','KOTELES');
@@ -66,4 +67,37 @@ DO $$ BEGIN
  OR NOT EXISTS(SELECT 1 FROM folio_lines WHERE gross_total=501) OR NOT EXISTS(SELECT 1 FROM payments WHERE amount=1201)
  THEN RAISE EXCEPTION 'NTAK bookkeeping failure blocked source write'; END IF;
 END $$;
+-- Test the real replacement RPC with scoped helper doubles in disposable CI.
+ALTER TABLE public.reservations ADD COLUMN organization_slug text, ADD COLUMN room_id uuid;
+UPDATE public.reservations SET organization_slug='test-org';
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $actor$ SELECT NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid $actor$;
+CREATE OR REPLACE FUNCTION public.can_access_pms_hotel(_uid uuid,_hotel_id text,_org text) RETURNS boolean LANGUAGE sql AS $scope$ SELECT _uid='00000000-0000-0000-0000-000000000091'::uuid AND _hotel_id='test' AND _org='test-org' $scope$;
+CREATE OR REPLACE FUNCTION public.pms_ntak_guest_scope(_reservation_id uuid,_room_id uuid) RETURNS boolean LANGUAGE sql AS $scope$ SELECT _reservation_id='00000000-0000-0000-0000-000000000002'::uuid $scope$;
+SELECT set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000091',true);
+SET LOCAL ROLE authenticated;
+DO $test$
+DECLARE code text; rid uuid:='00000000-0000-0000-0000-000000000002'; gid uuid:='00000000-0000-0000-0000-000000000001';
+BEGIN
+ FOREACH code IN ARRAY ARRAY['KOTELES','im1','im2','im3','im4','im5','im6','im8','im9','im10'] LOOP
+  PERFORM public.pms_set_guest_ifa_status(rid,gid,code);
+ END LOOP;
+ FOREACH code IN ARRAY ARRAY['im7','im11','im100','IM5','im5 ','','k oteles'] LOOP
+  BEGIN
+   PERFORM public.pms_set_guest_ifa_status(rid,gid,code);
+   RAISE EXCEPTION 'Unsupported status accepted: %',code;
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM IS DISTINCT FROM 'IFA_EXEMPTION_UNVERIFIED' THEN RAISE; END IF; END;
+ END LOOP;
+ PERFORM public.pms_set_guest_ifa_status(rid,gid,'im5');
+END $test$;
+RESET ROLE;
+DO $test$ BEGIN
+ IF (SELECT ifa_status FROM public.reservation_guests) IS DISTINCT FROM 'im5' THEN RAISE EXCEPTION 'RPC did not persist im5'; END IF;
+END $test$;
+SET LOCAL ROLE authenticated;
+SELECT public.pms_set_guest_ifa_status('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000001',NULL);
+RESET ROLE;
+DO $test$ BEGIN
+ IF EXISTS(SELECT 1 FROM public.reservation_guests WHERE ifa_status IS NOT NULL) THEN RAISE EXCEPTION 'Automatic age reset failed'; END IF;
+END $test$;
 ROLLBACK;

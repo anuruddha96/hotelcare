@@ -366,7 +366,7 @@ Deno.test("engine: closure, booking, events and start date go through signing, s
 
     // 7. A correction needs a record id and a reason, then goes out as MODOSITO.
     assert.equal((await queueClosure(db, s, Y, {})).ok, false);
-    const fix = await queueClosure(db, s, Y, { protocolId: "JK-1", reason: "Minibár tétel javítása" });
+    const fix = await queueClosure(db, s, Y, { protocolId: "JK-1", reason: "TERHELES_VAGY_KOLTES_JAV" });
     assert.ok(fix.ok);
     assert.match(fix.build.xml, /<v9:besorolas>MODOSITO<\/v9:besorolas><v9:jegyzokonyvAzonosito>JK-1</);
 
