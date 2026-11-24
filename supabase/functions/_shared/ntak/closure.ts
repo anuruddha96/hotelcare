@@ -10,7 +10,7 @@ import {
   ACCOMMODATION_CLASSES, categoryProblem, COUNTRY_CODES, postalCodeProblem, primaryChargeLimit, primarySpendingLimit,
   type AccommodationClass, type ChargeSlot, type MarketSegment, type Region, type SalesChannel, type Sex, type VatRate,
 } from './codes.ts';
-import { autoIfaStatus, ifaPerGuest, type IfaSetting } from './ifa.ts';
+import { effectiveIfaStatus, isVerifiedIfaStatus, ifaPerGuest, type IfaSetting } from './ifa.ts';
 import type { NtakCharge, NtakDailyClosure, NtakGuest, NtakNight, NtakPayment, NtakSoldUnit, NtakUnit } from './messages.ts';
 
 export interface ClosureSettings {
@@ -187,8 +187,8 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
       if (!COUNTRY_CODES.has(residence)) err('country', `${gref}: country of residence "${residence}" is not an accepted ISO-2 code`, st.reservationId);
       const postal = postalCodeProblem(residence, g.postalCode);
       if (postal) warn('postal', `${gref}: ${postal} (IrszHiba)`, st.reservationId);
-      const ifaStatus = g.ifaStatus || autoIfaStatus(g.birthDate, src.day);
-      if (!/^(KOTELES|im[1-9][0-9]*)$/.test(ifaStatus)) err('ifa', `${gref}: invalid tourism tax status ${ifaStatus}`, st.reservationId);
+      const ifaStatus = effectiveIfaStatus(g.birthDate, src.day, g.ifaStatus);
+      if (!isVerifiedIfaStatus(ifaStatus)) err('ifa_unverified', `${gref}: unverified tourism tax exemption ${ifaStatus}; v9 annex verification required`, st.reservationId);
       statuses.push(ifaStatus);
       guests.push({
         vendegId: g.vendegId, birthYear, sex: g.sex ?? 'EGYEB_VAGY_NEM_ISMERT', nationality, residenceCountry: residence,

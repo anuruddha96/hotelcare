@@ -1,3 +1,4 @@
+import { lifecycleErrorKey } from '@/lib/reservations';
 import { CATEGORIES } from '../../../supabase/functions/_shared/ntak/codes';
 import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
 import { budapestToday, budapestWallToIso } from '@/lib/businessMoment';
@@ -8,7 +9,6 @@ import { Banknote, BookOpen, CreditCard, Plus, Receipt, Settings2, Trash2 } from
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
-import { isNativePmsOrganization } from '@/hooks/useAccessPolicy';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -98,7 +98,19 @@ const paymentLabel = (method: string) => method === 'on_account' ? 'On account /
 export function ReservationAccountPanel({ reservation, onFinancialChanged }: Props) {
   const { profile } = useAuth();
   const { t } = useTranslation();
-  const isNativePms = isNativePmsOrganization(reservation.organization_slug);
+  const [nativeAccess, setNativeAccess] = useState<{id:string; allowed:boolean} | null>(null);
+  const isNativePms = nativeAccess?.id === reservation.id && nativeAccess.allowed;
+  useEffect(() => {
+    let alive = true;
+    setNativeAccess(null);
+    void (async () => {
+      try {
+        const {data,error} = await (supabase.rpc as CallableFunction)('pms_finance_native_access',{_reservation_id:reservation.id});
+        if (alive) setNativeAccess({id:reservation.id,allowed:!error && data===true});
+      } catch { if (alive) setNativeAccess({id:reservation.id,allowed:false}); }
+    })();
+    return () => { alive=false; };
+  },[reservation.id]);
   const [folio, setFolio] = useState<Folio | null>(null);
   const [lines, setLines] = useState<FolioLine[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -277,7 +289,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     });
     setBusy(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
     toast.success('Charge added.');
@@ -304,7 +316,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     });
     setBusy(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
     toast.success('Payment recorded.');
@@ -348,7 +360,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     });
     setBusy(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
     toast.success('Service item created for this property.');
@@ -361,7 +373,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     if (!canManageCatalogue) return;
     const { error } = await (supabase as any).from('service_catalog_items').update({ is_active: false }).eq('id', id);
     if (error) {
-      toast.error(error.message);
+      toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
     toast.success('Service item deactivated.');
@@ -382,7 +394,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     const { error } = await (supabase.rpc as CallableFunction)(fn, args);
     setBusy(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(lifecycleErrorKey(error) ? t(lifecycleErrorKey(error)!) : error.message);
       return;
     }
     toast.success(correction.type === 'charge' ? 'Charge voided.' : 'Payment reversed.');
@@ -391,6 +403,7 @@ export function ReservationAccountPanel({ reservation, onFinancialChanged }: Pro
     await notifyChanged();
   };
 
+  if (nativeAccess?.id !== reservation.id) return <p role="status" className="text-sm text-muted-foreground">{t('pms.loading')}</p>;
   if (!isNativePms) {
     // This is deliberately independent of the finance-core folio, which may be
     // empty on Previo hotels. Show only externally imported, trusted figures.

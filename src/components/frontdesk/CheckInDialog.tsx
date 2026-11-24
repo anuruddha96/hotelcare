@@ -23,6 +23,8 @@ import { BusinessMomentField, useBusinessMoment } from '@/components/frontdesk/B
 import { StayGuestRoster, useStayGuestRoster } from '@/components/frontdesk/StayGuestRoster';
 import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
 import { useParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { formatVizaArrivalError } from '@/lib/idScan/vizaArrivalError';
 
 interface CheckInDialogProps {
   reservation: any;
@@ -40,6 +42,12 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [override, setOverride] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [vizaMissing, setVizaMissing] = useState<string[]>([]);
+  const [vizaRequired, setVizaRequired] = useState(false);
+  useEffect(() => {
+    let active=true; setVizaRequired(false); setVizaMissing([]);
+    if(open) void (supabase.rpc as CallableFunction)('pms_viza_registration_required',{_reservation_id:reservation.id}).then(({data}: {data:unknown}) => {if(active) setVizaRequired(data===true);}).catch(()=>{});
+    return ()=>{active=false;};
+  },[open,reservation.id]);
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
   const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive', selectedRoom || reservation.room_id);
 
@@ -76,7 +84,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const notCleanWarn = !!selected && selected.room_status !== 'clean'
     && !(reservation.status === 'checked_in' && selected.room_id === reservation.room_id);
   const vizaWarn = !!reservation.guest_id && vizaMissing.length > 0;
-  const needsOverride = capacityWarn || notCleanWarn || vizaWarn;
+  const needsOverride = capacityWarn || notCleanWarn || (vizaWarn && !vizaRequired);
+  const vizaBlocked = vizaRequired && (roster.enabled ? roster.incompleteSelected > 0 : vizaWarn);
 
   const handleCheckIn = async () => {
     if (!selectedRoom) {
@@ -91,7 +100,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
       onSuccess();
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
-      toast.error(key ? t(key) : (err as Error).message || t('pms.checkIn.failedCheckIn'));
+      toast.error(formatVizaArrivalError((err as Error).message ?? '', t) ?? (key ? t(key) : (err as Error).message || t('pms.checkIn.failedCheckIn')));
 
     } finally {
       setSubmitting(false);
@@ -181,6 +190,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} />
           <BusinessMomentField control={businessMoment} />
 
+          {vizaBlocked && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaArrivalBlocked')}</p>}
           {(needsOverride || reservation.check_in_date !== today) && (
             <div className="flex items-start gap-2">
               <Checkbox id="override" checked={override} onCheckedChange={(c) => setOverride(!!c)} className="mt-0.5" />
@@ -188,7 +198,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
                 {t('pms.ci.overrideLabel')}
                 {capacityWarn && ` · ${t('pms.err.capacityExceeded')}`}
                 {notCleanWarn && ` · ${t('pms.err.roomNotClean')}`}
-                {vizaWarn && ` · ${t('pms.guest.incompleteWarn')}`}
+                {vizaWarn && !vizaRequired && ` · ${t('pms.guest.incompleteWarn')}`}
               </label>
             </div>
           )}
@@ -199,7 +209,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             onClick={handleCheckIn}
             disabled={submitting || businessMoment.invalid || !selectedRoom || roster.loading
               || (roster.enabled && roster.selectedIds.length === 0)
-              || (vizaWarn && !override)}
+              || vizaBlocked || (vizaWarn && !vizaRequired && !override)}
             className="gap-1"
             data-training="fd-checkin-confirm"
           >

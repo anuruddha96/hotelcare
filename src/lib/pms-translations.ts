@@ -1,5 +1,6 @@
 export const pmsTranslations: Record<string, Record<string, string>> = {
   en: {
+    'pms.err.postDepartureRequiresManager': 'Only a manager can post charges or payments after check-out.',
     'pms.err.noEligibleGuests': 'Add a guest to this reservation before checking in.',
     'pms.viza.queueFailed': 'VIZA reporting could not be queued',
     'pms.viza.queueReservation': 'Reservation',
@@ -332,6 +333,7 @@ export const pmsTranslations: Record<string, Record<string, string>> = {
   },
 
   hu: {
+    'pms.err.postDepartureRequiresManager': 'Kijelentkezés után csak vezető rögzíthet terhelést vagy fizetést.',
     'pms.err.noEligibleGuests': 'Bejelentkezés előtt adjon hozzá vendéget ehhez a foglaláshoz.',
     'pms.viza.queueFailed': 'A VIZA adatszolgáltatás nem került sorba',
     'pms.viza.queueReservation': 'Foglalás',

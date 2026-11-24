@@ -22,6 +22,8 @@
 - [ ] Only `channex-test-property` may be activated after readiness approval. `ntak-v9-validation` shares the registration and reporting ID and must remain disabled throughout. Never activate either from this checklist.
 - [ ] Obtain the authority's written confirmation that trial sends are allowed on this exact test registration. Until owner confirms receipt, the rehearsal dates remain TBD and no trial messages may be sent.
 
+- [ ] VIZA is currently enabled on `channex-test-property`. Recommended: Claude/owner temporarily disables VIZA there for the NTAK-only run and verifies the queue is isolated before any historical arrivals. Otherwise all test guests need complete document data AND a verified isolation mechanism preventing historical NTAK arrivals reaching the VIZA test server. Do not change other properties, drain unrelated queues, or enable either service from this runbook. Restore the approved VIZA test configuration only after NTAK isolation is verified.
+
 ## 2. Date plan — separate rehearsal and official validation
 
 The official v1.07 introduction specifies nine subject days and eight distinct daily closing dates; T01–T05 are five consecutive days with no omissions and may be historical. TX is no earlier than the actual current calendar date when advance bookings are generated. TY is a separate, previously unsent date and need not adjoin T01–T05. Use Budapest calendar dates; do not fake the current date or shorten the elapsed run. The official validation window is at most five calendar days; plan three consecutive actual days A/B/C.
