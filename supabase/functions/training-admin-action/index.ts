@@ -77,20 +77,21 @@ Deno.serve(async (req) => {
       }
       const uniqueIds = [...new Set(userIds)];
       const { data: targets, error: targetError } = await admin.from('profiles').select('id,role,access_role,organization_slug,is_super_admin,deleted_at').in('id', uniqueIds).eq('organization_slug', profile.organization_slug);
-      if (targetError || targets?.length !== uniqueIds.length || targets.some(target => target.deleted_at || target.is_super_admin || ['admin','top_management','top_management_manager','hr','control_finance'].includes(String(target.role)) || ['admin','top_management','controlling','hr'].includes(effectiveAccessRole(target)))) {
+      if (targetError || !targets || targets.length !== uniqueIds.length || targets.some(target => target.deleted_at || target.is_super_admin || ['admin','top_management','top_management_manager','hr','control_finance'].includes(String(target.role)) || ['admin','top_management','controlling','hr'].includes(effectiveAccessRole(target)))) {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
     const nowIso = new Date().toISOString();
 
     if (action === 'reset') {
-      await admin
+      const { error: deleteError } = await admin
         .from('user_tour_progress')
         .delete()
         .in('user_id', userIds)
         .in('tour_key', curriculumSlugs);
+      if (deleteError) throw deleteError;
       // Clear dismissal so auto-start can fire again
-      await admin
+      const { error: stateError } = await admin
         .from('user_training_state')
         .upsert(
           userIds.map((uid) => ({
@@ -101,8 +102,9 @@ Deno.serve(async (req) => {
           })),
           { onConflict: 'user_id' },
         );
+      if (stateError) throw stateError;
     } else if (action === 'retrigger') {
-      await admin
+      const { error: stateError } = await admin
         .from('user_training_state')
         .upsert(
           userIds.map((uid) => ({
@@ -113,6 +115,7 @@ Deno.serve(async (req) => {
           })),
           { onConflict: 'user_id' },
         );
+      if (stateError) throw stateError;
     } else if (action === 'mark_complete') {
       const rows: any[] = [];
       for (const uid of userIds) {
@@ -127,9 +130,10 @@ Deno.serve(async (req) => {
           });
         }
       }
-      await admin
+      const { error: progressError } = await admin
         .from('user_tour_progress')
         .upsert(rows, { onConflict: 'user_id,tour_key' });
+      if (progressError) throw progressError;
     } else {
       return new Response(JSON.stringify({ error: 'Unknown action' }), {
         status: 400,

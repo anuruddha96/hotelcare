@@ -1,3 +1,4 @@
+import { HrTrainingAssignment } from '@/components/hr/HrTrainingAssignment';
 import { OperationsNavigation } from '@/components/layout/OperationsNavigation';
 import { useAccessPolicy } from '@/hooks/useAccessPolicy';
 import { Header } from '@/components/layout/Header';
@@ -11,6 +12,7 @@ export default function TrainingCenterPage() {
       {hrWorkspace && <div className="px-4 pt-4"><OperationsNavigation current="training" /></div>}
       <main>
         <TrainingCenterView />
+        {hrWorkspace && <HrTrainingAssignment />}
       </main>
     </div>
   );

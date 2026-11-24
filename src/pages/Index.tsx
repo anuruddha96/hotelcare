@@ -146,7 +146,7 @@ const Index = () => {
   // has an assigned_hotel (the useEffect above will backfill today's date key).
   if (
     profile &&
-    MANAGER_ROLES.includes(profile.role) &&
+    accessRole !== 'hr' && MANAGER_ROLES.includes(profile.role) &&
     !hotelSelected &&
     !profile.assigned_hotel
   ) {

@@ -12,3 +12,19 @@ const rows = {
 };
 const keys = ['hr.heading','hr.nav.people','hr.nav.attendance','hr.nav.documents','hr.nav.training','hr.directory','hr.search','hr.empty','hr.error','hr.name','hr.linked','hr.unlinked','hr.nav.documents.tip','hr.nav.people.tip','hr.nav.attendance.tip','hr.nav.training.tip'];
 export const hrTranslations: Record<string, Record<string,string>> = Object.fromEntries(Object.entries(rows).map(([lang, values]) => [lang, Object.fromEntries(keys.map((key, i) => [key, values[i]]))]));
+
+const trainingRows: Record<string, string[]> = {
+  en: ['Assign staff training','Select an employee','Select a guide','Restart selected guide','Restart this guide for the selected employee? Their previous progress for this guide will be reset.','Training assigned','Unable to assign training'],
+  hu: ['Munkatársak képzése','Munkatárs kiválasztása','Útmutató kiválasztása','Kiválasztott útmutató újraindítása','Újraindítja ezt az útmutatót a kiválasztott munkatársnál? Az eddigi haladás törlődik.','Képzés hozzárendelve','A képzés hozzárendelése sikertelen'],
+  es: ['Asignar formación','Seleccionar empleado','Seleccionar guía','Reiniciar guía seleccionada','¿Reiniciar esta guía para el empleado seleccionado? Se restablecerá su progreso anterior.','Formación asignada','No se pudo asignar la formación'],
+  vi: ['Giao khóa đào tạo','Chọn nhân viên','Chọn hướng dẫn','Khởi động lại hướng dẫn','Khởi động lại hướng dẫn cho nhân viên đã chọn? Tiến độ trước đó sẽ được đặt lại.','Đã giao đào tạo','Không thể giao đào tạo'],
+  mn: ['Ажилтны сургалт оноох','Ажилтан сонгох','Заавар сонгох','Сонгосон зааврыг дахин эхлүүлэх','Сонгосон ажилтны энэ зааврыг дахин эхлүүлэх үү? Өмнөх явц арилна.','Сургалт оноолоо','Сургалт оноож чадсангүй'],
+  az: ['İşçi təlimi təyin et','İşçi seçin','Təlimat seçin','Seçilmiş təlimatı yenidən başladın','Seçilmiş işçi üçün təlimatı yenidən başlatmaq? Əvvəlki irəliləyiş sıfırlanacaq.','Təlim təyin edildi','Təlim təyin edilə bilmədi'],
+  tl: ['Magtalaga ng pagsasanay','Pumili ng empleyado','Pumili ng gabay','I-restart ang napiling gabay','I-restart ang gabay para sa napiling empleyado? Mare-reset ang naunang progreso.','Naitalaga ang pagsasanay','Hindi maitalaga ang pagsasanay'],
+  uk: ['Призначити навчання','Вибрати працівника','Вибрати посібник','Перезапустити вибраний посібник','Перезапустити посібник для вибраного працівника? Попередній прогрес буде скинуто.','Навчання призначено','Не вдалося призначити навчання'],
+  ru: ['Назначить обучение','Выбрать сотрудника','Выбрать руководство','Перезапустить выбранное руководство','Перезапустить руководство для выбранного сотрудника? Предыдущий прогресс будет сброшен.','Обучение назначено','Не удалось назначить обучение'],
+};
+const trainingKeys = ['hr.training.assign','hr.training.employee','hr.training.guide','hr.training.restart','hr.training.confirm','hr.training.done','hr.training.error'];
+for (const [lang, values] of Object.entries(trainingRows)) {
+  trainingKeys.forEach((key, i) => { hrTranslations[lang][key] = values[i]; });
+}

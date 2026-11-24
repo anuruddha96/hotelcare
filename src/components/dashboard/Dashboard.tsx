@@ -22,6 +22,7 @@ import { MinibarTrackingView } from './MinibarTrackingView';
 import { LostAndFoundManagement } from './LostAndFoundManagement';
 import { MaintenanceStaffView } from './MaintenanceStaffView';
 import { AttendanceTracker } from './AttendanceTracker';
+import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
@@ -343,7 +344,7 @@ export function Dashboard() {
       setSearchParams(searchParams, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, hrWorkspace]);
 
   const mainTabLabels: Record<string, string> = useMemo(() => ({
     people: t('hr.nav.people'), tickets: 'Maintenance issues', rooms: t('dashboard.rooms'), housekeeping: t('dashboard.housekeeping'),
@@ -577,7 +578,7 @@ export function Dashboard() {
           <TabsContent value="attendance" className="space-y-6">
             {(() => {
               const isExecutive = ['admin', 'top_management', 'top_management_manager', 'hr'].includes(profile?.role || '');
-              if (isExecutive) return <div className="space-y-6"><div><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>{hotelDisplayName && <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>}</div><AttendanceReports /></div>;
+              if (isExecutive) return <div className="space-y-6"><div><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>{hotelDisplayName && <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>}</div><AttendanceReports />{hrWorkspace && <BreakRequestApprovalView />}</div>;
               if (profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) return <div className="space-y-6"><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2><AttendanceTracker /><AttendanceReports /></div>;
               return null;
             })()}
