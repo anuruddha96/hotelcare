@@ -55,46 +55,46 @@ All colors MUST be HSL.
   }
 
   .dark {
-    --background: 220 19% 10%;
-    --foreground: 210 40% 98%;
+    --background: 0 0% 0%;
+    --foreground: 0 0% 96%;
 
-    --card: 220 19% 14%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 96%;
 
-    --popover: 220 19% 17%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 96%;
 
     --primary: 200 76% 58%;
     --primary-foreground: 222.2 47.4% 11.2%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 96%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 16% 78%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 78%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 96%;
 
     /* A destructive token is also used as text, so it must be legible on dark cards. */
     --destructive: 0 80% 76%;
     --destructive-foreground: 0 50% 12%;
 
-    --border: 218 15% 28%;
-    --input: 217 23% 29%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 0 0% 22%;
+    --input: 0 0% 27%;
+    --ring: 0 0% 75%;
     
     /* RD Hotels Brand Colors for dark mode */
     --rd-blue: 200 76% 58%;
     --rd-gray: 0 0% 62%;
     
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-background: 0 0% 5%;
+    --sidebar-foreground: 0 0% 96%;
     --sidebar-primary: 224.3 76.3% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-accent: 0 0% 13%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 22%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
