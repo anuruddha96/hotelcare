@@ -22,10 +22,13 @@ import { MinibarTrackingView } from './MinibarTrackingView';
 import { LostAndFoundManagement } from './LostAndFoundManagement';
 import { MaintenanceStaffView } from './MaintenanceStaffView';
 import { AttendanceTracker } from './AttendanceTracker';
+import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isNoMinibarOrganization } from '@/lib/gozsduNoMinibar';
+import { HrPeopleOverview } from '@/components/hr/HrPeopleOverview';
+import { useAccessPolicy } from '@/hooks/useAccessPolicy';
 import { defaultDashboardTabFor } from '@/lib/accessPolicy';
 
 import { AdminTabs } from '@/components/admin/AdminTabs';
@@ -68,6 +71,7 @@ interface Ticket {
 
 export function Dashboard() {
   const { profile } = useAuth();
+  const { hrWorkspace } = useAccessPolicy();
   const noMinibar = isNoMinibarOrganization(profile?.organization_slug) || isGozsduCourtHotel(profile?.assigned_hotel);
   const { t, language } = useTranslation();
   const { organization, hotels } = useTenant();
@@ -334,16 +338,16 @@ export function Dashboard() {
   useEffect(() => {
     const urlTab = searchParams.get('tab');
     const valid = ['tickets', 'rooms', 'housekeeping', 'attendance', 'minibar', 'lost-found', 'maintenance-tasks', 'admin'];
-    if (urlTab && valid.includes(urlTab)) {
+    if (urlTab && (valid.includes(urlTab) || (hrWorkspace && urlTab === 'people'))) {
       setActiveTab(urlTab === 'minibar' && noMinibar ? 'rooms' : urlTab);
       searchParams.delete('tab');
       setSearchParams(searchParams, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, hrWorkspace]);
 
   const mainTabLabels: Record<string, string> = useMemo(() => ({
-    tickets: 'Maintenance issues', rooms: t('dashboard.rooms'), housekeeping: t('dashboard.housekeeping'),
+    people: t('hr.nav.people'), tickets: 'Maintenance issues', rooms: t('dashboard.rooms'), housekeeping: t('dashboard.housekeeping'),
     attendance: t('dashboard.workStatus'), admin: 'Admin', 'maintenance-tasks': t('dashboard.myTasks'),
     minibar: 'Minibar', 'lost-found': 'Lost & Found',
   }), [t]);
@@ -421,8 +425,8 @@ export function Dashboard() {
 
         <Tabs value={noMinibar && activeTab === 'minibar' ? 'rooms' : activeTab} onValueChange={(val) => { setActiveTab(val); setActiveHousekeepingSubTab(''); setActiveInnerTab('team'); }} className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
-            <div><h1 className="text-2xl sm:text-3xl font-bold text-foreground">{hotelDisplayName || t('dashboard.title')}</h1>
-              <p className="text-sm sm:text-base text-muted-foreground">{hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}</p></div>
+            <div><h1 className="text-2xl sm:text-3xl font-bold text-foreground">{hrWorkspace ? t('hr.heading') : hotelDisplayName || t('dashboard.title')}</h1>
+              <p className="text-sm sm:text-base text-muted-foreground">{hrWorkspace ? organization?.name || profile?.organization_slug : hotelDisplayName ? t('dashboard.managementSystem').replace('{hotel}', hotelDisplayName) : t('dashboard.subtitle')}</p></div>
             <div className="w-full overflow-x-auto">
               {profile?.role === 'housekeeping' ? (
                 <TabsList className={((profile?.role as string) === 'hr' || profile?.is_super_admin) ? 'inline-flex h-10 sm:h-12 w-auto min-w-max gap-1' : 'grid w-full min-w-[320px] max-w-md grid-cols-3 h-10 sm:h-12'} data-training="main-tabs">
@@ -436,7 +440,7 @@ export function Dashboard() {
                   <TabsTrigger value="maintenance-tasks" data-training="maintenance-tasks-tab" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.myTasks')}</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"><Clock className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.workStatus')}</span></TabsTrigger>
                 </TabsList>
-              ) : ['manager','housekeeping_manager','admin','top_management','top_management_manager'].includes(profile?.role || '') ? (
+              ) : hrWorkspace || ['manager','housekeeping_manager','admin','top_management','top_management_manager'].includes(profile?.role || '') ? (
                 <OperationsNavigation
                   current={activeTab}
                   onDashboardTabChange={(tab) => {
@@ -458,7 +462,7 @@ export function Dashboard() {
                   <TabsTrigger value="tickets" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="tickets-tab"><Ticket className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.tickets')}</span></TabsTrigger>
                   <TabsTrigger value="rooms" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="rooms-tab"><Home className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.rooms')}</span></TabsTrigger>
                   <TabsTrigger value="attendance" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm" data-training="attendance-tab"><Clock className="h-3 w-3 sm:h-4 sm:w-4" /><span>{t('dashboard.workStatus')}</span></TabsTrigger>
-                  {(profile?.role === 'hr' || profile?.is_super_admin) && (
+                  {profile?.is_super_admin && (
                     <button type="button" onClick={() => navigate(`/${organizationSlug || 'rdhotels'}?view=staff-schedule`)} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 sm:px-3 text-xs sm:text-sm text-muted-foreground hover:bg-background/60 hover:text-foreground">
                       <CalendarDays className="h-4 w-4" />Master staff schedule
                     </button>
@@ -467,6 +471,8 @@ export function Dashboard() {
               )}
             </div>
           </div>
+
+          {hrWorkspace && <TabsContent value="people"><HrPeopleOverview /></TabsContent>}
 
           <TabsContent value="maintenance-tasks" className="space-y-6"><MaintenanceStaffView /></TabsContent>
 
@@ -572,7 +578,7 @@ export function Dashboard() {
           <TabsContent value="attendance" className="space-y-6">
             {(() => {
               const isExecutive = ['admin', 'top_management', 'top_management_manager', 'hr'].includes(profile?.role || '');
-              if (isExecutive) return <div className="space-y-6"><div><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>{hotelDisplayName && <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>}</div><AttendanceReports /></div>;
+              if (isExecutive) return <div className="space-y-6"><div><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>{hotelDisplayName && <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>}</div><AttendanceReports />{hrWorkspace && <BreakRequestApprovalView />}</div>;
               if (profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) return <div className="space-y-6"><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2><AttendanceTracker /><AttendanceReports /></div>;
               return null;
             })()}

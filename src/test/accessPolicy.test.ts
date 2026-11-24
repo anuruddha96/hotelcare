@@ -6,6 +6,7 @@ import {
   defaultDashboardTabFor,
   effectiveAccessRole,
   landingPathFor,
+  hrNavigationFor,
   miraScopesFor,
 } from '@/lib/accessPolicy';
 import { canUseAssistant } from '@/lib/assistantAccess';
@@ -115,9 +116,13 @@ describe('first screen', () => {
     expect(landingPathFor({ role: 'top_management_manager', access_role: 'controlling' }, ctx)).toBeNull();
   });
 
-  it('sends HR to the HR tab', () => {
-    expect(landingPathFor({ role: 'hr' }, ctx)).toBe('/rdhotels?tab=attendance');
-    expect(defaultDashboardTabFor({ role: 'hr' })).toBe('attendance');
+  it('sends HR to the People tab', () => {
+    expect(landingPathFor({ role: 'hr' }, ctx)).toBe('/rdhotels?tab=people');
+    expect(defaultDashboardTabFor({ role: 'hr' })).toBe('people');
+    expect(hrNavigationFor({ role: 'hr' })).toEqual(['people','staff-schedule','attendance','documents','training','tickets','rooms']);
+    expect(hrNavigationFor({ role: 'housekeeping' })).toEqual([]);
+    expect(capabilitiesFor({ role: 'housekeeping' }).peopleManage).toBe(false);
+    expect(capabilitiesFor({ role: 'hr' }).peopleManage).toBe(true);
   });
 
   it('keeps reception on housekeeping while the hotel runs on Previo', () => {

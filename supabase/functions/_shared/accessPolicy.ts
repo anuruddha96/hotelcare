@@ -159,6 +159,10 @@ export type ScheduleScope = "org" | "property" | "home_hotel" | "self";
 
 export type AccessCapabilities = {
   accessRole: AccessRole;
+  hrWorkspace: boolean;
+  peopleManage: boolean;
+  attendanceManage: boolean;
+  hrDocuments: boolean;
   /** May open Mira at all. */
   mira: boolean;
   /** Revenue module and Mira revenue data (revenue, ADR, pickup, goals). */
@@ -200,6 +204,10 @@ export function capabilitiesFor(subject: AccessSubject): AccessCapabilities {
   const executive = superAdmin || EXECUTIVE.includes(accessRole);
   const base: AccessCapabilities = {
     accessRole,
+    hrWorkspace: accessRole === "hr",
+    peopleManage: superAdmin || accessRole === "admin" || accessRole === "hr",
+    attendanceManage: superAdmin || accessRole === "admin" || accessRole === "hr" || accessRole === "top_management",
+    hrDocuments: superAdmin || accessRole === "admin" || accessRole === "hr",
     mira: false,
     revenueRead: false,
     priceList: false,
@@ -316,7 +324,7 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
     case "controlling":
       return context.invoicesAvailable ? `${base}/purchase-invoices` : null;
     case "hr":
-      return `${base}?tab=attendance`;
+      return `${base}?tab=people`;
     case "reception":
       // While the hotel runs on Previo, reception keeps today's start screen.
       return context.nativePms ? `${base}/reception` : null;
@@ -328,7 +336,13 @@ export function landingPathFor(subject: AccessSubject, context: LandingContext):
 /** Dashboard tab to open first (null = keep the existing per-role default). */
 export function defaultDashboardTabFor(subject: AccessSubject): string | null {
   const accessRole = effectiveAccessRole(subject);
-  if (accessRole === "hr") return "attendance";
+  if (accessRole === "hr") return "people";
   if (accessRole === "reception" && subject?.role === "manager") return "housekeeping";
   return null;
+}
+
+
+/** Dedicated HR navigation. Documents remain unavailable until their secure module ships. */
+export function hrNavigationFor(subject: AccessSubject): readonly string[] {
+  return capabilitiesFor(subject).hrWorkspace ? ["people", "staff-schedule", "attendance", "documents", "training", "tickets", "rooms"] : [];
 }
