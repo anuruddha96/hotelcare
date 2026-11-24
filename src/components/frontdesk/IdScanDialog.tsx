@@ -12,6 +12,7 @@ import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
 import { guideCrop, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
 import { OcrSession } from '@/lib/idScan/ocrSession';
 import { documentNumberReview, sameRead, scanConfidence } from '@/lib/idScan/scanReview';
+import { opticalGuestFields, guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { assessReadiness, completeAutoMrz, type Readiness } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
 import { firstSideAction, nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
@@ -39,7 +40,7 @@ import {
 interface IdScanDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onApply: (result: MrzReadResult) => void;
+  onApply: (result: MrzReadResult, optical?: OpticalGuestFields) => void;
 }
 
 type Phase = 'camera' | 'reading' | 'review' | 'failed';
@@ -133,6 +134,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const flipUntil = useRef(0);
   const [flipPrompt, setFlipPrompt] = useState(false);
   const [confidence, setConfidence] = useState<number | null>(null);
+  const [opticalFields, setOpticalFields] = useState<OpticalGuestFields>({});
+  const [opticalReading, setOpticalReading] = useState(false);
+  const [opticalSession] = useState(() => new OcrSession(createFrontOcrWorker));
   const [numberReview, setNumberReview] = useState<{ needsReview: boolean; printed: string | null }>({ needsReview: false, printed: null });
   const [mrzSession] = useState(() => new OcrSession(createOcrWorker));
   const [frontSession] = useState(() => new OcrSession(createFrontOcrWorker));
@@ -157,9 +161,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     previousRead.current = null;
     flipUntil.current = 0;
     frontSession.reset();
+    opticalSession.reset();
     frontJobRef.current = null;
     frontRef.current = { captured: false, positive: false, text: '' };
-  }, [frontSession]);
+  }, [frontSession, opticalSession]);
 
   const chooseSource = (next: ScannerSource) => {
     if (next === source) return;
@@ -223,6 +228,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setPhase('camera');
     setFlipPrompt(false);
     setConfidence(null);
+    setOpticalFields({});
+    setOpticalReading(false);
     setNumberReview({ needsReview: false, printed: null });
     setSide('front');
     setSource('camera');
@@ -261,7 +268,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   // Passports are recognised from their bio-page code lines (TD3), so the
   // first capture is enough. ID cards require a front capture BEFORE TD1/TD2
   // code lines on the back. Never accept the back as scan step one.
-  const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current, ocrConfidence: number | null = null) => {
+  const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current, ocrConfidence: number | null = null, frame?: HTMLCanvasElement) => {
     // Front OCR runs concurrently with turning the card. Give it a short
     // opportunity to finish for the cross-check, never block indefinitely.
     const pending = frontJobRef.current;
@@ -296,8 +303,32 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       const assessment = assessIdFront(front.text, parsed.fields);
       setFrontAssessment(assessment.status === 'unreadable' ? { status: 'needs_review', matchedFields: [] } : assessment);
     }
+    const frontText = action === 'id_complete' ? front.text : '';
+    setOpticalFields(opticalGuestFields(parsed, frontText, ''));
+    setOpticalReading(!!frame);
     clearFront();
     setPhase('review');
+    // Read the printed fields on the back (or passport bio page) as well as
+    // the MRZ. Only labeled values go into the proposed guest form. The
+    // original machine-readable result remains frozen and separate.
+    if (frame) {
+      let copy: HTMLCanvasElement | null = null;
+      try {
+        copy = snapshotFrame(frame, frame.width, frame.height);
+        const text = await opticalSession.recognize(copy, 10000);
+        if (scanRunRef.current === run) {
+          setOpticalFields(opticalGuestFields(parsed, frontText, text));
+          setReviewAcknowledged(false);
+        }
+      } catch { /* Missing printed data is never guessed. */ }
+      finally {
+        if (copy) wipe(copy);
+        if (scanRunRef.current === run) {
+          setOpticalReading(false);
+          opticalSession.reset();
+        }
+      }
+    }
   };
 
   // A reader types the whole code zone within a fraction of a second: read it
@@ -451,7 +482,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             // Wrong-side ID is actionable even if some optional fields are missing.
             const wrongSide = initial && parsed.fields.documentType === 'id_card';
             if (!automatic || completeAutoMrz(parsed) || wrongSide) {
-              await completeMrz(parsed, run, score);
+              await completeMrz(parsed, run, score, frame);
               return;
             }
           }
@@ -466,15 +497,15 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       if (!active()) return;
       if (initial) {
         const action = firstSideAction(partial, quality === 'ready');
-        if (action === 'front_first_required' && partial) await completeMrz(partial, run, partialConfidence);
+        if (action === 'front_first_required' && partial) await completeMrz(partial, run, partialConfidence, frame ?? undefined);
         else if (action === 'passport_complete' && partial) {
-          if (!automatic || completeAutoMrz(partial)) await completeMrz(partial, run, partialConfidence);
+          if (!automatic || completeAutoMrz(partial)) await completeMrz(partial, run, partialConfidence, frame ?? undefined);
           else fail('no_mrz', 'moveCloser');
         } else if (action === 'provisional_front') acceptFront(frame);
         else fail('first_not_recognized', quality === 'ready' ? 'moveCloser' : quality);
       } else if (partial && (!automatic || sameRead(previousRead.current, partial))) {
         // Repeated imperfect reads may open review, never silently confirm.
-        await completeMrz(partial, run, partialConfidence);
+        await completeMrz(partial, run, partialConfidence, frame ?? undefined);
       } else {
         previousRead.current = partial;
         fail('no_mrz', live ? 'moveCloser' : undefined);
@@ -485,7 +516,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         // provisional front when the secondary pass times out. No OCR result
         // is invented; a passport can still be recovered on the next side.
         if (initial && live && frame && completedPass && !partial && quality === 'ready') acceptFront(frame);
-        else if (automatic && !initial && partial && sameRead(previousRead.current, partial)) await completeMrz(partial, run, partialConfidence);
+        else if (automatic && !initial && partial && sameRead(previousRead.current, partial)) await completeMrz(partial, run, partialConfidence, frame ?? undefined);
         else if (automatic || live) { if (!initial && partial) previousRead.current = partial; setGuidance('holdSteady'); }
         else fail('ocr_unavailable');
         void mrzSession.warm().catch(() => undefined);
@@ -596,7 +627,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     busyRef.current = null;
     setAutoReading(false);
     setResult(null); clearFront(); setFrontAssessment(null);
-    setFlipPrompt(false); setConfidence(null); setNumberReview({ needsReview: false, printed: null });
+    setFlipPrompt(false); setConfidence(null); setOpticalFields({}); setOpticalReading(false); setNumberReview({ needsReview: false, printed: null });
     setFrontCaptureAttempted(false); setReviewAcknowledged(false);
     setSide('front'); setSource('camera'); setTyped(''); setFailReason(null);
     setPhase('camera');
@@ -620,9 +651,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setPhase('camera');
   };
   const needsReviewAcknowledgement = !!result && (
-    !result.valid || result.unknownCountry || numberReview.needsReview ||
+    !result.valid || result.unknownCountry || numberReview.needsReview || Object.keys(opticalFields).length > 0 ||
     (result.fields.documentType === 'id_card' && frontAssessment?.status !== 'matched')
   );
+  const proposed = result ? guestScanPatch(result, opticalFields) : null;
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
   return (
@@ -740,15 +772,18 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             </div>
             <div className="rounded-lg border p-3 space-y-1.5"><div className="flex justify-between text-sm font-semibold"><span>{t('pms.scan.ocrConfidence')}</span><span>{confidence === null ? t('pms.scan.confidenceUnavailable') : `${confidence}%`}</span></div>{confidence !== null && <div role="progressbar" aria-label={t('pms.scan.ocrConfidence')} aria-valuenow={confidence} aria-valuemin={0} aria-valuemax={100} className="h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full rounded-full ${result.valid && !numberReview.needsReview ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${confidence}%` }}/></div>}<p className="text-[11px] text-muted-foreground">{t('pms.scan.confidenceHint')}</p></div>
             <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 rounded-md border border-border p-3 text-sm">
-              <dt className="text-muted-foreground">{t('pms.guest.familyName')}</dt><dd className="font-semibold">{result.fields.mrzLastName || '—'}</dd>
-              <dt className="text-muted-foreground">{t('pms.guest.givenName')}</dt><dd className="font-semibold">{result.fields.mrzFirstName || '—'}</dd>
-              <dt className="text-muted-foreground">{t('pms.guest.nationality')}</dt><dd>{result.fields.nationality}</dd>
+              <dt className="text-muted-foreground">{t('pms.guest.familyName')}</dt><dd className="font-semibold">{proposed?.last_name || '—'}</dd>
+              <dt className="text-muted-foreground">{t('pms.guest.givenName')}</dt><dd className="font-semibold">{proposed?.first_name || '—'}</dd>
+              <dt className="text-muted-foreground">{t('pms.guest.nationality')}</dt><dd>{proposed?.nationality || '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.birthDate')}</dt><dd>{result.fields.dateOfBirth ?? '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.gender')}</dt><dd>{result.fields.gender ? t(`pms.guest.gender${result.fields.gender[0].toUpperCase()}${result.fields.gender.slice(1)}`) : '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.docType')}</dt><dd>{t(result.fields.documentType === 'passport' ? 'pms.guest.docPassport' : 'pms.guest.docIdCard')}</dd>
-              <dt className="text-muted-foreground">{t('pms.guest.docNumber')}</dt><dd className={numberReview.needsReview ? 'font-mono text-amber-700 dark:text-amber-300 font-semibold' : 'font-mono'}>{result.fields.documentNumber}{numberReview.needsReview && <div className="font-sans text-xs mt-1">{t('pms.scan.verifyNumber')}{numberReview.printed && <div>{t('pms.scan.printedNumber')}: <strong>{numberReview.printed}</strong></div>}</div>}</dd>
+              <dt className="text-muted-foreground">{t('pms.guest.docNumber')}</dt><dd className={numberReview.needsReview ? 'font-mono text-amber-700 dark:text-amber-300 font-semibold' : 'font-mono'}>{proposed?.id_document_number || '—'}{numberReview.needsReview && <div className="font-sans text-xs mt-1">{t('pms.scan.verifyNumber')}{numberReview.printed && <div>{t('pms.scan.printedNumber')}: <strong>{numberReview.printed}</strong></div>}</div>}</dd>
+              {(['birth_last_name', 'birth_first_name', 'mother_name', 'birth_place'] as const).map(key => opticalFields[key] && <div key={key} className="contents"><dt className="text-muted-foreground">{t(({ birth_last_name: 'pms.guest.birthFamilyName', birth_first_name: 'pms.guest.birthGivenName', mother_name: 'pms.guest.motherName', birth_place: 'pms.guest.birthPlace' })[key])}</dt><dd>{opticalFields[key]}</dd></div>)}
               <dt className="text-muted-foreground">{t('pms.scan.expiry')}</dt><dd>{result.fields.expiryDate ?? '—'}</dd>
             </dl>
+            {opticalReading && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin"/>{t('pms.scan.readingPrintedFields')}</p>}
+            {Object.keys(opticalFields).length > 0 && <p className="text-xs text-amber-700 dark:text-amber-300">{t('pms.scan.printedFieldsReview')}</p>}
             <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">{t('pms.scan.codeLines')}</summary><pre className="mt-1 overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] leading-tight">{result.lines.join('\n')}</pre></details>
             <p className="text-[11px] text-muted-foreground">{t('pms.scan.reviewHint')}</p>
 
@@ -791,7 +826,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           )}
           {phase === 'review' && <Button type="button" variant="outline" className="w-full" onClick={restart}>{t('pms.scan.retry')}</Button>}
           {phase === 'review' && result && (
-            <Button type="button" className="w-full" disabled={result.fields.documentType === 'id_card' && !frontAssessment || (needsReviewAcknowledgement && !reviewAcknowledged)} onClick={() => { onApply(result); onOpenChange(false); }}>{t('pms.scan.use')}</Button>
+            <Button type="button" className="w-full" disabled={opticalReading || result.fields.documentType === 'id_card' && !frontAssessment || (needsReviewAcknowledgement && !reviewAcknowledged)} onClick={() => { onApply(result, opticalFields); onOpenChange(false); }}>{t('pms.scan.use')}</Button>
           )}
         </DialogFooter>
       </DialogContent>
