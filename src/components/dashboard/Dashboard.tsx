@@ -24,6 +24,7 @@ import { MaintenanceStaffView } from './MaintenanceStaffView';
 import { AttendanceTracker } from './AttendanceTracker';
 import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { AttendanceReports } from './AttendanceReports';
+import { HrAttendance } from '@/components/hr/HrAttendance';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isNoMinibarOrganization } from '@/lib/gozsduNoMinibar';
@@ -578,7 +579,7 @@ export function Dashboard() {
           <TabsContent value="attendance" className="space-y-6">
             {(() => {
               const isExecutive = ['admin', 'top_management', 'top_management_manager', 'hr'].includes(profile?.role || '');
-              if (isExecutive) return <div className="space-y-6"><div><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>{hotelDisplayName && <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>}</div><AttendanceReports />{hrWorkspace && <BreakRequestApprovalView />}</div>;
+              if (isExecutive) return <div className="space-y-6"><div><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2>{hotelDisplayName && <p className="text-sm text-muted-foreground">{hotelDisplayName}</p>}</div>{hrWorkspace ? <><HrAttendance /><BreakRequestApprovalView /></> : <AttendanceReports />}</div>;
               if (profile?.role === 'housekeeping' || profile?.role === 'maintenance' || isManager) return <div className="space-y-6"><h2 className="text-2xl font-bold">{t('dashboard.workStatusAttendance')}</h2><AttendanceTracker /><AttendanceReports /></div>;
               return null;
             })()}

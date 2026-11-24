@@ -311,7 +311,7 @@ export const AttendanceReports = () => {
                 <Users className="h-4 w-4 text-orange-600" />
                 <div>
                   <p className="text-sm font-medium">{t('hr.punctualDays')}</p>
-                  <p className="text-2xl font-bold">{summary.scheduled_days == null ? '—' : summary.punctual_days + ' / ' + summary.scheduled_days}</p>
+                  <p className="text-2xl font-bold">{summary.scheduled_days == null ? '—' : t('hr.a.onTime').replace('{n}',String(summary.punctual_days)).replace('{m}',String(summary.scheduled_days))}</p>
                 </div>
               </div>
             </CardContent>
