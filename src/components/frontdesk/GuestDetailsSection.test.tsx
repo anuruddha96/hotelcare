@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GuestDetailsSection, type GuestVizaRow } from './GuestDetailsSection';
 import { useStayGuestRoster } from './StayGuestRoster';
 
-const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn() }));
+const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), apply: vi.fn() }));
+import type { MrzReadResult } from '@/lib/idScan/mrz';
+import type { OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 vi.mock('@/integrations/supabase/client', () => ({ supabase: mocks }));
 vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: () => null }));
+vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: ({ onApply }: { onApply: (result: MrzReadResult, optical?: OpticalGuestFields) => void }) => { mocks.apply.mockImplementation(onApply); return null; } }));
 vi.mock('@/components/guests/GuestSearchSelect', () => ({ GuestSearchSelect: () => null }));
 vi.mock('@/lib/pmsLifecycle', () => ({ addStayGuest: vi.fn(), guestTransitionReservation: vi.fn() }));
 
@@ -69,5 +71,89 @@ describe('in-dialog guest registration repair', () => {
     expect(result.current.incompleteSelected).toBe(0);
     expect(result.current.selectedIds).toEqual([guest.id]);
     expect(result.current.guests).toHaveLength(2);
+  });
+});
+
+const currentReview = { reservation_id: 'res-1', scan_reviewed: true, birth_name_absent: true, birth_place_absent: true, mother_name_absent: true, visa_exempt: true, parent_statement: true };
+const storedScan = { source: 'mrz_camera', format: 'TD3', valid: true, read_at: '2026-11-24T10:00:00Z', fields: {
+  csaladnev: 'GUEST', utonev: 'TEST', szuletesiDatum: '1990-01-01', allampolgarsagKod: 'DE',
+  nem: 'NO', okmanyTipus: 'UTLEVEL', okmanyAzonositoSzam: 'TEST123',
+} };
+const manualBirth = { birth_first_name: 'Manual Given', birth_last_name: 'Manual Family', birth_place: 'Manual Place',
+  mother_name: 'Family Given', mother_family_name: 'Family', mother_given_name: 'Given' };
+const scannedGuest = { ...guest, ...manualBirth, nationality: 'DE', viza_review: currentReview, document_scan: storedScan };
+const readResult = (documentNumber: string): MrzReadResult => ({
+  format: 'TD3', valid: true, unknownCountry: false, lines: [], fields: {
+    firstName: 'Test', lastName: 'Guest', mrzFirstName: 'TEST', mrzLastName: 'GUEST',
+    nationality: 'DE', nationalityIso3: 'DEU', dateOfBirth: '1990-01-01', gender: 'female',
+    documentType: 'passport', documentNumber, expiryDate: '2030-01-01', issuingState: 'DEU',
+  },
+});
+function mockGuest(row = scannedGuest) {
+  const query = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn(), update: vi.fn() };
+  query.select.mockReturnValue(query);
+  query.eq.mockReturnValue(query);
+  query.maybeSingle.mockResolvedValue({ data: row, error: null });
+  query.update.mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) });
+  mocks.from.mockReturnValue(query);
+  return query;
+}
+async function openEditor(reservationId: string) {
+  render(<GuestDetailsSection guestId={guest.id} vizaReservationId={reservationId} occurredAt="2026-11-24T10:00:00Z" />);
+  const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
+  await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+  if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+  await screen.findByPlaceholderText('HU / DE / USA…');
+}
+async function saveEditor() {
+  fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
+}
+describe('document reader evidence and corrections', () => {
+  it('preserves scan and all review flags when nationality is corrected', async () => {
+    const query = mockGuest();
+    await openEditor('res-1');
+    fireEvent.change(screen.getByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    const payload = query.update.mock.calls[0][0];
+    expect(payload.nationality).toBe('FR');
+    expect(payload.viza_review).toEqual(currentReview);
+    expect(payload).not.toHaveProperty('document_scan');
+  });
+  it('does not wipe the scan when saving a historical recovery form', async () => {
+    const query = mockGuest();
+    await openEditor('older-reservation');
+    fireEvent.change(screen.getByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0]).not.toHaveProperty('document_scan');
+  });
+  it('keeps handwritten birth fields on a same-document scan with no optical proposals', async () => {
+    const query = mockGuest();
+    await openEditor('res-1');
+    act(() => mocks.apply(readResult('TEST123'), {}));
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0]).toMatchObject(manualBirth);
+    expect(query.update.mock.calls[0][0].document_scan.fields.okmanyAzonositoSzam).toBe('TEST123');
+  });
+  it('clears old birth fields for a different document except proposed values', async () => {
+    const query = mockGuest();
+    await openEditor('res-1');
+    act(() => mocks.apply(readResult('TEST456'), { birth_place: 'New Place' }));
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0]).toMatchObject({
+      birth_first_name: null, birth_last_name: null, birth_place: 'New Place',
+      mother_name: null, mother_family_name: null, mother_given_name: null,
+    });
+  });
+  it('clears stored scan only on explicit Remove scan', async () => {
+    const query = mockGuest();
+    await openEditor('res-1');
+    fireEvent.click(screen.getByRole('button', { name: /pms.guest.scanRemove/ }));
+    await saveEditor();
+    await waitFor(() => expect(query.update).toHaveBeenCalled());
+    expect(query.update.mock.calls[0][0].document_scan).toBeNull();
   });
 });

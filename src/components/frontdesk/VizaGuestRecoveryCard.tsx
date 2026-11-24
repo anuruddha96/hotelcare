@@ -47,7 +47,7 @@ export function VizaGuestRecoveryCard({hotelId}:{hotelId:string}){
   <p className="text-xs text-muted-foreground">{t('pms.viza.needsFix')}</p>
   {rows.map(row=><div key={row.id} className="border-t pt-2 space-y-2">
    <div className="flex items-center gap-2 justify-between"><span className="text-sm font-medium">{row.guest_name||'—'} · {row.reservation_number||'—'}</span><Button size="sm" variant="outline" disabled={!row.guest_id} onClick={()=>setOpen(open===row.id?null:row.id)}>{t('pms.stayGuest.details')}</Button></div>
-   {open===row.id&&row.guest_id&&<><GuestDetailsSection guestId={row.guest_id}/><Button size="sm" disabled={busy} onClick={()=>void retry(row.id)}>{t('pms.viza.sendAgain')}</Button></>}
+   {open===row.id&&row.guest_id&&<><GuestDetailsSection vizaReservationId={row.reservation_id} guestId={row.guest_id}/><Button size="sm" disabled={busy} onClick={()=>void retry(row.id)}>{t('pms.viza.sendAgain')}</Button></>}
   </div>)}
  </section>;
 }

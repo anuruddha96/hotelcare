@@ -19,6 +19,8 @@ export interface GuestRowForViza {
   date_of_birth?: string | null;
   birth_place?: string | null;
   mother_name?: string | null;
+  mother_family_name?: string | null;
+  mother_given_name?: string | null;
   gender?: string | null; // male | female | other
   nationality?: string | null; // alpha-2 or alpha-3
   id_document_type?: string | null; // passport | id_card | driving_licence | …
@@ -54,7 +56,9 @@ const same = (a: string | null | undefined, b: string | null | undefined) =>
 
 export function guestToVizaGroups(guest: GuestRowForViza): { scanned: VizaGuestFields | null; manual: VizaGuestFields | null } {
   const scanned: VizaGuestFields | null = guest.document_scan?.fields ?? null;
-  const mother = splitMotherName(guest.mother_name);
+  const mother = guest.mother_family_name != null || guest.mother_given_name != null
+    ? { csalad: norm(guest.mother_family_name) || null, uto: norm(guest.mother_given_name) || null }
+    : splitMotherName(guest.mother_name);
   const current: VizaGuestFields = {
     csaladnev: norm(guest.last_name) || null,
     utonev: norm(guest.first_name) || null,
@@ -80,6 +84,20 @@ export function guestToVizaGroups(guest: GuestRowForViza): { scanned: VizaGuestF
       || !same(String(scannedValue), String(value))) {
       (manual as Record<string, unknown>)[key] = value;
       hasManual = true;
+    }
+  }
+
+  // THF requires both halves of each name pair in the manual block.
+  // If either half differs, transmit both reviewed values, while leaving the
+  // original reader payload intact (including accents and letter case).
+  for (const [family, given] of [
+    ['csaladnev', 'utonev'],
+    ['szuletesiCsaladnev', 'szuletesiUtonev'],
+    ['anyjaCsaladnev', 'anyjaUtonev'],
+  ] as const) {
+    if (manual[family] != null || manual[given] != null) {
+      manual[family] = current[family];
+      manual[given] = current[given];
     }
   }
 

@@ -2,6 +2,10 @@
 const LABELS: Record<string,string> = {
  last_name:'pms.guest.familyName',first_name:'pms.guest.givenName',nationality:'pms.guest.nationality',
  date_of_birth:'pms.guest.birthDate',birth_place:'pms.guest.birthPlace',gender:'pms.guest.gender',
+ birth_last_name:'pms.guest.birthFamilyName',birth_first_name:'pms.guest.birthGivenName',
+ mother_family_name:'pms.guest.motherFamily',mother_given_name:'pms.guest.motherGiven',
+ visa_number:'pms.guest.visaNumber',entry_date:'pms.guest.entryDate',entry_place:'pms.guest.entryPlace',
+ occupant_count:'pms.guest.occupantCount',manual_reason:'pms.guest.manualReason',parent_statement:'pms.guest.parentStatement',
  id_document_type:'pms.guest.docType',id_document_number:'pms.guest.docNumber',
 };
 export function formatVizaArrivalError(message: string, t: (key:string)=>string): string | null {

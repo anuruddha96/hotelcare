@@ -43,13 +43,18 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [vizaMissing, setVizaMissing] = useState<string[] | null>(null);
   const [arrivalError, setArrivalError] = useState<string | null>(null);
   const [vizaRequired, setVizaRequired] = useState(false);
+  const [vizaLoading, setVizaLoading] = useState(true);
+  const [vizaLoadFailed, setVizaLoadFailed] = useState(false);
   useEffect(() => {
     let active=true; setVizaRequired(false); setVizaMissing(null); setArrivalError(null);
-    if(open) void (supabase.rpc as CallableFunction)('pms_viza_registration_required',{_reservation_id:reservation.id}).then(({data}: {data:unknown}) => {if(active) setVizaRequired(data===true);}).catch(()=>{});
+    setVizaLoading(open); setVizaLoadFailed(false);
+    if(open) void (supabase.rpc as CallableFunction)('pms_viza_registration_required',{_reservation_id:reservation.id})
+      .then(({data,error}: {data:unknown;error:unknown}) => {if(active) { setVizaRequired(data===true); setVizaLoadFailed(!!error); setVizaLoading(false); }})
+      .catch(()=>{if(active) {setVizaLoadFailed(true); setVizaLoading(false);}});
     return ()=>{active=false;};
   },[open,reservation.id]);
   const businessMoment = useBusinessMoment(reservation.hotel_id, open);
-  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open, 'arrive', selectedRoom || reservation.room_id);
+  const roster = useStayGuestRoster(reservation.id, reservation.hotel_id, open && !vizaLoading && !vizaLoadFailed, 'arrive', selectedRoom || reservation.room_id, vizaRequired, businessMoment.occurredAt);
 
   const today = getLocalDateString();
   const pax = (reservation.adults ?? 1) + (reservation.children ?? 0);
@@ -86,7 +91,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const guestDetailsLoading = !roster.enabled && !!reservation.guest_id && vizaMissing === null;
   const vizaWarn = !!reservation.guest_id && (vizaMissing?.length ?? 0) > 0;
   const needsOverride = capacityWarn || notCleanWarn || (vizaWarn && !vizaRequired);
-  const vizaBlocked = vizaRequired && (roster.enabled ? roster.incompleteSelected > 0 : vizaWarn);
+  const rosterCountMismatch = vizaRequired && roster.enabled && roster.guests.filter(g => g.stay_state !== 'void').length !== pax;
+  const vizaBlocked = vizaRequired && (roster.enabled ? roster.incompleteSelected > 0 || rosterCountMismatch : vizaWarn || !reservation.guest_id || pax > 1);
 
   const handleCheckIn = async () => {
     if (!selectedRoom) {
@@ -97,7 +103,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
     setArrivalError(null);
     try {
       const result = await checkInReservation(reservation.id, selectedRoom, override, businessMoment.occurredAt,
-        roster.enabled ? roster.selectedIds : null);
+        roster.perGuestLifecycle ? roster.selectedIds : null);
       toast.success(`${reservationGuestLabel(reservation)} ${t('pms.checkIn.checkedIn')} · ${t('pms.res.room')} ${result.room_number ?? ''}`);
       onSuccess();
     } catch (err) {
@@ -132,13 +138,14 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <GuestWelcomeCard reservationId={reservation.id} hotelId={reservation.hotel_id}
             basePath={organizationSlug ? `/${organizationSlug}` : undefined} />
 
-          {!roster.enabled && reservation.guest_id && (
-            <GuestDetailsSection guestId={reservation.guest_id} onCompletenessChange={setVizaMissing}
+          {!vizaLoading && !vizaRequired && !roster.enabled && reservation.guest_id && (
+            <GuestDetailsSection occurredAt={businessMoment.occurredAt} vizaReservationId={vizaRequired ? reservation.id : undefined} guestId={reservation.guest_id} onCompletenessChange={setVizaMissing}
               onSaved={() => setArrivalError(null)} />
           )}
 
-          <StayGuestRoster control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
+          <StayGuestRoster vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
             orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} />
+          {vizaLoadFailed && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaStatusFailed')}</p>}
           {arrivalError && <p role="alert" className="text-sm text-destructive break-words">{arrivalError}</p>}
 
           {(noteSummary || balance > 0 || missingContact) && (
@@ -197,6 +204,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
 
           <BusinessMomentField control={businessMoment} />
 
+          {(rosterCountMismatch || (vizaRequired && !roster.enabled && pax > 1)) && <p role="alert" className="text-sm text-destructive">{t('pms.guest.occupantCount')}</p>}
           {vizaBlocked && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaArrivalBlocked')}</p>}
           {(needsOverride || reservation.check_in_date !== today) && (
             <div className="flex items-start gap-2">
@@ -214,8 +222,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
-            disabled={submitting || businessMoment.invalid || !selectedRoom || roster.loading || guestDetailsLoading
-              || (roster.enabled && roster.selectedIds.length === 0)
+            disabled={vizaLoading || vizaLoadFailed || submitting || businessMoment.invalid || !selectedRoom || roster.loading || guestDetailsLoading
+              || (roster.perGuestLifecycle && roster.selectedIds.length === 0)
               || vizaBlocked || (vizaWarn && !vizaRequired && !override)}
             className="gap-1"
             data-training="fd-checkin-confirm"
