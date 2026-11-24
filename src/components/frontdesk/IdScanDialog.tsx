@@ -86,6 +86,7 @@ function wipe(canvas: HTMLCanvasElement) {
 const OCR_PARAMETERS = {
   tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<',
   preserve_interword_spaces: '0',
+  tessedit_pageseg_mode: '6',
 };
 
 /**
@@ -136,6 +137,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [mrzSession] = useState(() => new OcrSession(createOcrWorker));
   const [frontSession] = useState(() => new OcrSession(createFrontOcrWorker));
   const [guidance, setGuidance] = useState<Readiness>('holdSteady');
+  const [captureProgress, setCaptureProgress] = useState(0);
   const [frontAssessment, setFrontAssessment] = useState<IdFrontAssessment | null>(null);
   const [frontCaptureAttempted, setFrontCaptureAttempted] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
@@ -165,6 +167,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     busyRef.current = null;
     mrzSession.reset();
     setAutoReading(false);
+    setFlipPrompt(false);
     setSource(next);
     setTyped('');
     setFailReason(null);
@@ -482,7 +485,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         // provisional front when the secondary pass times out. No OCR result
         // is invented; a passport can still be recovered on the next side.
         if (initial && live && frame && completedPass && !partial && quality === 'ready') acceptFront(frame);
-        else if (automatic || live) setGuidance('holdSteady');
+        else if (automatic && !initial && partial && sameRead(previousRead.current, partial)) await completeMrz(partial, run, partialConfidence);
+        else if (automatic || live) { if (!initial && partial) previousRead.current = partial; setGuidance('holdSteady'); }
         else fail('ocr_unavailable');
         void mrzSession.warm().catch(() => undefined);
       }
@@ -532,6 +536,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         previous?.fill(0); previous = gray;
         setGuidance(readiness);
         stable = readiness === 'ready' ? stable + 1 : 0;
+        setCaptureProgress(Math.min(100, stable * 50));
         if (stable < 2) setAutoReading(false);
         if (stable >= 2) {
           stable = 0;
@@ -541,6 +546,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       finally { schedule(250); }
     };
     setGuidance('holdSteady');
+    setCaptureProgress(0);
     schedule(250);
     return () => {
       cancelled = true;
@@ -575,6 +581,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     scanRunRef.current += 1;
     busyRef.current = null;
     setAutoReading(false);
+    setFlipPrompt(false);
     setTyped('');
     setFailReason(null);
     // A failed second scan keeps the successfully captured first ID side.
@@ -604,6 +611,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     frontRef.current.captured = true;
     // Physical review is not positive OCR evidence; preserve passport recovery.
     frontRef.current.positive = false;
+    flipUntil.current = performance.now() + 1600;
+    setFlipPrompt(true);
     setSide('mrz');
     setSource('camera');
     setFailReason(null);
@@ -692,7 +701,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
                 <div className={`pointer-events-none absolute inset-[7%] rounded-md border-2 border-dashed shadow-[0_0_0_9999px_rgba(0,0,0,0.28)] transition-colors ${autoReading || guidance === 'ready' ? 'border-emerald-400' : 'border-white/90'}`} />
                 {side === 'mrz' && <div className="pointer-events-none absolute inset-x-[7%] bottom-[7%] h-[24%] border-t border-dashed border-white/80 bg-primary/15" />}
                 {flipPrompt && side === 'mrz' && <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/75 text-white" role="status"><CheckCircle2 className="h-9 w-9 text-emerald-400"/><span className="text-sm font-semibold">{t('pms.scan.frontCaptured')}</span><RotateCw className="h-8 w-8 motion-safe:animate-pulse"/><span className="text-base font-bold">{t('pms.scan.flipCard')}</span></div>}
-                {cameraOk === true && <div role="status" className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1 text-center text-xs text-white">{autoReading ? t('pms.scan.reading') : guidance === 'ready' ? t('pms.scan.autoCaptureHint') : t(`pms.scan.${guidance}`)}</div>}
+                {cameraOk === true && <div role="status" className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1 text-center text-xs text-white"><div>{autoReading ? t('pms.scan.reading') : guidance === 'ready' ? t('pms.scan.autoCaptureHint') : t(`pms.scan.${guidance}`)}</div><div aria-hidden="true" className="mt-1 h-1 overflow-hidden rounded-full bg-white/25"><div className="h-full rounded-full bg-emerald-400 transition-[width] duration-200" style={{width: `${autoReading ? 100 : captureProgress}%`}}/></div></div>
                 {cameraOk === null && <Loader2 className="absolute inset-0 m-auto h-6 w-6 animate-spin text-white" />}
               </div>
             ) : (
