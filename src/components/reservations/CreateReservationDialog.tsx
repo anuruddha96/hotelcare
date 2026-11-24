@@ -25,6 +25,21 @@ import { nightsBetween, RESERVATION_SOURCES } from '@/lib/reservations';
 const UNASSIGNED = '__none__';
 const CURRENCIES = ['EUR', 'HUF', 'CZK', 'USD', 'GBP'];
 
+const newReservationDraft = () => ({
+    guest_id: '',
+    check_in_date: '',
+    check_out_date: '',
+    adults: '1',
+    children: '',
+    room_id: UNASSIGNED,
+    room_type_requested: '',
+    rate_per_night: '',
+    currency: DEFAULT_RESERVATION_CURRENCY,
+    source: 'direct',
+    special_requests: '',
+    internal_notes: '',
+  });
+
 function FieldLabel({ id, label, help }: { id: string; label: string; help: string }) {
   return (
     <div className="flex min-w-0 items-center gap-1">
@@ -58,20 +73,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
   const [submitting, setSubmitting] = useState(false);
   const [rooms, setRooms] = useState<AvailableRoom[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
-  const [form, setForm] = useState({
-    guest_id: '',
-    check_in_date: '',
-    check_out_date: '',
-    adults: '1',
-    children: '',
-    room_id: UNASSIGNED,
-    room_type_requested: '',
-    rate_per_night: '',
-    currency: DEFAULT_RESERVATION_CURRENCY,
-    source: 'direct',
-    special_requests: '',
-    internal_notes: '',
-  });
+  const [form, setForm] = useState(newReservationDraft);
 
   const rateValid = isReservationNumberDraftValid(form.rate_per_night, 'rate');
   const adultsValid = isReservationNumberDraftValid(form.adults, 'adults');
@@ -83,9 +85,10 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
   const nights = nightsBetween(form.check_in_date, form.check_out_date);
   const datesValid = !!form.check_in_date && !!form.check_out_date && form.check_out_date > form.check_in_date;
 
-  // A fresh opening starts in EUR, even after a previous cancelled draft.
+  // Closing abandons the draft; a new booking always starts in EUR.
+  // Reset all fields together so an old amount is never relabelled as EUR.
   useEffect(() => {
-    if (open) setForm((f) => ({ ...f, currency: DEFAULT_RESERVATION_CURRENCY }));
+    if (!open) setForm(newReservationDraft());
   }, [open]);
 
   // Walk-in defaults to arriving today.
@@ -155,11 +158,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
         status: 'confirmed',
       });
       toast.success(`${t('pms.createReservation.reservationCreated')} · ${result.reservation_number ?? ''}`);
-      setForm({
-        guest_id: '', check_in_date: '', check_out_date: '', adults: '1', children: '',
-        room_id: UNASSIGNED, room_type_requested: '', rate_per_night: '', currency: DEFAULT_RESERVATION_CURRENCY,
-        source: 'direct', special_requests: '', internal_notes: '',
-      });
+      setForm(newReservationDraft());
       ntak.reset();
       onSuccess();
     } catch (err) {
@@ -176,7 +175,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
         <DialogHeader className="shrink-0 pr-8 text-left">
           <DialogTitle>{t('pms.createReservation.newReservation')}</DialogTitle>
         </DialogHeader>
-        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-1 pb-2">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden overscroll-contain px-1 pb-2">
           <GuestSearchSelect
             value={form.guest_id}
             onChange={(id) => setForm({ ...form, guest_id: id })}
@@ -184,6 +183,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
             hotelId={hotelId}
             orgSlug={orgSlug}
           />
+          {!form.guest_id && <p className="text-xs text-muted-foreground">{tr("Search for an existing guest or create a new guest profile.", "Keressen meglévő vendéget, vagy hozzon létre új vendégprofilt.")}</p>}
 
           <div className="grid min-w-0 grid-cols-2 gap-3">
             <div className="col-span-2 min-w-0 sm:col-span-1">
@@ -252,7 +252,7 @@ export function CreateReservationDialog({ open, onOpenChange, onSuccess }: Creat
 
           <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3">
             <div className="min-w-0">
-              <FieldLabel id="new-res-rate" label={tr('Rate / night', 'Ár / éj')} help={tr('Enter the room price for one night in the selected currency. A blank rate is treated as zero.', 'Adja meg az egy éjszakára vonatkozó szobaárat a választott pénznemben. Az üres ár nullának számít.')} />
+              <FieldLabel id="new-res-rate" label={tr(`Rate / night (${form.currency})`, `Ár / éj (${form.currency})`)} help={tr('Enter the room price for one night in the selected currency. A blank rate is treated as zero.', 'Adja meg az egy éjszakára vonatkozó szobaárat a választott pénznemben. Az üres ár nullának számít.')} />
               <Input id="new-res-rate" className="min-w-0" inputMode="decimal" placeholder="0.00" value={form.rate_per_night} aria-invalid={!rateValid} onChange={(e) => setForm({ ...form, rate_per_night: normalizeReservationNumberDraft(e.target.value, 'rate') })} />
             </div>
             <div className="min-w-0">
