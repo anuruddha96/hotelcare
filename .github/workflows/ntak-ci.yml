@@ -100,7 +100,16 @@ jobs:
           python3 scripts/render_finance_core_fixture.py > /tmp/ntak_finance_core_ddl.sql
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_guard_integration.sql
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase8_catalogue_integration.sql
+          # Reproduce the exact NULL-organization failure with unpatched Phase 8.
+          if PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase8_null_organization_regression.sql > /tmp/ntak_null_org_before.log 2>&1; then
+            cat /tmp/ntak_null_org_before.log
+            echo "Expected the original Phase 8 guard to reject NULL-organization Previo postings"
+            exit 1
+          fi
+          cat /tmp/ntak_null_org_before.log
+          grep -F 'ERROR:  POST_DEPARTURE_REQUIRES_MANAGER' /tmp/ntak_null_org_before.log
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261124010500_ntak_native_finance_consistency.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase8_null_organization_regression.sql
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_native_finance_consistency.sql
       - name: Phase-3 activation, undo and VIZA resilience acceptance (PostgreSQL)
         run: |
