@@ -194,7 +194,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
       if (arrivals.length) {
         const guestIds = arrivals.map((a) => a.guest_id).filter(Boolean);
         const { data: guestRows } = guestIds.length
-          ? await db.from("guests").select("id, first_name, last_name, birth_last_name, birth_first_name, date_of_birth, birth_place, mother_name, gender, nationality, id_document_type, id_document_number, visa_number, entry_date, entry_place, document_scan").in("id", guestIds)
+          ? await db.from("guests").select("id, first_name, last_name, birth_last_name, birth_first_name, date_of_birth, birth_place, mother_name, mother_family_name, mother_given_name, gender, nationality, id_document_type, id_document_number, visa_number, entry_date, entry_place, document_scan").in("id", guestIds)
           : { data: [] };
         const guestById = new Map((guestRows ?? []).map((g: { id: string }) => [g.id, g]));
         const vizaGuests: VizaArrivalGuest[] = arrivals.map((a) => {
