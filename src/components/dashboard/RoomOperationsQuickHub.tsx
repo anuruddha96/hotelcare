@@ -1082,6 +1082,17 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       ? 'border-rose-200 bg-rose-50 text-rose-900'
       : statusTone(effectiveStatus);
 
+  // Keep compact status badges unchanged, but avoid large bright summary cards in dark mode.
+  const summaryStatusTone = isSlntOutOfService || hasNonCleaningOutcome || effectiveStatus === 'out_of_order'
+    ? 'dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100'
+    : effectiveStatus === 'clean' || effectiveStatus === 'completed'
+      ? 'dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'
+      : effectiveStatus === 'in_progress'
+        ? 'dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100'
+        : effectiveStatus === 'pending_approval'
+          ? 'dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100'
+          : 'dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100';
+
   const activeRoomTypeNotice = selection?.pmsMetadata?.roomTypeChangeNotice as RoomTypeNotice | undefined;
   const managerTypeNotice = activeRoomTypeNotice?.date === selectedDate
     ? activeRoomTypeNotice
@@ -1127,20 +1138,20 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         </div>
       )}
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className={`rounded-xl border p-3 ${visibleStatusTone}`}>
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Room condition</p>
+        <div className={`rounded-xl border p-3 ${visibleStatusTone} ${summaryStatusTone}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Room condition</p>
           <p className="mt-1 text-sm font-bold">{visibleStatusLabel}</p>
         </div>
-        <div className={`rounded-xl border p-3 ${selection.isCheckout ? 'border-orange-200 bg-orange-50 text-orange-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Service</p>
+        <div className={`rounded-xl border p-3 ${selection.isCheckout ? 'border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/30 dark:text-orange-100' : 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-100'}`}>
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Service</p>
           <p className="mt-1 text-sm font-bold">{currentRequiredService}</p>
         </div>
-        <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-violet-900">
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Housekeeper</p>
+        <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 text-violet-900 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Housekeeper</p>
           <p className="mt-1 truncate text-sm font-bold">{assigneeName}</p>
         </div>
-        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-cyan-900">
-          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Room</p>
+        <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-cyan-900 dark:border-cyan-800 dark:bg-cyan-950/30 dark:text-cyan-100">
+          <p className="text-[9px] font-bold uppercase tracking-wider opacity-70 dark:opacity-100">Room</p>
           <p className="mt-1 text-sm font-bold">{selection.roomSizeSqm ? `${selection.roomSizeSqm} m²` : selection.roomCategory || '—'}</p>
         </div>
       </section>
