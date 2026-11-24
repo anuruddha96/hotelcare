@@ -13,7 +13,7 @@ import { codeLineGeometry, printedZone, refineCodeBlock, repairLookAlikes, toGra
 import { agreePrinted, parsePrintedText, printedGuestFields, type PrintedRead } from '@/lib/idScan/printedFields';
 import { guideCrop, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
 import { OcrSession } from '@/lib/idScan/ocrSession';
-import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, rowHasLabel } from '@/lib/idScan/hungarianCard';
+import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, needsHungarianPrintedFallback, rowHasLabel } from '@/lib/idScan/hungarianCard';
 import { shouldAdvanceFront, confidenceTone, printedRegion } from '@/lib/idScan/stillCapture';
 import { documentNumberReview, scanConfidence } from '@/lib/idScan/scanReview';
 import { opticalGuestFields, guestScanPatch, extractOpticalGuestFields, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
@@ -544,9 +544,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         let extracted = located
           ? { ...opticalGuestFields(parsed, frontText, ''), ...located }
           : opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n'));
-        if (hungarian && !located && !complete(extracted) && scanRunRef.current === run) {
+        if (needsHungarianPrintedFallback(hungarian, extracted) && scanRunRef.current === run) {
           const targeted = await readHungarianRows(copy, run);
-          // Do not overwrite a conflicting labeled read. Review all proposals.
+          // Even located OCR can omit a printed row. Fill only missing values
+          // from independently labeled, confidence-checked targeted reads.
           extracted = { ...targeted, ...extracted };
         }
         if (scanRunRef.current === run) {
