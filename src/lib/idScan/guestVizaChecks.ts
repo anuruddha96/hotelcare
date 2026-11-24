@@ -6,6 +6,7 @@
  * a rejection afterwards. Pure functions: guest row in, findings out.
  */
 import { ISO3_TO_ISO2, iso3ToIso2 } from '../../../supabase/functions/_shared/viza/country';
+import { isVizaPlaceholder, isThirdCountryNationality, validEntryAbsence, type EntryDetailsReason } from '../../../supabase/functions/_shared/viza/fieldRules';
 import type { VizaDocumentScan } from './vizaScan';
 
 export interface GuestVizaValues {
@@ -26,6 +27,7 @@ export interface GuestVizaValues {
   visa_number?: string | null;
   entry_date?: string | null;
   entry_place?: string | null;
+  document_scan?: unknown;
 }
 
 export interface VizaReview {
@@ -35,17 +37,15 @@ export interface VizaReview {
   mother_name_absent?: boolean;
   visa_exempt?: boolean;
   entry_details_absent?: boolean;
+  entry_details_reason?: EntryDetailsReason;
+  entry_details_reason_text?: string;
   manual_reason?: string;
   scan_reviewed?: boolean;
   parent_statement?: boolean;
 }
 const ISO2 = new Set(Object.values(ISO3_TO_ISO2));
-const FREE_MOVEMENT = new Set('AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE IS LI NO CH'.split(' '));
 export const isHungarianId = (guest: GuestVizaValues) => iso3ToIso2(guest.nationality) === 'HU' && guest.id_document_type === 'id_card';
-export const thirdCountry = (guest: GuestVizaValues) => {
-  const code = iso3ToIso2(guest.nationality);
-  return !!code && ISO2.has(code) && !FREE_MOVEMENT.has(code);
-};
+export const thirdCountry = (guest: GuestVizaValues) => isThirdCountryNationality(guest.nationality);
 const validDate = (v: string | null | undefined): boolean => {
   if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
   const date = new Date(v + 'T00:00:00Z');
@@ -103,45 +103,67 @@ export function vizaProblems(guest: GuestVizaValues | null | undefined, day = ne
   return problems;
 }
 
-/** Admission rules for a VIZA-enabled stay; exceptions are explicit and stay-scoped. */
-export function vizaAdmissionFields(guest: GuestVizaValues | null | undefined, reservationId: string, day = vizaArrivalDay()): string[] {
-  if (!guest) return vizaMissingFields(null);
-  const missing = vizaMissingFields(guest, day).filter(f => f !== 'birth_place');
-  const review = guest.viza_review?.reservation_id === reservationId ? guest.viza_review : {};
-  const add = (field: string) => { if (!missing.includes(field)) missing.push(field); };
-  const requiredDoc = documentRequired(guest.date_of_birth, day);
-  const hasDoc = filled(guest.id_document_type) && filled(guest.id_document_number);
+export type VizaFieldState = 'required' | 'printed_only' | 'optional' | 'not_needed';
+export type VizaFieldRequirement = { state: VizaFieldState; ok: boolean; messageKey: string };
+export type VizaFieldRequirements = Record<string, VizaFieldRequirement>;
+const fits = (v: unknown, chars: number, bytes = Infinity) =>
+  [...String(v ?? '').trim()].length <= chars && new TextEncoder().encode(String(v ?? '').trim()).length <= bytes;
+const messageForState: Record<VizaFieldState, string> = {
+  required: 'pms.guest.requirement.required', printed_only: 'pms.guest.requirement.printedOnly',
+  optional: 'pms.guest.requirement.optional', not_needed: 'pms.guest.requirement.notNeeded',
+};
+
+/** One local admission matrix; stay-scoped review flags never imply a printed field is present. */
+export function vizaFieldRequirements(guest: GuestVizaValues | null | undefined, reservationId: string, day = vizaArrivalDay()): VizaFieldRequirements {
+  const g: GuestVizaValues = guest ?? {};
+  const result: VizaFieldRequirements = {};
+  const review: VizaReview = g.viza_review?.reservation_id === reservationId ? g.viza_review : {};
+  const put = (field: string, state: VizaFieldState, ok: boolean, placeholder = false) => {
+    result[field] = { state, ok, messageKey: placeholder ? 'pms.guest.requirement.placeholder' : messageForState[state] };
+  };
+  const requiredDoc = documentRequired(g.date_of_birth, day);
+  const hasDoc = filled(g.id_document_type) && filled(g.id_document_number);
   const childWithoutDoc = !requiredDoc && !hasDoc;
-  const noExceptions = isHungarianId(guest) || childWithoutDoc;
-  const checkPair = (a: keyof GuestVizaValues, b: keyof GuestVizaValues, absent: boolean | undefined) => {
-    if (filled(guest[a]) || filled(guest[b]) || noExceptions || !absent) {
-      if (!filled(guest[a])) add(a);
-      if (!filled(guest[b])) add(b);
+  const noExceptions = isHungarianId(g) || childWithoutDoc;
+  const printedState = noExceptions ? 'required' : 'printed_only';
+  for (const field of ['last_name','first_name'] as const) put(field,'required',filled(g[field]) && fits(g[field],200,254));
+  const checkPair = (a: keyof GuestVizaValues, b: keyof GuestVizaValues, absent?: boolean) => {
+    const bothAbsent = !filled(g[a]) && !filled(g[b]) && !noExceptions && absent === true;
+    for (const field of [a,b]) {
+      const placeholder = isVizaPlaceholder(g[field]);
+      put(field,printedState,bothAbsent || (filled(g[field]) && !placeholder && fits(g[field],200,254)),placeholder);
     }
   };
-  checkPair('birth_last_name', 'birth_first_name', review.birth_name_absent);
-  checkPair('mother_family_name', 'mother_given_name', review.mother_name_absent);
-  if (!filled(guest.birth_place) && (noExceptions || !review.birth_place_absent)) add('birth_place');
-  for (const field of ['first_name','last_name','birth_first_name','birth_last_name','mother_family_name','mother_given_name'] as const) {
-    const value = String(guest[field] ?? '').trim();
-    if ([...value].length > 200 || new TextEncoder().encode(value).length > 254) add(field);
-  }
-  if (!['male','female','other'].includes(guest.gender ?? '')) add('gender');
-  if ((requiredDoc || filled(guest.id_document_type)) && !['passport','id_card','driving_licence','other'].includes(guest.id_document_type ?? '')) add('id_document_type');
-  if (String(guest.id_document_number ?? '').length > 100 || (!childWithoutDoc && !hasDoc)) add('id_document_number');
-  if (!ISO2.has(iso3ToIso2(guest.nationality) ?? '')) add('nationality');
-  const oldest = new Date(day);
-  oldest.setUTCFullYear(oldest.getUTCFullYear() - 110);
-  if (!validDate(guest.date_of_birth) || String(guest.date_of_birth) < isoDay(oldest) || vizaProblems(guest, day).includes('birthDate')) add('date_of_birth');
-  if (thirdCountry(guest)) {
-    if (filled(guest.entry_date) ? !validDate(guest.entry_date) || String(guest.entry_date) > isoDay(day) : !review.entry_details_absent) add('entry_date');
-    if ((!filled(guest.entry_place) && !review.entry_details_absent) || [...String(guest.entry_place ?? '').trim()].length > 200 || new TextEncoder().encode(String(guest.entry_place ?? '').trim()).length > 254) add('entry_place');
-    if ((!filled(guest.visa_number) && !review.visa_exempt) || String(guest.visa_number ?? '').length > 100) add('visa_number');
-  }
-  if (childWithoutDoc) {
-    if (!review.parent_statement) add('parent_statement');
-  } else if (!review.scan_reviewed && !filled(review.manual_reason)) add('manual_reason');
-  return missing;
+  checkPair('birth_last_name','birth_first_name',review.birth_name_absent);
+  checkPair('mother_family_name','mother_given_name',review.mother_name_absent);
+  const birthPlaceholder = isVizaPlaceholder(g.birth_place);
+  put('birth_place',printedState,filled(g.birth_place) ? !birthPlaceholder : !noExceptions && review.birth_place_absent === true,birthPlaceholder);
+  put('nationality','required',ISO2.has(iso3ToIso2(g.nationality) ?? ''));
+  const oldest = new Date(day); oldest.setUTCFullYear(oldest.getUTCFullYear() - 110);
+  put('date_of_birth','required',validDate(g.date_of_birth) && String(g.date_of_birth) >= isoDay(oldest) && String(g.date_of_birth) <= isoDay(day));
+  put('gender','required',['male','female','other'].includes(g.gender ?? ''));
+  const docType = ['passport','id_card','driving_licence','other'].includes(g.id_document_type ?? '');
+  put('id_document_type',childWithoutDoc ? 'optional' : 'required',(!requiredDoc && !filled(g.id_document_type)) || docType);
+  put('id_document_number',childWithoutDoc ? 'optional' : 'required',fits(g.id_document_number,100) && (childWithoutDoc || hasDoc));
+  const third = thirdCountry(g);
+  const entryAbsent = third && validEntryAbsence(review);
+  const permit = third && review.entry_details_absent === true && review.entry_details_reason === 'lives_in_hungary_with_permit';
+  const visaExempt = third && review.visa_exempt === true && !permit;
+  const entryState = !third || entryAbsent ? 'not_needed' : 'required';
+  const visaState = !third || visaExempt ? 'not_needed' : 'required';
+  const visaPlaceholder = isVizaPlaceholder(g.visa_number), placePlaceholder = isVizaPlaceholder(g.entry_place);
+  put('entry_date',entryState,entryState === 'not_needed' || (validDate(g.entry_date) && String(g.entry_date) <= isoDay(day) && (!validDate(g.date_of_birth) || String(g.entry_date) >= String(g.date_of_birth))));
+  put('entry_place',entryState,entryState === 'not_needed' || (filled(g.entry_place) && !placePlaceholder && fits(g.entry_place,200,254)),entryState !== 'not_needed' && placePlaceholder);
+  put('visa_number',visaState,visaState === 'not_needed' || (filled(g.visa_number) && !visaPlaceholder && fits(g.visa_number,100) && (!permit || review.visa_exempt !== true)),visaState !== 'not_needed' && visaPlaceholder);
+  put('entry_details_reason',third && review.entry_details_absent ? 'required' : 'not_needed',!third || !review.entry_details_absent || entryAbsent);
+  put('parent_statement',childWithoutDoc ? 'required' : 'not_needed',!childWithoutDoc || review.parent_statement === true);
+  const reviewed = review.scan_reviewed === true && g.document_scan != null;
+  put('manual_reason',childWithoutDoc || reviewed ? 'not_needed' : 'required',childWithoutDoc || reviewed || filled(review.manual_reason));
+  return result;
+}
+
+export function vizaAdmissionFields(guest: GuestVizaValues | null | undefined, reservationId: string, day = vizaArrivalDay()): string[] {
+  return Object.entries(vizaFieldRequirements(guest,reservationId,day)).filter(([, field]) => !field.ok).map(([key]) => key);
 }
 
 const GENDER_TO_VIZA: Record<string, string> = { male: 'FERFI', female: 'NO', other: 'EGYEB_VAGY_NEM_ISMERT' };

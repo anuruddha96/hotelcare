@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CheckInDialog } from './CheckInDialog';
+import { vizaAdmissionFields, vizaArrivalDay } from '@/lib/idScan/guestVizaChecks';
 import { getLocalDateString } from '@/lib/utils';
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn(), checkIn: vi.fn(), add: vi.fn(), rooms: vi.fn() }));
@@ -29,9 +30,9 @@ vi.mock('@/lib/pmsLifecycle', () => ({
 }));
 
 describe('VIZA-only whole-reservation check-in screen', () => {
-  it.each(['existing','scan'])('registers two occupants with NTAK off via %s', async (method) => {
+  it.each(['existing','scan','old-schema'])('registers two occupants with NTAK off via %s', async (method) => {
     const resId = 'two-adults';
-    const review = { reservation_id: resId, scan_reviewed: true };
+    const review = { reservation_id: resId, scan_reviewed: true, manual_reason: 'Synthetic fixture' };
     const hu = { id: 'hungarian', first_name: 'Synthetic', last_name: 'Hungarian',
       nationality: 'HU', gender: 'female', date_of_birth: '1990-01-01',
       birth_first_name: 'Synthetic', birth_last_name: 'Hungarian', birth_place: 'Budapest',
@@ -46,6 +47,8 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     const row = (guest: typeof hu | typeof foreign) => ({ guest_id: guest.id, stay_state: 'expected', arrived_at: null, departed_at: null, room_id: 'room-1', guests: guest });
     let rows = [row(hu)];
     mocks.rpc.mockImplementation(async (name: string, args?: {_data?:Record<string,unknown>}) => {
+      if(name==='pms_viza_arrival_requirements' && method==='old-schema') return {data:null,error:{message:'RPC unavailable'}};
+      if(name==='pms_viza_arrival_requirements') return {data:{version:2,occupant_count_ok:rows.length===2,guests:rows.map(r=>({guest_id:r.guest_id,missing:vizaAdmissionFields(r.guests,resId,vizaArrivalDay())}))},error:null};
       if(name==='pms_express_channel_guest_hints') return {data:[{first_name:'Synthetic',last_name:'Hungarian'},{first_name:'Synthetic',last_name:'Companion'}],error:null};
       if(name==='pms_register_scanned_stay_guest'){
         expect(args?._data).toMatchObject({first_name:'Synthetic',last_name:'Foreign',id_document_number:'TEST-DE',
@@ -93,6 +96,12 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       adults: 2, children: 0, check_in_date: today, check_out_date: '2099-12-31', total_nights: 1,
       reservation_number: 'VIZA-TEST', status: 'confirmed', currency: 'EUR', total_price: 0,
     }} />);
+    if(method==='old-schema') {
+      await screen.findByText('pms.guest.vizaStatusFailed');
+      expect(screen.getByRole('button',{name:'pms.checkIn · 10:00'})).toBeDisabled();
+      expect(screen.queryByRole('button',{name:'pms.express.scanDocument'})).not.toBeInTheDocument();
+      return;
+    }
     await screen.findByText('pms.guest.wholeReservation');
     const confirm = () => screen.getByRole('button', { name: 'pms.checkIn · 10:00' });
     await waitFor(() => expect(confirm()).toBeDisabled());

@@ -65,3 +65,35 @@ describe('bilingual Hungarian ID back layout', () => {
     });
   });
 });
+
+describe('UK specimen passport case 2.2 printed text', () => {
+  const transcript = [
+    'UNITED KINGDOM OF GREAT BRITAIN AND NORTHERN IRELAND - GIBRALTAR',
+    'PASSPORT Type/Type Code/Code Passport No./Passeport No.',
+    'PASSEPORT P GBR 605100803',
+    'Surname/Nom (1)', 'SPECIMEN',
+    'Given names/Prénoms (2)', 'A',
+    'Nationality/Nationalité (3)', 'BRITISH CITIZEN',
+    'Date of birth/Date de naissance (4)', '01 JAN /JAN 50',
+    'Sex/Sexe (5) Place of birth/Lieu de naissance (6)', 'M GIBRALTAR',
+    'Date of issue/Date de délivrance (7) Authority/Autorité (8)', '24 JAN /JAN 07 CSRO GIBRALTAR',
+    "Date of expiry/Date d'expiration (9) Holder's signature/Signature du titulaire (10)", '24 JAN /JAN 17',
+    'P<GBRSPECIMEN<<A<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<',
+    '6051008033GBR5001013M1701245<<<<<<<<<<<<<<00',
+  ].join('\n');
+  it.each([
+    transcript,
+    transcript.replace(/\s*\(\d+\)/g, ''),
+    transcript.replace(/Prénoms/g, 'Prenoms').replace(/Nationalité/g, 'Nationalite')
+      .replace(/Autorité/g, 'Autorite').replace('M GIBRALTAR', 'M   GIBRALTAR'),
+  ])('keeps the actual birthplace and never French label names', (input) => {
+    const result = extractOpticalGuestFields(input);
+    expect(result.birth_place).toBe('Gibraltar');
+    expect(result.last_name).toBe('Specimen');
+    expect(result.first_name).toBe('A');
+  });
+  it('does not read a subsequent authority row when the birthplace value is absent', () => {
+    expect(extractOpticalGuestFields('Sex/Sexe (5) Place of birth/Lieu de naissance (6)\nAuthority/Autorité (8)\nCSRO GIBRALTAR').birth_place).toBeUndefined();
+    expect(extractOpticalGuestFields('Place of birth\nAuthority\nCSRO GIBRALTAR').birth_place).toBeUndefined();
+  });
+});

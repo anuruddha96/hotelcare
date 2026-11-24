@@ -25,6 +25,14 @@ const labels = [
   ['first_name', /(?:^\s*(?:utonev|given names?))\b/i],
 ] as const;
 const otherLabel = /(?:document\s*(?:no|number)|okmany|date of|szuletesi ido|ervenyes|expiry|signature|alairas|sex|nem\b|can\b|address|lakcim|authority|hat osag)/i;
+// Remove only recognized French translations and numbered labels, not values.
+const passportFrenchLabel = /\s*\/\s*(?:nom|pr[eé]noms?|nationalit[eé]|date de naissance|sexe|lieu de naissance|date de d[eé]livrance|autorit[eé]|date d['’]expiration|signature du titulaire)(?=\s|[:()/\-]|$)/giu;
+const passportNumberedLabel = /\s*\(\s*\d{1,2}\s*\)/g;
+const forbiddenPassportHeader = /\b(?:authority|autorite|issuing authority|hatosag|kiallito|date of issue|date of expiry|date of expiration|date de delivrance|date d['’]expiration)\b/i;
+function cleanPassportLabel(line: string): string {
+  if (!/(?:surname|given names?|nationality|date of birth|sex|place of birth|date of issue|authority|date of expiry|signature)/i.test(line)) return line;
+  return line.replace(passportFrenchLabel, '').replace(passportNumberedLabel, '').trim();
+}
 const knownAlpha2 = new Set(Object.values(ISO3_TO_ISO2));
 
 export function recognizedNationality(code: string | null | undefined): string | null {
@@ -40,7 +48,7 @@ function nationalityValue(value: string): string | null {
 }
 
 export function extractOpticalGuestFields(text: string): OpticalGuestFields {
-  const lines = text.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  const lines = text.split(/\r?\n/).map(x => cleanPassportLabel(x.trim())).filter(Boolean);
   const values = new Map<string, Set<string>>();
   const add = (key: string, value: string | null) => {
     if (!value) return;
@@ -49,6 +57,7 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
   };
   for (let i = 0; i < lines.length; i++) {
     const normalized = fold(lines[i]);
+    if (forbiddenPassportHeader.test(normalized)) continue;
     const label = labels.find(([, pattern]) => pattern.test(normalized));
     if (!label || /^[A-Z0-9<]{25,}$/.test(lines[i])) continue;
     const [key, pattern] = label;
@@ -71,7 +80,7 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
     if (labels.some(([, p]) => p.test(foldedTail)) || otherLabel.test(foldedTail)) continue;
     if (!tail) {
       const next = lines[i + 1] ?? '';
-      if (labels.some(([, p]) => p.test(fold(next))) || otherLabel.test(fold(next))) continue;
+      if (labels.some(([, p]) => p.test(fold(next))) || otherLabel.test(fold(next)) || forbiddenPassportHeader.test(fold(next))) continue;
       // Do not accidentally consume a machine-readable line as a name.
       if (next.includes('<')) continue;
       tail = next;
@@ -98,6 +107,7 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
   // the issuing-country heading, expiry date or a generic country token.
   for (let i=0;i<lines.length;i++) {
     const line=fold(lines[i]);
+    if (forbiddenPassportHeader.test(line)) continue;
     // Passport layouts often put Sex and Place of birth on the same row,
     // followed by a bilingual label and then a sex marker + printed place.
     // Never infer the place from the issuing state or MRZ.
@@ -105,8 +115,11 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
       const placeLabel = /place\s+of\s+birth(?:\s*\/\s*lieu\s+de\s+naissance)?/.exec(line);
       if (placeLabel) {
         const rest = lines[i].slice(placeLabel.index + placeLabel[0].length).trim();
-        const candidate = rest || (lines[i + 1] ?? '').replace(/^[MFX]\s+/i, '').trim();
-        if (candidate && !otherLabel.test(fold(candidate)) && !labels.some(([, p]) => p.test(fold(candidate)))) add('birth_place', name(candidate));
+        const next = lines[i + 1] ?? '';
+        // A composite header's next row must start with an explicit sex marker.
+        // Never skip ahead into the issuance/authority row when that value is absent.
+        const candidate = rest || (/^[MFX<]\s+.+/i.test(next) ? next.replace(/^[MFX<]\s+/i, '').trim() : '');
+        if (candidate && !otherLabel.test(fold(candidate)) && !forbiddenPassportHeader.test(fold(candidate)) && !labels.some(([, p]) => p.test(fold(candidate)))) add('birth_place', name(candidate));
       }
     }
     const dateLabel=/(?:szuletesi\s*ido|date\s*of\s*birth)/.exec(line);

@@ -1,0 +1,472 @@
+{
+  "reservationId": "00000000-0000-4000-8000-000000000094",
+  "day": "2026-11-24",
+  "base": {
+    "first_name": "Test",
+    "last_name": "Guest",
+    "nationality": "HU",
+    "date_of_birth": "1990-01-01",
+    "gender": "female",
+    "id_document_type": "id_card",
+    "id_document_number": "TEST123",
+    "birth_first_name": "Test",
+    "birth_last_name": "Guest",
+    "birth_place": "Budapest",
+    "mother_family_name": "Example",
+    "mother_given_name": "Mother",
+    "visa_number": null,
+    "entry_date": null,
+    "entry_place": null,
+    "document_scan": null,
+    "viza_review": {
+      "reservation_id": "00000000-0000-4000-8000-000000000094",
+      "manual_reason": "Synthetic scan failure"
+    }
+  },
+  "cases": [
+    {
+      "name": "Hungarian ID",
+      "patch": {},
+      "missing": []
+    },
+    {
+      "name": "Hungarian ID requires mother's given name",
+      "patch": {
+        "mother_given_name": null,
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "manual_reason": "Synthetic scan failure",
+          "mother_name_absent": true
+        }
+      },
+      "missing": [
+        "mother_given_name"
+      ]
+    },
+    {
+      "name": "British specimen",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": "0123456789",
+        "entry_date": "2026-11-23",
+        "entry_place": "Budapest",
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": []
+    },
+    {
+      "name": "British visa exempt",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": null,
+        "entry_date": "2026-11-23",
+        "entry_place": "Budapest",
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true,
+          "visa_exempt": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": []
+    },
+    {
+      "name": "British invalid placeholder",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": "0123456789",
+        "entry_date": "2026-11-23",
+        "entry_place": " NÁ ",
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": [
+        "entry_place"
+      ]
+    },
+    {
+      "name": "British birth place requires confirmation",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": null,
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": "0123456789",
+        "entry_date": "2026-11-23",
+        "entry_place": "Budapest",
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": [
+        "birth_place"
+      ]
+    },
+    {
+      "name": "German passport",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "DE",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": null,
+        "entry_date": null,
+        "entry_place": null,
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": []
+    },
+    {
+      "name": "Under 14 parent statement",
+      "patch": {
+        "date_of_birth": "2015-01-01",
+        "id_document_number": null,
+        "id_document_type": null,
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "parent_statement": true
+        }
+      },
+      "missing": []
+    },
+    {
+      "name": "Entry not relevant with reason",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": "0123456789",
+        "entry_date": null,
+        "entry_place": null,
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true,
+          "entry_details_absent": true,
+          "entry_details_reason": "other",
+          "entry_details_reason_text": "Confirmed exception"
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": []
+    },
+    {
+      "name": "Entry not relevant without reason",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": "0123456789",
+        "entry_date": null,
+        "entry_place": null,
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true,
+          "entry_details_absent": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": [
+        "entry_date",
+        "entry_place",
+        "entry_details_reason"
+      ]
+    },
+    {
+      "name": "Future entry",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": "0123456789",
+        "entry_date": "2026-11-25",
+        "entry_place": "Budapest",
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": [
+        "entry_date"
+      ]
+    },
+    {
+      "name": "Entry before birth",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": "0123456789",
+        "entry_date": "1949-12-31",
+        "entry_place": "Budapest",
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": [
+        "entry_date"
+      ]
+    },
+    {
+      "name": "Residence permit incompatible with exemption",
+      "patch": {
+        "first_name": "A",
+        "last_name": "SPECIMEN",
+        "nationality": "GB",
+        "date_of_birth": "1950-01-01",
+        "gender": "male",
+        "id_document_type": "passport",
+        "id_document_number": "605100803",
+        "birth_first_name": null,
+        "birth_last_name": null,
+        "birth_place": "Gibraltar",
+        "mother_family_name": null,
+        "mother_given_name": null,
+        "visa_number": null,
+        "entry_date": "2026-11-23",
+        "entry_place": "Budapest",
+        "viza_review": {
+          "reservation_id": "00000000-0000-4000-8000-000000000094",
+          "scan_reviewed": true,
+          "birth_name_absent": true,
+          "mother_name_absent": true,
+          "entry_details_absent": true,
+          "entry_details_reason": "lives_in_hungary_with_permit",
+          "visa_exempt": true
+        },
+        "document_scan": {
+          "source": "mrz_camera",
+          "fields": {
+            "csaladnev": "SPECIMEN",
+            "utonev": "A",
+            "szuletesiDatum": "1950-01-01",
+            "allampolgarsagKod": "GB",
+            "nem": "FERFI",
+            "okmanyTipus": "UTLEVEL",
+            "okmanyAzonositoSzam": "605100803"
+          }
+        }
+      },
+      "missing": [
+        "visa_number"
+      ]
+    }
+  ]
+}

@@ -25,6 +25,7 @@ import { postSoap } from "../_shared/ntak/transport.ts";
 import { importSigningKey, signEnvelope } from "../_shared/ntak/wssec.ts";
 import { firstCertificatePem, normalizePrivateKeyPem } from "../_shared/ntak/x509.ts";
 import { guestToVizaGroups } from "../_shared/viza/mapGuest.ts";
+import { vizaArrivalExtras } from "../_shared/viza/fieldRules.ts";
 import { isDue, NEEDS_CORRECTION, nextAttemptAt, readSubmissionOutcome } from "../_shared/viza/outcome.ts";
 import { b64encode, importRsaKey, pemToDer, signEllenorzoString } from "../_shared/viza/wssec.ts";
 
@@ -106,8 +107,7 @@ type Settings = {
   thf_via_gateway?: boolean | null;
 };
 
-type GuestExtras = { visa_number?: string | null; entry_date?: string | null; entry_place?: string | null };
-const text = (v: unknown): string | null => { const t = String(v ?? "").trim(); return t || null; };
+
 
 const hotelBlock = (cfg: Settings) => ({
   adatszolgaltatasiAzonosito: String(cfg.adatszolgaltatasi_azonosito),
@@ -191,14 +191,14 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
 
       // 2. Arrivals.
       const { data: arrivalRows } = await db.from("viza_guest_events")
-        .select("id, erkezes_azonosito, erkezes_ideje, tavozas_varhato_datuma, guest_id, attempts, updated_at, arrival_state")
+        .select("id, reservation_id, erkezes_azonosito, erkezes_ideje, tavozas_varhato_datuma, guest_id, attempts, updated_at, arrival_state")
         .eq("hotel_id", cfg.hotel_id).in("arrival_state", ["queued", "failed"])
         .lt("attempts", NEEDS_CORRECTION).order("created_at").limit(BATCH * 5);
       const arrivals = dueNow(arrivalRows);
       if (arrivals.length) {
         const guestIds = arrivals.map((a) => a.guest_id).filter(Boolean);
         const { data: guestRows } = guestIds.length
-          ? await db.from("guests").select("id, first_name, last_name, birth_last_name, birth_first_name, date_of_birth, birth_place, mother_name, mother_family_name, mother_given_name, gender, nationality, id_document_type, id_document_number, visa_number, entry_date, entry_place, document_scan").in("id", guestIds)
+          ? await db.from("guests").select("id, first_name, last_name, birth_last_name, birth_first_name, date_of_birth, birth_place, mother_name, mother_family_name, mother_given_name, gender, nationality, id_document_type, id_document_number, visa_number, entry_date, entry_place, document_scan, viza_review").in("id", guestIds)
           : { data: [] };
         const guestById = new Map((guestRows ?? []).map((g: { id: string }) => [g.id, g]));
         const vizaGuests: VizaArrivalGuest[] = arrivals.map((a) => {
@@ -210,9 +210,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
             tavozasVarhatoDatuma: String(a.tavozas_varhato_datuma),
             scanned: groups.scanned,
             manual: groups.manual,
-            vizumEngedelySzam: text((guest as GuestExtras | null)?.visa_number),
-            beutazasDatuma: text((guest as GuestExtras | null)?.entry_date),
-            beutazasHelye: text((guest as GuestExtras | null)?.entry_place),
+            ...vizaArrivalExtras(guest as Parameters<typeof vizaArrivalExtras>[0], String(a.reservation_id)),
           };
         });
         const bejelentes = vizaTimestamp(new Date());

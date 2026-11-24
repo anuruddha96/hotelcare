@@ -62,7 +62,7 @@ export function useStayGuestRoster(
       setEnabled(active || vizaRequired);
       if (!active && !vizaRequired) { setGuests([]); setSelectedIds([]); return; }
       const { data, error } = await (supabase as any).from('reservation_guests')
-        .select('guest_id,stay_state,arrived_at,departed_at,room_id,guests:guest_id(id,first_name,last_name,birth_last_name,birth_first_name,mother_name,nationality,date_of_birth,birth_place,gender,id_document_type,id_document_number,visa_number,entry_date,entry_place' + (vizaRequired ? ',mother_family_name,mother_given_name,viza_review' : '') + ')')
+        .select('guest_id,stay_state,arrived_at,departed_at,room_id,guests:guest_id(id,first_name,last_name,birth_last_name,birth_first_name,mother_name,nationality,date_of_birth,birth_place,gender,id_document_type,id_document_number,visa_number,entry_date,entry_place' + (vizaRequired ? ',mother_family_name,mother_given_name,viza_review,document_scan' : '') + ')')
         .eq('reservation_id', reservationId).order('is_primary', { ascending: false });
       if (error) throw error;
       const records = (data ?? []) as StayGuestRow[];
@@ -90,7 +90,8 @@ export function useStayGuestRoster(
   return { enabled,perGuestLifecycle,loading,guests,selectedIds,setSelectedIds,refresh,eligible,incompleteSelected,updateSavedGuest };
 }
 
-export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug, occurredAt, onChanged, vizaRequired = false, expectedGuests, bookingGuestId, savePending = false, onSavePendingChange }: {
+export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug, occurredAt, onChanged, vizaRequired = false, expectedGuests, bookingGuestId, savePending = false, onSavePendingChange, focusProblem }: {
+  focusProblem?: {guestId:string;field:string;attempt:number}|null;
   control: GuestRosterControl;
   vizaRequired?: boolean;
   expectedGuests?: number;
@@ -109,6 +110,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
   const [guestIdToAdd, setGuestIdToAdd] = useState('');
   const [busy, setBusy] = useState(false);
   const [detailsId, setDetailsId] = useState<string | null>(null);
+  useEffect(()=>{if(focusProblem)setDetailsId(focusProblem.guestId);},[focusProblem]);
   const [autoScanId, setAutoScanId] = useState<string | null>(null);
   const [scanNewOpen, setScanNewOpen] = useState(false);
   const [draft, setDraft] = useState<GuestRegistrationDraft | null>(null);
@@ -239,7 +241,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
               )}
             </div>
           </div>
-          {detailsId===g.guest_id && <GuestDetailsSection key={g.guest_id + (autoScanId===g.guest_id ? '-scan' : '')} occurredAt={occurredAt} vizaReservationId={vizaRequired ? reservationId : undefined} guestId={g.guest_id}
+          {detailsId===g.guest_id && <GuestDetailsSection key={g.guest_id + (autoScanId===g.guest_id ? '-scan' : '')} occurredAt={occurredAt} vizaReservationId={vizaRequired ? reservationId : undefined} guestId={g.guest_id} focusProblem={focusProblem?.guestId===g.guest_id ? focusProblem : undefined}
             protectIdentity={express} autoScan={autoScanId===g.guest_id} autoSave={mode==='arrive' && !!onSavePendingChange} onSavePendingChange={onSavePendingChange} onSaved={mode==='arrive' && onSavePendingChange ? control.updateSavedGuest : nextAfterSave} />}
         </div>;
       })}

@@ -240,3 +240,50 @@ BEGIN
     VALUES('viza-hotel','11111111-1111-4111-8111-111111111111',ARRAY[res],'applied',now(),NULL);
   IF public.pms_express_channel_guest_hints(res) IS DISTINCT FROM '[]'::jsonb THEN RAISE EXCEPTION 'purged payload resurrected'; END IF;
 END $hint_test$;
+
+-- V2 parity cases are shared with the frontend fixture and run only in disposable CI.
+\ir ../migrations/20261125090000_viza_field_requirements_v2.sql
+\set fixture `cat src/lib/idScan/vizaRequirementsCases.json`
+SELECT set_config('viza.test_fixtures', :'fixture', false);
+DO $v2$
+DECLARE fixtures jsonb:=current_setting('viza.test_fixtures')::jsonb;
+  c jsonb; g public.guests%ROWTYPE; actual jsonb; expected text[]; found_fields text[];
+  res uuid:=(fixtures->>'reservationId')::uuid;
+  target uuid:='00000000-0000-4000-8000-000000000093';
+  day date:=(fixtures->>'day')::date;
+  refused boolean;
+BEGIN
+  IF NOT has_function_privilege('authenticated','public.pms_viza_arrival_requirements(uuid,uuid[],date)','EXECUTE')
+    OR has_function_privilege('anon','public.pms_viza_arrival_requirements(uuid,uuid[],date)','EXECUTE')
+    OR has_function_privilege('authenticated','public.pms_assert_viza_arrival_data(uuid,uuid[],date)','EXECUTE')
+    OR NOT has_function_privilege('service_role','public.pms_assert_viza_arrival_data(uuid,uuid[],date)','EXECUTE')
+    THEN RAISE EXCEPTION 'VIZA v2 incorrect grants'; END IF;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000099',false);
+  BEGIN
+    PERFORM public.pms_viza_arrival_requirements(res,NULL,day);
+    RAISE EXCEPTION 'unauthorized v2 query';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'ACCESS_DENIED' THEN RAISE; END IF; END;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000091',false);
+  BEGIN
+    PERFORM public.pms_viza_arrival_requirements(res,ARRAY['00000000-0000-4000-8000-000000000099'::uuid],day);
+    RAISE EXCEPTION 'unlinked guest exposed';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'ACCESS_DENIED' THEN RAISE; END IF; END;
+  FOR c IN SELECT value FROM jsonb_array_elements(fixtures->'cases') LOOP
+    g:=jsonb_populate_record(NULL::public.guests,(fixtures->'base')||(c->'patch'));
+    UPDATE public.guests SET first_name=g.first_name,last_name=g.last_name,nationality=g.nationality,
+      date_of_birth=g.date_of_birth,gender=g.gender,id_document_type=g.id_document_type,id_document_number=g.id_document_number,
+      birth_first_name=g.birth_first_name,birth_last_name=g.birth_last_name,birth_place=g.birth_place,
+      mother_family_name=g.mother_family_name,mother_given_name=g.mother_given_name,
+      visa_number=g.visa_number,entry_date=g.entry_date,entry_place=g.entry_place,
+      viza_review=g.viza_review,document_scan=g.document_scan WHERE id=target;
+    actual:=public.pms_viza_arrival_requirements(res,ARRAY[target],day);
+    SELECT COALESCE(array_agg(value ORDER BY value),ARRAY[]::text[]) INTO expected FROM jsonb_array_elements_text(c->'missing');
+    SELECT COALESCE(array_agg(value ORDER BY value),ARRAY[]::text[]) INTO found_fields FROM jsonb_array_elements_text(actual->'guests'->0->'missing');
+    IF actual->>'version'<>'2' OR actual->>'occupant_count_ok'<>'true' OR expected IS DISTINCT FROM found_fields THEN
+      RAISE EXCEPTION 'VIZA fixture %: expected %, found %, response %',c->>'name',expected,found_fields,actual; END IF;
+    refused:=false;
+    BEGIN PERFORM public.pms_assert_viza_arrival_data(res,ARRAY[target],day);
+    EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'VIZA_GUEST_DATA_INCOMPLETE:%' THEN RAISE; END IF; refused:=true; END;
+    IF refused IS DISTINCT FROM (cardinality(expected)>0) THEN RAISE EXCEPTION 'Assertion mismatch for %',c->>'name'; END IF;
+  END LOOP;
+END $v2$;
