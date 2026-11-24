@@ -100,6 +100,8 @@ jobs:
           python3 scripts/render_finance_core_fixture.py > /tmp/ntak_finance_core_ddl.sql
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_finance_guard_integration.sql
           PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase8_catalogue_integration.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261124010500_ntak_native_finance_consistency.sql
+          PGDATABASE=hotelcare_finance_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_native_finance_consistency.sql
       - name: Phase-3 activation, undo and VIZA resilience acceptance (PostgreSQL)
         run: |
           set -euo pipefail
