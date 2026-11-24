@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 
 import {
-  bookingChangePct, fmtPct, observedCohortIncidence, scheduledLosCoverage, validNumber, formatBookingMoney as formatMoney,
+  bookingChangePct, fmtPct, observedCohortIncidence, scheduledLosCoverage, validNumber, resolveBookingCurrency, formatBookingMoney as formatMoney,
   type BookingInsights, type BookingInsightSummary, type InsightChannel,
 } from "@/lib/bookingInsights";
 
@@ -104,8 +104,8 @@ function RankList({ rows, heading, subtitle, currencyCode }: { rows: InsightChan
  * All hotels, including SLNT, use the same server-verified tenant-scoped RPC.
  * This panel does not call Previo on demand and cannot change PMS reservations.
  */
-export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
-  hotelId: string | null; lastSyncAt?: string | null;
+export default function BookingMovementAnalytics({ hotelId, lastSyncAt, publishedCurrency = null }: {
+  hotelId: string | null; lastSyncAt?: string | null; publishedCurrency?: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [days, setDays] = useState<7 | 30 | 90>(30);
@@ -149,7 +149,7 @@ export default function BookingMovementAnalytics({ hotelId, lastSyncAt }: {
     return () => { active = false; };
   }, [hotelId, days, expanded, lastSyncAt, refresh]);
 
-  const moneyCode = baseCurrency ?? data?.currency_code ?? null;
+  const moneyCode = resolveBookingCurrency(publishedCurrency, data?.currency_code, baseCurrency);
   const currency = (v: number | null | undefined) => formatMoney(v, moneyCode);
   const s = data?.summary ?? emptySummary;
   const prior = data?.previous;
