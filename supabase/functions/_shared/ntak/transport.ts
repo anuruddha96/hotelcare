@@ -17,7 +17,23 @@ export interface TransportOptions {
   proxyPassword?: string | null;
   /** Extra trusted CA certificates (PEM), e.g. the private CA of a self-hosted THF (VIZA guide 3.4). Added to the default roots. */
   caCertsPem?: string | null;
+  /**
+   * Gateway mode for a self-hosted VIZA THF (ops/viza-thf-gateway): the TLS
+   * connection goes to the HotelCare THF gateway on the THF server instead of
+   * the THF itself, and the client certificate and key are handed to the
+   * gateway with the request (gatewayCredentialHeaders), which opens the
+   * mutual-TLS connection to the THF. Requires caCertsPem (the gateway's CA),
+   * so the key is only sent to a server holding a certificate from that CA.
+   * Never used for NTAK.
+   */
+  forwardClientCredentials?: boolean;
   timeoutMs?: number;
+}
+
+/** Headers that carry the client certificate and key to the THF gateway (base64 of the PEM text). */
+export function gatewayCredentialHeaders(certPem: string, keyPem: string): Record<string, string> {
+  const b64 = (pem: string) => btoa(pem.trim() + '\n');
+  return { 'X-HC-Client-Cert': b64(certPem), 'X-HC-Client-Key': b64(keyPem) };
 }
 
 export interface TransportResult {
@@ -49,10 +65,23 @@ export async function postSoap(envelope: string, opts: TransportOptions): Promis
   const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 30000);
   try {
     const caCerts = splitPemCertificates(opts.caCertsPem);
-    client = DenoAny.createHttpClient({ cert: opts.certPem, key: opts.keyPem, ...(proxy ? { proxy } : {}), ...(caCerts.length ? { caCerts } : {}) });
+    const viaGateway = opts.forwardClientCredentials === true;
+    if (viaGateway && !caCerts.length) {
+      return { status: 0, body: '', error: 'THF gateway mode needs the gateway CA certificate (thf_ca_pem)', certificateProblem: true, elapsedMs: 0 };
+    }
+    client = DenoAny.createHttpClient({
+      // Gateway mode: no client certificate on this hop; the gateway presents it to the THF.
+      ...(viaGateway ? {} : { cert: opts.certPem, key: opts.keyPem }),
+      ...(proxy ? { proxy } : {}),
+      ...(caCerts.length ? { caCerts } : {}),
+    });
     const res = await fetch(opts.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: '""' },
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: '""',
+        ...(viaGateway ? gatewayCredentialHeaders(opts.certPem, opts.keyPem) : {}),
+      },
       body: envelope,
       redirect: 'error',
       signal: ctrl.signal,
