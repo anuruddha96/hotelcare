@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2, Search, FilterX, Sparkles, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -64,6 +64,9 @@ const DIRECTION_FILTERS: Array<{ value: DirectionFilter; label: string }> = [
 export function RevenueAutomationNotifications() {
   const canSee = useCanSeeAutomationNotifications();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isReception = /(?:^|\/)reception(?:\/|$)/.test(pathname);
+  const catchUpToast = useRef<string | number | null>(null);
   const { items, unreadCount, markRead, markAllRead, loadDecisions, reload } = useRevenueAutomationNotifications(canSee);
 
   const [open, setOpen] = useState(false);
@@ -86,6 +89,14 @@ export function RevenueAutomationNotifications() {
   // so defer the toast until the manager has finished with the open dialog.
   // Closing a toast never marks the underlying revenue activity as read.
   useEffect(() => {
+    // Reception must remain unobstructed during guest registration. The bell
+    // still retains all unread revenue activity; only the non-urgent toast
+    // is suppressed on this route.
+    if (isReception) {
+      if (catchUpToast.current !== null) toast.dismiss(catchUpToast.current);
+      catchUpToast.current = null;
+      return;
+    }
     if (!canSee || welcomed.current || !hasUnread) return;
 
     let settleTimer: number | undefined;
@@ -100,7 +111,7 @@ export function RevenueAutomationNotifications() {
       observer?.disconnect();
       const changes = unread.reduce((sum, notification) =>
         sum + (notification.actions_count || notification.changes.length), 0);
-      toast.message('Revenue automation activity', {
+      catchUpToast.current = toast.message('Revenue automation activity', {
         description: `${changes} update${changes === 1 ? '' : 's'} since your last visit`,
         action: { label: 'View updates', onClick: () => setOpen(true) },
         duration: 8_000,
@@ -139,7 +150,7 @@ export function RevenueAutomationNotifications() {
       if (settleTimer !== undefined) window.clearTimeout(settleTimer);
       observer?.disconnect();
     };
-  }, [canSee, hasUnread]);
+  }, [canSee, hasUnread, isReception]);
 
   // Keep an open detail dialog in sync with freshly loaded push outcomes.
   useEffect(() => {
