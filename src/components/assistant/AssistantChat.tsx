@@ -236,68 +236,66 @@ function MiraSubmit({ draft, status, busy = false, quotaReached = false, voicePe
 }
 
 
-/** Transcribed speech remains a muted, editable preview until explicitly accepted. */
-function MiraDictationPanel({
-  state, preview, liveHint, onEdit, onStop, onCancel, onConfirm,
-}: {
+/** One composer, with a status line rather than a second transcription field. */
+function MiraVoiceStatus({ state, liveHint, onCancel }: {
   state: MiraVoiceState;
-  preview: string;
   liveHint: string;
-  onEdit: (value: string) => void;
-  onStop: () => void;
   onCancel: () => void;
-  onConfirm: () => void;
 }) {
   if (state === "idle") return null;
-  const recording = state === "recording";
-  const transcribing = state === "transcribing";
-  const reviewing = state === "review";
   const label = state === "starting" ? "Opening microphone…" :
-    recording ? "Listening to you" :
-    transcribing ? "Finishing transcription…" : "Review what Mira heard";
-
+    state === "recording" ? liveHint :
+    state === "transcribing" ? "Finishing transcription…" : "Paused · resume or finish";
   return (
-    <section aria-label="Mira voice input" className="mb-2 rounded-2xl border border-sky-200/75 bg-sky-50/50 p-3 shadow-sm dark:border-sky-900 dark:bg-sky-950/20">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-          {transcribing || state === "starting" ?
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-sky-600" /> :
-            recording ? <span className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-rose-500" /> :
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-sky-600" />}
-          <span>{label}</span>
-        </div>
-        <Button type="button" size="sm" variant="ghost" className="h-9 shrink-0 rounded-full px-2.5 text-xs" onClick={onCancel}>
-          <X className="mr-1 h-3.5 w-3.5" /> Cancel
-        </Button>
-      </div>
-      <textarea
-        aria-label={reviewing ? "Edit speech transcript before accepting" : "Live speech transcription preview"}
-        aria-live={reviewing ? "off" : "polite"}
-        value={preview}
-        onChange={(event) => { if (reviewing) onEdit(event.target.value); }}
-        readOnly={!reviewing}
-        placeholder={recording ? liveHint : transcribing ? "Processing your recording…" : "Your spoken words appear here"}
-        rows={Math.max(2, Math.min(5, preview.split("\n").length + Math.ceil(preview.length / 50)))}
-        className="mt-2 min-h-[76px] w-full resize-y rounded-xl border border-border/70 bg-background/60 px-3 py-2.5 text-sm leading-relaxed text-muted-foreground/80 placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
-      />
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[11px] text-muted-foreground">Preview only — not added to your message yet.</span>
-        {recording ? (
-          <Button type="button" size="sm" className="h-9 rounded-full px-4" onClick={onStop}>
-            <MicOff className="mr-1.5 h-4 w-4" /> Stop talking
-          </Button>
-        ) : reviewing ? (
-          <Button type="button" size="sm" className="h-9 rounded-full px-4" disabled={!preview.trim()} onClick={onConfirm}>
-            <Check className="mr-1.5 h-4 w-4" /> Use text
-          </Button>
-        ) : transcribing ? (
-          <span className="text-xs text-muted-foreground">You can cancel at any time.</span>
-        ) : (
-          <span className="text-xs text-muted-foreground">You can cancel while allowing the microphone.</span>
-        )}
-      </div>
-    </section>
+    <div className="flex w-full items-center justify-between gap-2 px-3 pb-1 text-xs text-muted-foreground">
+      <span role="status" className="flex min-w-0 items-center gap-2">
+        {state === "recording" && <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-rose-500" />}
+        {(state === "starting" || state === "transcribing") && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+        {label}
+      </span>
+      <button type="button" onClick={onCancel} className="shrink-0 rounded px-2 py-1 text-muted-foreground underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+        Cancel dictation
+      </button>
+    </div>
   );
+}
+
+function MiraVoiceControls({ state, supported, disabled = false, onToggle, onDone }: {
+  state: MiraVoiceState;
+  supported: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+  onDone: () => void;
+}) {
+  const recording = state === "recording";
+  const paused = state === "paused";
+  const busy = state === "starting" || state === "transcribing";
+  const label = recording ? "Pause" : paused ? "Resume" : "Voice";
+  return (
+    <>
+      <PromptInputButton
+        tooltip={!supported ? "Voice input requires microphone access" : label}
+        variant={recording ? "default" : "outline"}
+        onClick={onToggle}
+        disabled={!supported || disabled || busy}
+        aria-label={recording ? "Pause dictation" : paused ? "Resume dictation" : "Start voice input"}
+        className="h-9 gap-1.5 rounded-full border px-2.5 text-xs font-medium"
+      >
+        {recording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+        <span className={state === "idle" ? "hidden sm:inline" : undefined}>{label}</span>
+      </PromptInputButton>
+      {(recording || paused) && (
+        <PromptInputButton variant="default" onClick={onDone} aria-label="Finish dictation"
+          className="h-9 gap-1.5 rounded-full px-3 text-xs font-medium">
+          <Check className="h-4 w-4" /> Done
+        </PromptInputButton>
+      )}
+    </>
+  );
+}
+
+function draftWithSpeech(draft: string, speech: string) {
+  return speech ? (draft.trim() ? draft.trimEnd() + " " + speech : speech) : draft;
 }
 
 function MiraAddFileMenu() {
@@ -524,12 +522,11 @@ function ChatSession({
     onExternalPromptConsumed?.();
   }, [externalPrompt, sendMessage, onExternalPromptConsumed]);
 
-  // Voice words remain separate from the typed draft until the user reviews
-  // and accepts them. Cancel never changes what the user already typed.
+  // Render speech directly in the composer while preserving the original draft
+  // so cancellation can discard only the current voice session.
   const {
     state: dictation, preview: voicePreview, liveHint: voiceHint, supported,
-    toggle, stop: stopVoice, cancel: cancelVoice, confirm: confirmVoice,
-    setPreview: editVoicePreview,
+    toggle, cancel: cancelVoice, confirm: confirmVoice,
   } = useMiraDictation(
     useCallback((spoken: string) => {
       setDraft((value) => value.trim() ? value.trimEnd() + " " + spoken : spoken);
@@ -995,44 +992,25 @@ function ChatSession({
             {notice}
           </p>
         )}
-        <MiraDictationPanel state={dictation} preview={voicePreview} liveHint={voiceHint}
-          onEdit={editVoicePreview} onStop={stopVoice} onCancel={cancelVoice} onConfirm={confirmVoice} />
         <PromptInput onSubmit={submit} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className="bg-background [&>[data-slot=input-group]]:rounded-2xl">
           <MiraFilePreview />
           <PromptInputTextarea
             ref={textareaRef}
-            value={draft}
+            value={draftWithSpeech(draft, voicePreview)}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder={typedPlaceholder}
+            readOnly={dictation !== "idle"}
+            placeholder={dictation === "recording" ? "Listening…" : typedPlaceholder}
             rows={1}
             enterKeyHint="send"
             autoCapitalize="sentences"
             autoCorrect="on"
-            className="min-h-12 max-h-36 resize-none text-base leading-relaxed"
+            className={cn("min-h-12 max-h-36 resize-none text-base leading-relaxed", dictation !== "idle" && "italic text-muted-foreground")}
           />
+          <MiraVoiceStatus state={dictation} liveHint={voiceHint} onCancel={cancelVoice} />
           <PromptInputFooter>
             <PromptInputTools>
-              <MiraAddFileMenu />
-              <PromptInputButton
-                tooltip={!supported ? "Voice input requires microphone access" :
-                  dictation === "recording" ? "Stop talking" :
-                  dictation === "transcribing" || dictation === "starting" ? "Cancel voice capture" :
-                  dictation === "review" ? "Use or cancel the preview above" : "Talk to Mira"}
-                variant={dictation === "recording" ? "default" : "outline"}
-                onClick={toggle}
-                disabled={!supported || dictation === "review"}
-                aria-label={dictation === "recording" ? "Stop talking" :
-                  dictation !== "idle" ? "Cancel voice input" : "Start voice input"}
-                className="h-9 rounded-full border px-3 text-xs font-medium gap-2"
-              >
-                {dictation === "recording" ? <MicOff className="h-4 w-4" /> :
-                  dictation === "transcribing" || dictation === "starting" ? <X className="h-4 w-4" /> :
-                  <Mic className="h-4 w-4" />}
-                <span className={dictation === "idle" ? "hidden sm:inline" : undefined}>
-                  {dictation === "recording" ? "Stop" :
-                    dictation === "starting" || dictation === "transcribing" ? "Cancel" : "Voice"}
-                </span>
-              </PromptInputButton>
+              {dictation === "idle" && <MiraAddFileMenu />}
+              <MiraVoiceControls state={dictation} supported={supported} onToggle={toggle} onDone={confirmVoice} />
             </PromptInputTools>
 
             <MiraSubmit draft={draft} status={status as ChatStatus} onStop={() => void stop()} quotaReached={blocked} voicePending={dictation !== "idle"} />
@@ -1084,8 +1062,7 @@ export default function AssistantChat({
   const {
     state: welcomeDictation, preview: welcomeVoicePreview, liveHint: welcomeVoiceHint,
     supported: welcomeVoiceSupported, toggle: toggleWelcomeVoice,
-    stop: stopWelcomeVoice, cancel: cancelWelcomeVoice, confirm: confirmWelcomeVoice,
-    setPreview: editWelcomeVoicePreview,
+    cancel: cancelWelcomeVoice, confirm: confirmWelcomeVoice,
   } = useMiraDictation(
     useCallback((spoken: string) => {
       setWelcomeDraft((value) => value.trim() ? value.trimEnd() + " " + spoken : spoken);
@@ -1148,41 +1125,25 @@ export default function AssistantChat({
         </div>
         <div className="z-10 w-full shrink-0 bg-background px-3 pb-3 pt-2 sm:px-6">
           <div className="mx-auto w-full max-w-3xl">
-            <MiraDictationPanel state={welcomeDictation} preview={welcomeVoicePreview} liveHint={welcomeVoiceHint}
-              onEdit={editWelcomeVoicePreview} onStop={stopWelcomeVoice} onCancel={cancelWelcomeVoice} onConfirm={confirmWelcomeVoice} />
             <PromptInput onSubmit={async ({ text, files }) => createAndSend({ text: text || welcomeDraft, files })} accept={MIRA_FILE_ACCEPT} multiple maxFiles={3} maxFileSize={MIRA_FILE_MAX_BYTES} onError={(error) => toast.error(error.message)} className={cn("bg-background [&>[data-slot=input-group]]:rounded-xl", workspace && "[&>[data-slot=input-group]]:rounded-2xl")}>
               <MiraFilePreview />
               <PromptInputTextarea
                 ref={welcomeTextareaRef}
-                value={welcomeDraft}
+                value={draftWithSpeech(welcomeDraft, welcomeVoicePreview)}
                 onChange={(event) => setWelcomeDraft(event.target.value)}
+                readOnly={welcomeDictation !== "idle"}
                 rows={1}
                 enterKeyHint="send"
                 autoCapitalize="sentences"
                 autoCorrect="on"
-                className="min-h-14 max-h-40 resize-none text-base leading-relaxed"
-                placeholder={welcomePlaceholder}
+                className={cn("min-h-14 max-h-40 resize-none text-base leading-relaxed", welcomeDictation !== "idle" && "italic text-muted-foreground")}
+                placeholder={welcomeDictation === "recording" ? "Listening…" : welcomePlaceholder}
               />
+              <MiraVoiceStatus state={welcomeDictation} liveHint={welcomeVoiceHint} onCancel={cancelWelcomeVoice} />
               <PromptInputFooter>
                 <PromptInputTools>
-                  <MiraAddFileMenu />
-                  <PromptInputButton
-                    tooltip={welcomeVoiceSupported ? (welcomeDictation === "recording" ? "Stop talking" :
-                      welcomeDictation === "review" ? "Use or cancel the preview above" : "Talk to Mira") :
-                      "Voice input requires microphone permission and a secure browser"}
-                    variant={welcomeDictation === "recording" ? "default" : "outline"}
-                    onClick={toggleWelcomeVoice}
-                    disabled={!welcomeVoiceSupported || welcomeDictation === "review" || starting}
-                    aria-label={welcomeDictation === "recording" ? "Stop talking" : welcomeDictation !== "idle" ? "Cancel voice input" : "Start voice input"}
-                    className="h-9 gap-2 rounded-full border px-2.5 text-xs font-medium sm:px-3"
-                  >
-                    {welcomeDictation === "recording" ? <MicOff className="h-4 w-4" /> :
-                      welcomeDictation === "starting" || welcomeDictation === "transcribing" ? <X className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                    <span className={welcomeDictation === "idle" ? "hidden sm:inline" : undefined}>
-                      {welcomeDictation === "recording" ? "Stop" :
-                        welcomeDictation === "starting" || welcomeDictation === "transcribing" ? "Cancel" : "Voice"}
-                    </span>
-                  </PromptInputButton>
+                  {welcomeDictation === "idle" && <MiraAddFileMenu />}
+                  <MiraVoiceControls state={welcomeDictation} supported={welcomeVoiceSupported} disabled={starting} onToggle={toggleWelcomeVoice} onDone={confirmWelcomeVoice} />
                 </PromptInputTools>
                 <MiraSubmit draft={welcomeDraft} status={starting ? "submitted" : undefined} busy={starting} voicePending={welcomeDictation !== "idle"} />
               </PromptInputFooter>
