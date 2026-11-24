@@ -66,15 +66,15 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     await waitFor(() => expect(confirm()).toBeDisabled());
     expect(screen.getByText('pms.guest.occupantCount')).toBeInTheDocument();
     expect(screen.getByText('pms.guest.wholeReservation')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'pms.stayGuest.addGuest' }));
+    expect(screen.getByRole('button', { name: 'pms.express.scanDocument' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'pms.express.otherOptions' }));
     fireEvent.click(screen.getByRole('button', { name: 'Select foreign guest' }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'pms.stayGuest.addGuest' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'pms.stayGuest.addGuest' }));
     await screen.findByText('Synthetic Foreign');
     expect(mocks.add).toHaveBeenCalledWith(resId, foreign.id);
     expect(confirm()).toBeDisabled();
     expect(screen.getByText('pms.stayGuest.registrationMissing')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /pms.stayGuest.arrivingNow/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'pms.stayGuest.details' })[1]);
     await screen.findByPlaceholderText('HU / DE / USA…');
     const absent = screen.getAllByRole('checkbox', { name: 'pms.guest.notOnDocument' });
     expect(absent).toHaveLength(3);
