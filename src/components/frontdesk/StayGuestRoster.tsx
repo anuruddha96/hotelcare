@@ -71,7 +71,8 @@ export function useStayGuestRoster(
       // A failed guest-roster query cannot quietly fall back to all-guests
       // check-in for a property that may have per-guest reporting enabled.
       setEnabled(true);
-      setPerGuestLifecycle(false);
+      // Keep submission blocked on a failed lifecycle/roster lookup.
+      setPerGuestLifecycle(true);
       setGuests([]);
       setSelectedIds([]);
       toast.error(error instanceof Error ? error.message : String(error));
@@ -142,7 +143,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
       {!control.loading && control.guests.length === 0 && (
         <p role="alert" className="text-xs text-destructive">{t('pms.stayGuest.noGuests')}</p>
       )}
-      {control.guests.map((g) => {
+      {control.guests.filter(g => control.perGuestLifecycle || g.stay_state !== 'void').map((g) => {
         const canChoose = g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house');
         const complete = vizaRequired ? vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length === 0 : vizaMissingFields(g.guests).length === 0 && vizaProblems(g.guests).length === 0;
         return <div key={g.guest_id} className="space-y-1">
