@@ -110,9 +110,23 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
   const [autoScanId, setAutoScanId] = useState<string | null>(null);
   const [scanNewOpen, setScanNewOpen] = useState(false);
   const [draft, setDraft] = useState<GuestRegistrationDraft | null>(null);
+  const [channelHints,setChannelHints] = useState<{first_name:string;last_name:string}[]>([]);
+  const express = mode === 'arrive' && vizaRequired && expectedGuests !== undefined;
+  useEffect(()=>{
+    let live=true;
+    setChannelHints([]);
+    if(!express || !control.enabled) return;
+    void (async()=>{
+      try {
+        const {data,error}=await (supabase.rpc as CallableFunction)('pms_express_channel_guest_hints',{_reservation_id:reservationId});
+        if(live && !error && Array.isArray(data)) setChannelHints(data.filter((item: unknown): item is {first_name:string;last_name:string} =>
+          !!item && typeof item==='object' && 'first_name' in item && 'last_name' in item && typeof item.first_name==='string' && typeof item.last_name==='string'));
+      } catch { /* Optional hints must never block registration. */ }
+    })();
+    return ()=>{live=false};
+  },[express,control.enabled,reservationId]);
   const [undo, setUndo] = useState<{ guestId: string; action: GuestAction } | null>(null);
   if (!control.enabled) return null;
-  const express = mode === 'arrive' && vizaRequired && expectedGuests !== undefined;
   const activeGuests = control.guests.filter(g => g.stay_state !== 'void');
   const count = expectedGuests ?? activeGuests.length;
   const vacant = Math.max(0, count - activeGuests.length);
@@ -120,6 +134,16 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
   const reserveBookerSlot = unlinkedBooker && vacant===1;
   const isComplete = (g: StayGuestRow) => vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length === 0;
   const ready = activeGuests.filter(isComplete).length;
+  const displayName = (first?: string|null,last?: string|null) => [first,last].filter(Boolean).join(' ').trim();
+  const nameKey = (name:string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase().replace(/\s+/g,' ').trim();
+  // A display hint is never a guest-profile match. Consume names as a multiset so
+  // two real occupants with the same name can still have separate slots.
+  const linkedNameKeys = activeGuests.map(g=>nameKey(displayName(g.guests?.first_name,g.guests?.last_name)));
+  const unmatchedHints = channelHints.filter(h=>{
+    const i=linkedNameKeys.indexOf(nameKey(displayName(h.first_name,h.last_name)));
+    if(i===-1) return true;
+    linkedNameKeys.splice(i,1); return false;
+  });
   const openExisting = (g: StayGuestRow, scan = false) => {
     setDraft(null); setAdding(false);
     setAutoScanId(scan ? g.guest_id : null);
@@ -218,7 +242,8 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
       })}
       {express && !control.loading && Array.from({length:Math.min(vacant,100)},(_,index) => (
         <div key={'vacant-'+index} className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 space-y-2">
-          <div className="flex items-center gap-2"><UserRoundPlus className="h-5 w-5 text-primary shrink-0"/><div className="flex-1"><p className="text-sm font-medium">{t('pms.express.guestNumber').replace('{number}',String(activeGuests.length+index+1))}</p><p className="text-xs text-muted-foreground">{t('pms.express.awaiting')}</p></div></div>
+          <div className="flex items-center gap-2"><UserRoundPlus className="h-5 w-5 text-primary shrink-0"/><div className="flex-1"><p className="text-sm font-medium">{t('pms.express.guestNumber').replace('{number}',String(activeGuests.length+index+1))}</p>{unmatchedHints[index] && !reserveBookerSlot && <p className="text-sm font-medium break-words">{displayName(unmatchedHints[index].first_name,unmatchedHints[index].last_name)} <span className="text-xs font-normal text-muted-foreground">· {t('pms.express.channelName')}</span></p>}
+            <p className="text-xs text-muted-foreground">{t('pms.express.awaiting')}</p></div></div>
           {index===0 && !draft && <Button type="button" className="w-full gap-2" disabled={busy || reserveBookerSlot} onClick={startScan}><ScanLine className="h-4 w-4"/>{t('pms.express.scanDocument')}</Button>}
           {index===0 && !draft && bookingGuestId && unlinkedBooker && <Button type="button" variant="outline" size="sm" className="w-full" disabled={busy} onClick={async()=>{setBusy(true);try{await addStayGuest(reservationId,bookingGuestId);await control.refresh();setDetailsId(bookingGuestId);setAutoScanId(bookingGuestId);}catch{toast.error(t('pms.express.registerFailed'));}finally{setBusy(false);}}}>{t('pms.express.useBooker')}</Button>}
           {index===0 && !draft && !reserveBookerSlot && <Button type="button" size="sm" variant="ghost" className="w-full" onClick={()=>setAdding(v=>!v)}>{t('pms.express.otherOptions')}</Button>}
@@ -226,6 +251,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
             onCancelDraft={()=>setDraft(null)} onSaved={async()=>{setDraft(null);await control.refresh();const next=activeGuests.find(g=>g.stay_state==='expected'&&!isComplete(g));setDetailsId(next?.guest_id??null);toast.success(t('pms.stayGuest.added'));}} />}
         </div>
       ))}
+      {express && unmatchedHints.length > vacant && <p className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">{t('pms.express.unmatchedNames')}: {unmatchedHints.slice(vacant).map(h=>displayName(h.first_name,h.last_name)).join(', ')}</p>}
       {express && <IdScanDialog open={scanNewOpen} onOpenChange={setScanNewOpen} onApply={(result,optical={})=>setDraft({result,optical})}/>}
       {adding && (
         <div className="space-y-2 border-t pt-2">
