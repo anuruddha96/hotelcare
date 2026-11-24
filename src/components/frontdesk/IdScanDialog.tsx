@@ -9,10 +9,11 @@ import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
-import { snapshotFrame } from '@/lib/idScan/frameCapture';
-import { assessPreview, completeAutoMrz, readableAutoFront } from '@/lib/idScan/autoCapture';
+import { guideCrop, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
+import { OcrSession } from '@/lib/idScan/ocrSession';
+import { assessReadiness, completeAutoMrz, type Readiness } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
-import { nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
+import { firstSideAction, nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   fetchBridgeScan, isLoopbackUrl, loadScannerSettings, saveScannerSettings, wedgeInputLooksComplete, wedgeInputToMrzText,
@@ -44,10 +45,10 @@ type Phase = 'camera' | 'reading' | 'review' | 'failed';
 type DocumentSide = 'mrz' | 'front'; // 'front' is ALWAYS the initial camera capture.
 
 /** Grayscale + contrast stretch + upscale: OCR reads MRZ much better this way. */
-function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'lower' | 'full'): HTMLCanvasElement {
-  const top = band === 'bottom' ? Math.floor(height * 0.58) : band === 'lower' ? Math.floor(height * 0.3) : 0;
+function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'lower' | 'full', live = false): HTMLCanvasElement {
+  const top = band === 'bottom' ? Math.floor(height * (live ? 0.51 : 0.58)) : band === 'lower' ? Math.floor(height * 0.3) : 0;
   const cropH = height - top;
-  const scale = Math.min(3, Math.max(1, 1800 / width));
+  const scale = Math.min(3, 1600 / width);
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(cropH * scale);
@@ -120,7 +121,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const cameraSessionRef = useRef(0);
   const [phase, setPhase] = useState<Phase>('camera');
   const [side, setSide] = useState<DocumentSide>('front');
-  const [frontText, setFrontText] = useState(''); // Temporary local OCR, never saved.
+  const frontRef = useRef({ captured: false, positive: false, text: '' });
+  const frontJobRef = useRef<Promise<void> | null>(null);
+  const frontGeneration = useRef(0);
+  const busyRef = useRef<number | null>(null);
+  const [mrzSession] = useState(() => new OcrSession(createOcrWorker));
+  const [frontSession] = useState(() => new OcrSession(createFrontOcrWorker));
+  const [guidance, setGuidance] = useState<Readiness>('holdSteady');
   const [frontAssessment, setFrontAssessment] = useState<IdFrontAssessment | null>(null);
   const [frontCaptureAttempted, setFrontCaptureAttempted] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
@@ -134,7 +141,19 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [failReason, setFailReason] = useState<string | null>(null);
   const wedgeRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const clearFront = useCallback(() => {
+    frontGeneration.current++;
+    frontSession.reset();
+    frontJobRef.current = null;
+    frontRef.current = { captured: false, positive: false, text: '' };
+  }, [frontSession]);
+
   const chooseSource = (next: ScannerSource) => {
+    if (next === source) return;
+    scanRunRef.current++;
+    busyRef.current = null;
+    mrzSession.reset();
+    setAutoReading(false);
     setSource(next);
     setTyped('');
     setFailReason(null);
@@ -181,7 +200,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       scanRunRef.current += 1;
       stopCamera();
       setResult(null);
-      setFrontText('');
+      clearFront();
       setFrontAssessment(null);
       setFrontCaptureAttempted(false);
       setReviewAcknowledged(false);
@@ -191,14 +210,21 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setSide('front');
     setSource('camera');
     setResult(null);
-    setFrontText('');
+    clearFront();
     setFrontAssessment(null);
     setFrontCaptureAttempted(false);
     setReviewAcknowledged(false);
     setTyped('');
     setFailReason(null);
-    return stopCamera;
-  }, [open, stopCamera]);
+    void mrzSession.warm().catch(() => undefined);
+    return () => {
+      scanRunRef.current++;
+      busyRef.current = null;
+      stopCamera();
+      mrzSession.reset();
+      clearFront();
+    };
+  }, [open, stopCamera, mrzSession, clearFront]);
 
   // Wait for the camera-phase video element to be in the DOM before asking
   // Safari for a stream. A previously failed dialog may reopen without a
@@ -218,14 +244,24 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   // Passports are recognised from their bio-page code lines (TD3), so the
   // first capture is enough. ID cards require a front capture BEFORE TD1/TD2
   // code lines on the back. Never accept the back as scan step one.
-  const completeMrz = (parsed: MrzReadResult) => {
+  const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current) => {
+    // Front OCR runs concurrently with turning the card. Give it a short
+    // opportunity to finish for the cross-check, never block indefinitely.
+    const pending = frontJobRef.current;
+    if (pending) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([pending, new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); })]);
+      if (timer !== undefined) clearTimeout(timer);
+    }
+    if (scanRunRef.current !== run) return;
+    const front = frontRef.current;
+    const action = nextMrzScanAction(parsed, front.captured, front.positive);
     setFailReason(null);
     setReviewAcknowledged(false);
-    const action = nextMrzScanAction(parsed, !!frontText);
+    stopCamera();
     if (action === 'different_document' || action === 'front_first_required') {
-      // Never accept an ID back as the first side, or mix two documents.
       setResult(null);
-      setFrontText('');
+      clearFront();
       setFrontAssessment(null);
       setSide('front');
       setFailReason(action === 'different_document' ? 'different_document' : 'front_first');
@@ -235,12 +271,12 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setResult(parsed);
     if (action === 'passport_complete') {
       setFrontAssessment(null);
-      setPhase('review');
-      return;
+    } else {
+      setSide('mrz');
+      const assessment = assessIdFront(front.text, parsed.fields);
+      setFrontAssessment(assessment.status === 'unreadable' ? { status: 'needs_review', matchedFields: [] } : assessment);
     }
-    // ID front was already captured: verify against its MRZ-coded back.
-    setSide('mrz');
-    setFrontAssessment(assessIdFront(frontText, parsed.fields));
+    clearFront();
     setPhase('review');
   };
 
@@ -250,7 +286,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     if (source !== 'wedge' || phase !== 'camera' || !wedgeInputLooksComplete(typed)) return;
     const timer = setTimeout(() => {
       const parsed = readMrz(wedgeInputToMrzText(typed));
-      if (parsed) completeMrz(parsed); else { setFailReason(null); setPhase('failed'); }
+      if (parsed) void completeMrz(parsed); else { setFailReason(null); setPhase('failed'); }
       setTyped('');
     }, 350);
     return () => clearTimeout(timer);
@@ -266,18 +302,20 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   };
 
   const readFromBridge = async () => {
+    const run = ++scanRunRef.current;
     setPhase('reading');
     setFailReason(null);
     const scan = await fetchBridgeScan(settings.bridgeUrl);
+    if (scanRunRef.current !== run) return;
     if (scan.kind === 'mrz') {
       const parsed = readMrz(scan.text);
-      if (parsed) completeMrz(parsed); else setPhase('failed');
+      if (parsed) void completeMrz(parsed, run); else setPhase('failed');
       return;
     }
     if (scan.kind === 'image') {
       const img = new Image();
-      img.onload = () => { void readFrom(img, img.naturalWidth, img.naturalHeight); };
-      img.onerror = () => setPhase('failed');
+      img.onload = () => { if (scanRunRef.current === run) void readFrom(img, img.naturalWidth, img.naturalHeight); };
+      img.onerror = () => { if (scanRunRef.current === run) setPhase('failed'); };
       img.src = scan.dataUrl;
       return;
     }
@@ -285,258 +323,217 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setPhase('failed');
   };
 
-  const readFrom = async (source: CanvasImageSource, width: number, height: number) => {
-    const run = ++scanRunRef.current;
-    const initialCapture = side === 'front';
-    let frame: HTMLCanvasElement;
-    try {
-      frame = snapshotFrame(source, width, height);
-    } catch {
-      setFailReason('ocr_unavailable');
-      setPhase('failed');
-      return;
-    }
-    if (initialCapture) setFrontCaptureAttempted(true);
-    setPhase('reading');
-    setFailReason(null);
-    stopCamera();
-    let worker: TesseractWorker | null = null;
-    let recognized = false;
+  const liveRect = (video: HTMLVideoElement) => {
+    const box = video.getBoundingClientRect();
+    return guideCrop(video.videoWidth, video.videoHeight, box.width, box.height);
+  };
 
-    // The same MRZ parser handles passport (TD3), ID (TD1), and TD2. A
-    // successful passport read on the first capture is the entire scan.
-    const recognizeBand = async (current: TesseractWorker, band: 'bottom' | 'lower' | 'full'): Promise<MrzReadResult | null> => {
-      const canvas = prepareBand(frame, frame.width, frame.height, band);
-      try {
-        const { data } = await current.recognize(canvas);
-        recognized = true;
-        return readMrz(data.text ?? '');
-      } catch {
-        return null;
-      } finally {
-        wipe(canvas);
+  const graySample = (image: CanvasImageSource, rect: SourceRect) => {
+    const sample = document.createElement('canvas');
+    sample.width = 320;
+    sample.height = Math.max(8, Math.round(320 * rect.height / rect.width));
+    try {
+      const ctx = sample.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('Canvas unavailable');
+      ctx.drawImage(image, rect.x, rect.y, rect.width, rect.height, 0, 0, sample.width, sample.height);
+      const rgba = ctx.getImageData(0, 0, sample.width, sample.height).data;
+      const gray = new Uint8Array(sample.width * sample.height);
+      for (let i = 0; i < gray.length; i++) {
+        gray[i] = Math.round(0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]);
       }
-    };
+      rgba.fill(0);
+      return gray;
+    } finally { wipe(sample); }
+  };
 
-    try {
-      worker = await createOcrWorker();
-      if (initialCapture) {
-        // Try the expected passport bio-page code lines first. If this is
-        // actually the BACK of an ID, tell reception to start with its FRONT.
-        const firstMrz = await recognizeBand(worker, 'bottom');
-        if (scanRunRef.current !== run) return;
-        if (firstMrz?.valid && !firstMrz.unknownCountry) {
-          completeMrz(firstMrz);
-          return;
-        }
-        await worker.terminate().catch(() => undefined);
-        worker = null;
+  const acceptFront = (frame: HTMLCanvasElement) => {
+    clearFront();
+    frontRef.current.captured = true;
+    setFrontCaptureAttempted(true);
+    const generation = frontGeneration.current;
+    // Separate worker and canvas; the capture path never waits for English
+    // OCR/model download. A failed read is not evidence of an ID.
+    const copy = snapshotFrame(frame, frame.width, frame.height);
+    frontJobRef.current = frontSession.recognize(copy, 8000).then(text => {
+      if (frontGeneration.current === generation) {
+        frontRef.current.text = text;
+        frontRef.current.positive = looksLikeIdFront(text);
+      }
+    }).catch(() => undefined).finally(() => {
+      wipe(copy);
+      if (frontGeneration.current === generation) {
+        frontJobRef.current = null;
+        frontSession.reset();
+      }
+    });
+    setFrontAssessment(null);
+    setSide('mrz');
+    setSource('camera');
+    setPhase('camera');
+  };
 
-        // No reliable passport code found: try the ID's printed FRONT using
-        // ordinary OCR (not the MRZ font/whitelist). The front text stays only
-        // in this component until scan completion/cancel.
-        worker = await createFrontOcrWorker();
-        const { data } = await worker.recognize(frame);
-        if (scanRunRef.current !== run) return;
-        if (looksLikeIdFront(data.text ?? '')) {
-          setFrontText(data.text ?? '');
-          setFrontAssessment(null);
-          setSide('mrz');
-          setSource('camera');
-          setPhase('camera');
-          return;
-        }
-
-        // A passport photo may place the MRZ above the bottom crop or be
-        // rotated. Search the remainder before reporting an unknown document.
-        await worker.terminate().catch(() => undefined);
-        worker = await createOcrWorker();
-        let partial: MrzReadResult | null = firstMrz;
-        for (const band of ['lower', 'full'] as const) {
-          if (scanRunRef.current !== run) return;
-          const parsed = await recognizeBand(worker, band);
-          if (parsed?.valid && !parsed.unknownCountry) {
-            completeMrz(parsed);
-            return;
-          }
-          partial = partial ?? parsed;
-        }
-        if (partial) {
-          completeMrz(partial);
-          return;
-        }
-        setFailReason('first_not_recognized');
-        setPhase('failed');
+  // Shared path for live auto/manual and full-size uploaded photos.
+  const readFrom = async (image: CanvasImageSource, width: number, height: number,
+    rect?: SourceRect, automatic = false) => {
+    if (automatic && busyRef.current !== null) return;
+    if (!automatic && busyRef.current !== null) mrzSession.reset();
+    const run = ++scanRunRef.current;
+    busyRef.current = run;
+    const initial = side === 'front';
+    const live = !!rect;
+    let frame: HTMLCanvasElement | null = null;
+    const active = () => scanRunRef.current === run;
+    const fail = (reason: string, hint?: Readiness) => {
+      if (!active()) return;
+      if (hint) setGuidance(hint);
+      if (automatic || (live && hint)) {
+        setPhase('camera');
         return;
       }
-
-      // Only the ID back is requested in step two. It must have a real
-      // machine-readable code zone; other OCR guesses are not identity data.
+      setFailReason(reason);
+      setPhase('failed');
+    };
+    try {
+      frame = snapshotFrame(image, width, height, rect);
+      if (initial) setFrontCaptureAttempted(true);
+      if (automatic) setAutoReading(true);
+      else if (!live) { setPhase('reading'); stopCamera(); }
+      else setAutoReading(true);
+      setFailReason(null);
+      const sample = graySample(frame, { x: 0, y: 0, width: frame.width, height: frame.height });
+      const quality = assessReadiness(sample, 320, null, false);
+      sample.fill(0);
+      const deadline = performance.now() + (automatic ? 4000 : 18000);
       let partial: MrzReadResult | null = null;
-      for (const band of ['bottom', 'lower', 'full'] as const) {
-        if (scanRunRef.current !== run) return;
-        const parsed = await recognizeBand(worker, band);
-        if (parsed?.valid && !parsed.unknownCountry) {
-          completeMrz(parsed);
-          return;
-        }
-        partial = partial ?? parsed;
+      const bands: Array<'bottom' | 'lower' | 'full'> = live ? ['bottom', 'full'] : ['bottom', 'lower', 'full'];
+      for (const band of bands) {
+        if (!active()) return;
+        const prepared = prepareBand(frame, frame.width, frame.height, band, live);
+        try {
+          const text = await mrzSession.recognize(prepared, deadline - performance.now());
+          if (!active()) return;
+          const parsed = readMrz(text);
+          if (parsed?.valid && !parsed.unknownCountry) {
+            // Wrong-side ID is actionable even if some optional fields are missing.
+            const wrongSide = initial && parsed.fields.documentType === 'id_card';
+            if (!automatic || completeAutoMrz(parsed) || wrongSide) {
+              await completeMrz(parsed, run);
+              return;
+            }
+          }
+          partial = partial ?? parsed;
+        } finally { wipe(prepared); }
       }
-      if (scanRunRef.current !== run) return;
-      if (partial) completeMrz(partial);
-      else {
-        setFailReason(recognized ? 'no_mrz' : 'ocr_unavailable');
-        setPhase('failed');
-      }
+      if (!active()) return;
+      if (initial) {
+        const action = firstSideAction(partial, quality === 'ready');
+        if (action === 'front_first_required' && partial) await completeMrz(partial, run);
+        else if (action === 'passport_complete' && partial) {
+          if (!automatic || completeAutoMrz(partial)) await completeMrz(partial, run);
+          else fail('no_mrz', 'moveCloser');
+        } else if (action === 'provisional_front') acceptFront(frame);
+        else fail('first_not_recognized', quality === 'ready' ? 'moveCloser' : quality);
+      } else if (partial && !automatic) await completeMrz(partial, run);
+      else fail('no_mrz', live ? 'moveCloser' : undefined);
     } catch {
-      if (scanRunRef.current === run) {
-        setFailReason(initialCapture ? 'first_not_recognized' : 'ocr_unavailable');
-        setPhase('failed');
+      if (active()) {
+        // Timeouts and model errors are not evidence of a document front.
+        if (automatic || live) setGuidance('holdSteady');
+        else fail('ocr_unavailable');
+        void mrzSession.warm().catch(() => undefined);
       }
     } finally {
-      wipe(frame);
-      await worker?.terminate().catch(() => undefined);
+      if (frame) wipe(frame);
+      if (busyRef.current === run) {
+        busyRef.current = null;
+        if (active()) setAutoReading(false);
+      }
     }
   };
 
   const captureFrame = () => {
     const video = videoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) {
-      setCameraOk(false); // Offer the native photo capture when live video cannot start.
+      setCameraOk(false);
       return;
     }
-    void readFrom(video, video.videoWidth, video.videoHeight);
+    try { void readFrom(video, video.videoWidth, video.videoHeight, liveRect(video)); }
+    catch { setGuidance('moveCloser'); }
   };
 
-  // Continuous local OCR: wait for a stable, sufficiently exposed frame,
-  // then keep the preview open until the expected document side is readable.
-  // Manual capture remains available and invalidates an in-flight auto read.
   useEffect(() => {
     if (!open || phase !== 'camera' || source !== 'camera' || cameraOk !== true) return;
-    const run = scanRunRef.current;
     const session = cameraSessionRef.current;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let busy = false;
-    let mrzWorker: TesseractWorker | null = null;
-    let frontWorker: TesseractWorker | null = null;
     let previous: Uint8Array | null = null;
     let stable = 0;
-    let attempts = 0;
-    const sample = document.createElement('canvas');
-    sample.width = 96; sample.height = 60;
-    const ctx = sample.getContext('2d', { willReadFrequently: true });
-    const active = () => !cancelled && run === scanRunRef.current && session === cameraSessionRef.current;
-    const release = async () => {
-      const workers = [mrzWorker, frontWorker];
-      mrzWorker = null; frontWorker = null;
-      await Promise.all(workers.map(w => w?.terminate().catch(() => undefined)));
-    };
+    const active = () => !cancelled && session === cameraSessionRef.current;
     const schedule = (ms: number) => { if (active()) timer = setTimeout(() => void tick(), ms); };
     const tick = async () => {
-      if (!active()) { await release(); return; }
-      const video = videoRef.current;
-      if (!video || !ctx || video.readyState < 2 || !video.videoWidth || !video.videoHeight || document.hidden) {
-        previous = null; stable = 0; schedule(400); return;
-      }
-      let frame: HTMLCanvasElement | null = null;
-      busy = true;
+      if (!active()) return;
       try {
-        ctx.drawImage(video, 0, 0, sample.width, sample.height);
-        const rgba = ctx.getImageData(0, 0, sample.width, sample.height).data;
-        const gray = new Uint8Array(sample.width * sample.height);
-        for (let i = 0; i < gray.length; i++) {
-          gray[i] = Math.round(0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]);
+        const video = videoRef.current;
+        if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight || document.hidden || busyRef.current !== null) {
+          previous?.fill(0); previous = null; stable = 0; return;
         }
-        stable = assessPreview(gray, previous, sample.width) ? stable + 1 : 0;
-        previous?.fill(0);
-        previous = gray;
-        if (stable < 2) return;
-        stable = 0;
-        frame = snapshotFrame(video, video.videoWidth, video.videoHeight);
-        setAutoReading(true);
-        mrzWorker ??= await createOcrWorker();
-        if (!active()) return;
-        // Alternate crops on successive attempts rather than blocking preview
-        // for three expensive OCR passes on every candidate frame.
-        const bands = ['bottom', 'lower', 'full'] as const;
-        const band = prepareBand(frame, frame.width, frame.height, bands[attempts++ % bands.length]);
-        let parsed: MrzReadResult | null = null;
-        try {
-          const { data } = await mrzWorker.recognize(band);
-          parsed = readMrz(data.text ?? '');
-        } finally { wipe(band); }
-        if (!active()) return;
-        if (completeAutoMrz(parsed, side)) {
-          if (side === 'front') setFrontCaptureAttempted(true);
-          stopCamera();
-          completeMrz(parsed);
-          return;
-        }
-        if (side === 'front' && !parsed) {
-          frontWorker ??= await createFrontOcrWorker();
-          if (!active()) return;
-          const { data } = await frontWorker.recognize(frame);
-          if (!active()) return;
-          if (readableAutoFront(data.text ?? '', data.confidence)) {
-            setFrontCaptureAttempted(true);
-            setFrontText(data.text ?? '');
-            setFrontAssessment(null);
-            setSide('mrz');
-            // Keep the current stream running; the next effect will scan
-            // the back once the card has been turned and steadied.
+        const rect = liveRect(video);
+        const gray = graySample(video, rect);
+        const readiness = assessReadiness(gray, 320, previous);
+        previous?.fill(0); previous = gray;
+        setGuidance(readiness);
+        stable = readiness === 'ready' ? stable + 1 : 0;
+        if (stable >= 2) {
+          if (!mrzSession.ready) {
+            setAutoReading(true);
+            void mrzSession.warm().catch(() => { if (active()) setAutoReading(false); });
             return;
           }
+          stable = 0;
+          await readFrom(video, video.videoWidth, video.videoHeight, rect, true);
         }
-      } catch {
-        // Camera/OCR errors must not trap reception in a failed auto loop.
-        await release();
-        attempts++;
-      } finally {
-        if (frame) wipe(frame);
-        busy = false;
-        if (active()) {
-          setAutoReading(false);
-          schedule(350);
-        } else {
-          await release();
-        }
-      }
+      } catch { if (active()) setGuidance('moveCloser'); }
+      finally { schedule(250); }
     };
-    schedule(350);
+    setGuidance('holdSteady');
+    schedule(250);
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
       previous?.fill(0);
-      wipe(sample);
       setAutoReading(false);
-      if (!busy) void release();
     };
-    // completeMrz uses the current side/front text; restarting on either
-    // change prevents a late result from another document side.
+    // Current side determines routing; side changes reset stability without
+    // stopping the shared camera or the warmed MRZ worker.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, phase, source, cameraOk, side, frontText, stopCamera]);
+  }, [open, phase, source, cameraOk, side, mrzSession]);
 
   const readFile = (file: File | undefined) => {
     if (!file) return;
     const fileRun = ++scanRunRef.current;
-    if (file.type && !file.type.startsWith('image/')) { setFailReason('unsupported_image'); setPhase('failed'); return; }
+    mrzSession.reset();
+    busyRef.current = fileRun;
+    setPhase('reading');
+    stopCamera();
+    if (file.type && !file.type.startsWith('image/')) { busyRef.current = null; setFailReason('unsupported_image'); setPhase('failed'); return; }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       if (scanRunRef.current !== fileRun) { URL.revokeObjectURL(url); return; }
       void readFrom(img, img.naturalWidth, img.naturalHeight).finally(() => URL.revokeObjectURL(url));
     };
-    img.onerror = () => { URL.revokeObjectURL(url); if (scanRunRef.current === fileRun) { setFailReason('unsupported_image'); setPhase('failed'); } };
+    img.onerror = () => { URL.revokeObjectURL(url); if (scanRunRef.current === fileRun) { busyRef.current = null; setFailReason('unsupported_image'); setPhase('failed'); } };
     img.src = url;
   };
 
   const retry = () => {
     scanRunRef.current += 1;
+    busyRef.current = null;
+    setAutoReading(false);
     setTyped('');
     setFailReason(null);
     // A failed second scan keeps the successfully captured first ID side.
-    if (side === 'front') { setResult(null); setFrontText(''); setFrontCaptureAttempted(false); }
+    if (side === 'front') { setResult(null); clearFront(); setFrontCaptureAttempted(false); }
     setFrontAssessment(null);
     setReviewAcknowledged(false);
     setPhase('camera');
@@ -544,7 +541,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
   const restart = () => {
     scanRunRef.current += 1;
-    setResult(null); setFrontText(''); setFrontAssessment(null);
+    busyRef.current = null;
+    setAutoReading(false);
+    setResult(null); clearFront(); setFrontAssessment(null);
     setFrontCaptureAttempted(false); setReviewAcknowledged(false);
     setSide('front'); setSource('camera'); setTyped(''); setFailReason(null);
     setPhase('camera');
@@ -555,7 +554,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   // fields must then be verified manually; no OCR match is invented.
   const manuallyCheckedFront = () => {
     if (side !== 'front' || !frontCaptureAttempted || result) return;
-    setFrontText('MANUAL_REVIEW_REQUIRED');
+    clearFront();
+    frontRef.current.captured = true;
+    frontRef.current.positive = true;
     setSide('mrz');
     setSource('camera');
     setFailReason(null);
@@ -569,7 +570,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) { scanRunRef.current += 1; stopCamera(); } onOpenChange(next); }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) { scanRunRef.current += 1; busyRef.current = null; stopCamera(); mrzSession.reset(); clearFront(); } onOpenChange(next); }}>
       <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] !h-auto overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-id-scan">
         <DialogHeader className="shrink-0 pr-6 text-left">
           <DialogTitle className="flex items-center gap-2"><ScanLine className="h-5 w-5 text-primary" /> {t('pms.scan.title')}</DialogTitle>
@@ -638,11 +639,11 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             <p className="text-xs">{side === 'front' ? t('pms.scan.firstHint') : t('pms.scan.idBackHint')}</p>
             {cameraOk !== false ? (
               <div className="relative mx-auto w-full max-h-[34dvh] overflow-hidden rounded-lg bg-black aspect-[1.58/1]">
-                <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
+                <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover object-center" />
                 {/* Guide frame: the MRZ band sits in the lower part of the document. */}
                 <div className="pointer-events-none absolute inset-[7%] rounded-md border-2 border-dashed border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)]" />
                 {side === 'mrz' && <div className="pointer-events-none absolute inset-x-[7%] bottom-[7%] h-[24%] border-t border-dashed border-white/80 bg-primary/15" />}
-                {cameraOk === true && <div role="status" className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1 text-center text-xs text-white">{autoReading ? t('pms.scan.reading') : t('pms.scan.autoCaptureHint')}</div>}
+                {cameraOk === true && <div role="status" className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1 text-center text-xs text-white">{autoReading ? t('pms.scan.reading') : guidance === 'ready' ? t('pms.scan.autoCaptureHint') : t(`pms.scan.${guidance}`)}</div>}
                 {cameraOk === null && <Loader2 className="absolute inset-0 m-auto h-6 w-6 animate-spin text-white" />}
               </div>
             ) : (
