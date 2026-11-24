@@ -1,4 +1,8 @@
-# Pending migrations, in order, on top of ntak-production-baseline.sql (snapshot 2026-11-24 05:40 Europe/Budapest).
+# Migrations to apply, in order, on top of ntak-production-baseline.sql (snapshot 2026-11-24 05:40 Europe/Budapest).
 # Maintained by Claude from the deployed inventory. Add each new reviewed migration below.
-# Phase 8 is held in production until its NULL-organisation guard fix exists; the fix must follow it here.
+#
+# Deployed to production at 05:50 on 2026-11-24, AFTER the snapshot was taken (so not in the baseline):
 20261123235900_ntak_phase8_catalogue_categories.sql
+20261124010500_ntak_native_finance_consistency.sql
+#
+# Not yet deployed (add here once reviewed by Claude):
