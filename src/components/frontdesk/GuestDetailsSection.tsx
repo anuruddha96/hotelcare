@@ -109,14 +109,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   }, [guestId, loadAttempt, vizaReservationId]);
 
   const set = (field: Exclude<keyof GuestVizaRow, 'viza_review'>, value: string) => {
-    setGuest((g) => {
-      if (!g) return g;
-      const changed = { ...g, [field]: value || null };
-      if (vizaReservationId && ['nationality','id_document_type','id_document_number','date_of_birth'].includes(field)) {
-        changed.viza_review = { reservation_id: vizaReservationId };
-      }
-      return changed;
-    });
+    setGuest(g => g ? { ...g, [field]: value || null } : g);
     setDirty(true);
   };
 
@@ -137,17 +130,28 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   // receptionist then corrects anything misread (sent to VIZA as a manual
   // correction next to the unchanged reading) and presses Save.
   const applyScan = (result: MrzReadResult, opticalFields: OpticalGuestFields = {}) => {
-    setGuest((g) => g ? { ...g, ...guestScanPatch(result, opticalFields),
-      ...(vizaReservationId ? {
-        birth_last_name: opticalFields.birth_last_name ?? null,
-        birth_first_name: opticalFields.birth_first_name ?? null,
-        birth_place: opticalFields.birth_place ?? null,
-        mother_name: opticalFields.mother_name ?? null,
-        mother_family_name: opticalFields.mother_name?.trim().split(/\s+/).length === 2 ? opticalFields.mother_name.trim().split(/\s+/)[0] : null,
-        mother_given_name: opticalFields.mother_name?.trim().split(/\s+/).length === 2 ? opticalFields.mother_name.trim().split(/\s+/)[1] : null,
-        viza_review: { reservation_id: vizaReservationId, scan_reviewed: true },
-      } : {}),
-    } : g);
+    setGuest(g => {
+      if (!g) return g;
+      const patch = guestScanPatch(result, opticalFields);
+      const number = patch.id_document_number?.trim();
+      const previous = scan?.fields.okmanyAzonositoSzam?.trim() || g.id_document_number?.trim();
+      const changedDocument = !!number && !!previous && number.toUpperCase() !== previous.toUpperCase();
+      const mother = opticalFields.mother_name?.trim().split(/\s+/);
+      const currentReview = g.viza_review?.reservation_id === vizaReservationId ? g.viza_review : {};
+      return {
+        ...g,
+        ...(changedDocument && vizaReservationId ? {
+          birth_last_name: null, birth_first_name: null, birth_place: null,
+          mother_name: null, mother_family_name: null, mother_given_name: null,
+        } : {}),
+        ...patch,
+        ...(vizaReservationId ? {
+          ...(mother?.length === 2 ? { mother_family_name: mother[0], mother_given_name: mother[1] } :
+            mother && mother.length > 2 ? { mother_family_name: null, mother_given_name: null } : {}),
+          viza_review: { ...(changedDocument ? {} : currentReview), reservation_id: vizaReservationId, scan_reviewed: true },
+        } : {}),
+      };
+    });
     setOptical(opticalFields);
     setScan(toVizaDocumentScan(result));
     setScanChanged(true);
@@ -179,7 +183,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         birth_last_name: guest.birth_last_name, birth_first_name: guest.birth_first_name,
         entry_date: guest.entry_date || null, entry_place: guest.entry_place,
       } : {}),
-      ...(vizaReservationId && !review.scan_reviewed ? { document_scan: null } : scanChanged ? { document_scan: scan } : {}),
+      ...(scanChanged ? { document_scan: scan } : {}),
     };
     // Generated types may lag behind the latest migration for the new columns.
     const { error } = await (supabase.from('guests') as never as {
@@ -189,7 +193,6 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     if (error) { toast.error(t('pms.guest.saveFailed')); return; }
     setDirty(false);
     setScanChanged(false);
-    if (vizaReservationId && !review.scan_reviewed) setScan(null);
     toast.success(t('pms.guest.saved'));
     setGuest(savedGuest);
     onCompletenessChange?.(openItems(savedGuest, vizaReservationId, occurredAt));
