@@ -36,6 +36,7 @@ export function VizaGuestRecoveryCard({hotelId}:{hotelId:string}){
   const id=setInterval(load,60000);
   return()=>{alive=false;clearInterval(id);};
  },[refresh]);
+ useEffect(()=>{if(open&&!rows.some(row=>row.id===open)){setOpen(null);setDirty(false);}},[open,rows]);
  if(!rows.length)return null;
  const retry=async(id:string)=>{
   if(dirty||busy)return;
