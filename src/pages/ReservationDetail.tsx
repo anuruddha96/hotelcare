@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   ArrowLeft, User, CalendarDays, BedDouble, CreditCard, Edit,
-  History, Lock, AlertTriangle, Hash,
+  History, Lock, AlertTriangle, Hash, ArrowLeftRight, LogOut,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -251,8 +251,8 @@ const ReservationDetail = () => {
               </Button>
             )}
             {reservation.status === 'checked_in' && reservation.room_id && (
-              <Button size="sm" variant="outline" className="min-w-0 w-full sm:w-auto" onClick={() => setRoomChangeOpen(true)} data-training="fd-room-change-button">
-                {t('pms.businessMoment.changeRoom')}
+              <Button size="sm" variant="outline" className="h-auto min-h-9 w-full min-w-0 gap-1.5 whitespace-normal border-blue-300 bg-blue-50 text-blue-800 hover:border-blue-400 hover:bg-blue-100 hover:text-blue-900 dark:border-blue-500/70 dark:bg-blue-950 dark:text-blue-200 dark:hover:bg-blue-900 dark:hover:text-blue-100 sm:w-auto" onClick={() => setRoomChangeOpen(true)} data-training="fd-room-change-button">
+                <ArrowLeftRight className="h-4 w-4 shrink-0" /> {t('pms.businessMoment.changeRoom')}
               </Button>
             )}
             {ntakActive && reservation.status === 'checked_out' && (
@@ -261,8 +261,8 @@ const ReservationDetail = () => {
               </Button>
             )}
             {reservation.status === 'checked_in' && (
-              <Button size="sm" variant="outline" className="min-w-0 w-full sm:w-auto" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
-                {t('pms.checkOut')}
+              <Button size="sm" variant="outline" className="h-auto min-h-9 w-full min-w-0 gap-1.5 whitespace-normal border-amber-500 bg-amber-500 text-amber-950 hover:border-amber-400 hover:bg-amber-400 hover:text-amber-950 dark:border-amber-400 dark:bg-amber-400 dark:text-amber-950 dark:hover:bg-amber-300 dark:hover:text-amber-950 sm:w-auto" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
+                <LogOut className="h-4 w-4 shrink-0" /> {t('pms.checkOut')}
               </Button>
             )}
             {canCancelOrNoShow && (
