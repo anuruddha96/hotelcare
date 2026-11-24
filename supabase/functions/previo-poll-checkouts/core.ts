@@ -23,7 +23,7 @@ import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";
 import { verifiedGozsduCheckouts } from "../_shared/previoExplicitCheckoutEvidence.ts";
 import { verifiedGozsduRestCheckouts } from "../_shared/previoRestCheckoutEvidence.ts";
 import { shouldHealSlntCheckoutRtc } from "../_shared/slntRtcInvariant.ts";
-import { needsCheckoutRoomWrite, checkoutAssignmentsNeedingRelease } from "../_shared/checkoutPollIdempotency.ts";
+import { needsCheckoutRoomWrite, checkoutAssignmentsNeedingRelease, xmlInHouseDepartureRoomId, hasXmlInHouseConflict, clearedCheckoutMetadata } from "../_shared/checkoutPollIdempotency.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -235,6 +235,7 @@ async function pollOneHotel(
   const checkedOutByObjId = new Map<number, string>();
   const stillInHouseByName = new Set<string>();
   const stillInHouseByObjId = new Set<number>();
+  const xmlInHouseIds = new Set<number>();
   const checkoutSignals: Array<{ name: string; objId: number | null; reservationId: string; source: string }> = [];
   const addCheckoutSignal = (nameRaw: unknown, objIdRaw: unknown, reservationId: unknown, source: string) => {
     const name = String(nameRaw ?? "").trim();
@@ -348,14 +349,14 @@ async function pollOneHotel(
       for (const block of blocks) {
         const departure = cleanDate(grab(block, "to"));
         const statusId = grab(block, "statusId");
-        // Positive, live in-house evidence helps identify false RTC states,
-        // but diagnostic only until these XML signals are validated across tenants.
-        if (departure === today && isExplicitlyInHouseStatus(statusId)) {
-          const matchId = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>/);
-          const physicalId = matchId ? Number(matchId[1]) : 0;
+        // A current, explicit status 3 for a mapped physical room is positive
+        // occupancy evidence, including when REST omits its reservation.
+        const physicalId = xmlInHouseDepartureRoomId(block, departure, statusId, today);
+        if (physicalId !== null) {
           const matchedLocal = localScheduledByObjId.get(physicalId);
-          if (matchedLocal && (pendingCheckoutRoomIds.has(matchedLocal.id)
-            || matchedLocal.pms_metadata?.checkedOutToday === true)) {
+          if (matchedLocal) {
+            xmlInHouseIds.add(physicalId);
+            stillInHouseByObjId.add(physicalId);
             result.diagnostics.push({
               source: "xml-confirmed-inhouse-pending-departure",
               localRoom: matchedLocal.room_number,
@@ -363,8 +364,7 @@ async function pollOneHotel(
               statusId,
               scheduledDepartureToday: matchedLocal.pms_metadata?.scheduledDepartureToday === true,
               storedCheckoutToday: matchedLocal.pms_metadata?.checkedOutToday === true,
-              accepted: false,
-              readOnly: true,
+              accepted: true,
             });
           }
         }
@@ -616,6 +616,16 @@ async function pollOneHotel(
         });
         continue;
       }
+      if (hasXmlInHouseConflict(localRoom.pms_metadata?.roomId, xmlInHouseIds)) {
+        result.diagnostics.push({
+          source: "checkout-conflicts-with-live-inhouse",
+          localRoom: localRoom.room_number,
+          roomId: previoRoomId || null,
+          accepted: false,
+          reason: "explicit same-day in-house status overrides contradictory checkout evidence",
+        });
+        continue;
+      }
       trueCheckoutRoomIds.add(localRoom.id);
 
       const wasCheckout = !!localRoom.is_checkout_room;
@@ -797,16 +807,17 @@ async function pollOneHotel(
   }
 
   // 3.5. Reconcile false RTC only when Previo explicitly says the guest is
-  // still in-house (statusId=5 / checked-in). Never clear based on a missing
+  // still in-house (statusId=3 / checked-in). Never clear based on a missing
   // reservation object because some tenants drop the reservation after real
   // checkout.
   try {
     if (!dryRun && (stillInHouseByName.size > 0 || stillInHouseByObjId.size > 0)) {
-      const { data: rtcRooms } = await service
+      const { data: rtcRooms, error: rtcReadError } = await service
         .from("rooms")
         .select("id, room_number, status, checkout_time, pms_metadata")
         .in("hotel", hotelKeys)
         .eq("is_checkout_room", true);
+      if (rtcReadError) throw rtcReadError;
       const falseRtcRows = (rtcRooms ?? []).filter((r: any) => {
         if (trueCheckoutRoomIds.has(r.id)) return false;
         const meta = r.pms_metadata || {};
@@ -817,24 +828,14 @@ async function pollOneHotel(
         const byObj = Number.isFinite(objId) && stillInHouseByObjId.has(objId);
         const name = String(r.room_number ?? "").trim();
         const byName = stillInHouseByName.has(name) || stillInHouseByName.has(extractNum(name));
-        return byObj || byName;
+        return Number.isFinite(objId) && objId > 0 ? byObj : byName;
       });
 
       for (const r of falseRtcRows) {
-        const meta = { ...((r as any).pms_metadata || {}) };
-        delete meta.checkedOutToday;
-        delete meta.readyToClean;
-        delete meta.checkedOutAt;
-        meta.scheduledDepartureToday = true;
-        await service
-          .from("rooms")
-          .update({
-            checkout_time: null,
-            pms_metadata: meta,
-            updated_at: nowIso(),
-          })
-          .eq("id", (r as any).id);
-        const { data: revertedAssignments } = await service
+        const meta = clearedCheckoutMetadata((r as any).pms_metadata || {});
+        // Clear the active task first. If the room write fails, its stale
+        // flags remain eligible for retry on the next poll.
+        const { data: revertedAssignments, error: assignmentClearError } = await service
           .from("room_assignments")
           .update({ ready_to_clean: false, updated_at: nowIso() })
           .select("id")
@@ -843,6 +844,16 @@ async function pollOneHotel(
           .eq("assignment_type", "checkout_cleaning")
           .eq("ready_to_clean", true)
           .in("status", ["assigned", "in_progress"]);
+        if (assignmentClearError) throw assignmentClearError;
+        const { error: roomClearError } = await service
+          .from("rooms")
+          .update({
+            checkout_time: null,
+            pms_metadata: meta,
+            updated_at: nowIso(),
+          })
+          .eq("id", (r as any).id);
+        if (roomClearError) throw roomClearError;
         result.revertedCheckedOut += 1;
         result.cleared += revertedAssignments?.length ?? 0;
         await service.from("pms_change_events").insert({

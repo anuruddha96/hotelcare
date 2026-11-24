@@ -56,3 +56,39 @@ export function checkoutAssignmentsNeedingRelease(assignments: CheckoutAssignmen
       || a.pms_hold_reason !== null || a.pms_hold_event_id !== null)
   ).map((a) => a.id);
 }
+
+
+/** Positive same-day in-house evidence from XML; never infer occupancy from
+ * a missing reservation, a dirty room, a scheduled departure or a room label. */
+export function xmlInHouseDepartureRoomId(
+  block: string,
+  departure: string,
+  statusId: string,
+  today: string,
+): number | null {
+  if (departure !== today || statusId.trim() !== "3") return null;
+  const object = block.match(/<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<\/object>/);
+  const id = Number(object?.[1]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/** A live in-house signal wins over an old checkout on the same mapped room.
+ * A confirmed checkout can still be processed for any other physical room. */
+export function hasXmlInHouseConflict(
+  roomId: unknown,
+  inHouseIds: ReadonlySet<number>,
+): boolean {
+  const id = Number(roomId);
+  return Number.isSafeInteger(id) && id > 0 && inHouseIds.has(id);
+}
+
+export function clearedCheckoutMetadata(meta: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...meta,
+    checkedOutToday: false,
+    readyToClean: false,
+    checkedOutAt: null,
+    readyToCleanDate: null,
+    scheduledDepartureToday: true,
+  };
+}
