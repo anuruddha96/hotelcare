@@ -21,19 +21,21 @@ describe('ReservationAccountPanel external-PMS safety', () => {
     expect(isNativePmsOrganization(null)).toBe(false);
   });
 
-  it('shows Previo-imported balance read-only without creating a finance folio', () => {
+  it('shows Previo-imported balance read-only without creating a finance folio', async () => {
+    testState.rpc.mockResolvedValue({data:false,error:null});
     render(<ReservationAccountPanel reservation={{
       id: 'external-booking', hotel_id: 'previo-hotel',
       organization_slug: 'rdhotels', currency: 'EUR',
       total_amount: 300, balance_due: 97,
     }} />);
-    expect(screen.getByTestId('external-ledger-readonly')).toHaveTextContent('pms.account.externalReadOnly');
+    expect(await screen.findByTestId('external-ledger-readonly')).toHaveTextContent('pms.account.externalReadOnly');
     expect(screen.getByText('pms.account.importedBalance')).toBeInTheDocument();
     expect(screen.getByText('pms.account.stayAmount', { exact: false })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add charge/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /record payment/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /services/i })).not.toBeInTheDocument();
-    expect(testState.rpc).not.toHaveBeenCalled();
+    expect(testState.rpc).toHaveBeenCalledTimes(1);
+    expect(testState.rpc).toHaveBeenCalledWith('pms_finance_native_access',{_reservation_id:'external-booking'});
     expect(testState.from).not.toHaveBeenCalled();
   });
 });
