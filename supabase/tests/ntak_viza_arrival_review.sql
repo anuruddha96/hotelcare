@@ -59,8 +59,13 @@ END $$;
 ALTER TABLE public.guests ADD COLUMN IF NOT EXISTS birth_last_name text,
  ADD COLUMN IF NOT EXISTS birth_first_name text, ADD COLUMN IF NOT EXISTS visa_number text,
  ADD COLUMN IF NOT EXISTS entry_date date, ADD COLUMN IF NOT EXISTS entry_place text,
- ADD COLUMN IF NOT EXISTS document_scan jsonb;
+ ADD COLUMN IF NOT EXISTS document_scan jsonb, ADD COLUMN IF NOT EXISTS mother_name text;
+UPDATE public.guests SET mother_name=CASE WHEN last_name='Missing' THEN 'Legacy Mother' ELSE 'Compound Family Mother' END;
 \ir ../migrations/20261124131000_viza_document_aware_admission.sql
+DO $ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.guests WHERE mother_name='Legacy Mother' AND mother_family_name='Legacy' AND mother_given_name='Mother') THEN RAISE EXCEPTION 'Two-word name not backfilled'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.guests WHERE mother_name='Compound Family Mother' AND mother_family_name IS NULL AND mother_given_name IS NULL) THEN RAISE EXCEPTION 'Ambiguous name backfilled'; END IF;
+END $;
 UPDATE public.viza_settings SET enabled=true,adatszolgaltatasi_azonosito='TEST0001';
 UPDATE public.reservations SET adults=1,children=1;
 UPDATE public.guests SET birth_last_name=last_name,birth_first_name=first_name,
@@ -99,3 +104,17 @@ DO $$ BEGIN
   RAISE EXCEPTION 'Incomplete occupant roster was admitted';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'VIZA_GUEST_DATA_INCOMPLETE:%occupant_count%' THEN RAISE; END IF; END;
 END $$;
+
+-- Whole-booking VIZA-only route: two adult guests, no NTAK lifecycle.
+UPDATE public.reservations SET adults=2,children=0;
+UPDATE public.guests SET nationality='HU',id_document_type='id_card',id_document_number='TEST-HU',
+ date_of_birth='1990-01-01',birth_last_name='Synthetic',birth_first_name='Guest',birth_place='Budapest',
+ mother_family_name='Synthetic',mother_given_name='Mother',
+ viza_review='{"reservation_id":"00000000-0000-4000-8000-000000000094","manual_reason":"Scanner failure"}'
+ WHERE id='00000000-0000-4000-8000-000000000092';
+UPDATE public.guests SET nationality='DE',id_document_type='passport',id_document_number='TEST-DE',
+ date_of_birth='1991-01-01',birth_last_name=NULL,birth_first_name=NULL,birth_place=NULL,
+ mother_family_name=NULL,mother_given_name=NULL,
+ viza_review='{"reservation_id":"00000000-0000-4000-8000-000000000094","manual_reason":"Scanner failure","birth_name_absent":true,"birth_place_absent":true,"mother_name_absent":true}'
+ WHERE id='00000000-0000-4000-8000-000000000093';
+SELECT public.pms_check_in('00000000-0000-4000-8000-000000000094',NULL,NULL,NULL,true);
