@@ -52,3 +52,24 @@ export function attendanceMapUrl(value:unknown):string|null {
  if(typeof latitude!=='number'||typeof longitude!=='number'||!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180)return null;
  return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(latitude+','+longitude);
 }
+
+/** Hours classified by the same shift/day rules used in the workforce reports.
+ * These are shift-based reporting totals, not statutory pay-premium hours. */
+import {isNightShift} from './workforce/cellParser';
+import {isPublicHoliday} from './workforce/holidays';
+export function attendanceShiftHours(rows:ActualAttendance[],shiftFor:(row:ActualAttendance)=>PlannedShift|null){
+ let night=0,weekend=0,holiday=0,hours=0;
+ const days=new Set<string>();
+ for(const r of rows){
+   if(!r.check_out_time)continue;
+   const value=Number(r.total_hours??0);
+   if(!Number.isFinite(value)||value<0)continue;
+   days.add(r.user_id+'|'+r.work_date);hours+=value;
+   const shift=shiftFor(r);
+   if(shift?isNightShift({kind:shift.kind,start:shift.start_time,end:shift.end_time}):isNightShift({kind:'work',start:budapestInput(r.check_in_time).slice(11),end:budapestInput(r.check_out_time).slice(11)}))night+=value;
+   const weekday=new Date(r.work_date+'T12:00:00Z').getUTCDay();
+   if(weekday===0||weekday===6)weekend+=value;
+   if(isPublicHoliday(r.work_date))holiday+=value;
+ }
+ return {days:days.size,hours,night,weekend,holiday};
+}

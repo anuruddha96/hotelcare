@@ -55,3 +55,16 @@ tl:['Hotel','Departamento','Lahat','Mula','Hanggang','Huli sa pagdating','Maagan
 uk:['Готель','Відділ','Усі','З','До','Запізнення','Ранній вихід','Працював у вихідний'],
 ru:['Отель','Отдел','Все','С','По','Опоздание','Ранний уход','Работал в выходной']
 };for(const [lang,values] of Object.entries(comparisonRows))comparisonKeys.forEach((key,i)=>{hrTranslations[lang][key]=values[i];});
+
+const payrollKeys=['hr.a.norm','hr.a.overtime','hr.a.nightHours','hr.a.weekendHours','hr.a.holidayHours','hr.a.leaveDays','hr.a.sickDays'];
+const payrollRows:Record<string,string[]>={
+en:['Monthly norm (hours)','Overtime vs norm (hours)','Hours on night shifts','Hours on weekend shifts','Hours on public-holiday shifts','Leave days','Sick leave days'],
+hu:['Havi norma (óra)','Normán felüli órák','Éjszakai műszak órái','Hétvégi műszak órái','Ünnepnapi műszak órái','Szabadságnapok','Betegszabadság napjai'],
+es:['Norma mensual (horas)','Horas extra sobre la norma','Horas en turnos nocturnos','Horas en turnos de fin de semana','Horas en turnos festivos','Días de permiso','Días de baja'],
+vi:['Định mức tháng (giờ)','Giờ vượt định mức','Giờ ca đêm','Giờ ca cuối tuần','Giờ ca ngày lễ','Ngày nghỉ phép','Ngày nghỉ ốm'],
+mn:['Сарын норм (цаг)','Нормоос илүү цаг','Шөнийн ээлжийн цаг','Амралтын өдрийн ээлжийн цаг','Баярын өдрийн ээлжийн цаг','Чөлөөний өдөр','Өвчтэй өдөр'],
+az:['Aylıq norma (saat)','Normadan artıq saat','Gecə növbəsi saatları','Həftəsonu növbəsi saatları','Bayram növbəsi saatları','Məzuniyyət günləri','Xəstəlik günləri'],
+tl:['Buwanang pamantayan (oras)','Oras na lampas sa pamantayan','Oras sa night shift','Oras sa weekend shift','Oras sa holiday shift','Mga araw ng leave','Mga araw ng sick leave'],
+uk:['Місячна норма (год)','Години понад норму','Години нічних змін','Години змін у вихідні','Години змін у свята','Дні відпустки','Дні лікарняного'],
+ru:['Месячная норма (часы)','Часы сверх нормы','Часы ночных смен','Часы смен в выходные','Часы смен в праздники','Дни отпуска','Дни больничного']
+};for(const [lang,values] of Object.entries(payrollRows))payrollKeys.forEach((key,i)=>{hrTranslations[lang][key]=values[i];});

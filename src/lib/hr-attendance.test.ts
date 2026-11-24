@@ -24,3 +24,10 @@ describe('schedule reconciliation',()=>{
  it('does not infer a day off without a published shift',()=>{expect(dayComparison(row.work_date,null,[row],'2026-11-24').dayOff).toBe(false);expect(dayComparison(row.work_date,{...shift,kind:'day_off'},[row],'2026-11-24').dayOff).toBe(true);});
  it('escapes CSV quotes and formulas and validates map coordinates',()=>{expect(csvCell('=1+1')).toBe('"\'=1+1"');expect(csvCell('a"b')).toBe('"a""b"');expect(attendanceMapUrl({latitude:91,longitude:1})).toBeNull();expect(attendanceMapUrl({latitude:47,longitude:19})).toContain('47%2C19');});
 });
+
+import {attendanceShiftHours} from './hr-attendance';
+it('classifies completed actual hours by shift and business date, ignoring open shifts',()=>{
+ const a={user_id:'x',work_date:'2026-12-25',check_in_time:'2026-12-25T19:00:00Z',check_out_time:'2026-12-26T07:00:00Z',total_hours:11};
+ const b={...a,work_date:'2026-12-26',check_out_time:null,total_hours:99};
+ expect(attendanceShiftHours([a,b],()=>null)).toEqual({days:1,hours:11,night:11,weekend:0,holiday:11});
+});
