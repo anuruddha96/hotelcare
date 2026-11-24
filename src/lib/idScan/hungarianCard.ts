@@ -39,11 +39,16 @@ export function estimateCardRect(gray: Uint8Array, width: number, height: number
   if (w<width*.65 || h<height*.65 || ratio<1.42 || ratio>1.78) return full;
   return {x:xr[0], y:yr[0], width:w,height:h};
 }
+/** A located OCR result can be partial (including an empty object). */
+export function needsHungarianPrintedFallback(confirmedHungarian: boolean, fields: OpticalGuestFields): boolean {
+  return confirmedHungarian && !(fields.birth_place && fields.birth_last_name && fields.birth_first_name && fields.mother_name);
+}
+
 export function rowHasLabel(row: PrintedRow, text: string): boolean {
   const s=fold(text);
   if (row==='birth_place') return /place\s*of\s*birth|szuletesi\s*hely|szoletesi\s*he/.test(s);
   if (row==='birth_pair') return /given\s*name\s*at\s*birth|szuletesi\s*csalad|szulelesi\s*salad/.test(s);
-  return /mother.?s\s*(?:maiden|birth)\s*name|anyja\s*sz[uü]\s*(?:letesi|etesi)\s*nev|aryja\s*sz[uü]\s*etesi\s*nev/.test(s);
+  return /mother\s*['’]?\s*s\s*(?:maiden|birth)\s*name|anyja\s*sz[uü]\s*(?:letesi|etesi)\s*nev|aryja\s*sz[uü]\s*etesi\s*nev/.test(s);
 }
 export function parsePrintedRow(row: PrintedRow, text: string): OpticalGuestFields {
   const clean=text.trim().replace(/[|.,;:]+$/,'').trim();
