@@ -60,7 +60,7 @@ describe('NTAK closure dialog', () => {
     render(<NtakClosureDialog hotelId="h1" day="2026-11-18" open onOpenChange={() => {}} onQueued={onQueued} />);
     const send = await screen.findByRole('button', { name: /Send/ });
     await screen.findByText('MODOSITO');
-    const record = screen.getByRole('textbox', { name: /Record ID/i });
+    const record = screen.getByRole('textbox', { name: /(?:Protocol|Record) ID/i });
     const reason = screen.getByRole('combobox');
     expect(send).toBeDisabled();
 
