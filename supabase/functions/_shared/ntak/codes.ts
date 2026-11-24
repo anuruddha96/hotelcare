@@ -30,6 +30,18 @@ export type VatRate = typeof VAT_RATES[number];
 export const IFA_TYPES = ['SZAZALEKOS', 'TETELES', 'NINCS'] as const;
 export type IfaType = typeof IFA_TYPES[number];
 
+// TODO(Phase 7): obtain official v9 annex before adding exemptions. im1 is the existing under-18 code.
+export const IFA_EXEMPTIONS: {code: string; hu: string; en: string}[] = [
+  { code: 'im1', hu: '18 év alatti', en: 'Under 18' },
+];
+
+// Confirmed by the official validation worksheet v1.07, NZ_04B and EU_02B.
+// TODO: complete the reason list from the v9.07 annex; do not guess codes.
+export const CLOSURE_CORRECTION_REASONS = [
+  { code: 'VENDEG_VAGY_IFA_JAVITAS', hu: 'Vendég vagy IFA javítása', en: 'Guest or tourist tax correction' },
+  { code: 'TECH_HIBA_ADATJAVITAS', hu: 'Technikai hiba miatti adatjavítás', en: 'Technical data correction' },
+] as const;
+
 /** Message processing states returned by the verification endpoint (7.6). */
 export const NTAK_STATUSES = ['BEFOGADVA', 'TELJESEN_SIKERES', 'VIZSGALANDO', 'TELJESEN_HIBAS', 'UJRA_KULDENDO'] as const;
 export type NtakStatus = typeof NTAK_STATUSES[number];

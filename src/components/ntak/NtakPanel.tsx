@@ -307,7 +307,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab =
                       <td className="py-1 pr-2"><Badge variant={STATE_TONE[c.state] ?? 'outline'} className="text-[10px]">{t(`ntak.state.${c.state}`)}</Badge> <span className="text-muted-foreground">{c.classification}</span></td>
                       <td className="py-1 pr-2">{c.totals ? `${c.totals.roomNights} · ${fmtHuf(c.totals.accommodationFee)}` : ''}</td>
                       <td className="py-1 pr-2">{c.needs_correction && <span className="text-destructive">{t('ntak.needsCorrection')}</span>}</td>
-                      <td className="py-1"><Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => setClosureDay(c.closed_day)}>{t('ntak.check')}</Button></td>
+                      <td className="py-1"><Button size="sm" variant="outline" className="h-6 text-[11px]" onClick={() => setClosureDay(c.closed_day)}>{t(c.needs_correction ? 'ntak.sendCorrection' : 'ntak.check')}</Button></td>
                     </tr>
                   ))}
                 </tbody>

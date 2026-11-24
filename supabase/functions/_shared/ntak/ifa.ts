@@ -24,6 +24,12 @@ export function autoIfaStatus(birthDate: string | null | undefined, night: strin
   return age < 18 ? 'im1' : 'KOTELES';
 }
 
+/** Age is evaluated on the reported night, including historical corrections. */
+export function effectiveIfaStatus(birthDate: string | null | undefined, night: string, override: string | null | undefined): string {
+  if (autoIfaStatus(birthDate, night) === 'im1') return 'im1';
+  return override || 'KOTELES';
+}
+
 export function ifaPerGuest(setting: IfaSetting | null | undefined, accommodationGross: number, accommodationVat: number, guestStatuses: string[]): number[] {
   if (!setting || setting.type === 'NINCS' || !guestStatuses.length) return [];
   const taxable = guestStatuses.filter((s) => s === 'KOTELES').length;
@@ -39,3 +45,6 @@ export function ifaPerGuest(setting: IfaSetting | null | undefined, accommodatio
   const rest = roomTotal - base * taxable;
   return Array.from({ length: taxable }, (_, i) => base + (i < rest ? 1 : 0));
 }
+
+/** Existing under-18 code only; additional exemptions require the official v9 annex. */
+export function isVerifiedIfaStatus(status: string): boolean { return status === 'KOTELES' || status === 'im1'; }
