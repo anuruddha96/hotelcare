@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { AppearanceMenu } from './AppearanceMenu';
+import { WorkspaceConditions } from './WorkspaceConditions';
+import { canSeeWorkspaceWeather } from '@/lib/workspaceAppearance';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
@@ -117,7 +120,7 @@ export function Header() {
 
   return (
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
-      <div className="container mx-auto max-w-full flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
+      <div className="container mx-auto max-w-full flex flex-col gap-2 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4 sm:py-3">
         {/* Logo Section - More space on mobile */}
         <div className="flex w-full min-w-0 items-center justify-between gap-3 sm:w-auto sm:shrink-0">
           <div className="flex min-w-0 items-center gap-2 rounded-xl bg-secondary/60 p-1.5 ring-1 ring-border transition hover:ring-primary/40 sm:gap-3 sm:p-2">
@@ -141,6 +144,10 @@ export function Header() {
           </div>
         </div>
 
+        {canSeeWorkspaceWeather(profile) && (
+          <WorkspaceConditions organizationSlug={profile?.organization_slug} hotelId={profile?.assigned_hotel} />
+        )}
+
         {/* Mobile actions scroll on a separate row instead of colliding with the language control. */}
         <div className="flex w-full min-w-0 items-center justify-start gap-1 overflow-x-auto overscroll-x-contain scrollbar-hide sm:w-auto sm:flex-1 sm:justify-end sm:gap-2">
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -150,6 +157,7 @@ export function Header() {
             <OrganizationSwitcher />
             <div className={fieldStaff ? 'hidden sm:block' : ''}><HotelSwitcher /></div>
             <div className="hidden shrink-0 sm:block"><LanguageSwitcher /></div>
+            <AppearanceMenu />
             <InstallAppPrompt />
             {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
               <LiveSyncIndicator />
