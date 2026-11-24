@@ -52,6 +52,8 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
     const label = labels.find(([, pattern]) => pattern.test(normalized));
     if (!label || /^[A-Z0-9<]{25,}$/.test(lines[i])) continue;
     const [key, pattern] = label;
+    // Composite passport rows are handled by the dedicated parser below.
+    if (key === 'birth_place' && /\b(?:sex|sexe)\b/.test(normalized)) continue;
     const match = pattern.exec(normalized)!;
     // Ignore composite fields and crowded multi-column OCR lines rather than
     // assign one person's name or date to a different field.
