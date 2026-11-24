@@ -17,7 +17,7 @@ BEGIN
   IF NOT FOUND OR actor IS NULL OR NOT COALESCE(public.can_access_pms_hotel(actor,r.hotel_id,r.organization_slug),false) THEN
     RAISE EXCEPTION 'ACCESS_DENIED';
   END IF;
-  IF r.status::text NOT IN ('confirmed','pending','checked_in') THEN RAISE EXCEPTION 'EXPRESS_STAY_NOT_OPEN'; END IF;
+  IF r.status::text NOT IN ('confirmed','pending','checked_in') OR (r.status::text='checked_in' AND NOT public.pms_ntak_guest_scope(r.id,r.room_id)) THEN RAISE EXCEPTION 'EXPRESS_STAY_NOT_OPEN'; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.viza_settings WHERE hotel_id=r.hotel_id AND enabled AND adatszolgaltatasi_azonosito IS NOT NULL) THEN
     RAISE EXCEPTION 'EXPRESS_VIZA_NOT_ENABLED';
   END IF;
@@ -47,6 +47,9 @@ BEGIN
   END IF;
   -- A reservation lock prevents overfilling even from two reception devices.
   SELECT count(*) INTO active_count FROM public.reservation_guests WHERE reservation_id=r.id AND stay_state<>'void';
+  IF r.guest_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.reservation_guests WHERE reservation_id=r.id AND guest_id=r.guest_id) THEN
+    active_count := active_count + 1;
+  END IF;
   IF active_count>=COALESCE(r.adults,1)+COALESCE(r.children,0) THEN RAISE EXCEPTION 'EXPRESS_OCCUPANCY_FULL'; END IF;
   doc := NULLIF(upper(btrim(incoming.id_document_number)),'');
   IF doc IS NOT NULL THEN
@@ -82,9 +85,9 @@ BEGIN
       incoming.visa_number,incoming.entry_date,incoming.entry_place,scan,review) RETURNING * INTO g;
   ELSE
     -- Exact returning-guest match, explicitly approved by reception. Never replace names, DOB or document identity.
-    UPDATE public.guests SET birth_last_name=incoming.birth_last_name,birth_first_name=incoming.birth_first_name,
-      birth_place=incoming.birth_place,gender=incoming.gender,mother_name=incoming.mother_name,
-      mother_family_name=incoming.mother_family_name,mother_given_name=incoming.mother_given_name,
+    UPDATE public.guests SET birth_last_name=COALESCE(incoming.birth_last_name,birth_last_name),birth_first_name=COALESCE(incoming.birth_first_name,birth_first_name),
+      birth_place=COALESCE(incoming.birth_place,birth_place),gender=incoming.gender,mother_name=COALESCE(incoming.mother_name,mother_name),
+      mother_family_name=COALESCE(incoming.mother_family_name,mother_family_name),mother_given_name=COALESCE(incoming.mother_given_name,mother_given_name),
       visa_number=incoming.visa_number,entry_date=incoming.entry_date,entry_place=incoming.entry_place,
       document_scan=COALESCE(scan,document_scan),viza_review=review
       WHERE id=g.id RETURNING * INTO g;
