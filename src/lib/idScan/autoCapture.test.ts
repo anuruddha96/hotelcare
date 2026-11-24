@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessPreview, completeAutoMrz, readableAutoFront } from './autoCapture';
+import { assessReadiness, completeAutoMrz } from './autoCapture';
 import type { MrzReadResult } from './mrz';
 
 const passport: MrzReadResult = {
@@ -12,36 +12,33 @@ const passport: MrzReadResult = {
   },
 };
 
-describe('live document capture', () => {
-  it('waits for stability, contrast and exposure', () => {
-    const sharp = Uint8Array.from({ length: 96 * 60 }, (_, i) => i % 4 < 2 ? 70 : 210);
-    const moving = Uint8Array.from(sharp, v => 280 - v);
-    const blurred = new Uint8Array(sharp.length).fill(140);
-    const dark = new Uint8Array(sharp.length).fill(5);
-    const overexposed = new Uint8Array(sharp.length).fill(255);
-    expect(assessPreview(sharp, null, 96)).toBe(false);
-    expect(assessPreview(sharp, sharp, 96)).toBe(true);
-    expect(assessPreview(sharp, moving, 96)).toBe(false);
-    expect(assessPreview(blurred, blurred, 96)).toBe(false);
-    expect(assessPreview(dark, dark, 96)).toBe(false);
-    expect(assessPreview(overexposed, overexposed, 96)).toBe(false);
+describe('guide crop readiness', () => {
+  const width = 320;
+  const n = width * 200;
+  const sharp = Uint8Array.from({ length: n }, (_, i) => (i % width) % 8 < 4 ? 80 : 200);
+  const moving = Uint8Array.from(sharp, v => 280 - v);
+  const smooth = Uint8Array.from({ length: n }, (_, i) => 140 + Math.round(35 * Math.sin((i % width) / 30)));
+  const flat = new Uint8Array(n).fill(140);
+  it('accepts a sharp well-exposed crop and rejects motion or lack of previous sample', () => {
+    expect(assessReadiness(sharp, width, sharp)).toBe('ready');
+    expect(assessReadiness(sharp, width, moving)).toBe('holdSteady');
+    expect(assessReadiness(sharp, width)).toBe('holdSteady');
+    expect(assessReadiness(sharp, width, null, false)).toBe('ready');
   });
-  it('only auto-accepts complete and valid MRZ data on the intended side', () => {
-    expect(completeAutoMrz(passport, 'front')).toBe(true);
-    expect(completeAutoMrz(passport, 'mrz')).toBe(false);
-    expect(completeAutoMrz(null, 'front')).toBe(false);
-    expect(completeAutoMrz({ ...passport, valid: false }, 'front')).toBe(false);
-    expect(completeAutoMrz({ ...passport, unknownCountry: true }, 'front')).toBe(false);
-    expect(completeAutoMrz({ ...passport, fields: { ...passport.fields, dateOfBirth: null } }, 'front')).toBe(false);
-    const id: MrzReadResult = { ...passport, format: 'TD1', fields: { ...passport.fields, documentType: 'id_card' } };
-    expect(completeAutoMrz(id, 'front')).toBe(false);
-    expect(completeAutoMrz(id, 'mrz')).toBe(true);
+  it('provides actionable exposure and focus guidance', () => {
+    expect(assessReadiness(smooth, width, smooth)).toBe('moveCloser');
+    expect(assessReadiness(flat, width, flat)).toBe('moveCloser');
+    expect(assessReadiness(new Uint8Array(n).fill(5), width)).toBe('tooDark');
+    expect(assessReadiness(new Uint8Array(n).fill(255), width)).toBe('tooMuchGlare');
+    expect(assessReadiness(new Uint8Array(0), width)).toBe('moveCloser');
   });
-  it('requires substantial printed ID text, not only a heading or low confidence', () => {
-    const front = 'IDENTITY CARD\nFAMILY NAME EXAMPLE\nGIVEN NAME JANE\nDOCUMENT NUMBER AB123456\nDATE OF BIRTH 01 JAN 1990';
-    expect(readableAutoFront(front, 85)).toBe(true);
-    expect(readableAutoFront(front, 30)).toBe(false);
-    expect(readableAutoFront('IDENTITY CARD', 99)).toBe(false);
-    expect(readableAutoFront(front.replace('IDENTITY CARD', 'LIBRARY CARD'), 99)).toBe(false);
+  it('accepts only complete, valid, consistent MRZ data; side routing is separate', () => {
+    expect(completeAutoMrz(passport)).toBe(true);
+    expect(completeAutoMrz(null)).toBe(false);
+    expect(completeAutoMrz({ ...passport, valid: false })).toBe(false);
+    expect(completeAutoMrz({ ...passport, unknownCountry: true })).toBe(false);
+    expect(completeAutoMrz({ ...passport, fields: { ...passport.fields, dateOfBirth: null } })).toBe(false);
+    expect(completeAutoMrz({ ...passport, format: 'TD1' })).toBe(false);
+    expect(completeAutoMrz({ ...passport, format: 'TD1', fields: { ...passport.fields, documentType: 'id_card' } })).toBe(true);
   });
 });
