@@ -438,6 +438,8 @@ const partialRows: Record<string, readonly [string, ...string[]]> = {
   'pms.express.registration': ['Guest registration', 'Vendégregisztráció', 'Registro de huéspedes'],
   'pms.express.readyCount': ['{ready} of {total} ready', '{ready} / {total} kész', '{ready} de {total} listos'],
   'pms.express.guestNumber': ['Guest {number}', 'Vendég {number}', 'Huésped {number}'],
+  'pms.express.channelName': ['Booking name · not verified', 'Foglalási név · nem ellenőrzött', 'Nombre de reserva · sin verificar'],
+  'pms.express.unmatchedNames': ['Other unverified booking names', 'Egyéb nem ellenőrzött foglalási nevek', 'Otros nombres de reserva sin verificar'],
   'pms.express.awaiting': ['Awaiting registration', 'Regisztrációra vár', 'Pendiente de registro'],
   'pms.express.scan': ['Scan', 'Beolvasás', 'Escanear'],
   'pms.express.scanDocument': ['Scan ID or passport', 'Személyi vagy útlevél beolvasása', 'Escanear documento o pasaporte'],
