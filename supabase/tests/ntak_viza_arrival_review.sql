@@ -243,6 +243,7 @@ END $hint_test$;
 
 -- V2 parity cases are shared with the frontend fixture and run only in disposable CI.
 \ir ../migrations/20261125090000_viza_field_requirements_v2.sql
+\ir ../migrations/20261125230000_viza_birth_place_length.sql
 \set fixture `cat src/lib/idScan/vizaRequirementsCases.json`
 SELECT set_config('viza.test_fixtures', :'fixture', false);
 DO $v2$

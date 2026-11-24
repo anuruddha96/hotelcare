@@ -467,6 +467,31 @@
       "missing": [
         "visa_number"
       ]
+    },
+    {
+      "name": "Birth place exceeds 200 ASCII characters",
+      "patch": {
+        "birth_place": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "missing": [
+        "birth_place"
+      ]
+    },
+    {
+      "name": "Birth place exceeds 254 UTF-8 bytes",
+      "patch": {
+        "birth_place": "őőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőőő"
+      },
+      "missing": [
+        "birth_place"
+      ]
+    },
+    {
+      "name": "Birth place exactly 200 ASCII characters",
+      "patch": {
+        "birth_place": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "missing": []
     }
   ]
 }

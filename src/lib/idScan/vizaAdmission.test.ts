@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { documentRequired, vizaAdmissionFields, vizaArrivalDay, vizaFieldRequirements, type GuestVizaValues } from './guestVizaChecks';
+import { documentRequired, vizaAdmissionFields, vizaArrivalDay, vizaFieldRequirements, vizaMissingFields, type GuestVizaValues } from './guestVizaChecks';
 import { guestToVizaGroups } from '../../../supabase/functions/_shared/viza/mapGuest';
 
 const stay = 'test-stay';
@@ -100,5 +100,35 @@ describe('VIZA requirement states and placeholder guard', () => {
   });
   it('requires the permit for the residence reason', () => {
     expect(check({...gb,visa_number:null,viza_review:{...gb.viza_review,visa_exempt:true,entry_details_absent:true,entry_details_reason:'lives_in_hungary_with_permit'}})).toContain('visa_number');
+  });
+});
+
+describe('VIZA field length messages', () => {
+  it.each(['last_name','first_name','birth_last_name','birth_first_name','mother_family_name','mother_given_name','birth_place'] as const)('reports a 200-character or UTF-8 byte violation for %s', field => {
+    for (const value of ['A'.repeat(201), 'ő'.repeat(128)]) {
+      const requirements = vizaFieldRequirements({...base,[field]:value},stay,day);
+      expect(requirements[field]).toMatchObject({ok:false,messageKey:'pms.guest.requirement.tooLong'});
+    }
+    for (const value of ['A'.repeat(200), 'ő'.repeat(127)]) {
+      expect(vizaFieldRequirements({...base,[field]:value},stay,day)[field].ok).toBe(true);
+    }
+  });
+  it('keeps the printed-only and placeholder rules distinct from length failures', () => {
+    const passport = {...base,nationality:'DE',id_document_type:'passport'};
+    const requirements = (birth_place: string | null) => vizaFieldRequirements({...passport,birth_place},stay,day).birth_place;
+    expect(requirements(null)).toMatchObject({ok:false,messageKey:'pms.guest.requirement.printedOnly'});
+    expect(requirements('NA')).toMatchObject({ok:false,messageKey:'pms.guest.requirement.placeholder'});
+    expect(requirements('A'.repeat(201))).toMatchObject({state:'printed_only',ok:false,messageKey:'pms.guest.requirement.tooLong'});
+    expect(vizaMissingFields({...base,birth_place:'ő'.repeat(128)},day)).toContain('birth_place');
+    expect(vizaMissingFields({...base,birth_place:'A'.repeat(200)},day)).not.toContain('birth_place');
+  });
+  it('uses 100 characters for document and visa numbers, and 200/254 for entry place', () => {
+    const third = {...base,nationality:'GB',entry_date:'2026-11-23',entry_place:'Budapest',visa_number:'VISA'};
+    const requirements = vizaFieldRequirements({...third,id_document_number:'A'.repeat(101),visa_number:'B'.repeat(101),entry_place:'ő'.repeat(128)},stay,day);
+    expect(requirements.id_document_number).toMatchObject({ok:false,messageKey:'pms.guest.requirement.tooLong100'});
+    expect(requirements.visa_number).toMatchObject({ok:false,messageKey:'pms.guest.requirement.tooLong100'});
+    expect(requirements.entry_place).toMatchObject({ok:false,messageKey:'pms.guest.requirement.tooLong'});
+    expect(vizaFieldRequirements({...third,id_document_number:'A'.repeat(100),visa_number:'B'.repeat(100),entry_place:'ő'.repeat(127)},stay,day).visa_number.ok).toBe(true);
+    expect(vizaFieldRequirements({...base,visa_number:'A'.repeat(101),entry_place:'ő'.repeat(128)},stay,day).entry_place).toMatchObject({ok:true,messageKey:'pms.guest.requirement.notNeeded'});
   });
 });

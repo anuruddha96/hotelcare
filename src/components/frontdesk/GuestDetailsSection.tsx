@@ -405,7 +405,18 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const toConfirm = [...printedGroups.values()].filter(fields => fields.every(key => !guest?.[key as keyof GuestVizaRow])).length;
   const toFill = missing.filter(key => requirements?.[key].state !== 'printed_only').length + printedGroups.size - toConfirm;
   const counter = t('pms.guest.requirement.counter').replace('{n}',String(toFill)).replace('{m}',String(toConfirm));
-  const fieldTag = (key: string) => requirements?.[key] ? <><span className={`block text-[11px] font-medium ${requirements[key].ok?'text-muted-foreground':'text-destructive'}`}>{t('pms.guest.requirement.'+({required:'required',printed_only:'printedOnly',optional:'optional',not_needed:'notNeeded'}[requirements[key].state]))}</span>{focusProblem?.field===key && !requirements[key].ok && <span role="alert" className="text-xs text-destructive">{t('pms.guest.vizaArrivalBlocked')}</span>}{requirements[key].messageKey==='pms.guest.requirement.placeholder' && <span role="alert" className="text-xs text-destructive">{t(requirements[key].messageKey)}</span>}</> : null;
+  const fieldTag = (key: string) => {
+    const requirement = requirements?.[key];
+    if (!requirement) return null;
+    const stateKey = 'pms.guest.requirement.'+({required:'required',printed_only:'printedOnly',optional:'optional',not_needed:'notNeeded'}[requirement.state]);
+    const tooLong = !requirement.ok && ['pms.guest.requirement.tooLong','pms.guest.requirement.tooLong100'].includes(requirement.messageKey);
+    return <>
+      {tooLong ? <span role="alert" className="block text-xs font-medium text-destructive">{t(requirement.messageKey)}</span>
+        : <span className={`block text-[11px] font-medium ${requirement.ok?'text-muted-foreground':'text-destructive'}`}>{t(stateKey)}</span>}
+      {focusProblem?.field===key && !requirement.ok && <span role="alert" className="text-xs text-destructive">{t('pms.guest.vizaArrivalBlocked')}</span>}
+      {requirement.messageKey==='pms.guest.requirement.placeholder' && <span role="alert" className="text-xs text-destructive">{t(requirement.messageKey)}</span>}
+    </>;
+  };
   const problems = vizaReservationId ? [] : vizaProblems(guest);
   const open = missing.length + problems.length;
   const needsDocument = documentRequired(guest?.date_of_birth, vizaArrivalDay(occurredAt));
