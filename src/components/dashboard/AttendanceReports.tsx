@@ -34,6 +34,8 @@ interface AttendanceSummary {
   total_hours: number;
   avg_hours_per_day: number;
   punctual_days: number;
+  scheduled_days?: number;
+  no_schedule_days?: number;
   late_arrivals: number;
   early_departures: number;
 }
@@ -309,7 +311,7 @@ export const AttendanceReports = () => {
                 <Users className="h-4 w-4 text-orange-600" />
                 <div>
                   <p className="text-sm font-medium">{t('hr.punctualDays')}</p>
-                  <p className="text-2xl font-bold">{summary.punctual_days}/{summary.total_days}</p>
+                  <p className="text-2xl font-bold">{summary.scheduled_days == null ? '—' : summary.punctual_days + ' / ' + summary.scheduled_days}</p>
                 </div>
               </div>
             </CardContent>
