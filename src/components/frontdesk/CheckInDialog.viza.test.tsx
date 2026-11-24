@@ -61,7 +61,7 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       adults: 2, children: 0, check_in_date: today, check_out_date: '2099-12-31', total_nights: 1,
       reservation_number: 'VIZA-TEST', status: 'confirmed', currency: 'EUR', total_price: 0,
     }} />);
-    await screen.findByText('Synthetic Hungarian');
+    await screen.findByText('pms.guest.wholeReservation');
     const confirm = () => screen.getByRole('button', { name: 'pms.checkIn · 10:00' });
     await waitFor(() => expect(confirm()).toBeDisabled());
     expect(screen.getByText('pms.guest.occupantCount')).toBeInTheDocument();
