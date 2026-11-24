@@ -52,7 +52,7 @@ export function splitMotherName(value: string | null | undefined): { csalad: str
 
 const norm = (v: string | null | undefined) => String(v ?? '').trim();
 const same = (a: string | null | undefined, b: string | null | undefined) =>
-  norm(a) === norm(b);
+  norm(a).toLocaleLowerCase() === norm(b).toLocaleLowerCase();
 
 export function guestToVizaGroups(guest: GuestRowForViza): { scanned: VizaGuestFields | null; manual: VizaGuestFields | null } {
   const scanned: VizaGuestFields | null = guest.document_scan?.fields ?? null;
