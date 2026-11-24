@@ -57,7 +57,7 @@ EXCEPTION WHEN OTHERS THEN
   RAISE WARNING 'NTAK phase7 guest bookkeeping failed on % (SQLSTATE %)', TG_TABLE_NAME, SQLSTATE;
   RETURN NEW;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.ntak_phase7_guest_change() FROM PUBLIC, anon, authenticated;
 CREATE TRIGGER ntak_phase7_guest_change
 AFTER UPDATE OF date_of_birth, postal_code, nationality, country ON public.guests
@@ -113,7 +113,7 @@ EXCEPTION WHEN OTHERS THEN
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.ntak_phase7_finance_change() FROM PUBLIC, anon, authenticated;
 CREATE TRIGGER ntak_phase7_folio_change
 AFTER INSERT OR UPDATE OR DELETE ON public.folio_lines
