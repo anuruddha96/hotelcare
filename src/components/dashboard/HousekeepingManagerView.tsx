@@ -1,3 +1,4 @@
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
 import { SlntTeamPoolSummary } from './SlntTeamPoolSummary';
 import { useSlntSimplifiedHousekeeping } from '@/hooks/useSlntSimplifiedHousekeeping';
 import React, { useState, useEffect, useRef } from 'react';
@@ -975,6 +976,15 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
+          {profile?.assigned_hotel && activeOrganizationSlug && hasManagerPowers(profile.role) && (
+            <RoomAssignmentHistory
+              key={`${activeOrganizationSlug}:${profile.assigned_hotel}`}
+              hotel={profile.assigned_hotel}
+              organizationSlug={activeOrganizationSlug}
+              selectedDate={selectedDate}
+              hu={hu}
+            />
+          )}
           {!isFutureDate && profile && hasManagerPowers(profile.role) && (
             <PmsRefreshButton />
           )}
