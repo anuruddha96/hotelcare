@@ -231,10 +231,19 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     saveScannerSettings(updated);
   };
 
+  // Keep a granted stream for the open scan only. Disable the track while
+  // a captured still is shown; stop it on close, source switch or background.
+  const pauseCamera = useCallback(() => {
+    cameraSessionRef.current += 1;
+    streamRef.current?.getVideoTracks().forEach(track => { track.enabled = false; });
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
   const stopCamera = useCallback(() => {
     cameraSessionRef.current += 1; // Invalidate a pending iPhone permission request.
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
   }, []);
 
   const startCamera = useCallback(async () => {
@@ -242,17 +251,20 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setCameraOk(null);
     if (!navigator.mediaDevices?.getUserMedia) { setCameraOk(false); return; }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const existing = streamRef.current;
+      const live = existing?.getVideoTracks().some(track => track.readyState === 'live');
+      const stream = live && existing ? existing : await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       });
       // getUserMedia may resolve after the dialog was closed or another source
       // selected. Never leave an iPhone camera running in that case.
       if (cameraSessionRef.current !== request || !videoRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
+        if (stream !== streamRef.current) stream.getTracks().forEach((track) => track.stop());
         return;
       }
       streamRef.current = stream;
+      stream.getVideoTracks().forEach(track => { track.enabled = true; });
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
       if (cameraSessionRef.current === request) setCameraOk(true);
@@ -305,14 +317,23 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     };
   }, [open, stopCamera, mrzSession, frontSession, clearFront, clearPreview]);
 
-  // Wait for the camera-phase video element to be in the DOM before asking
-  // Safari for a stream. A previously failed dialog may reopen without a
-  // video element until the phase reset has rendered.
+  // Do not release the stream on every phase transition. Safari can prompt
+  // again when getUserMedia is called after all tracks have been stopped.
   useEffect(() => {
-    if (!open || source !== 'camera' || phase !== 'camera') return;
-    void startCamera();
-    return stopCamera;
-  }, [open, source, phase, startCamera, stopCamera]);
+    if (!open || source !== 'camera') { stopCamera(); return; }
+    if (phase === 'camera' && !document.hidden) void startCamera();
+    else pauseCamera();
+  }, [open, source, phase, startCamera, stopCamera, pauseCamera]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onVisibility = () => {
+      if (document.hidden) stopCamera();
+      else if (source === 'camera' && phase === 'camera') void startCamera();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [open, source, phase, stopCamera, startCamera]);
 
   useEffect(() => {
     if (!open || source !== 'wedge' || phase !== 'camera') return;
@@ -360,7 +381,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     const action = nextMrzScanAction(parsed, front.captured, front.positive);
     setFailReason(null);
     setReviewAcknowledged(false);
-    stopCamera();
+    pauseCamera();
     if (action === 'different_document' || action === 'front_first_required') {
       setResult(null);
       clearFront();
@@ -535,7 +556,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       if (initial) setFrontCaptureAttempted(true);
       showPreview(frame);
       setPhase('reading');
-      stopCamera();
+      pauseCamera();
       setFailReason(null);
       await mrzSession.warm();
       if (!active()) return;
@@ -654,7 +675,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     opticalSession.reset();
     busyRef.current = fileRun;
     setPhase('reading');
-    stopCamera();
+    pauseCamera();
     if (file.type && !file.type.startsWith('image/')) { busyRef.current = null; setFailReason('unsupported_image'); setPhase('failed'); return; }
     const url = URL.createObjectURL(file);
     const img = new Image();
