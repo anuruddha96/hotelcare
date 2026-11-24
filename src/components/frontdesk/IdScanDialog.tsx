@@ -115,8 +115,11 @@ async function createOcrWorker(): Promise<TesseractWorker> {
  */
 async function createFrontOcrWorker(): Promise<TesseractWorker> {
   const { createWorker } = await import('tesseract.js');
-  try { return await createWorker(['hun', 'eng']); }
-  catch { return createWorker('eng'); }
+  let worker: TesseractWorker;
+  try { worker = await createWorker(['hun', 'eng']); }
+  catch { worker = await createWorker('eng'); }
+  try { await worker.setParameters({ tessedit_pageseg_mode: '6' } as never); return worker; }
+  catch (error) { await worker.terminate().catch(() => undefined); throw error; }
 }
 
 /** The preview is a local canvas copy, never encoded, uploaded or persisted. */
@@ -167,8 +170,6 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [phase, setPhase] = useState<Phase>('camera');
   const [side, setSide] = useState<DocumentSide>('front');
   const frontRef = useRef({ captured: false, positive: false, text: '' });
-  const frontJobRef = useRef<Promise<void> | null>(null);
-  const frontGeneration = useRef(0);
   const busyRef = useRef<number | null>(null);
   const previewRef = useRef<HTMLCanvasElement | null>(null);
   const [preview, setPreview] = useState<HTMLCanvasElement | null>(null);
@@ -209,11 +210,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const wedgeRef = useRef<HTMLTextAreaElement | null>(null);
 
   const clearFront = useCallback(() => {
-    frontGeneration.current++;
     flipUntil.current = 0;
     frontSession.reset();
     opticalSession.reset();
-    frontJobRef.current = null;
     frontRef.current = { captured: false, positive: false, text: '' };
   }, [frontSession, opticalSession]);
 
@@ -327,8 +326,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const readPrinted = async (session: OcrSession, frame: HTMLCanvasElement, idBack: boolean, run: number) => {
     const texts: string[] = [];
     let score: number | null = null;
+    let positiveScore: number | null = null;
     await session.warm();
-    if (scanRunRef.current !== run) return { texts, score };
+    if (scanRunRef.current !== run) return { texts, score, positiveScore };
     // Separate printed area from MRZ and try a contrast-enhanced second pass.
     // Keep independent OCR results for field-level merging, not a joined
     // string that could make neighboring labels or values cross boundaries.
@@ -339,23 +339,18 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         const reading = await session.recognizeWithConfidence(canvas, 12000);
         if (scanRunRef.current !== run) break;
         if (reading.text.trim()) texts.push(reading.text);
-        score = Math.max(score ?? 0, reading.confidence ?? 0);
-        if (!idBack && score > 90 && looksLikeIdFront(reading.text)) break;
+        if (reading.confidence !== null) {
+          score = Math.max(score ?? 0, reading.confidence);
+          if (looksLikeIdFront(reading.text)) positiveScore = Math.max(positiveScore ?? 0, reading.confidence);
+        }
+        if (!idBack && positiveScore !== null && positiveScore > 90) break;
       } catch { /* retain any earlier successful pass */ }
       finally { wipe(canvas); }
     }
-    return { texts, score };
+    return { texts, score, positiveScore };
   };
 
   const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current, ocrConfidence: number | null = null, frame?: HTMLCanvasElement) => {
-    // Front OCR runs concurrently with turning the card. Give it a short
-    // opportunity to finish for the cross-check, never block indefinitely.
-    const pending = frontJobRef.current;
-    if (pending) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([pending, new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); })]);
-      if (timer !== undefined) clearTimeout(timer);
-    }
     if (scanRunRef.current !== run) return;
     const front = frontRef.current;
     const action = nextMrzScanAction(parsed, front.captured, front.positive);
@@ -492,16 +487,18 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     frontRef.current = { captured: true, positive: false, text: '' };
     setFrontCaptureAttempted(true);
     let score: number | null = null;
+    let positiveScore: number | null = null;
     try {
       const reading = await readPrinted(frontSession, frame, false, run);
       if (scanRunRef.current !== run) return;
       score = reading.score;
+      positiveScore = reading.positiveScore;
       frontRef.current.text = reading.texts.join('\n\n');
       frontRef.current.positive = looksLikeIdFront(frontRef.current.text);
     } catch { /* still allow staff to inspect the captured front */ }
     if (scanRunRef.current !== run) return;
     setFrontConfidence(score);
-    if (shouldAdvanceFront(score, frontRef.current.positive)) advanceFront();
+    if (shouldAdvanceFront(positiveScore, frontRef.current.positive)) advanceFront();
     else setPhase('front_preview');
   };
 
@@ -626,11 +623,11 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           await readFrom(video, video.videoWidth, video.videoHeight, rect, true);
         }
       } catch { if (active()) setGuidance('moveCloser'); }
-      finally { schedule(250); }
+      finally { schedule(180); }
     };
     setGuidance('holdSteady');
     setCaptureProgress(0);
-    schedule(250);
+    schedule(180);
     return () => {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
@@ -664,6 +661,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const retry = () => {
     scanRunRef.current += 1;
     busyRef.current = null;
+    mrzSession.reset();
+    opticalSession.reset();
     setAutoReading(false);
     clearPreview();
     setFlipPrompt(false);
@@ -672,6 +671,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     // A failed second scan keeps the successfully captured first ID side.
     if (side === 'front') { setResult(null); clearFront(); setFrontCaptureAttempted(false); }
     setFrontAssessment(null);
+    setFrontConfidence(null);
     setReviewAcknowledged(false);
     setPhase('camera');
   };
@@ -713,7 +713,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) { scanRunRef.current += 1; busyRef.current = null; stopCamera(); mrzSession.reset(); clearFront(); } onOpenChange(next); }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) { scanRunRef.current += 1; busyRef.current = null; stopCamera(); mrzSession.reset(); clearFront(); clearPreview(); } onOpenChange(next); }}>
       <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] !h-auto flex flex-col overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-id-scan">
         <DialogHeader className="shrink-0 pr-6 text-left">
           <DialogTitle className="flex items-center gap-2"><ScanLine className="h-5 w-5 text-primary" /> {t('pms.scan.title')}</DialogTitle>
@@ -810,6 +810,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           </div>
         )}
 
+        {phase === 'failed' && preview && <StillPreview image={preview} label={t('pms.scan.capturedPreview')}/>}
         {phase === 'failed' && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-900 dark:text-amber-200">
             <TriangleAlert className="h-4 w-4 shrink-0 mt-0.5" /> {failReason === 'front_first' ? t('pms.scan.frontFirstRequired') : failReason === 'first_not_recognized' ? t('pms.scan.firstNotRecognized') : failReason === 'different_document' ? t('pms.scan.differentDocument') : failReason === 'front_unreadable' ? t('pms.scan.frontUnreadable') : failReason === 'ocr_unavailable' ? t('pms.scan.ocrUnavailable') : failReason === 'unsupported_image' ? t('pms.scan.invalidPhoto') : failReason === 'no_mrz' ? t('pms.scan.noMrzGuide') : failReason && failReason !== 'no_document' ? t('pms.scan.serviceFailed') : t('pms.scan.notFound')}
@@ -883,6 +884,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               </div>
             </>
           )}
+          {phase === 'reading' && preview && <Button type="button" variant="outline" className="w-full" onClick={retry}>{t('pms.scan.retry')}</Button>}
           {phase === 'front_preview' && <><Button type="button" className="w-full" onClick={advanceFront}><RotateCw className="mr-2 h-4 w-4"/>{t('pms.scan.nextSide')}</Button><Button type="button" variant="outline" className="w-full" onClick={retry}>{t('pms.scan.retry')}</Button></>}
           {phase === 'failed' && <Button type="button" variant="outline" className="w-full" onClick={retry}>{t('pms.scan.retry')}</Button>}
           {phase === 'failed' && side === 'front' && !result && frontCaptureAttempted && failReason !== 'front_first' && (
