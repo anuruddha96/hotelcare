@@ -1,12 +1,14 @@
 import { effectiveAccessRole, type AccessSubject } from "@/lib/accessPolicy";
 
 const WEATHER_ROLES = new Set(["admin", "top_management", "controlling", "hr", "manager", "housekeeping_manager", "housekeeping_supervisor", "reception"]);
-const LEGACY_OFFICE_ROLES = new Set(["marketing", "marketing_manager"]);
+const LEGACY_OFFICE_ROLES = new Set(["marketing", "marketing_manager", "back_office_manager"]);
 
 /** Use the actual job role, not a shared manager permission level. */
 export function canSeeWorkspaceWeather(profile: AccessSubject): boolean {
   if (!profile) return false;
   const role = effectiveAccessRole(profile);
+  // Back-office and marketing have no distinct effective access role today.
+  // This display-only exception must not change the shared permissions policy.
   return profile.is_super_admin === true || WEATHER_ROLES.has(role)
     || (role === "maintenance" && profile.role === "maintenance_manager")
     || (role === "other" && LEGACY_OFFICE_ROLES.has(profile.role ?? ""));
