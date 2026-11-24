@@ -177,12 +177,13 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
       setStatus(data);
       // An enqueue failure can occur before there is any VIZA guest event to
       // retry. Fetch the durable per-reservation failure log separately.
-      const { data: failureRows, error: failureError } = await (supabase as any)
+      const failureClient = supabase as unknown as { from: (table: string) => { select: (columns: string) => { eq: (column: string, value: string) => { is: (column: string, value: null) => { order: (column: string, options: { ascending: boolean }) => { limit: (count: number) => Promise<{ data: VizaQueueFailure[] | null; error: unknown }> } } } } } };
+      const { data: failureRows, error: failureError } = await failureClient
         .from('viza_trigger_failures')
         .select('id,reservation_id,last_error,attempts,updated_at,reservation:reservations!viza_trigger_failures_reservation_id_fkey(reservation_number,guest:guests!reservations_guest_id_fkey(first_name,last_name))')
         .eq('hotel_id', hotelId).is('resolved_at', null)
         .order('updated_at', { ascending: false }).limit(5);
-      setQueueFailures(!failureError ? (failureRows ?? []) as VizaQueueFailure[] : []);
+      setQueueFailures(!failureError ? failureRows ?? [] : []);
       const s = data.settings;
       if (s) {
         setForm({
