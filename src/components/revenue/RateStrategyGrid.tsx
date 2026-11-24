@@ -179,7 +179,7 @@ function leftTone(left: number, units: number): string {
   if (left <= 0) return "bg-destructive/20 text-destructive font-semibold dark:bg-red-400/[0.07] dark:text-red-300";
   const pct = left / units;
   if (pct <= 0.2) return "bg-amber-100 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200";
-  return "text-muted-foreground";
+  return "text-foreground";
 }
 
 /**
@@ -3734,7 +3734,7 @@ export default function RateStrategyGrid({
                         title={pickup === null
                           ? `${d} · pickup not available yet`
                           : `${d} · net ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} in, ${lost} out, counted over ${pickupWindowLabel(pickupWindowDays).toLowerCase()}${latestLabel ? ` · last movement ${latestLabel}` : ""}${isAutomationWindow ? "" : " · the automation reacts to the last 48 hours, so this window can disagree with the purple dots"}`}
-                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)}`}
+                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.severity === "none" ? `${dayBg(d, i)} ${tone.className}` : tone.className} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(11), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
@@ -3742,7 +3742,7 @@ export default function RateStrategyGrid({
                           <span className="font-medium text-destructive dark:text-red-300" style={{ fontSize: fz(8) }}>-{lost} lost</span>
                         )}
                         {lost === 0 && latestLabel && pickup !== 0 && (
-                          <span className="max-w-[56px] truncate font-normal opacity-80" style={{ fontSize: fz(8) }}>{latestLabel}</span>
+                          <span className="max-w-[56px] truncate font-normal opacity-80 dark:opacity-100" style={{ fontSize: fz(8) }}>{latestLabel}</span>
                         )}
                       </div>
                     );
@@ -3773,7 +3773,7 @@ export default function RateStrategyGrid({
                         title={m
                           ? `${m.roomsSold} / ${m.roomsAvailable} rooms · ${tone?.label ?? "occupancy unavailable"}${recorded ? ` · recorded ${new Date(recorded.captured_at).toLocaleString()}` : ""}`
                           : `${d} · no recorded occupancy data`}
-                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone?.className || dayBg(d, i)} ${dateColumnEdge(d, today)}`}
+                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${!tone || tone.severity === "none" ? `${dayBg(d, i)} ${tone?.className ?? ""}` : tone.className} ${dateColumnEdge(d, today)}`}
                         style={{ width: CELL_W, fontSize: fz(12), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         {pct === null || !Number.isFinite(pct) ? "—" : `${Math.round(pct)}%`}
@@ -4062,13 +4062,13 @@ export default function RateStrategyGrid({
                       </span>
 
                       {veryWide && band.event.venue && (
-                        <span className="hidden min-w-0 max-w-[35%] truncate text-[8px] leading-none opacity-70 lg:inline">
+                        <span className="hidden min-w-0 max-w-[35%] truncate text-[8px] leading-none opacity-70 dark:opacity-100 lg:inline">
                           {band.event.venue}
                         </span>
                       )}
 
                       {wide && (
-                        <span className="shrink-0 text-[8px] font-semibold uppercase leading-none opacity-80">
+                        <span className="shrink-0 text-[8px] font-semibold uppercase leading-none opacity-80 dark:opacity-100">
                           {impact || "event"}{band.endDate !== band.startDate && range ? ` · ${range}` : ""}
                         </span>
                       )}
@@ -4122,7 +4122,7 @@ export default function RateStrategyGrid({
                       </span>
 
                       {roomy && (band.event.category || band.event.venue) && (
-                        <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75">
+                        <span className="mt-0.5 line-clamp-2 w-full min-w-0 break-words text-left text-[8px] leading-[1.1] opacity-75 dark:opacity-100">
                           {band.event.category && (
                             <span className="capitalize">{String(band.event.category).replace(/_/g, " ")}</span>
                           )}
@@ -4132,7 +4132,7 @@ export default function RateStrategyGrid({
                       )}
 
                       {expanded && (
-                        <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-80">
+                        <span className="mt-auto flex w-full min-w-0 items-center justify-between gap-1 text-[8px] leading-none opacity-80 dark:opacity-100">
                           <span className="min-w-0 truncate capitalize">
                             {!roomy && band.event.category
                               ? String(band.event.category).replace(/_/g, " ")
@@ -4266,7 +4266,7 @@ export default function RateStrategyGrid({
                           style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : unpricedKind ? (
-                            <><span className="text-amber-700 dark:text-amber-300">{hu ? "Nincs ár" : "Not priced"}</span><span className="text-[9px] font-normal opacity-80">{left ?? 0} {hu ? "értékesíthető a Previóban" : "to sell in Previo"}</span></>
+                            <><span className="text-amber-700 dark:text-amber-300">{hu ? "Nincs ár" : "Not priced"}</span><span className="text-[9px] font-normal opacity-80 dark:opacity-100 dark:text-foreground">{left ?? 0} {hu ? "értékesíthető a Previóban" : "to sell in Previo"}</span></>
                           ) : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
                             <>
                               <span>{hu ? "Elfogyott" : "Sold out"}</span>
@@ -4322,7 +4322,7 @@ export default function RateStrategyGrid({
                         <div key={d} data-rate-selected={isDateSelected(d) ? "true" : undefined} role="cell"
                           aria-label={`${row.roomTypeName} · ${d} · ${historicalPrice === null ? "No recorded price" : eur(historicalPrice)} · read-only`}
                           title={detail}
-                          className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground"
+                          className="flex shrink-0 items-center justify-center border-r border-border/70 bg-muted/45 font-bold tabular-nums text-muted-foreground dark:text-foreground"
                           style={{ width: CELL_W, fontSize: fz(12) }}>
                           {historicalPrice === null ? (historical.loading ? "…" : "—") : priceLabel(historicalPrice)}
                         </div>
@@ -4459,7 +4459,7 @@ export default function RateStrategyGrid({
                            place the cell's story is told, so the browser
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80 dark:opacity-100" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold tabular-nums ${picked ? "" : tone.className || dayBg(d, i)} ${dateColumnEdge(d, today)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80 dark:opacity-100" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 dark:bg-primary/20 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                          style={{ width: CELL_W, fontSize: fz(12) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
 
                       >
