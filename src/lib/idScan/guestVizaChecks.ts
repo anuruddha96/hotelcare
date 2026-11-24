@@ -34,7 +34,6 @@ export interface VizaReview {
   birth_place_absent?: boolean;
   mother_name_absent?: boolean;
   visa_exempt?: boolean;
-  free_movement?: boolean;
   manual_reason?: string;
   scan_reviewed?: boolean;
   parent_statement?: boolean;
@@ -53,6 +52,14 @@ const validDate = (v: string | null | undefined): boolean => {
 };
 const filled = (v: unknown) => String(v ?? '').trim() !== '';
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+/** Hotel business date, rather than browser/UTC midnight, drives admission age. */
+export function vizaArrivalDay(occurredAt?: string | null): Date {
+  const instant = occurredAt ? new Date(occurredAt) : new Date();
+  const safe = Number.isFinite(instant.getTime()) ? instant : new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(safe);
+  const part = (type: string) => parts.find(p => p.type === type)?.value;
+  return new Date(part('year') + '-' + part('month') + '-' + part('day') + 'T00:00:00Z');
+}
 
 /** Age in full years on a given day; null without a usable birth date. */
 export function ageOn(dateOfBirth: string | null | undefined, day = new Date()): number | null {
@@ -96,7 +103,7 @@ export function vizaProblems(guest: GuestVizaValues | null | undefined, day = ne
 }
 
 /** Admission rules for a VIZA-enabled stay; exceptions are explicit and stay-scoped. */
-export function vizaAdmissionFields(guest: GuestVizaValues | null | undefined, reservationId: string, day = new Date()): string[] {
+export function vizaAdmissionFields(guest: GuestVizaValues | null | undefined, reservationId: string, day = vizaArrivalDay()): string[] {
   if (!guest) return vizaMissingFields(null);
   const missing = vizaMissingFields(guest, day).filter(f => f !== 'birth_place');
   const review = guest.viza_review?.reservation_id === reservationId ? guest.viza_review : {};
@@ -122,8 +129,10 @@ export function vizaAdmissionFields(guest: GuestVizaValues | null | undefined, r
   if ((requiredDoc || filled(guest.id_document_type)) && !['passport','id_card','driving_licence','other'].includes(guest.id_document_type ?? '')) add('id_document_type');
   if (String(guest.id_document_number ?? '').length > 100 || (!childWithoutDoc && !hasDoc)) add('id_document_number');
   if (!ISO2.has(iso3ToIso2(guest.nationality) ?? '')) add('nationality');
-  if (!validDate(guest.date_of_birth) || vizaProblems(guest, day).includes('birthDate')) add('date_of_birth');
-  if (thirdCountry(guest) && !review.free_movement) {
+  const oldest = new Date(day);
+  oldest.setUTCFullYear(oldest.getUTCFullYear() - 110);
+  if (!validDate(guest.date_of_birth) || String(guest.date_of_birth) < isoDay(oldest) || vizaProblems(guest, day).includes('birthDate')) add('date_of_birth');
+  if (thirdCountry(guest)) {
     if (!validDate(guest.entry_date) || String(guest.entry_date) > isoDay(day)) add('entry_date');
     if (!filled(guest.entry_place)) add('entry_place');
     if ((!filled(guest.visa_number) && !review.visa_exempt) || String(guest.visa_number ?? '').length > 100) add('visa_number');
