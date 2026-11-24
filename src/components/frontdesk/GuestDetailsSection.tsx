@@ -12,7 +12,7 @@ import { CheckCircle2, IdCard, Loader2, PencilLine, ScanLine, TriangleAlert, X }
 import { IdScanDialog } from '@/components/frontdesk/IdScanDialog';
 import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
-import { guestScanPatch, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
+import { guestScanPatch, recognizedNationality, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 import { useTranslation } from '@/hooks/useTranslation';
 import { documentRequired, scanFieldState, vizaMissingFields, vizaProblems, type VizaProblem } from '@/lib/idScan/guestVizaChecks';
 
@@ -173,6 +173,9 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
       : <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400"><PencilLine className="h-3 w-3" /> {t('pms.guest.correctedByHand')}</p>;
   };
   const read = scan?.fields;
+  const euEea = new Set(['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','IS','LI','NO']);
+  const knownNationality = recognizedNationality(guest?.nationality);
+  const entryOptional = !!knownNationality && euEea.has(knownNationality) && !guest?.visa_number && !guest?.entry_date && !guest?.entry_place;
   const fieldLabel: Record<string, string> = {
     last_name: t('pms.guest.familyName'), first_name: t('pms.guest.givenName'),
     nationality: t('pms.guest.nationality'), date_of_birth: t('pms.guest.birthDate'),
@@ -222,7 +225,7 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
               {problems.map((problem) => <li key={problem} className="flex items-start gap-1.5"><TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" /> {problemText[problem]}</li>)}
             </ul>
           )}
-          <div className="grid grid-cols-2 gap-2.5 [&>div]:min-w-0 [&_input]:min-w-0 [&_input]:w-full">
+          <div className="grid w-full min-w-0 grid-cols-2 gap-2.5 [&>div]:min-w-0 [&_input]:min-w-0 [&_input]:max-w-full [&_input]:w-full [&_input]:box-border [&_button]:min-w-0">
             <div>
               <Label className="text-xs">{t('pms.guest.familyName')}</Label>
               <Input className="h-8" value={guest.last_name ?? ''} onChange={(e) => setName('last_name', e.target.value)} />
@@ -252,14 +255,14 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
               <Input className="h-8" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
                   {mark('mother_name')}
             </div>
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>
               <Input className="h-8 uppercase" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="HU / DE / USA…" />
               {mark('nationality')}
             </div>
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <Label className="text-xs">{t('pms.guest.birthDate')}</Label>
-              <Input className="h-8" type="date" value={guest.date_of_birth ?? ''} onChange={(e) => set('date_of_birth', e.target.value)} />
+              <Input className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-8" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} value={guest.date_of_birth ?? ''} onChange={(e) => set('date_of_birth', e.target.value)} />
               {mark('date_of_birth')}
             </div>
             <div>
@@ -298,25 +301,27 @@ export function GuestDetailsSection({ guestId, onCompletenessChange }: GuestDeta
               {mark('id_document_number')}
             </div>
             {!needsDocument && <p className="col-span-2 text-[11px] text-muted-foreground">{t('pms.guest.under14')}</p>}
-            <p className="col-span-2 mt-1 border-t border-border pt-2 text-[11px] font-medium text-muted-foreground">{t('pms.guest.thirdCountry')}</p>
-            <div className="col-span-2">
-              <Label className="text-xs">{t('pms.guest.visaNumber')}</Label>
-              <Input className="h-8" maxLength={100} value={guest.visa_number ?? ''} onChange={(e) => set('visa_number', e.target.value)} />
-            </div>
-            {hasExtraColumns && (
-              <>
-                <div>
-                  <Label className="text-xs">{t('pms.guest.entryDate')}</Label>
-                  <Input className="h-8" type="date" max={new Date().toISOString().slice(0, 10)} value={guest.entry_date ?? ''} onChange={(e) => set('entry_date', e.target.value)} />
+            <details key={entryOptional ? 'optional' : 'required'} open={!entryOptional || undefined} className="col-span-2 min-w-0 border-t border-border pt-2">
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">{t('pms.guest.thirdCountry')}</summary>
+              <div className="mt-2 grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <div className="min-w-0 sm:col-span-2">
+                  <Label className="text-xs">{t('pms.guest.visaNumber')}</Label>
+                  <Input className="h-10 sm:h-8" maxLength={100} value={guest.visa_number ?? ''} onChange={(e) => set('visa_number', e.target.value)} />
                 </div>
-                <div>
-                  <Label className="text-xs">{t('pms.guest.entryPlace')}</Label>
-                  <Input className="h-8" value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
-                </div>
-              </>
-            )}
+                {hasExtraColumns && <>
+                  <div className="min-w-0">
+                    <Label className="text-xs">{t('pms.guest.entryDate')}</Label>
+                    <Input className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-8" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} max={new Date().toISOString().slice(0, 10)} value={guest.entry_date ?? ''} onChange={(e) => set('entry_date', e.target.value)} />
+                  </div>
+                  <div className="min-w-0">
+                    <Label className="text-xs">{t('pms.guest.entryPlace')}</Label>
+                    <Input className="h-10 sm:h-8" value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
+                  </div>
+                </>}
+              </div>
+            </details>
           </div>
-          <Button type="button" size="sm" variant="outline" className="h-8" disabled={!dirty || saving} onClick={save}>
+          <Button type="button" size="sm" variant="outline" className="h-10 w-full sm:h-8 sm:w-auto" disabled={!dirty || saving} onClick={save}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t('pms.guest.save')}
           </Button>
         </div>
