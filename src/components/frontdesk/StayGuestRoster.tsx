@@ -26,6 +26,7 @@ export interface StayGuestRow {
 
 export interface GuestRosterControl {
   enabled: boolean;
+  perGuestLifecycle: boolean;
   loading: boolean;
   guests: StayGuestRow[];
   selectedIds: string[];
@@ -41,11 +42,12 @@ export function useStayGuestRoster(
   mode: 'arrive' | 'depart', roomId?: string | null, vizaRequired = false, occurredAt?: string | null,
 ): GuestRosterControl {
   const [enabled, setEnabled] = useState(false);
+  const [perGuestLifecycle, setPerGuestLifecycle] = useState(false);
   const [loading, setLoading] = useState(true);
   const [guests, setGuests] = useState<StayGuestRow[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const refresh = useCallback(async () => {
-    if (!open || !hotelId) { setLoading(false); setEnabled(false); return; }
+    if (!open || !hotelId) { setLoading(false); setEnabled(false); setPerGuestLifecycle(false); return; }
     setLoading(true);
     try {
       const { data: allowed, error: permissionError } = await (supabase.rpc as CallableFunction)(
@@ -54,8 +56,9 @@ export function useStayGuestRoster(
       );
       if (permissionError) throw permissionError;
       const active = allowed === true;
-      setEnabled(active);
-      if (!active) { setGuests([]); setSelectedIds([]); return; }
+      setPerGuestLifecycle(active);
+      setEnabled(active || vizaRequired);
+      if (!active && !vizaRequired) { setGuests([]); setSelectedIds([]); return; }
       const { data, error } = await (supabase as any).from('reservation_guests')
         .select('guest_id,stay_state,arrived_at,departed_at,room_id,guests:guest_id(id,first_name,last_name,birth_last_name,birth_first_name,mother_name,nationality,date_of_birth,birth_place,gender,id_document_type,id_document_number,visa_number,entry_date,entry_place' + (vizaRequired ? ',mother_family_name,mother_given_name,viza_review' : '') + ')')
         .eq('reservation_id', reservationId).order('is_primary', { ascending: false });
@@ -63,11 +66,12 @@ export function useStayGuestRoster(
       const records = (data ?? []) as StayGuestRow[];
       setGuests(records);
       const state = mode === 'arrive' ? 'expected' : 'in_house';
-      setSelectedIds(records.filter((g) => g.stay_state === state).map((g) => g.guest_id));
+      setSelectedIds(records.filter((g) => active ? g.stay_state === state : g.stay_state !== 'void').map((g) => g.guest_id));
     } catch (error) {
       // A failed guest-roster query cannot quietly fall back to all-guests
       // check-in for a property that may have per-guest reporting enabled.
       setEnabled(true);
+      setPerGuestLifecycle(false);
       setGuests([]);
       setSelectedIds([]);
       toast.error(error instanceof Error ? error.message : String(error));
@@ -75,12 +79,12 @@ export function useStayGuestRoster(
   }, [hotelId,mode,open,reservationId,roomId,vizaRequired]);
   useEffect(() => { void refresh(); }, [refresh]);
   const eligible = useMemo(() => guests.filter((g) => g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house')), [guests,mode]);
-  const incompleteSelected = useMemo(() => guests.filter((g) => selectedIds.includes(g.guest_id))
-    .filter((g) => (vizaRequired ? vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length : vizaMissingFields(g.guests).length + vizaProblems(g.guests).length) > 0).length, [guests,selectedIds,vizaRequired,reservationId,occurredAt]);
+  const incompleteSelected = useMemo(() => guests.filter((g) => perGuestLifecycle ? selectedIds.includes(g.guest_id) : g.stay_state !== 'void')
+    .filter((g) => (vizaRequired ? vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length : vizaMissingFields(g.guests).length + vizaProblems(g.guests).length) > 0).length, [guests,selectedIds,vizaRequired,reservationId,occurredAt,perGuestLifecycle]);
   const updateSavedGuest = useCallback((guest: GuestVizaRow) => {
     setGuests((rows) => rows.map((row) => row.guest_id === guest.id ? { ...row, guests: guest } : row));
   }, []);
-  return { enabled,loading,guests,selectedIds,setSelectedIds,refresh,eligible,incompleteSelected,updateSavedGuest };
+  return { enabled,perGuestLifecycle,loading,guests,selectedIds,setSelectedIds,refresh,eligible,incompleteSelected,updateSavedGuest };
 }
 
 export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug, occurredAt, onChanged, vizaRequired = false }: {
@@ -143,11 +147,11 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
         const complete = vizaRequired ? vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length === 0 : vizaMissingFields(g.guests).length === 0 && vizaProblems(g.guests).length === 0;
         return <div key={g.guest_id} className="space-y-1">
           <div className="flex gap-2 items-center rounded-md border border-border/70 p-2">
-            <Checkbox disabled={!canChoose || busy} checked={canChoose && control.selectedIds.includes(g.guest_id)}
+            {control.perGuestLifecycle && <Checkbox disabled={!canChoose || busy} checked={canChoose && control.selectedIds.includes(g.guest_id)}
               aria-label={`${t(mode === 'arrive' ? 'pms.stayGuest.arrivingNow' : 'pms.stayGuest.leavingNow')} ${g.guests?.first_name ?? ''} ${g.guests?.last_name ?? ''}`}
               onCheckedChange={(v) => control.setSelectedIds(v
                 ? [...control.selectedIds,g.guest_id]
-                : control.selectedIds.filter((id) => id !== g.guest_id))} />
+                : control.selectedIds.filter((id) => id !== g.guest_id))} />}
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium truncate">{g.guests?.first_name} {g.guests?.last_name}</p>
               <div className="flex flex-wrap items-center gap-1 mt-1">
@@ -161,7 +165,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
               <Button type="button" size="sm" variant={mode === 'arrive' && canChoose && !complete ? 'default' : 'outline'} aria-expanded={detailsId === g.guest_id} onClick={() => setDetailsId(detailsId===g.guest_id ? null : g.guest_id)}>
                 {t('pms.stayGuest.details')}
               </Button>
-              {(g.stay_state==='in_house' || g.stay_state==='departed') && (
+              {control.perGuestLifecycle && (g.stay_state==='in_house' || g.stay_state==='departed') && (
                 <Button type="button" variant="outline" size="sm"
                   onClick={() => setUndo({ guestId:g.guest_id,action:g.stay_state==='in_house' ? 'undo_arrival' : 'undo_departure' })}>
                   {t(g.stay_state==='in_house' ? 'pms.stayGuest.undoArrival' : 'pms.stayGuest.undoDeparture')}
@@ -183,7 +187,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
         </div>
       )}
       <div className="flex justify-between items-center">
-        <p className="text-xs text-muted-foreground">{t('pms.stayGuest.selectedCount').replace('{count}',String(control.selectedIds.length))}</p>
+        <p className="text-xs text-muted-foreground">{control.perGuestLifecycle ? t('pms.stayGuest.selectedCount').replace('{count}',String(control.selectedIds.length)) : t('pms.guest.wholeReservation')}</p>
         <Button type="button" variant="ghost" size="sm" onClick={() => void control.refresh()}>
           {t('ntak.refreshReports')}
         </Button>
