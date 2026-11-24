@@ -159,7 +159,8 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
     const { data, error } = await (supabase.rpc as CallableFunction)('pms_register_scanned_stay_guest', {
       _reservation_id: reservationId, _data: payload, _confirmed_match: match,
     });
-    if (error || !data || !['registered','match'].includes(data.status) || typeof data.guest_id !== 'string') throw new Error('Guest registration failed');
+    if (error) throw error;
+    if (!data || !['registered','match'].includes(data.status) || typeof data.guest_id !== 'string') throw new Error('Guest registration failed');
     return data as GuestRegistrationResult;
   };
   const nextAfterSave = (saved: GuestVizaRow) => {
