@@ -4,13 +4,14 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Camera, CheckCircle2, ImageUp, Keyboard, Loader2, PlugZap, ScanLine, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { Camera, CheckCircle2, ImageUp, Keyboard, Loader2, PlugZap, RotateCw, ScanLine, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
 import { guideCrop, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
 import { OcrSession } from '@/lib/idScan/ocrSession';
+import { documentNumberReview, sameRead, scanConfidence } from '@/lib/idScan/scanReview';
 import { assessReadiness, completeAutoMrz, type Readiness } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
 import { firstSideAction, nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
@@ -127,6 +128,11 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const frontGeneration = useRef(0);
   const busyRef = useRef<number | null>(null);
   const nextFullRef = useRef(false);
+  const previousRead = useRef<MrzReadResult | null>(null);
+  const flipUntil = useRef(0);
+  const [flipPrompt, setFlipPrompt] = useState(false);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [numberReview, setNumberReview] = useState<{ needsReview: boolean; printed: string | null }>({ needsReview: false, printed: null });
   const [mrzSession] = useState(() => new OcrSession(createOcrWorker));
   const [frontSession] = useState(() => new OcrSession(createFrontOcrWorker));
   const [guidance, setGuidance] = useState<Readiness>('holdSteady');
@@ -146,6 +152,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const clearFront = useCallback(() => {
     frontGeneration.current++;
     nextFullRef.current = false;
+    previousRead.current = null;
+    flipUntil.current = 0;
     frontSession.reset();
     frontJobRef.current = null;
     frontRef.current = { captured: false, positive: false, text: '' };
@@ -210,6 +218,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       return;
     }
     setPhase('camera');
+    setFlipPrompt(false);
+    setConfidence(null);
+    setNumberReview({ needsReview: false, printed: null });
     setSide('front');
     setSource('camera');
     setResult(null);
@@ -247,7 +258,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   // Passports are recognised from their bio-page code lines (TD3), so the
   // first capture is enough. ID cards require a front capture BEFORE TD1/TD2
   // code lines on the back. Never accept the back as scan step one.
-  const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current) => {
+  const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current, ocrConfidence: number | null = null) => {
     // Front OCR runs concurrently with turning the card. Give it a short
     // opportunity to finish for the cross-check, never block indefinitely.
     const pending = frontJobRef.current;
@@ -272,6 +283,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       return;
     }
     setResult(parsed);
+    setConfidence(scanConfidence(ocrConfidence));
+    setNumberReview(documentNumberReview(parsed, front.text));
+    setFlipPrompt(false);
     if (action === 'passport_complete') {
       setFrontAssessment(null);
     } else {
@@ -370,6 +384,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       }
     });
     setFrontAssessment(null);
+    flipUntil.current = performance.now() + 1600;
+    setFlipPrompt(true);
     setSide('mrz');
     setSource('camera');
     setPhase('camera');
@@ -385,6 +401,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     const initial = side === 'front';
     const live = !!rect;
     let frame: HTMLCanvasElement | null = null;
+    let quality: Readiness = 'moveCloser';
+    let completedPass = false;
+    let partial: MrzReadResult | null = null;
+    let partialConfidence: number | null = null;
     const active = () => scanRunRef.current === run;
     const fail = (reason: string, hint?: Readiness) => {
       if (!active()) return;
@@ -404,10 +424,13 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       else setAutoReading(true);
       setFailReason(null);
       const sample = graySample(frame, { x: 0, y: 0, width: frame.width, height: frame.height });
-      const quality = assessReadiness(sample, 320, null, false);
+      quality = assessReadiness(sample, 320, null, false);
       sample.fill(0);
+      // Warm-up must not consume the recognition budget. Keep the captured
+      // frame in memory while the model loads rather than missing the shot.
+      await mrzSession.warm();
+      if (!active()) return;
       const deadline = performance.now() + (automatic ? 4000 : 18000);
-      let partial: MrzReadResult | null = null;
       // If a prior automatic attempt completed the bottom pass but timed out
       // during the full pass, resume with a fresh full-guide frame next time.
       const resumeFull = automatic && nextFullRef.current;
@@ -417,18 +440,22 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         if (!active()) return;
         const prepared = prepareBand(frame, frame.width, frame.height, band, live);
         try {
-          const text = await mrzSession.recognize(prepared, deadline - performance.now());
+          const { text, confidence: score } = await mrzSession.recognizeWithConfidence(prepared, deadline - performance.now());
           if (!active()) return;
+          completedPass = true;
           const parsed = readMrz(text);
           if (parsed?.valid && !parsed.unknownCountry) {
             // Wrong-side ID is actionable even if some optional fields are missing.
             const wrongSide = initial && parsed.fields.documentType === 'id_card';
             if (!automatic || completeAutoMrz(parsed) || wrongSide) {
-              await completeMrz(parsed, run);
+              await completeMrz(parsed, run, score);
               return;
             }
           }
-          partial = partial ?? parsed;
+          if (parsed && (!partial || (parsed.valid && !partial.valid) || (parsed.valid === partial.valid && (score ?? 0) > (partialConfidence ?? 0)))) {
+            partial = parsed;
+            partialConfidence = score;
+          }
           if (automatic && band === 'bottom') nextFullRef.current = true;
           if (automatic && band === 'full') nextFullRef.current = false;
         } finally { wipe(prepared); }
@@ -436,18 +463,26 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       if (!active()) return;
       if (initial) {
         const action = firstSideAction(partial, quality === 'ready');
-        if (action === 'front_first_required' && partial) await completeMrz(partial, run);
+        if (action === 'front_first_required' && partial) await completeMrz(partial, run, partialConfidence);
         else if (action === 'passport_complete' && partial) {
-          if (!automatic || completeAutoMrz(partial)) await completeMrz(partial, run);
+          if (!automatic || completeAutoMrz(partial)) await completeMrz(partial, run, partialConfidence);
           else fail('no_mrz', 'moveCloser');
         } else if (action === 'provisional_front') acceptFront(frame);
         else fail('first_not_recognized', quality === 'ready' ? 'moveCloser' : quality);
-      } else if (partial && !automatic) await completeMrz(partial, run);
-      else fail('no_mrz', live ? 'moveCloser' : undefined);
+      } else if (partial && (!automatic || sameRead(previousRead.current, partial))) {
+        // Repeated imperfect reads may open review, never silently confirm.
+        await completeMrz(partial, run, partialConfidence);
+      } else {
+        previousRead.current = partial;
+        fail('no_mrz', live ? 'moveCloser' : undefined);
+      }
     } catch {
       if (active()) {
-        // Timeouts and model errors are not evidence of a document front.
-        if (automatic || live) setGuidance('holdSteady');
+        // A completed MRZ pass on a clear first side is sufficient for a
+        // provisional front when the secondary pass times out. No OCR result
+        // is invented; a passport can still be recovered on the next side.
+        if (initial && live && frame && completedPass && !partial && quality === 'ready') acceptFront(frame);
+        else if (automatic || live) setGuidance('holdSteady');
         else fail('ocr_unavailable');
         void mrzSession.warm().catch(() => undefined);
       }
@@ -461,6 +496,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   };
 
   const captureFrame = () => {
+    if (busyRef.current !== null || performance.now() < flipUntil.current) return;
     const video = videoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) {
       setCameraOk(false);
@@ -486,6 +522,10 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight || document.hidden || busyRef.current !== null) {
           previous?.fill(0); previous = null; stable = 0; return;
         }
+        if (performance.now() < flipUntil.current) {
+          previous?.fill(0); previous = null; stable = 0; return;
+        }
+        setFlipPrompt(false);
         const rect = liveRect(video);
         const gray = graySample(video, rect);
         const readiness = assessReadiness(gray, 320, previous);
@@ -494,11 +534,6 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         stable = readiness === 'ready' ? stable + 1 : 0;
         if (stable < 2) setAutoReading(false);
         if (stable >= 2) {
-          if (!mrzSession.ready) {
-            setAutoReading(true);
-            void mrzSession.warm().catch(() => { if (active()) setAutoReading(false); });
-            return;
-          }
           stable = 0;
           await readFrom(video, video.videoWidth, video.videoHeight, rect, true);
         }
@@ -554,6 +589,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     busyRef.current = null;
     setAutoReading(false);
     setResult(null); clearFront(); setFrontAssessment(null);
+    setFlipPrompt(false); setConfidence(null); setNumberReview({ needsReview: false, printed: null });
     setFrontCaptureAttempted(false); setReviewAcknowledged(false);
     setSide('front'); setSource('camera'); setTyped(''); setFailReason(null);
     setPhase('camera');
@@ -575,14 +611,14 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     setPhase('camera');
   };
   const needsReviewAcknowledgement = !!result && (
-    !result.valid || result.unknownCountry ||
+    !result.valid || result.unknownCountry || numberReview.needsReview ||
     (result.fields.documentType === 'id_card' && frontAssessment?.status !== 'matched')
   );
   const expired = !!result?.fields.expiryDate && result.fields.expiryDate < new Date().toISOString().slice(0, 10);
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) { scanRunRef.current += 1; busyRef.current = null; stopCamera(); mrzSession.reset(); clearFront(); } onOpenChange(next); }}>
-      <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] !h-auto overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-id-scan">
+      <DialogContent className="w-[calc(100%-1rem)] max-w-lg max-h-[94dvh] !h-auto flex flex-col overflow-hidden px-4 py-4 sm:!h-auto sm:max-h-[90dvh] sm:p-6" data-training="fd-id-scan">
         <DialogHeader className="shrink-0 pr-6 text-left">
           <DialogTitle className="flex items-center gap-2"><ScanLine className="h-5 w-5 text-primary" /> {t('pms.scan.title')}</DialogTitle>
         </DialogHeader>
@@ -593,8 +629,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-0.5" data-training="fd-id-scan-scroll">
         {phase !== 'failed' && phase !== 'review' && (
-          <div className="rounded-md bg-primary/5 px-3 py-2 text-xs font-semibold" role="status">
-            {side === 'front' ? t('pms.scan.firstStep') : t('pms.scan.idBackStep')}
+          <div className="space-y-2" role="status" aria-live="polite">
+            <div className="flex gap-1" aria-hidden="true"><span className="h-1.5 flex-1 rounded-full bg-primary"/><span className={side === 'mrz' ? 'h-1.5 flex-1 rounded-full bg-primary' : 'h-1.5 flex-1 rounded-full bg-muted'}/></div>
+            {side === 'front' ? <div className="rounded-md bg-primary/5 px-3 py-2 text-sm font-semibold">{t('pms.scan.firstStep')}</div> : <div className="flex items-center gap-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 p-3 text-emerald-800 dark:text-emerald-200"><CheckCircle2 className="h-5 w-5 shrink-0"/><div><div className="text-xs">{t('pms.scan.frontCaptured')}</div><div className="text-sm font-bold">{t('pms.scan.flipCard')}</div></div><RotateCw className="ml-auto h-5 w-5 shrink-0 motion-safe:animate-pulse"/></div>}
           </div>
         )}
         {phase === 'review' && result && (
@@ -652,8 +689,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               <div className="relative mx-auto w-full max-h-[34dvh] overflow-hidden rounded-lg bg-black aspect-[1.58/1]">
                 <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover object-center" />
                 {/* Guide frame: the MRZ band sits in the lower part of the document. */}
-                <div className="pointer-events-none absolute inset-[7%] rounded-md border-2 border-dashed border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)]" />
+                <div className={`pointer-events-none absolute inset-[7%] rounded-md border-2 border-dashed shadow-[0_0_0_9999px_rgba(0,0,0,0.28)] transition-colors ${autoReading || guidance === 'ready' ? 'border-emerald-400' : 'border-white/90'}`} />
                 {side === 'mrz' && <div className="pointer-events-none absolute inset-x-[7%] bottom-[7%] h-[24%] border-t border-dashed border-white/80 bg-primary/15" />}
+                {flipPrompt && side === 'mrz' && <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-black/75 text-white" role="status"><CheckCircle2 className="h-9 w-9 text-emerald-400"/><span className="text-sm font-semibold">{t('pms.scan.frontCaptured')}</span><RotateCw className="h-8 w-8 motion-safe:animate-pulse"/><span className="text-base font-bold">{t('pms.scan.flipCard')}</span></div>}
                 {cameraOk === true && <div role="status" className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1 text-center text-xs text-white">{autoReading ? t('pms.scan.reading') : guidance === 'ready' ? t('pms.scan.autoCaptureHint') : t(`pms.scan.${guidance}`)}</div>}
                 {cameraOk === null && <Loader2 className="absolute inset-0 m-auto h-6 w-6 animate-spin text-white" />}
               </div>
@@ -691,6 +729,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
                 : <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400 gap-1"><TriangleAlert className="h-3.5 w-3.5" /> {t('pms.scan.checkCarefully')}</Badge>}
               {expired && <Badge variant="destructive">{t('pms.scan.expired')}</Badge>}
             </div>
+            <div className="rounded-lg border p-3 space-y-1.5"><div className="flex justify-between text-sm font-semibold"><span>{t('pms.scan.ocrConfidence')}</span><span>{confidence === null ? t('pms.scan.confidenceUnavailable') : `${confidence}%`}</span></div>{confidence !== null && <div role="progressbar" aria-label={t('pms.scan.ocrConfidence')} aria-valuenow={confidence} aria-valuemin={0} aria-valuemax={100} className="h-2 rounded-full bg-muted overflow-hidden"><div className={`h-full rounded-full ${result.valid && !numberReview.needsReview ? 'bg-emerald-500' : 'bg-amber-500'}`} style={{ width: `${confidence}%` }}/></div>}<p className="text-[11px] text-muted-foreground">{t('pms.scan.confidenceHint')}</p></div>
             <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 rounded-md border border-border p-3 text-sm">
               <dt className="text-muted-foreground">{t('pms.guest.familyName')}</dt><dd className="font-semibold">{result.fields.mrzLastName || '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.givenName')}</dt><dd className="font-semibold">{result.fields.mrzFirstName || '—'}</dd>
@@ -698,28 +737,29 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
               <dt className="text-muted-foreground">{t('pms.guest.birthDate')}</dt><dd>{result.fields.dateOfBirth ?? '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.gender')}</dt><dd>{result.fields.gender ? t(`pms.guest.gender${result.fields.gender[0].toUpperCase()}${result.fields.gender.slice(1)}`) : '—'}</dd>
               <dt className="text-muted-foreground">{t('pms.guest.docType')}</dt><dd>{t(result.fields.documentType === 'passport' ? 'pms.guest.docPassport' : 'pms.guest.docIdCard')}</dd>
-              <dt className="text-muted-foreground">{t('pms.guest.docNumber')}</dt><dd className="font-mono">{result.fields.documentNumber}</dd>
+              <dt className="text-muted-foreground">{t('pms.guest.docNumber')}</dt><dd className={numberReview.needsReview ? 'font-mono text-amber-700 dark:text-amber-300 font-semibold' : 'font-mono'}>{result.fields.documentNumber}{numberReview.needsReview && <div className="font-sans text-xs mt-1">{t('pms.scan.verifyNumber')}{numberReview.printed && <div>{t('pms.scan.printedNumber')}: <strong>{numberReview.printed}</strong></div>}</div>}</dd>
               <dt className="text-muted-foreground">{t('pms.scan.expiry')}</dt><dd>{result.fields.expiryDate ?? '—'}</dd>
             </dl>
-            <pre aria-label={t('pms.scan.codeLines')} className="overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] leading-tight text-muted-foreground">{result.lines.join('\n')}</pre>
+            <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">{t('pms.scan.codeLines')}</summary><pre className="mt-1 overflow-x-auto rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] leading-tight">{result.lines.join('\n')}</pre></details>
             <p className="text-[11px] text-muted-foreground">{t('pms.scan.reviewHint')}</p>
-            {needsReviewAcknowledgement && (
-              <label className="flex cursor-pointer items-start gap-2 rounded-md border border-amber-200 p-2.5 text-xs">
-                <Checkbox checked={reviewAcknowledged} onCheckedChange={(value) => setReviewAcknowledged(value === true)} className="mt-0.5 shrink-0" />
-                <span>{t('pms.scan.manualReviewConfirm')}</span>
-              </label>
-            )}
+
           </div>
         )}
 
         </div>
         <DialogFooter className="shrink-0 !flex-col gap-2 border-t border-border pt-3 pb-[env(safe-area-inset-bottom)]">
+          {phase === 'review' && result && (needsReviewAcknowledgement && (
+              <label className="flex cursor-pointer items-start gap-2 rounded-md border border-amber-200 p-2.5 text-xs">
+                <Checkbox checked={reviewAcknowledged} onCheckedChange={(value) => setReviewAcknowledged(value === true)} className="mt-0.5 shrink-0" />
+                <span>{t('pms.scan.manualReviewConfirm')}</span>
+              </label>
+            ))}
           {phase === 'camera' && side === 'mrz' && source === 'bridge' && (
             <Button type="button" className="gap-1.5" disabled={!settings.bridgeUrl} onClick={() => void readFromBridge()}><ScanLine className="h-4 w-4" /> {t('pms.scan.readDocument')}</Button>
           )}
           {phase === 'camera' && source === 'camera' && (
             <>
-              {cameraOk && <Button type="button" className="w-full gap-1.5" onClick={captureFrame}><ScanLine className="h-4 w-4" /> {side === 'front' ? t('pms.scan.captureFirst') : t('pms.scan.captureBack')}</Button>}
+              {cameraOk && <Button type="button" className="w-full gap-1.5" disabled={autoReading || flipPrompt} onClick={captureFrame}><ScanLine className="h-4 w-4" /> {autoReading ? t('pms.scan.reading') : side === 'front' ? t('pms.scan.captureFirst') : t('pms.scan.captureBack')}</Button>}
               <div className="grid w-full grid-cols-2 gap-2">
                 <Button variant="outline" asChild>
                   <label className="relative cursor-pointer gap-1.5">
