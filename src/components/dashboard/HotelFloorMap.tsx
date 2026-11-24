@@ -111,11 +111,11 @@ interface TaskEditorState {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  clean: 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-200',
-  dirty: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/50 dark:text-amber-200',
-  in_progress: 'bg-sky-100 text-sky-900 border-sky-300 dark:bg-sky-950/50 dark:text-sky-200',
-  out_of_order: 'bg-red-100 text-red-900 border-red-300 dark:bg-red-950/50 dark:text-red-200',
-  inspected: 'bg-teal-100 text-teal-900 border-teal-300 dark:bg-teal-950/50 dark:text-teal-200',
+  clean: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+  dirty: 'bg-amber-100 text-amber-900 border-amber-300',
+  in_progress: 'bg-sky-100 text-sky-900 border-sky-300',
+  out_of_order: 'bg-red-100 text-red-900 border-red-300',
+  inspected: 'bg-teal-100 text-teal-900 border-teal-300',
 };
 
 const SECTION_COLORS: Record<SectionColor, string> = {

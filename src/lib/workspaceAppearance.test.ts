@@ -3,17 +3,22 @@ import { canSeeWorkspaceWeather, workspaceLocation, workspaceWeatherKind } from 
 
 describe("manager workspace conditions", () => {
   it("shows the panel for housekeeping managers and higher actual roles", () => {
-    for (const role of ["housekeeping_manager", "manager", "admin", "top_management", "top_management_manager", "hr", "control_finance"]) {
-      expect(canSeeWorkspaceWeather({ role })).toBe(true);
+    for (const role of ["housekeeping_manager", "manager", "admin", "top_management", "top_management_manager", "hr", "control_finance", "reception", "front_office", "reception_manager", "supervisor", "maintenance_manager", "marketing", "marketing_manager", "back_office_manager"]) {
+      expect(canSeeWorkspaceWeather({ role }), `weather should be visible for ${role}`).toBe(true);
     }
     expect(canSeeWorkspaceWeather({ role: "manager", access_role: "housekeeping_manager" })).toBe(true);
     expect(canSeeWorkspaceWeather({ role: "top_management_manager", access_role: "hr" })).toBe(true);
+    expect(canSeeWorkspaceWeather({ role: "manager", access_role: "reception" })).toBe(true);
+    expect(canSeeWorkspaceWeather({ role: "manager", access_role: "housekeeping_supervisor" })).toBe(true);
+    expect(canSeeWorkspaceWeather({ role: "back_office_manager", access_role: "other" })).toBe(true);
+    expect(canSeeWorkspaceWeather({ role: "finance_manager" })).toBe(true);
+    expect(canSeeWorkspaceWeather({ role: "control_manager" })).toBe(true);
   });
   it("does not expose it to staff with a shared manager permission", () => {
-    for (const access_role of ["reception", "housekeeping_supervisor", "other"]) {
+    for (const access_role of ["other"]) {
       expect(canSeeWorkspaceWeather({ role: "manager", access_role })).toBe(false);
     }
-    for (const role of ["housekeeping", "maintenance", "reception", "supervisor", "breakfast_staff"]) {
+    for (const role of ["housekeeping", "maintenance", "breakfast_staff"]) {
       expect(canSeeWorkspaceWeather({ role })).toBe(false);
     }
     expect(canSeeWorkspaceWeather(null)).toBe(false);

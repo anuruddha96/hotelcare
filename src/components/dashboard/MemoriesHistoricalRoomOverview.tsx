@@ -49,11 +49,11 @@ type VerifiedRoom = {
 };
 
 const COLORS: Record<string, string> = {
-  approved: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200',
-  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200',
-  pending: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200',
-  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200',
+  approved: 'bg-emerald-200 text-emerald-900 border-emerald-500',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  pending: 'bg-violet-200 text-violet-900 border-violet-500',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500',
 };
 const isCheckout = isMemoriesHistoricalCheckout;
 const isNoShow = (row: RoomSnapshot) => {

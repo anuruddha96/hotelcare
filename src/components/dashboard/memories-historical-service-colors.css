@@ -13,15 +13,3 @@
   color: #7f1d1d;
   border-color: #dc2626;
 }
-.dark #hotel-room-overview button[title*="Read-only saved history"]:has(> span.bg-gray-600) {
-  background-color: #7f1d1d;
-  color: #fee2e2;
-  border-color: #ef4444;
-}
-.dark #hotel-room-overview button[title*="Read-only saved history"][title*="DND at saved cutoff"],
-.dark #hotel-room-overview button[title*="Read-only saved history"][title*="DND encounter recorded"],
-.dark #hotel-room-overview button[title*="Read-only saved history"][title*="DND and approval disagree"] {
-  background-color: #991b1b;
-  color: #fff1f2;
-  border-color: #f87171;
-}

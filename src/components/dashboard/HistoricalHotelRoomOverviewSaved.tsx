@@ -80,18 +80,18 @@ type SectionType = 'checkout' | 'daily' | 'noshow' | 'arrival';
 type StatusKey = 'clean' | 'dirty' | 'in_progress' | 'out_of_order' | 'inspected' | 'pending_approval';
 
 const STATUS_COLORS: Record<StatusKey, string> = {
-  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
-  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
-  inspected: 'bg-teal-200 text-teal-900 border-teal-500 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-600',
-  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
+  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500',
+  inspected: 'bg-teal-200 text-teal-900 border-teal-500',
+  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500',
 };
 
 const TASK_STATUS_COLORS: Record<string, string> = {
-  assigned: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
+  assigned: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500',
 };
 
 const DEFAULT_COLOR = 'bg-muted text-muted-foreground border-border';
