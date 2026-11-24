@@ -177,7 +177,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     // A scan for a different occupant must not overwrite this saved profile.
     if (protectIdentity && !draft && guest) {
       const next = guestScanPatch(result, opticalFields);
-      const normalize = (v?: string | null) => (v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const normalize = (v?: string | null) => (v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
       const knownName = normalize(guest.first_name) + '|' + normalize(guest.last_name);
       const readName = normalize(next.first_name) + '|' + normalize(next.last_name);
       const sameNumber = !!guest.id_document_number && normalize(guest.id_document_number) === normalize(next.id_document_number);
