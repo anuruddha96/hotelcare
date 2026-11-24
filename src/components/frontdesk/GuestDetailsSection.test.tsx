@@ -5,10 +5,11 @@ import { useStayGuestRoster } from './StayGuestRoster';
 
 const mocks = vi.hoisted(() => ({ from: vi.fn(), rpc: vi.fn(), apply: vi.fn() }));
 import type { MrzReadResult } from '@/lib/idScan/mrz';
+import type { ScanApplyOutcome } from './IdScanDialog';
 import type { OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
 vi.mock('@/integrations/supabase/client', () => ({ supabase: mocks }));
 vi.mock('@/hooks/useTranslation', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: ({ onApply }: { onApply: (result: MrzReadResult, optical?: OpticalGuestFields) => void }) => { mocks.apply.mockImplementation(onApply); return null; } }));
+vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: ({ onApply }: { onApply: (result: MrzReadResult, optical?: OpticalGuestFields, confirmNameChange?: boolean) => ScanApplyOutcome | void }) => { mocks.apply.mockImplementation(onApply); return null; } }));
 vi.mock('@/components/guests/GuestSearchSelect', () => ({ GuestSearchSelect: () => null }));
 vi.mock('@/lib/pmsLifecycle', () => ({ addStayGuest: vi.fn(), guestTransitionReservation: vi.fn() }));
 
@@ -89,7 +90,7 @@ const readResult = (documentNumber: string): MrzReadResult => ({
     documentType: 'passport', documentNumber, expiryDate: '2030-01-01', issuingState: 'DEU',
   },
 });
-function mockGuest(row = scannedGuest) {
+function mockGuest(row: GuestVizaRow & { document_scan?: unknown } = scannedGuest) {
   const query = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn(), update: vi.fn() };
   query.select.mockReturnValue(query);
   query.eq.mockReturnValue(query);
@@ -160,8 +161,8 @@ describe('document reader evidence and corrections', () => {
 
 
 describe('check-in autosave', () => {
-  function autoQuery() {
-    const query = mockGuest();
+  function autoQuery(row?: GuestVizaRow) {
+    const query = mockGuest(row);
     const acknowledge = vi.fn().mockResolvedValue({ data: { id: guest.id }, error: null });
     query.update.mockReturnValue({ eq: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ maybeSingle: acknowledge }) }) });
     return { query, acknowledge };
@@ -185,6 +186,35 @@ describe('check-in autosave', () => {
     await waitFor(() => expect(query.update).toHaveBeenCalledWith(expect.objectContaining({
       document_scan: expect.objectContaining({ fields: expect.objectContaining({ okmanyAzonositoSzam: 'TEST123' }) }),
     })), { timeout: 3000 });
+  });
+
+  it('requires explicit same-guest confirmation for a name-only booking then autosaves the scan', async () => {
+    const placeholder = { ...guest, first_name: 'Booking', last_name: 'Name', date_of_birth: null, id_document_type: null, id_document_number: null, birth_place: null, gender: null };
+    const { query } = autoQuery(placeholder);
+    const saved = vi.fn();
+    render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" protectIdentity autoSave onSaved={saved} />);
+    await screen.findByPlaceholderText('HU / DE / USA…');
+    act(() => { expect(mocks.apply(readResult('TEST123'), {})).toBe('confirm-name-change'); });
+    expect(query.update).not.toHaveBeenCalled();
+    act(() => { expect(mocks.apply(readResult('TEST123'), {}, true)).toBe('applied'); });
+    await waitFor(() => expect(saved).toHaveBeenCalledWith(expect.objectContaining({ first_name: 'Test', last_name: 'Guest', nationality: 'DE' })), { timeout: 3000 });
+    expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ id_document_number: 'TEST123', viza_review: expect.objectContaining({ scan_reviewed: true }), document_scan: expect.any(Object) }));
+    expect(screen.getByText(/pms.guest.autosaved/)).toBeInTheDocument();
+  });
+
+  it('never replaces an established identity even after name-change confirmation', async () => {
+    const { query } = autoQuery();
+    render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" protectIdentity autoSave />);
+    const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+    // Verified fields may be hidden by compact review; wait for the scan action instead.
+    await screen.findByRole('button', { name: 'pms.scan.retry' });
+    const read = readResult('OTHER123');
+    read.fields.firstName = 'Other';
+    read.fields.lastName = 'Person';
+    act(() => { expect(mocks.apply(read, {}, true)).toBe('identity-mismatch'); });
+    expect(query.update).not.toHaveBeenCalled();
   });
 
   it('does not mark a rejected or zero-row update saved; permits retry', async () => {

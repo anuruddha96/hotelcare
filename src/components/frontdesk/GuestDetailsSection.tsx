@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { CheckCircle2, ChevronDown, IdCard, Loader2, PencilLine, ScanLine, TriangleAlert, X } from 'lucide-react';
-import { IdScanDialog } from '@/components/frontdesk/IdScanDialog';
+import { IdScanDialog, type ScanApplyOutcome } from '@/components/frontdesk/IdScanDialog';
 import type { MrzReadResult } from '@/lib/idScan/mrz';
 import { toVizaDocumentScan, type VizaDocumentScan } from '@/lib/idScan/vizaScan';
 import { guestScanPatch, recognizedNationality, type OpticalGuestFields } from '@/lib/idScan/opticalGuestFields';
@@ -190,7 +190,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   // identity, so what it says replaces the booking's name and details; the
   // receptionist then corrects anything misread (sent to VIZA as a manual
   // correction next to the unchanged reading) and presses Save.
-  const applyScan = (result: MrzReadResult, opticalFields: OpticalGuestFields = {}) => {
+  const applyScan = (result: MrzReadResult, opticalFields: OpticalGuestFields = {}, confirmNameChange = false): ScanApplyOutcome => {
+    if (!guest || loading || (vizaReservationId && !hasReviewColumns)) return 'unavailable';
     // A scan for a different occupant must not overwrite this saved profile.
     if (protectIdentity && !draft && guest) {
       const next = guestScanPatch(result, opticalFields);
@@ -198,10 +199,15 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       const knownName = normalize(guest.first_name) + '|' + normalize(guest.last_name);
       const readName = normalize(next.first_name) + '|' + normalize(next.last_name);
       const sameNumber = !!guest.id_document_number && normalize(guest.id_document_number) === normalize(next.id_document_number) && guest.id_document_type === next.id_document_type && recognizedNationality(guest.nationality) === recognizedNationality(next.nationality);
-      if ((guest.date_of_birth && next.date_of_birth && guest.date_of_birth !== next.date_of_birth) ||
-        (!sameNumber && knownName !== '|' && readName !== knownName)) {
-        toast.error(t('pms.express.identityMismatch'));
-        return;
+      const dobMismatch = !!guest.date_of_birth && !!next.date_of_birth && guest.date_of_birth !== next.date_of_birth;
+      const nameMismatch = !sameNumber && knownName !== '|' && readName !== knownName;
+      if (dobMismatch) return 'identity-mismatch';
+      if (nameMismatch) {
+        // Only a name-only, unverified profile can be corrected after explicit
+        // confirmation that this is the same occupant, not a replacement guest.
+        const establishedIdentity = !!(guest.date_of_birth || guest.id_document_number || scan || guest.viza_review?.scan_reviewed);
+        if (establishedIdentity || !hasExtraColumns || !next.first_name || !next.last_name || !result.valid) return 'identity-mismatch';
+        if (!confirmNameChange) return 'confirm-name-change';
       }
     }
     invalidateConfirmation();
@@ -234,7 +240,9 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     setScan(toVizaDocumentScan(result));
     setScanChanged(true);
     markDirty();
-    toast.success(t('pms.scan.applied'));
+    setExpanded(true);
+    if (!autosaving) toast.success(t('pms.scan.applied'));
+    return 'applied';
   };
 
   const removeScan = () => {

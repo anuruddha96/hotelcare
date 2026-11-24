@@ -41,10 +41,12 @@ import {
  * never uploaded or stored; canvases are cleared after reading.
  */
 
+export type ScanApplyOutcome = 'applied' | 'identity-mismatch' | 'confirm-name-change' | 'unavailable';
+
 interface IdScanDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onApply: (result: MrzReadResult, optical?: OpticalGuestFields) => void;
+  onApply: (result: MrzReadResult, optical?: OpticalGuestFields, confirmNameChange?: boolean) => ScanApplyOutcome | void;
 }
 
 type Phase = 'camera' | 'reading' | 'front_preview' | 'review' | 'failed';
@@ -242,6 +244,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [frontAssessment, setFrontAssessment] = useState<IdFrontAssessment | null>(null);
   const [frontCaptureAttempted, setFrontCaptureAttempted] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const [applyIssue, setApplyIssue] = useState<ScanApplyOutcome | null>(null);
+  const [confirmRestart, setConfirmRestart] = useState(false);
   const [cameraOk, setCameraOk] = useState<boolean | null>(null);
   const [autoReading, setAutoReading] = useState(false);
   const [result, setResult] = useState<MrzReadResult | null>(null);
@@ -320,6 +324,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   }, [stopCamera]);
 
   useEffect(() => {
+    setApplyIssue(null);
+    setConfirmRestart(false);
     if (!open) {
       scanRunRef.current += 1;
       stopCamera();
@@ -870,6 +876,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   };
 
   const restart = () => {
+    setApplyIssue(null);
+    setConfirmRestart(false);
     scanRunRef.current += 1;
     busyRef.current = null;
     setAutoReading(false);
@@ -1085,9 +1093,27 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
           {phase === 'failed' && side === 'front' && !result && frontCaptureAttempted && failReason !== 'front_first' && (
             <Button type="button" variant="outline" className="w-full" onClick={manuallyCheckedFront}>{t('pms.scan.checkedManually')}</Button>
           )}
-          {phase === 'review' && <Button type="button" variant="outline" className="w-full" onClick={restart}>{t('pms.scan.retry')}</Button>}
           {phase === 'review' && result && (
-            <Button type="button" className="w-full" disabled={opticalReading || result.fields.documentType === 'id_card' && !frontAssessment || (needsReviewAcknowledgement && !reviewAcknowledged)} onClick={() => { onApply(result, opticalFields); clearPreview(); onOpenChange(false); }}>{t('pms.scan.use')}</Button>
+            <>
+              {applyIssue && applyIssue !== 'applied' && <p role="alert" className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-sm text-foreground">
+                {t(applyIssue === 'confirm-name-change' ? 'pms.scan.confirmNameChange' : applyIssue === 'identity-mismatch' ? 'pms.express.identityMismatch' : 'pms.scan.applyUnavailable')}
+              </p>}
+              <Button type="button" className="w-full" disabled={confirmRestart || opticalReading || (result.fields.documentType === 'id_card' && !frontAssessment) || (needsReviewAcknowledgement && !reviewAcknowledged)} onClick={() => {
+                const outcome = onApply(result, opticalFields, applyIssue === 'confirm-name-change');
+                if (outcome && outcome !== 'applied') { setApplyIssue(outcome); return; }
+                clearPreview();
+                onOpenChange(false);
+              }}>{t(applyIssue === 'confirm-name-change' ? 'pms.scan.confirmSameGuest' : 'pms.scan.use')}</Button>
+              <div className="mt-2 w-full border-t border-border pt-2">
+                {confirmRestart ? <div className="space-y-2">
+                  <p role="alert" className="text-xs text-muted-foreground">{t('pms.scan.discardWarning')}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" onClick={() => setConfirmRestart(false)}>{t('common.cancel')}</Button>
+                    <Button type="button" variant="destructive" onClick={restart}>{t('pms.scan.retry')}</Button>
+                  </div>
+                </div> : <Button type="button" variant="ghost" className="w-full text-muted-foreground" onClick={() => setConfirmRestart(true)}>{t('pms.scan.retry')}</Button>}
+              </div>
+            </>
           )}
         </DialogFooter>
       </DialogContent>
