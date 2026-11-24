@@ -40,16 +40,16 @@ const NONE: Tone = { severity: "none", className: "text-muted-foreground", label
 export function rateTone(price: number | null | undefined, t: RevenueThresholds): Tone {
   if (price === null || price === undefined || !Number.isFinite(price)) return NONE;
   if (price <= 0) {
-    return { severity: "critical", className: "bg-destructive/15 text-destructive font-semibold", label: "no price published" };
+    return { severity: "critical", className: "bg-destructive/15 text-destructive font-semibold dark:bg-destructive/[0.07] dark:text-red-300", label: "no price published" };
   }
   if (price < t.rateCriticalBelowEur) {
-    return { severity: "critical", className: "bg-destructive/15 text-destructive font-semibold", label: "suspiciously low" };
+    return { severity: "critical", className: "bg-destructive/15 text-destructive font-semibold dark:bg-destructive/[0.07] dark:text-red-300", label: "suspiciously low" };
   }
   if (price > t.rateMaxSaneEur) {
-    return { severity: "critical", className: "bg-destructive/15 text-destructive font-semibold", label: "suspiciously high" };
+    return { severity: "critical", className: "bg-destructive/15 text-destructive font-semibold dark:bg-destructive/[0.07] dark:text-red-300", label: "suspiciously high" };
   }
   if (price < t.rateWarnBelowEur) {
-    return { severity: "warn", className: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100", label: "below target" };
+    return { severity: "warn", className: "bg-amber-100 text-amber-900 dark:bg-amber-400/10 dark:text-amber-200", label: "below target" };
   }
   return { severity: "ok", className: "", label: "healthy" };
 }
@@ -58,25 +58,25 @@ export function rateTone(price: number | null | undefined, t: RevenueThresholds)
 export function occupancyTone2(pct: number | null | undefined, t: RevenueThresholds): Tone {
   if (pct === null || pct === undefined || !Number.isFinite(pct) || pct === 0) return NONE;
   if (pct < t.occupancyLowPct) {
-    return { severity: "critical", className: "bg-destructive/10 text-destructive", label: "soft demand" };
+    return { severity: "critical", className: "bg-destructive/10 text-destructive dark:bg-destructive/[0.07] dark:text-red-300", label: "soft demand" };
   }
   if (pct >= t.occupancyHighPct) {
-    return { severity: "ok", className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100", label: "nearly full" };
+    return { severity: "ok", className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-400/10 dark:text-foreground", label: "nearly full" };
   }
-  return { severity: "warn", className: "bg-amber-50 text-amber-900 dark:bg-amber-900/25 dark:text-amber-100", label: "building" };
+  return { severity: "warn", className: "bg-amber-50 text-amber-900 dark:bg-amber-400/[0.06] dark:text-foreground", label: "building" };
 }
 
 /** Colour net pickup: negative = losing rooms, strong = demand spike. */
 export function pickupTone(pickup: number | null | undefined, t: RevenueThresholds): Tone {
   if (pickup === null || pickup === undefined) return NONE;
   if (pickup < 0) {
-    return { severity: "critical", className: "bg-sky-200 text-sky-900 dark:bg-sky-900/60 dark:text-sky-100", label: "net cancellations" };
+    return { severity: "critical", className: "bg-sky-200 text-sky-900 dark:bg-sky-400/10 dark:text-foreground", label: "net cancellations" };
   }
   if (pickup === 0) return { severity: "none", className: "text-muted-foreground", label: "no movement" };
   if (pickup >= t.pickupStrongThreshold) {
-    return { severity: "ok", className: "bg-emerald-500 text-white dark:bg-emerald-600", label: "strong pickup" };
+    return { severity: "ok", className: "bg-emerald-500 text-white dark:bg-emerald-400/20 dark:text-foreground", label: "strong pickup" };
   }
-  return { severity: "warn", className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100", label: "light pickup" };
+  return { severity: "warn", className: "bg-emerald-100 text-emerald-900 dark:bg-emerald-400/10 dark:text-foreground", label: "light pickup" };
 }
 
 /** Room-type name in the user's language, falling back to the PMS name. */
