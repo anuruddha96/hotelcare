@@ -81,12 +81,12 @@ export default function AssistantWelcome({
   onAsk: (text: string) => void;
   onVoice?: () => void;
   voiceSupported?: boolean;
-  voiceState?: "idle" | "starting" | "recording" | "transcribing" | "review";
+  voiceState?: "idle" | "starting" | "recording" | "transcribing" | "paused";
 }) {
-  const voiceBusy = voiceState !== "idle";
-  const voiceButtonLabel = voiceState === "recording" ? "Stop talking" :
-    voiceState === "review" ? "Review transcript below" :
-    voiceBusy ? "Cancel voice input" : "Talk to Mira";
+  const voiceBusy = voiceState === "starting" || voiceState === "transcribing";
+  const voiceButtonLabel = voiceState === "recording" ? "Pause dictation" :
+    voiceState === "paused" ? "Resume dictation" :
+    voiceBusy ? "Preparing voice input…" : "Talk to Mira";
   const { profile } = useAuth();
   const { page } = useAssistantContext();
   const revenueAllowed = capabilitiesFor(profile).revenueRead;
@@ -121,7 +121,7 @@ export default function AssistantWelcome({
             <p className="text-sm text-muted-foreground">Ask Mira about your hotel, or give her a task.</p>
           </div>
         </div>
-        {onVoice && <button type="button" onClick={onVoice} disabled={disabled || !voiceSupported || voiceState === "review"} className="flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-left text-sm font-medium text-primary disabled:opacity-50">{voiceState === "recording" ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}{voiceState === "idle" ? "Tap to speak instead of typing" : voiceButtonLabel} <ArrowUpRight className="ml-auto h-4 w-4" /></button>}
+        {onVoice && <button type="button" onClick={onVoice} disabled={disabled || !voiceSupported || voiceBusy} className="flex w-full items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-left text-sm font-medium text-primary disabled:opacity-50">{voiceState === "recording" ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}{voiceState === "idle" ? "Tap to speak instead of typing" : voiceButtonLabel} <ArrowUpRight className="ml-auto h-4 w-4" /></button>}
         <div className="grid gap-2">
           {starters.map((starter) => (
             <button key={starter.prompt} type="button" disabled={disabled}
@@ -150,7 +150,7 @@ export default function AssistantWelcome({
           Ask questions, check priorities, or prepare an action within your access.
         </p>
         {onVoice && (
-          <button type="button" onClick={onVoice} disabled={disabled || !voiceSupported || voiceState === "review"}
+          <button type="button" onClick={onVoice} disabled={disabled || !voiceSupported || voiceBusy}
             className="mt-1 inline-flex min-h-10 items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50">
             {voiceState === "recording" ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             {voiceButtonLabel}
