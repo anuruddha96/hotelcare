@@ -241,20 +241,20 @@ export function WorkingRoomDetailDialog({
                   </div>
 
                   {assignment.assignment_type === 'checkout_cleaning' && !assignment.ready_to_clean && (
-                    <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                    <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/25 p-3">
                       <div className="flex items-start gap-2">
-                        <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                        <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-300 mt-0.5 flex-shrink-0" />
                         <div className="flex-1">
-                          <p className="text-sm font-medium text-yellow-900">
+                          <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
                             {t('manager.waitingGuestCheckout')}
                           </p>
-                          <p className="text-xs text-yellow-700 mt-1">
+                          <p className="text-xs text-yellow-700 dark:text-yellow-200 mt-1">
                             {t('manager.markReadyWhenGuestLeaves')}
                           </p>
                           {canReleaseCheckout && !assignment.pms_hold && <Button
                             size="sm"
                             variant="outline"
-                            className="mt-2 border-yellow-300 hover:bg-yellow-100"
+                            className="mt-2 border-yellow-300 hover:bg-yellow-100 dark:border-yellow-700 dark:hover:bg-yellow-950/40"
                             onClick={() => markAsReadyToClean(assignment.id)}
                           >
                             <CheckCircle className="h-4 w-4 mr-2" />
@@ -266,9 +266,9 @@ export function WorkingRoomDetailDialog({
                   )}
 
                   {assignment.assignment_type === 'checkout_cleaning' && assignment.ready_to_clean && (
-                    <div className="rounded-lg border border-green-200 bg-green-50 p-3 flex items-center gap-2">
-                      <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
-                      <span className="text-sm text-green-800 font-medium">
+                    <div className="rounded-lg border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/25 p-3 flex items-center gap-2">
+                      <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-300 flex-shrink-0" />
+                      <span className="text-sm text-green-800 dark:text-green-200 font-medium">
                         {t('manager.roomReadyForCleaning')}
                       </span>
                     </div>
