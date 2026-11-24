@@ -15,10 +15,10 @@ const name = (s: string) => /^[\p{L}\p{M}][\p{L}\p{M} .'’\-]{1,79}$/u.test(s) 
 // Explicit field labels only. Never infer a maiden name from the current
 // surname, nationality from the issuing country, or birthplace from an address.
 const labels = [
+  ['mother_name', /(?:anyja\s+(?:szuletesi\s+)?neve?|mother(?:'s|s)?\s+(?:birth|maiden)\s+name)/i],
+  ['birth_pair', /(?:szuletesi\s+csalad(?:i)?\s+es\s+uto(?:neve|nev)|szuletesi\s+neve?|birth name|^\\s*name at birth)/i],
   ['birth_last_name', /(?:szuletesi\s+csalad(?:i)?nev|family name at birth|birth surname|surname at birth)/i],
   ['birth_first_name', /(?:szuletesi\s+uto(?:neve|nev)|given names? at birth|birth given names?)/i],
-  ['birth_pair', /(?:szuletesi\s+nev|birth name|name at birth)/i],
-  ['mother_name', /(?:anyja\s+(?:szuletesi\s+)?neve?|mother(?:'s|s)?\s+(?:birth|maiden)\s+name)/i],
   ['birth_place', /(?:szuletesi\s+helye?|place of birth|birth place)/i],
   ['nationality', /(?:allampolgarsag|nationality|citizenship)/i],
   ['last_name', /(?:^\s*(?:csalad(?:i)?nev|surname|family name))\b/i],
