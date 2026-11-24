@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { clearTabHotels, getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
 import { clearCachedRevenuePayloads } from '@/lib/revenuePayloadCache';
+import { clearDisplayedWelcomeQuote } from '@/lib/welcomeQuoteDisplay';
 import { retryTransient } from '@/lib/transientRetry';
 
 interface Profile {
@@ -167,6 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         const previousUserId = activeUserIdRef.current;
+        if (!session?.user || (previousUserId && previousUserId !== session.user.id)) clearDisplayedWelcomeQuote();
         activeUserIdRef.current = session?.user?.id ?? null;
         
         if (session?.user) {
@@ -237,6 +239,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(session.user);
           } else {
             console.warn('Session expired while tab was backgrounded');
+            clearDisplayedWelcomeQuote();
             setUser(null);
             setSession(null);
             setProfile(null);
@@ -354,6 +357,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    clearDisplayedWelcomeQuote();
     clearReconnectTimer();
     activeUserIdRef.current = null;
     profileRequestRef.current = null;
