@@ -206,7 +206,7 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
     if (st.accommodationFee !== null && fee < 0) err('fee', `${ref}: package items exceed the accommodation fee`, st.reservationId);
     inPackage.push({ amount: Math.max(0, fee), main: 'SZALLASDIJ', sub: null, vat: s.accommodationVat }, ...st.packageItems, ...(st.postedPackageItems ?? []));
     for (const amount of st.dayUse ? [] : ifaPerGuest(s.ifa, Math.max(0, fee), s.accommodationVat, statuses)) {
-      outPackage.push({ amount, main: 'IFA', sub: null, vat: 0 });
+      outPackage.push({ amount, main: 'IFA', sub: null, vat: s.ifaVat });
       totals.ifa += amount;
     }
     outPackage.push(...st.extras);
@@ -282,7 +282,7 @@ export function assembleClosure(src: ClosureSource, s: ClosureSettings): Assembl
   };
 
   if (src.classification === 'MODOSITO') {
-    if (String(src.protocolId ?? '').length > 25) err('correction', 'A supplied record ID must be at most 25 characters');
+    if (!String(src.protocolId ?? '').trim() || String(src.protocolId).length > 25) err('correction', 'A correction needs a record ID (max 25 characters)');
     if (!String(src.reason ?? '').trim() || String(src.reason).length > 100) err('correction', 'A correction needs a reason (max 100 characters)');
   }
   totals.charges = round2(totals.charges);

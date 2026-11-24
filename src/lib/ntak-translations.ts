@@ -118,7 +118,7 @@ const rows: Record<string, readonly [string, string]> = {
   'ntak.day': ['Day', 'Nap'],
   'ntak.closedAccommodation': ['The accommodation was closed on this day', 'A szálláshely ezen a napon zárva tartott'],
   'ntak.correction': ['Correction of a day already reported (MODOSITO)', 'Már lejelentett nap javítása (MODOSITO)'],
-  'ntak.protocolId': ['Record ID, if supplied (max 25)', 'Jegyzőkönyv-azonosító, ha van (max. 25)'],
+  'ntak.protocolId': ['Record ID (required, max 25)', 'Jegyzőkönyv-azonosító (kötelező, max. 25)'],
   'ntak.otherCorrectionReason': ['Other documented reason', 'Egyéb dokumentált indok'],
   'ntak.reason': ['Reason (max 100)', 'Indoklás (max. 100)'],
   'ntak.send': ['Send to NTAK', 'Küldés az NTAK-nak'],

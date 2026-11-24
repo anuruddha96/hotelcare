@@ -531,6 +531,7 @@ Deno.test('Phase 7: NZ_04A/B correcting a guest retains identity, 400 HUF rate a
   // before final certification. Keep the originally transmitted guest ID.
   src.classification = 'MODOSITO';
   src.reason = 'VENDEG_VAGY_IFA_JAVITAS';
+  src.protocolId = 'NZ-04B-TEST';
   src.stays[0].guests[0] = { ...sergey, birthDate: '1987-02-11', ifaStatus: 'im5' };
   const after = assembleClosure(src, fixed);
   assert.equal(after.closure.ifa?.rate, 400);
@@ -544,7 +545,7 @@ Deno.test('Phase 7: NZ_04A/B correcting a guest retains identity, 400 HUF rate a
   assert.ok(after.checklist.some(c => c.code === 'ifa_unverified' && c.level === 'error'), 'unverified im5 must block transmission');
   const xml = buildNapiZarasRequest(common(), after.closure);
   assert.ok(xml.includes('VENDEG_VAGY_IFA_JAVITAS'));
-  assert.ok(!xml.includes('jegyzokonyvAzonosito'));
+  assert.ok(xml.includes('<v9:jegyzokonyvAzonosito>NZ-04B-TEST</v9:jegyzokonyvAzonosito>'));
   await assertValid(xml);
   assert.equal(effectiveIfaStatus('2010-11-19', src.day, 'KOTELES'), 'im1');
 });
@@ -601,4 +602,31 @@ Deno.test('Phase 8 NZ_05 day-use in 103/104 and FOGL_01 post-departure postings'
   assert.deepEqual(assembled.closure.postStayCharges,[{bookingNo:'FOGL_01',date:'2026-11-21',charge:{amount:10000,main:'EGYEB',sub:'EGYEB',vat:27}}]);
   assert.deepEqual(assembled.closure.postStayPayments,[{bookingNo:'FOGL_01',date:day,payment:{amount:10000,type:'BANKKARTYA'}}]);
   await assertValid(buildNapiZarasRequest(common(),assembled.closure));
+});
+
+Deno.test('Phase 7: EU_02A IFA VAT setting reaches closure lines and XML', () => {
+  const src = closureSource();
+  src.stays[0].guests = [guest(1, { ifaStatus: 'KOTELES' })];
+  const configured: ClosureSettings = { ...settings, ifa: { type: 'TETELES', rate: 400 }, ifaVat: 5 };
+  const incorrect = assembleClosure(src, configured);
+  const ifaLines = incorrect.closure.nights[0].sold!.outPackage.filter(c => c.main === 'IFA');
+  assert.deepEqual(ifaLines, [{ amount: 400, main: 'IFA', sub: null, vat: 5 }]);
+  const correct = assembleClosure(src, { ...configured, ifaVat: 0 });
+  assert.deepEqual(correct.closure.nights[0].sold!.outPackage.filter(c => c.main === 'IFA'), [{ amount: 400, main: 'IFA', sub: null, vat: 0 }]);
+  assert.notEqual(buildNapiZarasRequest(common(), incorrect.closure), buildNapiZarasRequest(common(), correct.closure));
+});
+
+Deno.test('MODOSITO requires a nonblank record ID and reason', () => {
+  const src = closureSource();
+  src.classification = 'MODOSITO';
+  src.reason = 'VENDEG_VAGY_IFA_JAVITAS';
+  for (const protocolId of [undefined, null, '', '   ', 'X'.repeat(26)]) {
+    src.protocolId = protocolId;
+    const result = assembleClosure(src, settings);
+    assert.ok(result.checklist.some(c => c.level === 'error' && c.code === 'correction' && c.message.includes('record ID')));
+  }
+  src.protocolId = 'X'.repeat(25);
+  assert.ok(!assembleClosure(src, settings).checklist.some(c => c.code === 'correction'));
+  src.reason = ' ';
+  assert.ok(assembleClosure(src, settings).checklist.some(c => c.code === 'correction' && c.message.includes('reason')));
 });

@@ -61,10 +61,10 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
     }
   };
 
-  const errors = preview?.checklist.filter((c) => c.level === 'error' && !(c.code === 'correction' && reason.trim() && protocolId.length <= 25)) ?? [];
+  const errors = preview?.checklist.filter((c) => c.level === 'error' && !(c.code === 'correction' && reason.trim() && reason.length <= 100 && protocolId.trim() && protocolId.length <= 25)) ?? [];
   const warnings = preview?.checklist.filter((c) => c.level === 'warning') ?? [];
   const correction = preview?.classification === 'MODOSITO';
-  const needsReason = correction && !reason.trim();
+  const needsCorrectionDetails = correction && (!reason.trim() || reason.length > 100 || !protocolId.trim() || protocolId.length > 25);
   const canOverride = !!preview?.can_manage && (errors.length > 0 || warnings.length > 0) &&
     errors.every(e => ['extreme', 'age', 'country', 'ifa', 'vat', 'negative', 'category'].includes(e.code));
 
@@ -88,7 +88,7 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
             <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-2.5 space-y-2">
               <p className="text-xs font-medium">{t('ntak.correction')}</p>
               <div className="grid sm:grid-cols-2 gap-2">
-                <Input className="h-8" maxLength={25} placeholder={t('ntak.protocolId')} value={protocolId} onChange={(e) => setProtocolId(e.target.value)} />
+                <Input className="h-8" required maxLength={25} aria-label={t('ntak.protocolId')} placeholder={t('ntak.protocolId')} value={protocolId} onChange={(e) => setProtocolId(e.target.value)} />
                 <select aria-label={t('ntak.reason')} className="h-8 rounded-md border bg-background px-2 text-xs" value={customReason ? '__custom' : reason}
                   onChange={(e) => { setCustomReason(e.target.value === '__custom'); setReason(e.target.value === '__custom' ? '' : e.target.value); }}>
                   <option value="">{t('ntak.reason')}</option>
@@ -133,7 +133,7 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
                 <Label htmlFor="ntak-override-reason">{t('ntak.overrideReason')}</Label>
                 <Input id="ntak-override-reason" maxLength={500} value={overrideReason} onChange={e => setOverrideReason(e.target.value)} />
                 <p className="text-xs text-muted-foreground">{t(preview.environment === 'test' ? 'ntak.overrideTest' : 'ntak.overrideProduction')}</p>
-                <Button type="button" variant="destructive" disabled={sending || loading || needsReason || (preview.environment !== 'test' && !overrideReason.trim())} onClick={() => void send(true)}>{t('ntak.sendAnyway')}</Button>
+                <Button type="button" variant="destructive" disabled={sending || loading || needsCorrectionDetails || (preview.environment !== 'test' && !overrideReason.trim())} onClick={() => void send(true)}>{t('ntak.sendAnyway')}</Button>
               </div>}
               <button type="button" className="text-xs underline text-muted-foreground" onClick={() => setShowXml((v) => !v)}>{t('ntak.showXml')}</button>
               {showXml && <pre className="max-h-64 overflow-auto rounded bg-muted p-2 text-[10px] whitespace-pre-wrap break-all">{preview.xml}</pre>}
@@ -143,7 +143,7 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
         <DialogFooter>
           <Button type="button" variant="outline" disabled={sending} onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button type="button" variant="outline" disabled={loading || sending} onClick={check}>{t('ntak.check')}</Button>
-          <Button type="button" disabled={!preview || loading || sending || errors.length > 0 || needsReason} onClick={() => void send()} className="gap-1.5">
+          <Button type="button" disabled={!preview || loading || sending || errors.length > 0 || needsCorrectionDetails} onClick={() => void send()} className="gap-1.5">
             {sending && <Loader2 className="h-4 w-4 animate-spin" />}{t('ntak.send')}
           </Button>
         </DialogFooter>
