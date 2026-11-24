@@ -201,9 +201,9 @@ BEGIN
       IF review->'visa_exempt'='true'::jsonb OR NULLIF(btrim(incoming.visa_number),'') IS NULL OR public.pms_viza_is_placeholder(incoming.visa_number) THEN RAISE EXCEPTION 'EXPRESS_INVALID_ENTRY_REASON'; END IF;
     ELSIF review->>'entry_details_reason' IS DISTINCT FROM 'other' OR char_length(btrim(COALESCE(review->>'entry_details_reason_text','')))<10 THEN RAISE EXCEPTION 'EXPRESS_INVALID_ENTRY_REASON';
     END IF;
-    incoming.entry_date:=NULL; incoming.entry_place:=NULL;
+    incoming:=jsonb_populate_record(incoming,jsonb_build_object('entry_date',NULL,'entry_place',NULL));
   END IF;
-  IF review->'visa_exempt'='true'::jsonb THEN incoming.visa_number:=NULL; END IF;
+  IF review->'visa_exempt'='true'::jsonb THEN incoming:=jsonb_populate_record(incoming,jsonb_build_object('visa_number',NULL)); END IF;
   IF public.pms_viza_is_placeholder(incoming.visa_number) OR public.pms_viza_is_placeholder(incoming.entry_place)
     OR public.pms_viza_is_placeholder(incoming.birth_place) OR public.pms_viza_is_placeholder(incoming.birth_first_name)
     OR public.pms_viza_is_placeholder(incoming.birth_last_name) OR public.pms_viza_is_placeholder(incoming.mother_family_name)
