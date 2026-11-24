@@ -91,9 +91,9 @@ export function RoomAssignmentChangeDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-            <h3 className="font-medium text-orange-800 mb-2">{t('common.room')} {roomNumber}</h3>
-            <p className="text-sm text-orange-700">
+          <div className="bg-orange-50 border border-orange-200 dark:bg-orange-950/25 dark:border-orange-800 rounded-lg p-4">
+            <h3 className="font-medium text-orange-800 dark:text-orange-200 mb-2">{t('common.room')} {roomNumber}</h3>
+            <p className="text-sm text-orange-700 dark:text-orange-200">
               {t('roomCard.changeWillNotify')}
             </p>
           </div>
@@ -107,13 +107,13 @@ export function RoomAssignmentChangeDialog({
             <ArrowRight className="h-5 w-5 text-gray-400" />
             
             <div className="text-center">
-              <Badge className="mb-2 bg-blue-600">{t('roomCard.new')}</Badge>
+              <Badge className="mb-2 bg-blue-600 text-white">{t('roomCard.new')}</Badge>
               <p className="text-sm font-medium">{t('housekeeping.assignmentType.checkoutClean')}</p>
             </div>
           </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="text-sm text-blue-800">
+          <div className="bg-blue-50 border border-blue-200 dark:bg-blue-950/25 dark:border-blue-800 rounded-lg p-4">
+            <div className="text-sm text-blue-800 dark:text-blue-200">
               <p className="font-medium mb-1">{t('roomCard.whatHappensNext')}:</p>
               <ul className="list-disc list-inside space-y-1 text-xs">
                 <li>{t('roomCard.changeInfo1')}</li>
