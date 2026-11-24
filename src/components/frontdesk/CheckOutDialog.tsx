@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -132,14 +132,14 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" data-training="fd-checkout-dialog">
-        <DialogHeader>
+      <DialogContent className="flex w-[calc(100%_-_1rem)] min-w-0 max-w-xl max-h-[90dvh] flex-col gap-3 overflow-hidden rounded-lg p-3 sm:gap-4 sm:p-6" data-training="fd-checkout-dialog">
+        <DialogHeader className="shrink-0 pr-8 text-left">
           <DialogTitle className="flex items-center gap-2">
-            <LogOut className="h-5 w-5 text-amber-600" /> {t('pms.checkOut.checkOutGuest')}
+            <LogOut className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" /> {t('pms.checkOut.checkOutGuest')}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="p-3 rounded-lg bg-accent/30 border border-border space-y-0.5">
+        <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overscroll-contain sm:space-y-4">
+          <div className="min-w-0 break-words rounded-lg border border-border bg-muted/40 p-3 space-y-0.5">
             <p className="font-semibold">{reservationGuestLabel(reservation)}</p>
             <p className="text-sm text-muted-foreground">{reservation.reservation_number}</p>
             <p className="text-sm text-muted-foreground">
@@ -153,14 +153,14 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
 
           <div className="p-3 rounded-lg border border-border text-sm space-y-1">
             {folioTotal !== null && (
-              <div className="flex justify-between">
+              <div className="flex min-w-0 items-baseline justify-between gap-3">
                 <span className="text-muted-foreground">{t('pms.co.folioTotal')}</span>
-                <span className="font-medium">{formatMoney(folioTotal || reservation.total_amount, reservation.currency)}</span>
+                <span className="shrink-0 font-medium tabular-nums">{formatMoney(folioTotal || reservation.total_amount, reservation.currency)}</span>
               </div>
             )}
-            <div className="flex justify-between">
+            <div className="flex min-w-0 items-baseline justify-between gap-3">
               <span className="text-muted-foreground">{t('pms.co.balanceDue')}</span>
-              <span className={`font-semibold ${balance > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+              <span className={`shrink-0 font-semibold tabular-nums ${balance > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
                 {formatMoney(balance, reservation.currency)}
               </span>
             </div>
@@ -169,14 +169,14 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
           {balance > 0 && (
             <div className="rounded-md border border-border p-2.5 space-y-1.5" data-training="fd-checkout-payment">
               <p className="text-xs font-medium flex items-center gap-1.5"><Wallet className="h-3.5 w-3.5" /> {t('pms.pay.recordPayment')}</p>
-              <div className="flex gap-1.5">
-                <Input className="h-8" type="number" min={0} step="any" value={payAmount}
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                <Input className="h-10 w-full min-w-0" type="number" min={0} step="any" value={payAmount}
                   placeholder={String(balance)} onChange={(e) => setPayAmount(e.target.value)} />
                 <Select value={payMethod} onValueChange={setPayMethod}>
-                  <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-10 w-full min-w-0"><SelectValue /></SelectTrigger>
                   <SelectContent>{payMethods.map((m) => <SelectItem key={m.value} value={m.value}>{m.key.startsWith('pms.') ? t(m.key) : m.key}</SelectItem>)}</SelectContent>
                 </Select>
-                <Button type="button" size="sm" variant="outline" className="h-8 shrink-0"
+                <Button type="button" size="sm" variant="outline" className="col-span-2 h-10 min-w-0 sm:col-span-1"
                   disabled={payBusy || !(Number(payAmount) > 0)} onClick={recordPayment}>
                   {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'OK'}
                 </Button>
@@ -191,12 +191,12 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
 
           {balance > 0 && isFinalDeparture && (
             <div className="flex items-start gap-2 rounded-md border border-amber-300/50 bg-amber-500/10 p-2.5">
-              <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-              <div className="space-y-1.5">
+              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1 space-y-1.5">
                 <p className="text-xs text-amber-700 dark:text-amber-400">{t('pms.co.balanceWarning')}</p>
-                <div className="flex items-center gap-2">
-                  <Checkbox id="ack-balance" checked={ackBalance} onCheckedChange={(c) => setAckBalance(!!c)} />
-                  <label htmlFor="ack-balance" className="text-xs font-medium">
+                <div className="flex items-start gap-2">
+                  <Checkbox className="mt-0.5 shrink-0" id="ack-balance" checked={ackBalance} onCheckedChange={(c) => setAckBalance(!!c)} />
+                  <label htmlFor="ack-balance" className="min-w-0 break-words text-xs font-medium leading-relaxed">
                     {t('pms.co.ackBalance')}
                   </label>
                 </div>
@@ -209,31 +209,35 @@ export function CheckOutDialog({ reservation, open, onOpenChange, onSuccess }: C
           <BusinessMomentField control={businessMoment} />
 
           {(!roster.enabled || roster.selectedIds.length === roster.eligible.length) && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
               <BedDouble className="h-3.5 w-3.5 shrink-0" /> {t('pms.co.roomWillBeDirty')}
             </p>
           )}
         </div>
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button type="button" variant="outline" className="gap-1.5 sm:mr-auto" onClick={() => setInvoiceOpen(true)} data-training="fd-checkout-invoice">
-            <FileText className="h-4 w-4" /> {t('pms.inv.title')}
+        <div className="min-w-0 shrink-0 space-y-2 border-t border-border pt-3">
+          <div className="grid grid-cols-2 gap-2">
+          <Button type="button" variant="outline" className="h-auto min-h-10 min-w-0 gap-1.5 whitespace-normal break-words py-2" onClick={() => setInvoiceOpen(true)} data-training="fd-checkout-invoice">
+            <FileText className="h-4 w-4 shrink-0" /> {t('pms.inv.title')}
           </Button>
-          <Button type="button" variant="outline" className="gap-1.5" title={t('pms.charge.tip')} onClick={() => setChargeOpen(true)} data-training="fd-checkout-charge">
+          <Button type="button" variant="outline" className="h-auto min-h-10 min-w-0 gap-1.5 whitespace-normal break-words py-2" title={t('pms.charge.tip')} onClick={() => setChargeOpen(true)} data-training="fd-checkout-charge">
             ➕ {t('pms.charge.add')}
           </Button>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-2">
+          <Button type="button" variant="outline" className="h-auto min-h-10 min-w-0 whitespace-normal break-words py-2" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckOut}
             disabled={submitting || businessMoment.invalid || roster.loading
               || (balance > 0 && isFinalDeparture && !ackBalance)
               || (roster.enabled && roster.selectedIds.length === 0)}
             variant="default"
-            className="gap-1"
+            className="h-auto min-h-10 min-w-0 gap-1.5 whitespace-normal break-words py-2"
             data-training="fd-checkout-confirm"
           >
-            <LogOut className="h-4 w-4" /> {submitting ? t('pms.checkIn.processing') : `${t('pms.checkOut')} · ${businessMoment.display}`}
+            <LogOut className="h-4 w-4 shrink-0" /> {submitting ? t('pms.checkIn.processing') : `${t('pms.checkOut')} · ${businessMoment.display}`}
           </Button>
-        </DialogFooter>
+          </div>
+        </div>
         <AddChargeDialog reservation={reservation} open={chargeOpen} onOpenChange={setChargeOpen} onAdded={(due) => setBalance(due)} />
         {invoiceOpen && (
           <InvoiceDialog
