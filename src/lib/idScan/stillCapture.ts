@@ -12,6 +12,6 @@ export function confidenceTone(confidence: number | null): 'high' | 'medium' | '
 
 /** The printed data on a TD1 back occupies the upper section, away from MRZ.
  * Use a broad crop so the specimen's three labeled rows stay together. */
-export function printedRegion(width: number, height: number, idBack: boolean) {
-  return { x: 0, y: 0, width, height: idBack ? Math.round(height * 0.68) : height };
+export function printedRegion(width: number, height: number, idBack: boolean, focusLeft = false) {
+  return { x: 0, y: 0, width: idBack && focusLeft ? Math.round(width * 0.78) : width, height: idBack ? Math.round(height * 0.68) : height };
 }
