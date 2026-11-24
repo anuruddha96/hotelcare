@@ -1,4 +1,5 @@
 import type { Worker } from 'tesseract.js';
+import type { OcrLine } from './codeLineRefine';
 
 /** One worker per OCR role. Termination invalidates pending initialization
  * as well as recognition. Tesseract may leave an outstanding recognize
@@ -39,6 +40,13 @@ export class OcrSession {
   }
 
   async recognizeWithConfidence(canvas: HTMLCanvasElement, timeoutMs: number, pageSegMode?: '6' | '7' | '11'): Promise<{ text: string; confidence: number | null }> {
+    const { text, confidence } = await this.recognizeDetailed(canvas, timeoutMs, pageSegMode, false);
+    return { text, confidence };
+  }
+
+  /** As above, optionally with the position of every recognised line, which
+   * lets the caller straighten and re-read a region of the same picture. */
+  async recognizeDetailed(canvas: HTMLCanvasElement, timeoutMs: number, pageSegMode?: '6' | '7' | '11', withLines = true): Promise<{ text: string; confidence: number | null; lines: OcrLine[] }> {
     if (timeoutMs <= 0) throw new Error('OCR timeout');
     const workerPromise = this.warm();
     const slot = this.slot!;
@@ -54,8 +62,12 @@ export class OcrSession {
           if (this.slot !== slot) throw new Error('OCR cancelled');
           if (pageSegMode) await worker.setParameters({ tessedit_pageseg_mode: pageSegMode } as never);
           if (this.slot !== slot) throw new Error('OCR cancelled');
-          return worker.recognize(canvas);
-        }).then(({ data }) => ({ text: data.text ?? '', confidence: Number.isFinite(data.confidence) ? Math.max(0, Math.min(100, data.confidence)) : null })),
+          return withLines ? worker.recognize(canvas, {}, { text: true, blocks: true }) : worker.recognize(canvas);
+        }).then(({ data }) => ({
+          text: data.text ?? '',
+          confidence: Number.isFinite(data.confidence) ? Math.max(0, Math.min(100, data.confidence)) : null,
+          lines: (data.blocks ?? []).flatMap(block => (block.paragraphs ?? []).flatMap(paragraph => (paragraph.lines ?? []).map(line => ({ text: line.text ?? '', bbox: line.bbox, baseline: line.baseline })))),
+        })),
         cancelled,
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {

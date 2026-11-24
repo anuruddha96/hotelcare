@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
+import { codeLineGeometry, printedZone, refineCodeBlock, repairLookAlikes, toGray, type CodeGeometry, type Gray } from '@/lib/idScan/codeLineRefine';
+import { agreePrinted, parsePrintedText, printedGuestFields, type PrintedRead } from '@/lib/idScan/printedFields';
 import { guideCrop, snapshotFrame, type SourceRect } from '@/lib/idScan/frameCapture';
 import { OcrSession } from '@/lib/idScan/ocrSession';
 import { HUNGARIAN_BACK_ROWS, estimateCardRect, printedRowRect, mergeHungarianRows, rowHasLabel } from '@/lib/idScan/hungarianCard';
@@ -49,10 +51,40 @@ type Phase = 'camera' | 'reading' | 'front_preview' | 'review' | 'failed';
 type DocumentSide = 'mrz' | 'front'; // 'front' is ALWAYS the initial camera capture.
 
 /** Grayscale + contrast stretch + upscale: OCR reads MRZ much better this way. */
-function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'lower' | 'full', live = false, enhanced = true): HTMLCanvasElement {
+function bandLayout(width: number, height: number, band: 'bottom' | 'lower' | 'full', live: boolean) {
   const top = band === 'bottom' ? Math.floor(height * (live ? 0.51 : 0.58)) : band === 'lower' ? Math.floor(height * 0.3) : 0;
+  return { top, scale: Math.min(3, 1600 / width) };
+}
+
+/** In-memory luminance copy of a captured frame for the tighter second reading. */
+function frameGray(frame: HTMLCanvasElement): Gray | null {
+  const ctx = frame.getContext('2d', { willReadFrequently: true });
+  if (!ctx || !frame.width || !frame.height) return null;
+  const pixels = ctx.getImageData(0, 0, frame.width, frame.height);
+  const gray = toGray(pixels.data, frame.width, frame.height);
+  pixels.data.fill(0);
+  return gray;
+}
+
+function grayCanvas(image: Gray): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width; canvas.height = image.height;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const pixels = ctx.createImageData(image.width, image.height);
+    for (let i = 0, p = 0; i < image.data.length; i++, p += 4) {
+      pixels.data[p] = pixels.data[p + 1] = pixels.data[p + 2] = image.data[i];
+      pixels.data[p + 3] = 255;
+    }
+    ctx.putImageData(pixels, 0, 0);
+  }
+  image.data.fill(0);
+  return canvas;
+}
+
+function prepareBand(source: CanvasImageSource, width: number, height: number, band: 'bottom' | 'lower' | 'full', live = false, enhanced = true): HTMLCanvasElement {
+  const { top, scale } = bandLayout(width, height, band, live);
   const cropH = height - top;
-  const scale = Math.min(3, 1600 / width);
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(cropH * scale);
@@ -119,6 +151,15 @@ async function createFrontOcrWorker(): Promise<TesseractWorker> {
   let worker: TesseractWorker;
   try { worker = await createWorker(['hun', 'eng']); }
   catch { worker = await createWorker('eng'); }
+  try { await worker.setParameters({ tessedit_pageseg_mode: '6' } as never); return worker; }
+  catch (error) { await worker.terminate().catch(() => undefined); throw error; }
+}
+
+/** Hungarian-only model for the small printed rows on a Hungarian ID back:
+ * it keeps accented capitals that the mixed model tends to drop. */
+async function createHungarianOcrWorker(): Promise<TesseractWorker> {
+  const { createWorker } = await import('tesseract.js');
+  const worker = await createWorker('hun');
   try { await worker.setParameters({ tessedit_pageseg_mode: '6' } as never); return worker; }
   catch (error) { await worker.terminate().catch(() => undefined); throw error; }
 }
@@ -195,6 +236,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [numberReview, setNumberReview] = useState<{ needsReview: boolean; printed: string | null }>({ needsReview: false, printed: null });
   const [mrzSession] = useState(() => new OcrSession(createOcrWorker));
   const [frontSession] = useState(() => new OcrSession(createFrontOcrWorker));
+  const [hungarianSession] = useState(() => new OcrSession(createHungarianOcrWorker));
   const [guidance, setGuidance] = useState<Readiness>('holdSteady');
   const [captureProgress, setCaptureProgress] = useState(0);
   const [frontAssessment, setFrontAssessment] = useState<IdFrontAssessment | null>(null);
@@ -213,8 +255,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const clearFront = useCallback(() => {
     flipUntil.current = 0;
     frontSession.reset();
+    hungarianSession.reset();
     frontRef.current = { captured: false, positive: false, text: '' };
-  }, [frontSession]);
+  }, [frontSession, hungarianSession]);
 
   const chooseSource = (next: ScannerSource) => {
     if (next === source) return;
@@ -421,7 +464,34 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     return mergeHungarianRows(true,rows);
   };
 
-  const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current, ocrConfidence: number | null = null, frame?: HTMLCanvasElement) => {
+  // Printed rows above the code lines of an ID back, located from the code
+  // lines themselves. Three readings at different sizes; a value is proposed
+  // only when two of them agree.
+  const readPrintedZone = async (frame: HTMLCanvasElement, geometry: CodeGeometry, hungarian: boolean, givenName: string, run: number): Promise<OpticalGuestFields> => {
+    const gray = frameGray(frame);
+    if (!gray) return {};
+    const session = hungarian ? hungarianSession : frontSession;
+    const reads: PrintedRead[] = [];
+    try {
+      for (const width of [1500, 1900, 1200]) {
+        if (scanRunRef.current !== run) return {};
+        const canvas = grayCanvas(printedZone(gray, geometry, width));
+        try {
+          const { text } = await session.recognizeWithConfidence(canvas, 12000, '6');
+          reads.push(parsePrintedText(text, hungarian));
+        } catch { /* a timed-out reading simply does not vote */ }
+        finally { wipe(canvas); }
+        const agreed = agreePrinted(reads);
+        if (reads.length === 2 && agreed.birth_place && agreed.birth_name && agreed.mother_name) break;
+      }
+    } finally {
+      gray.data.fill(0);
+      if (hungarian) hungarianSession.reset();
+    }
+    return printedGuestFields(agreePrinted(reads), givenName);
+  };
+
+  const completeMrz = async (parsed: MrzReadResult, run = scanRunRef.current, ocrConfidence: number | null = null, frame?: HTMLCanvasElement, geometry: CodeGeometry | null = null) => {
     if (scanRunRef.current !== run) return;
     const front = frontRef.current;
     const action = nextMrzScanAction(parsed, front.captured, front.positive);
@@ -463,10 +533,18 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       try {
         copy = snapshotFrame(frame, frame.width, frame.height);
         const hungarian = action === 'id_complete' && parsed.format === 'TD1' && (parsed.fields.issuingState === 'HUN' || parsed.fields.nationalityIso3 === 'HUN' || /HUNGARY|MAGYARORSZ[AÁ]G/i.test(frontText));
-        const { texts } = await readPrinted(frontSession, copy, hungarian, run);
-        let extracted = opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n'));
         const complete = (v: OpticalGuestFields) => !!(v.birth_place && v.birth_last_name && v.birth_first_name && v.mother_name);
-        if (hungarian && !complete(extracted) && scanRunRef.current === run) {
+        // ID back with located code lines: read the straightened printed
+        // rows. The older whole-picture reading remains the fallback.
+        const located = action === 'id_complete' && parsed.format === 'TD1' && geometry
+          ? await readPrintedZone(copy, geometry, hungarian, parsed.fields.mrzFirstName, run) : null;
+        // Agreed readings of the located rows stand on their own: a single
+        // whole-picture reading must not overwrite or complete them.
+        const { texts } = located ? { texts: ['located'] } : await readPrinted(frontSession, copy, hungarian, run);
+        let extracted = located
+          ? { ...opticalGuestFields(parsed, frontText, ''), ...located }
+          : opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n'));
+        if (hungarian && !located && !complete(extracted) && scanRunRef.current === run) {
           const targeted = await readHungarianRows(copy, run);
           // Do not overwrite a conflicting labeled read. Review all proposals.
           extracted = { ...targeted, ...extracted };
@@ -597,6 +675,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     let partial: MrzReadResult | null = null;
     let partialConfidence: number | null = null;
     let completedPass = false;
+    let gray: Gray | null = null;
+    let geometry: CodeGeometry | null = null;
     const active = () => scanRunRef.current === run;
     const fail = (reason: string) => {
       if (!active()) return;
@@ -626,16 +706,43 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         if (!active()) return;
         const prepared = prepareBand(frame, frame.width, frame.height, band, live, enhanced);
         try {
-          const { text, confidence: score } = await mrzSession.recognizeWithConfidence(prepared, 10000);
+          const { text, confidence: firstScore, lines } = await mrzSession.recognizeDetailed(prepared, 10000);
           if (!active()) return;
           completedPass = true;
-          const parsed = readMrz(text);
+          let parsed = readMrz(text);
+          let score = firstScore;
+          let refinedRead = false;
+          // The first pass shows where the code lines are. Unless they
+          // already pass every check digit, straighten that block, even out
+          // its lighting and read it again; then let the check digits repair
+          // a single look-alike character. Names are never altered.
+          const layout = bandLayout(frame.width, frame.height, band, live);
+          const located = codeLineGeometry(lines, layout.scale, 0, layout.top);
+          if (located && !(parsed?.valid && !parsed.unknownCountry)) {
+            gray ??= frameGray(frame);
+            if (gray) {
+              const refined = grayCanvas(refineCodeBlock(gray, located));
+              try {
+                const second = await mrzSession.recognizeWithConfidence(refined, 8000);
+                if (!active()) return;
+                const reparsed = readMrz(second.text);
+                if (reparsed && (!parsed || reparsed.valid || !parsed.valid)) { parsed = reparsed; score = second.confidence; refinedRead = true; }
+              } catch { if (!active()) return; }
+              finally { wipe(refined); }
+            }
+          }
+          if (parsed && !parsed.valid) {
+            const repaired = repairLookAlikes(parsed.lines, parsed.format);
+            const reread = repaired ? readMrz(repaired.join('\n')) : null;
+            if (reread?.valid) parsed = reread;
+          }
+          if (located && parsed && (!geometry || parsed.valid)) geometry = located;
           if (parsed && (!partial || (parsed.valid && !partial.valid) ||
             (parsed.valid === partial.valid && !parsed.unknownCountry && partial.unknownCountry) ||
             (parsed.valid === partial.valid && parsed.unknownCountry === partial.unknownCountry && (score ?? 0) > (partialConfidence ?? 0)))) {
             partial = parsed; partialConfidence = score;
           }
-          if (parsed?.valid && !parsed.unknownCountry && ((score ?? 0) > 90 || (initial && parsed.fields.documentType === 'id_card'))) break;
+          if (parsed?.valid && !parsed.unknownCountry && ((score ?? 0) > 90 || refinedRead || (initial && parsed.fields.documentType === 'id_card'))) break;
           // A printed ID front normally has no MRZ; avoid three unnecessary
           // passes once both likely code-line regions have been checked.
           if (initial && band === 'lower' && !partial && quality === 'ready') break;
@@ -646,19 +753,20 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       if (initial) {
         const action = firstSideAction(partial, quality === 'ready');
         if (partial && (action === 'front_first_required' || action === 'passport_complete')) {
-          await completeMrz(partial, run, partialConfidence, frame);
+          await completeMrz(partial, run, partialConfidence, frame, geometry);
         } else if (completedPass && action === 'provisional_front') {
           await acceptFront(frame, run);
         } else if (partial && partial.fields.documentType === 'passport') {
-          await completeMrz(partial, run, partialConfidence, frame);
+          await completeMrz(partial, run, partialConfidence, frame, geometry);
         } else fail(completedPass ? 'first_not_recognized' : 'ocr_unavailable');
       } else if (partial) {
         // An imperfect result is never auto-confirmed: review stays required.
-        await completeMrz(partial, run, partialConfidence, frame);
+        await completeMrz(partial, run, partialConfidence, frame, geometry);
       } else fail(completedPass ? 'no_mrz' : 'ocr_unavailable');
     } catch { if (active()) fail('ocr_unavailable'); }
     finally {
       if (frame) wipe(frame);
+      gray?.data.fill(0);
       if (busyRef.current === run) { busyRef.current = null; if (active()) setAutoReading(false); }
     }
   };
