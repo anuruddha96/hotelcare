@@ -40,6 +40,17 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [showAll, setShowAll] = useState(false);
   const [override, setOverride] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [savePending, setSavePending] = useState(false);
+  const requestClose = (next: boolean) => {
+    if (!next && savePending) { toast.error(t('pms.guest.autosaveWait')); return; }
+    onOpenChange(next);
+  };
+  useEffect(() => {
+    if (!savePending) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [savePending]);
   const [vizaMissing, setVizaMissing] = useState<string[] | null>(null);
   const [arrivalError, setArrivalError] = useState<string | null>(null);
   const [vizaRequired, setVizaRequired] = useState(false);
@@ -95,6 +106,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const vizaBlocked = vizaRequired && (roster.enabled ? roster.incompleteSelected > 0 || rosterCountMismatch : vizaWarn || !reservation.guest_id || pax > 1);
 
   const handleCheckIn = async () => {
+    if (savePending) return;
     if (!selectedRoom) {
       toast.error(t('pms.checkIn.pleaseSelectRoom'));
       return;
@@ -118,7 +130,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={requestClose}>
       <DialogContent className="w-[calc(100%-0.75rem)] max-w-xl max-h-[94dvh] overflow-hidden gap-0 rounded-2xl bg-background px-0 py-0 sm:!h-auto sm:max-h-[90dvh]" data-training="fd-checkin-dialog">
         <DialogHeader className="shrink-0 border-b border-border/70 px-4 py-4 pr-12 text-left sm:px-5 sm:pr-12">
           <DialogTitle className="flex items-center gap-2">
@@ -140,12 +152,12 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             basePath={organizationSlug ? `/${organizationSlug}` : undefined} />
 
           {!vizaLoading && !vizaRequired && !roster.enabled && reservation.guest_id && (
-            <GuestDetailsSection occurredAt={businessMoment.occurredAt} vizaReservationId={vizaRequired ? reservation.id : undefined} guestId={reservation.guest_id} onCompletenessChange={setVizaMissing}
+            <GuestDetailsSection occurredAt={businessMoment.occurredAt} vizaReservationId={vizaRequired ? reservation.id : undefined} guestId={reservation.guest_id} onCompletenessChange={setVizaMissing} autoSave onSavePendingChange={setSavePending}
               onSaved={() => setArrivalError(null)} />
           )}
 
           <StayGuestRoster expectedGuests={pax} bookingGuestId={reservation.guest_id} vizaRequired={vizaRequired} control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
-            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} />
+            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} savePending={savePending} onSavePendingChange={setSavePending} />
           {vizaLoadFailed && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaStatusFailed')}</p>}
           {arrivalError && <p role="alert" className="text-sm text-destructive break-words">{arrivalError}</p>}
 
@@ -176,7 +188,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
                 <Loader2 className="h-4 w-4 animate-spin" /> {t('pms.loading')}
               </div>
             ) : (
-              <Select value={selectedRoom} onValueChange={setSelectedRoom}>
+              <Select value={selectedRoom} onValueChange={setSelectedRoom} disabled={savePending}>
                 <SelectTrigger data-training="fd-checkin-room-select">
                   <SelectValue placeholder={t('pms.checkIn.selectCleanRoom')} />
                 </SelectTrigger>
@@ -220,10 +232,10 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           )}
         </div>
         <DialogFooter className="shrink-0 gap-2 border-t border-border/70 bg-card px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:gap-2 sm:px-5">
-          <Button variant="outline" className="min-h-11 text-muted-foreground sm:min-h-10" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
+          <Button variant="outline" className="min-h-11 text-muted-foreground sm:min-h-10" onClick={() => requestClose(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
-            disabled={vizaLoading || vizaLoadFailed || submitting || businessMoment.invalid || !selectedRoom || roster.loading || guestDetailsLoading
+            disabled={savePending || vizaLoading || vizaLoadFailed || submitting || businessMoment.invalid || !selectedRoom || roster.loading || guestDetailsLoading
               || (roster.perGuestLifecycle && roster.selectedIds.length === 0)
               || vizaBlocked || (vizaWarn && !vizaRequired && !override)}
             className="min-h-11 h-auto gap-2 whitespace-normal py-2 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 sm:min-h-10"

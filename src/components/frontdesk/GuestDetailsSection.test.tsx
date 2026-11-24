@@ -157,3 +157,69 @@ describe('document reader evidence and corrections', () => {
     expect(query.update.mock.calls[0][0].document_scan).toBeNull();
   });
 });
+
+
+describe('check-in autosave', () => {
+  function autoQuery() {
+    const query = mockGuest();
+    const acknowledge = vi.fn().mockResolvedValue({ data: { id: guest.id }, error: null });
+    query.update.mockReturnValue({ eq: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ maybeSingle: acknowledge }) }) });
+    return { query, acknowledge };
+  }
+
+  it('persists typed edits and acknowledged scan data without pressing Save', async () => {
+    const { query } = autoQuery();
+    const pending = vi.fn();
+    const saved = vi.fn();
+    render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" autoSave onSavePendingChange={pending} onSaved={saved} />);
+    const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+    fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
+    expect(pending).toHaveBeenLastCalledWith(true);
+    await waitFor(() => expect(screen.getByText(/pms.guest.autosaved/)).toBeInTheDocument(), { timeout: 3000 });
+    expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ nationality: 'FR' }));
+    expect(pending).toHaveBeenLastCalledWith(false);
+    expect(saved).toHaveBeenCalledWith(expect.objectContaining({ nationality: 'FR' }));
+    act(() => mocks.apply(readResult('TEST123'), {}));
+    await waitFor(() => expect(query.update).toHaveBeenCalledWith(expect.objectContaining({
+      document_scan: expect.objectContaining({ fields: expect.objectContaining({ okmanyAzonositoSzam: 'TEST123' }) }),
+    })), { timeout: 3000 });
+  });
+
+  it('does not mark a rejected or zero-row update saved; permits retry', async () => {
+    const { acknowledge } = autoQuery();
+    acknowledge.mockResolvedValueOnce({ data: null, error: null });
+    const pending = vi.fn();
+    render(<GuestDetailsSection guestId={guest.id} autoSave onSavePendingChange={pending} />);
+    const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+    fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
+    await screen.findByText('pms.guest.autosaveFailed', {}, { timeout: 3000 });
+    expect(pending).toHaveBeenLastCalledWith(true);
+    expect(screen.queryByText(/pms.guest.autosaved/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'pms.guest.autosaveRetry' }));
+    await waitFor(() => expect(pending).toHaveBeenLastCalledWith(false));
+  });
+
+  it('serializes saves and never overwrites newer edits with an older response', async () => {
+    const { query, acknowledge } = autoQuery();
+    let finish!: (value: { data: { id: string }; error: null }) => void;
+    acknowledge.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const saved = vi.fn();
+    render(<GuestDetailsSection guestId={guest.id} autoSave onSaved={saved} />);
+    const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
+    const input = await screen.findByPlaceholderText('HU / DE / USA…');
+    fireEvent.change(input, { target: { value: 'FR' } });
+    await waitFor(() => expect(acknowledge).toHaveBeenCalledTimes(1), { timeout: 3000 });
+    fireEvent.change(input, { target: { value: 'DE' } });
+    await act(async () => { finish({ data: { id: guest.id }, error: null }); });
+    expect(input).toHaveValue('DE');
+    expect(saved).not.toHaveBeenCalled();
+    await waitFor(() => expect(saved).toHaveBeenCalledWith(expect.objectContaining({ nationality: 'DE' })), { timeout: 3000 });
+    expect(query.update).toHaveBeenCalledTimes(2);
+  });
+});
