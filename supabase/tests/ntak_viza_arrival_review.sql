@@ -62,10 +62,10 @@ ALTER TABLE public.guests ADD COLUMN IF NOT EXISTS birth_last_name text,
  ADD COLUMN IF NOT EXISTS document_scan jsonb, ADD COLUMN IF NOT EXISTS mother_name text;
 UPDATE public.guests SET mother_name=CASE WHEN last_name='Missing' THEN 'Legacy Mother' ELSE 'Compound Family Mother' END;
 \ir ../migrations/20261124131000_viza_document_aware_admission.sql
-DO $backfill$ BEGIN
+DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.guests WHERE mother_name='Legacy Mother' AND mother_family_name='Legacy' AND mother_given_name='Mother') THEN RAISE EXCEPTION 'Two-word name not backfilled'; END IF;
  IF NOT EXISTS(SELECT 1 FROM public.guests WHERE mother_name='Compound Family Mother' AND mother_family_name IS NULL AND mother_given_name IS NULL) THEN RAISE EXCEPTION 'Ambiguous name backfilled'; END IF;
-END $backfill$;
+END $$;
 UPDATE public.viza_settings SET enabled=true,adatszolgaltatasi_azonosito='TEST0001';
 UPDATE public.reservations SET adults=1,children=1;
 UPDATE public.guests SET birth_last_name=last_name,birth_first_name=first_name,
