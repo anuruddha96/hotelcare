@@ -56,13 +56,13 @@ type Props = {
   refreshKey?: number; signedInHousekeepers?: SignedInHousekeeper[];
 };
 const STATUS_COLORS: Record<string, string> = {
-  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
-  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
-  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
-  inspected: 'bg-teal-200 text-teal-900 border-teal-500 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-600',
-  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
-  overdue: 'bg-rose-300 text-rose-950 border-rose-600 dark:bg-rose-900/60 dark:text-rose-200 dark:border-rose-500',
+  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500',
+  inspected: 'bg-teal-200 text-teal-900 border-teal-500',
+  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500',
+  overdue: 'bg-rose-300 text-rose-950 border-rose-600',
 };
 function service(room: Room, isCheckout: boolean): GozsduHousekeepingService {
   if (isCheckout || room.pms_metadata?.isNoShow === true) return 'none';
@@ -367,9 +367,9 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
               style={{ cursor: 'pointer' }}
             >
               <div className={`relative rounded border transition-all text-center px-2 py-1 text-xs font-bold border-2 min-w-[40px] ${STATUS_COLORS[status] || STATUS_COLORS.dirty}
-                ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-                ${isNoShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
-                ${highlight ? 'ring-2 ring-primary ring-offset-1' : ''}
+                ${isDND ? 'ring-2 ring-purple-500 ring-offset-1 ring-offset-background' : ''}
+                ${isNoShow ? 'ring-2 ring-red-600 ring-offset-1 ring-offset-background' : ''}
+                ${highlight ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : ''}
                 ${hovered === room.id ? 'shadow-md' : ''}`}>
                 {displayName(room)}
                 <button type="button" data-room-journey-trigger className="ml-1 inline-flex rounded p-0.5 align-middle hover:bg-black/10" aria-label={`Room journey for ${displayName(room)}`}
@@ -512,11 +512,13 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
             </div>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/50 bg-muted/30 p-2 text-[10px] text-muted-foreground">
-          <span>🟩 Clean</span><span>🟨 Dirty/assigned</span><span>🟦 In progress</span><span>🟪 Approval</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/50 bg-muted/30 p-2 text-[11px] text-foreground" data-training="room-legend">
+          {([["Clean", "clean"], ["Dirty/assigned", "dirty"], ["In progress", "in_progress"], ["Approval pending", "pending_approval"], ["Overdue", "overdue"], ["Out of order", "out_of_order"]] as const).map(([label, status]) => (
+            <span key={status} className="inline-flex items-center gap-1"><span aria-hidden="true" className={`h-3 w-3 rounded border-2 ${STATUS_COLORS[status]}`} />{label}</span>
+          ))}
           <span><b className="rounded bg-blue-600 px-1 text-white">T</b> Towel</span>
           <span><b className="rounded bg-orange-500 px-1 text-white">C</b> Complete Textile Change</span>
-          <span>🟢 RTC</span><span>🚫 DND</span>
+          <span><b className="rounded bg-green-600 px-1 text-white">RTC</b> Guest checked out</span><span>🚫 DND</span><span>⚠️ No-show</span><span><b className="rounded bg-indigo-600 px-1 text-white">C/O+1</b> Departs tomorrow</span>
         </div>
       </CardHeader>
       <CardContent className="space-y-3 px-4 pb-3">
