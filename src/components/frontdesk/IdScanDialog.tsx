@@ -138,7 +138,7 @@ function StillPreview({ image, label }: { image: HTMLCanvasElement; label: strin
 
 /** Enhance small printed characters without the MRZ-specific thresholding. */
 function printedCanvas(frame: HTMLCanvasElement, idBack: boolean, enhanced = false) {
-  const region = printedRegion(frame.width, frame.height, idBack);
+  const region = printedRegion(frame.width, frame.height, idBack, enhanced);
   const canvas = document.createElement('canvas');
   const scale = Math.min(2.5, 1800 / region.width);
   canvas.width = Math.max(1, Math.round(region.width * scale));
@@ -389,9 +389,9 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       let copy: HTMLCanvasElement | null = null;
       try {
         copy = snapshotFrame(frame, frame.width, frame.height);
-        const { texts } = await readPrinted(opticalSession, copy, action === 'id_complete' && parsed.format === 'TD1', run);
+        const { texts } = await readPrinted(opticalSession, copy, action === 'id_complete' && parsed.format === 'TD1' && parsed.fields.issuingState === 'HUN', run);
         if (scanRunRef.current === run) {
-          setOpticalFields(opticalGuestFields(parsed, frontText, texts.join('\n\n')));
+          setOpticalFields(opticalGuestFields(parsed, frontText, texts.join('\n--- OCR PASS ---\n')));
           setReviewAcknowledged(false);
         }
       } catch { /* Missing printed data is never guessed. */ }
@@ -493,7 +493,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       if (scanRunRef.current !== run) return;
       score = reading.score;
       positiveScore = reading.positiveScore;
-      frontRef.current.text = reading.texts.join('\n\n');
+      frontRef.current.text = reading.texts.join('\n--- OCR PASS ---\n');
       frontRef.current.positive = looksLikeIdFront(frontRef.current.text);
     } catch { /* still allow staff to inspect the captured front */ }
     if (scanRunRef.current !== run) return;
