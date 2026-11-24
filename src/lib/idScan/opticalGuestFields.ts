@@ -5,7 +5,7 @@ import { printedHungarianIdNumber } from './scanReview';
 
 export type OpticalGuestFields = Partial<{
   first_name: string; last_name: string; birth_first_name: string; birth_last_name: string;
-  mother_name: string; birth_place: string; nationality: string; id_document_number: string;
+  mother_name: string; birth_place: string; nationality: string; id_document_number: string; date_of_birth: string;
 }>;
 
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -90,6 +90,30 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
       // birthplace text, never infer nationality from a birthplace suffix.
       add(key, name(tail.replace(/\s*\([A-Z]{2,3}\)\s*$/i, '').trim()));
     } else add(key, name(tail));
+  }
+  // Printed birth dates and nationality often share a crowded bilingual
+  // line. Read the value only after a recognizable field label, not after
+  // the issuing-country heading, expiry date or a generic country token.
+  for (let i=0;i<lines.length;i++) {
+    const line=fold(lines[i]);
+    const dateLabel=/(?:szuletesi\s*ido|date\s*of\s*birth)/.exec(line);
+    if(dateLabel) {
+      const tail=line.slice(dateLabel.index+dateLabel[0].length);
+      const candidate=tail.match(/\b(\d{2})[.\s/-]+(\d{2})[.\s/-]+(\d{4})\b/) ??
+        (!/\d/.test(tail) ? lines[i+1]?.match(/^\s*(\d{2})[.\s/-]+(\d{2})[.\s/-]+(\d{4})\s*$/) : null);
+      if(candidate) {
+        const [,day,month,year]=candidate;
+        const iso=year+'-'+month+'-'+day;
+        const d=new Date(iso+'T00:00:00Z');
+        if(+year>=1900 && Number.isFinite(d.getTime()) && d.toISOString().slice(0,10)===iso && iso<=new Date().toISOString().slice(0,10)) add('date_of_birth',iso);
+      }
+    }
+    const countryLabel=/(?:allampolgarsag|polg[ae]rsag|nationality|citizenship)/.exec(line);
+    if(countryLabel) {
+      const tail=line.slice(countryLabel.index+countryLabel[0].length);
+      const match=tail.match(/\b([a-z]{3})\s*[.|]*$/);
+      if(match) add('nationality',recognizedNationality(match[1]));
+    }
   }
   const out: OpticalGuestFields = {};
   for (const [key, candidates] of values) if (candidates.size === 1) (out as Record<string,string>)[key] = [...candidates][0];
