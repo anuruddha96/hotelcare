@@ -305,7 +305,7 @@ Deno.serve(async (req) => {
     // Intentionally no reservation-status or date filter: rejected arrivals
     // remain actionable even if the guest has already checked out.
     const { data: rows, error, count } = await db.from("viza_guest_events")
-      .select("id,reservation_id,guest_id",{count:"exact"}).eq("hotel_id",hotelId)
+      .select("id,reservation_id,guest_id,last_error",{count:"exact"}).eq("hotel_id",hotelId)
       .eq("arrival_state","failed").gte("attempts",NEEDS_CORRECTION)
       .order("updated_at",{ascending:true}).limit(50);
     if(error) return json({ok:false,error:"Cannot load VIZA repair tasks"},500);
@@ -328,18 +328,24 @@ Deno.serve(async (req) => {
     case "status": {
       const { data: settings } = await db.from("viza_settings").select("*").eq("hotel_id", hotelId).maybeSingle();
       const { data: eventRows } = await db.from("viza_guest_events")
-        .select("id, reservation_id, guest_id, erkezes_azonosito, arrival_state, departure_state, last_error, erkezes_ideje, tavozas_ideje, attempts, updated_at")
+        .select("id, reservation_id, guest_id, erkezes_azonosito, arrival_state, departure_state, last_error, erkezes_ideje, tavozas_ideje, arrival_fogadas_azonosito, departure_fogadas_azonosito, attempts, updated_at")
         .eq("hotel_id", hotelId).order("updated_at", { ascending: false }).limit(20);
       const guestIds = [...new Set((eventRows ?? []).map((e: { guest_id: string | null }) => e.guest_id).filter(Boolean))];
       const { data: guestNames } = guestIds.length
         ? await db.from("guests").select("id, first_name, last_name").in("id", guestIds)
         : { data: [] };
       const nameOf = new Map((guestNames ?? []).map((g: { id: string; first_name: string | null; last_name: string | null }) => [g.id, `${g.last_name ?? ""} ${g.first_name ?? ""}`.trim()]));
+      const reservationIds = [...new Set((eventRows ?? []).map((e: { reservation_id: string }) => e.reservation_id))];
+      const { data: reservations } = reservationIds.length
+        ? await db.from("reservations").select("id,reservation_number").eq("hotel_id", hotelId).in("id", reservationIds)
+        : { data: [] };
+      const numberOf = new Map((reservations ?? []).map((row: { id: string; reservation_number: string | null }) => [row.id, row.reservation_number]));
       const events = (eventRows ?? []).map((e: Record<string, unknown>) => {
         const failed = e.arrival_state === "failed" || e.departure_state === "failed";
         const attempts = Number(e.attempts ?? 0);
         return {
           ...e,
+          reservation_number: numberOf.get(e.reservation_id as string) ?? null,
           guest_name: e.guest_id ? nameOf.get(e.guest_id as string) ?? null : null,
           // The guest's data was refused: staff must correct it, no automatic retry.
           needs_correction: failed && attempts >= NEEDS_CORRECTION,
