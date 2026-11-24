@@ -5,6 +5,7 @@ on:
       - 'supabase/migrations/**'
       - 'supabase/tests/schema/**'
       - '.github/workflows/ntak-production-schema.yml'
+      - 'scripts/render_ntak_production_replay.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -34,13 +35,20 @@ jobs:
       - name: Require reviewed schema snapshot and regression inputs
         run: |
           set -euo pipefail
-          for file in ntak-production-baseline.sql ntak-production-migrations.txt ntak-production-regression.sql; do
+          for file in ntak-production-baseline.sql ntak-production-migrations.txt ntak-production-regression.sql ntak-production-helpers.sql ntak-production-deployed-migrations.txt; do
             test -s "supabase/tests/schema/$file" || { echo "::error::Missing Claude-reviewed production schema acceptance input: $file"; exit 1; }
           done
       - name: Load production schema in disposable database
         run: |
           set -euo pipefail
           psql -X --set ON_ERROR_STOP=1 --file supabase/tests/schema/ntak-production-baseline.sql
+      - name: Reconstruct already-deployed executable migration DDL
+        run: |
+          set -euo pipefail
+          python3 -m pip install 'pglast==7.10'
+          psql -X --set ON_ERROR_STOP=1 --file supabase/tests/schema/ntak-production-helpers.sql
+          python3 scripts/render_ntak_production_replay.py > /tmp/ntak-deployed-replay.sql
+          psql -X --set ON_ERROR_STOP=1 --file /tmp/ntak-deployed-replay.sql
       - name: Apply only reviewed pending migrations to disposable database
         run: |
           set -euo pipefail
@@ -49,6 +57,9 @@ jobs:
             [[ "$migration" =~ ^[0-9]{14}_[a-zA-Z0-9_]+\.sql$ ]] || { echo "::error::Invalid migration manifest entry"; exit 1; }
             test -f "supabase/migrations/$migration"
             psql -X --set ON_ERROR_STOP=1 --file "supabase/migrations/$migration"
+            if [[ "$migration" == "20261123235900_ntak_phase8_catalogue_categories.sql" ]]; then
+              psql -X --set ON_ERROR_STOP=1 --set expect_old_guard=true --file supabase/tests/schema/ntak-production-regression.sql
+            fi
           done < supabase/tests/schema/ntak-production-migrations.txt
       - name: Execute production-schema regression suite
         run: |
