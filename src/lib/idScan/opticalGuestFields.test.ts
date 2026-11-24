@@ -46,3 +46,18 @@ describe('printed fields and guest autofill', () => {
     expect(opticalGuestFields(sample, 'Given name: Éva', '').first_name).toBe('Éva');
   });
 });
+
+describe('bilingual Hungarian ID back layout', () => {
+  it('reads the labeled specimen layout, including parenthesized birthplace country', () => {
+    expect(extractOpticalGuestFields([
+      'Születési hely / Place of birth:',
+      'PÉCS (HUN)',
+      'Születési családi és utónév / Family name and Given name at birth:',
+      'MINTA ÉVA',
+      "Anyja születési neve / Mother's maiden name:",
+      'PÉLDA ANNA',
+    ].join('\n'))).toEqual({
+      birth_place: 'Pécs', birth_last_name: 'Minta', birth_first_name: 'Éva', mother_name: 'Példa Anna',
+    });
+  });
+});
