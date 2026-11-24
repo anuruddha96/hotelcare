@@ -10,6 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import type { Worker as TesseractWorker } from 'tesseract.js';
 import { readMrz, type MrzReadResult } from '@/lib/idScan/mrz';
 import { snapshotFrame } from '@/lib/idScan/frameCapture';
+import { assessPreview, completeAutoMrz, readableAutoFront } from '@/lib/idScan/autoCapture';
 import { assessIdFront, looksLikeIdFront, type IdFrontAssessment } from '@/lib/idScan/idFront';
 import { nextMrzScanAction } from '@/lib/idScan/documentScanFlow';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -124,6 +125,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const [frontCaptureAttempted, setFrontCaptureAttempted] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
   const [cameraOk, setCameraOk] = useState<boolean | null>(null);
+  const [autoReading, setAutoReading] = useState(false);
   const [result, setResult] = useState<MrzReadResult | null>(null);
   const [settings, setSettings] = useState<ScannerSettings>(loadScannerSettings);
   const [source, setSource] = useState<ScannerSource>(() => loadScannerSettings().preferred);
@@ -406,15 +408,126 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     void readFrom(video, video.videoWidth, video.videoHeight);
   };
 
+  // Continuous local OCR: wait for a stable, sufficiently exposed frame,
+  // then keep the preview open until the expected document side is readable.
+  // Manual capture remains available and invalidates an in-flight auto read.
+  useEffect(() => {
+    if (!open || phase !== 'camera' || source !== 'camera' || cameraOk !== true) return;
+    const run = scanRunRef.current;
+    const session = cameraSessionRef.current;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let busy = false;
+    let mrzWorker: TesseractWorker | null = null;
+    let frontWorker: TesseractWorker | null = null;
+    let previous: Uint8Array | null = null;
+    let stable = 0;
+    let attempts = 0;
+    const sample = document.createElement('canvas');
+    sample.width = 96; sample.height = 60;
+    const ctx = sample.getContext('2d', { willReadFrequently: true });
+    const active = () => !cancelled && run === scanRunRef.current && session === cameraSessionRef.current;
+    const release = async () => {
+      const workers = [mrzWorker, frontWorker];
+      mrzWorker = null; frontWorker = null;
+      await Promise.all(workers.map(w => w?.terminate().catch(() => undefined)));
+    };
+    const schedule = (ms: number) => { if (active()) timer = setTimeout(() => void tick(), ms); };
+    const tick = async () => {
+      if (!active()) { await release(); return; }
+      const video = videoRef.current;
+      if (!video || !ctx || video.readyState < 2 || !video.videoWidth || !video.videoHeight || document.hidden) {
+        previous = null; stable = 0; schedule(400); return;
+      }
+      let frame: HTMLCanvasElement | null = null;
+      busy = true;
+      try {
+        ctx.drawImage(video, 0, 0, sample.width, sample.height);
+        const rgba = ctx.getImageData(0, 0, sample.width, sample.height).data;
+        const gray = new Uint8Array(sample.width * sample.height);
+        for (let i = 0; i < gray.length; i++) {
+          gray[i] = Math.round(0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]);
+        }
+        stable = assessPreview(gray, previous, sample.width) ? stable + 1 : 0;
+        previous?.fill(0);
+        previous = gray;
+        if (stable < 2) return;
+        stable = 0;
+        frame = snapshotFrame(video, video.videoWidth, video.videoHeight);
+        setAutoReading(true);
+        mrzWorker ??= await createOcrWorker();
+        if (!active()) return;
+        // Alternate crops on successive attempts rather than blocking preview
+        // for three expensive OCR passes on every candidate frame.
+        const bands = ['bottom', 'lower', 'full'] as const;
+        const band = prepareBand(frame, frame.width, frame.height, bands[attempts++ % bands.length]);
+        let parsed: MrzReadResult | null = null;
+        try {
+          const { data } = await mrzWorker.recognize(band);
+          parsed = readMrz(data.text ?? '');
+        } finally { wipe(band); }
+        if (!active()) return;
+        if (completeAutoMrz(parsed, side)) {
+          if (side === 'front') setFrontCaptureAttempted(true);
+          stopCamera();
+          completeMrz(parsed);
+          return;
+        }
+        if (side === 'front' && !parsed) {
+          frontWorker ??= await createFrontOcrWorker();
+          if (!active()) return;
+          const { data } = await frontWorker.recognize(frame);
+          if (!active()) return;
+          if (readableAutoFront(data.text ?? '', data.confidence)) {
+            setFrontCaptureAttempted(true);
+            setFrontText(data.text ?? '');
+            setFrontAssessment(null);
+            setSide('mrz');
+            // Keep the current stream running; the next effect will scan
+            // the back once the card has been turned and steadied.
+            return;
+          }
+        }
+      } catch {
+        // Camera/OCR errors must not trap reception in a failed auto loop.
+        await release();
+        attempts++;
+      } finally {
+        if (frame) wipe(frame);
+        busy = false;
+        if (active()) {
+          setAutoReading(false);
+          schedule(350);
+        } else {
+          await release();
+        }
+      }
+    };
+    schedule(350);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      previous?.fill(0);
+      wipe(sample);
+      setAutoReading(false);
+      if (!busy) void release();
+    };
+    // completeMrz uses the current side/front text; restarting on either
+    // change prevents a late result from another document side.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, phase, source, cameraOk, side, frontText, stopCamera]);
+
   const readFile = (file: File | undefined) => {
     if (!file) return;
+    const fileRun = ++scanRunRef.current;
     if (file.type && !file.type.startsWith('image/')) { setFailReason('unsupported_image'); setPhase('failed'); return; }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
+      if (scanRunRef.current !== fileRun) { URL.revokeObjectURL(url); return; }
       void readFrom(img, img.naturalWidth, img.naturalHeight).finally(() => URL.revokeObjectURL(url));
     };
-    img.onerror = () => { URL.revokeObjectURL(url); setFailReason('unsupported_image'); setPhase('failed'); };
+    img.onerror = () => { URL.revokeObjectURL(url); if (scanRunRef.current === fileRun) { setFailReason('unsupported_image'); setPhase('failed'); } };
     img.src = url;
   };
 
@@ -529,6 +642,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
                 {/* Guide frame: the MRZ band sits in the lower part of the document. */}
                 <div className="pointer-events-none absolute inset-[7%] rounded-md border-2 border-dashed border-white/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.28)]" />
                 {side === 'mrz' && <div className="pointer-events-none absolute inset-x-[7%] bottom-[7%] h-[24%] border-t border-dashed border-white/80 bg-primary/15" />}
+                {cameraOk === true && <div role="status" className="pointer-events-none absolute inset-x-2 bottom-2 rounded-md bg-black/70 px-2 py-1 text-center text-xs text-white">{autoReading ? t('pms.scan.reading') : t('pms.scan.autoCaptureHint')}</div>}
                 {cameraOk === null && <Loader2 className="absolute inset-0 m-auto h-6 w-6 animate-spin text-white" />}
               </div>
             ) : (
