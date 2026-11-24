@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { Button } from '@/components/ui/button';
+import { historyWindow, missingAssignmentSnapshots } from '@/lib/roomAssignmentHistory';
 import { Badge } from '@/components/ui/badge';
 
 type Audit = {
@@ -21,18 +22,6 @@ type Snapshot = { business_date: string; assignment_id: string | null; assigned_
 const client = supabase as unknown as SupabaseClient;
 const LIMIT = 200;
 
-export function historyWindow(day: string, page: number) {
-  const shift = (n: number) => {
-    const d = new Date(day + 'T12:00:00Z');
-    d.setUTCDate(d.getUTCDate() - n);
-    return d.toISOString().slice(0, 10);
-  };
-  return { from: shift(page * 30 + 29), to: shift(page * 30) };
-}
-export function missingAssignmentSnapshots(records: Saved[], snapshots: Snapshot[]) {
-  const saved = new Set(records.map(a => [a.assignment_date, a.id, a.assigned_to].join('|')));
-  return snapshots.filter(s => s.assigned_to && !saved.has([s.business_date, s.assignment_id, s.assigned_to].join('|')));
-}
 type Props = { hotel: string; roomId: string; roomNumber: string; selectedDate: string };
 export function RoomAssignmentHistory(props: Props) {
   const { profile } = useAuth();
