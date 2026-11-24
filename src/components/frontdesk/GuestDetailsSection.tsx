@@ -341,13 +341,13 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   // Under each field the reader filled: unchanged from the document, or corrected by hand.
   const mark = (field: Exclude<keyof GuestVizaRow, 'id' | 'viza_review'>) => {
     const opticalValue = optical[field as keyof OpticalGuestFields];
-    if (guest && opticalValue && guest[field] === opticalValue) return <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400"><TriangleAlert className="h-3 w-3 shrink-0" /> {t('pms.scan.printedFieldsReview')}</p>;
+    if (guest && opticalValue && guest[field] === opticalValue) return <p className="flex items-start gap-1 text-xs leading-snug text-amber-700 dark:text-amber-400"><TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" /> {t('pms.scan.printedFieldsReview')}</p>;
     const state = guest ? scanFieldState(field, guest, scan) : null;
     if (!state) return null;
-    if (state === 'fromDocument' && scan?.valid === false) return <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400"><TriangleAlert className="h-3 w-3 shrink-0" /> {t('pms.scan.fieldNeedsReview')}</p>;
+    if (state === 'fromDocument' && scan?.valid === false) return <p className="flex items-start gap-1 text-xs leading-snug text-amber-700 dark:text-amber-400"><TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" /> {t('pms.scan.fieldNeedsReview')}</p>;
     return state === 'fromDocument'
-      ? <p className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3" /> {t('pms.guest.fromDocument')}</p>
-      : <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400"><PencilLine className="h-3 w-3" /> {t('pms.guest.correctedByHand')}</p>;
+      ? <p className="flex items-start gap-1 text-xs leading-snug text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" /> {t('pms.guest.fromDocument')}</p>
+      : <p className="flex items-start gap-1 text-xs leading-snug text-amber-700 dark:text-amber-400"><PencilLine className="mt-0.5 h-3 w-3 shrink-0" /> {t('pms.guest.correctedByHand')}</p>;
   };
   const read = scan?.fields;
   const compactReview = (!!draft || protectIdentity) && !!scan?.valid && !!read;
@@ -373,15 +373,17 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   };
 
   return (
-    <section className="rounded-lg border border-border" data-training="fd-guest-viza">
+    <section className="min-w-0 rounded-xl border border-border/80 bg-card text-card-foreground" data-training="fd-guest-viza">
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}
-        className="w-full text-left cursor-pointer px-3 py-2 flex items-center gap-2 text-sm font-medium">
+        className="grid w-full min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 px-3 py-3 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <IdCard className="h-4 w-4 text-primary shrink-0" />
-        <span className="flex-1">{t('pms.guest.detailsTitle')}</span>
+        <span className="min-w-0 break-words leading-snug">{t('pms.guest.detailsTitle')}</span>
+        <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        <span className="col-start-2 col-end-4 min-w-0">
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : open === 0
-          ? <Badge className="bg-emerald-600 text-white">✓ {t('pms.guest.complete')}</Badge>
-          : <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">{t('pms.guest.missing')}: {open}</Badge>}
-        <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          ? <Badge variant="outline" className="max-w-full whitespace-normal border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" />{t('pms.guest.complete')}</Badge>
+          : <Badge variant="outline" className="max-w-full whitespace-normal border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">{t('pms.guest.missing')}: {open}</Badge>}
+        </span>
       </button>
       {autosaving && !loading && guest && <div role="status" aria-live="polite" className="px-3 pb-2 flex flex-wrap items-center gap-1.5 text-xs">
         {saveFailed || (dirty && !!vizaReservationId && !hasReviewColumns) ? <><TriangleAlert className="h-3.5 w-3.5 text-destructive" /><span className="text-destructive">{t('pms.guest.autosaveFailed')}</span><Button type="button" size="sm" variant="outline" disabled={saving || (!!vizaReservationId && !hasReviewColumns)} onClick={() => void save()}>{t('pms.guest.autosaveRetry')}</Button></>
@@ -396,19 +398,21 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         </div>
       )}
       {guest && expanded && (
-        <div className="px-3 pb-3 space-y-2.5">
-          <Button type="button" size="sm" variant={read ? 'outline' : 'default'} className="h-9 w-full gap-1.5" onClick={() => setScanOpen(true)} data-training="fd-id-scan-open">
+        <div className="min-w-0 space-y-4 border-t border-border/60 px-3 py-3">
+          <Button type="button" size="sm" variant={read ? 'outline' : 'default'} className="min-h-11 h-auto w-full gap-2 whitespace-normal py-2" onClick={() => setScanOpen(true)} data-training="fd-id-scan-open">
             <ScanLine className="h-4 w-4" /> {read ? t('pms.scan.retry') : t('pms.scan.button')}
           </Button>
           {read && (
-            <div className={`rounded-md border p-2.5 ${scan?.valid === false ? "border-amber-300 bg-amber-50/60 dark:bg-amber-950/20" : "border-emerald-300 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20"}`} data-training="fd-guest-scan-panel">
-              <div className="flex items-center gap-1.5">
-                {scan?.valid === false ? <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600" /> : <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />}
-                <p className="flex-1 text-xs font-semibold">{t('pms.guest.scanPanelTitle')}</p>
-                {scan?.read_at && <time className="text-[10px] text-muted-foreground">{new Date(scan.read_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</time>}
-                <Button type="button" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[11px]" onClick={removeScan}><X className="h-3 w-3" /> {t('pms.guest.scanRemove')}</Button>
+            <div className={`min-w-0 rounded-lg border p-3 ${scan?.valid === false ? "border-amber-500/30 bg-amber-500/5" : "border-emerald-500/30 bg-emerald-500/5"}`} data-training="fd-guest-scan-panel">
+              <div className="flex min-w-0 items-start gap-2">
+                {scan?.valid === false ? <TriangleAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" /> : <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />}
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="break-words text-sm font-semibold leading-snug">{t('pms.guest.scanPanelTitle')}</p>
+                  {scan?.read_at && <time className="block text-xs text-muted-foreground">{new Date(scan.read_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</time>}
+                </div>
+                <Button type="button" size="sm" variant="ghost" className="min-h-9 h-auto max-w-[45%] shrink-0 gap-1 whitespace-normal px-2 text-xs text-muted-foreground" onClick={removeScan}><X className="mt-0.5 h-3 w-3 shrink-0" /> {t('pms.guest.scanRemove')}</Button>
               </div>
-              <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-[11px]">
+              <dl className="mt-3 grid min-w-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-x-3 gap-y-2 border-t border-border/60 pt-3 text-xs leading-snug [&_dt]:break-words [&_dd]:min-w-0 [&_dd]:break-words [&_dd]:font-medium [&_dd]:text-foreground">
                 <dt className="font-sans text-muted-foreground">{t('pms.scan.name')}</dt><dd>{[read.csaladnev, read.utonev].filter(Boolean).join(', ') || '—'}</dd>
                 <dt className="font-sans text-muted-foreground">{t('pms.guest.birthDate')}</dt><dd>{read.szuletesiDatum ?? '—'}</dd>
                 <dt className="font-sans text-muted-foreground">{t('pms.guest.nationality')}</dt><dd>{read.allampolgarsagKod ?? '—'}</dd>
@@ -416,12 +420,12 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
                 {compactReview && <><dt className="font-sans text-muted-foreground">{t('pms.guest.gender')}</dt><dd>{read.nem==='NO'?t('pms.guest.genderFemale'):read.nem==='FERFI'?t('pms.guest.genderMale'):read.nem?t('pms.guest.genderOther'):'—'}</dd>
                 <dt className="font-sans text-muted-foreground">{t('pms.guest.docType')}</dt><dd>{read.okmanyTipus==='UTLEVEL'?t('pms.guest.docPassport'):read.okmanyTipus==='SZEM_IG'?t('pms.guest.docIdCard'):read.okmanyTipus??'—'}</dd></>}
               </dl>
-              <p className="mt-1.5 text-[11px] text-muted-foreground">{t('pms.guest.scanPanelNote')}</p>
+              <p className="mt-3 border-t border-border/60 pt-2.5 text-xs leading-relaxed text-muted-foreground">{t('pms.guest.scanPanelNote')}</p>
             </div>
           )}
-          {compactReview && <div className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-2">
-            <p className="text-xs font-medium">{t('pms.express.reviewExtracted')}</p>
-            <Button type="button" variant="ghost" size="sm" className="gap-1" onClick={()=>setShowAllFields(v=>!v)}><PencilLine className="h-3.5 w-3.5"/>{t(showAllFields?'pms.express.hideExtracted':'pms.express.editExtracted')}</Button>
+          {compactReview && <div className="flex min-w-0 flex-col items-start gap-2 rounded-lg bg-muted/50 px-3 py-3">
+            <p className="text-xs leading-relaxed text-muted-foreground">{t('pms.express.reviewExtracted')}</p>
+            <Button type="button" variant="ghost" size="sm" className="min-h-10 h-auto w-full justify-start gap-2 whitespace-normal px-2 text-primary" aria-expanded={showAllFields} onClick={()=>setShowAllFields(v=>!v)}><PencilLine className="h-3.5 w-3.5"/>{t(showAllFields?'pms.express.hideExtracted':'pms.express.editExtracted')}</Button>
           </div>}
           {missing.length > 0 && (
             <p className="text-xs text-muted-foreground">
@@ -433,27 +437,27 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               {problems.map((problem) => <li key={problem} className="flex items-start gap-1.5"><TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" /> {problemText[problem]}</li>)}
             </ul>
           )}
-          <div className="grid w-full min-w-0 grid-cols-2 gap-2.5 [&>div]:min-w-0 [&_input]:min-w-0 [&_input]:max-w-full [&_input]:w-full [&_input]:box-border [&_button]:min-w-0">
+          <div className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-4 [&>div]:min-w-0 [&>div:not([hidden])]:flex [&>div:not([hidden])]:flex-col [&>div:not([hidden])]:gap-1.5 [&>div>label]:leading-snug [&>div>label:first-child]:min-h-[2rem] [&_input]:min-w-0 [&_input]:max-w-full [&_input]:w-full [&_input]:box-border [&_button]:min-w-0">
             <div hidden={hideExtracted('last_name')}>
               <Label className="text-xs">{t('pms.guest.familyName')}</Label>
-              <Input className="h-8" value={guest.last_name ?? ''} onChange={(e) => setName('last_name', e.target.value)} />
+              <Input className="h-11 bg-background/70 text-foreground" value={guest.last_name ?? ''} onChange={(e) => setName('last_name', e.target.value)} />
               {mark('last_name')}
             </div>
             <div hidden={hideExtracted('first_name')}>
               <Label className="text-xs">{t('pms.guest.givenName')}</Label>
-              <Input className="h-8" value={guest.first_name ?? ''} onChange={(e) => setName('first_name', e.target.value)} />
+              <Input className="h-11 bg-background/70 text-foreground" value={guest.first_name ?? ''} onChange={(e) => setName('first_name', e.target.value)} />
               {mark('first_name')}
             </div>
             {hasExtraColumns && (
               <>
                 <div>
                   <Label className="text-xs">{t('pms.guest.birthFamilyName')}</Label>
-                  <Input className="h-8" value={guest.birth_last_name ?? ''} onChange={(e) => set('birth_last_name', e.target.value)} />
+                  <Input className="h-11 bg-background/70 text-foreground" value={guest.birth_last_name ?? ''} onChange={(e) => set('birth_last_name', e.target.value)} />
                   {mark('birth_last_name')}
                 </div>
                 <div>
                   <Label className="text-xs">{t('pms.guest.birthGivenName')}</Label>
-                  <Input className="h-8" value={guest.birth_first_name ?? ''} onChange={(e) => set('birth_first_name', e.target.value)} />
+                  <Input className="h-11 bg-background/70 text-foreground" value={guest.birth_first_name ?? ''} onChange={(e) => set('birth_first_name', e.target.value)} />
                   {mark('birth_first_name')}
                 </div>
                 {absent('birth_name_absent')}
@@ -461,34 +465,34 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             )}
             {vizaReservationId ? <>
               {guest.mother_name && !guest.mother_family_name && !guest.mother_given_name && <p className="col-span-2 text-xs text-muted-foreground">{t('pms.guest.motherName')}: {guest.mother_name}</p>}
-              <div><Label className="text-xs">{t('pms.guest.motherFamily')}</Label><Input className="h-8" value={guest.mother_family_name ?? ''} onChange={e => set('mother_family_name', e.target.value)} /></div>
-              <div><Label className="text-xs">{t('pms.guest.motherGiven')}</Label><Input className="h-8" value={guest.mother_given_name ?? ''} onChange={e => set('mother_given_name', e.target.value)} /></div>
+              <div><Label className="text-xs">{t('pms.guest.motherFamily')}</Label><Input className="h-11 bg-background/70 text-foreground" value={guest.mother_family_name ?? ''} onChange={e => set('mother_family_name', e.target.value)} /></div>
+              <div><Label className="text-xs">{t('pms.guest.motherGiven')}</Label><Input className="h-11 bg-background/70 text-foreground" value={guest.mother_given_name ?? ''} onChange={e => set('mother_given_name', e.target.value)} /></div>
               {absent('mother_name_absent')}
             </> : <div className="col-span-2">
               <Label className="text-xs">{t('pms.guest.motherName')}</Label>
-              <Input className="h-8" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
+              <Input className="h-11 bg-background/70 text-foreground" value={guest.mother_name ?? ''} onChange={(e) => set('mother_name', e.target.value)} />
                   {mark('mother_name')}
             </div>}
-            <div className="col-span-2 sm:col-span-1" hidden={hideExtracted('nationality')}>
+            <div hidden={hideExtracted('nationality')}>
               <Label className="text-xs">{t('pms.guest.nationality')}</Label>
-              <Input className="h-8 uppercase" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="HU / DE / USA…" />
+              <Input className="h-11 bg-background/70 uppercase text-foreground" maxLength={3} value={guest.nationality ?? ''} onChange={(e) => set('nationality', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="HU / DE / USA…" />
               {mark('nationality')}
             </div>
-            <div className="col-span-2 sm:col-span-1" hidden={hideExtracted('date_of_birth')}>
+            <div hidden={hideExtracted('date_of_birth')}>
               <Label className="text-xs">{t('pms.guest.birthDate')}</Label>
-              <Input className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-8" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} value={guest.date_of_birth ?? ''} onChange={(e) => set('date_of_birth', e.target.value)} />
+              <Input className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-10" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} value={guest.date_of_birth ?? ''} onChange={(e) => set('date_of_birth', e.target.value)} />
               {mark('date_of_birth')}
             </div>
             <div>
               <Label className="text-xs">{t('pms.guest.birthPlace')}</Label>
-              <Input className="h-8" value={guest.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} />
+              <Input className="h-11 bg-background/70 text-foreground" value={guest.birth_place ?? ''} onChange={(e) => set('birth_place', e.target.value)} />
                   {mark('birth_place')}
                   {absent('birth_place_absent')}
             </div>
             <div hidden={hideExtracted('gender')}>
               <Label className="text-xs">{t('pms.guest.gender')}</Label>
               <Select value={guest.gender ?? ''} onValueChange={(v) => set('gender', v)}>
-                <SelectTrigger className="h-8"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectTrigger className="h-11 bg-background/70 text-foreground"><SelectValue placeholder="—" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="male">{t('pms.guest.genderMale')}</SelectItem>
                   <SelectItem value="female">{t('pms.guest.genderFemale')}</SelectItem>
@@ -500,7 +504,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             <div hidden={hideExtracted('id_document_type')}>
               <Label className="text-xs">{t('pms.guest.docType')}</Label>
               <Select value={guest.id_document_type ?? ''} onValueChange={(v) => set('id_document_type', v)}>
-                <SelectTrigger className="h-8"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectTrigger className="h-11 bg-background/70 text-foreground"><SelectValue placeholder="—" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="passport">{t('pms.guest.docPassport')}</SelectItem>
                   <SelectItem value="id_card">{t('pms.guest.docIdCard')}</SelectItem>
@@ -512,42 +516,42 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             </div>
             <div hidden={hideExtracted('id_document_number')}>
               <Label className="text-xs">{t('pms.guest.docNumber')}</Label>
-              <Input className="h-8" maxLength={100} value={guest.id_document_number ?? ''} onChange={(e) => set('id_document_number', e.target.value)} />
+              <Input className="h-11 bg-background/70 text-foreground" maxLength={100} value={guest.id_document_number ?? ''} onChange={(e) => set('id_document_number', e.target.value)} />
               {mark('id_document_number')}
             </div>
             {vizaReservationId && !needsDocument && !guest.id_document_number && <label className="col-span-2 flex items-center gap-2 text-xs"><input type="checkbox" className="!w-4 !h-4" checked={review.parent_statement === true} onChange={e => setReview({ parent_statement: e.target.checked })} />{t('pms.guest.parentStatement')}</label>}
             {vizaReservationId && (needsDocument || guest.id_document_number) && !review.scan_reviewed && <div className="col-span-2"><Label className="text-xs">{t('pms.guest.manualReason')}</Label><Input value={review.manual_reason ?? ''} onChange={e => setReview({ manual_reason: e.target.value })} /></div>}
             {!needsDocument && <p className="col-span-2 text-[11px] text-muted-foreground">{t('pms.guest.under14')}</p>}
-            <details key={entryOptional ? 'optional' : 'required'} open={!entryOptional || undefined} className="col-span-2 min-w-0 border-t border-border pt-2">
-              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">{t('pms.guest.thirdCountry')}</summary>
-              <div className="mt-2 grid min-w-0 grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <details key={entryOptional ? 'optional' : 'required'} open={!entryOptional || undefined} className="col-span-2 min-w-0 rounded-lg border border-border/70 bg-muted/20 p-3">
+              <summary className="cursor-pointer break-words text-xs font-semibold leading-relaxed text-foreground">{t('pms.guest.thirdCountry')}</summary>
+              <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 [&_label]:leading-snug">
                 <div className="min-w-0 sm:col-span-2">
                   <Label className="text-xs">{t('pms.guest.visaNumber')}</Label>
-                  <Input className="h-10 sm:h-8" maxLength={100} value={guest.visa_number ?? ''} onChange={(e) => set('visa_number', e.target.value)} />
+                  <Input className="h-10 sm:h-10" maxLength={100} value={guest.visa_number ?? ''} onChange={(e) => set('visa_number', e.target.value)} />
                 </div>
                 {vizaReservationId && thirdCountry(guest) && <label className="sm:col-span-2 flex items-center gap-2 text-xs"><input type="checkbox" className="!w-4 !h-4" checked={review.visa_exempt === true} onChange={e => setReview({ visa_exempt: e.target.checked })} />{t('pms.guest.visaExempt')}</label>}
                 {hasExtraColumns && <>
                   <div className="min-w-0">
                     <Label className="text-xs">{t('pms.guest.entryDate')}</Label>
-                    <Input className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-8" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} max={new Date().toISOString().slice(0, 10)} value={guest.entry_date ?? ''} onChange={(e) => set('entry_date', e.target.value)} />
+                    <Input className="block h-10 w-full min-w-0 max-w-full appearance-none text-left text-base sm:h-10" type="date" style={{ width: "100%", minWidth: 0, maxWidth: "100%", WebkitAppearance: "none", boxSizing: "border-box" }} max={new Date().toISOString().slice(0, 10)} value={guest.entry_date ?? ''} onChange={(e) => set('entry_date', e.target.value)} />
                   </div>
                   <div className="min-w-0">
                     <Label className="text-xs">{t('pms.guest.entryPlace')}</Label>
-                    <Input className="h-10 sm:h-8" value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
+                    <Input className="h-10 sm:h-10" value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
                   </div>
                 </>}
               </div>
             </details>
           </div>
-          {draft && <div className="space-y-2 border-t pt-3">
-            <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} className="!w-4 !h-4 mt-1" />{t('pms.express.verify')}</label>
+          {draft && <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-3">
+            <label className="flex cursor-pointer items-start gap-3 text-sm leading-relaxed"><input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} className="!w-5 !h-5 mt-0.5 shrink-0 accent-primary" />{t('pms.express.verify')}</label>
             {matchId && <p role="status" className="rounded-md bg-primary/10 p-2 text-sm">{t('pms.express.returningMatch')}</p>}
             {registerError && <p role="alert" className="text-sm text-destructive">{registerError}</p>}
           </div>}
-          <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} className="h-10 w-full sm:h-8 sm:w-auto" disabled={!dirty || saving || (!!vizaReservationId && !hasReviewColumns) || (!!draft && (!verified || open > 0))} onClick={save}>
+          <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} className="min-h-11 h-auto w-full whitespace-normal py-2 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100" disabled={!dirty || saving || (!!vizaReservationId && !hasReviewColumns) || (!!draft && (!verified || open > 0))} onClick={save}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t(draft ? matchId ? 'pms.express.confirmMatch' : 'pms.express.confirmGuest' : autosaving ? 'pms.guest.autosaveNow' : 'pms.guest.save')}
           </Button>
-          {draft && <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={onCancelDraft}>{t('common.cancel')}</Button>}
+          {draft && <Button type="button" size="sm" variant="ghost" className="min-h-10 w-full text-muted-foreground" disabled={saving} onClick={onCancelDraft}>{t('common.cancel')}</Button>}
         </div>
       )}
       <IdScanDialog open={scanOpen} onOpenChange={setScanOpen} onApply={applyScan} />
