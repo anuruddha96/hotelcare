@@ -33,7 +33,7 @@ export interface GuestVizaRow {
   mother_family_name?: string | null;
   mother_given_name?: string | null;
   viza_review?: VizaReview | null;
-  document_scan?: VizaDocumentScan | null;
+  document_scan?: unknown;
   nationality: string | null;
   date_of_birth: string | null;
   birth_place: string | null;
@@ -171,7 +171,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const invalidateConfirmation = () => { setVerified(false); setMatchId(null); setRegisterError(null); };
   const set = (field: Exclude<keyof GuestVizaRow, 'viza_review'>, value: string) => {
     invalidateConfirmation();
-    setGuest(g => g ? { ...g, [field]: value || null, ...(vizaReservationId && field === 'visa_number' && value ? {viza_review:{...g.viza_review,reservation_id:vizaReservationId,visa_exempt:false}} : {}) } : g);
+    setGuest(g => g ? { ...g, [field]: value || null, ...(vizaReservationId && field === 'visa_number' && value ? {viza_review:{...(g.viza_review?.reservation_id===vizaReservationId ? g.viza_review : {}),reservation_id:vizaReservationId,visa_exempt:false}} : {}) } : g);
     markDirty();
   };
 
@@ -180,9 +180,10 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     invalidateConfirmation();
     setGuest(g => {
       if (!g) return g;
-      const next = {...review,...patch,reservation_id:vizaReservationId};
+      const current = g.viza_review?.reservation_id===vizaReservationId ? g.viza_review : {};
+      const next = {...current,...patch,reservation_id:vizaReservationId};
       if (next.entry_details_absent && next.entry_details_reason === 'lives_in_hungary_with_permit') next.visa_exempt=false;
-      return {...g, ...(next.visa_exempt ? {visa_number:null} : {}), ...(next.entry_details_absent ? {entry_date:null,entry_place:null} : {}), viza_review:next};
+      return {...g, ...(patch.visa_exempt === true ? {visa_number:null} : {}), ...(patch.entry_details_absent === true ? {entry_date:null,entry_place:null} : {}), viza_review:next};
     });
     markDirty();
   };
@@ -343,7 +344,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const missing = requirements ? Object.keys(requirements).filter(key=>!requirements[key].ok) : vizaMissingFields(guest);
   const toConfirm = missing.filter(key=>requirements?.[key].state==='printed_only' && !guest?.[key as keyof GuestVizaRow]).length;
   const counter = t('pms.guest.requirement.counter').replace('{n}',String(missing.length-toConfirm)).replace('{m}',String(toConfirm));
-  const fieldTag = (key: string) => requirements?.[key] ? <span className={`block text-[11px] font-medium ${requirements[key].ok?'text-muted-foreground':'text-destructive'}`}>{t(requirements[key].messageKey)}</span> : null;
+  const fieldTag = (key: string) => requirements?.[key] ? <><span className={`block text-[11px] font-medium ${requirements[key].ok?'text-muted-foreground':'text-destructive'}`}>{t('pms.guest.requirement.'+({required:'required',printed_only:'printedOnly',optional:'optional',not_needed:'notNeeded'}[requirements[key].state]))}</span>{requirements[key].messageKey==='pms.guest.requirement.placeholder' && <span role="alert" className="text-xs text-destructive">{t(requirements[key].messageKey)}</span>}</> : null;
   const problems = vizaReservationId ? [] : vizaProblems(guest);
   const open = missing.length + problems.length;
   const needsDocument = documentRequired(guest?.date_of_birth, vizaArrivalDay(occurredAt));
@@ -397,7 +398,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
         <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
         <span className="col-start-2 col-end-4 min-w-0">
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : open === 0
-          ? <Badge variant="outline" className="max-w-full whitespace-normal border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" />{t('pms.guest.complete')}</Badge>
+          ? <Badge variant="outline" className="max-w-full whitespace-normal border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 h-3.5 w-3.5 shrink-0" />{requirements ? counter : t('pms.guest.complete')}</Badge>
           : <Badge variant="outline" className="max-w-full whitespace-normal border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">{requirements ? counter : `${t('pms.guest.missing')}: ${open}`}</Badge>}
         </span>
       </button>
@@ -453,7 +454,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               {problems.map((problem) => <li key={problem} className="flex items-start gap-1.5"><TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" /> {problemText[problem]}</li>)}
             </ul>
           )}
-          <div className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-4 [&>div]:min-w-0 [&>div:not([hidden])]:flex [&>div:not([hidden])]:flex-col [&>div:not([hidden])]:gap-1.5 [&>div>label]:leading-snug [&>div>label:first-child]:min-h-[2rem] [&_input]:min-w-0 [&_input]:max-w-full [&_input]:w-full [&_input]:box-border [&_button]:min-w-0">
+          <div className="grid w-full min-w-0 grid-cols-2 gap-x-3 gap-y-4 [&>div]:min-w-0 [&>div:not([hidden])]:flex [&>div:not([hidden])]:flex-col [&>div:not([hidden])]:gap-1.5 [&>div>label]:leading-snug [&>div>label:first-child]:min-h-[2rem] [&_input]:min-w-0 [&_input]:max-w-full [&_input]:w-full [&_input]:box-border [&_button]:min-w-0 data-[viza-attempted=true]:[&_[aria-invalid=true]]:border-destructive" data-viza-attempted={!!savedAt || saveFailed}>
             <div hidden={hideExtracted('last_name')}>
               <Label className="text-xs">{t('pms.guest.familyName')}</Label>{fieldTag('last_name')}
               <Input data-viza-field="last_name" aria-invalid={!!requirements && !requirements['last_name']?.ok} className="h-11 bg-background/70 text-foreground" value={guest.last_name ?? ''} onChange={(e) => setName('last_name', e.target.value)} />
@@ -515,7 +516,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             <div hidden={hideExtracted('gender')}>
               <Label className="text-xs">{t('pms.guest.gender')}</Label>{fieldTag('gender')}
               <Select value={guest.gender ?? ''} onValueChange={(v) => set('gender', v)}>
-                <SelectTrigger className="h-11 bg-background/70 text-foreground"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectTrigger data-viza-field="gender" aria-invalid={!!requirements && !requirements.gender.ok} className="h-11 bg-background/70 text-foreground"><SelectValue placeholder="—" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="male">{t('pms.guest.genderMale')}</SelectItem>
                   <SelectItem value="female">{t('pms.guest.genderFemale')}</SelectItem>
@@ -527,7 +528,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
             <div hidden={hideExtracted('id_document_type')}>
               <Label className="text-xs">{t('pms.guest.docType')}</Label>{fieldTag('id_document_type')}
               <Select value={guest.id_document_type ?? ''} onValueChange={(v) => set('id_document_type', v)}>
-                <SelectTrigger className="h-11 bg-background/70 text-foreground"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectTrigger data-viza-field="id_document_type" aria-invalid={!!requirements && !requirements.id_document_type.ok} className="h-11 bg-background/70 text-foreground"><SelectValue placeholder="—" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="passport">{t('pms.guest.docPassport')}</SelectItem>
                   <SelectItem value="id_card">{t('pms.guest.docIdCard')}</SelectItem>
@@ -542,8 +543,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               <Input data-viza-field="id_document_number" aria-invalid={!!requirements && !requirements['id_document_number']?.ok} className="h-11 bg-background/70 text-foreground" maxLength={100} value={guest.id_document_number ?? ''} onChange={(e) => set('id_document_number', e.target.value)} />
               {mark('id_document_number')}
             </div>
-            {vizaReservationId && !needsDocument && !guest.id_document_number && <label className="col-span-2 flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" className="!w-6 !h-6" checked={review.parent_statement === true} onChange={e => setReview({ parent_statement: e.target.checked })} />{t('pms.guest.parentStatement')}</label>}
-            {vizaReservationId && (needsDocument || guest.id_document_number) && !review.scan_reviewed && <div className="col-span-2"><Label className="text-xs">{t('pms.guest.manualReason')}</Label>{fieldTag('manual_reason')}<Input value={review.manual_reason ?? ''} onChange={e => setReview({ manual_reason: e.target.value })} /></div>}
+            {vizaReservationId && !needsDocument && !guest.id_document_number && <label className="col-span-2 flex min-h-11 items-center gap-2 text-xs"><input type="checkbox" className="!w-6 !h-6" data-viza-field="parent_statement" checked={review.parent_statement === true} onChange={e => setReview({ parent_statement: e.target.checked })} />{t('pms.guest.parentStatement')}</label>}
+            {vizaReservationId && (needsDocument || guest.id_document_number) && (!review.scan_reviewed || !scan) && <div className="col-span-2"><Label className="text-xs">{t('pms.guest.manualReason')}</Label>{fieldTag('manual_reason')}<Input data-viza-field="manual_reason" value={review.manual_reason ?? ''} onChange={e => setReview({ manual_reason: e.target.value })} /></div>}
             {!needsDocument && <p className="col-span-2 text-[11px] text-muted-foreground">{t('pms.guest.under14')}</p>}
             {(!vizaReservationId || thirdCountry(guest)) && <details key={entryOptional ? 'optional' : 'required'} open={!entryOptional || undefined} className="col-span-2 min-w-0 rounded-lg border border-border/70 bg-muted/20 p-3">
               <summary className="cursor-pointer break-words text-xs font-semibold leading-relaxed text-foreground">{t('pms.guest.thirdCountry')}</summary>
@@ -561,11 +562,11 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
                   </div>
                   <div className="min-w-0">
                     <Label className="text-xs">{t('pms.guest.entryPlace')}</Label>{fieldTag('entry_place')}
-                    <Input data-viza-field="entry_place" aria-invalid={!!requirements && !requirements['entry_place']?.ok} className="h-10 sm:h-10" disabled={!!vizaReservationId && review.entry_details_absent===true} list="viza-entry-places" value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
-                    <datalist id="viza-entry-places">{["Budapest Liszt Ferenc Airport","Debrecen Airport","Hegyeshalom","Röszke","Záhony"].map(place=><option key={place} value={place}/>)}</datalist>
+                    <Input data-viza-field="entry_place" aria-invalid={!!requirements && !requirements['entry_place']?.ok} className="h-10 sm:h-10" disabled={!!vizaReservationId && review.entry_details_absent===true} list={`viza-entry-places-${guest.id}`} value={guest.entry_place ?? ''} onChange={(e) => set('entry_place', e.target.value)} />
+                    <datalist id={`viza-entry-places-${guest.id}`}>{["Budapest Liszt Ferenc Airport","Debrecen Airport","Hegyeshalom","Röszke","Záhony"].map(place=><option key={place} value={place}/>)}</datalist>
                     {vizaReservationId && <p className="text-xs text-muted-foreground">{t('pms.guest.requirement.entryHelp')}</p>}
                   </div>
-                  {vizaReservationId && thirdCountry(guest) && <label className="sm:col-span-2 flex items-start gap-2 text-xs"><input type="checkbox" className="!w-6 !h-6 mt-0.5 shrink-0" checked={review.entry_details_absent === true} onChange={e => setReview({ entry_details_absent: e.target.checked })} />{t('pms.guest.entryDetailsAbsent')}</label>}
+                  {vizaReservationId && thirdCountry(guest) && <label className="sm:col-span-2 flex min-h-11 items-start gap-2 text-xs"><input type="checkbox" className="!w-6 !h-6 mt-0.5 shrink-0" checked={review.entry_details_absent === true} onChange={e => setReview({ entry_details_absent: e.target.checked })} />{t('pms.guest.entryDetailsAbsent')}</label>}
                   {vizaReservationId && thirdCountry(guest) && review.entry_details_absent && <div className="sm:col-span-2 space-y-2"><Label>{t('pms.guest.requirement.reason')}</Label>{fieldTag('entry_details_reason')}<Select value={review.entry_details_reason??''} onValueChange={value=>setReview({entry_details_reason:value as VizaReview['entry_details_reason']})}><SelectTrigger data-viza-field="entry_details_reason" className="min-h-11"><SelectValue placeholder="—" /></SelectTrigger><SelectContent>{ENTRY_DETAILS_REASONS.map(reason=><SelectItem key={reason} value={reason}>{t('pms.guest.requirement.'+reason)}</SelectItem>)}</SelectContent></Select>{review.entry_details_reason==='other' && <Input value={review.entry_details_reason_text??''} onChange={e=>setReview({entry_details_reason_text:e.target.value})} minLength={10} />}</div>}
                 </>}
               </div>

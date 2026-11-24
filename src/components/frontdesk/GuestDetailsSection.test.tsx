@@ -102,7 +102,7 @@ function mockGuest(row: GuestVizaRow & { document_scan?: unknown } = scannedGues
 async function openEditor(reservationId: string) {
   render(<GuestDetailsSection guestId={guest.id} vizaReservationId={reservationId} occurredAt="2026-11-24T10:00:00Z" />);
   const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
-  await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+  await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
   if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
   await screen.findByPlaceholderText('HU / DE / USA…');
 }
@@ -174,7 +174,7 @@ describe('check-in autosave', () => {
     const saved = vi.fn();
     render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" autoSave onSavePendingChange={pending} onSaved={saved} />);
     const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
-    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
     if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
     fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
     expect(pending).toHaveBeenLastCalledWith(true);
@@ -206,7 +206,7 @@ describe('check-in autosave', () => {
     const { query } = autoQuery();
     render(<GuestDetailsSection guestId={guest.id} vizaReservationId="res-1" protectIdentity autoSave />);
     const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
-    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
     if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
     // Verified fields may be hidden by compact review; wait for the scan action instead.
     await screen.findByRole('button', { name: 'pms.scan.retry' });
@@ -223,7 +223,7 @@ describe('check-in autosave', () => {
     const pending = vi.fn();
     render(<GuestDetailsSection guestId={guest.id} autoSave onSavePendingChange={pending} />);
     const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
-    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
     if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
     fireEvent.change(await screen.findByPlaceholderText('HU / DE / USA…'), { target: { value: 'FR' } });
     await screen.findByText('pms.guest.autosaveFailed', {}, { timeout: 3000 });
@@ -240,7 +240,7 @@ describe('check-in autosave', () => {
     const saved = vi.fn();
     render(<GuestDetailsSection guestId={guest.id} autoSave onSaved={saved} />);
     const toggle = await screen.findByRole('button', { name: /pms.guest.detailsTitle/ });
-    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing/));
+    await waitFor(() => expect(toggle).toHaveTextContent(/pms.guest.complete|pms.guest.missing|pms.guest.requirement.counter/));
     if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
     const input = await screen.findByPlaceholderText('HU / DE / USA…');
     fireEvent.change(input, { target: { value: 'FR' } });

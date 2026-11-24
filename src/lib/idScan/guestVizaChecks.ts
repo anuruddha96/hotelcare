@@ -27,7 +27,7 @@ export interface GuestVizaValues {
   visa_number?: string | null;
   entry_date?: string | null;
   entry_place?: string | null;
-  document_scan?: VizaDocumentScan | null;
+  document_scan?: unknown;
 }
 
 export interface VizaReview {
@@ -117,7 +117,7 @@ const messageForState: Record<VizaFieldState, string> = {
 export function vizaFieldRequirements(guest: GuestVizaValues | null | undefined, reservationId: string, day = vizaArrivalDay()): VizaFieldRequirements {
   const g: GuestVizaValues = guest ?? {};
   const result: VizaFieldRequirements = {};
-  const review = g.viza_review?.reservation_id === reservationId ? g.viza_review : {};
+  const review: VizaReview = g.viza_review?.reservation_id === reservationId ? g.viza_review : {};
   const put = (field: string, state: VizaFieldState, ok: boolean, placeholder = false) => {
     result[field] = { state, ok, messageKey: placeholder ? 'pms.guest.requirement.placeholder' : messageForState[state] };
   };

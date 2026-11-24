@@ -24,7 +24,7 @@ export interface EntryReview {
 export function validEntryAbsence(review: EntryReview): boolean {
   return review.entry_details_absent === true && (
     review.entry_details_reason === 'lives_in_hungary_with_permit' ||
-    (review.entry_details_reason === 'other' && String(review.entry_details_reason_text ?? '').trim().length >= 10)
+    (review.entry_details_reason === 'other' && [...String(review.entry_details_reason_text ?? '').trim()].length >= 10)
   );
 }
 interface GuestEntry {
@@ -40,7 +40,7 @@ const nonPlaceholder = (v: string | null | undefined): string | null => {
 };
 /** Admission validates completeness; this final mapping prevents placeholder or inapplicable extras from leaking into XML. */
 export function vizaArrivalExtras(guest: GuestEntry | null | undefined, reservationId: string) {
-  const review = guest?.viza_review?.reservation_id === reservationId ? guest.viza_review : {};
+  const review: EntryReview = guest?.viza_review?.reservation_id === reservationId ? guest.viza_review : {};
   const relevant = isThirdCountryNationality(guest?.nationality);
   const permit = review.entry_details_absent === true && review.entry_details_reason === 'lives_in_hungary_with_permit';
   const visaExempt = review.visa_exempt === true && !permit;

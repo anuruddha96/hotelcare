@@ -210,7 +210,7 @@ async function runWorker(db: Db): Promise<Record<string, unknown>> {
             tavozasVarhatoDatuma: String(a.tavozas_varhato_datuma),
             scanned: groups.scanned,
             manual: groups.manual,
-            ...vizaArrivalExtras(guest, String(a.reservation_id)),
+            ...vizaArrivalExtras(guest as Parameters<typeof vizaArrivalExtras>[0], String(a.reservation_id)),
           };
         });
         const bejelentes = vizaTimestamp(new Date());

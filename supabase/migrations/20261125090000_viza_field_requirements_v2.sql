@@ -32,10 +32,12 @@ DECLARE
  item text;
  value text;
 BEGIN
+ _day:=COALESCE(_day,current_date);
  SELECT * INTO r FROM public.reservations WHERE id=_reservation_id;
  IF NOT FOUND THEN RAISE EXCEPTION 'RESERVATION_NOT_FOUND'; END IF;
  IF NOT EXISTS(SELECT 1 FROM public.viza_settings WHERE hotel_id=r.hotel_id AND enabled AND adatszolgaltatasi_azonosito IS NOT NULL) THEN RETURN jsonb_build_object('version',2,'occupant_count_ok',true,'guests','[]'::jsonb); END IF;
- IF _guest_ids IS NOT NULL AND EXISTS (SELECT 1 FROM unnest(_guest_ids) id WHERE NOT EXISTS (SELECT 1 FROM public.reservation_guests rg WHERE rg.reservation_id=r.id AND rg.guest_id=id AND rg.stay_state<>'void') AND id IS DISTINCT FROM r.guest_id) THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
+ IF _guest_ids IS NOT NULL AND EXISTS (SELECT 1 FROM unnest(_guest_ids) AS selected(id) WHERE selected.id IS NULL OR (NOT EXISTS (SELECT 1 FROM public.reservation_guests rg WHERE rg.reservation_id=r.id AND rg.guest_id=selected.id AND rg.stay_state<>'void') AND (selected.id IS DISTINCT FROM r.guest_id OR EXISTS (SELECT 1 FROM public.reservation_guests rg WHERE rg.reservation_id=r.id AND rg.guest_id=selected.id)))) THEN RAISE EXCEPTION 'ACCESS_DENIED'; END IF;
+ IF _guest_ids IS NOT NULL AND cardinality(_guest_ids)=0 THEN occupant_ok:=false; END IF;
  -- Preserve staggered arrival, but do not admit the first group before the
  -- whole booking roster exists. Do not block repair of a historical arrival.
  IF _guest_ids IS NULL OR EXISTS (
