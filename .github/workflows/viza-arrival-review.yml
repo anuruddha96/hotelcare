@@ -39,4 +39,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bunx vitest run src/lib/idScan/vizaDocuments.test.ts src/lib/idScan/documentScanFlow.test.ts src/lib/idScan/vizaArrivalError.test.ts src/lib/idScan/vizaAdmission.test.ts src/components/frontdesk/GuestDetailsSection.test.tsx
+      - run: bunx vitest run src/lib/idScan/vizaDocuments.test.ts src/lib/idScan/documentScanFlow.test.ts src/lib/idScan/vizaArrivalError.test.ts src/lib/idScan/vizaAdmission.test.ts src/components/frontdesk/GuestDetailsSection.test.tsx src/components/frontdesk/CheckInDialog.viza.test.tsx src/lib/viza/viza-messages.test.ts
