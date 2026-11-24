@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
-export type MiraVoiceState = "idle" | "starting" | "recording" | "transcribing" | "review";
+export type MiraVoiceState = "idle" | "starting" | "recording" | "transcribing" | "paused";
 
 type BrowserRecognition = {
   lang: string;
@@ -36,11 +36,9 @@ async function transcribeAudio(blob: Blob, mimeType: string, language: string): 
 }
 
 /**
- * Microphone content is NEVER inserted into the editable message until Use text
- * is pressed. Browser SpeechRecognition supplies interim words when available.
- * On Safari/iOS or when the recognizer stalls, short, complete MediaRecorder
- * samples provide a delayed live preview via the existing transcription endpoint.
- * The full uninterrupted recording is always used for the final transcript.
+ * The composer displays interim words directly alongside the original draft.
+ * Each recording segment is finalized independently so silence can release the
+ * microphone and Resume can append without duplicating earlier speech.
  */
 export function useMiraDictation(onConfirm: (text: string) => void, language: string) {
   const [state, setState] = useState<MiraVoiceState>("idle");
@@ -48,6 +46,13 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
   const [liveHint, setLiveHint] = useState("Listening for words…");
   const stateRef = useRef<MiraVoiceState>("idle");
   const previewRef = useRef("");
+  const priorTextRef = useRef("");
+  const finishRequestedRef = useRef(false);
+  const silenceTimerRef = useRef<number | null>(null);
+  const audioMeterRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const stopRef = useRef<() => void>(() => {});
+  const lastNativeTextRef = useRef("");
   const sessionRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const mainRecorderRef = useRef<MediaRecorder | null>(null);
@@ -71,8 +76,9 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
   }, []);
 
   const updatePreview = useCallback((text: string) => {
-    previewRef.current = text;
-    setPreview(text);
+    const combined = [priorTextRef.current, text.trim()].filter(Boolean).join(" ");
+    previewRef.current = combined;
+    setPreview(combined);
   }, []);
 
   const stopRecognition = useCallback(() => {
@@ -99,7 +105,19 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
     }
   }, []);
 
+  const resetSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current !== null) window.clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = window.setTimeout(() => stopRef.current(), 10000);
+  }, []);
+
   const releaseMicrophone = useCallback(() => {
+    if (silenceTimerRef.current !== null) window.clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = null;
+    if (audioMeterRef.current !== null) window.clearInterval(audioMeterRef.current);
+    audioMeterRef.current = null;
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    if (context) void context.close().catch(() => {});
     stopRecognition();
     stopSnippet();
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -119,6 +137,8 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
     }
     releaseMicrophone();
     snippetTextRef.current = "";
+    priorTextRef.current = "";
+    finishRequestedRef.current = false;
     updatePreview("");
     setPhase("idle");
   }, [releaseMicrophone, setPhase, updatePreview]);
@@ -136,13 +156,29 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
     releaseMicrophone();
   }, [releaseMicrophone]);
 
+  const completeSegment = useCallback(() => {
+    if (finishRequestedRef.current) {
+      const words = previewRef.current.trim();
+      if (words) onConfirm(words);
+      priorTextRef.current = "";
+      finishRequestedRef.current = false;
+      updatePreview("");
+      setPhase("idle");
+    } else {
+      setPhase("paused");
+    }
+  }, [onConfirm, setPhase, updatePreview]);
+
   const start = useCallback(async () => {
-    if (stateRef.current !== "idle") return;
+    if (stateRef.current !== "idle" && stateRef.current !== "paused") return;
     if (!supported) {
       toast.error("Voice input needs a browser with microphone recording support.");
       return;
     }
 
+    priorTextRef.current = stateRef.current === "paused" ? previewRef.current : "";
+    finishRequestedRef.current = false;
+    lastNativeTextRef.current = "";
     const session = ++sessionRef.current;
     nativeWordsRef.current = false;
     snippetTextRef.current = "";
@@ -177,36 +213,46 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
         releaseMicrophone();
         if (sessionRef.current !== session) return;
         if (blob.size < 1200) {
-          if (previewRef.current.trim()) setPhase("review");
-          else {
-            setPhase("idle");
-            toast.error("No speech detected. Try speaking closer to the microphone.");
-          }
+          completeSegment();
           return;
         }
         void transcribeAudio(blob, type, language).then((text) => {
           if (sessionRef.current !== session) return;
-          updatePreview(text || previewRef.current);
-          if (previewRef.current.trim()) setPhase("review");
-          else {
-            setPhase("idle");
-            toast.error("No speech detected. Try again.");
-          }
+          if (text) updatePreview(text);
+          completeSegment();
         }).catch((error) => {
           if (sessionRef.current !== session) return;
           console.error("Mira voice transcription failed", error);
-          if (previewRef.current.trim()) {
-            setPhase("review");
-            toast.warning("Final transcription unavailable. Please review the preview.");
-          } else {
-            setPhase("idle");
-            toast.error("Could not transcribe this recording. Please try again.");
-          }
+          if (previewRef.current.trim()) toast.warning("Final transcription unavailable. Check the captured text.");
+          else toast.error("Could not transcribe this recording. Please try again.");
+          completeSegment();
         });
       };
 
       recorder.start();
       setPhase("recording");
+      resetSilenceTimer();
+      // Measure microphone activity as well as native recognition results.
+      // This also works when the browser only supports server transcription.
+      try {
+        const browser = window as typeof window & { webkitAudioContext?: typeof AudioContext };
+        const AudioCtor = browser.AudioContext ?? browser.webkitAudioContext;
+        if (AudioCtor) {
+          const context = new AudioCtor();
+          audioContextRef.current = context;
+          const analyser = context.createAnalyser();
+          analyser.fftSize = 512;
+          context.createMediaStreamSource(stream).connect(analyser);
+          const samples = new Uint8Array(analyser.fftSize);
+          void context.resume().catch(() => {});
+          audioMeterRef.current = window.setInterval(() => {
+            if (sessionRef.current !== session || stateRef.current !== "recording") return;
+            analyser.getByteTimeDomainData(samples);
+            const rms = Math.sqrt(samples.reduce((sum, sample) => sum + ((sample - 128) / 128) ** 2, 0) / samples.length);
+            if (rms > 0.025) resetSilenceTimer();
+          }, 150);
+        }
+      } catch { /* Native speech results still reset the silence timer. */ }
 
       // Incremental, complete audio samples are needed where Web Speech has
       // no interim results (notably iPhone Safari). Each sample is independent
@@ -237,13 +283,13 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
                   if (words) {
                     snippetTextRef.current = [snippetTextRef.current, words].filter(Boolean).join(" ");
                     updatePreview(snippetTextRef.current);
-                    setLiveHint("Live transcript · preview only");
+                    setLiveHint("Listening · live dictation");
                   }
                 } catch (error) {
                   // Network or provider errors must not disable Stop or the
                   // final full-recording transcription.
                   console.warn("Mira live preview temporarily unavailable", error);
-                  setLiveHint("Recording… full transcript follows when stopped");
+                  setLiveHint("Listening… transcription may take a moment");
                 }
               });
             }
@@ -255,10 +301,10 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
             if (sample.state === "recording") {
               try { sample.stop(); } catch { /* Already stopped */ }
             }
-          }, 6000);
+          }, 3000);
         } catch (error) {
           console.warn("Incremental microphone preview unavailable", error);
-          setLiveHint("Recording… full transcript follows when stopped");
+          setLiveHint("Listening… transcription may take a moment");
         }
       };
 
@@ -282,10 +328,14 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
             }
             const words = [committed, interim].filter(Boolean).join(" ").trim();
             if (!words || sessionRef.current !== session || stateRef.current !== "recording") return;
+            if (words !== lastNativeTextRef.current) {
+              lastNativeTextRef.current = words;
+              resetSilenceTimer();
+            }
             nativeWordsRef.current = true;
             stopSnippet();
             updatePreview(words);
-            setLiveHint("Live transcript · preview only");
+            setLiveHint("Listening · live dictation");
           };
           recognition.onerror = () => {
             recognitionFailed = true;
@@ -321,10 +371,10 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
       if (sessionRef.current !== session) return;
       console.error("Mira microphone unavailable", error);
       releaseMicrophone();
-      setPhase("idle");
+      setPhase(priorTextRef.current ? "paused" : "idle");
       toast.error("Allow microphone access in your browser to talk to Mira.");
     }
-  }, [language, releaseMicrophone, setPhase, stopRecognition, stopSnippet, supported, updatePreview]);
+  }, [completeSegment, language, releaseMicrophone, resetSilenceTimer, setPhase, stopRecognition, stopSnippet, supported, updatePreview]);
 
   const stop = useCallback(() => {
     if (stateRef.current === "starting") {
@@ -341,28 +391,27 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
     if (recorder?.state === "recording") {
       try { recorder.stop(); } catch {
         releaseMicrophone();
-        setPhase(previewRef.current.trim() ? "review" : "idle");
+        completeSegment();
       }
     } else {
       releaseMicrophone();
-      setPhase(previewRef.current.trim() ? "review" : "idle");
+      completeSegment();
     }
-  }, [cancel, releaseMicrophone, setPhase, stopRecognition, stopSnippet]);
+  }, [cancel, completeSegment, releaseMicrophone, setPhase, stopRecognition, stopSnippet]);
+
+  useEffect(() => { stopRef.current = stop; }, [stop]);
 
   const confirm = useCallback(() => {
-    if (stateRef.current !== "review") return;
-    const words = previewRef.current.trim();
-    if (!words) return;
-    onConfirm(words);
-    updatePreview("");
-    setPhase("idle");
-  }, [onConfirm, setPhase, updatePreview]);
+    if (stateRef.current !== "paused" && stateRef.current !== "recording" && stateRef.current !== "transcribing") return;
+    finishRequestedRef.current = true;
+    if (stateRef.current === "recording") stop();
+    else if (stateRef.current === "paused") completeSegment();
+  }, [completeSegment, stop]);
 
   const toggle = useCallback(() => {
-    if (stateRef.current === "idle") void start();
+    if (stateRef.current === "idle" || stateRef.current === "paused") void start();
     else if (stateRef.current === "recording") stop();
-    else if (stateRef.current === "starting" || stateRef.current === "transcribing") cancel();
-  }, [cancel, start, stop]);
+  }, [start, stop]);
 
-  return { state, preview, liveHint, supported, start, stop, cancel, confirm, toggle, setPreview: updatePreview };
+  return { state, preview, liveHint, supported, start, stop, cancel, confirm, toggle };
 }
