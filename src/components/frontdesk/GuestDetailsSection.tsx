@@ -296,7 +296,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   };
   const read = scan?.fields;
   const compactReview = (!!draft || protectIdentity) && !!scan?.valid && !!read;
-  const hideExtracted = (field: keyof GuestVizaRow) => compactReview && !showAllFields && !!guest && !missing.includes(field) && !optical[field as keyof OpticalGuestFields] && scanFieldState(field,guest,scan)==='fromDocument';
+  const hideExtracted = (field: Exclude<keyof GuestVizaRow, 'id' | 'viza_review'>) => compactReview && !showAllFields && !!guest && !missing.includes(field) && !optical[field as keyof OpticalGuestFields] && scanFieldState(field,guest,scan)==='fromDocument';
   const euEea = new Set(['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','IS','LI','NO']);
   const knownNationality = recognizedNationality(guest?.nationality);
   const entryOptional = !!knownNationality && (euEea.has(knownNationality) || knownNationality === 'CH') && !guest?.visa_number && !guest?.entry_date && !guest?.entry_place;
