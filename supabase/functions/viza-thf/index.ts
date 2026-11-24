@@ -64,7 +64,7 @@ async function signerFor(creds: Credentials): Promise<Signer> {
 
 const env = (name: string) => Deno.env.get(name) || null;
 
-async function callThf(cfg: Pick<Settings, "thf_url" | "thf_ca_pem">, bodyXml: string, signer: Signer) {
+async function callThf(cfg: Pick<Settings, "thf_url" | "thf_ca_pem" | "thf_via_gateway">, bodyXml: string, signer: Signer) {
   const url = cfg.thf_url;
   const envelope = await signEnvelope({ requestXml: bodyXml, certPem: signer.creds.certPem, key: signer.envelopeKey, profile: "rsa-sha384" });
   const ownProxy = env("VIZA_EGRESS_PROXY_URL");
@@ -74,13 +74,15 @@ async function callThf(cfg: Pick<Settings, "thf_url" | "thf_ca_pem">, bodyXml: s
     proxyUser: ownProxy ? env("VIZA_EGRESS_PROXY_USER") : env("NTAK_EGRESS_PROXY_USER"),
     proxyPassword: ownProxy ? env("VIZA_EGRESS_PROXY_PASSWORD") : env("NTAK_EGRESS_PROXY_PASSWORD"),
     caCertsPem: cfg.thf_ca_pem,
+    // A self-hosted THF whose certificate the runtime cannot verify is reached through the gateway.
+    forwardClientCredentials: cfg.thf_via_gateway === true,
   });
   if (result.error && !result.body) throw new Error(result.error);
   return result;
 }
 
 /** A send that cannot reach the THF is tried three times in a row before it counts as one failed attempt. */
-async function sendToThf(cfg: Pick<Settings, "thf_url" | "thf_ca_pem">, bodyXml: string, signer: Signer) {
+async function sendToThf(cfg: Pick<Settings, "thf_url" | "thf_ca_pem" | "thf_via_gateway">, bodyXml: string, signer: Signer) {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < QUICK_TRIES; attempt++) {
     try {
@@ -98,8 +100,10 @@ type Settings = {
   hotel_id: string; organization_slug: string; enabled: boolean; thf_url: string;
   adatszolgaltatasi_azonosito: string | null; szallas_nev: string | null;
   szolgaltato_adoszam: string | null; szolgaltato_nev: string | null;
-  /** CA certificate(s) of a self-hosted THF, PEM; null for a THF with a publicly trusted certificate. */
+  /** CA certificate(s) of a self-hosted THF, PEM; null for a THF with a publicly trusted certificate. In gateway mode: the gateway's CA. */
   thf_ca_pem?: string | null;
+  /** Self-hosted THF reached through the HotelCare THF gateway on the THF server (ops/viza-thf-gateway). */
+  thf_via_gateway?: boolean | null;
 };
 
 type GuestExtras = { visa_number?: string | null; entry_date?: string | null; entry_place?: string | null };
