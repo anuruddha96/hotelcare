@@ -109,6 +109,7 @@ jobs:
           python3 scripts/render_ntak_phase3_function_fixture.py > /tmp/ntak_phase3_legacy_queuer.sql
           PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f /tmp/ntak_phase3_legacy_queuer.sql
           PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123213000_ntak_phase3_activation_safety.sql
+          PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261124010400_ntak_viza_activation_followups.sql
           PGDATABASE=hotelcare_phase3_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase3_activation_acceptance.sql
       - name: Phase 4 dated room state, overlap and RLS integration (PostgreSQL)
         run: |

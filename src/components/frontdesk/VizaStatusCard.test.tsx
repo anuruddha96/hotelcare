@@ -36,6 +36,7 @@ describe('VizaStatusCard failed enqueue recovery', () => {
       id: 'failure-01', reservation_id: 'reservation-01',
       last_error: 'simulated enqueue failure',
       attempts: 1, updated_at: '2026-11-23T10:00:00Z',
+      reservation: { reservation_number: 'RES-TEST-123', guest: { first_name: 'Luca', last_name: 'Ferri' } },
     };
     const query = {
       select: vi.fn(), eq: vi.fn(), is: vi.fn(), order: vi.fn(), limit: vi.fn(),
@@ -51,6 +52,7 @@ describe('VizaStatusCard failed enqueue recovery', () => {
     render(<VizaStatusCard hotelId="hotel-01" />);
     expect(await screen.findByText('pms.viza.queueFailed')).toBeInTheDocument();
     expect(screen.getByText('simulated enqueue failure')).toBeInTheDocument();
+    expect(screen.getByText(/RES-TEST-123 · Luca Ferri/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'pms.viza.retryQueue' }));
     await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith(
       'pms_retry_viza_trigger_failure', { _failure_id: 'failure-01' },

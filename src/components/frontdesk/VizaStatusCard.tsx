@@ -24,6 +24,7 @@ interface VizaQueueFailure {
   last_error: string;
   attempts: number;
   updated_at: string;
+  reservation?: { reservation_number: string | null; guest: { first_name: string | null; last_name: string | null } | null } | null;
 }
 
 interface VizaStatus {
@@ -75,7 +76,7 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
       // retry. Fetch the durable per-reservation failure log separately.
       const { data: failureRows, error: failureError } = await (supabase as any)
         .from('viza_trigger_failures')
-        .select('id,reservation_id,last_error,attempts,updated_at')
+        .select('id,reservation_id,last_error,attempts,updated_at,reservation:reservations!viza_trigger_failures_reservation_id_fkey(reservation_number,guest:guests!reservations_guest_id_fkey(first_name,last_name))')
         .eq('hotel_id', hotelId).is('resolved_at', null)
         .order('updated_at', { ascending: false }).limit(5);
       setQueueFailures(!failureError ? (failureRows ?? []) as VizaQueueFailure[] : []);
@@ -190,7 +191,7 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
           {queueFailures.map((failure) => (
             <div key={failure.id} className="flex items-center gap-2 rounded-md border border-destructive/30 px-2 py-1 text-[11px]">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{t('pms.viza.queueReservation')} {failure.reservation_id.slice(0, 8)}</p>
+                <p className="truncate font-medium">{t('pms.viza.queueReservation')} {[failure.reservation?.reservation_number, failure.reservation?.guest ? [failure.reservation.guest.first_name, failure.reservation.guest.last_name].filter(Boolean).join(' ') : null].filter(Boolean).join(' · ') || '—'}</p>
                 <p className="break-words text-destructive">{failure.last_error}</p>
               </div>
               <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 text-[11px]"

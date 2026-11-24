@@ -211,3 +211,24 @@ BEGIN
   THEN RAISE EXCEPTION 'Acceptance 4: staff retry did not clear queue failure'; END IF;
 END;
 $$;
+
+-- 5. Null legacy organization still logs a durable VIZA failure.
+CREATE TRIGGER reject_viza_queue BEFORE INSERT ON public.viza_guest_events
+FOR EACH ROW EXECUTE FUNCTION public.ntak_test_reject_viza_queue();
+INSERT INTO public.reservations(id,hotel_id,organization_slug,guest_id,room_id,status,check_in_date,check_out_date,adults,children,balance_due)
+VALUES('00000000-0000-4000-8000-000000000005','test-hotel',NULL,'00000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-000000000010','confirmed',current_date,current_date+2,1,0,0);
+INSERT INTO public.reservation_guests(reservation_id,guest_id,is_primary) VALUES('00000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000031',true);
+UPDATE public.reservations SET status='checked_in',actual_check_in=now() WHERE id='00000000-0000-4000-8000-000000000005';
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.viza_trigger_failures WHERE reservation_id='00000000-0000-4000-8000-000000000005' AND organization_slug='test-org' AND resolved_at IS NULL) THEN RAISE EXCEPTION 'Null organization failure not durably recorded'; END IF;
+END $$;
+DROP TRIGGER reject_viza_queue ON public.viza_guest_events;
+-- 6. A recorded departure must survive disable/re-enable even if the reservation remains checked in.
+UPDATE public.ntak_settings SET enabled=false WHERE hotel_id='late-hotel';
+UPDATE public.reservations SET status='checked_in' WHERE id='00000000-0000-4000-8000-000000000003';
+UPDATE public.reservation_guests SET stay_state='expected',arrived_at=NULL,departed_at=NULL WHERE reservation_id='00000000-0000-4000-8000-000000000003' AND guest_id='00000000-0000-4000-8000-000000000033';
+UPDATE public.viza_guest_events SET tavozas_ideje=now(),arrival_state='sent',departure_state='queued' WHERE reservation_id='00000000-0000-4000-8000-000000000003' AND guest_id='00000000-0000-4000-8000-000000000033';
+UPDATE public.ntak_settings SET enabled=true WHERE hotel_id='late-hotel';
+DO $$ BEGIN
+ IF (SELECT stay_state FROM public.reservation_guests WHERE reservation_id='00000000-0000-4000-8000-000000000003' AND guest_id='00000000-0000-4000-8000-000000000033') <> 'expected' THEN RAISE EXCEPTION 'Activation resurrected an undone arrival'; END IF;
+END $$;
