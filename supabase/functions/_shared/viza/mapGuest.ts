@@ -9,6 +9,7 @@
  * the manual group.
  */
 import { iso3ToIso2 } from './country.ts';
+import { isVizaPlaceholder } from './fieldRules.ts';
 import type { VizaGuestFields } from './messages.ts';
 
 export interface GuestRowForViza {
@@ -51,6 +52,7 @@ export function splitMotherName(value: string | null | undefined): { csalad: str
 }
 
 const norm = (v: string | null | undefined) => String(v ?? '').trim();
+const reviewedText = (v: string | null | undefined) => isVizaPlaceholder(v) ? null : norm(v) || null;
 const same = (a: string | null | undefined, b: string | null | undefined) =>
   norm(a).toLocaleLowerCase() === norm(b).toLocaleLowerCase();
 
@@ -62,12 +64,12 @@ export function guestToVizaGroups(guest: GuestRowForViza): { scanned: VizaGuestF
   const current: VizaGuestFields = {
     csaladnev: norm(guest.last_name) || null,
     utonev: norm(guest.first_name) || null,
-    szuletesiCsaladnev: norm(guest.birth_last_name) || null,
-    szuletesiUtonev: norm(guest.birth_first_name) || null,
+    szuletesiCsaladnev: reviewedText(guest.birth_last_name),
+    szuletesiUtonev: reviewedText(guest.birth_first_name),
     szuletesiDatum: norm(guest.date_of_birth) || null,
-    szuletesiHely: norm(guest.birth_place) || null,
-    anyjaCsaladnev: mother.csalad,
-    anyjaUtonev: mother.uto,
+    szuletesiHely: reviewedText(guest.birth_place),
+    anyjaCsaladnev: reviewedText(mother.csalad),
+    anyjaUtonev: reviewedText(mother.uto),
     allampolgarsagKod: iso3ToIso2(guest.nationality) ?? (norm(guest.nationality) || null),
     nem: guest.gender ? GENDER_TO_VIZA[guest.gender] ?? 'EGYEB_VAGY_NEM_ISMERT' : null,
     okmanyTipus: guest.id_document_type ? DOC_TYPE_TO_VIZA[guest.id_document_type] ?? 'EGYEB' : null,
