@@ -72,6 +72,7 @@ function prepareBand(source: CanvasImageSource, width: number, height: number, b
     d[i] = d[i + 1] = d[i + 2] = out;
   }
   ctx.putImageData(img, 0, 0);
+  d.fill(0);
   return canvas;
 }
 
@@ -89,19 +90,19 @@ const OCR_PARAMETERS = {
 /**
  * The reader uses a model trained on the OCR-B type of document code lines
  * (served from this site, see public/tessdata) — it reads worn and
- * low-resolution documents that the general English model gets wrong. If it
- * cannot be loaded, the English model is the fallback.
+ * low-resolution documents that the general English model gets wrong.
+ * English OCR is reserved for the non-blocking front cross-check.
  */
 async function createOcrWorker(): Promise<TesseractWorker> {
   const { createWorker } = await import('tesseract.js');
-  let worker: TesseractWorker;
+  const worker = await createWorker('mrz', 1, { langPath: `${window.location.origin}/tessdata`, gzip: false });
   try {
-    worker = await createWorker('mrz', 1, { langPath: `${window.location.origin}/tessdata`, gzip: false });
-  } catch {
-    worker = await createWorker('eng');
+    await worker.setParameters(OCR_PARAMETERS as never);
+    return worker;
+  } catch (error) {
+    await worker.terminate().catch(() => undefined);
+    throw error;
   }
-  await worker.setParameters(OCR_PARAMETERS as never);
-  return worker;
 }
 
 /** General text OCR is used ONLY for the front of an ID card.
@@ -125,6 +126,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
   const frontJobRef = useRef<Promise<void> | null>(null);
   const frontGeneration = useRef(0);
   const busyRef = useRef<number | null>(null);
+  const nextFullRef = useRef(false);
   const [mrzSession] = useState(() => new OcrSession(createOcrWorker));
   const [frontSession] = useState(() => new OcrSession(createFrontOcrWorker));
   const [guidance, setGuidance] = useState<Readiness>('holdSteady');
@@ -143,6 +145,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
 
   const clearFront = useCallback(() => {
     frontGeneration.current++;
+    nextFullRef.current = false;
     frontSession.reset();
     frontJobRef.current = null;
     frontRef.current = { captured: false, positive: false, text: '' };
@@ -405,7 +408,11 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
       sample.fill(0);
       const deadline = performance.now() + (automatic ? 4000 : 18000);
       let partial: MrzReadResult | null = null;
-      const bands: Array<'bottom' | 'lower' | 'full'> = live ? ['bottom', 'full'] : ['bottom', 'lower', 'full'];
+      // If a prior automatic attempt completed the bottom pass but timed out
+      // during the full pass, resume with a fresh full-guide frame next time.
+      const resumeFull = automatic && nextFullRef.current;
+      const bands: Array<'bottom' | 'lower' | 'full'> = live ? (resumeFull ? ['full'] : ['bottom', 'full']) : ['bottom', 'lower', 'full'];
+      if (!automatic) nextFullRef.current = false;
       for (const band of bands) {
         if (!active()) return;
         const prepared = prepareBand(frame, frame.width, frame.height, band, live);
@@ -422,6 +429,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
             }
           }
           partial = partial ?? parsed;
+          if (automatic && band === 'bottom') nextFullRef.current = true;
+          if (automatic && band === 'full') nextFullRef.current = false;
         } finally { wipe(prepared); }
       }
       if (!active()) return;
@@ -483,6 +492,7 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
         previous?.fill(0); previous = gray;
         setGuidance(readiness);
         stable = readiness === 'ready' ? stable + 1 : 0;
+        if (stable < 2) setAutoReading(false);
         if (stable >= 2) {
           if (!mrzSession.ready) {
             setAutoReading(true);
@@ -556,7 +566,8 @@ export function IdScanDialog({ open, onOpenChange, onApply }: IdScanDialogProps)
     if (side !== 'front' || !frontCaptureAttempted || result) return;
     clearFront();
     frontRef.current.captured = true;
-    frontRef.current.positive = true;
+    // Physical review is not positive OCR evidence; preserve passport recovery.
+    frontRef.current.positive = false;
     setSide('mrz');
     setSource('camera');
     setFailReason(null);
