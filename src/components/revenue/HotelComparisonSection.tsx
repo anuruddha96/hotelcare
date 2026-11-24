@@ -214,7 +214,7 @@ export default function HotelComparisonSection({ hotels, hotelId, selectedMonth 
               aria-label={hotel.hotel_name + ", " + (hotel.rank != null ? "rank " + hotel.rank : "unranked") +
                 (isCurrent ? ", currently viewing" : "")}
               className={"min-w-0 rounded-xl border p-2.5 sm:p-3 " +
-                (isCurrent ? "border-sky-400/70 bg-sky-500/[0.045] dark:bg-sky-400/[0.06]"
+                (isCurrent ? "border-sky-400/70 bg-sky-500/[0.045] dark:bg-card"
                   : "border-border/70 bg-card")}>
               <div className="flex min-w-0 items-center gap-1.5">
                 <span className={"flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-bold tabular-nums " +
