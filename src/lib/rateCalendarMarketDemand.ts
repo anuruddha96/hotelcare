@@ -48,20 +48,9 @@ function ensureStyle() {
 }
 
 function findDemandRow(card: HTMLElement): HTMLElement | null {
-  const pane = card.querySelector<HTMLElement>('[data-rate-grid-scroll="true"]')
-    ?? card.querySelector<HTMLElement>(".relative.overflow-auto.overscroll-x-contain");
-  const grid = pane?.firstElementChild as HTMLElement | null;
-  const sticky = grid
-    ? Array.from(grid.children).find((child) => child instanceof HTMLElement && child.classList.contains("sticky") && child.classList.contains("top-0")) as HTMLElement | undefined
-    : undefined;
-  if (!sticky) return null;
-
-  return Array.from(sticky.children).find((child) => {
-    if (!(child instanceof HTMLElement)) return false;
-    const left = child.firstElementChild as HTMLElement | null;
-    const label = (left?.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-    return label === "dem" || label.startsWith("demand");
-  }) as HTMLElement | null;
+  // The signal row is now in the normal scrolling calendar, outside the frozen
+  // summary. Do not infer its position from sticky rows or translated labels.
+  return card.querySelector<HTMLElement>('[data-rate-demand-row="true"]');
 }
 
 function dateOrder(card: HTMLElement): string[] {
