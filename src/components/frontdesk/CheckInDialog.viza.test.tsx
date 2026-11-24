@@ -46,6 +46,7 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     const row = (guest: typeof hu | typeof foreign) => ({ guest_id: guest.id, stay_state: 'expected', arrived_at: null, departed_at: null, room_id: 'room-1', guests: guest });
     let rows = [row(hu)];
     mocks.rpc.mockImplementation(async (name: string, args?: {_data?:Record<string,unknown>}) => {
+      if(name==='pms_express_channel_guest_hints') return {data:[{first_name:'Synthetic',last_name:'Hungarian'},{first_name:'Synthetic',last_name:'Companion'}],error:null};
       if(name==='pms_register_scanned_stay_guest'){
         expect(args?._data).toMatchObject({first_name:'Synthetic',last_name:'Foreign',id_document_number:'TEST-DE',
           document_scan:{fields:{okmanyAzonositoSzam:'TEST-DE'}},
@@ -82,6 +83,8 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     expect(screen.getByText('pms.guest.occupantCount')).toBeInTheDocument();
     expect(screen.getByText('pms.guest.wholeReservation')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'pms.express.scanDocument' })).toBeInTheDocument();
+    expect(await screen.findByText(/Synthetic Companion/)).toBeInTheDocument();
+    expect(screen.getByText('pms.express.channelName')).toBeInTheDocument();
     if(method==='existing'){
       fireEvent.click(screen.getByRole('button', { name: 'pms.express.otherOptions' }));
       fireEvent.click(screen.getByRole('button', { name: 'Select foreign guest' }));
