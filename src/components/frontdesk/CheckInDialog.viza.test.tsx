@@ -10,11 +10,11 @@ vi.mock('react-router-dom', () => ({ useParams: () => ({ organizationSlug: 'fixt
 vi.mock('@/components/guests/GuestWelcomeCard', () => ({ GuestWelcomeCard: () => null }));
 vi.mock('@/components/frontdesk/IdScanDialog', () => ({ IdScanDialog: ({open,onOpenChange,onApply}: {
   open:boolean; onOpenChange:(value:boolean)=>void; onApply:(result: import('@/lib/idScan/mrz').MrzReadResult)=>void;
-}) => open ? <button onClick={()=>{onApply({format:'TD3',valid:true,unknownCountry:false,lines:[],fields:{
+}) => open ? <><button onClick={()=>{onApply({format:'TD3',valid:true,unknownCountry:false,lines:[],fields:{
   firstName:'Synthetic',lastName:'Foreign',mrzFirstName:'SYNTHETIC',mrzLastName:'FOREIGN',
   nationality:'DE',nationalityIso3:'DEU',dateOfBirth:'1990-01-01',gender:'female',
   documentType:'passport',documentNumber:'TEST-DE',expiryDate:'2030-01-01',issuingState:'DEU'
-}});onOpenChange(false);}}>Use synthetic passport</button> : null }));
+}});onOpenChange(false);}}>Use synthetic passport</button><button type="button" onClick={()=>onOpenChange(false)}>Close synthetic scanner</button></> : null }));
 vi.mock('@/components/frontdesk/BusinessMomentField', () => ({
   BusinessMomentField: () => null,
   useBusinessMoment: () => ({ occurredAt: null, invalid: false, display: '10:00' }),
@@ -67,7 +67,23 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     guestQuery.select.mockReturnValue(guestQuery);
     guestQuery.eq.mockReturnValue(guestQuery);
     guestQuery.maybeSingle.mockResolvedValue({ data: foreign, error: null });
-    guestQuery.update.mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) });
+    guestQuery.update.mockImplementation((payload: Record<string, unknown>) => ({
+      eq: vi.fn().mockImplementation((column: string, id: string) => {
+        expect(column).toBe('id');
+        expect(id).toBe(foreign.id);
+        return {
+          select: vi.fn().mockImplementation((columns: string) => {
+            expect(columns).toBe('id');
+            return { maybeSingle: vi.fn().mockImplementation(async () => {
+              rows = rows.map(item => item.guest_id === id
+                ? row({ ...foreign, ...payload } as typeof foreign)
+                : item);
+              return { data: { id }, error: null };
+            }) };
+          }),
+        };
+      }),
+    }));
     mocks.from.mockImplementation((table: string) => table === 'reservation_guests' ? rosterQuery : guestQuery);
     const today = getLocalDateString();
     const onSuccess = vi.fn();
@@ -95,10 +111,20 @@ describe('VIZA-only whole-reservation check-in screen', () => {
       expect(screen.getByText('pms.stayGuest.registrationMissing')).toBeInTheDocument();
       expect(screen.queryByRole('checkbox', { name: /pms.stayGuest.arrivingNow/ })).not.toBeInTheDocument();
       await screen.findByPlaceholderText('HU / DE / USA…');
+      // Adding an existing guest automatically opens the document scanner.
+      // Close it before editing the underlying guest registration form, as in the real UI.
+      fireEvent.click(await screen.findByRole('button', { name: 'Close synthetic scanner' }));
       const absent = screen.getAllByRole('checkbox', { name: 'pms.guest.notOnDocument' });
       expect(absent).toHaveLength(3);
       fireEvent.click(absent.find(el => !(el as HTMLInputElement).checked)!);
-      fireEvent.click(screen.getByRole('button', { name: 'pms.guest.save' }));
+      expect(confirm()).toBeDisabled();
+      expect(screen.getByText('pms.guest.autosaving')).toBeInTheDocument();
+      // The check-in must become ready from an acknowledged autosave,
+      // without clicking Save now or manually refreshing the roster.
+      await screen.findByText(/pms\.guest\.autosaved/, {}, { timeout: 3000 });
+      expect(guestQuery.update).toHaveBeenCalledWith(expect.objectContaining({
+        viza_review: expect.objectContaining({ mother_name_absent: true }),
+      }));
   
     }else{
       fireEvent.click(screen.getByRole('button',{name:'pms.express.scanDocument'}));
