@@ -142,8 +142,8 @@ export function GuestDetailsSection({ guestId, vizaReservationId, onCompleteness
         birth_first_name: opticalFields.birth_first_name ?? null,
         birth_place: opticalFields.birth_place ?? null,
         mother_name: opticalFields.mother_name ?? null,
-        mother_family_name: null,
-        mother_given_name: null,
+        mother_family_name: opticalFields.mother_name?.trim().split(/\s+/).length === 2 ? opticalFields.mother_name.trim().split(/\s+/)[0] : null,
+        mother_given_name: opticalFields.mother_name?.trim().split(/\s+/).length === 2 ? opticalFields.mother_name.trim().split(/\s+/)[1] : null,
         viza_review: { reservation_id: vizaReservationId, scan_reviewed: true },
       } : {}),
     } : g);
@@ -163,7 +163,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, onCompleteness
   };
 
   const save = async () => {
-    if (!guest) return;
+    if (!guest || (vizaReservationId && !hasReviewColumns)) return;
     setSaving(true);
     const savedGuest = vizaReservationId ? { ...guest, mother_name: [guest.mother_family_name, guest.mother_given_name].filter(Boolean).join(' ') || null } : guest;
     const payload = {
