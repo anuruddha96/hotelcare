@@ -154,7 +154,7 @@ describe('guestToVizaGroups', () => {
     });
     expect(scanned?.utonev).toBe('ANNA');
     expect(manual?.utonev).toBe('Anna-Maria');
-    expect(manual?.csaladnev).toBeUndefined(); // unchanged half stays scanned (pair rule applies later)
+    expect(manual?.csaladnev).toBe('Kovacs'); // both halves are required in the manual group
     expect(manual?.szuletesiDatum).toBe('1990-01-02');
     expect(manual?.allampolgarsagKod).toBeUndefined();
   });
