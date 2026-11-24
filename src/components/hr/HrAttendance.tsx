@@ -1,4 +1,6 @@
-import {useEffect,useState,useRef} from 'react';
+import {useEffect,useState} from 'react';
+import type {SupabaseClient} from '@supabase/supabase-js';
+import type {Database} from '@/integrations/supabase/types';
 import {supabase} from '@/integrations/supabase/client';
 import {useAuth} from '@/hooks/useAuth';
 import {useTranslation} from '@/hooks/useTranslation';
@@ -12,20 +14,36 @@ import {Card,CardContent,CardHeader,CardTitle} from '@/components/ui/card';
 import {useToast} from '@/hooks/use-toast';
 import {hotelName,hotelKey} from '@/lib/workforce/model';
 import {employeeReport,normMinutes} from '@/lib/workforce/report';
-// RPCs introduced by the phase-2 migration; generated API types follow deployment.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db=supabase as any;
 type Row={id:string;user_id:string;full_name:string;work_date:string;check_in_time:string;check_out_time:string|null;break_duration:number|null;total_hours?:number|null;planned_end?:string|null;status?:string;notes?:string|null;check_in_location?:unknown};
+// Extend the generated schema locally until the phase-2 migration is applied.
+type PublicSchema=Database['public'];
+type Times={_check_in:string;_check_out:string|null;_break_minutes:number;_reason:string};
+type HrDatabase=Omit<Database,'public'> & {public:Omit<PublicSchema,'Functions'|'Tables'> & {
+ Functions:PublicSchema['Functions'] & {
+  hr_attendance_open_records:{Args:never;Returns:Row[]};
+  attendance_correct:{Args:Times & {_id:string;_status:string};Returns:undefined};
+  attendance_delete:{Args:{_id:string;_reason:string};Returns:undefined};
+  attendance_manual_add:{Args:Times & {_employee:string;_date:string;_note:string};Returns:string};
+ };
+ Tables:PublicSchema['Tables'] & {
+  workforce_settings:PublicSchema['Tables']['workforce_settings'] & {
+   Row:{punctuality_tolerance_minutes:number};
+   Insert:{punctuality_tolerance_minutes?:number};
+   Update:{punctuality_tolerance_minutes?:number};
+  };
+ };
+}};
+const db=supabase as unknown as SupabaseClient<HrDatabase>;
 type Edit={row?:Row;employee:string;date:string;start:string;end:string;breakMinutes:string;reason:string;note:string};
 export function HrAttendance(){
  const {profile}=useAuth();const {t}=useTranslation();const {toast}=useToast();
  const [month,setMonth]=useState(todayBudapest().slice(0,7));
  const [employee,setEmployee]=useState('');const [rows,setRows]=useState<Row[]>([]);const [open,setOpen]=useState<Row[]>([]);const [tolerance,setTolerance]=useState(5);
  const [edit,setEdit]=useState<Edit|null>(null);const [busy,setBusy]=useState(false);const [failed,setFailed]=useState(false);const [loading,setLoading]=useState(true);const [refresh,setRefresh]=useState(0);
- const [problems,setProblems]=useState(false);const [hotel,setHotel]=useState('');const [department,setDepartment]=useState('');const [from,setFrom]=useState('');const [to,setTo]=useState('');const request=useRef(0);const [employees,setEmployees]=useState<{id:string;full_name:string}[]>([]);
+ const [problems,setProblems]=useState(false);const [hotel,setHotel]=useState('');const [department,setDepartment]=useState('');const [from,setFrom]=useState('');const [to,setTo]=useState('');const [employees,setEmployees]=useState<{id:string;full_name:string}[]>([]);
  const [year,m]=month.split('-').map(Number);const workforce=useWorkforce(year,m);
  useEffect(()=>{
- const token=++request.current;setLoading(true);setFailed(false);setRows([]);setOpen([]);
+ let cancelled=false;setLoading(true);setFailed(false);setRows([]);setOpen([]);
  const args={target_user_id:null,start_date:month+'-01',end_date:new Date(Date.UTC(year,m,0)).toISOString().slice(0,10)};
  const load=async()=>{try{
  const [records,forgotten,people,settings]=await Promise.all([
@@ -35,11 +53,11 @@ export function HrAttendance(){
  db.from('workforce_settings').select('punctuality_tolerance_minutes').eq('organization_slug',profile?.organization_slug).maybeSingle()
  ]);
  if(people.error||settings.error)throw new Error('Attendance request failed');
- if(token!==request.current)return;
+ if(cancelled)return;
  setRows(records);setOpen(forgotten);setEmployees(people.data??[]);setTolerance(settings.data?.punctuality_tolerance_minutes??5);
- }catch{if(token===request.current){setFailed(true);setRows([]);setOpen([]);}}finally{if(token===request.current)setLoading(false);}};
+ }catch{if(!cancelled){setFailed(true);setRows([]);setOpen([]);}}finally{if(!cancelled)setLoading(false);}};
  if(profile?.organization_slug)void load();else setLoading(false);
- return()=>{request.current++;};
+ return()=>{cancelled=true;};
  },[month,year,m,refresh,profile?.id,profile?.organization_slug]);
  const begin=(row?:Row,planned=false)=>setEdit(row?{row,employee:row.user_id,date:row.work_date,start:budapestInput(row.check_in_time),end:budapestInput(planned?row.planned_end??null:row.check_out_time),breakMinutes:String(row.break_duration??0),reason:'',note:row.notes??''}:{employee:employee||'',date:todayBudapest(),start:'',end:'',breakMinutes:'0',reason:'',note:''});
  const save=async()=>{if(!edit||!edit.reason.trim()||busy)return;setBusy(true);try{

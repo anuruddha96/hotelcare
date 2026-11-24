@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
+import type { Json } from '@/integrations/supabase/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -16,8 +17,8 @@ interface AttendanceRecord {
   user_id: string;
   check_in_time: string;
   check_out_time: string | null;
-  check_in_location: any;
-  check_out_location: any;
+  check_in_location: { address?: string } | null;
+  check_out_location: { address?: string } | null;
   work_date: string;
   total_hours: number | null;
   break_duration: number;
@@ -27,6 +28,11 @@ interface AttendanceRecord {
     full_name: string;
     role: string;
   } | null;
+}
+
+function attendanceLocation(value: Json | null): { address?: string } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return typeof value.address === 'string' ? { address: value.address } : null;
 }
 
 interface AttendanceSummary {
@@ -48,7 +54,7 @@ export const AttendanceReports = () => {
   const [summary, setSummary] = useState<AttendanceSummary | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState('week');
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
-  const [employees, setEmployees] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; full_name: string; role: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'top_management' || profile?.role === 'top_management_manager';
@@ -119,8 +125,10 @@ export const AttendanceReports = () => {
       }
 
       // Transform the data to match the expected format
-      const transformedData = (attendanceData || []).map((record: any) => ({
+      const transformedData = (attendanceData || []).map((record): AttendanceRecord => ({
         ...record,
+        check_in_location: attendanceLocation(record.check_in_location),
+        check_out_location: attendanceLocation(record.check_out_location),
         profiles: {
           full_name: record.full_name,
           role: record.role

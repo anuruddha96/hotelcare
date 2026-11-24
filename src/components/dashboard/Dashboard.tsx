@@ -157,14 +157,14 @@ export function Dashboard() {
         assigned_to_profile:profiles!tickets_assigned_to_fkey(id, full_name, role),
         closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)
       `;
-      let activeQuery = (supabase as any).from('tickets').select(selectColumns)
+      let activeQuery = supabase.from('tickets').select(selectColumns)
         .eq('organization_slug', profile.organization_slug)
         .eq('department', 'maintenance')
         .in('hotel', hotelKeys)
         .neq('status', 'completed')
         .order('created_at', { ascending: false })
         .limit(1000);
-      let completedQuery = (supabase as any).from('tickets').select(selectColumns)
+      let completedQuery = supabase.from('tickets').select(selectColumns)
         .eq('organization_slug', profile.organization_slug)
         .eq('department', 'maintenance')
         .in('hotel', hotelKeys)
@@ -175,13 +175,13 @@ export function Dashboard() {
         activeQuery = activeQuery.eq('assigned_to', profile.id);
         completedQuery = completedQuery.eq('assigned_to', profile.id);
       }
-      const crossPropertyQuery = (completed: boolean) => (supabase as any).from('tickets')
+      const crossPropertyQuery = (completed: boolean) => supabase.from('tickets')
         .select(selectColumns)
         .eq('organization_slug', profile.organization_slug).eq('department', 'maintenance')
         .eq('assigned_to', profile.id).in('hotel', ['ottofiori', 'Hotel Ottofiori'])
         .eq('status', completed ? 'completed' : 'open');
       // Cross-property work is an explicit assignment, never an extra hotel-wide feed.
-      const foreignActiveQuery = (supabase as any).from('tickets').select(selectColumns)
+      const foreignActiveQuery = supabase.from('tickets').select(selectColumns)
         .eq('organization_slug', profile.organization_slug).eq('department', 'maintenance')
         .eq('assigned_to', profile.id).in('hotel', ['ottofiori', 'Hotel Ottofiori'])
         .neq('status', 'completed').limit(100);
@@ -198,8 +198,8 @@ export function Dashboard() {
       const merged = [...new Map([
         ...(activeData || []), ...(completedData || []),
         ...(foreignActive.data || []), ...(foreignDone.data || []),
-      ].map((item: any) => [item.id, item])).values()];
-      const parsed: Ticket[] = merged.map((d: any) => ({
+      ].map(item => [item.id, item] as const)).values()];
+      const parsed: Ticket[] = merged.map(d => ({
         id: d.id, ticket_number: d.ticket_number, title: d.title,
         description: d.description, room_number: d.room_number,
         priority: d.priority, status: d.status, on_hold: d.on_hold, hold_reason: d.hold_reason,
@@ -213,9 +213,10 @@ export function Dashboard() {
         closed_by: d.closed_by_profile ? { full_name: d.closed_by_profile.full_name } : undefined,
       }));
       setTickets(sortMaintenanceTickets(parsed));
-    } catch (error: any) {
+    } catch (error: unknown) {
       setTickets([]);
-      setTicketLoadError(error?.message || 'Maintenance issues could not be loaded.');
+      const message = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : null;
+      setTicketLoadError(message || 'Maintenance issues could not be loaded.');
       toast({ title: 'Maintenance issues unavailable', description: 'Retry the selected hotel.', variant: 'destructive' });
     } finally {
       setLoading(false);
@@ -224,7 +225,7 @@ export function Dashboard() {
 
   const openCreatedMaintenanceIssue = async (ticketId: string) => {
     if (!profile?.organization_slug) return;
-    const { data, error } = await (supabase as any).from('tickets')
+    const { data, error } = await supabase.from('tickets')
       .select(`*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(id, full_name, role), closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)`)
       .eq('id', ticketId).eq('organization_slug', profile.organization_slug)
       .eq('department', 'maintenance').maybeSingle();
@@ -263,7 +264,7 @@ export function Dashboard() {
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'tickets',
         filter: `organization_slug=eq.${profile.organization_slug}`,
-      }, (event: any) => {
+      }, (event) => {
         const record = event.new || event.old;
         if (record?.department && record.department !== 'maintenance') return;
         if (record?.hotel && !maintenanceHotelScopeRef.current.has(record.hotel)

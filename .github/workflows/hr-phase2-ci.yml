@@ -6,6 +6,10 @@ on:
       - 'supabase/tests/hr_phase2_*.sql'
       - '.github/workflows/hr-phase2-ci.yml'
       - 'src/components/hr/**'
+      - 'src/components/dashboard/AttendanceReports.tsx'
+      - 'src/components/dashboard/Dashboard.tsx'
+      - 'src/lib/hr-*.ts'
+      - 'scripts/check-hr-lint.py'
 permissions:
   contents: read
 jobs:
@@ -33,8 +37,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: npm run test
       - run: npm run build
-      - run: npm run lint
+      - name: Run full ESLint and enforce no new errors
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          baseline="$RUNNER_TEMP/hr-lint-base"
+          git worktree add --detach "$baseline" "$BASE_SHA"
+          trap 'git worktree remove --force "$baseline"' EXIT
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$baseline/node_modules"
+          # Preserve the full repository lint run and its diagnostics. ESLint 1 means
+          # violations, while 2 means configuration or execution failure (always fatal).
+          lint_json() {
+            local output="$1" rc=0
+            npm run lint -- --format json --output-file "$output" || rc=$?
+            if [ "$rc" -gt 1 ]; then return "$rc"; fi
+            test -s "$output"
+          }
+          (cd "$baseline" && lint_json "$RUNNER_TEMP/hr-lint-base.json")
+          lint_json "$RUNNER_TEMP/hr-lint-head.json"
+          python3 scripts/check-hr-lint.py "$baseline" "$RUNNER_TEMP/hr-lint-base.json" "$RUNNER_TEMP/hr-lint-head.json" "$BASE_SHA"
+      - name: Preserve full lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hr-phase2-eslint-reports
+          path: ${{ runner.temp }}/hr-lint-*.json
+          if-no-files-found: warn
