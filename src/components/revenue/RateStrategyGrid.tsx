@@ -1022,7 +1022,6 @@ export default function RateStrategyGrid({
   } | null>(null);
 
   /** Make revenue calendar actions immediately visible on every visit; users may collapse them. */
-  const [calendarToolsOpen, setCalendarToolsOpen] = useState(true);
 
   /** Full-screen pricing mode — the calendar and nothing else. */
   const [expanded, setExpanded] = useState(false);
@@ -3102,9 +3101,7 @@ export default function RateStrategyGrid({
               </span>
             )}
           </CardTitle>
-          <details className="group w-full sm:w-auto" open={calendarToolsOpen} onToggle={(event) => setCalendarToolsOpen(event.currentTarget.open)}>
-            <summary className="w-fit cursor-pointer rounded-md border px-3 py-2 text-xs font-medium">{hu ? "Naptári eszközök" : "Calendar tools"}</summary>
-            <div className="mt-2 flex flex-wrap items-center gap-2 sm:justify-end">
+          <div data-rate-calendar-actions="true" role="group" aria-label={hu ? "Naptári eszközök" : "Calendar actions"} className="flex min-w-0 flex-wrap items-center gap-1.5 sm:justify-end">
             <Sheet>
               <SheetTrigger asChild>
                 <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
@@ -3138,6 +3135,7 @@ export default function RateStrategyGrid({
                 size="sm"
                 variant={multiMode ? "default" : "outline"}
                 className="h-8 gap-1.5 text-xs"
+                aria-pressed={multiMode}
                 onClick={() => { setMultiMode((v) => !v); setPickedDates(new Set()); }}
               >
                 <CalendarRange className="h-3.5 w-3.5" />
@@ -3156,16 +3154,15 @@ export default function RateStrategyGrid({
               {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               {expanded ? "Close" : "Expand"}
             </Button>
-            </div>
-          </details>
+          </div>
         </div>
 
-        {/* Separate pricing actions from analysis and display settings. */}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-2 py-1.5" role="group" aria-label="Pickup and calendar display controls">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+        {/* Always-visible controls grouped by the revenue manager’s workflow. */}
+        <div data-rate-calendar-filters="true" className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 rounded-md border bg-muted/20 px-2 py-2" role="group" aria-label={hu ? "Szűrők és nézet" : "Filters & display"}>
+          <div role="group" aria-label={hu ? "Foglalásváltozás szűrése" : "Pickup filters"} className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-semibold text-foreground">{hu ? "Foglalásváltozás" : "Pickup period"}</span>
             <Select value={String(pickupWindowDays)} onValueChange={(value) => onPickupWindowChange(Number(value))}>
-              <SelectTrigger aria-label={hu ? "Foglalásváltozás időszaka" : "Pickup period"} className="h-8 w-[200px] max-w-[65vw] text-xs">
+              <SelectTrigger aria-label={hu ? "Foglalásváltozás időszaka" : "Pickup period"} className="h-8 w-[180px] max-w-full text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -3180,21 +3177,12 @@ export default function RateStrategyGrid({
                 ))}
               </SelectContent>
             </Select>
-            <span className="hidden lg:inline text-[11px] text-muted-foreground">
-              {isAutomationWindow
-                ? (hu ? "Gördülő 48 óra · automatizálás" : "Rolling 48h · automation")
-                : (hu ? "Budapesti naptári napok · éjféltől" : "Budapest calendar days · from midnight")}
-            </span>
             <MetricInfo
               title={hu ? "Foglalásváltozás időszaka" : "How pickup windows work"}
               body={hu
                 ? "A Tegnap és ma nézet a két budapesti naptári napot mutatja éjféltől. A 48 órás automatizálási nézet folyamatosan visszaszámolt 48 óra; a két nézet eredménye eltérhet."
                 : "Yesterday + today counts booking gains and losses from the start of yesterday in Budapest time through now. The automation view uses a rolling 48-hour window, so the totals may differ. Changing this period also updates pickup figures in the KPI header and market chart."}
             />
-          </div>
-          <details className="group">
-            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">{hu ? "Szűrők és nézet" : "Filters & display"}</summary>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button
               size="sm"
               variant={pickupOnly ? "default" : "outline"}
@@ -3202,17 +3190,21 @@ export default function RateStrategyGrid({
               aria-pressed={pickupOnly}
               onClick={() => setPickupOnly((value) => !value)}
             >
-              {pickupOnly ? (hu ? "Minden dátum" : "All dates") : (hu ? "Csak változással" : "Dates with pickup")}
+              {hu ? "Csak változással" : "Dates with pickup"}
             </Button>
             <Button
               size="sm"
-              variant="ghost"
+              variant={isAutomationWindow ? "default" : "outline"}
               className="h-8 text-xs"
+              aria-pressed={isAutomationWindow}
               onClick={() => onPickupWindowChange(isAutomationWindow ? DEFAULT_PICKUP_WINDOW_DAYS : PICKUP_WINDOW_48H)}
               title={hu ? "Naptári napok és automatizálási időszak összehasonlítása" : "Compare calendar days with the automation's rolling window"}
             >
-              {isAutomationWindow ? (hu ? "Tegnap + ma" : "Yesterday + today") : (hu ? "48 óra (motor)" : "48h engine")}
+              {hu ? "48 óra (motor)" : "48h engine"}
             </Button>
+          </div>
+          <div role="group" aria-label={hu ? "Nézet" : "Display"} className="flex min-w-0 flex-wrap items-center gap-1.5 xl:ml-auto">
+            <span className="text-[11px] font-semibold text-foreground">{hu ? "Nézet" : "Display"}</span>
             {/* Desktop calendar fits the whole date range by default. Manual
                 zoom is a detail mode, and this button restores the full view. */}
             <Button type="button" size="sm" variant={fitAllDates ? "secondary" : "outline"}
@@ -3249,8 +3241,7 @@ export default function RateStrategyGrid({
                 <ZoomIn className="h-3.5 w-3.5" />
               </Button>
             </div>
-            </div>
-          </details>
+          </div>
         </div>
         {/* Legend — a tidy two-column key on a phone, one line on a desktop. */}
         <details className="group text-[11px] text-muted-foreground">

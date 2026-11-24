@@ -149,26 +149,11 @@ const calendarCss = String.raw`
     }
   }
 
-  /* Laptop widths are where the original toolbar wrapped into several rows and
-     noticeably reduced rate visibility. Keep every action available but make
-     the actions a single native horizontal strip. */
+  /* The action group can share the title row at laptop widths when it fits.
+     At narrower desktop widths, wrap naturally rather than clipping actions. */
   @media (min-width: 768px) and (max-width: 1600px) {
-    [data-rate-calendar-v2="true"] > div:first-child > div:first-child {
-      align-items: stretch !important;
-      flex-direction: column !important;
-    }
-
-    [data-rate-calendar-v2="true"] > div:first-child > div:first-child > div:last-child {
-      width: 100%;
-      flex-wrap: nowrap !important;
-      overflow-x: auto;
-      overscroll-behavior-x: contain;
-      padding-bottom: 1px;
-      scrollbar-width: thin;
-    }
-
-    [data-rate-calendar-v2="true"] > div:first-child > div:first-child > div:last-child > * {
-      flex: 0 0 auto;
+    [data-rate-calendar-v2="true"] [data-rate-calendar-actions="true"] {
+      justify-content: flex-start;
     }
   }
 
@@ -225,6 +210,7 @@ const calendarCss = String.raw`
   [data-rate-calendar-device="mobile-portrait"] > div:first-child > div:first-child > div:last-child,
   [data-rate-calendar-device="mobile-landscape"] > div:first-child > div:first-child > div:last-child {
     width: 100%;
+    justify-content: flex-start !important;
     flex-wrap: nowrap !important;
     overflow-x: auto;
     overscroll-behavior-x: contain;
