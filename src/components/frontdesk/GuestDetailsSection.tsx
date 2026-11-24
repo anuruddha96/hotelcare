@@ -132,11 +132,13 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const applyScan = (result: MrzReadResult, opticalFields: OpticalGuestFields = {}) => {
     setGuest(g => {
       if (!g) return g;
-      const patch = guestScanPatch(result, opticalFields);
-      const number = patch.id_document_number?.trim();
-      const previous = scan?.fields.okmanyAzonositoSzam?.trim() || g.id_document_number?.trim();
-      const changedDocument = !!number && !!previous && number.toUpperCase() !== previous.toUpperCase();
-      const mother = opticalFields.mother_name?.trim().split(/\s+/);
+      const proposals = Object.fromEntries(Object.entries(opticalFields).filter(([, value]) => typeof value === 'string' && value.trim() !== '')) as OpticalGuestFields;
+      const patch = guestScanPatch(result, proposals);
+      const normalizeNumber = (value?: string | null) => value?.trim().toUpperCase() || '';
+      const number = normalizeNumber(result.fields.documentNumber);
+      const previous = [normalizeNumber(scan?.fields.okmanyAzonositoSzam), normalizeNumber(g.id_document_number)].filter(Boolean);
+      const changedDocument = !!number && previous.length > 0 && !previous.includes(number) && !previous.includes(normalizeNumber(patch.id_document_number));
+      const mother = proposals.mother_name?.trim().split(/\s+/);
       const currentReview = g.viza_review?.reservation_id === vizaReservationId ? g.viza_review : {};
       return {
         ...g,
