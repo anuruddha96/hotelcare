@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {estimateCardRect,printedRowRect,mergeHungarianRows,rowHasLabel,parsePrintedRow} from './hungarianCard';
+import {estimateCardRect,printedRowRect,mergeHungarianRows,rowHasLabel,parsePrintedRow,needsHungarianPrintedFallback} from './hungarianCard';
 import {extractOpticalGuestFields} from './opticalGuestFields';
 
 describe('Hungarian ID specimen printed regions',()=>{
@@ -14,6 +14,17 @@ describe('Hungarian ID specimen printed regions',()=>{
     expect(mergeHungarianRows(true,rows.slice(0,1))).toEqual({});
     expect(mergeHungarianRows(true,[...rows.slice(0,2),{...rows[2],label:'address'}])).not.toHaveProperty('mother_name');
     expect(mergeHungarianRows(true,[...rows.slice(0,2),{...rows[2],confidence:40}])).not.toHaveProperty('mother_name');
+  });
+  it('retries targeted Hungarian rows when located OCR misses the maiden name',()=>{
+    const partial={birth_place:'Pécs',birth_last_name:'Minta',birth_first_name:'Éva'};
+    expect(needsHungarianPrintedFallback(true,partial)).toBe(true);
+    expect(needsHungarianPrintedFallback(true,{})).toBe(true);
+    expect(needsHungarianPrintedFallback(false,partial)).toBe(false);
+    const recovered={...mergeHungarianRows(true,rows),...partial};
+    expect(recovered.mother_name).toBe('Példa Anna');
+    expect(needsHungarianPrintedFallback(true,recovered)).toBe(false);
+    expect(rowHasLabel('mother_name',"Mother ’ s maiden name")).toBe(true);
+    expect(rowHasLabel('mother_name','Anyja születési neve')).toBe(true);
   });
   it('does not invent a split for ambiguous names',()=>{
     expect(parsePrintedRow('birth_pair','MINTA ÉVA ANNA')).toEqual({});
