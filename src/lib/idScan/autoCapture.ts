@@ -21,7 +21,7 @@ export function assessReadiness(current: Uint8Array, width: number, previous: Ui
   const mean = sum / n;
   if (mean < 42 || dark / n > 0.65) return 'tooDark';
   if (mean > 240 || bright / n > 0.65) return 'tooMuchGlare';
-  if (requireMotion && (!previous || previous.length !== n || motion / n > 6)) return 'holdSteady';
+  if (requireMotion && (!previous || previous.length !== n || motion / n > 9)) return 'holdSteady';
   const contrast = Math.sqrt(Math.max(0, squares / n - mean * mean));
   let lapSum = 0, lapSquares = 0, count = 0;
   const borderX = Math.max(1, Math.floor(width * 0.08));
