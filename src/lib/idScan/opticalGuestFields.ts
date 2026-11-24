@@ -26,7 +26,7 @@ const labels = [
 ] as const;
 const otherLabel = /(?:document\s*(?:no|number)|okmany|date of|szuletesi ido|ervenyes|expiry|signature|alairas|sex|nem\b|can\b|address|lakcim|authority|hat osag)/i;
 // Remove only recognized French translations and numbered labels, not values.
-const passportFrenchLabel = /\s*\/\s*(?:nom|pr[eé]noms?|nationalit[eé]|date de naissance|sexe|lieu de naissance|date de d[eé]livrance|autorit[eé]|date d['’]expiration|signature du titulaire)\b/giu;
+const passportFrenchLabel = /\s*\/\s*(?:nom|pr[eé]noms?|nationalit[eé]|date de naissance|sexe|lieu de naissance|date de d[eé]livrance|autorit[eé]|date d['’]expiration|signature du titulaire)(?=\s|[:()/\-]|$)/giu;
 const passportNumberedLabel = /\s*\(\s*\d{1,2}\s*\)/g;
 const forbiddenPassportHeader = /\b(?:authority|autorite|issuing authority|hatosag|kiallito|date of issue|date of expiry|date of expiration|date de delivrance|date d['’]expiration)\b/i;
 function cleanPassportLabel(line: string): string {
