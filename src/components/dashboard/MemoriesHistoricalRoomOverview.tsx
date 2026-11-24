@@ -10,6 +10,7 @@ import { parseRoomFlags } from '@/lib/room-service-flags';
 import { resolveHistoricalMemoriesService } from '@/lib/housekeepingHistoricalFinalState';
 import { historicalDndState, isBudapestBusinessDate, selectSavedSnapshot, type HistoricalDndState } from '@/lib/historicalDndStatus';
 import { hasMemoriesHistoricalRoomTypeConflict, isMemoriesHistoricalCheckout } from '@/lib/memoriesHistoricalRoomType';
+import { RoomAssignmentHistory } from './RoomAssignmentHistory';
 import { useTranslation } from '@/hooks/useTranslation';
 
 type RoomSnapshot = {
@@ -353,6 +354,8 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
           {selectedRoom && <>
             <DialogHeader><DialogTitle>Room {selectedRoom.snapshot.room_number} — {selectedDate} (read-only)</DialogTitle></DialogHeader>
+            <RoomAssignmentHistory hotel={hotelName} roomId={selectedRoom.snapshot.room_id}
+              roomNumber={selectedRoom.snapshot.room_number} selectedDate={selectedDate} />
             <div className="space-y-2 text-sm">
               <p><strong>Saved room category:</strong> {selectedRoom.checkout ? 'Checkout' : 'Daily'}.</p>
               {hasMemoriesHistoricalRoomTypeConflict(selectedRoom.snapshot) && <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">A {selectedRoom.snapshot.assignment_type === 'checkout_cleaning' ? 'checkout' : 'daily'} cleaning assignment was recorded for this date, but the final saved room category is {selectedRoom.checkout ? 'checkout' : 'daily'}. The room is grouped by the saved category; the original work record is preserved for audit.</p>}
