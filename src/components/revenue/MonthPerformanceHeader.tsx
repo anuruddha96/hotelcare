@@ -63,7 +63,7 @@ function Tile({ label, value, sub, icon, tone, surface, explain, loading }: {
   loading?: boolean;
 }) {
   return (
-    <div className={`w-full rounded-lg border border-l-4 p-2.5 sm:p-3 min-w-0 ${surface ?? "border-l-border"}`}>
+    <div className={`w-full rounded-lg border border-l-4 p-2.5 sm:p-3 min-w-0 ${surface ?? "border-l-border"} dark:bg-card`}>
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}<span className="truncate">{label}</span>
         {explain && !loading && <Explain {...explain} />}
