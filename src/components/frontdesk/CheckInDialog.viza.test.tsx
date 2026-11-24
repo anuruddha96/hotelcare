@@ -84,7 +84,7 @@ describe('VIZA-only whole-reservation check-in screen', () => {
     expect(screen.getByText('pms.guest.wholeReservation')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'pms.express.scanDocument' })).toBeInTheDocument();
     expect(await screen.findByText(/Synthetic Companion/)).toBeInTheDocument();
-    expect(screen.getByText('pms.express.channelName')).toBeInTheDocument();
+    expect(screen.getByText(/pms\.express\.channelName/)).toBeInTheDocument();
     if(method==='existing'){
       fireEvent.click(screen.getByRole('button', { name: 'pms.express.otherOptions' }));
       fireEvent.click(screen.getByRole('button', { name: 'Select foreign guest' }));
