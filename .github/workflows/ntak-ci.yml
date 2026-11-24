@@ -19,6 +19,7 @@ on:
       - 'supabase/tests/ntak_phase4_room_state_*.sql'
       - 'supabase/tests/ntak_phase5_walk_in_*.sql'
       - 'supabase/tests/ntak_phase8_catalogue_integration.sql'
+      - 'supabase/tests/ntak_phase7_ifa_integration.sql'
       - 'src/components/frontdesk/WalkInSaleDialog.tsx'
       - 'scripts/render_ntak_phase3_function_fixture.py'
       - 'src/lib/reservations.ts'
@@ -144,6 +145,10 @@ jobs:
           PGDATABASE=hotelcare_phase6_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase6_booking_fixture.sql
           PGDATABASE=hotelcare_phase6_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261123223000_ntak_phase6_booking_fields.sql
           PGDATABASE=hotelcare_phase6_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase6_booking_integration.sql
+      - name: Phase 7 IFA correction triggers (disposable PostgreSQL)
+        run: |
+          createdb hotelcare_phase7_ci
+          PGDATABASE=hotelcare_phase7_ci psql -X -v ON_ERROR_STOP=1 -f supabase/tests/ntak_phase7_ifa_integration.sql
       - name: Run NTAK SQL checks
         run: |
           set -euo pipefail

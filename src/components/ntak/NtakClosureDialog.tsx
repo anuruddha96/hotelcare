@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CLOSURE_CORRECTION_REASONS } from '../../../supabase/functions/_shared/ntak/codes';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -22,13 +23,14 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
   const [closed, setClosed] = useState(false);
   const [protocolId, setProtocolId] = useState('');
   const [reason, setReason] = useState('');
+  const [customReason, setCustomReason] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
   const [preview, setPreview] = useState<ClosurePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [showXml, setShowXml] = useState(false);
 
-  useEffect(() => { if (open) { setDay(initialDay); setPreview(null); setProtocolId(''); setReason(''); setOverrideReason(''); setClosed(false); } }, [open, initialDay]);
+  useEffect(() => { if (open) { setDay(initialDay); setPreview(null); setProtocolId(''); setReason(''); setCustomReason(false); setOverrideReason(''); setClosed(false); } }, [open, initialDay]);
 
   const check = async () => {
     setLoading(true);
@@ -41,7 +43,7 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
     }
   };
 
-  useEffect(() => { if (open) void check(); }, [open, day, closed]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) void check(); }, [open, day, closed, protocolId, reason]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const send = async (override = false) => {
     setSending(true);
@@ -59,10 +61,10 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
     }
   };
 
-  const errors = preview?.checklist.filter((c) => c.level === 'error' && !(c.code === 'correction' && protocolId.trim() && reason.trim())) ?? [];
+  const errors = preview?.checklist.filter((c) => c.level === 'error' && !(c.code === 'correction' && reason.trim() && protocolId.length <= 25)) ?? [];
   const warnings = preview?.checklist.filter((c) => c.level === 'warning') ?? [];
   const correction = preview?.classification === 'MODOSITO';
-  const needsReason = correction && (!protocolId.trim() || !reason.trim());
+  const needsReason = correction && !reason.trim();
   const canOverride = !!preview?.can_manage && (errors.length > 0 || warnings.length > 0) &&
     errors.every(e => ['extreme', 'age', 'country', 'ifa', 'vat', 'negative', 'category'].includes(e.code));
 
@@ -87,7 +89,13 @@ export function NtakClosureDialog({ hotelId, day: initialDay, open, onOpenChange
               <p className="text-xs font-medium">{t('ntak.correction')}</p>
               <div className="grid sm:grid-cols-2 gap-2">
                 <Input className="h-8" maxLength={25} placeholder={t('ntak.protocolId')} value={protocolId} onChange={(e) => setProtocolId(e.target.value)} />
-                <Input className="h-8" maxLength={100} placeholder={t('ntak.reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
+                <select aria-label={t('ntak.reason')} className="h-8 rounded-md border bg-background px-2 text-xs" value={customReason ? '__custom' : reason}
+                  onChange={(e) => { setCustomReason(e.target.value === '__custom'); setReason(e.target.value === '__custom' ? '' : e.target.value); }}>
+                  <option value="">{t('ntak.reason')}</option>
+                  {CLOSURE_CORRECTION_REASONS.map((r) => <option key={r.code} value={r.code}>{r.code}</option>)}
+                  <option value="__custom">{t('ntak.otherCorrectionReason')}</option>
+                </select>
+                {customReason && <Input className="h-8 sm:col-span-2" maxLength={100} placeholder={t('ntak.reason')} value={reason} onChange={(e) => setReason(e.target.value)} />}
               </div>
             </div>
           )}

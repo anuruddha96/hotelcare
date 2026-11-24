@@ -29,6 +29,7 @@ import { PrevioWritebackStatus } from '@/components/reservations/PrevioWriteback
 import { ReservationAccountPanel } from '@/components/reservations/ReservationAccountPanel';
 import { PciCardPanel } from '@/components/reservations/PciCardPanel';
 import { VccDetailsPanel } from '@/components/reservations/VccDetailsPanel';
+import { ReservationGuestIfa } from '@/components/ntak/ReservationGuestIfa';
 import { GuestWelcomeCard } from '@/components/guests/GuestWelcomeCard';
 import { useGuestSignals } from '@/hooks/useGuestSignals';
 import { guestProfilePath } from '@/lib/guestJourney';
@@ -278,6 +279,8 @@ const ReservationDetail = () => {
         </div>
 
         <GuestWelcomeCard reservationId={reservation.id} signal={guestSignal ?? null} hotelId={reservation.hotel_id} basePath={basePath} />
+
+        {ntakActive && <ReservationGuestIfa key={reservation.id} reservationId={reservation.id} night={reservation.check_in_date} />}
 
         <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
           <Card>

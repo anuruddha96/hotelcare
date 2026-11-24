@@ -8,7 +8,7 @@ import bcrypt from 'npm:bcryptjs@2.4.3';
 import { CATEGORIES, categoryProblem, postalCodeProblem, primaryChargeLimit } from './codes.ts';
 import { assembleClosure, hasBlockingErrors, type ClosureSource, type ClosureSettings, type StayGuest, type UnitInfo } from './closure.ts';
 import { computeVendegId, generateSalt, guestHashInput, isValidSalt, missingIdentityFields } from './guestId.ts';
-import { autoIfaStatus, ifaPerGuest } from './ifa.ts';
+import { autoIfaStatus, effectiveIfaStatus, ifaPerGuest } from './ifa.ts';
 import { buildBooking, buildDaySources, mapExtras, mapPayments, DEFAULT_LEDGER_CONFIG, type RawReservation } from './ledger.ts';
 import {
   buildAdatszolgaltatasKezdoDatumRequest, buildEllenorzesRequest, buildEsemenyvezereltRequest, buildFoglalasEsemenyRequest,
@@ -177,7 +177,7 @@ Deno.test('closure checklist blocks what NTAK would reject', () => {
   const { checklist } = assembleClosure(src, settings);
   const codes = checklist.filter((c) => c.level === 'error').map((c) => c.code);
   assert.ok(codes.includes('guest'), 'room without identifiable guest');
-  assert.ok(codes.includes('correction'), 'MODOSITO needs record id + reason');
+  assert.ok(codes.includes('correction'), 'MODOSITO needs a reason');
 
   const old = closureSource();
   old.stays[0].guests = [guest(1, { birthDate: '1910-01-01' }), guest(2, { nationality: 'XX' })];
@@ -511,6 +511,42 @@ Deno.test('Phase 2 SQL contract: day-use room conflicts, picker range and negati
   assert.match(migration, /ELSIF _charge_type='adjustment' AND _amount < 0 THEN/);
   assert.match(migration, /INSERT INTO public\.folio_lines/);
   assert.match(migration, /PERFORM public\.pms_finance_recalculate_reservation\(r\.id\)/);
+});
+
+
+Deno.test('Phase 7: NZ_04A/B correcting a guest retains identity, 400 HUF rate and two guest nights', async () => {
+  const src = closureSource();
+  const fixed: ClosureSettings = { ...settings, ifa: { type: 'TETELES', rate: 400 }, ifaVat: 0 };
+  const sergey = guest(1, { name: 'Sergey Cherkasov', birthDate: '1986-01-01', ifaStatus: 'KOTELES' });
+  src.stays[0].guests = [sergey, guest(2, { ifaStatus: 'KOTELES' })];
+  const before = assembleClosure(src, fixed);
+  assert.equal(before.closure.ifa?.rate, 400);
+  assert.equal(before.totals.ifa, 800);
+  assert.equal(before.totals.guests, 2);
+  assert.equal(before.closure.rooms.rented, 1);
+  assert.equal(before.closure.nights[0].guests[0].birthYear, 1986);
+  await assertValid(buildNapiZarasRequest(common(), before.closure));
+
+  // im5 is documented in official v8.23 section 11.21; verify v9.07 annex
+  // before final certification. Keep the originally transmitted guest ID.
+  src.classification = 'MODOSITO';
+  src.reason = 'VENDEG_VAGY_IFA_JAVITAS';
+  src.stays[0].guests[0] = { ...sergey, birthDate: '1987-02-11', ifaStatus: 'im5' };
+  const after = assembleClosure(src, fixed);
+  assert.equal(after.closure.ifa?.rate, 400);
+  assert.equal(after.totals.ifa, 400);
+  assert.equal(after.totals.guests, 2);
+  assert.equal(after.closure.rooms.rented, 1);
+  assert.equal(after.closure.nights[0].guests[0].birthYear, 1987);
+  assert.equal(after.closure.nights[0].guests[0].vendegId, sergey.vendegId);
+  assert.equal(after.closure.nights[0].guests[0].ifaStatus, 'im5');
+  assert.deepEqual(after.closure.nights[0].sold!.outPackage.filter(c => c.main === 'IFA'), [{ amount: 400, main: 'IFA', sub: null, vat: 0 }]);
+  assert.ok(after.checklist.some(c => c.code === 'ifa_unverified' && c.level === 'error'), 'unverified im5 must block transmission');
+  const xml = buildNapiZarasRequest(common(), after.closure);
+  assert.ok(xml.includes('VENDEG_VAGY_IFA_JAVITAS'));
+  assert.ok(!xml.includes('jegyzokonyvAzonosito'));
+  await assertValid(xml);
+  assert.equal(effectiveIfaStatus('2010-11-19', src.day, 'KOTELES'), 'im1');
 });
 
 Deno.test('Phase 8 NZ_03 explicit category coverage and seven payment methods', async () => {

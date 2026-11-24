@@ -9,7 +9,7 @@ import { STOP_SENDING_KEYS } from "../_shared/ntak/codes.ts";
 import { mapWalkInSales, type PosSale, type PosLine, type PosPayment } from "../_shared/ntak/pos.ts";
 import { assembleClosure, hasBlockingErrors, type AssembledClosure, type ClosureSettings, type StayGuest, type UnitInfo } from "../_shared/ntak/closure.ts";
 import { computeVendegId, isValidSalt, missingIdentityFields } from "../_shared/ntak/guestId.ts";
-import { autoIfaStatus } from "../_shared/ntak/ifa.ts";
+import { autoIfaStatus, effectiveIfaStatus, isVerifiedIfaStatus } from "../_shared/ntak/ifa.ts";
 import {
   addDays, buildBooking, buildDaySources, bookingNumber, DEFAULT_LEDGER_CONFIG, localDate, roomOnDay, toIso2,
   type LedgerConfig, type RawFolioLine, type RawPayment, type RawReservation,
@@ -217,9 +217,9 @@ export async function loadStayGuests(db: Db, hotelId: string, reservations: RawR
   return out;
 }
 
-const toNtakGuest = (g: StayGuest, day: string, autoStatus: (b: string | null, d: string) => string): NtakGuest | null =>
+const toNtakGuest = (g: StayGuest, day: string, _autoStatus: (b: string | null, d: string) => string): NtakGuest | null =>
   g.vendegId && g.birthDate && g.nationality && g.residenceCountry
-    ? { vendegId: g.vendegId, birthYear: Number(g.birthDate.slice(0, 4)), sex: g.sex ?? "EGYEB_VAGY_NEM_ISMERT", nationality: g.nationality, residenceCountry: g.residenceCountry, postalCode: g.postalCode ?? "", ifaStatus: g.ifaStatus || autoStatus(g.birthDate, day) }
+    ? { vendegId: g.vendegId, birthYear: Number(g.birthDate.slice(0, 4)), sex: g.sex ?? "EGYEB_VAGY_NEM_ISMERT", nationality: g.nationality, residenceCountry: g.residenceCountry, postalCode: g.postalCode ?? "", ifaStatus: effectiveIfaStatus(g.birthDate, day, g.ifaStatus) }
     : null;
 
 // ---------------------------------------------------------------------------
@@ -639,6 +639,7 @@ export async function processEvents(db: Db, s: Settings, limit: number): Promise
     let problem: string | null = null;
     if (!r) problem = "reservation not found";
     else if (!unit || (e.kind === "lakoegysegetCserelt" && !from)) problem = "room has no NTAK unit profile";
+    else if (selected.some(g => !isVerifiedIfaStatus(effectiveIfaStatus(g.birthDate, day, g.ifaStatus)))) problem = "Unverified IFA exemption: official v9 annex required";
     else if (requested && (!exactMatch || requested.size===0)) problem = "selected guest identity missing or incomplete";
     else if (!list.length) problem = "no guest with complete personal data yet";
     if (problem) {
