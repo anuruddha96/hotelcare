@@ -28,7 +28,11 @@ HotelCare (edge function) --TLS, gateway CA pinned--> relay 34.116.154.20 (CONNE
 
 ## Install (as root on the THF server)
 1. Free port 443: the THF installer publishes `7843:8443`; remove any extra `443:8443` mapping
-   from the THF's `docker-compose.yml` and run `docker compose up -d` in the THF directory.
+   from the THF's `docker-compose.yml` (keep a copy) and recreate the THF container in the THF
+   directory: `docker-compose up -d` (older installs, Compose v1) or `docker compose up -d`.
+   On the test server the THF keeps its certificates in `/opt/thf/cert` and its data in Docker
+   volumes, so recreating the container loses nothing; on another server check
+   `docker inspect` (mounts) and `docker diff` first.
 2. Put the THF server CA certificate (PEM) next to these files, then:
    `sudo FQDN=thf-test.hotelcare.app THF_CA_FILE=./viza-thf-ca.pem ./install.sh`
 3. The script prints the gateway CA. Copy it into HotelCare.
@@ -39,12 +43,17 @@ HotelCare (edge function) --TLS, gateway CA pinned--> relay 34.116.154.20 (CONNE
 With `thf_via_gateway = false` (default) HotelCare connects directly, as before.
 
 ## Check
+Run as root (`/etc/hc-thf-gateway` is readable by root and the gateway user only):
 - `curl --cacert /etc/hc-thf-gateway/ca.crt --resolve <FQDN>:443:127.0.0.1 https://<FQDN>/healthz` → `ok`
+- `POST /ws` without HotelCare's credential headers → HTTP 400, SOAP fault
+  `HotelCare THF gateway: client certificate missing (gateway mode is not enabled for this hotel in HotelCare)`.
+  HotelCare shows the same text while `thf_via_gateway` is off.
 - `journalctl -u hc-thf-gateway` shows one line per request (address, request line, status).
 
 ## Remove
 `systemctl disable --now hc-thf-gateway && rm -rf /opt/hc-thf-gateway /etc/hc-thf-gateway /etc/systemd/system/hc-thf-gateway.service && userdel hcgw`,
-then set `thf_via_gateway = false` in HotelCare.
+then set `thf_via_gateway = false` in HotelCare. Put the `443:8443` mapping back only if the THF
+should answer on 443 directly again.
 
 ## Production note
 For a hotel running its own THF the gateway runs on that hotel's THF server and receives that
