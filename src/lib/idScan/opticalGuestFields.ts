@@ -10,13 +10,13 @@ export type OpticalGuestFields = Partial<{
 
 const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const displayName = (s: string) => s.trim().split(/\s+/).map(word => word.toLowerCase().replace(/(^|[-'’])\p{L}/gu, c => c.toUpperCase())).join(' ');
-const name = (s: string) => /^[\p{L}\p{M}][\p{L}\p{M} .'’\-]{1,79}$/u.test(s) ? displayName(s) : null;
+const name = (s: string) => /^[\p{L}\p{M}][\p{L}\p{M} .'’\-]{0,79}$/u.test(s) ? displayName(s) : null;
 
 // Explicit field labels only. Never infer a maiden name from the current
 // surname, nationality from the issuing country, or birthplace from an address.
 const labels = [
   ['mother_name', /(?:anyja\s+(?:szuletesi\s+)?neve?|mother(?:'s|s)?\s+(?:birth|maiden)\s+name)/i],
-  ['birth_pair', /(?:szuletesi\s+csalad(?:i)?\s+es\s+uto(?:neve|nev)|szuletesi\s+neve?|birth name|^\\s*name at birth)/i],
+  ['birth_pair', /(?:szuletesi\s+csalad(?:i)?\s+es\s+uto(?:neve|nev)|szuletesi\s+neve?|birth name|^\s*name at birth)/i],
   ['birth_last_name', /(?:szuletesi\s+csalad(?:i)?nev|family name at birth|birth surname|surname at birth)/i],
   ['birth_first_name', /(?:szuletesi\s+uto(?:neve|nev)|given names? at birth|birth given names?)/i],
   ['birth_place', /(?:szuletesi\s+helye?|place of birth|birth place)/i],
@@ -59,8 +59,12 @@ export function extractOpticalGuestFields(text: string): OpticalGuestFields {
       if (/(?:at birth|szuletesi|and given|es utonev)/.test(normalized)) continue;
     }
     let tail = lines[i].slice(match.index + match[0].length).replace(/^\s*[:/\-]\s*/, '').trim();
-    // Bilingual headers may repeat the label in English.
-    tail = tail.replace(pattern, '').replace(/^\s*[:/\-]\s*/, '').trim();
+    // Bilingual headers may repeat the same field label in English.
+    const repeated = labels.find(([k, p]) => k === key && p.test(fold(tail)));
+    if (repeated) {
+      const m = repeated[1].exec(fold(tail))!;
+      if (m.index === 0) tail = tail.slice(m[0].length).replace(/^\s*[:/\-]\s*/, '').trim();
+    }
     const foldedTail = fold(tail);
     if (labels.some(([, p]) => p.test(foldedTail)) || otherLabel.test(foldedTail)) continue;
     if (!tail) {
