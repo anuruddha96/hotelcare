@@ -54,3 +54,48 @@ UPDATE public.viza_guest_events SET arrival_state='sent';
 DO $$ BEGIN
  IF (SELECT departure_state FROM public.viza_guest_events) IS DISTINCT FROM 'queued' THEN RAISE EXCEPTION 'Repaired arrival stranded departure'; END IF;
 END $$;
+
+-- New document-aware guard on the same disposable fixture.
+ALTER TABLE public.guests ADD COLUMN IF NOT EXISTS birth_last_name text,
+ ADD COLUMN IF NOT EXISTS birth_first_name text, ADD COLUMN IF NOT EXISTS visa_number text,
+ ADD COLUMN IF NOT EXISTS entry_date date, ADD COLUMN IF NOT EXISTS entry_place text,
+ ADD COLUMN IF NOT EXISTS document_scan jsonb;
+\ir ../migrations/20261124131000_viza_document_aware_admission.sql
+UPDATE public.viza_settings SET enabled=true,adatszolgaltatasi_azonosito='TEST0001';
+UPDATE public.reservations SET adults=1,children=1;
+UPDATE public.guests SET birth_last_name=last_name,birth_first_name=first_name,
+ mother_family_name='Synthetic Family',mother_given_name='Synthetic Given',
+ viza_review='{"reservation_id":"00000000-0000-4000-8000-000000000094","parent_statement":true,"manual_reason":"Scanner failure"}';
+UPDATE public.guests SET id_document_type='id_card',id_document_number='TEST-ID'
+ WHERE id='00000000-0000-4000-8000-000000000092';
+SELECT public.pms_assert_viza_arrival_data('00000000-0000-4000-8000-000000000094',NULL,current_date);
+UPDATE public.guests SET mother_given_name=NULL,
+ viza_review=viza_review||'{"mother_name_absent":true}'::jsonb WHERE id='00000000-0000-4000-8000-000000000092';
+DO $$ BEGIN
+ BEGIN
+  PERFORM public.pms_assert_viza_arrival_data('00000000-0000-4000-8000-000000000094',ARRAY['00000000-0000-4000-8000-000000000092'::uuid],current_date);
+  RAISE EXCEPTION 'Hungarian ID missing mother name was admitted';
+ EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'VIZA_GUEST_DATA_INCOMPLETE:%mother_given_name%' THEN RAISE; END IF; END;
+END $$;
+UPDATE public.guests SET nationality='DE',id_document_type='passport',mother_family_name=NULL,
+ birth_last_name=NULL,birth_first_name=NULL,birth_place=NULL,
+ viza_review=viza_review||'{"birth_name_absent":true,"birth_place_absent":true}'::jsonb
+ WHERE id='00000000-0000-4000-8000-000000000092';
+SELECT public.pms_assert_viza_arrival_data('00000000-0000-4000-8000-000000000094',NULL,current_date);
+UPDATE public.guests SET nationality='LK' WHERE id='00000000-0000-4000-8000-000000000092';
+DO $$ BEGIN
+ BEGIN
+  PERFORM public.pms_assert_viza_arrival_data('00000000-0000-4000-8000-000000000094',NULL,current_date);
+  RAISE EXCEPTION 'Third-country arrival missing entry was admitted';
+ EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'VIZA_GUEST_DATA_INCOMPLETE:%entry_date%entry_place%visa_number%' THEN RAISE; END IF; END;
+END $$;
+UPDATE public.guests SET entry_date=current_date,entry_place='Vienna',
+ viza_review=viza_review||'{"visa_exempt":true}'::jsonb WHERE id='00000000-0000-4000-8000-000000000092';
+SELECT public.pms_assert_viza_arrival_data('00000000-0000-4000-8000-000000000094',NULL,current_date);
+UPDATE public.reservations SET adults=2;
+DO $$ BEGIN
+ BEGIN
+  PERFORM public.pms_assert_viza_arrival_data('00000000-0000-4000-8000-000000000094',NULL,current_date);
+  RAISE EXCEPTION 'Incomplete occupant roster was admitted';
+ EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'VIZA_GUEST_DATA_INCOMPLETE:%occupant_count%' THEN RAISE; END IF; END;
+END $$;
