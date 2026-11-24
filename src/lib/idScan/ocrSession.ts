@@ -21,10 +21,14 @@ export class OcrSession {
       slot.worker = worker;
       return worker;
     });
-    slot.promise = Promise.race([loading, cancelled]).catch(error => {
+    let initTimer: ReturnType<typeof setTimeout> | undefined;
+    const initTimeout = new Promise<never>((_, reject) => {
+      initTimer = setTimeout(() => reject(new Error('OCR initialization timeout')), 15000);
+    });
+    slot.promise = Promise.race([loading, cancelled, initTimeout]).catch(error => {
       if (this.slot === slot) this.reset();
       throw error;
-    });
+    }).finally(() => { if (initTimer !== undefined) clearTimeout(initTimer); });
     return slot.promise;
   }
 
