@@ -54,16 +54,16 @@ DO $$ BEGIN
 END $$;
 -- Deliberately break bookkeeping; all four source writes must survive.
 CREATE OR REPLACE FUNCTION public.ntak_phase7_dirty_guest(_guest uuid,_reservation uuid DEFAULT NULL)
-RETURNS void LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'synthetic NTAK bookkeeping failure'; END $;
+RETURNS void LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic NTAK bookkeeping failure'; END $$;
 CREATE OR REPLACE FUNCTION public.ntak_phase7_dirty_day(_hotel text,_day date)
-RETURNS void LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'synthetic NTAK bookkeeping failure'; END $;
+RETURNS void LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic NTAK bookkeeping failure'; END $$;
 UPDATE public.guests SET date_of_birth='1987-02-12';
 UPDATE public.reservation_guests SET ifa_status='KOTELES';
 UPDATE public.folio_lines SET gross_total=501;
 UPDATE public.payments SET amount=1201;
-DO $ BEGIN
+DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM guests WHERE date_of_birth='1987-02-12') OR NOT EXISTS(SELECT 1 FROM reservation_guests WHERE ifa_status='KOTELES')
  OR NOT EXISTS(SELECT 1 FROM folio_lines WHERE gross_total=501) OR NOT EXISTS(SELECT 1 FROM payments WHERE amount=1201)
  THEN RAISE EXCEPTION 'NTAK bookkeeping failure blocked source write'; END IF;
-END $;
+END $$;
 ROLLBACK;
