@@ -504,6 +504,8 @@ const partialRows: Record<string, readonly [string, ...string[]]> = {
   'pms.guest.manualReason': ["Reason for manual document entry", "A kézi okmányrögzítés oka", "Motivo de introducción manual"],
   'pms.guest.parentStatement': ["Data confirmed by parent or legal representative", "A szülő vagy törvényes képviselő nyilatkozata alapján", "Datos confirmados por el representante legal"],
   'pms.guest.visaExempt': ["Visa-exempt and no residence permit", "Vízummentes, tartózkodási engedély nélkül", "Exento de visado y sin permiso de residencia"],
+  'pms.guest.wholeReservation': ["All registered guests check in together", "Minden rögzített vendég együtt jelentkezik be", "Todos los huéspedes registrados se alojan juntos"],
+  'pms.guest.vizaStatusFailed': ["Could not verify VIZA registration requirements. Reopen check-in to retry.", "A VIZA-követelmények ellenőrzése sikertelen. Nyissa meg újra a bejelentkezést.", "No se pudieron verificar los requisitos VIZA. Vuelva a abrir el registro."],
   'pms.guest.occupantCount': ["Register every occupant before check-in; the guest count must match the booking.", "Bejelentkezés előtt minden vendéget rögzíteni kell; a létszám egyezzen a foglalással.", "Registre a todos los huéspedes antes de la llegada."],
   'pms.guest.under14': ["Guest under 14: no document is needed.", "14 év alatti vendég: okmány nem szükséges.", "Menor de 14 años: no se necesita documento."],
   'pms.guest.thirdCountry': ["Guests from outside the EU/EEA (visa, entry to Hungary)", "EU/EGT-n kívüli vendégek (vízum, beutazás Magyarországra)", "Huéspedes de fuera de la UE/EEE (visado, entrada a Hungría)"],
