@@ -117,7 +117,7 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
     audioMeterRef.current = null;
     const context = audioContextRef.current;
     audioContextRef.current = null;
-    if (context) void context.close().catch(() => {});
+    if (context && context.state !== "closed") void context.close().catch(() => {});
     stopRecognition();
     stopSnippet();
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -188,7 +188,7 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
     setPhase("starting");
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       // Cancel may have been pressed while the permission prompt was visible.
       if (sessionRef.current !== session || (stateRef.current as MiraVoiceState) !== "starting") {
         stream.getTracks().forEach((track) => track.stop());
@@ -204,9 +204,10 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
       mainChunksRef.current = [];
 
       recorder.ondataavailable = (event: BlobEvent) => {
-        if (event.data.size) mainChunksRef.current.push(event.data);
+        if (sessionRef.current === session && event.data.size) mainChunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
+        if (sessionRef.current !== session) return;
         const type = recorder.mimeType || mimeType || "audio/webm";
         const blob = new Blob(mainChunksRef.current, { type });
         setPhase("transcribing");
@@ -268,6 +269,7 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
             if (event.data.size) parts.push(event.data);
           };
           sample.onstop = () => {
+            if (sessionRef.current !== session || snippetRecorderRef.current !== sample) return;
             if (snippetTimerRef.current !== null) window.clearTimeout(snippetTimerRef.current);
             snippetTimerRef.current = null;
             if (snippetRecorderRef.current === sample) snippetRecorderRef.current = null;
@@ -288,6 +290,7 @@ export function useMiraDictation(onConfirm: (text: string) => void, language: st
                 } catch (error) {
                   // Network or provider errors must not disable Stop or the
                   // final full-recording transcription.
+                  if (sessionRef.current !== session || stateRef.current !== "recording") return;
                   console.warn("Mira live preview temporarily unavailable", error);
                   setLiveHint("Listening… transcription may take a moment");
                 }
