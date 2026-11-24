@@ -448,7 +448,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
               {/* Checkout Rooms */}
               {checkout.length > 0 && (
                 <div className="mb-4">
-                  <h4 className="font-medium text-orange-600 mb-2 flex items-center">
+                  <h4 className="font-medium text-orange-600 dark:text-orange-300 mb-2 flex items-center">
                     <LogOut className="h-4 w-4 mr-1" />
                     {t('assignment.checkoutRooms')} ({checkout.length})
                   </h4>
@@ -456,8 +456,8 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                     {checkout.map((room) => (
                       <label key={room.id} className={`flex items-center space-x-3 p-3 border rounded-lg ${
                         room.assignment
-                          ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed'
-                          : 'border-orange-200 bg-orange-50 cursor-pointer hover:bg-orange-100'
+                          ? 'border-gray-300 bg-gray-100 dark:border-border dark:bg-muted/40 opacity-60 cursor-not-allowed'
+                          : 'border-orange-200 bg-orange-50 cursor-pointer hover:bg-orange-100 dark:border-orange-800 dark:bg-orange-950/25 dark:hover:bg-orange-950/50'
                       }`}>
                         <Checkbox
                           checked={selectedRooms.includes(room.id)}
@@ -474,7 +474,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                           </div>
                           {room.assignment ? (
                             <div className="flex items-center justify-between">
-                              <div className="text-xs text-red-600 mt-1 flex items-center">
+                              <div className="text-xs text-red-600 dark:text-red-300 mt-1 flex items-center">
                                 <User className="h-3 w-3 mr-1" />
                                 Already assigned to {room.assignment.assigned_to_name}
                               </div>
@@ -494,7 +494,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                               )}
                             </div>
                           ) : (
-                            <div className="text-xs text-orange-600 mt-1 flex items-center">
+                            <div className="text-xs text-orange-600 dark:text-orange-300 mt-1 flex items-center">
                               <LogOut className="h-3 w-3 mr-1" />
                               {t('assignment.checkoutRoom')}
                               {room.guest_count && room.guest_count > 0 && (
@@ -515,7 +515,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
               {/* Daily Cleaning Rooms */}
               {daily.length > 0 && (
                 <div>
-                  <h4 className="font-medium text-blue-600 mb-2 flex items-center">
+                  <h4 className="font-medium text-blue-600 dark:text-blue-300 mb-2 flex items-center">
                     <User className="h-4 w-4 mr-1" />
                     {t('assignment.dailyCleaningRooms')} ({daily.length})
                   </h4>
@@ -523,8 +523,8 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                     {daily.map((room) => (
                       <label key={room.id} className={`flex items-center space-x-3 p-3 border rounded-lg ${
                         room.assignment
-                          ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed'
-                          : 'border-blue-200 bg-blue-50 cursor-pointer hover:bg-blue-100'
+                          ? 'border-gray-300 bg-gray-100 dark:border-border dark:bg-muted/40 opacity-60 cursor-not-allowed'
+                          : 'border-blue-200 bg-blue-50 cursor-pointer hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/25 dark:hover:bg-blue-950/50'
                       }`}>
                         <Checkbox
                           checked={selectedRooms.includes(room.id)}
@@ -541,7 +541,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                           </div>
                           {room.assignment ? (
                             <div className="flex items-center justify-between">
-                              <div className="text-xs text-red-600 mt-1 flex items-center">
+                              <div className="text-xs text-red-600 dark:text-red-300 mt-1 flex items-center">
                                 <User className="h-3 w-3 mr-1" />
                                 Already assigned to {room.assignment.assigned_to_name}
                               </div>
@@ -561,7 +561,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                               )}
                             </div>
                           ) : (
-                            <div className="text-xs text-blue-600 mt-1 flex items-center">
+                            <div className="text-xs text-blue-600 dark:text-blue-300 mt-1 flex items-center">
                               <User className="h-3 w-3 mr-1" />
                               {t('assignment.dailyCleaning')}
                               {room.guest_count && room.guest_count > 0 && (
