@@ -119,7 +119,7 @@ export function Header() {
   };
 
   return (
-    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
+    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/60 dark:bg-background dark:supports-[backdrop-filter]:bg-background backdrop-blur border-b border-border sticky top-0 z-50 shadow-sm w-full overflow-hidden">
       <div className="container mx-auto max-w-full flex flex-col gap-2 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4 sm:py-3">
         {/* Logo Section - More space on mobile */}
         <div className="flex w-full min-w-0 items-center justify-between gap-3 sm:w-auto sm:shrink-0">
