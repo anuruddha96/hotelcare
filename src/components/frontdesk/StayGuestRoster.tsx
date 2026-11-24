@@ -10,7 +10,7 @@ import {
 import { GuestDetailsSection, type GuestVizaRow } from '@/components/frontdesk/GuestDetailsSection';
 import { GuestSearchSelect } from '@/components/guests/GuestSearchSelect';
 import { useTranslation } from '@/hooks/useTranslation';
-import { vizaMissingFields, vizaProblems, vizaAdmissionFields, type GuestVizaValues } from '@/lib/idScan/guestVizaChecks';
+import { vizaMissingFields, vizaProblems, vizaAdmissionFields, vizaArrivalDay, type GuestVizaValues } from '@/lib/idScan/guestVizaChecks';
 import { addStayGuest, guestTransitionReservation, type GuestAction } from '@/lib/pmsLifecycle';
 import { toast } from 'sonner';
 
@@ -38,7 +38,7 @@ export interface GuestRosterControl {
 
 export function useStayGuestRoster(
   reservationId: string, hotelId: string | null, open: boolean,
-  mode: 'arrive' | 'depart', roomId?: string | null, vizaRequired = false,
+  mode: 'arrive' | 'depart', roomId?: string | null, vizaRequired = false, occurredAt?: string | null,
 ): GuestRosterControl {
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -76,7 +76,7 @@ export function useStayGuestRoster(
   useEffect(() => { void refresh(); }, [refresh]);
   const eligible = useMemo(() => guests.filter((g) => g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house')), [guests,mode]);
   const incompleteSelected = useMemo(() => guests.filter((g) => selectedIds.includes(g.guest_id))
-    .filter((g) => (vizaRequired ? vizaAdmissionFields(g.guests, reservationId).length : vizaMissingFields(g.guests).length + vizaProblems(g.guests).length) > 0).length, [guests,selectedIds,vizaRequired,reservationId]);
+    .filter((g) => (vizaRequired ? vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length : vizaMissingFields(g.guests).length + vizaProblems(g.guests).length) > 0).length, [guests,selectedIds,vizaRequired,reservationId,occurredAt]);
   const updateSavedGuest = useCallback((guest: GuestVizaRow) => {
     setGuests((rows) => rows.map((row) => row.guest_id === guest.id ? { ...row, guests: guest } : row));
   }, []);
@@ -140,7 +140,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
       )}
       {control.guests.map((g) => {
         const canChoose = g.stay_state === (mode === 'arrive' ? 'expected' : 'in_house');
-        const complete = vizaRequired ? vizaAdmissionFields(g.guests, reservationId).length === 0 : vizaMissingFields(g.guests).length === 0 && vizaProblems(g.guests).length === 0;
+        const complete = vizaRequired ? vizaAdmissionFields(g.guests, reservationId, vizaArrivalDay(occurredAt)).length === 0 : vizaMissingFields(g.guests).length === 0 && vizaProblems(g.guests).length === 0;
         return <div key={g.guest_id} className="space-y-1">
           <div className="flex gap-2 items-center rounded-md border border-border/70 p-2">
             <Checkbox disabled={!canChoose || busy} checked={canChoose && control.selectedIds.includes(g.guest_id)}
@@ -169,7 +169,7 @@ export function StayGuestRoster({ control, mode, reservationId, hotelId, orgSlug
               )}
             </div>
           </div>
-          {detailsId===g.guest_id && <GuestDetailsSection vizaReservationId={vizaRequired ? reservationId : undefined} guestId={g.guest_id}
+          {detailsId===g.guest_id && <GuestDetailsSection occurredAt={occurredAt} vizaReservationId={vizaRequired ? reservationId : undefined} guestId={g.guest_id}
             onSaved={control.updateSavedGuest} />}
         </div>;
       })}
