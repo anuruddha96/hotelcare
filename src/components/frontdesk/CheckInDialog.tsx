@@ -5,7 +5,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -41,10 +40,11 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const [showAll, setShowAll] = useState(false);
   const [override, setOverride] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [vizaMissing, setVizaMissing] = useState<string[]>([]);
+  const [vizaMissing, setVizaMissing] = useState<string[] | null>(null);
+  const [arrivalError, setArrivalError] = useState<string | null>(null);
   const [vizaRequired, setVizaRequired] = useState(false);
   useEffect(() => {
-    let active=true; setVizaRequired(false); setVizaMissing([]);
+    let active=true; setVizaRequired(false); setVizaMissing(null); setArrivalError(null);
     if(open) void (supabase.rpc as CallableFunction)('pms_viza_registration_required',{_reservation_id:reservation.id}).then(({data}: {data:unknown}) => {if(active) setVizaRequired(data===true);}).catch(()=>{});
     return ()=>{active=false;};
   },[open,reservation.id]);
@@ -83,7 +83,8 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
   const capacityWarn = !!selected && selected.capacity > 0 && pax > selected.capacity;
   const notCleanWarn = !!selected && selected.room_status !== 'clean'
     && !(reservation.status === 'checked_in' && selected.room_id === reservation.room_id);
-  const vizaWarn = !!reservation.guest_id && vizaMissing.length > 0;
+  const guestDetailsLoading = !roster.enabled && !!reservation.guest_id && vizaMissing === null;
+  const vizaWarn = !!reservation.guest_id && (vizaMissing?.length ?? 0) > 0;
   const needsOverride = capacityWarn || notCleanWarn || (vizaWarn && !vizaRequired);
   const vizaBlocked = vizaRequired && (roster.enabled ? roster.incompleteSelected > 0 : vizaWarn);
 
@@ -93,6 +94,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
       return;
     }
     setSubmitting(true);
+    setArrivalError(null);
     try {
       const result = await checkInReservation(reservation.id, selectedRoom, override, businessMoment.occurredAt,
         roster.enabled ? roster.selectedIds : null);
@@ -100,7 +102,9 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
       onSuccess();
     } catch (err) {
       const key = err instanceof LifecycleError ? err.translationKey : null;
-      toast.error(formatVizaArrivalError((err as Error).message ?? '', t) ?? (key ? t(key) : (err as Error).message || t('pms.checkIn.failedCheckIn')));
+      const registrationError = formatVizaArrivalError((err as Error).message ?? '', t);
+      if (registrationError) setArrivalError(registrationError);
+      toast.error(registrationError ?? (key ? t(key) : (err as Error).message || t('pms.checkIn.failedCheckIn')));
 
     } finally {
       setSubmitting(false);
@@ -129,8 +133,13 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             basePath={organizationSlug ? `/${organizationSlug}` : undefined} />
 
           {!roster.enabled && reservation.guest_id && (
-            <GuestDetailsSection guestId={reservation.guest_id} onCompletenessChange={setVizaMissing} />
+            <GuestDetailsSection guestId={reservation.guest_id} onCompletenessChange={setVizaMissing}
+              onSaved={() => setArrivalError(null)} />
           )}
+
+          <StayGuestRoster control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
+            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} />
+          {arrivalError && <p role="alert" className="text-sm text-destructive break-words">{arrivalError}</p>}
 
           {(noteSummary || balance > 0 || missingContact) && (
             <div className="space-y-1.5">
@@ -186,8 +195,6 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
             </button>
           </div>
 
-          <StayGuestRoster control={roster} mode="arrive" reservationId={reservation.id} hotelId={reservation.hotel_id}
-            orgSlug={reservation.organization_slug} occurredAt={businessMoment.occurredAt} onChanged={onSuccess} />
           <BusinessMomentField control={businessMoment} />
 
           {vizaBlocked && <p role="alert" className="text-sm text-destructive">{t('pms.guest.vizaArrivalBlocked')}</p>}
@@ -207,7 +214,7 @@ export function CheckInDialog({ reservation, open, onOpenChange, onSuccess }: Ch
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
           <Button
             onClick={handleCheckIn}
-            disabled={submitting || businessMoment.invalid || !selectedRoom || roster.loading
+            disabled={submitting || businessMoment.invalid || !selectedRoom || roster.loading || guestDetailsLoading
               || (roster.enabled && roster.selectedIds.length === 0)
               || vizaBlocked || (vizaWarn && !vizaRequired && !override)}
             className="gap-1"
