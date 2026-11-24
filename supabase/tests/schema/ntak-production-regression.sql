@@ -79,7 +79,7 @@ INSERT INTO public.service_catalog_items(id,organization_slug,name,category,defa
  ('00000000-0000-4000-8000-000000000042','channex','Synthetic walk-in breakfast','breakfast',4600,'HUF',5);
 INSERT INTO public.pos_sales(id,hotel_id,organization_slug,business_day,created_by,request_payload)
  VALUES('00000000-0000-4000-8000-000000000043','native-ci','channex',(now() AT TIME ZONE 'Europe/Budapest')::date,auth.uid(),'{}');
-DO $ BEGIN
+DO $$ BEGIN
  BEGIN
   INSERT INTO public.pos_sale_lines(sale_id,service_catalog_item_id,description,gross_total,vat_rate,ntak_main,ntak_sub)
   VALUES('00000000-0000-4000-8000-000000000043','00000000-0000-4000-8000-000000000042','Invalid category',4600,5,'ETEL','SOR');
@@ -89,7 +89,7 @@ DO $ BEGIN
  END;
  INSERT INTO public.pos_sale_lines(sale_id,service_catalog_item_id,description,gross_total,vat_rate,ntak_main,ntak_sub)
  VALUES('00000000-0000-4000-8000-000000000043','00000000-0000-4000-8000-000000000042','Valid category',4600,5,'ETEL','REGGELI');
-END $;
+END $$;
 
 -- Authority hidden from reception; disabled-hotel writes allowed; scoped
 -- NTAK direct guest mutations denied by replayed policies.
@@ -121,15 +121,15 @@ UPDATE public.ntak_settings SET enabled=false WHERE hotel_id='native-ci';
 -- must not queue a synthetic arrival; disabled authority hotels remain quiet.
 SELECT set_config('request.jwt.claim.sub','',true);
 UPDATE public.viza_settings SET enabled=true WHERE hotel_id='native-ci';
-DO $ BEGIN
+DO $$ BEGIN
  PERFORM public.pms_viza_apply_status_transition('00000000-0000-4000-8000-000000000003','confirmed','checked_in',now());
  IF EXISTS(SELECT 1 FROM public.viza_guest_events WHERE reservation_id='00000000-0000-4000-8000-000000000003') THEN RAISE EXCEPTION 'VIZA queued without reporting identifier'; END IF;
-END $;
+END $$;
 UPDATE public.viza_settings SET enabled=false WHERE hotel_id='native-ci';
-DO $ BEGIN
+DO $$ BEGIN
  PERFORM public.pms_viza_apply_status_transition('00000000-0000-4000-8000-000000000003','confirmed','checked_in',now());
  IF EXISTS(SELECT 1 FROM public.viza_guest_events WHERE reservation_id='00000000-0000-4000-8000-000000000003') THEN RAISE EXCEPTION 'Disabled VIZA queued an arrival'; END IF;
-END $;
+END $$;
 -- Native restrictions and finance single source of truth.
 INSERT INTO public.service_catalog_items(id,organization_slug,name,category,default_gross_price,currency,vat_rate,ntak_main,ntak_sub) VALUES('00000000-0000-4000-8000-000000000041','channex','Synthetic breakfast','breakfast',5,'EUR',27,'ETEL','REGGELI');
 SELECT set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000092',true);
