@@ -51,7 +51,18 @@ const REVIEW_COLUMNS = 'mother_family_name, mother_given_name, viza_review';
 /** What still stands between this guest and a report VIZA accepts: empty required fields plus refused values. */
 const openItems = (guest: GuestVizaRow | null, reservationId?: string, occurredAt?: string | null) => reservationId ? vizaAdmissionFields(guest, reservationId, vizaArrivalDay(occurredAt)) : [...vizaMissingFields(guest), ...vizaProblems(guest)];
 
+export interface GuestRegistrationDraft {
+  result: MrzReadResult | null;
+  optical: OpticalGuestFields;
+}
+export type GuestRegistrationResult = { status: 'match' | 'registered'; guest_id: string };
+
 interface GuestDetailsSectionProps {
+  draft?: GuestRegistrationDraft;
+  onRegister?: (payload: Record<string, unknown>, confirmedMatch: string | null) => Promise<GuestRegistrationResult>;
+  protectIdentity?: boolean;
+  autoScan?: boolean;
+  onCancelDraft?: () => void;
   guestId: string | null;
   vizaReservationId?: string;
   occurredAt?: string | null;
@@ -59,7 +70,7 @@ interface GuestDetailsSectionProps {
   onSaved?: (guest: GuestVizaRow) => void;
 }
 
-export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved }: GuestDetailsSectionProps) {
+export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, onCompletenessChange, onSaved, draft, onRegister, protectIdentity = false, autoScan = false, onCancelDraft }: GuestDetailsSectionProps) {
   const { t } = useTranslation();
   const [guest, setGuest] = useState<GuestVizaRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,11 +85,39 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   const [optical, setOptical] = useState<OpticalGuestFields>({});
   const [hasExtraColumns, setHasExtraColumns] = useState(false);
   const [hasReviewColumns, setHasReviewColumns] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [matchId, setMatchId] = useState<string | null>(null);
+  const [registerError, setRegisterError] = useState<string | null>(null);
 
   useEffect(() => {
     setOptical({});
     setExpanded(false);
     setGuest(null);
+    setVerified(false);
+    setMatchId(null);
+    setRegisterError(null);
+    if (draft) {
+      const patch = draft.result ? guestScanPatch(draft.result, draft.optical) : {};
+      const mother = draft.optical.mother_name?.trim().split(/\s+/);
+      const initial: GuestVizaRow = {
+        id: 'unsaved', first_name: '', last_name: '', nationality: null, date_of_birth: null,
+        birth_last_name: null, birth_first_name: null, birth_place: null, gender: null,
+        mother_name: null, mother_family_name: null, mother_given_name: null,
+        id_document_type: null, id_document_number: null, visa_number: null, entry_date: null, entry_place: null,
+        ...patch, ...(mother?.length === 2 ? { mother_family_name: mother[0], mother_given_name: mother[1] } : {}),
+        viza_review: { reservation_id: vizaReservationId, scan_reviewed: !!draft.result },
+      };
+      setGuest(initial);
+      setScan(draft.result ? toVizaDocumentScan(draft.result) : null);
+      setOptical(draft.optical);
+      setScanChanged(true);
+      setHasExtraColumns(true);
+      setHasReviewColumns(true);
+      setDirty(true);
+      setExpanded(true);
+      setLoading(false);
+      return;
+    }
     if (!guestId) { setGuest(null); setScan(null); onCompletenessChange?.(openItems(null, vizaReservationId, occurredAt)); return; }
     let alive = true;
     setLoading(true);
@@ -103,24 +142,29 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       setDirty(false);
       onCompletenessChange?.(openItems(row, vizaReservationId, occurredAt));
       setLoading(false);
+      if (autoScan && row) { setExpanded(true); setScanOpen(true); }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [guestId, loadAttempt, vizaReservationId]);
+  }, [guestId, loadAttempt, vizaReservationId, draft, autoScan]);
 
+  const invalidateConfirmation = () => { setVerified(false); setMatchId(null); setRegisterError(null); };
   const set = (field: Exclude<keyof GuestVizaRow, 'viza_review'>, value: string) => {
+    invalidateConfirmation();
     setGuest(g => g ? { ...g, [field]: value || null } : g);
     setDirty(true);
   };
 
   const review: VizaReview = guest?.viza_review?.reservation_id === vizaReservationId ? guest?.viza_review ?? {} : {};
   const setReview = (patch: Partial<VizaReview>) => {
+    invalidateConfirmation();
     setGuest(g => g ? { ...g, viza_review: { ...review, ...patch, reservation_id: vizaReservationId } } : g);
     setDirty(true);
   };
 
   // Names are required columns: keep the text as typed, never null.
   const setName = (field: 'first_name' | 'last_name', value: string) => {
+    invalidateConfirmation();
     setGuest((g) => (g ? { ...g, [field]: value } : g));
     setDirty(true);
   };
@@ -130,6 +174,20 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   // receptionist then corrects anything misread (sent to VIZA as a manual
   // correction next to the unchanged reading) and presses Save.
   const applyScan = (result: MrzReadResult, opticalFields: OpticalGuestFields = {}) => {
+    // A scan for a different occupant must not overwrite this saved profile.
+    if (protectIdentity && !draft && guest) {
+      const next = guestScanPatch(result, opticalFields);
+      const normalize = (v?: string | null) => (v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const knownName = normalize(guest.first_name) + '|' + normalize(guest.last_name);
+      const readName = normalize(next.first_name) + '|' + normalize(next.last_name);
+      const sameNumber = !!guest.id_document_number && normalize(guest.id_document_number) === normalize(next.id_document_number);
+      if ((guest.date_of_birth && next.date_of_birth && guest.date_of_birth !== next.date_of_birth) ||
+        (!sameNumber && knownName !== '|' && readName !== knownName)) {
+        toast.error(t('pms.express.identityMismatch'));
+        return;
+      }
+    }
+    invalidateConfirmation();
     setGuest(g => {
       if (!g) return g;
       const proposals = Object.fromEntries(Object.entries(opticalFields).filter(([, value]) => typeof value === 'string' && value.trim() !== '')) as OpticalGuestFields;
@@ -162,6 +220,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
   };
 
   const removeScan = () => {
+    invalidateConfirmation();
     setOptical({});
     setScan(null);
     if (vizaReservationId) setReview({ scan_reviewed: false });
@@ -187,6 +246,16 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
       } : {}),
       ...(scanChanged ? { document_scan: scan } : {}),
     };
+    if (draft && onRegister) {
+      try {
+        const result = await onRegister(payload, matchId);
+        if (result.status === 'match') setMatchId(result.guest_id);
+        else { setDirty(false); onSaved?.({ ...savedGuest, id: result.guest_id }); }
+      } catch {
+        setRegisterError(t('pms.express.registerFailed'));
+      } finally { setSaving(false); }
+      return;
+    }
     // Generated types may lag behind the latest migration for the new columns.
     const { error } = await (supabase.from('guests') as never as {
       update: (values: Record<string, unknown>) => { eq: (column: string, value: string) => Promise<{ error: { message: string } | null }> };
@@ -201,7 +270,7 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
     onSaved?.(savedGuest);
   };
 
-  if (!guestId) return null;
+  if (!guestId && !draft) return null;
   const missing = vizaReservationId ? vizaAdmissionFields(guest, vizaReservationId, vizaArrivalDay(occurredAt)) : vizaMissingFields(guest);
   const problems = vizaReservationId ? [] : vizaProblems(guest);
   const open = missing.length + problems.length;
@@ -398,9 +467,15 @@ export function GuestDetailsSection({ guestId, vizaReservationId, occurredAt, on
               </div>
             </details>
           </div>
-          <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} className="h-10 w-full sm:h-8 sm:w-auto" disabled={!dirty || saving || (!!vizaReservationId && !hasReviewColumns)} onClick={save}>
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t('pms.guest.save')}
+          {draft && <div className="space-y-2 border-t pt-3">
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={verified} onChange={e => setVerified(e.target.checked)} className="!w-4 !h-4 mt-1" />{t('pms.express.verify')}</label>
+            {matchId && <p role="status" className="rounded-md bg-primary/10 p-2 text-sm">{t('pms.express.returningMatch')}</p>}
+            {registerError && <p role="alert" className="text-sm text-destructive">{registerError}</p>}
+          </div>}
+          <Button type="button" size="sm" variant={dirty ? 'default' : 'outline'} className="h-10 w-full sm:h-8 sm:w-auto" disabled={!dirty || saving || (!!vizaReservationId && !hasReviewColumns) || (!!draft && (!verified || open > 0))} onClick={save}>
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} {t(draft ? matchId ? 'pms.express.confirmMatch' : 'pms.express.confirmGuest' : 'pms.guest.save')}
           </Button>
+          {draft && <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={onCancelDraft}>{t('common.cancel')}</Button>}
         </div>
       )}
       <IdScanDialog open={scanOpen} onOpenChange={setScanOpen} onApply={applyScan} />
