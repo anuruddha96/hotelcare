@@ -269,7 +269,7 @@ BEGIN
     RAISE EXCEPTION 'unlinked guest exposed';
   EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'ACCESS_DENIED' THEN RAISE; END IF; END;
   FOR c IN SELECT value FROM jsonb_array_elements(fixtures->'cases') LOOP
-    g:=jsonb_populate_record(NULL::public.guests,fixtures->'base'||c->'patch');
+    g:=jsonb_populate_record(NULL::public.guests,(fixtures->'base')||(c->'patch'));
     UPDATE public.guests SET first_name=g.first_name,last_name=g.last_name,nationality=g.nationality,
       date_of_birth=g.date_of_birth,gender=g.gender,id_document_type=g.id_document_type,id_document_number=g.id_document_number,
       birth_first_name=g.birth_first_name,birth_last_name=g.birth_last_name,birth_place=g.birth_place,
