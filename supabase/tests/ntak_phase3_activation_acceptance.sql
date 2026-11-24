@@ -211,3 +211,48 @@ BEGIN
   THEN RAISE EXCEPTION 'Acceptance 4: staff retry did not clear queue failure'; END IF;
 END;
 $$;
+
+-- 5. Null legacy organization still logs a durable VIZA failure.
+CREATE TRIGGER reject_viza_queue BEFORE INSERT ON public.viza_guest_events
+FOR EACH ROW EXECUTE FUNCTION public.ntak_test_reject_viza_queue();
+INSERT INTO public.reservations(id,hotel_id,organization_slug,guest_id,room_id,status,check_in_date,check_out_date,adults,children,balance_due)
+VALUES('00000000-0000-4000-8000-000000000005','test-hotel',NULL,'00000000-0000-4000-8000-000000000031','00000000-0000-4000-8000-000000000010','confirmed',current_date,current_date+2,1,0,0);
+INSERT INTO public.reservation_guests(reservation_id,guest_id,is_primary) VALUES('00000000-0000-4000-8000-000000000005','00000000-0000-4000-8000-000000000031',true);
+UPDATE public.reservations SET status='checked_in',actual_check_in=now() WHERE id='00000000-0000-4000-8000-000000000005';
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.viza_trigger_failures WHERE reservation_id='00000000-0000-4000-8000-000000000005' AND organization_slug='test-org' AND resolved_at IS NULL) THEN RAISE EXCEPTION 'Null organization failure not durably recorded'; END IF;
+END $$;
+DROP TRIGGER reject_viza_queue ON public.viza_guest_events;
+-- 6. A recorded departure must survive disable/re-enable even if the reservation remains checked in.
+UPDATE public.ntak_settings SET enabled=false WHERE hotel_id='late-hotel';
+UPDATE public.reservations SET status='checked_in' WHERE id='00000000-0000-4000-8000-000000000003';
+UPDATE public.reservation_guests SET stay_state='expected',arrived_at=NULL,departed_at=NULL WHERE reservation_id='00000000-0000-4000-8000-000000000003' AND guest_id='00000000-0000-4000-8000-000000000033';
+UPDATE public.viza_guest_events SET tavozas_ideje=now(),arrival_state='sent',departure_state='queued' WHERE reservation_id='00000000-0000-4000-8000-000000000003' AND guest_id='00000000-0000-4000-8000-000000000033';
+UPDATE public.ntak_settings SET enabled=true WHERE hotel_id='late-hotel';
+DO $$ BEGIN
+ IF (SELECT stay_state FROM public.reservation_guests WHERE reservation_id='00000000-0000-4000-8000-000000000003' AND guest_id='00000000-0000-4000-8000-000000000033') <> 'expected' THEN RAISE EXCEPTION 'Activation resurrected an undone arrival'; END IF;
+END $$;
+
+-- 7. A fully checked-out stay with a sent VIZA departure must rebuild as
+-- departed, retaining the authority event's arrival and departure timestamps.
+UPDATE public.ntak_settings SET enabled=false WHERE hotel_id='late-hotel';
+INSERT INTO public.reservations(id,hotel_id,organization_slug,guest_id,room_id,status,check_in_date,check_out_date,adults,children,balance_due)
+VALUES('00000000-0000-4000-8000-000000000006','late-hotel','late-org','00000000-0000-4000-8000-000000000033','00000000-0000-4000-8000-000000000020','checked_out',current_date-2,current_date-1,1,0,0);
+INSERT INTO public.reservation_guests(reservation_id,guest_id,is_primary)
+VALUES('00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000033',true);
+INSERT INTO public.viza_guest_events(hotel_id,organization_slug,reservation_id,guest_id,erkezes_ideje,tavozas_varhato_datuma,tavozas_ideje,arrival_state,departure_state)
+VALUES('late-hotel','late-org','00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000033',now()-interval '2 days',current_date-1,now()-interval '1 day','sent','sent');
+UPDATE public.ntak_settings SET enabled=true WHERE hotel_id='late-hotel';
+DO $review$
+BEGIN
+ IF NOT EXISTS(
+   SELECT 1 FROM public.reservation_guests rg JOIN public.viza_guest_events ev
+     ON ev.reservation_id=rg.reservation_id AND ev.guest_id=rg.guest_id
+   WHERE rg.reservation_id='00000000-0000-4000-8000-000000000006'
+     AND rg.stay_state='departed' AND rg.arrived_at=ev.erkezes_ideje AND rg.departed_at=ev.tavozas_ideje
+     AND ev.departure_state='sent'
+ ) THEN RAISE EXCEPTION 'Acceptance 7: checked-out guest with sent VIZA departure was not rebuilt as departed'; END IF;
+ IF public.pms_rebuild_ntak_guest_states('late-hotel') IS DISTINCT FROM 0 THEN
+   RAISE EXCEPTION 'Acceptance 7: rebuild is not idempotent';
+ END IF;
+END $review$;
