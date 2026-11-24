@@ -12,10 +12,11 @@ export function printedHungarianIdNumber(text: string): string | null {
   const lines = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().split(/\r?\n/);
   const candidates = new Set<string>();
   for (let i = 0; i < lines.length; i++) {
-    const marker = /(?:DOCUMENT\s*(?:NO\.?|NUMBER)|OKMANYSZAM)/.exec(lines[i]);
+    const marker = /(?:DOCUMENT\s*(?:NO\.?|NUMBER)|DOC\.?\s*(?:NO\.?|NUMBER)|OKMANYSZAM|OKMANYAZONOSITO)/.exec(lines[i]);
     if (!marker) continue;
     const tail = lines[i].slice(marker.index + marker[0].length);
     for (const line of [tail, lines[i + 1] ?? '']) {
+      if (/\bCAN\b|\bACCESS\s*NUMBER\b/.test(line)) continue;
       const match = /(?:^|[^A-Z0-9])(\d{6}\s*[A-Z]{2})(?![A-Z0-9])/.exec(line);
       if (match) candidates.add(match[1].replace(/\s/g, ''));
     }
