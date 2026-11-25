@@ -11,6 +11,7 @@ import {
 import { toast } from 'sonner';
 import { FileText, Loader2, PlusCircle, Receipt, Wallet } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { addFolioItem, LifecycleError } from '@/lib/pmsLifecycle';
 import { formatMoney } from '@/lib/reservations';
 import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
@@ -49,7 +50,9 @@ const PAY_METHODS: Array<{ value: string; key: string }> = [
 ];
 
 export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const locale = useLocaleFormat();
+  const displayMoney = language === 'hu' ? locale.formatMoney : formatMoney;
   const { profile } = useAuth();
   const [rows, setRows] = useState<FolioRow[]>([]);
   const [balance, setBalance] = useState<number>(Number(reservation.balance_due ?? 0));
@@ -105,14 +108,14 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
     <Card data-training="reservation-account">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
-          <Receipt className="h-4 w-4" /> Account
+          <Receipt className="h-4 w-4" /> {t('pms.account.title')}
           <span className={`ml-auto text-sm ${balance > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
-            {formatMoney(balance, currency)}
+            {displayMoney(balance, currency)}
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {departed && <p className="text-xs font-medium text-amber-700">After departure · manager only</p>}
+        {departed && <p className="text-xs font-medium text-amber-700">{t('pms.account.managerOnly')}</p>}
         <div className="flex flex-wrap gap-2">
           <Button type="button" size="sm" className="h-8 gap-1.5" disabled={closed} title={t('pms.charge.tip')} onClick={() => setChargeOpen(true)}>
             <PlusCircle className="h-4 w-4" /> {t('pms.charge.add')}
@@ -132,16 +135,16 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
             {charges.map((r) => (
               <div key={r.id} className="flex items-center gap-2 px-3 py-1.5">
                 <span className="min-w-0 flex-1 truncate">{r.description}</span>
-                <span className="text-muted-foreground shrink-0">{r.created_at.slice(0, 10)}</span>
-                <span className="font-medium shrink-0 w-24 text-right">{formatMoney(Number(r.amount), currency)}</span>
+                <span className="text-muted-foreground shrink-0">{locale.formatDate(r.created_at.slice(0, 10))}</span>
+                <span className="font-medium shrink-0 w-24 text-right">{displayMoney(Number(r.amount), currency)}</span>
               </div>
             ))}
             {payments.map((r) => (
               <div key={r.id} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50/50 dark:bg-emerald-950/20">
                 <Wallet className="h-3.5 w-3.5 text-emerald-700 shrink-0" />
                 <span className="min-w-0 flex-1 truncate">{r.description}</span>
-                <span className="text-muted-foreground shrink-0">{r.created_at.slice(0, 10)}</span>
-                <span className="font-medium shrink-0 w-24 text-right text-emerald-700 dark:text-emerald-400">−{formatMoney(Number(r.amount), currency)}</span>
+                <span className="text-muted-foreground shrink-0">{locale.formatDate(r.created_at.slice(0, 10))}</span>
+                <span className="font-medium shrink-0 w-24 text-right text-emerald-700 dark:text-emerald-400">−{displayMoney(Number(r.amount), currency)}</span>
               </div>
             ))}
           </div>
@@ -154,7 +157,7 @@ export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps
             <Input className="h-8" type="number" min={0} step="any" placeholder={String(balance)} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
             <Select value={payMethod} onValueChange={setPayMethod}>
               <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>{PAY_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.key.startsWith('pms.') ? t(m.key) : m.key}</SelectItem>)}</SelectContent>
+              <SelectContent>{PAY_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.key.startsWith('pms.') ? t(m.key) : m.value === 'voucher' ? t('pms.res.voucher') : m.value === 'on_account' ? t('pms.account.onAccount') : t('labels.other')}</SelectItem>)}</SelectContent>
             </Select>
             <Button type="button" size="sm" variant="outline" className="h-8 shrink-0 gap-1" disabled={payBusy || !(Number(payAmount) > 0)} onClick={recordPayment}>
               {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wallet className="h-3.5 w-3.5" />} {t('pms.pay.recordPayment')}
