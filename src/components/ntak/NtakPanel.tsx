@@ -1,3 +1,4 @@
+import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ function toForm(s: NtakSettings | null): Form {
 
 export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab = 'overview' }: { hotelId: string; open: boolean; onOpenChange: (o: boolean) => void; onChanged?: () => void; initialTab?: 'overview' | 'messages' }) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat('Europe/Budapest');
   const [status, setStatus] = useState<NtakStatus | null>(null);
   const [form, setForm] = useState<Form>(toForm(null));
   const [units, setUnits] = useState<NtakUnitRow[]>([]);
@@ -79,7 +81,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab =
 
   const saveSettings = () => {
     let ledger: unknown;
-    try { ledger = JSON.parse(String(form.ledger_config || '{}')); } catch { toast.error('Advanced mapping is not valid JSON'); return; }
+    try { ledger = JSON.parse(String(form.ledger_config || '{}')); } catch { toast.error(t('ntak.evidence.invalidJson')); return; }
     const num = (k: string) => (form[k] === '' ? null : Number(form[k]));
     void run('settings', {
       action: 'save_settings',
@@ -143,7 +145,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab =
               <section className="rounded-md border p-3 space-y-2">
                 <p className="font-semibold">{t('ntak.cert')}</p>
                 {s?.cert_not_after
-                  ? <p className="text-xs">CN={s.cert_subject?.CN ?? '?'} · {t('ntak.certValidUntil')} <strong>{s.cert_not_after.slice(0, 10)}</strong></p>
+                  ? <p className="text-xs">CN={s.cert_subject?.CN ?? '?'} · {t('ntak.certValidUntil')} <strong>{locale.formatDate(s.cert_not_after.slice(0, 10))}</strong></p>
                   : <p className="text-xs text-muted-foreground">{t('ntak.certMissing')}</p>}
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" disabled={!!busy || !s?.registration_number} onClick={() => run('csr', { action: 'generate_csr' })}>
@@ -166,13 +168,13 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab =
               <section className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" disabled={!!busy} onClick={() => run('self', { action: 'self_test' }, (r) => setSelfTest(r.checks as never))}>{t('ntak.selfTest')}</Button>
                 <Button size="sm" variant="outline" disabled={!!busy} onClick={() => run('start', { action: 'query_start_date' })}>{t('ntak.startDate')}</Button>
-                <Button size="sm" variant="outline" disabled={!!busy || !s?.enabled} onClick={() => run('sync', { action: 'initial_booking_sync' }, (r) => toast.success(`${r.bookings} bookings queued`))}>{t('ntak.initialSync')}</Button>
+                <Button size="sm" variant="outline" disabled={!!busy || !s?.enabled} onClick={() => run('sync', { action: 'initial_booking_sync' }, (r) => toast.success(t('ntak.evidence.bookingsQueued').replace('{count}', String(r.bookings))))}>{t('ntak.initialSync')}</Button>
                 <Button size="sm" variant="outline" disabled={!!busy || !s?.enabled} onClick={() => run('run', { action: 'run_now' })}>{t('ntak.runNow')}</Button>
                 <Button size="sm" variant="outline" disabled={!!busy} onClick={() => run('verify', { action: 'verify_now' })}>{t('ntak.verifyNow')}</Button>
                 {busy && <Loader2 className="h-4 w-4 animate-spin self-center" />}
               </section>
               {s?.data_start_date && <p className="text-xs">{t('ntak.startDateValue')}: <strong>{s.data_start_date}</strong></p>}
-              {s?.last_ok_at && <p className="text-xs text-muted-foreground">{t('ntak.lastOk')}: {new Date(s.last_ok_at).toLocaleString()}</p>}
+              {s?.last_ok_at && <p className="text-xs text-muted-foreground">{t('ntak.lastOk')}: {locale.formatDateTime(s.last_ok_at)}</p>}
               {s?.last_error && <p className="text-xs text-destructive">{s.last_error}</p>}
               {selfTest && (
                 <ul className="text-xs space-y-0.5">
@@ -185,7 +187,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab =
               )}
               {status.pending_events.length > 0 && (
                 <div className="text-xs"><p className="font-semibold">{t('ntak.pendingEvents')}</p>
-                  <ul>{status.pending_events.map((e) => <li key={e.id}>• {e.kind}{e.is_correction ? ' (correction)' : ''} · {new Date(e.occurred_at).toLocaleString()} · {e.state}: {e.last_error ?? ''}</li>)}</ul></div>
+                  <ul>{status.pending_events.map((e) => <li key={e.id}>• {e.kind}{e.is_correction ? t('ntak.evidence.correction') : ''} · {locale.formatDateTime(e.occurred_at)} · {e.state}: {e.last_error ?? ''}</li>)}</ul></div>
               )}
             </TabsContent>
 
@@ -339,6 +341,7 @@ function addDay(day: string, n: number): string {
 
 function MessageRow({ m, expanded, onToggle, onResend, onFix }: { m: NtakMessage; expanded: boolean; onToggle: () => void; onResend?: () => void; onFix?: () => void }) {
   const { t } = useTranslation();
+  const locale = useLocaleFormat('Europe/Budapest');
   const issues = [...m.errors.map((i) => ({ ...i, level: 'error' })), ...m.warnings.map((i) => ({ ...i, level: 'warning' }))];
   return (
     <div className="rounded border px-2 py-1">
@@ -349,7 +352,7 @@ function MessageRow({ m, expanded, onToggle, onResend, onFix }: { m: NtakMessage
         <span className="text-muted-foreground truncate max-w-[14rem]">{m.ref}</span>
         {m.errors.length > 0 && <span className="text-destructive">✕ {m.errors.length}</span>}
         {m.warnings.length > 0 && <span className="text-amber-700">⚠ {m.warnings.length}</span>}
-        <span className="ml-auto text-muted-foreground">{new Date(m.sent_at ?? m.created_at).toLocaleString()}</span>
+        <span className="ml-auto text-muted-foreground">{locale.formatDateTime(m.sent_at ?? m.created_at)}</span>
       </button>
       {m.resend_of && <p className="text-muted-foreground break-all">{t('ntak.resendOf')}: {m.resend_of}</p>}
       {onFix && <Button size="sm" variant="outline" onClick={onFix}>{t(m.ntak_status === 'VIZSGALANDO' ? 'ntak.sendCorrection' : 'ntak.fixSend')}</Button>}
