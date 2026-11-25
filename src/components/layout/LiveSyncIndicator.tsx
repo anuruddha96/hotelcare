@@ -9,15 +9,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useLiveSync, type TaskName } from "@/contexts/LiveSyncContext";
 import { cn } from "@/lib/utils";
 
-const TASK_LABELS: Record<TaskName, string> = {
-  pms: translate('pms.pmsSync.taskRooms'),
-  revenue: translate('pms.pmsSync.taskRates'),
-  checkouts: translate('pms.pmsSync.taskCheckouts'),
-  pms_changes: "PMS changes",
-};
 
 export function LiveSyncIndicator() {
-  const { t: translate } = useTranslation();
+  const { t } = useTranslation();
   const locale = useLocaleFormat();
   const { enabled, tasks, refresh, openChangesDrawer } = useLiveSync();
   const [, setTick] = useState(0);
@@ -50,26 +44,26 @@ export function LiveSyncIndicator() {
   let Icon = Radio;
   let pillClass = "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400";
   if (anySyncing) {
-    label = translate('pms.pmsSync.syncingUpper');
+    label = t('pms.pmsSync.syncingUpper');
     Icon = Loader2;
     dotClass = "bg-primary animate-pulse";
     pillClass = "border-primary/30 bg-primary/5 text-primary";
   } else if (anyError) {
-    label = translate('pms.pmsSync.failed');
+    label = t('pms.pmsSync.failed');
     Icon = XCircle;
     dotClass = "bg-destructive";
     pillClass = "border-destructive/30 bg-destructive/5 text-destructive";
   } else if (anyPartial) {
-    label = translate('pms.pmsSync.partial');
+    label = t('pms.pmsSync.partial');
     Icon = AlertTriangle;
     dotClass = "bg-amber-500";
     pillClass = "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-400";
   } else if (lastAt > 0) {
-    label = `${translate('pms.pmsSync.live')} · ${formatDistanceToNow(new Date(lastAt), { locale: locale.dateFnsLocale, addSuffix: true })}`;
+    label = `${t('pms.pmsSync.live')} · ${formatDistanceToNow(new Date(lastAt), { locale: locale.dateFnsLocale, addSuffix: true })}`;
     Icon = CheckCircle2;
     dotClass = "bg-emerald-500";
   } else {
-    label = translate('pms.pmsSync.ready');
+    label = t('pms.pmsSync.ready');
     dotClass = "bg-muted-foreground/50";
     pillClass = "border-border bg-muted/30 text-muted-foreground";
   }
@@ -94,7 +88,7 @@ export function LiveSyncIndicator() {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-2">
         <div className="px-2 pt-1 pb-2 flex items-center justify-between">
-          <div className="text-sm font-semibold">{translate('pms.pmsSync.liveTitle')}</div>
+          <div className="text-sm font-semibold">{t('pms.pmsSync.liveTitle')}</div>
           <Button
             size="sm"
             variant="ghost"
@@ -103,15 +97,15 @@ export function LiveSyncIndicator() {
             disabled={anySyncing}
           >
             <RefreshCw className={cn("h-3.5 w-3.5", anySyncing ? "animate-spin" : "")} />
-            <span className="text-xs">{translate('pms.pmsSync.refreshAll')}</span>
+            <span className="text-xs">{t('pms.pmsSync.refreshAll')}</span>
           </Button>
         </div>
         <div className="space-y-1">
-          {taskList.map((t) => {
-            const isSync = t.status === "syncing";
-            const isErr = t.status === "error";
-            const isPartial = t.status === "partial";
-            const isUnsupported = t.meta?.supported === false;
+          {taskList.map((task) => {
+            const isSync = task.status === "syncing";
+            const isErr = task.status === "error";
+            const isPartial = task.status === "partial";
+            const isUnsupported = task.meta?.supported === false;
             const TaskIcon = isSync
               ? Loader2
               : isUnsupported
@@ -120,7 +114,7 @@ export function LiveSyncIndicator() {
               ? XCircle
               : isPartial
               ? AlertTriangle
-              : t.lastAt
+              : task.lastAt
               ? CheckCircle2
               : Radio;
             const colorClass = isSync
@@ -131,43 +125,43 @@ export function LiveSyncIndicator() {
               ? "text-destructive"
               : isPartial
               ? "text-amber-600"
-              : t.lastAt
+              : task.lastAt
               ? "text-emerald-600"
               : "text-muted-foreground";
             return (
               <div
-                key={t.key}
+                key={task.key}
                 className={cn(
                   "flex items-center justify-between gap-2 rounded-md border bg-background/40 px-2 py-1.5",
-                  t.key === "pms_changes" && "cursor-pointer hover:bg-muted/40",
+                  task.key === "pms_changes" && "cursor-pointer hover:bg-muted/40",
                 )}
-                onClick={t.key === "pms_changes" ? () => openChangesDrawer() : undefined}
+                onClick={task.key === "pms_changes" ? () => openChangesDrawer() : undefined}
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <TaskIcon className={cn("h-3.5 w-3.5 shrink-0", colorClass, isSync ? "animate-spin" : "")} />
                   <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">{translate(({pms:'pms.pmsSync.taskRooms',revenue:'pms.pmsSync.taskRates',checkouts:'pms.pmsSync.taskCheckouts',pms_changes:'pms.pmsChanges.title'} as const)[t.key])}</div>
+                    <div className="text-xs font-medium truncate">{t(({pms:'pms.pmsSync.taskRooms',revenue:'pms.pmsSync.taskRates',checkouts:'pms.pmsSync.taskCheckouts',pms_changes:'pms.pmsChanges.title'} as const)[task.key])}</div>
                     <div className="text-[10px] text-muted-foreground truncate">
                       {isSync
-                        ? translate('pms.pmsSync.syncingLower')
+                        ? t('pms.pmsSync.syncingLower')
                         : isUnsupported
-                        ? translate('pms.pmsSync.unsupported')
-                        : t.lastAt
-                        ? formatDistanceToNow(t.lastAt, { locale: locale.dateFnsLocale, addSuffix: true })
-                        : translate('pms.pmsSync.notSynced')}
-                      {isErr && t.message ? ` · ${t.message}` : ""}
+                        ? t('pms.pmsSync.unsupported')
+                        : task.lastAt
+                        ? formatDistanceToNow(task.lastAt, { locale: locale.dateFnsLocale, addSuffix: true })
+                        : t('pms.pmsSync.notSynced')}
+                      {isErr && task.message ? ` · ${task.message}` : ""}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  {t.key === "pms" && t.meta?.checkouts != null && (
+                  {task.key === "pms" && task.meta?.checkouts != null && (
                     <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-                      {translate('pms.pmsSync.checkoutCount').replace('{count}', String(t.meta.checkouts))}
+                      {t('pms.pmsSync.checkoutCount').replace('{count}', String(task.meta.checkouts))}
                     </Badge>
                   )}
-                  {t.key === "checkouts" && t.meta?.marked != null && (
+                  {task.key === "checkouts" && task.meta?.marked != null && (
                     <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-                      {translate('pms.pmsSync.releaseCount').replace('{count}', String(t.meta.marked))}
+                      {t('pms.pmsSync.releaseCount').replace('{count}', String(task.meta.marked))}
                     </Badge>
                   )}
                   {!isUnsupported && (
@@ -175,9 +169,9 @@ export function LiveSyncIndicator() {
                       size="sm"
                       variant="ghost"
                       className="h-6 w-6 p-0"
-                      onClick={() => void refresh(t.key)}
+                      onClick={() => void refresh(task.key)}
                       disabled={isSync}
-                      title={translate('pms.fd.refresh')}
+                      title={t('pms.fd.refresh')}
                     >
                       <RefreshCw className={cn("h-3 w-3", isSync ? "animate-spin" : "")} />
                     </Button>
