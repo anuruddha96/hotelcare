@@ -14,6 +14,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { vizaRejectionReason } from '@/lib/viza/vizaReason';
 import { vizaSendNow } from '@/lib/viza/vizaDesk';
+import { vizaWorkerRunAtOrAfter } from '@/lib/viza/vizaSchedule';
 
 /**
  * VIZA reporting health in Reception. The THF spec requires the unsent and
@@ -264,11 +265,12 @@ export function VizaStatusCard({ hotelId, report = false }: { hotelId: string; r
 
   const [code, ...flags] = (s?.last_status_code ?? '').split('|').map(value => value.trim()).filter(Boolean);
   const unreachable = !!(s?.enabled && s.last_error);
-  // The worker runs every 10 minutes; the last failed attempt is the settings row's updated_at.
-  // Show the next try only while it is still ahead (or just due), never a time long past.
+  // The next worker run (every 10 minutes, at minute 4, 14, …): it checks the connection and sends
+  // what is waiting. Not "last attempt + 10 minutes": a check-in in between would move that time.
+  // Shown only while the worker shows it is running (it marks every failed run on the settings row).
   const lastAttemptMs = unreachable && s?.updated_at ? Date.parse(s.updated_at) : NaN;
-  const nextTry = Number.isFinite(lastAttemptMs) && lastAttemptMs + 10 * 60_000 > Date.now() - 60_000
-    ? new Date(lastAttemptMs + 10 * 60_000) : null;
+  const workerRunning = Number.isFinite(lastAttemptMs) && Date.now() - lastAttemptMs < 20 * 60_000;
+  const nextTry = workerRunning ? vizaWorkerRunAtOrAfter() : null;
   const warning = !!s?.enabled && !unreachable && code === 'WARNING';
   const statusTone = !s?.enabled ? 'secondary' : unreachable ? 'destructive'
     : code === 'OK' ? 'default' : warning ? 'outline' : code ? 'destructive' : 'outline';
