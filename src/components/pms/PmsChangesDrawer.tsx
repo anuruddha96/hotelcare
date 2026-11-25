@@ -32,11 +32,11 @@ export interface PmsChangeEvent {
 }
 
 const TYPE_META: Record<string, { icon: any; label: string }> = {
-  checkout_confirmed: { icon: LogOut, label: t('pms.pmsChanges.checkoutConfirmed') },
-  checkout_cleared:   { icon: Info,    label: t('pms.pmsChanges.checkoutCleared') },
-  status_changed:     { icon: RefreshCw, label: t('pms.pmsChanges.roomStatusChanged') },
-  occupancy_changed:  { icon: Users,   label: t('pms.pmsChanges.guestCountChanged') },
-  room_newly_occupied:{ icon: UserCheck, label: t('pms.pmsChanges.newlyOccupied') },
+  checkout_confirmed: { icon: LogOut, label: 'pms.pmsChanges.checkoutConfirmed' },
+  checkout_cleared:   { icon: Info,    label: 'pms.pmsChanges.checkoutCleared' },
+  status_changed:     { icon: RefreshCw, label: 'pms.pmsChanges.roomStatusChanged' },
+  occupancy_changed:  { icon: Users,   label: 'pms.pmsChanges.guestCountChanged' },
+  room_newly_occupied:{ icon: UserCheck, label: 'pms.pmsChanges.newlyOccupied' },
 };
 
 interface Props {
@@ -97,7 +97,7 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
   };
 
   const row = (evt: PmsChangeEvent) => {
-    const meta = TYPE_META[evt.event_type] || { icon: Info, label: evt.event_type };
+    const meta = TYPE_META[evt.event_type] || { icon: Info, label: 'labels.other' };
     const Icon = meta.icon;
     return (
       <div key={evt.id} className="rounded-md border p-3 flex flex-col gap-2 bg-background/40">
@@ -106,7 +106,7 @@ export function PmsChangesDrawer({ hotelId, open, onOpenChange }: Props) {
             <Icon className={`h-4 w-4 shrink-0 ${evt.is_conflict ? "text-destructive" : "text-muted-foreground"}`} />
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">
-                {t('common.room')} {evt.room_label || "?"} · {t(({checkout_confirmed:'pms.pmsChanges.checkoutConfirmed',checkout_cleared:'pms.pmsChanges.checkoutCleared',status_changed:'pms.pmsChanges.roomStatusChanged',occupancy_changed:'pms.pmsChanges.guestCountChanged',room_newly_occupied:'pms.pmsChanges.newlyOccupied'} as Record<string,string>)[evt.event_type] ?? 'labels.other')}
+                {t('common.room')} {evt.room_label || "?"} · {t(meta.label)}
                 {evt.change_kind && <span className="text-muted-foreground font-normal"> · {evt.change_kind.replace(/_/g, " ")}</span>}
               </div>
               <div className="text-[11px] text-muted-foreground">
