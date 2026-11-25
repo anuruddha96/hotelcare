@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import * as dateFnsLocales from 'date-fns/locale';
 import type { Locale } from 'date-fns';
+import { formatMoney as legacyMoney } from '@/lib/reservations';
 import { useTranslation } from '@/hooks/useTranslation';
 
 type DateInput = Date | string | number;
@@ -69,7 +70,18 @@ export function createLocaleFormat(language: string, timeZone?: string) {
       return `${formatNumber(Number(amount))} ${currency}`;
     }
   };
-  return { dateFnsLocale, intlLocale, formatDate, formatDateTime, formatTime, formatShortDate,
+  // Keep the existing English ledger amount presentation while localizing other languages.
+  const formatReceptionMoney = language === 'en' || !language ? legacyMoney : formatMoney;
+  const formatTimeWithSeconds = (d: DateInput) => joined(dateParts(d, { ...timeOptions, second: '2-digit' }));
+  const formatRecentTime = (d: DateInput) => {
+    const day = formatDate(d);
+    return day === '—' ? day : (day === formatDate(new Date()) ? '' : day + ' ') + formatTimeWithSeconds(d);
+  };
+  const formatFileTimestamp = (d: DateInput) => {
+    const p = dateParts(d, { ...dateOptions, ...timeOptions, numberingSystem: 'latn', calendar: 'gregory' });
+    return part(p, 'year') + part(p, 'month') + part(p, 'day') + '-' + part(p, 'hour') + part(p, 'minute');
+  };
+  return { dateFnsLocale, intlLocale, formatReceptionMoney, formatRecentTime, formatFileTimestamp, formatDate, formatDateTime, formatTime, formatShortDate,
     formatShortDateTime, formatMonthYear, formatWeekdayShort, formatNumber, formatMoney };
 }
 
