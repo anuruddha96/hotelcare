@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import * as dateFnsLocales from 'date-fns/locale';
 import type { Locale } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -74,5 +75,5 @@ export function createLocaleFormat(language: string, timeZone?: string) {
 
 export function useLocaleFormat(timeZone?: string) {
   const { language } = useTranslation();
-  return createLocaleFormat(language, timeZone);
+  return useMemo(() => createLocaleFormat(language, timeZone), [language, timeZone]);
 }
