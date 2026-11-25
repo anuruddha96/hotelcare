@@ -1,3 +1,4 @@
+import { useTranslation } from '@/hooks/useTranslation';
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { BellRing, AlertTriangle, Check } from "lucide-react";
@@ -21,6 +22,7 @@ type Alert = {
 };
 
 export function ReputationAlertsBell() {
+  const { t } = useTranslation();
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -40,8 +42,8 @@ export function ReputationAlertsBell() {
       if (error || data?.error) throw error || new Error(data.error);
       const nextTotal = Number(data?.total || 0);
       if (previousTotal.current !== null && nextTotal > previousTotal.current) {
-        toast.warning(`${nextTotal - previousTotal.current} new low-rating Google review alert(s)`, {
-          description: "Open Reputation to review and respond to 1–3-star feedback.",
+        toast.warning(t('reception.shell.lowRatingNew').replace('{count}', String(nextTotal - previousTotal.current)), {
+          description: t('reception.shell.lowRatingHint'),
         });
       }
       previousTotal.current = nextTotal;
@@ -69,7 +71,7 @@ export function ReputationAlertsBell() {
       if (error || data?.error) throw error || new Error(data.error);
       await load();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not acknowledge alert");
+      toast.error(error instanceof Error ? error.message : t('reception.shell.ackFailed'));
     } finally {
       setWorking(null);
     }
@@ -80,7 +82,7 @@ export function ReputationAlertsBell() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative h-9 w-9 shrink-0"
-          aria-label={total ? `${total} Google low-rating alerts` : "Google review alerts"}>
+          aria-label={total ? t('reception.shell.lowRatingCount').replace('{count}', String(total)) : t('reception.shell.reviewAlerts')}>
           <BellRing className={`h-4 w-4 ${total ? "text-amber-600" : "text-muted-foreground"}`} />
           {total > 0 && <Badge className="absolute -top-1 -right-1 h-4 min-w-4 px-1 text-[10px] bg-red-600 text-white">
             {total > 99 ? "99+" : total}
@@ -88,7 +90,7 @@ export function ReputationAlertsBell() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[min(92vw,370px)] space-y-1 p-2">
-        <DropdownMenuLabel className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-600" />Google review attention</DropdownMenuLabel>
+        <DropdownMenuLabel className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-600" />{t('reception.shell.reviewAttention')}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {alerts.length ? alerts.map((alert) => (
           <div key={alert.id} className="rounded-md border p-2 space-y-2">
@@ -96,19 +98,19 @@ export function ReputationAlertsBell() {
               navigate(`/rdhotels/reputation?tab=attention&venue=${encodeURIComponent(alert.google_location_id)}`)}>
               <div className="text-sm font-medium">
                 {alert.star_rating}★ · {alert.google_business_locations?.reply_brand_name ||
-                  alert.google_business_locations?.google_location_title || "Google business"}
+                  alert.google_business_locations?.google_location_title || t('reception.shell.googleBusiness')}
               </div>
-              <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{alert.review_excerpt || "Rating only — manager response needed"}</p>
+              <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{alert.review_excerpt || t('reception.shell.ratingOnly')}</p>
             </button>
             <Button size="sm" variant="outline" disabled={working === alert.id}
               onClick={() => void acknowledge(alert.id)}>
-              <Check className="h-3 w-3 mr-1" />Acknowledge
+              <Check className="h-3 w-3 mr-1" />{t('reception.shell.acknowledge')}
             </Button>
           </div>
-        )) : <p className="text-sm text-muted-foreground px-2 py-4">No new 1–3-star alerts.</p>}
+        )) : <p className="text-sm text-muted-foreground px-2 py-4">{t('reception.shell.noAlerts')}</p>}
         <DropdownMenuSeparator />
         <Button variant="outline" className="w-full" size="sm" onClick={() =>
-          navigate("/rdhotels/reputation?tab=attention")}>Open reputation inbox</Button>
+          navigate("/rdhotels/reputation?tab=attention")}>{t('reception.shell.openReputation')}</Button>
       </DropdownMenuContent>
     </DropdownMenu>
   );
