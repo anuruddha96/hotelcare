@@ -14,7 +14,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { ntakResultLabel, ntakNeedsAction } from './ntakApi';
 import { NtakClosureDialog } from './NtakClosureDialog';
 import { NtakEvidencePanel } from './NtakEvidencePanel';
-import { ACCOMMODATION_CLASSES, callNtak, fmtHuf, UNIT_TYPES, type NtakMessage, type NtakSettings, type NtakStatus, type NtakUnitRow } from './ntakApi';
+import { ACCOMMODATION_CLASSES, callNtak, currentNtakError, fmtHuf, UNIT_TYPES, type NtakMessage, type NtakSettings, type NtakStatus, type NtakUnitRow } from './ntakApi';
 
 const STATE_TONE: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   accepted: 'default', verified: 'default', warnings: 'secondary', sent: 'outline', queued: 'outline', retry: 'outline', sending: 'outline',
@@ -175,7 +175,7 @@ export function NtakPanel({ hotelId, open, onOpenChange, onChanged, initialTab =
               </section>
               {s?.data_start_date && <p className="text-xs">{t('ntak.startDateValue')}: <strong>{s.data_start_date}</strong></p>}
               {s?.last_ok_at && <p className="text-xs text-muted-foreground">{t('ntak.lastOk')}: {locale.formatDateTime(s.last_ok_at)}</p>}
-              {s?.last_error && <p className="text-xs text-destructive">{s.last_error}</p>}
+              {currentNtakError(s) && <p className="text-xs text-destructive">{currentNtakError(s)}</p>}
               {selfTest && (
                 <ul className="text-xs space-y-0.5">
                   {selfTest.map((c) => <li key={c.check} className="flex items-start gap-1.5">{c.ok ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />}<span>{c.check}{c.detail ? ` — ${c.detail}` : ''}</span></li>)}
