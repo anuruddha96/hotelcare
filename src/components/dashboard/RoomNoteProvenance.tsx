@@ -87,9 +87,9 @@ export function RoomNoteProvenance({
 
   return (
     <div ref={holderRef} className="mt-2 text-xs text-slate-600 dark:text-slate-300" aria-live="polite">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Clock3 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span className={isOlder ? 'font-semibold text-amber-800 dark:text-amber-300' : 'font-medium'}>
+      <div className="flex min-w-0 items-start gap-1.5">
+        <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className={`min-w-0 flex-1 break-words leading-relaxed ${isOlder ? 'font-semibold text-amber-800 dark:text-amber-300' : 'font-medium'}`}>
           {statusText}
         </span>
       </div>
