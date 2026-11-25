@@ -130,6 +130,7 @@ export function Dashboard() {
     'finance_manager', 'top_management', 'top_management_manager'
   ].includes(profile.role);
   const canManageUsers = profile?.role === 'admin' || profile?.is_super_admin;
+  const canEditOrganizationUsers = canManageUsers || profile?.role === 'top_management' || profile?.role === 'top_management_manager';
   const isManager = profile?.role && [
     'manager', 'admin', 'housekeeping_manager', 'maintenance_manager',
     'marketing_manager', 'reception_manager', 'back_office_manager',
@@ -488,7 +489,7 @@ export function Dashboard() {
                 <p className="text-sm sm:text-base text-muted-foreground">{profile?.role === 'maintenance' ? t('tickets.assignedToYou') : profile?.assigned_hotel && profile?.role !== 'admin' && profile?.role !== 'top_management' ? `${t('tickets.manageFor')} ${profile.assigned_hotel}` : t('tickets.manageAllHotels')}</p>
               </div>
               <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                {canManageUsers && <Button variant="outline" size="sm" onClick={() => setUserManagementOpen(true)} className="text-xs sm:text-sm"><Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">{t('dashboard.manageUsers')}</span><span className="sm:hidden">{t('dashboard.manageUsersShort')}</span></Button>}
+                {canEditOrganizationUsers && <Button variant="outline" size="sm" onClick={() => setUserManagementOpen(true)} className="text-xs sm:text-sm"><Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">{t('dashboard.manageUsers')}</span><span className="sm:hidden">{t('dashboard.manageUsersShort')}</span></Button>}
                 {canManageUsers && <>
                   <Button variant="outline" size="sm" onClick={() => setAccessManagementOpen(true)} className="text-xs sm:text-sm"><Shield className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Access Control</span><span className="sm:hidden">Access</span></Button>
                   <Button variant="outline" size="sm" onClick={() => setTicketPermissionDialogOpen(true)} className="text-xs sm:text-sm"><Ticket className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" /><span className="hidden sm:inline">Ticket Permissions</span><span className="sm:hidden">Tickets</span></Button>
@@ -592,8 +593,8 @@ export function Dashboard() {
 
         <CreateTicketDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} onTicketCreated={fetchTickets} onOpenTicket={id => void openCreatedMaintenanceIssue(id)} />
         {selectedTicket && <TicketDetailDialog ticket={selectedTicket} open={!!selectedTicket} onOpenChange={() => setSelectedTicket(null)} onTicketUpdated={() => { fetchTickets(); setSelectedTicket(null); }} />}
+        {canEditOrganizationUsers && <UserManagementDialog open={userManagementOpen} onOpenChange={setUserManagementOpen} />}
         {canManageUsers && <>
-          <UserManagementDialog open={userManagementOpen} onOpenChange={setUserManagementOpen} />
           <AccessManagementDialog open={accessManagementOpen} onOpenChange={setAccessManagementOpen} />
           <TicketPermissionDialog open={ticketPermissionDialogOpen} onOpenChange={setTicketPermissionDialogOpen} />
           <CompanySettings open={companySettingsOpen} onOpenChange={setCompanySettingsOpen} />

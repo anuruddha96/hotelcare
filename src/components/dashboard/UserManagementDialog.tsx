@@ -59,7 +59,8 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const [loading, setLoading] = useState(false);
   const [restoringUserId, setRestoringUserId] = useState<string | null>(null);
   const [showDeletedOnly, setShowDeletedOnly] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
+  const [editError, setEditError] = useState('');
+  const [editingOriginal, setEditingOriginal] = useState<Profile | null>(null);
   const [newUserData, setNewUserData] = useState({
     email: '',
     phone_number: '',
@@ -85,6 +86,12 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
   const [currentUserIsSuperAdmin, setCurrentUserIsSuperAdmin] = useState(false);
   const [currentUserOrgSlug, setCurrentUserOrgSlug] = useState<string>('');
+  const isTopManager = ['top_management', 'top_management_manager'].includes(currentUserRole);
+  const canEditUsers = currentUserIsSuperAdmin || currentUserRole === 'admin' || isTopManager;
+  const canEditTarget = (user: Profile) => canEditUsers && !user.deleted_at && (currentUserIsSuperAdmin || (
+    !!currentUserOrgSlug && user.organization_slug === currentUserOrgSlug && !user.is_super_admin && user.role !== 'admin' &&
+    (!isTopManager || !['top_management', 'top_management_manager'].includes(user.role))
+  ));
   const [hotels, setHotels] = useState<any[]>([]);
   const [editHotels, setEditHotels] = useState<any[]>([]);
   const [organizations, setOrganizations] = useState<any[]>([]);
@@ -185,10 +192,9 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
+      let query = supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      if (!currentUserIsSuperAdmin) query = query.eq('organization_slug', currentUserOrgSlug);
+      const { data, error } = await query;
 
       if (error) {
         console.error('Access denied - insufficient permissions to view user profiles');
@@ -302,62 +308,6 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
     }
   };
 
-  const handleUpdateUserRole = async (userId: string, newRole: Profile['role']) => {
-    setLoading(true);
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ role: newRole })
-        .eq('id', userId);
-
-      if (error) throw error;
-
-      toast({
-        title: 'Success',
-        description: 'User role updated',
-      });
-
-      fetchUsers();
-      setSelectedUser(null);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpdateUserHotel = async (userId: string, newHotel: string) => {
-    setLoading(true);
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ assigned_hotel: newHotel === 'none' ? null : newHotel || null })
-        .eq('id', userId);
-
-      if (error) throw error;
-
-      toast({
-        title: 'Success',
-        description: 'User hotel assignment updated',
-      });
-
-      fetchUsers();
-      setSelectedUser(null);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleDeleteUser = async (userId: string, userName: string) => {
     try {
       // Prefer edge function (uses service role, bypasses RLS safely)
@@ -407,14 +357,10 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   };
 
   const handleEditUser = async (user: Profile) => {
-    // Get the user's organization_slug from profiles
-    const { data: userProfile } = await supabase
-      .from('profiles')
-      .select('organization_slug')
-      .eq('id', user.id)
-      .single();
-    
-    const userOrgSlug = userProfile?.organization_slug || currentUserOrgSlug;
+    if (!canEditTarget(user)) return;
+    const userOrgSlug = user.organization_slug || currentUserOrgSlug;
+    setEditError('');
+    setEditingOriginal(user);
     
     setEditUserData({
       id: user.id,
@@ -424,7 +370,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
       password: '',
       phone_number: user.phone_number || '',
       role: user.role,
-      assigned_hotel: user.assigned_hotel || '',
+      assigned_hotel: user.assigned_hotel || 'none',
       is_super_admin: user.is_super_admin || false,
       organization_slug: userOrgSlug,
       acts_as_housekeeper: !!(user as any).acts_as_housekeeper,
@@ -476,91 +422,45 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
   };
 
   const handleUpdateUser = async () => {
-    if (!editUserData.id) return;
-    
+    if (!editUserData.id || !editingOriginal || !canEditTarget(editingOriginal) || loading) return;
+    setEditError('');
+    if (!editUserData.full_name.trim() || !editUserData.assigned_hotel) {
+      setEditError('Enter a full name and select a hotel or All Hotels.');
+      return;
+    }
     setLoading(true);
     try {
-      // First, use Edge Function for auth user email/password updates
-      if (editUserData.email || editUserData.password) {
-        const { data: fnData, error: fnError } = await supabase.functions.invoke('admin-update-user', {
-          body: {
-            target_user_id: editUserData.id,
-            new_email: editUserData.email || undefined,
-            new_password: editUserData.password || undefined,
-            full_name: editUserData.full_name || undefined,
-            nickname: editUserData.nickname || undefined,
-          },
-        });
-        
-        if (fnError) throw fnError;
-        if ((fnData as any)?.error) throw new Error((fnData as any).error);
-      }
-
-      // Then update all profile fields (including role, phone, hotel) via direct update
-      const profileUpdates: any = {
-        updated_at: new Date().toISOString(),
-      };
-
-      if (editUserData.full_name) profileUpdates.full_name = editUserData.full_name;
-      if (editUserData.nickname) profileUpdates.nickname = editUserData.nickname;
-      if (editUserData.email) profileUpdates.email = editUserData.email;
-      if (editUserData.phone_number) profileUpdates.phone_number = editUserData.phone_number;
-      if (editUserData.role) profileUpdates.role = editUserData.role;
-      profileUpdates.acts_as_housekeeper = editUserData.acts_as_housekeeper;
-      if (editUserData.organization_slug) profileUpdates.organization_slug = editUserData.organization_slug;
-      if (editUserData.assigned_hotel && editUserData.assigned_hotel !== 'none') {
-        profileUpdates.assigned_hotel = editUserData.assigned_hotel;
-      } else if (editUserData.assigned_hotel === 'none') {
-        profileUpdates.assigned_hotel = null;
-      }
-
-      // Only super admins can set is_super_admin flag
-      if (currentUserRole === 'admin') {
-        const { data: currentUser } = await supabase
-          .from('profiles')
-          .select('is_super_admin')
-          .eq('id', (await supabase.auth.getUser()).data.user?.id)
-          .single();
-        
-        if (currentUser?.is_super_admin) {
-          profileUpdates.is_super_admin = editUserData.is_super_admin;
-        }
-      }
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update(profileUpdates)
-        .eq('id', editUserData.id);
-
-      if (profileError) throw profileError;
-
-      toast({
-        title: 'Success',
-        description: 'User updated successfully',
+      const { data, error } = await supabase.functions.invoke('admin-update-user', {
+        body: {
+          target_user_id: editUserData.id,
+          new_email: editUserData.email.trim() !== (editingOriginal.email || '') ? editUserData.email.trim() : undefined,
+          new_password: editUserData.password || undefined,
+          full_name: editUserData.full_name,
+          nickname: editUserData.nickname,
+          phone_number: editUserData.phone_number,
+          role: editUserData.role,
+          assigned_hotel: editUserData.assigned_hotel === 'none' ? null : editUserData.assigned_hotel,
+          acts_as_housekeeper: editUserData.acts_as_housekeeper,
+          ...(currentUserIsSuperAdmin ? { organization_slug: editUserData.organization_slug, is_super_admin: editUserData.is_super_admin } : {}),
+        },
       });
-
-      fetchUsers();
+      if (error) {
+        let message = error.message;
+        try {
+          const body = await error.context?.json();
+          message = body?.error || message;
+        } catch { /* Keep the transport error if the response is not JSON. */ }
+        throw new Error(message || 'Unable to save user details.');
+      }
+      if (!data?.success) throw new Error(data?.error || 'Unable to save user details.');
+      toast({ title: 'Success', description: 'User updated successfully' });
       setEditDialogOpen(false);
-      setEditUserData({
-        id: '',
-        full_name: '',
-        nickname: '',
-        email: '',
-        password: '',
-        phone_number: '',
-        role: 'housekeeping',
-        assigned_hotel: '',
-        is_super_admin: false,
-        organization_slug: '',
-        acts_as_housekeeper: false,
-      });
-      setEditHotels([]);
+      setEditingOriginal(null);
+      setEditUserData(prev => ({ ...prev, password: '' }));
+      await fetchUsers();
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      setEditError(error.message || 'Unable to save user details.');
+      toast({ title: 'Update failed', description: error.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -744,28 +644,15 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                             )}
                             {!user.deleted_at && (
                               <>
-                                {['admin', 'manager', 'housekeeping_manager'].includes(currentUserRole) ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleEditUser(user)}
-                                    className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                                  >
+                                {canEditTarget(user) && (
+                                  <Button size="sm" variant="outline" onClick={() => handleEditUser(user)}
+                                    className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3">
                                     <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
                                     <span className="hidden sm:inline sm:ml-1">Edit</span>
                                   </Button>
-                                ) : (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => setSelectedUser(user)}
-                                    className="h-8 w-8 p-0 sm:h-9 sm:w-auto sm:px-3"
-                                  >
-                                    <Edit className="h-3 w-3 sm:h-4 sm:w-4" />
-                                    <span className="hidden sm:inline sm:ml-1">Role</span>
-                                  </Button>
                                 )}
 
+                                {(currentUserIsSuperAdmin || currentUserRole === 'admin') && (
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
                                     <Button
@@ -798,6 +685,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                                     </AlertDialogFooter>
                                   </AlertDialogContent>
                                 </AlertDialog>
+                                )}
                               </>
                             )}
                           </div>
@@ -982,102 +870,14 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
           )}
         </Tabs>
 
-        {/* Edit User Dialog */}
-        {selectedUser && (
-          <Dialog open={!!selectedUser} onOpenChange={() => setSelectedUser(null)}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit User</DialogTitle>
-                <DialogDescription>
-                  Update role and hotel assignment for {selectedUser.full_name}
-                </DialogDescription>
-              </DialogHeader>
-              
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Current Role</Label>
-                  <Badge className={getRoleColor(selectedUser.role)} variant="secondary">
-                    {getRoleLabel(selectedUser.role)}
-                  </Badge>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Update Role</Label>
-                  <Select 
-                    value={selectedUser.role}
-                    onValueChange={(value: Profile['role']) => handleUpdateUserRole(selectedUser.id, value)}
-                    disabled={loading}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                      {scopedStaffEnabled && <SelectItem value="supervisor">Supervisor</SelectItem>}
-                      <SelectItem value="reception">Reception</SelectItem>
-                      <SelectItem value="maintenance">Maintenance</SelectItem>
-                      <SelectItem value="marketing">Marketing</SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="housekeeping_manager">Housekeeping Manager</SelectItem>
-                      <SelectItem value="maintenance_manager">Maintenance Manager</SelectItem>
-                      <SelectItem value="marketing_manager">Marketing Manager</SelectItem>
-                      <SelectItem value="reception_manager">Reception Manager</SelectItem>
-                      <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
-                      <SelectItem value="control_manager">Control Manager</SelectItem>
-                      <SelectItem value="finance_manager">Finance Manager</SelectItem>
-                      <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Current Hotel Assignment</Label>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedUser.assigned_hotel || 'All Hotels'}
-                  </p>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label>Update Hotel Assignment</Label>
-                  <Select 
-                    value={selectedUser.assigned_hotel || 'none'}
-                    onValueChange={(value: string) => handleUpdateUserHotel(selectedUser.id, value)}
-                    disabled={loading}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select hotel assignment" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">All Hotels</SelectItem>
-                      {hotels.map((hotel) => (
-                        <SelectItem key={hotel.id} value={hotel.name}>
-                          {hotel.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Ticket Creation Permissions</Label>
-                  <div className="text-sm text-muted-foreground">
-                    To modify ticket creation permissions for this user, use the Admin Settings → Ticket Permissions menu.
-                  </div>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
-        
-        {/* Admin-only User Edit Dialog */}
-        {currentUserRole === 'admin' && (
-          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        {/* Authorized user edit dialog */}
+        {canEditUsers && (
+          <Dialog open={editDialogOpen} onOpenChange={next => { if (!loading) setEditDialogOpen(next); }}>
             <DialogContent className="w-[95vw] max-w-md h-[90vh] max-h-[90vh] flex flex-col">
               <DialogHeader className="flex-shrink-0">
                 <DialogTitle>Edit User Details</DialogTitle>
                 <DialogDescription>
-                  Update user information and credentials (Admin only)
+                  Update user information, role, hotel assignment and credentials
                 </DialogDescription>
               </DialogHeader>
               
@@ -1107,7 +907,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                   <Input
                     id="edit_email"
                     type="email"
-                    value={editUserData.email}
+                    value={editUserData.email || ''}
                     onChange={(e) => setEditUserData({ ...editUserData, email: e.target.value })}
                     placeholder="Enter email"
                   />
@@ -1146,10 +946,10 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                       <SelectItem value="back_office_manager">Back Office Manager</SelectItem>
                       <SelectItem value="control_manager">Control Manager</SelectItem>
                       <SelectItem value="finance_manager">Finance Manager</SelectItem>
-                      <SelectItem value="top_management_manager">Top Management Manager</SelectItem>
+                      {!isTopManager && <SelectItem value="top_management_manager">Top Management Manager</SelectItem>}
                       <SelectItem value="breakfast_staff">Breakfast Staff</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="top_management">Top Management</SelectItem>
+                      {currentUserIsSuperAdmin && <SelectItem value="admin">Admin</SelectItem>}
+                      {!isTopManager && <SelectItem value="top_management">Top Management</SelectItem>}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1173,7 +973,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                 )}
 
                 
-                {(currentUserIsSuperAdmin || currentUserRole === 'admin') && (
+                {currentUserIsSuperAdmin && (
                   <div className="space-y-2">
                     <Label htmlFor="edit_organization">Organization</Label>
                     <Select 
@@ -1248,6 +1048,7 @@ export function UserManagementDialog({ open, onOpenChange }: UserManagementDialo
                 )}
               </div>
               
+              {editError && <p role="alert" className="text-sm text-destructive">{editError}</p>}
               <div className="flex justify-end gap-2 mt-4 flex-shrink-0 pt-4 border-t">
                 <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={loading}>
                   Cancel
