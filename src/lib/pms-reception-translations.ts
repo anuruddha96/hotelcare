@@ -463,6 +463,20 @@ const rows: Record<string, Row> = {
 // Newer keys translated for the reception languages in daily use (en, hu, es).
 // The other languages show the English text until they are translated.
 const partialRows: Record<string, readonly [string, ...string[]]> = {
+  'reception.shell.installSuccess': ["App installed! Open it from your home screen.","Az alkalmazás telepítve! Nyisd meg a kezdőképernyőről."],
+  'reception.shell.installTitle': ["Install app to home screen","Alkalmazás telepítése a kezdőképernyőre"],
+  'reception.shell.install': ["Install App","Alkalmazás telepítése"],
+  'reception.shell.miraOpen': ["Open Mira AI Operator","Mira MI-asszisztens megnyitása"],
+  'reception.shell.miraUnread': ["Open Mira AI Operator, unread reply","Mira MI-asszisztens megnyitása, olvasatlan válasz"],
+  'reception.shell.miraTitle': ["Mira AI Operator","Mira MI-asszisztens"],
+  'reception.shell.askMira': ["Ask Mira","Kérdezd Mirát"],
+  'reception.shell.miraOperator': ["Mira Operator","Mira asszisztens"],
+  'reception.shell.tryMira': ["Try me","Próbáld ki"],
+  'reception.shell.miraDrag': ["Mira AI Operator — tap to chat, drag to move","Mira MI-asszisztens — koppints a csevegéshez, húzd az áthelyezéshez"],
+  'reception.shell.language': ["Language:","Nyelv:"],
+  'reception.shell.tomorrow': ["Tomorrow check-ins","Holnapi érkezések"],
+  'reception.shell.unverified': ["unverified","nem ellenőrzött"],
+  'reception.shell.manager': ["manager","vezető"],
   'revenue.notif.activity': ["Revenue automation activity","Árazási automatizálási tevékenység","Revenue automation activity"],
   'revenue.notif.updatesSince': ["{count} updates since your last visit","{count} frissítés a legutóbbi látogatásod óta","{count} updates since your last visit"],
   'revenue.notif.updateSince': ["{count} update since your last visit","{count} frissítés a legutóbbi látogatásod óta","{count} update since your last visit"],
