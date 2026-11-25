@@ -445,14 +445,6 @@ export default function RateStrategyGrid({
     return combined;
   }, [eventsByDate, historical.eventsByDate, historyMonth, historyRevealed]);
   const [viewportW, setViewportW] = useState(0);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
-    ro.observe(el);
-    setViewportW(el.clientWidth);
-    return () => ro.disconnect();
-  }, []);
 
   const ZOOM_CELL_W = Math.round(BASE_CELL_W * zoom);
 
@@ -1931,11 +1923,9 @@ export default function RateStrategyGrid({
 
 
 
-  /** Whether there is more calendar to the left / right (drives the edge hints). */
+  /** Whether there is more calendar to the left / right (toolbar buttons). */
   const [edges, setEdges] = useState({ left: false, right: true });
 
-  /** True while the pointer rests on an arrow: automatic gliding pauses there. */
-  const manualNav = useRef(false);
   // The summary and prices have separate horizontal panes so the summary can
   // remain CSS-sticky to the PAGE. Only scrollLeft is synchronized on user
   // horizontal gestures; there are no per-frame vertical transforms.
@@ -1970,30 +1960,14 @@ export default function RateStrategyGrid({
   }
   useEffect(() => () => { if (scrollRaf.current !== null) cancelAnimationFrame(scrollRaf.current); }, []);
 
-  /** Glide a whole screen of dates left or right, animated. */
+  /** Page left or right without animating the two separate panes. */
   const nudge = (dir: -1 | 1) => {
     const el = scrollRef.current;
     if (!el) return;
     const page = Math.max(CELL_W * 3, Math.floor((el.clientWidth - LEFT_W) * 0.8 / CELL_W) * CELL_W);
-    el.scrollBy({ left: dir * page, behavior: "instant" });
+    el.scrollLeft += dir * page;
+    if (headerScrollRef.current) headerScrollRef.current.scrollLeft = el.scrollLeft;
   };
-
-  /** Press and hold an arrow to keep moving; a single click moves one screen. */
-  const arrowHoldTimer = useRef<number | null>(null);
-  const holdRepeat = useRef<number | null>(null);
-  const startHold = (dir: -1 | 1) => {
-    manualNav.current = true;
-    arrowHoldTimer.current = window.setTimeout(() => {
-      holdRepeat.current = window.setInterval(() => nudge(dir), 350);
-    }, 450);
-  };
-  const endHold = () => {
-    manualNav.current = false;
-    if (arrowHoldTimer.current !== null) { clearTimeout(arrowHoldTimer.current); arrowHoldTimer.current = null; }
-    if (holdRepeat.current !== null) { clearInterval(holdRepeat.current); holdRepeat.current = null; }
-  };
-  useEffect(() => endHold, []);
-
 
   /**
    * Edge panning is available only during an intentional date/cell selection
@@ -2058,7 +2032,7 @@ export default function RateStrategyGrid({
       const r = el.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
       // The drag or navigation control owns movement, never an idle cursor.
-      if (!inside || manualNav.current) { hardStop(); return; }
+      if (!inside) { hardStop(); return; }
 
       // Smooth ramp (ease-in-out) so entering the zone does not jolt.
       const ramp = (d: number) => {
@@ -2657,6 +2631,16 @@ export default function RateStrategyGrid({
   // Only deliberate hotel/date-view navigation resets the horizontal viewport.
   // Briefly empty rows during a background refresh must NOT snap the reader back.
   const hasGridRows = rows.length > 0;
+  // Attach once the actual grid is rendered, including after initial loading.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setViewportW(el.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasGridRows]);
   const lastViewportKeyRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const grid = scrollRef.current;
@@ -2682,18 +2666,25 @@ export default function RateStrategyGrid({
   }, [hasGridRows, dates.length, CELL_W, LEFT_W, viewportW, hotelId, monthFilter, historyMonth]);
 
   const scrollToToday = () => {
-    selectMonth(null);
-    // On narrow screens reveal today if the four leading columns cannot fit.
-    // Read the committed geometry rather than using a stale zoom value.
+    if (historyMonth || monthFilter) selectMonth(null);
+    else {
+      setReviewOnly(false);
+      setPickupOnly(false);
+    }
+    // Reset both panes, preserving the three historical columns whenever
+    // today fits. At narrow zooms, reveal just enough to show today fully.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const body = scrollRef.current;
-      if (!body) return;
-      const available = body.clientWidth - LEFT_W;
-      const dateWidth = (gridRef.current?.offsetWidth ?? 0) - LEFT_W;
-      const cellWidth = dateWidth / (30 + RATE_HISTORY_DAYS);
-      const left = available >= cellWidth * (RATE_HISTORY_DAYS + 1) ? 0 : RATE_HISTORY_DAYS * cellWidth;
-      body.scrollLeft = left;
-      if (headerScrollRef.current) headerScrollRef.current.scrollLeft = body.scrollLeft;
+      const header = headerScrollRef.current;
+      if (!body || !header) return;
+      body.scrollLeft = 0;
+      header.scrollLeft = 0;
+      const todayCell = headerRowRef.current?.querySelector<HTMLElement>(`[data-date="${today}"]`);
+      if (todayCell) {
+        const overflow = todayCell.getBoundingClientRect().right - (header.getBoundingClientRect().left + header.clientWidth);
+        body.scrollLeft = Math.max(0, Math.ceil(overflow));
+        header.scrollLeft = body.scrollLeft;
+      }
     }));
   };
 
@@ -3346,16 +3337,14 @@ export default function RateStrategyGrid({
             </span>
             <div data-rate-calendar-navigation-controls="true" className="flex shrink-0 items-center gap-1">
               <Button type="button" size="sm" variant="outline" className="h-7 w-7 p-0" disabled={!edges.left}
-                aria-label="Show earlier dates" title="Show earlier dates" onClick={() => nudge(-1)}
-                onPointerDown={() => startHold(-1)} onPointerUp={endHold} onPointerLeave={endHold} onPointerCancel={endHold}>
+                aria-label="Show earlier dates" title="Show earlier dates" onClick={() => nudge(-1)}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Button type="button" size="sm" variant="outline" className="h-7 w-7 p-0" disabled={!edges.right}
-                aria-label="Show later dates" title="Show later dates" onClick={() => nudge(1)}
-                onPointerDown={() => startHold(1)} onPointerUp={endHold} onPointerLeave={endHold} onPointerCancel={endHold}>
+                aria-label="Show later dates" title="Show later dates" onClick={() => nudge(1)}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
-            <Button type="button" size="sm" variant="outline"
+              <Button type="button" size="sm" variant="outline"
               className="h-7 shrink-0 gap-1 border-sky-500/60 bg-sky-50 px-2 text-[11px] font-semibold text-sky-800 hover:bg-sky-100 dark:bg-sky-950/50 dark:text-sky-100"
               title={`Go to today, ${today} (Budapest date)`}
               aria-label={`Go to today, ${today}`}
