@@ -63,7 +63,7 @@ export function createLocaleFormat(language: string, timeZone?: string) {
     if (!currency) return formatNumber(Number(amount));
     try {
       return spaces(new Intl.NumberFormat(intlLocale, {
-        style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 0, maximumFractionDigits: 2,
+        style: 'currency', currency: currency.toUpperCase(), currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 2,
       }).format(Number(amount)));
     } catch {
       return `${formatNumber(Number(amount))} ${currency}`;
