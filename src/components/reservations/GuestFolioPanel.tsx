@@ -13,7 +13,6 @@ import { FileText, Loader2, PlusCircle, Receipt, Wallet } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLocaleFormat } from '@/lib/i18n/localeFormat';
 import { addFolioItem, LifecycleError } from '@/lib/pmsLifecycle';
-import { formatMoney } from '@/lib/reservations';
 import { BusinessDayField } from '@/components/frontdesk/BusinessDayField';
 import { budapestToday } from '@/lib/businessMoment';
 import { AddChargeDialog } from '@/components/frontdesk/AddChargeDialog';
@@ -50,9 +49,9 @@ const PAY_METHODS: Array<{ value: string; key: string }> = [
 ];
 
 export function GuestFolioPanel({ reservation, onChanged }: GuestFolioPanelProps) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const locale = useLocaleFormat();
-  const displayMoney = language === 'hu' ? locale.formatMoney : formatMoney;
+  const displayMoney = locale.formatReceptionMoney;
   const { profile } = useAuth();
   const [rows, setRows] = useState<FolioRow[]>([]);
   const [balance, setBalance] = useState<number>(Number(reservation.balance_due ?? 0));
