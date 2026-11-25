@@ -37,7 +37,7 @@ import { useGuestSignals } from '@/hooks/useGuestSignals';
 import { guestProfilePath } from '@/lib/guestJourney';
 import { LifecycleError, setReservationStatus } from '@/lib/pmsLifecycle';
 import {
-  formatMoney, isPmsManaged, pmsHoldKind, pmsPaymentNote, reservationChannel, reservationGuestLabel, RESERVATION_STATUS_COLORS,
+  isPmsManaged, pmsHoldKind, pmsPaymentNote, reservationChannel, reservationGuestLabel, RESERVATION_STATUS_COLORS,
 } from '@/lib/reservations';
 
 const RES_SELECT = `
@@ -51,7 +51,7 @@ type StatusAction = 'cancelled' | 'no_show' | null;
 const ReservationDetail = () => {
   const { user, loading } = useAuth();
   const { organizationSlug, id } = useParams<{ organizationSlug: string; id: string }>();
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const locale = useLocaleFormat();
   const [reservation, setReservation] = useState<any>(null);
   const [events, setEvents] = useState<any[]>([]);
@@ -212,7 +212,7 @@ const ReservationDetail = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold truncate">{guestLabel}</h1>
               <Badge className={RESERVATION_STATUS_COLORS[reservation.status] || 'bg-muted'}>
-                {language === 'hu' ? reservationStatusLabel(reservation.status, t) : t(`pms.reservations.${reservation.status === 'no_show' ? 'noShow' : reservation.status === 'checked_in' ? 'checkedIn' : reservation.status === 'checked_out' ? 'checkedOut' : reservation.status}`)}
+                {reservationStatusLabel(reservation.status, t, 'reservation')}
               </Badge>
               {pmsHoldKind(reservation) === 'option' && (
                 <Badge variant="outline">
@@ -227,7 +227,7 @@ const ReservationDetail = () => {
             <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
               <span className="font-mono">{reservation.reservation_number}</span>
               <span>·</span>
-              <span>{language === 'hu' ? bookingSourceLabel(reservationChannel(reservation).label, t) : reservationChannel(reservation).label}</span>
+              <span>{bookingSourceLabel(reservationChannel(reservation).label, t)}</span>
               {reservation.pms_voucher && (
                 <><span>·</span><span className="text-xs">{t('pms.res.voucher')} <span className="font-mono">{reservation.pms_voucher}</span></span></>
               )}
@@ -294,7 +294,7 @@ const ReservationDetail = () => {
               {guest?.phone && <div><span className="text-muted-foreground">{t('pms.guests.phone')}:</span> {guest.phone}</div>}
               {guest?.nationality && <div><span className="text-muted-foreground">{t('pms.guests.nationality')}:</span> {guest.nationality}</div>}
               {guest?.company_name && <div><span className="text-muted-foreground">{t('pms.guests.company')}:</span> {guest.company_name}</div>}
-              {guest?.id_document_number && <div><span className="text-muted-foreground">{t('reception.home.documentId')}</span> <span title={guest.id_document_type ?? undefined}>{language === 'hu' ? documentTypeLabel(guest.id_document_type, t) : guest.id_document_type}</span> · {guest.id_document_number}</div>}
+              {guest?.id_document_number && <div><span className="text-muted-foreground">{t('reception.home.documentId')}</span> <span title={guest.id_document_type ?? undefined}>{documentTypeLabel(guest.id_document_type, t)}</span> · {guest.id_document_number}</div>}
               {!guest && reservation.pms_guest_name && <p className="text-xs text-muted-foreground">{t('pms.res.pmsGuestOnly')}</p>}
               {guestSignal?.profile_key && reservation.hotel_id && (
                 <Link to={guestProfilePath(basePath, reservation.hotel_id, guestSignal.profile_key)} className="inline-block text-xs font-medium text-primary hover:underline">
@@ -309,7 +309,7 @@ const ReservationDetail = () => {
             <CardContent className="space-y-2 text-sm">
               <div><span className="text-muted-foreground">{t('pms.res.room')}:</span> <strong>{room?.room_number || t('pms.res.unassigned')}</strong></div>
               <div><span className="text-muted-foreground">{t('pms.reservationDetail.roomType')}:</span> {displayRoomType(room?.room_type || reservation.room_type_requested) || t('pms.reservationDetail.notSpecified')}</div>
-              {room?.status && <div><span className="text-muted-foreground">{t('common.status')}:</span> <span className={language === 'hu' ? undefined : 'capitalize'} title={room.status}>{language === 'hu' ? roomStatusLabel(room.status, t) : room.status.replaceAll('_', ' ')}</span></div>}
+              {room?.status && <div><span className="text-muted-foreground">{t('common.status')}:</span> <span title={room.status}>{roomStatusLabel(room.status, t)}</span></div>}
               <NtakBookingNumberField reservation={reservation} onSaved={() => void fetchData()} />
               {room?.room_capacity ? <div><span className="text-muted-foreground">{t('pms.res.capacity')}:</span> {room.room_capacity}</div> : null}
             </CardContent>
@@ -330,10 +330,10 @@ const ReservationDetail = () => {
           <Card>
             <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><CreditCard className="h-4 w-4" /> {t('pms.reservationDetail.financialSummary')}</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.ratePerNight')}:</span> {(language === 'hu' ? locale.formatMoney : formatMoney)(reservation.rate_per_night, reservation.currency)}</div>
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.total')}:</span> <strong>{(language === 'hu' ? locale.formatMoney : formatMoney)(reservation.total_amount, reservation.currency)}</strong></div>
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.payment')}:</span> <Badge variant="outline" className={language === 'hu' ? undefined : 'capitalize'} title={reservation.payment_status ?? undefined}>{language === 'hu' && reservation.payment_status ? paymentStatusLabel(reservation.payment_status, t) : reservation.payment_status?.replaceAll('_', ' ') || '—'}</Badge></div>
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.balance')}:</span> <strong>{(language === 'hu' ? locale.formatMoney : formatMoney)(reservation.balance_due, reservation.currency)}</strong></div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.ratePerNight')}:</span> {locale.formatReceptionMoney(reservation.rate_per_night, reservation.currency)}</div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.total')}:</span> <strong>{locale.formatReceptionMoney(reservation.total_amount, reservation.currency)}</strong></div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.payment')}:</span> <Badge variant="outline" title={reservation.payment_status ?? undefined}>{reservation.payment_status ? paymentStatusLabel(reservation.payment_status, t) : '—'}</Badge></div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.balance')}:</span> <strong>{locale.formatReceptionMoney(reservation.balance_due, reservation.currency)}</strong></div>
               {pmsPaymentNote(reservation) === 'paid' && <p className="text-xs text-green-700 dark:text-green-400">{t('pms.res.paidInPrevio')}</p>}
               {pmsPaymentNote(reservation) === 'partial' && <p className="text-xs text-amber-700 dark:text-amber-400">{t('pms.res.partiallyPaidInPrevio')}</p>}
             </CardContent>
@@ -360,7 +360,7 @@ const ReservationDetail = () => {
                       <div key={event.id} className="flex gap-3 text-sm">
                         <div className="mt-1 h-2 w-2 rounded-full bg-primary shrink-0" />
                         <div className="min-w-0">
-                          <p className={language === 'hu' ? 'font-medium' : 'font-medium capitalize'} title={String(event.event_type ?? '')}>{language === 'hu' ? reservationEventLabel(event.event_type, t) : String(event.event_type || '').replace(/_/g, ' ')}</p>
+                          <p className="font-medium" title={String(event.event_type ?? '')}>{reservationEventLabel(event.event_type, t)}</p>
                           {reason && <p className="text-xs text-muted-foreground mt-0.5">{reason}</p>}
                           <p className="text-[11px] text-muted-foreground mt-0.5">{locale.formatDateTime(event.created_at)}</p>
                         </div>
