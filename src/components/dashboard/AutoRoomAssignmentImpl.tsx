@@ -2464,6 +2464,24 @@ export function AutoRoomAssignment({
                   </div>
                 )}
 
+                  {swappableStaff.length > 1 && (
+                    <fieldset className="flex flex-wrap items-end gap-2 rounded-lg border px-3 py-2">
+                      <legend className="px-1 text-xs font-medium">{swapLabels.title}</legend>
+                      {([{ label: swapLabels.from, value: swapFrom, change: setSwapFrom },
+                        { label: swapLabels.to, value: swapTo, change: setSwapTo }]).map(({ label, value, change }) => (
+                        <label key={label} className="flex min-w-32 grow flex-col gap-1 text-xs">
+                          {label}
+                          <select value={value} onChange={(event) => change(event.target.value)}
+                            className="h-10 rounded border bg-background px-2 text-sm">
+                            <option value="">—</option>
+                            {swappableStaff.map(person => <option key={person.staffId} value={person.staffId}>{person.staffName}</option>)}
+                          </select>
+                        </label>
+                      ))}
+                      <Button type="button" variant="outline" disabled={!canSwapWorkloads} onClick={swapWorkloads}>{swapLabels.action}</Button>
+                    </fieldset>
+                  )}
+
                 {selectedRoomContext ? (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 shadow-sm">
                     <span className="text-xs font-medium">{nt('roomSelected')}: {selectedRoomContext.room.room_number}</span>
@@ -2492,23 +2510,6 @@ export function AutoRoomAssignment({
                     <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedRoomForMove(null)}>{nt('cancel')}</Button>
                   </div>
                 ) : (
-                  {swappableStaff.length > 1 && (
-                    <fieldset className="flex flex-wrap items-end gap-2 rounded-lg border px-3 py-2">
-                      <legend className="px-1 text-xs font-medium">{swapLabels.title}</legend>
-                      {([{ label: swapLabels.from, value: swapFrom, change: setSwapFrom },
-                        { label: swapLabels.to, value: swapTo, change: setSwapTo }]).map(({ label, value, change }) => (
-                        <label key={label} className="flex min-w-32 grow flex-col gap-1 text-xs">
-                          {label}
-                          <select value={value} onChange={(event) => change(event.target.value)}
-                            className="h-10 rounded border bg-background px-2 text-sm">
-                            <option value="">—</option>
-                            {swappableStaff.map(person => <option key={person.staffId} value={person.staffId}>{person.staffName}</option>)}
-                          </select>
-                        </label>
-                      ))}
-                      <Button type="button" variant="outline" disabled={!canSwapWorkloads} onClick={swapWorkloads}>{swapLabels.action}</Button>
-                    </fieldset>
-                  )}
                   <p className="text-center text-[10px] text-muted-foreground">{t('autoAssign.dragToReassign')} · public areas use the same drag-and-drop columns · {t('autoAssign.tapToMove')} · tap a room for Remove / Maintenance</p>
                 )}
 
