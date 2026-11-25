@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { BedDouble, CalendarDays, Clock3, ImagePlus } from 'lucide-react';
+import { BedDouble, CalendarDays, Clock3 } from 'lucide-react';
 import { AssignedRoomCard as ExistingAssignedRoomCard } from './AssignedRoomCardLegacy';
 import { ExtraRoomPhotos } from './ExtraRoomPhotos';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
@@ -262,13 +262,13 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="group flex h-auto min-h-[76px] flex-col items-center justify-center gap-1.5 rounded-xl border bg-card px-2 py-3 shadow-sm transition-all hover:bg-accent/40"
+          className="group flex h-auto min-h-[68px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-2.5 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:bg-accent sm:min-h-[76px] sm:py-3"
           data-training="additional-room-photos-button"
         >
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-sky-700">
-            <ImagePlus className="h-4 w-4" />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-100 dark:bg-sky-900/60" aria-hidden="true">
+            <span className="text-xl leading-none">📷</span>
           </span>
-          <span className="text-center text-[11px] font-medium leading-tight text-foreground/80">
+          <span className="text-center text-xs font-medium leading-tight break-words text-foreground">
             {language === 'hu' ? 'További szobafotók' : 'Extra room photos'}
           </span>
         </button>
